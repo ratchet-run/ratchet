@@ -270,9 +270,15 @@ public class JobTask implements Callable<Void> {
             new SignalDecision(outcome, innerPayload, jobEntity.getSignalRejectionReason());
       }
     } else if (rawSignalPayload != null && payloadSerializer != null) {
+      // Deserialize to Object.class, not Serializable.class: JSON-B cannot instantiate the abstract
+      // Serializable target, so the old form always threw and silently left the payload null. This
+      // mirrors the SignalDecision inner-payload branch above. The payload round-trips as its
+      // JSON-native shape (String / Number / Boolean / List / Map); see signalPayload(Class).
       try {
-        deserializedSignalPayload =
-            payloadSerializer.deserialize(rawSignalPayload, Serializable.class);
+        Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
+        if (obj instanceof Serializable s) {
+          deserializedSignalPayload = s;
+        }
       } catch (Exception e) {
         log.warnf("Failed to deserialize signal payload for job %s: %s", jobId, e.getMessage());
       }

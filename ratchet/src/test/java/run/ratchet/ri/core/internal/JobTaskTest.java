@@ -85,6 +85,7 @@ class JobTaskTest {
   private static final Instant FIXED_NOW = Instant.parse("2026-05-05T12:00:00Z");
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, java.time.ZoneOffset.UTC);
   private static final ThreadLocal<SignalDecision> OBSERVED_SIGNAL_DECISION = new ThreadLocal<>();
+  private static final ThreadLocal<String> OBSERVED_SIGNAL_STRING = new ThreadLocal<>();
 
   private final ClassPolicy classPolicy = className -> true;
   @Mock private JobStore jobStore;
@@ -105,6 +106,11 @@ class JobTaskTest {
 
   public static String captureSignalDecision() {
     OBSERVED_SIGNAL_DECISION.set(JobContext.current().signalPayload(SignalDecision.class));
+    return "done";
+  }
+
+  public static String captureSignalString() {
+    OBSERVED_SIGNAL_STRING.set(JobContext.current().signalPayload(String.class));
     return "done";
   }
 
@@ -772,6 +778,58 @@ class JobTaskTest {
     signalTask.call();
 
     Assertions.assertEquals(decision, OBSERVED_SIGNAL_DECISION.get());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_deserializesRawSerializableSignalIntoJobContext() throws Exception {
+    // Real Yasson: deserializing to Serializable.class (the old form) throws because the abstract
+    // target cannot be instantiated, which is how the payload was silently lost. Object.class
+    // round-trips the JSON-native value, so the executing job observes it.
+    JsonbTestPayloadSerializer signalSerializer = new JsonbTestPayloadSerializer();
+    ResultPersistenceStrategy resultPersistenceStrategy =
+        (jobId, result) -> SerializedJobResult.empty();
+    JobTask signalTask =
+        new JobTask(
+            jobStore,
+            resourcePermitService,
+            lifecycleFacade,
+            nodeIdProvider,
+            observabilityFacade,
+            validationFacade,
+            beanResolver,
+            retryPolicy,
+            resilienceStrategy,
+            errorSanitizer,
+            classPolicy,
+            context -> noopLogger(),
+            resultPersistenceStrategy,
+            null,
+            signalSerializer,
+            Clock.systemUTC());
+    JobEntity job = createTestJob();
+    job.setPayload(
+        new JobPayload(
+            JobTaskTest.class.getName(),
+            "captureSignalString",
+            "()Ljava/lang/String;",
+            true,
+            List.of()));
+    job.setSignalPayload(signalSerializer.serialize("hello"));
+    // Any non-DECISION marker drives the raw-Serializable branch.
+    job.setSignalPayloadType("RAW");
+    initJobTaskWithDefaultStubs(signalTask, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    signalTask.call();
+
+    Assertions.assertEquals("hello", OBSERVED_SIGNAL_STRING.get());
   }
 
   private JobEntity createTestJob() {

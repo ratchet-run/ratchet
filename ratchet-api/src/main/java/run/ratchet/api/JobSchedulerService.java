@@ -270,8 +270,12 @@ public interface JobSchedulerService {
    * <p>Idempotent: if the job is already in a non-WAITING state (including terminal states), this
    * method returns {@code 0} without modifying the job.
    *
-   * <p>The signal payload is serialized and stored on the job entity; it is accessible to the
-   * executing task via {@link JobContext#signalPayload(Class)}.
+   * <p>The signal payload is serialized to JSON via the configured {@code PayloadSerializer} and
+   * stored on the job entity. The executing task reads it back through {@link
+   * JobContext#signalPayload(Class)} as its JSON-native form — a {@code String}, boxed number,
+   * boolean, {@code List}, or {@code Map} — so request the type the value maps to. A concrete bean
+   * class is not reconstructed to its original type; deliver a {@link SignalDecision} or a
+   * JSON-native value when the executing code needs typed access.
    *
    * <p>Subject to {@link run.ratchet.spi.JobAuthorizationPolicy#checkDeliverSignal(UUID, String,
    * String)}.

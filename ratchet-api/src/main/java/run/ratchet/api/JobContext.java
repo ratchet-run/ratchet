@@ -133,6 +133,11 @@ public final class JobContext {
    * Returns the signal payload delivered to this job, cast to the requested type, or {@code null}
    * if this job was not a signal-waiting job or no payload was included with the signal.
    *
+   * <p>A {@link SignalDecision} payload is returned as delivered. A raw payload delivered via
+   * {@code deliverSignal(..., Serializable)} is observed as its JSON-native form ({@code String},
+   * boxed number, boolean, {@code List}, or {@code Map}); request that type rather than the
+   * original concrete class.
+   *
    * @throws ClassCastException if the payload cannot be cast to {@code type}
    */
   @SuppressWarnings("unchecked")
