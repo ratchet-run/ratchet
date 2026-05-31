@@ -39,6 +39,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSummary;
 import run.ratchet.api.JobType;
 import run.ratchet.api.QueueHealthSnapshot;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -446,6 +447,56 @@ class DefaultJobQueryServiceTest {
     assertTrue(result.isPresent());
     assertEquals(jobId, result.get().summary().id());
     verify(authPolicy, never()).checkRead(any(), any());
+  }
+
+  @Test
+  void getJobDetail_masksSensitiveParams_whenMaskPayloadsEnabled() {
+    UUID jobId = UUID.randomUUID();
+    JobEntity entity = minimalJobWithId(jobId);
+    entity.setParams(Map.of("password", "hunter2", "host", "db"));
+    when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+
+    DefaultJobQueryService masking =
+        new DefaultJobQueryService(
+            queryStore,
+            crudStore,
+            executionStore,
+            recurringJobStore,
+            authPolicy,
+            principalProvider,
+            FIXED_CLOCK,
+            RatchetOptions.builder().security(s -> s.maskPayloads(true)).build());
+
+    Map<String, String> params = masking.getJobDetail(jobId).orElseThrow().params();
+
+    assertEquals(
+        "***REDACTED***",
+        params.get("password"),
+        "sensitive key must be redacted when masking is on");
+    assertEquals("db", params.get("host"), "non-sensitive key must survive masking unchanged");
+  }
+
+  @Test
+  void getJobDetail_leavesParamsRaw_whenMaskPayloadsDisabled() {
+    UUID jobId = UUID.randomUUID();
+    JobEntity entity = minimalJobWithId(jobId);
+    entity.setParams(Map.of("password", "hunter2", "host", "db"));
+    when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+
+    // `service` (from setUp) is built with default options, so masking is off.
+    Map<String, String> params = service.getJobDetail(jobId).orElseThrow().params();
+
+    assertEquals(
+        "hunter2", params.get("password"), "params must be raw when masking is off (default)");
+    assertEquals("db", params.get("host"));
   }
 
   @Test

@@ -517,9 +517,10 @@ public class RatchetOptions {
    * @param allowEmptyClassPolicy {@code true} to permit running without a configured {@code
    *     ClassPolicy}; {@code false} (default) fails fast at startup when no policy is bound
    * @param redactEmails {@code true} to redact email-shaped strings from observability output
-   * @param maskPayloads {@code true} to mask sensitive payload fields where a payload would be
-   *     rendered into a log line; {@code false} (default) leaves logged payloads unmasked. The
-   *     durable store payload is never affected.
+   * @param maskPayloads {@code true} to mask sensitive payload fields wherever a payload would be
+   *     exposed — rendered into a log line or returned from a read API such as the {@code params}
+   *     on a job detail; {@code false} (default) leaves exposed payloads unmasked. The durable
+   *     store payload is never affected.
    */
   public record SecurityOptions(
       boolean allowEmptyClassPolicy, boolean redactEmails, boolean maskPayloads) {}
@@ -1201,9 +1202,10 @@ public class RatchetOptions {
     }
 
     /**
-     * Masks sensitive payload fields where a payload would be rendered into a log line when {@code
-     * true}; {@code false} (default) leaves logged payloads unmasked. The durable store payload is
-     * never affected.
+     * Masks sensitive payload fields wherever a payload would be exposed — rendered into a log line
+     * or returned from a read API such as the {@code params} on a job detail — when {@code true};
+     * {@code false} (default) leaves exposed payloads unmasked. The durable store payload is never
+     * affected.
      */
     public SecurityBuilder maskPayloads(boolean maskPayloads) {
       this.maskPayloads = maskPayloads;

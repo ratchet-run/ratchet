@@ -21,8 +21,10 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSummary;
 import run.ratchet.api.JobType;
 import run.ratchet.api.QueueHealthSnapshot;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.security.PayloadMasker;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
@@ -44,6 +46,7 @@ class DefaultJobQueryService implements JobQueryService {
   private final JobAuthorizationPolicy authPolicy;
   private final CallerPrincipalProvider principalProvider;
   private final Clock clock;
+  private final boolean maskPayloads;
 
   protected DefaultJobQueryService() {
     this.queryStore = null;
@@ -53,6 +56,7 @@ class DefaultJobQueryService implements JobQueryService {
     this.authPolicy = null;
     this.principalProvider = null;
     this.clock = null;
+    this.maskPayloads = false;
   }
 
   public DefaultJobQueryService(
@@ -72,7 +76,6 @@ class DefaultJobQueryService implements JobQueryService {
         Clock.systemUTC());
   }
 
-  @Inject
   public DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
@@ -81,6 +84,27 @@ class DefaultJobQueryService implements JobQueryService {
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
       Clock clock) {
+    this(
+        queryStore,
+        crudStore,
+        executionStore,
+        recurringJobStore,
+        authPolicy,
+        principalProvider,
+        clock,
+        null);
+  }
+
+  @Inject
+  public DefaultJobQueryService(
+      JobQueryStore queryStore,
+      JobCrudStore crudStore,
+      ExecutionStore executionStore,
+      RecurringJobStore recurringJobStore,
+      JobAuthorizationPolicy authPolicy,
+      CallerPrincipalProvider principalProvider,
+      Clock clock,
+      RatchetOptions options) {
     this.queryStore = queryStore;
     this.crudStore = crudStore;
     this.executionStore = executionStore;
@@ -88,6 +112,7 @@ class DefaultJobQueryService implements JobQueryService {
     this.authPolicy = authPolicy;
     this.principalProvider = principalProvider;
     this.clock = clock;
+    this.maskPayloads = options != null && options.security().maskPayloads();
   }
 
   private static String extractSortValue(JobEntity last, JobQuerySortField field) {
@@ -188,10 +213,16 @@ class DefaultJobQueryService implements JobQueryService {
             .map(JobEntity::getId)
             .collect(Collectors.toList());
 
+    // Read-projection masking: getJobDetail is the only read that returns raw caller-supplied
+    // params, so when mask-payloads is enabled we redact sensitive keys here before they reach
+    // the caller. The durable row is untouched; target#method (the summary) stays unmasked.
+    Map<String, String> params =
+        maskPayloads ? PayloadMasker.maskParams(e.getParams()) : e.getParams();
+
     JobDetail detail =
         new JobDetail(
             JobEntityMapper.toSummary(e),
-            e.getParams(),
+            params,
             e.getTraceContext(),
             e.getJobResult(),
             e.getResultType(),

@@ -8,13 +8,16 @@ import jakarta.json.JsonObjectBuilder;
 import jakarta.json.JsonReader;
 import jakarta.json.JsonValue;
 import java.io.StringReader;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.jboss.logging.Logger;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 
 /**
- * Utility for masking sensitive fields in serialized payload JSON before it is rendered into a log
- * line. Which fields count as sensitive is decided by the active {@link
- * run.ratchet.spi.PayloadMaskingPolicy}, resolved through {@link PayloadMaskingPolicyHolder}.
+ * Utility for masking sensitive fields in payload data before it leaves the framework — whether
+ * rendered into a log line or returned from a read API. Which fields count as sensitive is decided
+ * by the active {@link run.ratchet.spi.PayloadMaskingPolicy}, resolved through {@link
+ * PayloadMaskingPolicyHolder}.
  */
 public final class PayloadMasker {
 
@@ -58,6 +61,25 @@ public final class PayloadMasker {
       log.warn("Payload serialization error, redacting entire payload", e);
       return MASKED_VALUE;
     }
+  }
+
+  /**
+   * Masks the values of sensitive entries in a parameter map. Each key is tested against the active
+   * {@link run.ratchet.spi.PayloadMaskingPolicy}; matching entries get a redacted value while
+   * everything else is copied verbatim. The input map is never modified; a {@code null} or empty
+   * map is returned unchanged. Unlike {@link #maskPayload(String)}, matching is purely key-based —
+   * parameter values are opaque strings, not nested JSON.
+   */
+  public static Map<String, String> maskParams(Map<String, String> params) {
+    if (params == null || params.isEmpty()) {
+      return params;
+    }
+    Map<String, String> masked = new LinkedHashMap<>(params.size());
+    for (var entry : params.entrySet()) {
+      masked.put(
+          entry.getKey(), isSensitiveField(entry.getKey()) ? MASKED_VALUE : entry.getValue());
+    }
+    return masked;
   }
 
   private static boolean isSensitiveField(String fieldName) {

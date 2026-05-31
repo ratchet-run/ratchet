@@ -72,6 +72,30 @@ class PayloadMaskerTest {
   }
 
   @Test
+  void maskParams_redactsSensitiveKeysAndKeepsTheRest() {
+    Map<String, String> masked =
+        PayloadMasker.maskParams(Map.of("password", "hunter2", "host", "db"));
+
+    assertEquals("***REDACTED***", masked.get("password"));
+    assertEquals("db", masked.get("host"));
+  }
+
+  @Test
+  void maskParams_nullOrEmptyInput_returnedUnchanged() {
+    assertNull(PayloadMasker.maskParams(null));
+    assertTrue(PayloadMasker.maskParams(Map.of()).isEmpty());
+  }
+
+  @Test
+  void maskParams_doesNotMutateInput() {
+    Map<String, String> original = Map.of("token", "abc");
+
+    PayloadMasker.maskParams(original);
+
+    assertEquals("abc", original.get("token"));
+  }
+
+  @Test
   void maskPayload_usesLocaleRootForSensitiveFieldMatching() {
     Locale previous = Locale.getDefault();
     try {
