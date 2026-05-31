@@ -153,6 +153,11 @@ final class PostgresqlJobQueryOperations {
     }
     try {
       JobQueryCursor cursor = JobQueryCursor.decode(filter.cursor());
+      if (!cursor.matchesFilterSort(filter)) {
+        // Cursor was minted for a different sort field/direction; seeking on it while ORDER BY
+        // uses the live sort would skip or repeat rows. Fall back to offset pagination instead.
+        return null;
+      }
       return new ParsedCursor(cursor, parseSortValue(cursor));
     } catch (IllegalArgumentException | DateTimeParseException ignored) {
       return null;

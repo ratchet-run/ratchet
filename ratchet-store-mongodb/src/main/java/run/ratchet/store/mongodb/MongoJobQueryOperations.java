@@ -165,6 +165,11 @@ final class MongoJobQueryOperations {
     }
     try {
       JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
+      if (!c.matchesFilterSort(filter)) {
+        // Cursor was minted for a different sort field/direction; seeking on it while the sort
+        // uses the live ordering would skip or repeat rows. Fall back to offset pagination.
+        return;
+      }
       String field = archive ? archiveSortField(c.sortField()) : sortField(c.sortField());
       // The keyset tiebreaker must seek the same id the cursor records and the sort orders by. An
       // archived row carries its original job id as its JobEntity id, so the archive path seeks

@@ -602,6 +602,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       cursor =
           new JobQueryCursor(
                   JobQuerySortField.PRIORITY,
+                  /* sortAscending= */ false,
                   Integer.toString(last.getPriority().ordinal()),
                   last.getId())
               .encode();
@@ -617,6 +618,57 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
         archivedIds,
         distinct,
         "Cursor pages over the archive must visit every archived row exactly once");
+  }
+
+  @Test
+  void searchJobs_cursorMintedForADifferentSortIsIgnored() {
+    // A keyset cursor records the sort it was produced under. The seek predicate filters on the
+    // cursor's sort field while the ORDER BY comes from the live filter, so reusing a cursor after
+    // changing the sort would seek on one axis while the query orders by another — silently
+    // dropping or repeating rows. Page once under CREATED_AT, then reuse that cursor on a query
+    // sorted by PRIORITY: the store must ignore the mismatched cursor and fall back to offset
+    // paging, so the PRIORITY query returns the same rows with or without the stale cursor.
+    List<JobEntity> persisted = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+      persisted.add(persist(newPendingJob()));
+      spaceCreationTimestamps();
+    }
+    Set<UUID> mine =
+        persisted.stream().map(JobEntity::getId).collect(java.util.stream.Collectors.toSet());
+    JobEntity anchor = persisted.get(2);
+
+    String staleCursor =
+        new JobQueryCursor(
+                JobQuerySortField.CREATED_AT,
+                /* sortAscending= */ true,
+                anchor.getCreatedAt().toString(),
+                anchor.getId())
+            .encode();
+
+    JobFilter priorityNoCursor =
+        JobFilter.builder().sortField(JobQuerySortField.PRIORITY).sortAscending(false).build();
+    JobFilter priorityStaleCursor =
+        JobFilter.builder()
+            .sortField(JobQuerySortField.PRIORITY)
+            .sortAscending(false)
+            .cursor(staleCursor)
+            .build();
+
+    List<UUID> baseline =
+        store().searchJobs(priorityNoCursor, 100, 0).stream()
+            .map(JobEntity::getId)
+            .filter(mine::contains)
+            .toList();
+    List<UUID> withStaleCursor =
+        store().searchJobs(priorityStaleCursor, 100, 0).stream()
+            .map(JobEntity::getId)
+            .filter(mine::contains)
+            .toList();
+
+    assertEquals(
+        baseline,
+        withStaleCursor,
+        "A cursor minted for a different sort must be ignored, not applied as a seek");
   }
 
   /**

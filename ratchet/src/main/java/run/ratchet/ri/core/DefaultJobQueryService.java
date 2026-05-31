@@ -182,7 +182,12 @@ class DefaultJobQueryService implements JobQueryService {
       JobQuerySortField sortField =
           scoped.sortField() != null ? scoped.sortField() : JobQuerySortField.CREATED_AT;
       nextCursor =
-          new JobQueryCursor(sortField, extractSortValue(last, sortField), last.getId()).encode();
+          new JobQueryCursor(
+                  sortField,
+                  scoped.sortAscending(),
+                  extractSortValue(last, sortField),
+                  last.getId())
+              .encode();
     }
 
     return new JobPage<>(items, total, limit, offset, hasMore, nextCursor);

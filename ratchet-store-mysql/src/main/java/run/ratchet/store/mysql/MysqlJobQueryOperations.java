@@ -590,6 +590,11 @@ final class MysqlJobQueryOperations {
     }
     try {
       JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
+      if (!c.matchesFilterSort(filter)) {
+        // Cursor was minted for a different sort field/direction; seeking on it while ORDER BY
+        // uses the live sort would skip or repeat rows. Fall back to offset pagination instead.
+        return;
+      }
       String sortCol = sortColumn(c.sortField());
       String op = filter.sortAscending() ? ">" : "<";
       and(where, "(" + sortCol + " " + op + " ? OR (" + sortCol + " = ? AND c.job_id > ?))");
@@ -609,6 +614,11 @@ final class MysqlJobQueryOperations {
     }
     try {
       JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
+      if (!c.matchesFilterSort(filter)) {
+        // Cursor was minted for a different sort field/direction; seeking on it while ORDER BY
+        // uses the live sort would skip or repeat rows. Fall back to offset pagination instead.
+        return;
+      }
       String sortCol = archiveSortColumn(c.sortField());
       String op = filter.sortAscending() ? ">" : "<";
       and(

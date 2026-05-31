@@ -358,6 +358,7 @@ class DefaultJobQueryServiceTest {
 
     JobQueryCursor cursor = JobQueryCursor.decode(page.nextCursor());
     assertEquals(JobQuerySortField.CREATED_AT, cursor.sortField());
+    assertFalse(cursor.sortAscending(), "default filter sort is descending, so must round-trip");
     assertEquals(secondCreated.toString(), cursor.sortValue());
     assertEquals(secondId, cursor.jobId());
   }
