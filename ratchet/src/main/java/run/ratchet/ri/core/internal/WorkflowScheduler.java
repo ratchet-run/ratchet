@@ -22,6 +22,7 @@ import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -180,6 +181,8 @@ public class WorkflowScheduler extends ChainScheduler {
     log.infof("Evaluating %s workflow conditions for job %s", conditions.size(), parentJob.getId());
 
     Map<UUID, JobEntity> childJobs = loadChildJobs(conditions);
+    Set<UUID> conditionalChildIds =
+        conditions.stream().map(WorkflowConditionEntity::getChildJobId).collect(Collectors.toSet());
     WorkflowConditionEntity scheduledCondition = null;
     for (WorkflowConditionEntity condition : conditions) {
       try {
@@ -207,6 +210,7 @@ public class WorkflowScheduler extends ChainScheduler {
     }
 
     cancelUnscheduledBranches(conditions, scheduledCondition, childJobs);
+    boolean linearChainAdvanced = handleLinearChain(parentJob, conditionalChildIds);
 
     if (scheduledCondition != null) {
       publishWorkflowBranchTriggered(parentJob, scheduledCondition);
@@ -217,10 +221,15 @@ public class WorkflowScheduler extends ChainScheduler {
     }
 
     log.infof("No workflow conditions met for job %s", parentJob.getId());
+    return linearChainAdvanced;
+  }
+
+  private boolean handleLinearChain(JobEntity parentJob, Set<UUID> conditionalChildIds) {
     if (parentJob.getStatus() == JobStatus.FAILED) {
-      super.cancelChain(parentJob);
+      super.cancelChain(parentJob, conditionalChildIds);
+      return false;
     }
-    return false;
+    return super.scheduleNext(parentJob, conditionalChildIds);
   }
 
   private IllegalStateException failWorkflowCondition(JobEntity parentJob, Exception cause) {

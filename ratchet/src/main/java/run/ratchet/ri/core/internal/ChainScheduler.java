@@ -85,6 +85,10 @@ public class ChainScheduler {
   }
 
   public void cancelChain(JobEntity failed) {
+    cancelChain(failed, Set.of());
+  }
+
+  protected void cancelChain(JobEntity failed, Set<UUID> skippedDirectChildren) {
     Deque<UUID> stack = new ArrayDeque<>();
     stack.push(failed.getId());
     boolean canceled = false;
@@ -93,6 +97,9 @@ public class ChainScheduler {
       UUID parentId = stack.pop();
       List<JobEntity> children = findAllDependants(parentId);
       for (JobEntity child : children) {
+        if (parentId.equals(failed.getId()) && skippedDirectChildren.contains(child.getId())) {
+          continue;
+        }
         JobStatus status = child.getStatus();
         if (status == JobStatus.PENDING || status == JobStatus.WAITING) {
           // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
@@ -111,8 +118,19 @@ public class ChainScheduler {
   }
 
   public boolean scheduleNext(JobEntity finished) {
+    return scheduleNext(finished, Set.of());
+  }
+
+  protected boolean scheduleNext(JobEntity finished, Set<UUID> skippedDirectChildren) {
     List<JobEntity> children = findAllDependants(finished.getId());
-    if (children.isEmpty()) {
+    boolean hasEligibleChild = false;
+    for (JobEntity child : children) {
+      if (!skippedDirectChildren.contains(child.getId())) {
+        hasEligibleChild = true;
+        break;
+      }
+    }
+    if (!hasEligibleChild) {
       if (finished.getJobType() == JobExecutionType.CHAIN_STEP) {
         publishChainCompleted(finished);
       }
@@ -121,6 +139,9 @@ public class ChainScheduler {
 
     boolean scheduled = false;
     for (JobEntity c : children) {
+      if (skippedDirectChildren.contains(c.getId())) {
+        continue;
+      }
       if (c.getStatus() == JobStatus.PENDING && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
         c.setScheduledTime(effective().instant());
         jobCrudStore.save(c);
@@ -147,7 +168,7 @@ public class ChainScheduler {
     return clock != null ? clock : Clock.systemUTC();
   }
 
-  private List<JobEntity> findAllDependants(UUID parentId) {
+  protected List<JobEntity> findAllDependants(UUID parentId) {
     List<JobEntity> dependants = new ArrayList<>();
     int offset = 0;
     while (true) {
