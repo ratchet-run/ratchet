@@ -50,6 +50,9 @@ public interface JobBatchStatusStore {
    *     column untouched
    * @return {@code true} when the row was at {@code expected} and was updated to {@code newStatus},
    *     {@code false} otherwise (lost race or row missing)
+   * @throws IllegalArgumentException if {@code expected} is a terminal status. CAS targets only
+   *     live rows; every store rejects a terminal {@code expected} rather than returning {@code
+   *     false}, which a caller could not distinguish from a lost race.
    */
   boolean compareAndSwapStatus(UUID id, JobStatus expected, JobStatus newStatus, String error);
 

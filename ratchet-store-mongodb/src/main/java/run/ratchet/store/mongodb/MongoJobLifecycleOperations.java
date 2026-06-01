@@ -115,6 +115,10 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean compareAndSwapStatus(
       UUID id, JobStatus expected, JobStatus newStatus, String error) {
+    if (!StatusClassifier.isLiveStatus(expected)) {
+      throw new IllegalArgumentException(
+          "compareAndSwapStatus expected must be a live status; got " + expected);
+    }
     return ctx.timedStoreOperation(
         "compare_and_swap_status",
         () -> {

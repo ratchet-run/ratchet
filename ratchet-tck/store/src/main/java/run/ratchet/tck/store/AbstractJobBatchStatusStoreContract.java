@@ -18,6 +18,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -62,6 +63,19 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
         JobStatus.PENDING,
         store().getJobStatus(saved.getId()),
         "Status should remain PENDING after failed CAS");
+  }
+
+  @Test
+  void compareAndSwapStatus_terminalExpected_throws() {
+    // A terminal `expected` is caller misuse. Every store rejects it with IllegalArgumentException
+    // rather than silently returning false, which a caller could not distinguish from a lost race.
+    var saved = persist(newPendingJob());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            store()
+                .compareAndSwapStatus(saved.getId(), JobStatus.SUCCEEDED, JobStatus.PENDING, null));
   }
 
   @Test
