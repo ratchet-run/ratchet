@@ -23,6 +23,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.util.BusinessKeyReservations;
+import run.ratchet.store.util.StatusClassifier;
 
 final class PostgresqlBusinessKeyReservations {
 
@@ -107,8 +108,8 @@ final class PostgresqlBusinessKeyReservations {
   void syncForJob(JobEntity job) {
     try {
       deleteReservationByOwner(job.getId());
-      JobStatus status = PostgresqlStoreContext.effectiveStatus(job.getStatus());
-      if (PostgresqlStoreContext.isLiveStatus(status) && job.getBusinessKey() != null) {
+      JobStatus status = StatusClassifier.effectiveStatus(job.getStatus());
+      if (StatusClassifier.isLiveStatus(status) && job.getBusinessKey() != null) {
         insertReservation(job.getBusinessKey(), job.getId(), ownerTableFor(job.getJobType()));
       }
     } catch (RuntimeException e) {
@@ -126,7 +127,7 @@ final class PostgresqlBusinessKeyReservations {
   void syncForJob(UUID ownerJobId, JobStatus status) {
     try {
       deleteReservationByOwner(ownerJobId);
-      if (!PostgresqlStoreContext.isLiveStatus(status)) {
+      if (!StatusClassifier.isLiveStatus(status)) {
         return;
       }
       // language=PostgreSQL

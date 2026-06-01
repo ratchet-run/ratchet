@@ -35,6 +35,7 @@ import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.StatusClassifier;
 
 final class PostgresqlJobClaimOperations implements JobClaimStore {
 
@@ -183,7 +184,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       String nodeId,
       NodeTagFilter tagFilter,
       ExecutionTargetFilter executionTargetFilter) {
-    if (limit <= 0 || !PostgresqlStoreContext.isPollerExecutable(jobType)) {
+    if (limit <= 0 || !StatusClassifier.isPollerExecutable(jobType)) {
       return List.of();
     }
     try {

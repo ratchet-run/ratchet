@@ -16,12 +16,9 @@
 package run.ratchet.store.postgresql;
 
 import jakarta.persistence.EntityManager;
-import run.ratchet.api.JobStatus;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.ConstraintDetector;
 import run.ratchet.store.context.AbstractSqlStoreContext;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.util.StatusClassifier;
 
 final class PostgresqlStoreContext extends AbstractSqlStoreContext {
 
@@ -39,22 +36,6 @@ final class PostgresqlStoreContext extends AbstractSqlStoreContext {
   PostgresqlStoreContext(
       EntityManager em, MetricsCollector metricsCollector, int priorityBoostIntervalMinutes) {
     super(em, metricsCollector, priorityBoostIntervalMinutes);
-  }
-
-  static boolean isPollerExecutable(JobExecutionType jobType) {
-    return StatusClassifier.isPollerExecutable(jobType);
-  }
-
-  static boolean isLiveStatus(JobStatus status) {
-    return StatusClassifier.isLiveStatus(status);
-  }
-
-  static boolean isTerminalStatus(JobStatus status) {
-    return StatusClassifier.isTerminalStatus(status);
-  }
-
-  static JobStatus effectiveStatus(JobStatus status) {
-    return StatusClassifier.effectiveStatus(status);
   }
 
   @Override

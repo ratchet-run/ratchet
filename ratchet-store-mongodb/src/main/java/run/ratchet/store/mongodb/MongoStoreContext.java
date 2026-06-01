@@ -22,19 +22,16 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import java.util.List;
 import org.bson.Document;
-import run.ratchet.api.JobStatus;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.ConstraintDetector;
 import run.ratchet.store.context.AbstractStoreContext;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.util.StatusClassifier;
 
 /**
  * Shared context passed into every Mongo operation class.
  *
- * <p>Owns the {@link MongoDatabase} handle, collection accessors, and status classification helpers
- * on top of the shared {@link AbstractStoreContext} scaffolding. Mongo adds a translation branch
- * for non-transient {@link MongoException}s via {@link #additionalTranslation}.
+ * <p>Owns the {@link MongoDatabase} handle and collection accessors on top of the shared {@link
+ * AbstractStoreContext} scaffolding. Mongo adds a translation branch for non-transient {@link
+ * MongoException}s via {@link #additionalTranslation}.
  */
 final class MongoStoreContext extends AbstractStoreContext {
 
@@ -63,18 +60,6 @@ final class MongoStoreContext extends AbstractStoreContext {
     super(metricsCollector, priorityBoostIntervalMinutes);
     this.client = client;
     this.database = database;
-  }
-
-  static boolean isPollerExecutable(JobExecutionType jobType) {
-    return StatusClassifier.isPollerExecutable(jobType);
-  }
-
-  static boolean isLiveStatus(JobStatus status) {
-    return StatusClassifier.isLiveStatus(status);
-  }
-
-  static boolean isTerminalStatus(JobStatus status) {
-    return StatusClassifier.isTerminalStatus(status);
   }
 
   /**

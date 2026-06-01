@@ -56,6 +56,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.util.StatusClassifier;
 
 /**
  * Claim pipeline: candidate planning via {@code $match → $project → $sort → $limit} with index
@@ -89,7 +90,7 @@ final class MongoJobClaimOperations {
       String nodeId,
       NodeTagFilter tagFilter,
       ExecutionTargetFilter executionTargetFilter) {
-    if (limit <= 0 || !MongoStoreContext.isPollerExecutable(jobType)) {
+    if (limit <= 0 || !StatusClassifier.isPollerExecutable(jobType)) {
       return List.of();
     }
     List<UUID> candidateIds =
