@@ -23,6 +23,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.util.TransientStoreExceptions;
 
 final class MysqlStoreContext {
 
@@ -58,11 +59,9 @@ final class MysqlStoreContext {
   }
 
   RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
-    if (constraintDetector.isDeadlock(e) || constraintDetector.isTransientConnectionFailure(e)) {
-      return new RatchetTransientStoreException(
-          "Transient MySQL store concurrency failure during " + operation, e);
-    }
-    return e;
+    RatchetTransientStoreException wrapped =
+        TransientStoreExceptions.translateOrNull("MySQL", constraintDetector, operation, e);
+    return wrapped != null ? wrapped : e;
   }
 
   /**

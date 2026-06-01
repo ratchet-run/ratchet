@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
@@ -189,25 +190,31 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
-    // language=PostgreSQL
-    String sql =
-        """
-        SELECT %s
-        FROM scheduler_job c
-        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
-        WHERE c.terminal_status IS NOT NULL
-          AND c.terminated_at < ?
-        ORDER BY c.terminated_at ASC
-        LIMIT ?
-        """
-            .formatted(PostgresqlJobRowMapper.hydrationSelect());
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, Timestamp.from(olderThan))
-            .setParameter(2, limit)
-            .getResultList();
-    return reads.hydrateRowsWithTags(rows);
+    try {
+      // language=PostgreSQL
+      String sql =
+          """
+          SELECT %s
+          FROM scheduler_job c
+          LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+          WHERE c.terminal_status IS NOT NULL
+            AND c.terminated_at < ?
+          ORDER BY c.terminated_at ASC
+          LIMIT ?
+          """
+              .formatted(PostgresqlJobRowMapper.hydrationSelect());
+      List<Object[]> rows =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, Timestamp.from(olderThan))
+              .setParameter(2, limit)
+              .getResultList();
+      return reads.hydrateRowsWithTags(rows);
+    } catch (RatchetTransientStoreException e) {
+      throw e;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find jobs for archiving", e);
+    }
   }
 
   @Override
@@ -227,25 +234,33 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   @SuppressWarnings("SqlSourceToSinkFlow")
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
-    var searchQuery =
-        ArchiveQuerySupport.buildFindArchivedJobsQuery(
-            ARCHIVE_COLUMNS, targetClass, businessKey, from, to, limit);
-    Query query = ctx.em().createNativeQuery(searchQuery.sql());
-    ArchiveQuerySupport.bindParameters(query, searchQuery);
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows = query.getResultList();
-    return rows.stream()
-        .map(row -> ArchiveRowMapper.map(row, PostgresqlJobRowMapper::toInstant))
-        .toList();
+    try {
+      var searchQuery =
+          ArchiveQuerySupport.buildFindArchivedJobsQuery(
+              ARCHIVE_COLUMNS, targetClass, businessKey, from, to, limit);
+      Query query = ctx.em().createNativeQuery(searchQuery.sql());
+      ArchiveQuerySupport.bindParameters(query, searchQuery);
+      @SuppressWarnings("unchecked")
+      List<Object[]> rows = query.getResultList();
+      return rows.stream()
+          .map(row -> ArchiveRowMapper.map(row, PostgresqlJobRowMapper::toInstant))
+          .toList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find archived jobs", e);
+    }
   }
 
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_job_archive WHERE archived_at < ?";
-    return ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, Timestamp.from(olderThan))
-        .executeUpdate();
+    try {
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_job_archive WHERE archived_at < ?";
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, Timestamp.from(olderThan))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("purge archived jobs", e);
+    }
   }
 }

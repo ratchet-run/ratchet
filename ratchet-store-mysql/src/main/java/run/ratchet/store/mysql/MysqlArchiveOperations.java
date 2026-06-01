@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
@@ -218,6 +219,8 @@ final class MysqlArchiveOperations implements ArchiveStore {
       }
       tags.hydrateTagsBatch(jobs);
       return jobs;
+    } catch (RatchetTransientStoreException e) {
+      throw e;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find jobs for archiving", e);
     }

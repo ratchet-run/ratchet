@@ -26,6 +26,7 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.util.StatusClassifier;
+import run.ratchet.store.util.TransientStoreExceptions;
 
 final class PostgresqlStoreContext {
 
@@ -82,11 +83,9 @@ final class PostgresqlStoreContext {
   }
 
   RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
-    if (constraintDetector.isDeadlock(e) || constraintDetector.isTransientConnectionFailure(e)) {
-      return new RatchetTransientStoreException(
-          "Transient PostgreSQL store concurrency failure during " + operation, e);
-    }
-    return e;
+    RatchetTransientStoreException wrapped =
+        TransientStoreExceptions.translateOrNull("PostgreSQL", constraintDetector, operation, e);
+    return wrapped != null ? wrapped : e;
   }
 
   /**

@@ -32,6 +32,7 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.util.StatusClassifier;
+import run.ratchet.store.util.TransientStoreExceptions;
 
 /**
  * Shared context passed into every Mongo operation class.
@@ -115,9 +116,10 @@ final class MongoStoreContext {
   }
 
   RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
-    if (constraintDetector.isDeadlock(e) || constraintDetector.isTransientConnectionFailure(e)) {
-      return new RatchetTransientStoreException(
-          "Transient MongoDB store concurrency failure during " + operation, e);
+    RatchetTransientStoreException wrapped =
+        TransientStoreExceptions.translateOrNull("MongoDB", constraintDetector, operation, e);
+    if (wrapped != null) {
+      return wrapped;
     }
     if (containsMongoException(e)) {
       return new IllegalStateException("MongoDB store failure during " + operation, e);
