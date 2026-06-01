@@ -92,6 +92,7 @@ jobs:
         run: |
           declare -A SERVER_LABELS=(
             [wildfly-managed]="WildFly"
+            [wildfly-ee11-managed]="WildFly (EE 11)"
             [payara-managed]="Payara"
             [openliberty-managed]="Open Liberty"
             [glassfish-managed]="GlassFish"

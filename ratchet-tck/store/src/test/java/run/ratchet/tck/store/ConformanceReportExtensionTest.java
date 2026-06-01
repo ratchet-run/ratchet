@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -101,14 +116,48 @@ class ConformanceReportExtensionTest {
           classes
               .map(path -> path.getFileName().toString())
               .filter(name -> name.startsWith("Abstract"))
-              .filter(name -> name.endsWith("Contract.class"))
+              .filter(name -> name.endsWith(".class"))
+              .filter(name -> !name.contains("$"))
               .map(name -> name.substring(0, name.length() - ".class".length()))
+              .filter(ConformanceReportExtensionTest::declaresTestMethods)
               .filter(name -> ConformanceLevel.forContract(name) == null)
               .sorted()
               .toList();
     }
 
-    assertEquals(List.of(), unregisteredContracts, "all Abstract*Contract classes are registered");
+    assertEquals(
+        List.of(),
+        unregisteredContracts,
+        "every abstract store contract (any Abstract* class declaring @Test methods) must be"
+            + " registered in ConformanceLevel; keying on @Test rather than the *Contract suffix"
+            + " stops a contract from hiding under a different name");
+  }
+
+  /**
+   * Treats an {@code Abstract*} class as a contract when it declares at least one {@code @Test}
+   * method. This is what makes MISSING-detection robust against class-name drift: the original
+   * {@code AbstractSignalContractTest} was a full store contract but escaped the report because the
+   * scan matched only the {@code *Contract} suffix.
+   */
+  private static boolean declaresTestMethods(String simpleName) {
+    Class<?> type;
+    try {
+      type =
+          Class.forName(
+              "run.ratchet.tck.store." + simpleName,
+              false,
+              ConformanceReportExtensionTest.class.getClassLoader());
+    } catch (ClassNotFoundException | LinkageError e) {
+      return false;
+    }
+    for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+      for (var method : c.getDeclaredMethods()) {
+        if (method.isAnnotationPresent(Test.class)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   @Test

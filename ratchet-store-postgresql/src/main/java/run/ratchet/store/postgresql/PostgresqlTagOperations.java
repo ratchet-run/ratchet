@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.store.postgresql;
 
 import jakarta.persistence.Query;
@@ -142,17 +157,18 @@ final class PostgresqlTagOperations implements TagStore {
       // language=PostgreSQL
       String sql =
           """
-          SELECT j.params ->> ?2 AS param_value, COUNT(*) FROM scheduler_job j
+          SELECT j.params ->> ? AS param_value, COUNT(*) FROM scheduler_job j
           JOIN scheduler_job_tag t ON j.job_id = t.job_id
-          WHERE t.tag = ?1 AND j.params ->> ?2 IS NOT NULL
+          WHERE t.tag = ? AND j.params ->> ? IS NOT NULL
           GROUP BY param_value
           ORDER BY param_value
           """;
       List<Object[]> rows =
           ctx.em()
               .createNativeQuery(sql)
-              .setParameter(1, tag)
-              .setParameter(2, paramKey)
+              .setParameter(1, paramKey)
+              .setParameter(2, tag)
+              .setParameter(3, paramKey)
               .getResultList();
       return toStringCountMap(rows);
     } catch (RuntimeException e) {

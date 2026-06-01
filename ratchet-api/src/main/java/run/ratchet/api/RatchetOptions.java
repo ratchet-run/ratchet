@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.api;
 
 import java.util.EnumMap;
@@ -16,7 +31,10 @@ import java.util.function.Consumer;
  * {@code @ApplicationScoped} can generate a client proxy around an application's {@code @Produces}
  * bean. Instances are still immutable — all fields are {@code final} and set only through {@link
  * Builder}. Use {@link #builder()} or {@link #defaults()} to construct.
+ *
+ * @since 0.1
  */
+@Incubating
 @SuppressWarnings("ClassCanBeRecord")
 public class RatchetOptions {
 
@@ -314,8 +332,8 @@ public class RatchetOptions {
    * Execution-pool wiring: target executor JNDI names, queue size, and per-execution-type
    * concurrency / virtual-thread / rate caps.
    *
-   * @param useVirtualThreads {@code true} to request virtual-thread execution where supported by
-   *     the chosen executor (the container ultimately decides)
+   * @param defaultThreadingMode default threading mode applied when a job pins no execution target;
+   *     defaults to {@link ThreadingMode#PLATFORM}
    * @param queueSize bounded queue length used by the in-process fallback executor
    * @param maxConcurrency map of execution-type name to maximum concurrent executions; missing keys
    *     fall back to the per-type defaults
@@ -326,6 +344,10 @@ public class RatchetOptions {
    * @param jobExecutorJndi JNDI name of the {@code ManagedExecutorService} that runs jobs
    * @param scheduledExecutorJndi JNDI name of the {@code ManagedScheduledExecutorService} used for
    *     scheduled work
+   * @param virtualExecutorJndi JNDI name of the {@code ManagedExecutorService} used for
+   *     virtual-thread execution; when blank, virtual-targeted jobs fall back to the platform pool
+   * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
+   *     virtual pool instead of the default semaphore bound
    */
   public record ExecutionOptions(
       ThreadingMode defaultThreadingMode,

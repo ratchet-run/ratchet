@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.coordinator.jms;
 
 import java.util.Objects;
@@ -32,6 +47,10 @@ import java.util.Optional;
  *     listener-thread allocation a hostile or buggy producer could trigger.
  * @param listenerExecutorThreads worker threads dispatching inbound wakeups to registered
  *     listeners. Default 2 — keeps one slow listener from stalling all others.
+ * @param listenerExecutorQueueCapacity bound on the dispatch pool's pending-task queue. When the
+ *     bound is hit the oldest queued wakeup is discarded (wakeups are advisory and a fresher one
+ *     supersedes a stale one). Default 1024; replaces the unbounded queue that risked OOM under
+ *     sustained wakeup pressure.
  * @param shutdownGraceMs max wait for in-flight callbacks to drain on close. Default 5000.
  */
 public record JmsCoordinatorConfig(
@@ -43,6 +62,7 @@ public record JmsCoordinatorConfig(
     long reconnectBackoffMaxMs,
     int maxInboundPayloadChars,
     int listenerExecutorThreads,
+    int listenerExecutorQueueCapacity,
     long shutdownGraceMs) {
 
   public static final String DEFAULT_CONNECTION_FACTORY_JNDI =
@@ -66,6 +86,9 @@ public record JmsCoordinatorConfig(
     if (listenerExecutorThreads < 1) {
       throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
     }
+    if (listenerExecutorQueueCapacity < 1) {
+      throw new IllegalArgumentException("listenerExecutorQueueCapacity must be >= 1");
+    }
     if (shutdownGraceMs <= 0) {
       throw new IllegalArgumentException("shutdownGraceMs must be > 0");
     }
@@ -82,6 +105,7 @@ public record JmsCoordinatorConfig(
         30_000L,
         16_384,
         2,
+        1_024,
         5_000L);
   }
 

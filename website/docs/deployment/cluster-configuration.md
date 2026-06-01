@@ -58,19 +58,24 @@ The `ClusterCoordinator` interface coordinates cross-node wakeup notifications:
 
 ```java
 @Incubating
-public interface ClusterCoordinator {
+public interface ClusterCoordinator extends AutoCloseable {
 
   /**
    * Notifies the cluster that new work is available at the given priority level.
    * Other nodes can use this signal to wake up their polling engines immediately.
+   * {@code source} identifies the originating node; {@code executionTarget} is an
+   * informational routing label, or null when the wakeup is not target-scoped.
    */
-  void notifyNewWork(JobPriority priority);
+  void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget);
 
   /**
    * Registers a listener that is called when another node signals new work.
    * The polling engine uses this to wake up and check for available jobs.
    */
-  void registerWakeupListener(Runnable listener);
+  void registerWakeupListener(Consumer<JobWakeupHint> listener);
+
+  /** Releases transport resources held by this coordinator. Must be idempotent. */
+  void close();
 }
 ```
 
@@ -103,24 +108,29 @@ public class RedisClusterCoordinator implements ClusterCoordinator {
   @Inject
   RedisClient redis;
 
-  private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
+  private final List<Consumer<JobWakeupHint>> listeners = new CopyOnWriteArrayList<>();
 
   @PostConstruct
   void init() {
     // Subscribe to wakeup channel in a background thread
-    redis.subscribe("ratchet:wakeup", message -> {
-      listeners.forEach(Runnable::run);
+    redis.subscribe("ratchet:wakeup", hint -> {
+      listeners.forEach(l -> l.accept(hint));
     });
   }
 
   @Override
-  public void notifyNewWork(JobPriority priority) {
+  public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
     redis.publish("ratchet:wakeup", priority.name());
   }
 
   @Override
-  public void registerWakeupListener(Runnable listener) {
+  public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
     listeners.add(listener);
+  }
+
+  @Override
+  public void close() {
+    redis.close();
   }
 }
 ```

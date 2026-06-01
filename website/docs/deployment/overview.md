@@ -101,6 +101,8 @@ The SQL schema creates these primary tables. MongoDB uses analogous collections 
 | `scheduler_batch` | Batch progress tracking |
 | `scheduler_batch_metrics` | Batch performance metrics |
 | `scheduler_job_archive` | Archived completed/failed jobs |
+| `scheduler_recurring_job` | Recurring job masters |
+| `scheduler_recurring_job_archive` | Archived recurring job masters |
 | `scheduler_node` | Cluster node heartbeats |
 | `scheduler_lock` | Distributed lock management |
 | `scheduler_resource_limit` | Resource concurrency configuration |

@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.api;
 
 import java.io.Serializable;
@@ -54,7 +69,10 @@ import run.ratchet.api.exception.JobAuthorizationException;
  * #cancelJob(UUID)} for authorization-gated single-job cancellation.
  *
  * <p>The RI verifies these contracts through its Jakarta transaction TCK tests.
+ *
+ * @since 0.1
  */
+@Incubating
 public interface JobSchedulerService {
 
   /**
@@ -167,12 +185,13 @@ public interface JobSchedulerService {
    *
    * <p><b>Synchronous dispatch — latency warning.</b> Listeners are invoked synchronously on the
    * publishing thread, which is typically the job execution thread. A slow listener creates
-   * unbounded latency on the job hot path and can stall the scheduler. This is intentional — event
-   * publication participates in the same transaction as the state change it announces — but it
-   * means any listener that does heavyweight work (I/O, network calls, cross-system notifications)
-   * MUST offload to its own thread pool. For CDI observers of the same events, prefer
-   * {@code @ObservesAsync} when the observer does not need to participate in the source
-   * transaction.
+   * unbounded latency on the job hot path and can stall the scheduler. For scheduler state-change
+   * events raised inside a transaction, the listener runs synchronously <em>after</em> that
+   * transaction commits, so a rollback suppresses the event and a listener cannot roll the source
+   * transaction back. (When no transaction is active, dispatch is immediate.) Any listener that
+   * does heavyweight work (I/O, network calls, cross-system notifications) MUST offload to its own
+   * thread pool. For CDI observers of the same events, prefer {@code @ObservesAsync} when the
+   * observer does not need to run on the publishing thread.
    *
    * <p>Event types delivered:
    *
@@ -255,8 +274,12 @@ public interface JobSchedulerService {
    * <p>Idempotent: if the job is already in a non-WAITING state (including terminal states), this
    * method returns {@code 0} without modifying the job.
    *
-   * <p>The signal payload is serialized and stored on the job entity; it is accessible to the
-   * executing task via {@link JobContext#signalPayload(Class)}.
+   * <p>The signal payload is serialized to JSON via the configured {@code PayloadSerializer} and
+   * stored on the job entity. The executing task reads it back through {@link
+   * JobContext#signalPayload(Class)} as its JSON-native form — a {@code String}, boxed number,
+   * boolean, {@code List}, or {@code Map} — so request the type the value maps to. A concrete bean
+   * class is not reconstructed to its original type; deliver a {@link SignalDecision} or a
+   * JSON-native value when the executing code needs typed access.
    *
    * <p>Subject to {@link run.ratchet.spi.JobAuthorizationPolicy#checkDeliverSignal(UUID, String,
    * String)}.

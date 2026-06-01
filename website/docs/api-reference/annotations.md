@@ -151,7 +151,7 @@ This annotation is marked `@Incubating` and may change in future versions.
 
 | Attribute | Type | Default | Required | Description |
 |---|---|---|---|---|
-| `service` | `String` | `""` | **Yes** | Service name for grouping circuit breakers. Used in logging and monitoring. |
+| `service` | `String` | `""` | No | Service name for grouping circuit breakers; when blank, the breaker key is derived from the method name. Used in logging and monitoring. |
 | `profile` | `CircuitBreakerProfile` | `DEFAULT` | No | Pre-configured circuit breaker profile. |
 
 ### CircuitBreakerProfile

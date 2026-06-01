@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.api;
 
 import java.io.Serial;
@@ -28,10 +43,10 @@ import java.io.Serializable;
  * descriptor, arguments) — the same format used for job task lambdas. Predicate lambdas must
  * resolve to a single public method call.
  *
- * <p>This record is marked {@link Incubating}: its binary wire format (including the fixed {@link
- * Serial serialVersionUID} on line 29) may change before the 1.0 release. Callers persisting these
- * events to external systems should treat them as in-memory event payloads, not as a stable
- * long-term storage format.
+ * <p>This record is marked {@link Incubating}: its binary wire format (including the declared
+ * {@link Serial serialVersionUID}) may change before the 1.0 release. Callers persisting these
+ * conditions to external systems should treat them as in-memory payloads, not as a stable long-term
+ * storage format.
  *
  * @param type condition evaluation strategy
  * @param expression type-specific expression data (predicate, threshold, or null)

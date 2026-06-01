@@ -1,8 +1,22 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.coordinator.postgresql;
 
 import java.sql.SQLException;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import org.postgresql.PGConnection;
@@ -29,10 +43,9 @@ import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
  *       the connection stays up.
  * </ol>
  */
-final class PostgresqlListenThread extends Thread {
+final class PostgresqlListenThread implements Runnable {
 
   private static final Logger log = Logger.getLogger(PostgresqlListenThread.class);
-  private static final AtomicLong THREAD_NUMBER = new AtomicLong();
 
   private final PostgresqlConnectionLifecycle lifecycle;
   private final NotifyPayloadCodec codec;
@@ -49,8 +62,6 @@ final class PostgresqlListenThread extends Thread {
       Consumer<NotifyPayload> dispatcher,
       Runnable onParseFailure,
       Runnable onTransportFailure) {
-    super("ratchet-coordinator-postgresql-listen-" + THREAD_NUMBER.incrementAndGet());
-    setDaemon(true);
     this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
     this.codec = Objects.requireNonNull(codec, "codec");
     this.config = Objects.requireNonNull(config, "config");
@@ -59,9 +70,12 @@ final class PostgresqlListenThread extends Thread {
     this.onTransportFailure = Objects.requireNonNull(onTransportFailure, "onTransportFailure");
   }
 
+  /**
+   * Signal the loop to stop. The coordinator interrupts and joins the wrapping thread; this only
+   * flips the flag the loop checks.
+   */
   void shutdown() {
     closed = true;
-    interrupt();
   }
 
   @Override
@@ -75,7 +89,10 @@ final class PostgresqlListenThread extends Thread {
 
     int receiveTimeoutMs = clampReceiveTimeout(config.receiveTimeoutMs());
 
-    while (!closed) {
+    // isInterrupted() is a second exit condition alongside `closed`: a managed-factory thread may
+    // be interrupted by the container before the coordinator's close() runs (Jakarta Concurrency
+    // 3.0 §3.1.4).
+    while (!closed && !Thread.currentThread().isInterrupted()) {
       try {
         PGConnection pg = lifecycle.current();
         PGNotification[] notes = pg.getNotifications(receiveTimeoutMs);

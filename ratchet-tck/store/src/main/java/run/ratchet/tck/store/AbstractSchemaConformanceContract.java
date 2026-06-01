@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -7,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -42,17 +58,6 @@ import run.ratchet.tck.store.schema.Table;
  * artifacts the catalog explicitly marks as removed.
  */
 public abstract class AbstractSchemaConformanceContract {
-
-  private static OnDeleteAction mapJdbcDeleteRule(short rule) {
-    return switch (rule) {
-      case DatabaseMetaData.importedKeyCascade -> OnDeleteAction.CASCADE;
-      case DatabaseMetaData.importedKeyRestrict -> OnDeleteAction.RESTRICT;
-      case DatabaseMetaData.importedKeySetNull -> OnDeleteAction.SET_NULL;
-      case DatabaseMetaData.importedKeySetDefault -> OnDeleteAction.SET_DEFAULT;
-      case DatabaseMetaData.importedKeyNoAction -> OnDeleteAction.NO_ACTION;
-      default -> OnDeleteAction.NO_ACTION;
-    };
-  }
 
   private String requireMetadataString(ResultSet rs, String metadataColumn, String subject)
       throws SQLException {
@@ -334,6 +339,7 @@ public abstract class AbstractSchemaConformanceContract {
 
   private Map<String, IntrospectedForeignKey> introspectForeignKeys(
       DatabaseMetaData md, String table) throws SQLException {
+    Map<String, String> deleteRuleByConstraint = introspectDeleteRules(md.getConnection(), table);
     Map<String, IntrospectedForeignKey> out = new LinkedHashMap<>();
     try (ResultSet rs =
         md.getImportedKeys(
@@ -344,11 +350,43 @@ public abstract class AbstractSchemaConformanceContract {
             requireMetadataString(rs, "FKCOLUMN_NAME", subject).toLowerCase(Locale.ROOT);
         String pkTable = requireMetadataString(rs, "PKTABLE_NAME", subject);
         String pkColumn = requireMetadataString(rs, "PKCOLUMN_NAME", subject);
-        OnDeleteAction action = mapJdbcDeleteRule(rs.getShort("DELETE_RULE"));
+        // Route the ON DELETE action through the dialect SPI: parseOnDelete normalizes the raw
+        // information_schema delete_rule string (CASCADE / SET NULL / ...) into our enum. This is
+        // the documented per-dialect parse path, so a non-conformant mapper is caught here rather
+        // than silently bypassed by reading the JDBC DELETE_RULE short directly.
+        String fkName = rs.getString("FK_NAME");
+        OnDeleteAction action = mapper().parseOnDelete(deleteRuleByConstraint.get(fkName));
         out.put(fkColumn, new IntrospectedForeignKey(fkColumn, pkTable, pkColumn, action));
       }
     }
     return out;
+  }
+
+  /**
+   * Reads each foreign key's ON DELETE rule as the dialect's raw {@code information_schema} {@code
+   * delete_rule} string, keyed by constraint name. {@code referential_constraints} and {@code
+   * key_column_usage} are SQL-standard, so this works on every SQL store without branching on
+   * dialect; {@link DialectTypeMapper#parseOnDelete} then turns the string into the enum.
+   */
+  private Map<String, String> introspectDeleteRules(Connection connection, String table)
+      throws SQLException {
+    Map<String, String> byConstraint = new LinkedHashMap<>();
+    String sql =
+        "SELECT rc.constraint_name AS constraint_name, rc.delete_rule AS delete_rule"
+            + " FROM information_schema.referential_constraints rc"
+            + " JOIN information_schema.key_column_usage kcu"
+            + "   ON rc.constraint_name = kcu.constraint_name"
+            + "   AND rc.constraint_schema = kcu.constraint_schema"
+            + " WHERE kcu.table_name = ?";
+    try (PreparedStatement ps = connection.prepareStatement(sql)) {
+      ps.setString(1, table);
+      try (ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          byConstraint.put(rs.getString("constraint_name"), rs.getString("delete_rule"));
+        }
+      }
+    }
+    return byConstraint;
   }
 
   private Map<String, IntrospectedIndex> introspectIndexes(DatabaseMetaData md, String table)

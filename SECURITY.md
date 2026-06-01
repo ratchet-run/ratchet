@@ -43,8 +43,14 @@ Ratchet currently enforces these runtime boundaries:
   can run.
 - Job creation captures the Jakarta Security caller principal when one is
   available and stores it with the job for audit. Authorization enforcement is
-  not part of the current surface; a future `JobAuthorizationPolicy` SPI is
-  tracked separately.
+  available through the `JobAuthorizationPolicy` SPI, a shipped `@Incubating`
+  extension point that defaults to `PermitAllJobAuthorizationPolicy` (permit
+  all). The reference implementation calls it at every mutation entry point
+  (create, cancel, pause, resume, retry, deliver-signal) and at read entry
+  points (job detail and list queries). Replace the default with a CDI
+  `@Alternative @Priority(APPLICATION)` bean to enforce site-specific rules; a
+  denied call throws `JobAuthorizationException`. The SPI is incubating, so its
+  signatures may still change before 1.0.
 - MongoDB stores validate `UuidRepresentation.STANDARD` at startup to avoid
   silent UUIDv7 byte-order corruption.
 

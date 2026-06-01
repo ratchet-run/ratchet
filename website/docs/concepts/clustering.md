@@ -89,15 +89,16 @@ The `ClusterCoordinator` SPI bridges this gap:
 
 ```java
 @Incubating
-public interface ClusterCoordinator {
-    void notifyNewWork(JobPriority priority);
-    void registerWakeupListener(Runnable listener);
+public interface ClusterCoordinator extends AutoCloseable {
+    void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget);
+    void registerWakeupListener(Consumer<JobWakeupHint> listener);
+    void close();
 }
 ```
 
 ### How It Works
 
-1. When a job is submitted with immediate or CRITICAL priority, the engine calls `ClusterCoordinator.notifyNewWork(priority)`
+1. When a job is submitted with immediate or CRITICAL priority, the engine calls `ClusterCoordinator.notifyNewWork(priority, source, executionTarget)`
 2. The coordinator broadcasts this notification to all cluster nodes
 3. Each node's Poller has registered a wakeup listener via `registerWakeupListener()`
 4. When the notification arrives, the Poller exits deep idle and enters burst mode (500ms polling)
@@ -126,24 +127,29 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator {
     @Inject
     private CacheContainer cacheContainer;
 
-    private Runnable wakeupListener;
+    private Consumer<JobWakeupHint> wakeupListener;
 
     @Override
-    public void notifyNewWork(JobPriority priority) {
+    public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
         // Publish to Infinispan cluster-wide topic
         cacheContainer.getCache("ratchet-wakeup")
             .put("wakeup-" + System.currentTimeMillis(), priority.name());
     }
 
     @Override
-    public void registerWakeupListener(Runnable listener) {
+    public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
         this.wakeupListener = listener;
         // Register Infinispan listener for cache events
+    }
+
+    @Override
+    public void close() {
+        // Release Infinispan resources
     }
 }
 ```
 
-The SPI is intentionally minimal -- just `notifyNewWork` and `registerWakeupListener` -- so it can be implemented over any pub/sub mechanism.
+The SPI is intentionally minimal -- `notifyNewWork`, `registerWakeupListener`, and `close` -- so it can be implemented over any pub/sub mechanism.
 
 ## Node Identity
 

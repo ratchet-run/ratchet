@@ -224,9 +224,6 @@ Ratchet uses **RFC 9562 §5.7 UUIDv7** for primary keys. UUIDs are 128-bit value
 ```java
 // Generate a new UUIDv7
 UUID id = UuidV7Factory.create();
-
-// Extract creation timestamp (high 48 bits)
-Instant created = UuidV7Factory.timestampOf(id);
 ```
 
 ### Why UUIDv7 Instead of TSID or Auto-Increment

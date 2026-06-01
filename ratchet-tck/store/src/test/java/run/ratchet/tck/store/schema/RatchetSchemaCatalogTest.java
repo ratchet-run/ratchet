@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.tck.store.schema;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -46,6 +61,47 @@ class RatchetSchemaCatalogTest {
     assertTrue(
         RatchetSchemaCatalog.CURRENT_VERSION > 7,
         "catalog version should advance when recurring execution_target is added");
+  }
+
+  @Test
+  void schedulerJobDeclaresRecurringMasterAndTraceContext() {
+    Table job = table("scheduler_job");
+    List<String> columns = job.columns().stream().map(Column::name).toList();
+
+    assertTrue(
+        columns.contains("recurring_master_id"),
+        "scheduler_job should declare recurring_master_id (DDL v010)");
+    assertTrue(
+        columns.contains("trace_context"),
+        "scheduler_job should declare trace_context (W3C TraceContext captured at enqueue)");
+
+    ForeignKey fk =
+        job.foreignKeys().stream()
+            .filter(f -> f.name().equals("fk_job_recurring_master"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("recurring_master_id", fk.column());
+    assertEquals("scheduler_recurring_job", fk.refTable());
+    assertEquals("id", fk.refColumn());
+    assertEquals(
+        OnDeleteAction.SET_NULL,
+        fk.onDelete(),
+        "recurring-master FK must be ON DELETE SET NULL to match the DDL");
+
+    assertEquals(
+        List.of("recurring_master_id"),
+        index(job, "idx_job_recurring_master_id").columns(),
+        "recurring master index should match DDL");
+  }
+
+  @Test
+  void currentVersionMatchesMaxDdlSchemaVersionInsert() {
+    assertEquals(
+        10,
+        RatchetSchemaCatalog.CURRENT_VERSION,
+        "CURRENT_VERSION must match the highest ratchet_schema_version insert in the shipped DDL"
+            + " (currently '010'); bump both together when the schema advances so the catalog never"
+            + " lags the DDL again");
   }
 
   private static List<String> signalColumns() {

@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.micrometer;
 
 import io.micrometer.core.instrument.Counter;
@@ -41,14 +56,20 @@ import run.ratchet.spi.MetricsCollector;
  *   <li>{@code ratchet.wakeup.cluster.publish} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.wakeup.cluster.receive} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception family
- *   <li>{@code ratchet.signal.waiting} — counter, tagged by type and signal key
- *   <li>{@code ratchet.signal.delivered} — counter, tagged by type, signal key, and outcome
- *   <li>{@code ratchet.signal.timed_out} — counter, tagged by type and signal key
- *   <li>{@code ratchet.signal.cancelled} — counter, tagged by type and signal key
+ *   <li>{@code ratchet.signal.waiting} — counter, tagged by type
+ *   <li>{@code ratchet.signal.delivered} — counter, tagged by type and outcome
+ *   <li>{@code ratchet.signal.timed_out} — counter, tagged by type
+ *   <li>{@code ratchet.signal.cancelled} — counter, tagged by type
  *   <li>{@code ratchet.poller.breaker.state} — gauge, tagged by breaker; values are {@code 0} for
  *       closed/unknown, {@code 1} for half-open, and {@code 2} for open
  *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
  * </ul>
+ *
+ * <p>The signal counters also carry a {@code signal_key} tag, but the default {@link
+ * MicrometerMetricTagPolicy} has no allowlist entry for it, so every key collapses to {@code OTHER}
+ * (or {@code UNKNOWN} when blank). Signal keys are unbounded application strings; a deployment that
+ * wants the key as a real dimension must add it to the policy allowlist and accept the cardinality
+ * cost.
  *
  * @apiNote The no-arg constructor on this class is a CDI proxying artefact (Weld / OWB require a
  *     non-final, no-arg-constructable concrete class to generate the normal-scope client proxy) and

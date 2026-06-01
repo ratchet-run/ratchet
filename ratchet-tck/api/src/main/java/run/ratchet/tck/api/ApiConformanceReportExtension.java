@@ -1,3 +1,18 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package run.ratchet.tck.api;
 
 import java.nio.file.Path;
@@ -11,12 +26,12 @@ import run.ratchet.tck.util.AbstractConformanceReportExtension;
  * <p>Runtimes inject identity via Failsafe's {@code systemPropertyVariables}: {@code
  * ratchet.tck.runtime.name=${testsuite.profile}/${ratchet.test.db.type}}.
  *
- * @apiNote <b>Internal.</b> This is a JUnit Platform extension wired into the TCK harness via
- *     {@code @ExtendWith} and service-loader registration; it must remain a public top-level class
- *     so the platform can instantiate it, but it is NOT a supported extension point. Implementors
- *     reference it only by name in their runtime profile and MUST NOT subclass it — the {@code
- *     GROUPS} catalog and report layout are TCK implementation details that may change between
- *     releases.
+ * @apiNote <b>Internal.</b> This is a JUnit Platform {@code TestExecutionListener} registered with
+ *     the TCK harness via {@code META-INF/services} and the module-info {@code provides} clause; it
+ *     must remain a public top-level class so the platform can instantiate it, but it is NOT a
+ *     supported extension point. Implementors reference it only by name in their runtime profile
+ *     and MUST NOT subclass it — the {@code GROUPS} catalog and report layout are TCK
+ *     implementation details that may change between releases.
  */
 public class ApiConformanceReportExtension extends AbstractConformanceReportExtension {
 

@@ -161,6 +161,7 @@
     <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
     <cyclonedx-maven-plugin.version>2.9.1</cyclonedx-maven-plugin.version>
     <license-maven-plugin.version>2.7.1</license-maven-plugin.version>
+    <maven-antrun-plugin.version>3.1.0</maven-antrun-plugin.version>
     <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
     <spotbugs-maven-plugin.version>4.9.3.0</spotbugs-maven-plugin.version>
     <asm.version>9.8</asm.version>
@@ -892,14 +893,82 @@
           <version>${spotless-maven-plugin.version}</version>
           <configuration>
             <java>
+              <!--
+                module-info.java is excluded so it falls through to the generic
+                <formats> license step below; the java step's licenseHeader
+                special-cases (skips) module descriptors, which would leave them
+                unheadered and ungated.
+              -->
+              <excludes>
+                <exclude>**/module-info.java</exclude>
+              </excludes>
               <googleJavaFormat>
                 <version>${google-java-format.version}</version>
                 <style>GOOGLE</style>
               </googleJavaFormat>
               <removeUnusedImports/>
               <formatAnnotations/>
+              <licenseHeader>
+                <delimiter>(package|/\*\*|module)</delimiter>
+                <content>/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+</content>
+              </licenseHeader>
             </java>
+            <!--
+              The java step above only targets src/main/java and src/test/java,
+              so it never sees the profile-only test roots (java-wildfly /
+              java-ee11). This generic format stamps and gates the license header
+              on those roots. module-info.java is handled separately by the
+              maven-antrun header check below, because spotless's LicenseHeaderStep
+              special-cases (skips) module descriptors entirely.
+            -->
+            <formats>
+              <format>
+                <includes>
+                  <include>src/test/java-wildfly/**/*.java</include>
+                  <include>src/test/java-ee11/**/*.java</include>
+                </includes>
+                <licenseHeader>
+                  <delimiter>(package|module|open|import|/\*\*)</delimiter>
+                  <content>/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+</content>
+                </licenseHeader>
+              </format>
+            </formats>
           </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-antrun-plugin</artifactId>
+          <version>${maven-antrun-plugin.version}</version>
         </plugin>
         <plugin>
           <groupId>org.jacoco</groupId>
@@ -1092,6 +1161,39 @@
               <goal>check</goal>
             </goals>
             <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <executions>
+          <!--
+            spotless's LicenseHeaderStep silently skips module-info.java, so the
+            spotless:check gate above cannot enforce headers on module descriptors.
+            This check fails the build if any module-info.java lacks the Apache-2.0
+            header, closing that gap so descriptors cannot regress.
+          -->
+          <execution>
+            <id>check-module-info-license-header</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <target>
+                <fileset id="unheadered.module.info" dir="${project.basedir}/src/main/java"
+                         includes="module-info.java" erroronmissingdir="false">
+                  <not>
+                    <contains text="Licensed under the Apache License, Version 2.0"/>
+                  </not>
+                </fileset>
+                <pathconvert refid="unheadered.module.info"
+                             property="unheadered.module.info.path" setonempty="false"/>
+                <fail if="unheadered.module.info.path"
+                      message="module-info.java is missing the Apache-2.0 license header: ${unheadered.module.info.path}"/>
+              </target>
+            </configuration>
           </execution>
         </executions>
       </plugin>

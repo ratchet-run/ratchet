@@ -94,7 +94,7 @@ Each node registers itself in the `scheduler_node` table:
 | Column | Description |
 |--------|-------------|
 | `node_id` | Unique identifier (hostname, UUID, or configured value) |
-| `last_heartbeat` | Last time this node checked in |
+| `heartbeat_ts` | Last time this node checked in |
 | `started_at` | When the node first registered |
 | `node_info` | Optional JSON metadata (version, IP, etc.) |
 
@@ -126,8 +126,8 @@ By default, each node polls on its own interval. For time-sensitive jobs (CRITIC
 
 ```java
 public interface ClusterCoordinator extends AutoCloseable {
-    void notifyNewWork(JobPriority priority, NodeIdentity source);
-    void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener);
+    void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget);
+    void registerWakeupListener(Consumer<JobWakeupHint> listener);
     void close();
 }
 ```
@@ -162,7 +162,7 @@ Out of the box, Ratchet uses `NoOpClusterCoordinator`. That is fine for any depl
 public class JGroupsClusterCoordinator implements ClusterCoordinator {
 
     private JChannel channel;
-    private final List<BiConsumer<JobPriority, NodeIdentity>> listeners =
+    private final List<Consumer<JobWakeupHint>> listeners =
         new CopyOnWriteArrayList<>();
 
     @PostConstruct
@@ -172,14 +172,15 @@ public class JGroupsClusterCoordinator implements ClusterCoordinator {
             @Override
             public void receive(Message msg) {
                 NodeIdentity sender = new NodeIdentity(msg.getSrc().toString());
-                listeners.forEach(l -> l.accept(JobPriority.CRITICAL, sender));
+                JobWakeupHint hint = new JobWakeupHint(JobPriority.CRITICAL, sender, null);
+                listeners.forEach(l -> l.accept(hint));
             }
         });
         channel.connect("ratchet-cluster");
     }
 
     @Override
-    public void notifyNewWork(JobPriority priority, NodeIdentity source) {
+    public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
         try {
             channel.send(new ObjectMessage(null, "WAKEUP"));
         } catch (Exception e) {
@@ -188,7 +189,7 @@ public class JGroupsClusterCoordinator implements ClusterCoordinator {
     }
 
     @Override
-    public void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener) {
+    public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
         listeners.add(listener);
     }
 
@@ -214,7 +215,7 @@ The `scheduler_lock` table provides advisory locks for operations that must be c
 | Column | Description |
 |--------|-------------|
 | `lock_name` | Unique lock identifier |
-| `locked_by` | Node that holds the lock |
+| `owner_node` | Node that holds the lock |
 | `locked_at` | When the lock was acquired |
 | `expires_at` | TTL — lock auto-expires for crash safety |
 

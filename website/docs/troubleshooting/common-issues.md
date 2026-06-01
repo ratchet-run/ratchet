@@ -341,11 +341,12 @@ If the running count equals the pool size for a type, the pool is saturated.
 **Solutions:**
 
 1. **Increase pool size** for the bottleneck type via environment variables
-2. **Enable virtual threads** to remove fixed pool limits:
+2. **Switch the default threading mode to virtual** to remove fixed pool limits:
    ```bash
-   export RATCHET_WORKER_USE_VIRTUAL_THREADS=true
+   export RATCHET_WORKER_DEFAULT_THREADING_MODE=virtual
+   export RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI=java:app/concurrent/MyVirtualExecutor
    ```
-   Virtual threads still have configurable concurrency limits (default 1000 per type) to prevent unbounded growth.
+   The virtual pool still has configurable concurrency limits (default 1000 per type) to prevent unbounded growth.
 3. **Check for stuck jobs** -- long-running jobs hold their thread slot until they complete or timeout:
    ```sql
    -- RUNNING / picked_at are live state on scheduler_job_queue.

@@ -48,7 +48,7 @@ No string-based implementation class names are loaded by Ratchet. This keeps the
 | `ClusterCoordinator` | No-op | Cross-node coordination beyond the store-backed wakeup path |
 | `StartupCoordinator` | Store-backed startup lock | Startup leadership and one-time maintenance gates |
 
-`SerializationStrategy` and `LambdaAnalyzer` remain in the API for compatibility, but the scheduler's primary payload path is now `JobInvocationResolver`. Return values are handled by `ResultPersistenceStrategy`.
+`LambdaAnalyzer` remains in the API, but the scheduler's primary payload path is `JobInvocationResolver`. Return values are handled by `ResultPersistenceStrategy`.
 
 ## Configuration Model
 
@@ -66,8 +66,8 @@ Use these hooks when changing scheduler behavior rather than just tuning values:
 @ApplicationScoped
 public class TenantAwareExecutionTuning implements ExecutionTuningProvider {
     @Override
-    public boolean useVirtualThreads() {
-        return true;
+    public RatchetOptions.ThreadingMode defaultThreadingMode() {
+        return RatchetOptions.ThreadingMode.VIRTUAL;
     }
 
     @Override

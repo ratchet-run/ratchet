@@ -343,6 +343,7 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `RetryPolicy` | Custom retry/no-retry decisions | Defers to `maxRetries` |
 | `ResilienceStrategy` | Circuit breaker behavior | Built-in 3-state machine |
 | `ClassPolicy` | Security — which classes can be deserialized | `PackagePrefixClassPolicy` with an empty allowlist; startup fails fast until you provide an override |
+| `JobAuthorizationPolicy` | Authorization — gate create/cancel/pause/resume/retry/deliver-signal and read access (incubating) | `PermitAllJobAuthorizationPolicy` (permit all) |
 | `ErrorSanitizer` | Scrub sensitive data from error messages | `DefaultErrorSanitizer` |
 | `RatchetOptions` | Required runtime options bean; deployment fails without a CDI producer | Application-provided via `@Produces`; use `RatchetOptionsFactory.fromEnvironment()` for env-driven configuration |
 | `RatchetConfigSource` | Platform config overlay passed to `RatchetOptionsFactory.fromEnvironment(...)` | Optional |
