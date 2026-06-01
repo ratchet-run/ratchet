@@ -31,7 +31,10 @@ import java.util.function.Consumer;
  * {@code @ApplicationScoped} can generate a client proxy around an application's {@code @Produces}
  * bean. Instances are still immutable — all fields are {@code final} and set only through {@link
  * Builder}. Use {@link #builder()} or {@link #defaults()} to construct.
+ *
+ * @since 0.1
  */
+@Incubating
 @SuppressWarnings("ClassCanBeRecord")
 public class RatchetOptions {
 

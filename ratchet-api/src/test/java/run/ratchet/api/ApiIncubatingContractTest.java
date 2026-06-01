@@ -43,6 +43,13 @@ class ApiIncubatingContractTest {
   }
 
   @Test
+  void runtimeOptionsAreIncubating() {
+    // RatchetOptions returns incubating option types (e.g. CircuitBreakerOptions), so the options
+    // value object is itself incubating rather than a stable type leaking incubating returns.
+    assertIncubating(RatchetOptions.class);
+  }
+
+  @Test
   void jobPausedEventIsReservedIncubatingApi() {
     assertIncubating(JobPausedEvent.class);
   }
