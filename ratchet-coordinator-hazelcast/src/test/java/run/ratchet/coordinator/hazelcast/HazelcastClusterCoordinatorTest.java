@@ -57,7 +57,7 @@ class HazelcastClusterCoordinatorTest {
   private final HazelcastInstance instance = mock(HazelcastInstance.class);
   private final NodeIdentityProvider identityProvider = () -> "nodeA";
   private final HazelcastCoordinatorConfig config =
-      new HazelcastCoordinatorConfig("ratchet-wakeup", Optional.empty(), 16_384, 2, 1_000L);
+      new HazelcastCoordinatorConfig("ratchet-wakeup", Optional.empty(), 16_384, 2, 1_024, 1_000L);
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private RecordingMetrics metrics;
 

@@ -39,7 +39,7 @@ class InfinispanCacheLifecycleTest {
 
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final InfinispanCoordinatorConfig config =
-      new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 60L, 16_384, 2, 500L);
+      new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 60L, 16_384, 2, 1_024, 500L);
 
   @BeforeEach
   void setUp() {
@@ -64,7 +64,7 @@ class InfinispanCacheLifecycleTest {
   @Test
   void publishHonoursConfiguredTtlOverride() {
     InfinispanCoordinatorConfig overridden =
-        new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 5L, 16_384, 2, 500L);
+        new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 5L, 16_384, 2, 1_024, 500L);
     InfinispanCacheLifecycle lifecycle =
         new InfinispanCacheLifecycle(cache, overridden, codec, m -> {}, () -> {});
     lifecycle.publish("k", "v");

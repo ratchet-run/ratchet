@@ -39,7 +39,7 @@ class PostgresqlCoordinatorConfigTest {
     assertDoesNotThrow(
         () ->
             new PostgresqlCoordinatorConfig(
-                channel, Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 5_000L));
+                channel, Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 1_024, 5_000L));
   }
 
   @Test
@@ -50,7 +50,7 @@ class PostgresqlCoordinatorConfigTest {
             IllegalArgumentException.class,
             () ->
                 new PostgresqlCoordinatorConfig(
-                    channel, Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 5_000L));
+                    channel, Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 1_024, 5_000L));
     assertTrue(ex.getMessage().contains("64 bytes"), ex.getMessage());
     assertTrue(ex.getMessage().contains("truncate"), ex.getMessage());
   }
@@ -63,7 +63,7 @@ class PostgresqlCoordinatorConfigTest {
             IllegalArgumentException.class,
             () ->
                 new PostgresqlCoordinatorConfig(
-                    channel, Optional.of("cell"), 5_000L, 200L, 30_000L, 16_384, 1, 5_000L));
+                    channel, Optional.of("cell"), 5_000L, 200L, 30_000L, 16_384, 1, 1_024, 5_000L));
     assertTrue(ex.getMessage().contains("65 bytes"), ex.getMessage());
   }
 
@@ -74,7 +74,7 @@ class PostgresqlCoordinatorConfigTest {
         IllegalArgumentException.class,
         () ->
             new PostgresqlCoordinatorConfig(
-                channel, Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 5_000L));
+                channel, Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 1_024, 5_000L));
   }
 
   @Test
@@ -84,7 +84,7 @@ class PostgresqlCoordinatorConfigTest {
         IllegalArgumentException.class,
         () ->
             new PostgresqlCoordinatorConfig(
-                channel, Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 5_000L));
+                channel, Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 1_024, 5_000L));
   }
 
   @Test
@@ -93,7 +93,7 @@ class PostgresqlCoordinatorConfigTest {
         IllegalArgumentException.class,
         () ->
             new PostgresqlCoordinatorConfig(
-                "wakeup", Optional.of("cell\t1"), 5_000L, 200L, 30_000L, 16_384, 1, 5_000L));
+                "wakeup", Optional.of("cell\t1"), 5_000L, 200L, 30_000L, 16_384, 1, 1_024, 5_000L));
   }
 
   @Test
@@ -102,7 +102,7 @@ class PostgresqlCoordinatorConfigTest {
         IllegalArgumentException.class,
         () ->
             new PostgresqlCoordinatorConfig(
-                "1wakeup", Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 5_000L));
+                "1wakeup", Optional.empty(), 5_000L, 200L, 30_000L, 16_384, 1, 1_024, 5_000L));
   }
 
   @Test
@@ -111,6 +111,6 @@ class PostgresqlCoordinatorConfigTest {
         IllegalArgumentException.class,
         () ->
             new PostgresqlCoordinatorConfig(
-                "wakeup", Optional.empty(), 5_000L, 200L, 30_000L, 0, 1, 5_000L));
+                "wakeup", Optional.empty(), 5_000L, 200L, 30_000L, 0, 1, 1_024, 5_000L));
   }
 }

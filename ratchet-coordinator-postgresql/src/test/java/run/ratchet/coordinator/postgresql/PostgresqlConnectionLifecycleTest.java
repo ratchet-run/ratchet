@@ -46,7 +46,7 @@ class PostgresqlConnectionLifecycleTest {
   void setUp() {
     config =
         new PostgresqlCoordinatorConfig(
-            "ratchet_wakeup", Optional.empty(), 5_000L, 10L, 50L, 16_384, 1, 5_000L);
+            "ratchet_wakeup", Optional.empty(), 5_000L, 10L, 50L, 16_384, 1, 1_024, 5_000L);
   }
 
   private static Connection mockPgConnection() throws SQLException {
@@ -100,7 +100,7 @@ class PostgresqlConnectionLifecycleTest {
   void acquireAppliesCellIdSuffixToListenChannel() throws Exception {
     config =
         new PostgresqlCoordinatorConfig(
-            "ratchet_wakeup", Optional.of("tenantA"), 5_000L, 10L, 50L, 16_384, 1, 5_000L);
+            "ratchet_wakeup", Optional.of("tenantA"), 5_000L, 10L, 50L, 16_384, 1, 1_024, 5_000L);
     Connection raw = mockPgConnection();
     PostgresqlConnectionLifecycle lifecycle =
         new PostgresqlConnectionLifecycle(() -> raw, config, ms -> {});

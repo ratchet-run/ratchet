@@ -141,6 +141,7 @@ class JmsClusterCoordinatorIT {
         250L,
         16_384,
         2,
+        1_024,
         1_500L);
   }
 

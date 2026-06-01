@@ -277,7 +277,16 @@ class JmsClusterCoordinatorTest {
 
   private static JmsCoordinatorConfig newConfig() {
     return new JmsCoordinatorConfig(
-        Optional.empty(), Optional.empty(), Optional.empty(), true, 25L, 100L, 16_384, 2, 1_000L);
+        Optional.empty(),
+        Optional.empty(),
+        Optional.empty(),
+        true,
+        25L,
+        100L,
+        16_384,
+        2,
+        1_024,
+        1_000L);
   }
 
   /** MetricsCollector that records published/received outcomes for assertions. */

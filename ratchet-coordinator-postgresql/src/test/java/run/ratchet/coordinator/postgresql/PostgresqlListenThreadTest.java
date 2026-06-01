@@ -35,7 +35,7 @@ class PostgresqlListenThreadTest {
     AtomicInteger parseFailures = new AtomicInteger();
     PostgresqlCoordinatorConfig config =
         new PostgresqlCoordinatorConfig(
-            "ratchet_wakeup", Optional.empty(), 100L, 10L, 50L, 4, 1, 500L);
+            "ratchet_wakeup", Optional.empty(), 100L, 10L, 50L, 4, 1, 1_024, 500L);
     PostgresqlListenThread listener =
         new PostgresqlListenThread(
             new PostgresqlConnectionLifecycle(

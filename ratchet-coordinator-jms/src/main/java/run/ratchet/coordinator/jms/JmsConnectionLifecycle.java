@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.CoordinatorThreading;
 
 /**
  * Owns the {@link JMSContext}, {@link JMSProducer}, and {@link JMSConsumer} for one JMS coordinator
@@ -89,6 +90,7 @@ final class JmsConnectionLifecycle {
   private final JmsCoordinatorConfig config;
   private final Consumer<Message> inboundHandler;
   private final Runnable onTransportFailure;
+  private final CoordinatorThreading threading;
 
   private final AtomicReference<Pair> connectionRef = new AtomicReference<>();
   // Serializes concurrent sends so only one thread ever touches the sender JMSContext at a time.
@@ -108,12 +110,14 @@ final class JmsConnectionLifecycle {
       Topic topic,
       JmsCoordinatorConfig config,
       Consumer<Message> inboundHandler,
-      Runnable onTransportFailure) {
+      Runnable onTransportFailure,
+      CoordinatorThreading threading) {
     this.connectionFactory = Objects.requireNonNull(connectionFactory, "connectionFactory");
     this.topic = Objects.requireNonNull(topic, "topic");
     this.config = Objects.requireNonNull(config, "config");
     this.inboundHandler = Objects.requireNonNull(inboundHandler, "inboundHandler");
     this.onTransportFailure = Objects.requireNonNull(onTransportFailure, "onTransportFailure");
+    this.threading = Objects.requireNonNull(threading, "threading");
   }
 
   /**
@@ -188,8 +192,7 @@ final class JmsConnectionLifecycle {
     if (!reconnectInFlight.compareAndSet(false, true)) {
       return; // already reconnecting
     }
-    Thread t = new Thread(this::reconnectLoop, "ratchet-coordinator-jms-reconnect");
-    t.setDaemon(true);
+    Thread t = threading.newLoopThread("reconnect", this::reconnectLoop);
     this.reconnectThread = t;
     t.start();
   }
@@ -301,8 +304,7 @@ final class JmsConnectionLifecycle {
   }
 
   private void startReceiveThread(Pair pair) {
-    Thread t = new Thread(() -> receiveLoop(pair), "ratchet-coordinator-jms-receive");
-    t.setDaemon(true);
+    Thread t = threading.newLoopThread("receive", () -> receiveLoop(pair));
     this.receiveThread = t;
     t.start();
   }
@@ -315,7 +317,11 @@ final class JmsConnectionLifecycle {
    */
   private void receiveLoop(Pair pair) {
     JMSConsumer consumer = pair.consumer();
-    while (!closed.get() && connectionRef.get() == pair) {
+    // isInterrupted() is a second exit condition: the container may interrupt a managed-factory
+    // thread before close() runs (Jakarta Concurrency 3.0 §3.1.4).
+    while (!closed.get()
+        && !Thread.currentThread().isInterrupted()
+        && connectionRef.get() == pair) {
       try {
         Message message = consumer.receive(RECEIVE_TIMEOUT_MS);
         if (message != null) {
@@ -360,7 +366,9 @@ final class JmsConnectionLifecycle {
   private void reconnectLoop() {
     long delay = config.reconnectBackoffInitialMs();
     try {
-      while (!closed.get()) {
+      // isInterrupted() is a second exit condition alongside `closed`: the container may interrupt
+      // a managed-factory thread before close() runs (Jakarta Concurrency 3.0 §3.1.4).
+      while (!closed.get() && !Thread.currentThread().isInterrupted()) {
         try {
           // Full jitter uniform [0, delay] so N nodes don't march in lock-step out of a shared
           // outage. The +1 keeps `delay` itself reachable.

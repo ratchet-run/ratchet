@@ -56,7 +56,7 @@ class InfinispanClusterCoordinatorTest {
 
   private final NodeIdentityProvider identityProvider = () -> "nodeA";
   private final InfinispanCoordinatorConfig config =
-      new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 60L, 16_384, 2, 1_000L);
+      new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 60L, 16_384, 2, 1_024, 1_000L);
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private RecordingMetrics metrics;
 

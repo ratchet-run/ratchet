@@ -85,7 +85,7 @@ class PostgresqlListenNotifyCoordinatorIT {
             CONTAINER.getJdbcUrl(), CONTAINER.getUsername(), CONTAINER.getPassword());
     config =
         new PostgresqlCoordinatorConfig(
-            "ratchet_wakeup", Optional.empty(), 500L, 50L, 500L, 16_384, 1, 3_000L);
+            "ratchet_wakeup", Optional.empty(), 500L, 50L, 500L, 16_384, 1, 1_024, 3_000L);
   }
 
   @AfterAll

@@ -73,6 +73,7 @@ public final class PostgresqlCoordinatorTestHarness implements CoordinatorTestHa
             /* reconnectBackoffMaxMs= */ 500L,
             /* maxInboundPayloadChars= */ 16_384,
             /* listenerExecutorThreads= */ 1,
+            /* listenerExecutorQueueCapacity= */ 1_024,
             /* shutdownGraceMs= */ 3_000L);
   }
 

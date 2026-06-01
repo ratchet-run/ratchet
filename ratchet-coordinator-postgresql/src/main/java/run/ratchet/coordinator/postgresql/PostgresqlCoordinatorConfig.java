@@ -42,6 +42,10 @@ import java.util.regex.Pattern;
  *     leaves three orders of magnitude of headroom for future fields while bounding malformed JSON.
  * @param listenerExecutorThreads worker threads for dispatching to registered wakeup listeners.
  *     Default 1.
+ * @param listenerExecutorQueueCapacity bound on the dispatch pool's pending-task queue. When the
+ *     bound is hit the oldest queued wakeup is discarded (wakeups are advisory and a fresher one
+ *     supersedes a stale one). Default 1024; replaces the unbounded queue that risked OOM under
+ *     sustained wakeup pressure.
  * @param shutdownGraceMs max wait for the listen thread and listener executor to drain on close.
  *     Default 5000.
  */
@@ -53,6 +57,7 @@ public record PostgresqlCoordinatorConfig(
     long reconnectBackoffMaxMs,
     int maxInboundPayloadChars,
     int listenerExecutorThreads,
+    int listenerExecutorQueueCapacity,
     long shutdownGraceMs) {
 
   public static final String DEFAULT_CHANNEL = "ratchet_wakeup";
@@ -118,6 +123,9 @@ public record PostgresqlCoordinatorConfig(
     if (listenerExecutorThreads < 1) {
       throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
     }
+    if (listenerExecutorQueueCapacity < 1) {
+      throw new IllegalArgumentException("listenerExecutorQueueCapacity must be >= 1");
+    }
     if (shutdownGraceMs <= 0) {
       throw new IllegalArgumentException("shutdownGraceMs must be > 0");
     }
@@ -126,7 +134,7 @@ public record PostgresqlCoordinatorConfig(
   /** Default tuning suitable for typical deployments. */
   public static PostgresqlCoordinatorConfig defaults() {
     return new PostgresqlCoordinatorConfig(
-        DEFAULT_CHANNEL, Optional.empty(), 1_000L, 200L, 30_000L, 16_384, 1, 5_000L);
+        DEFAULT_CHANNEL, Optional.empty(), 1_000L, 200L, 30_000L, 16_384, 1, 1_024, 5_000L);
   }
 
   /** The fully-qualified channel name after applying the optional {@code cellId} suffix. */

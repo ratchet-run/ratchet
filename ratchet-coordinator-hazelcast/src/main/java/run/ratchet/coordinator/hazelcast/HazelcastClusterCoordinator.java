@@ -36,15 +36,13 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.CoordinatorThreading;
 import run.ratchet.coordinator.common.NotifyPayload;
 import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
@@ -108,6 +106,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   private ITopic<String> topic;
   private UUID listenerRegistrationId;
   private ExecutorService listenerExecutor;
+  private CoordinatorThreading threading;
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
   HazelcastClusterCoordinator() {
@@ -124,6 +123,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
     this.config = Objects.requireNonNull(config, "config");
     this.directInstance = Objects.requireNonNull(instance, "instance");
     this.metrics = metrics;
+    this.threading = CoordinatorThreading.standalone("ratchet-coordinator-hazelcast");
   }
 
   @PostConstruct
@@ -137,6 +137,11 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
     requireJsonProvider();
+    if (threading == null) {
+      // CDI/production path: route the dispatch pool through the container's managed thread
+      // factory. Standalone is an explicit opt-in via the test constructor.
+      threading = CoordinatorThreading.managed("ratchet-coordinator-hazelcast");
+    }
     HazelcastInstance hz;
     if (directInstance != null) {
       hz = directInstance;
@@ -339,20 +344,8 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   }
 
   private ExecutorService newListenerExecutor() {
-    ThreadFactory tf =
-        new ThreadFactory() {
-          private final AtomicLong counter = new AtomicLong();
-
-          @Override
-          public Thread newThread(Runnable r) {
-            Thread t =
-                new Thread(
-                    r, "ratchet-coordinator-hazelcast-dispatch-" + counter.incrementAndGet());
-            t.setDaemon(true);
-            return t;
-          }
-        };
-    return Executors.newFixedThreadPool(Math.max(1, config.listenerExecutorThreads()), tf);
+    return threading.newDispatchPool(
+        "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity());
   }
 
   /**

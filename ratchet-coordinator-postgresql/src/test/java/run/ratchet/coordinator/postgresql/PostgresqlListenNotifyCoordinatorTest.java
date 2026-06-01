@@ -57,7 +57,7 @@ class PostgresqlListenNotifyCoordinatorTest {
   void setUp() {
     config =
         new PostgresqlCoordinatorConfig(
-            "ratchet_wakeup", Optional.empty(), 100L, 10L, 50L, 16_384, 1, 500L);
+            "ratchet_wakeup", Optional.empty(), 100L, 10L, 50L, 16_384, 1, 1_024, 500L);
     localProvider = () -> "nodeA";
     metrics = new RecordingMetrics();
   }

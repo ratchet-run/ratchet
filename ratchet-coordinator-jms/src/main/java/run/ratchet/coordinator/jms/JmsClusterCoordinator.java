@@ -36,15 +36,13 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.CoordinatorThreading;
 import run.ratchet.coordinator.common.DecodeException;
 import run.ratchet.coordinator.common.NotifyPayload;
 import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
@@ -119,6 +117,7 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
   private Topic topic;
   private NodeIdentity localIdentity;
   private ExecutorService listenerExecutor;
+  private CoordinatorThreading threading;
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
   protected JmsClusterCoordinator() {
@@ -140,6 +139,7 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
     this.connectionLifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
     this.topic = Objects.requireNonNull(topic, "topic");
     this.metrics = metrics;
+    this.threading = CoordinatorThreading.standalone("ratchet-coordinator-jms");
   }
 
   /**
@@ -158,6 +158,7 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
     this.directConnectionFactory = Objects.requireNonNull(connectionFactory, "connectionFactory");
     this.topic = Objects.requireNonNull(topic, "topic");
     this.metrics = metrics;
+    this.threading = CoordinatorThreading.standalone("ratchet-coordinator-jms");
   }
 
   @PostConstruct
@@ -171,6 +172,11 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
     requireJsonProvider();
+    if (threading == null) {
+      // CDI/production path: route loop threads and the dispatch pool through the container's
+      // managed thread factory. Standalone is an explicit opt-in via the test constructors.
+      threading = CoordinatorThreading.managed("ratchet-coordinator-jms");
+    }
     if (connectionLifecycle == null) {
       ConnectionFactory cf;
       if (directConnectionFactory != null) {
@@ -184,7 +190,7 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
       }
       connectionLifecycle =
           new JmsConnectionLifecycle(
-              cf, topic, config, this::onJmsMessage, this::onConnectionTransportFailure);
+              cf, topic, config, this::onJmsMessage, this::onConnectionTransportFailure, threading);
     }
     listenerExecutor = newListenerExecutor();
     localIdentity = new NodeIdentity(identityProvider.getNodeId());
@@ -412,18 +418,7 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
   }
 
   private ExecutorService newListenerExecutor() {
-    ThreadFactory tf =
-        new ThreadFactory() {
-          private final AtomicLong counter = new AtomicLong();
-
-          @Override
-          public Thread newThread(Runnable r) {
-            Thread t =
-                new Thread(r, "ratchet-coordinator-jms-dispatch-" + counter.incrementAndGet());
-            t.setDaemon(true);
-            return t;
-          }
-        };
-    return Executors.newFixedThreadPool(Math.max(1, config.listenerExecutorThreads()), tf);
+    return threading.newDispatchPool(
+        "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity());
   }
 }

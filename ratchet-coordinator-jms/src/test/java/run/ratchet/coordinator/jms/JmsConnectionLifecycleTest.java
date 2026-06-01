@@ -57,6 +57,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.CoordinatorThreading;
 
 class JmsConnectionLifecycleTest {
 
@@ -517,7 +518,13 @@ class JmsConnectionLifecycleTest {
   private JmsConnectionLifecycle newLifecycle(
       java.util.function.Consumer<Message> inboundHandler, Runnable onTransportFailure) {
     JmsConnectionLifecycle lifecycle =
-        new JmsConnectionLifecycle(cf, topic, config, inboundHandler, onTransportFailure);
+        new JmsConnectionLifecycle(
+            cf,
+            topic,
+            config,
+            inboundHandler,
+            onTransportFailure,
+            CoordinatorThreading.standalone("ratchet-coordinator-jms-test"));
     created.add(lifecycle);
     return lifecycle;
   }
@@ -532,6 +539,7 @@ class JmsConnectionLifecycleTest {
         /* reconnectBackoffMaxMs= */ 100L,
         /* maxInboundPayloadChars= */ 16_384,
         /* listenerExecutorThreads= */ 2,
+        /* listenerExecutorQueueCapacity= */ 1_024,
         /* shutdownGraceMs= */ 1_000L);
   }
 

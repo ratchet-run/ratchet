@@ -30,8 +30,6 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -41,6 +39,7 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.CoordinatorThreading;
 import run.ratchet.coordinator.common.NotifyPayload;
 import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
@@ -104,6 +103,7 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
   private InfinispanCacheLifecycle cacheLifecycle;
   private Cache<String, String> directCache;
   private ExecutorService listenerExecutor;
+  private CoordinatorThreading threading;
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
   protected InfinispanClusterCoordinator() {
@@ -120,6 +120,7 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
     this.config = Objects.requireNonNull(config, "config");
     this.directCache = Objects.requireNonNull(cache, "cache");
     this.metrics = metrics;
+    this.threading = CoordinatorThreading.standalone("ratchet-coordinator-infinispan");
   }
 
   @PostConstruct
@@ -133,6 +134,11 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
     requireJsonProvider();
+    if (threading == null) {
+      // CDI/production path: route the dispatch pool through the container's managed thread
+      // factory. Standalone is an explicit opt-in via the test constructor.
+      threading = CoordinatorThreading.managed("ratchet-coordinator-infinispan");
+    }
     Cache<String, String> cache;
     if (directCache != null) {
       cache = directCache;
@@ -320,19 +326,7 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
   }
 
   private ExecutorService newListenerExecutor() {
-    ThreadFactory tf =
-        new ThreadFactory() {
-          private final AtomicLong counter = new AtomicLong();
-
-          @Override
-          public Thread newThread(Runnable r) {
-            Thread t =
-                new Thread(
-                    r, "ratchet-coordinator-infinispan-dispatch-" + counter.incrementAndGet());
-            t.setDaemon(true);
-            return t;
-          }
-        };
-    return Executors.newFixedThreadPool(Math.max(1, config.listenerExecutorThreads()), tf);
+    return threading.newDispatchPool(
+        "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity());
   }
 }

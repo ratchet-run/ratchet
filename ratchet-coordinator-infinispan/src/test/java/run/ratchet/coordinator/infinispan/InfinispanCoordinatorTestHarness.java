@@ -55,7 +55,7 @@ public final class InfinispanCoordinatorTestHarness implements CoordinatorTestHa
   public InfinispanCoordinatorTestHarness() throws IOException {
     this.cacheName = "wakeup_" + Long.toHexString(System.nanoTime());
     this.config =
-        new InfinispanCoordinatorConfig(cacheName, Optional.empty(), 60L, 16_384, 2, 1_500L);
+        new InfinispanCoordinatorConfig(cacheName, Optional.empty(), 60L, 16_384, 2, 1_024, 1_500L);
     this.cluster = new TwoNodeInfinispanCluster(cacheName);
   }
 

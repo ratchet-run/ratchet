@@ -74,6 +74,7 @@ public final class JmsCoordinatorTestHarness implements CoordinatorTestHarness {
             /* reconnectBackoffMaxMs= */ 250L,
             /* maxInboundPayloadChars= */ 16_384,
             /* listenerExecutorThreads= */ 2,
+            /* listenerExecutorQueueCapacity= */ 1_024,
             /* shutdownGraceMs= */ 1_500L);
   }
 

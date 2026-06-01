@@ -40,6 +40,10 @@ import java.util.Optional;
  *     three orders of magnitude of headroom for future fields while bounding malformed JSON.
  * @param listenerExecutorThreads worker threads dispatching inbound cache events to registered
  *     listeners. Default 2 — keeps one slow listener from stalling all others.
+ * @param listenerExecutorQueueCapacity bound on the dispatch pool's pending-task queue. When the
+ *     bound is hit the oldest queued wakeup is discarded (wakeups are advisory and a fresher one
+ *     supersedes a stale one). Default 1024; replaces the unbounded queue that risked OOM under
+ *     sustained wakeup pressure.
  * @param shutdownGraceMs max wait for the @Listener removal on close. Default 5000.
  */
 public record InfinispanCoordinatorConfig(
@@ -48,6 +52,7 @@ public record InfinispanCoordinatorConfig(
     long wakeupTtlSeconds,
     int maxInboundPayloadChars,
     int listenerExecutorThreads,
+    int listenerExecutorQueueCapacity,
     long shutdownGraceMs) {
 
   public static final String DEFAULT_CACHE_NAME = "wakeup";
@@ -67,6 +72,9 @@ public record InfinispanCoordinatorConfig(
     if (listenerExecutorThreads < 1) {
       throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
     }
+    if (listenerExecutorQueueCapacity < 1) {
+      throw new IllegalArgumentException("listenerExecutorQueueCapacity must be >= 1");
+    }
     if (shutdownGraceMs <= 0) {
       throw new IllegalArgumentException("shutdownGraceMs must be > 0");
     }
@@ -75,7 +83,7 @@ public record InfinispanCoordinatorConfig(
   /** Default tuning suitable for WildFly + standalone Infinispan deployments. */
   public static InfinispanCoordinatorConfig defaults() {
     return new InfinispanCoordinatorConfig(
-        DEFAULT_CACHE_NAME, Optional.empty(), 60L, 16_384, 2, 5_000L);
+        DEFAULT_CACHE_NAME, Optional.empty(), 60L, 16_384, 2, 1_024, 5_000L);
   }
 
   /** The fully-qualified cache name after applying the optional {@code cellId} suffix. */
