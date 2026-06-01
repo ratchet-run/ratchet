@@ -59,6 +59,7 @@
     <module>ratchet-testsuite</module>
     <module>ratchet-testsuite-jpms</module>
     <module>ratchet-loadtest</module>
+    <module>ratchet-showcase</module>
     <module>ratchet-micrometer</module>
     <module>ratchet-otel</module>
     <module>ratchet-bom</module>
