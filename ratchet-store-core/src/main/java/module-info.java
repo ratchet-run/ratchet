@@ -36,6 +36,13 @@ module run.ratchet.store.core {
   exports run.ratchet.store.query;
   exports run.ratchet.store.util;
 
+  // Store-implementor scaffolding (abstract context bases). Internal to the bundled store modules,
+  // not a public extension point; keep the visibility qualified so it can change without a break.
+  exports run.ratchet.store.context to
+      run.ratchet.store.mysql,
+      run.ratchet.store.postgresql,
+      run.ratchet.store.mongodb;
+
   opens run.ratchet.store.converter;
   opens run.ratchet.store.entity;
   opens run.ratchet.store.id;

@@ -136,6 +136,14 @@ class MysqlTransientExceptionTranslationTest {
         RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
   }
 
+  @Test
+  void countByNativeTranslatesTransientReadFailure() {
+    MysqlJobCountOperations counts =
+        new MysqlJobCountOperations(throwingContext("getSingleResult"));
+
+    assertThrows(RatchetTransientStoreException.class, counts::countActiveNodes);
+  }
+
   private static MysqlStoreContext throwingContext(String throwingQueryMethod) {
     EntityManager em =
         (EntityManager)

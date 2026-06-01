@@ -21,29 +21,22 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import java.util.List;
-import java.util.UUID;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import org.bson.Document;
-import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
-import run.ratchet.api.JobType;
-import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.ConstraintDetector;
+import run.ratchet.store.context.AbstractStoreContext;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.util.StatusClassifier;
-import run.ratchet.store.util.TransientStoreExceptions;
 
 /**
  * Shared context passed into every Mongo operation class.
  *
- * <p>Owns the {@link MongoDatabase} handle, collection accessors, status classification helpers,
- * and transient-exception translation.
+ * <p>Owns the {@link MongoDatabase} handle, collection accessors, and status classification helpers
+ * on top of the shared {@link AbstractStoreContext} scaffolding. Mongo adds a translation branch
+ * for non-transient {@link MongoException}s via {@link #additionalTranslation}.
  */
-final class MongoStoreContext {
-
-  private static final String DIALECT = "mongodb";
-  private static final MetricsCollector NOOP_METRICS_COLLECTOR = new NoopMetricsCollector();
+final class MongoStoreContext extends AbstractStoreContext {
 
   static final List<String> EXECUTABLE_JOB_TYPES =
       List.of("SINGLE", "BATCH_CHILD", "CHAIN_STEP", "WORKFLOW_BRANCH");
@@ -52,16 +45,14 @@ final class MongoStoreContext {
 
   private final MongoClient client;
   private final MongoDatabase database;
-  private final MetricsCollector metricsCollector;
-  private final int priorityBoostIntervalMinutes;
   private final MongoConstraintDetector constraintDetector = new MongoConstraintDetector();
 
   MongoStoreContext(MongoClient client, MongoDatabase database) {
-    this(client, database, NOOP_METRICS_COLLECTOR, 15);
+    this(client, database, noopMetricsCollector(), 15);
   }
 
   MongoStoreContext(MongoClient client, MongoDatabase database, int priorityBoostIntervalMinutes) {
-    this(client, database, NOOP_METRICS_COLLECTOR, priorityBoostIntervalMinutes);
+    this(client, database, noopMetricsCollector(), priorityBoostIntervalMinutes);
   }
 
   MongoStoreContext(
@@ -69,14 +60,9 @@ final class MongoStoreContext {
       MongoDatabase database,
       MetricsCollector metricsCollector,
       int priorityBoostIntervalMinutes) {
+    super(metricsCollector, priorityBoostIntervalMinutes);
     this.client = client;
     this.database = database;
-    this.metricsCollector = metricsCollector;
-    this.priorityBoostIntervalMinutes = priorityBoostIntervalMinutes;
-  }
-
-  static MetricsCollector noopMetricsCollector() {
-    return NOOP_METRICS_COLLECTOR;
   }
 
   static boolean isPollerExecutable(JobExecutionType jobType) {
@@ -107,48 +93,27 @@ final class MongoStoreContext {
     return database;
   }
 
-  int priorityBoostIntervalMinutes() {
-    return priorityBoostIntervalMinutes;
+  @Override
+  protected String dialectMetric() {
+    return "mongodb";
   }
 
-  MongoConstraintDetector constraintDetector() {
+  @Override
+  protected String dialectLabel() {
+    return "MongoDB";
+  }
+
+  @Override
+  public ConstraintDetector constraintDetector() {
     return constraintDetector;
   }
 
-  RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
-    RatchetTransientStoreException wrapped =
-        TransientStoreExceptions.translateOrNull("MongoDB", constraintDetector, operation, e);
-    if (wrapped != null) {
-      return wrapped;
-    }
+  @Override
+  protected RuntimeException additionalTranslation(String operation, RuntimeException e) {
     if (containsMongoException(e)) {
       return new IllegalStateException("MongoDB store failure during " + operation, e);
     }
     return e;
-  }
-
-  <T> T timedStoreOperation(
-      String operation, Supplier<T> action, Function<T, String> outcomeFunction) {
-    long startNanos = System.nanoTime();
-    try {
-      T result = action.get();
-      recordStoreOperation(operation, outcomeFunction.apply(result), startNanos);
-      return result;
-    } catch (RatchetTransientStoreException e) {
-      recordStoreOperation(operation, "transient_failure", startNanos);
-      throw e;
-    } catch (RuntimeException e) {
-      RuntimeException translated = translateTransientStoreException(operation, e);
-      recordStoreOperation(
-          operation,
-          translated instanceof RatchetTransientStoreException ? "transient_failure" : "failure",
-          startNanos);
-      throw translated;
-    }
-  }
-
-  private void recordStoreOperation(String operation, String outcome, long startNanos) {
-    metricsCollector.storeOperation(DIALECT, operation, outcome, System.nanoTime() - startNanos);
   }
 
   private static boolean containsMongoException(Throwable throwable) {
@@ -216,43 +181,5 @@ final class MongoStoreContext {
 
   MongoCollection<Document> recurringJobArchive() {
     return database.getCollection("scheduler_recurring_job_archive");
-  }
-
-  private static final class NoopMetricsCollector implements MetricsCollector {
-    @Override
-    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {}
-
-    @Override
-    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {}
-
-    @Override
-    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {}
-
-    @Override
-    public void successFinalizationRetried(UUID jobId, JobType type) {}
-
-    @Override
-    public void successFinalizationMinimal(UUID jobId, JobType type) {}
-
-    @Override
-    public void successFinalizationStuck(UUID jobId, JobType type) {}
-
-    @Override
-    public void claimTransientFailure(String executionType) {}
-
-    @Override
-    public void jobsClaimed(String executionType, int claimedCount) {}
-
-    @Override
-    public void gateRejected(String executionType, String gateStatus) {}
-
-    @Override
-    public void localWakeup(String source) {}
-
-    @Override
-    public void clusterWakeupPublished(String transport, String outcome) {}
-
-    @Override
-    public void clusterWakeupReceived(String transport, String outcome) {}
   }
 }
