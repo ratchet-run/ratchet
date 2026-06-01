@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ratchet Showcase</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Ratchet Showcase</h1>
+          <div id="runtime" class="runtime"></div>
+        </div>
+        <div class="toolbar">
+          <button id="start">Start</button>
+          <button id="stop">Stop</button>
+          <button id="reset" class="danger">Reset</button>
+        </div>
+      </header>
+
+      <section class="controlBand">
+        <div class="controlGroup rateGroup">
+          <label>
+            <span>Orders / min</span>
+            <input id="rate" type="range" min="1" max="1000" value="30" />
+          </label>
+          <output id="rateValue">30</output>
+        </div>
+        <div class="controlGroup seedGroup">
+          <label>
+            <span>Seed</span>
+            <input id="seed" inputmode="numeric" value="8675309" />
+          </label>
+          <button id="newSeed">New Seed</button>
+        </div>
+        <div class="controlGroup">
+          <label>
+            <span>Burst</span>
+            <input id="burstiness" type="range" min="0" max="100" value="25" />
+          </label>
+          <output id="burstValue">25%</output>
+        </div>
+        <div class="controlGroup">
+          <label>
+            <span>Failure Mix</span>
+            <input id="failureMix" type="range" min="0" max="100" value="35" />
+          </label>
+          <output id="failureValue">35%</output>
+        </div>
+        <button id="update" class="primary">Apply</button>
+      </section>
+
+      <section class="kpis" id="kpis"></section>
+
+      <section class="panel activityPanel">
+        <div class="sectionHead">
+          <h2>Ratchet Activity</h2>
+          <button id="metricsPreview">Metrics</button>
+        </div>
+        <div id="activity" class="activityGrid"></div>
+      </section>
+
+      <section class="panel scenarioPanel">
+        <h2>Scenarios</h2>
+        <div class="scenarioGrid">
+          <button id="fraudReview">Fraud Review</button>
+          <button id="badCard">Bad Card DLQ</button>
+          <button id="warehouseCrunch">Warehouse Crunch</button>
+          <button id="carrierOutage">Carrier Outage</button>
+          <button id="paymentOutage">Payment Outage</button>
+          <button id="importBurst">Import Burst</button>
+        </div>
+      </section>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>Queue</h2>
+          <div id="queue" class="queue"></div>
+        </article>
+
+        <article class="panel reviewsPanel">
+          <h2>Reviews</h2>
+          <div id="reviews" class="list"></div>
+        </article>
+
+        <article class="panel wide ordersPanel">
+          <h2>Orders</h2>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Order</th>
+                  <th>Customer</th>
+                  <th>SKU</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Message</th>
+                </tr>
+              </thead>
+              <tbody id="orders"></tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="panel wide jobsPanel">
+          <h2>Jobs</h2>
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Job</th>
+                  <th>Status</th>
+                  <th>Type</th>
+                  <th>Priority</th>
+                  <th>Method</th>
+                  <th>Attempts</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="jobs"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <dialog id="jobDetail" class="jobDetail">
+      <form method="dialog">
+        <div class="sectionHead">
+          <h2>Job Detail</h2>
+          <button value="close">Close</button>
+        </div>
+        <div id="jobDetailBody" class="detailGrid"></div>
+      </form>
+    </dialog>
+    <dialog id="metricsDetail" class="metricsDetail">
+      <form method="dialog">
+        <div class="sectionHead">
+          <h2>Metrics</h2>
+          <button value="close">Close</button>
+        </div>
+        <div id="metricsSummary" class="metricsSummary"></div>
+        <pre id="metricsRaw" class="metricsRaw"></pre>
+      </form>
+    </dialog>
+    <script src="app.js"></script>
+  </body>
+</html>
