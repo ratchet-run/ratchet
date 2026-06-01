@@ -117,12 +117,12 @@ public class LifecycleTracer {
 
                 case JobRetryingEvent e ->
                     log.warning("[TRACE] Job " + e.getJobId() + " RETRYING (attempt "
-                        + e.getAttempt() + "), next at " + e.getNextScheduledTime()
+                        + e.getRetryAttempt() + "), next at " + e.getScheduledTime()
                         + ", error: " + e.getErrorMessage());
 
                 case JobDlqEvent e ->
                     log.severe("[TRACE] Job " + e.getJobId() + " -> DLQ after "
-                        + e.getAttempt() + " attempts: " + e.getErrorMessage());
+                        + e.getRetryAttempt() + " attempts: " + e.getErrorMessage());
 
                 case JobCancelledEvent e ->
                     log.info("[TRACE] Job " + e.getJobId() + " CANCELLED from "

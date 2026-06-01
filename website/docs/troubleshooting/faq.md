@@ -252,7 +252,7 @@ Completed jobs are automatically archived based on retention settings:
 |---|---|---|
 | `RATCHET_JOB_ARCHIVE_ENABLED` | `true` | Enable/disable archiving |
 | `RATCHET_JOB_RETENTION_DAYS` | `90` | Days before completed jobs are archived |
-| `RATCHET_JOB_ARCHIVER_CRON` | `0 0 1 * * ?` | When the archiver runs (1 AM daily) |
+| `RATCHET_JOB_ARCHIVE_CRON` | `0 0 1 * * ?` | When the archiver runs (1 AM daily) |
 | `RATCHET_JOB_ARCHIVE_BATCH_SIZE` | `1000` | Jobs archived per run |
 
 The archiver moves jobs from `scheduler_job` to `scheduler_job_archive`, preserving all metadata. This keeps the active job table small for poller performance while retaining history for auditing.

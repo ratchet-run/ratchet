@@ -5,35 +5,40 @@ across multiple execution types.
 
 ## Optimized Executable Claim
 
-The RI hot path calls `claimNextBatchOptimized(jobType, limit, nodeId)`, so the representative
-claim shape is a single execution type. The test uses `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` in a
-transaction and rolls the update back. Because the fixture table is intentionally small, the test
-sets `enable_seqscan = off` locally to verify that the intended claim index remains selectable.
+The RI hot path calls `claimNextBatchOptimized(jobType, limit, nodeId)`, which runs as **two
+statements**, not a CTE: a `SELECT … FOR UPDATE SKIP LOCKED` that locks the due rows in
+effective-priority order, then a separate `UPDATE … WHERE job_id IN (…)` that transitions exactly
+those rows to RUNNING. The split is deliberate — a single `UPDATE … RETURNING` from a `WITH picked
+AS (…)` CTE would emit rows in heap order rather than the claimed priority order (see the
+`PostgresqlJobClaimOperations` claim-select Javadoc). The plan below is for the `SELECT`, captured
+with `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` in a transaction that is rolled back. Because the
+fixture table is intentionally small, the test sets `enable_seqscan = off` locally to verify that
+the intended claim index remains selectable.
 
 ```sql
+-- Statement 1: lock the due rows in effective-priority order
 EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
-WITH picked AS (
-  SELECT job_id
-  FROM scheduler_job_queue
-  WHERE status = 'PENDING'
-    AND scheduled_time <= statement_timestamp()
-    AND job_type = 'SINGLE'
-  ORDER BY
-    (priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time))) / (60.0 * 15))) DESC,
-    scheduled_time ASC,
-    job_id ASC
-  FOR UPDATE SKIP LOCKED
-  LIMIT 50
-)
-UPDATE scheduler_job_queue AS q
+SELECT job_id
+FROM scheduler_job_queue
+WHERE status = 'PENDING'
+  AND scheduled_time <= statement_timestamp()
+  AND job_type = 'SINGLE'
+ORDER BY
+  (priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time))) / (60.0 * 15))) DESC,
+  scheduled_time ASC,
+  job_id ASC
+LIMIT 50
+FOR UPDATE SKIP LOCKED;
+
+-- Statement 2: transition exactly the locked rows, preserving the order from statement 1
+UPDATE scheduler_job_queue
 SET status = 'RUNNING',
     picked_by = 'explain-node',
     picked_at = statement_timestamp(),
     updated_at = statement_timestamp(),
     version = version + 1
-FROM picked
-WHERE q.job_id = picked.job_id
-RETURNING q.job_id;
+WHERE job_id IN ( /* job_ids returned by statement 1, in order */ )
+  AND status = 'PENDING';
 ```
 
 Relevant JSON excerpt:

@@ -14,7 +14,7 @@ compatibility.
 
 | Tier | Module | What it proves |
 |------|--------|----------------|
-| **Store Compatible** | `ratchet-tck-store` | The `JobStore` SPI implementation correctly persists, queries, and manages job state across 20 contracts covering CRUD, locking, lifecycle, archival, and schema conformance |
+| **Store Compatible** | `ratchet-tck-store` | The `JobStore` SPI implementation correctly persists, queries, and manages job state across 22 required contracts (plus 4 SQL-only optional) covering CRUD, locking, lifecycle, archival, and schema conformance |
 | **API Compatible** | `ratchet-tck-api` | The `JobSchedulerService` API implementation correctly handles job submission, lifecycle, retry, cancel, delayed scheduling, and idempotency without a Jakarta EE container |
 | **Jakarta Runtime Compatible** | `ratchet-tck-api` + `ratchet-tck-jakarta` | The runtime passes both API contracts and CDI injection, CDI event, and JTA transaction contracts in a live Jakarta EE container |
 
