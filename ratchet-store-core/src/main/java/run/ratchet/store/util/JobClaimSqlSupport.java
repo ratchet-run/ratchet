@@ -29,6 +29,7 @@ import run.ratchet.store.spi.ExecutionTargetFilter;
 public final class JobClaimSqlSupport {
 
   private static final String SAFE_SQL_EXPRESSION_PATTERN = "[A-Za-z0-9_().,\\s+\\-*/]+";
+  private static final String SAFE_COLUMN_PREFIX_PATTERN = "|[A-Za-z_][A-Za-z0-9_]*\\.";
 
   private JobClaimSqlSupport() {}
 
@@ -150,20 +151,41 @@ public final class JobClaimSqlSupport {
 
   public static String buildBoostedOrderBy(
       String timeColumn, String overdueMinutesExpression, int boostInterval) {
+    return buildBoostedOrderBy(timeColumn, overdueMinutesExpression, boostInterval, "");
+  }
+
+  /**
+   * Builds the effective-priority ORDER BY, qualifying the {@code priority} and {@code job_id}
+   * columns with {@code columnPrefix} (for example {@code "q."} when the query joins the queue
+   * table under an alias, or {@code ""} for an unqualified single-table select).
+   */
+  public static String buildBoostedOrderBy(
+      String timeColumn, String overdueMinutesExpression, int boostInterval, String columnPrefix) {
     requireSafeSqlFragment(timeColumn, "timeColumn");
     requireSafeSqlFragment(overdueMinutesExpression, "overdueMinutesExpression");
+    requireSafeColumnPrefix(columnPrefix);
     return boostInterval > 0
-        ? "(priority + FLOOR(GREATEST(0, "
+        ? "("
+            + columnPrefix
+            + "priority + FLOOR(GREATEST(0, "
             + overdueMinutesExpression
             + ") / ?)) DESC, "
             + timeColumn
-            + " ASC, job_id ASC"
-        : "priority DESC, " + timeColumn + " ASC, job_id ASC";
+            + " ASC, "
+            + columnPrefix
+            + "job_id ASC"
+        : columnPrefix + "priority DESC, " + timeColumn + " ASC, " + columnPrefix + "job_id ASC";
   }
 
   private static void requireSafeSqlFragment(String value, String name) {
     if (value == null || !value.matches(SAFE_SQL_EXPRESSION_PATTERN)) {
       throw new IllegalArgumentException(name + " must be a store-defined SQL fragment");
+    }
+  }
+
+  private static void requireSafeColumnPrefix(String value) {
+    if (value == null || !value.matches(SAFE_COLUMN_PREFIX_PATTERN)) {
+      throw new IllegalArgumentException("columnPrefix must be empty or a store-defined alias");
     }
   }
 

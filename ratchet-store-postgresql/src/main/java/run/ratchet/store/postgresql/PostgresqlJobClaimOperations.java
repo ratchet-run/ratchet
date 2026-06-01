@@ -51,14 +51,9 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     this.reads = reads;
   }
 
-  static String buildBoostOrderBy(String timeColumn, int boostInterval) {
-    return boostInterval > 0
-        ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
-            + timeColumn
-            + "))) / (60.0 * ?))) DESC, "
-            + timeColumn
-            + " ASC, job_id ASC"
-        : "priority DESC, " + timeColumn + " ASC, job_id ASC";
+  // Overdue minutes since the row was due: EXTRACT(EPOCH ...) is seconds, /60 converts to minutes.
+  private static String pgOverdueMinutes(String timeColumn) {
+    return "EXTRACT(EPOCH FROM (statement_timestamp() - " + timeColumn + "))/60";
   }
 
   /**
@@ -94,7 +89,8 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
             typeFilter,
             executionTargetFilterSql,
             tagFilterSql,
-            buildBoostOrderBy(timeColumn, boostInterval));
+            JobClaimSqlSupport.buildBoostedOrderBy(
+                timeColumn, pgOverdueMinutes(timeColumn), boostInterval));
   }
 
   // language=PostgreSQL
@@ -120,17 +116,8 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
             timeColumn,
             typeFilter,
             tagFilterSql,
-            buildHydratedBoostOrderBy(timeColumn, boostInterval));
-  }
-
-  private static String buildHydratedBoostOrderBy(String timeColumn, int boostInterval) {
-    return boostInterval > 0
-        ? "(q.priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
-            + timeColumn
-            + "))) / (60.0 * ?))) DESC, "
-            + timeColumn
-            + " ASC, q.job_id ASC"
-        : "q.priority DESC, " + timeColumn + " ASC, q.job_id ASC";
+            JobClaimSqlSupport.buildBoostedOrderBy(
+                timeColumn, pgOverdueMinutes(timeColumn), boostInterval, "q."));
   }
 
   // SQL template is a compile-time constant defined in this package; runtime values are bound as

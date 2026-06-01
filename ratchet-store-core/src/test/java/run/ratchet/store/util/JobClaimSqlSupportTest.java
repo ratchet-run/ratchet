@@ -78,12 +78,31 @@ class JobClaimSqlSupportTest {
   }
 
   @Test
+  void buildBoostedOrderByQualifiesPriorityAndJobIdWithColumnPrefix() {
+    assertEquals(
+        "q.priority DESC, q.scheduled_time ASC, q.job_id ASC",
+        JobClaimSqlSupport.buildBoostedOrderBy("q.scheduled_time", "age_minutes", 0, "q."));
+
+    assertEquals(
+        "(q.priority + FLOOR(GREATEST(0, age_minutes) / ?)) DESC, q.scheduled_time ASC,"
+            + " q.job_id ASC",
+        JobClaimSqlSupport.buildBoostedOrderBy("q.scheduled_time", "age_minutes", 15, "q."));
+  }
+
+  @Test
   void buildBoostedOrderByRejectsUnsafeFragments() {
     assertThrows(
         IllegalArgumentException.class,
         () ->
             JobClaimSqlSupport.buildBoostedOrderBy(
                 "scheduled_time", "age_minutes); DELETE FROM scheduler_job_queue; --", 15));
+  }
+
+  @Test
+  void buildBoostedOrderByRejectsUnsafeColumnPrefix() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> JobClaimSqlSupport.buildBoostedOrderBy("scheduled_time", "age_minutes", 15, "q; --"));
   }
 
   @Test
