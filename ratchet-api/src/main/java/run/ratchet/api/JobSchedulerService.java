@@ -69,7 +69,10 @@ import run.ratchet.api.exception.JobAuthorizationException;
  * #cancelJob(UUID)} for authorization-gated single-job cancellation.
  *
  * <p>The RI verifies these contracts through its Jakarta transaction TCK tests.
+ *
+ * @since 0.1
  */
+@Incubating
 public interface JobSchedulerService {
 
   /**

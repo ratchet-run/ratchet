@@ -24,22 +24,22 @@ import run.ratchet.api.event.JobPausedEvent;
 class ApiIncubatingContractTest {
 
   @Test
-  void jobBuilderMethodsExposeIncubatingWorkflowTypes() throws NoSuchMethodException {
-    assertIncubating(
-        JobBuilder.class.getMethod(
-            "branch", WorkflowCondition.class, SerializableCheckedRunnable.class, String.class));
-    assertIncubating(JobBuilder.class.getMethod("workflowBranches"));
-  }
-
-  @Test
-  void recurringExecutionTargetMethodsAreIncubating() throws NoSuchMethodException {
-    assertIncubating(RecurringJobBuilder.class.getMethod("virtual"));
-    assertIncubating(RecurringJobBuilder.class.getMethod("platform"));
-  }
-
-  @Test
-  void streamingBatchBuilderIsIncubating() {
+  void jobBuilderFamilyIsIncubating() {
+    // The fluent builder family is uniformly incubating at the type level rather than a mix of
+    // stable types with incubating methods, so the whole builder surface may evolve together.
+    assertIncubating(JobBuilder.class);
+    assertIncubating(RecurringJobBuilder.class);
+    assertIncubating(BatchBuilder.class);
     assertIncubating(StreamingBatchBuilder.class);
+  }
+
+  @Test
+  void primaryServicesAndContextAreIncubating() {
+    // Both halves of the service surface make the same stability promise, and the execution
+    // context that exposes the incubating JobLogger/SignalDecision types is itself incubating.
+    assertIncubating(JobSchedulerService.class);
+    assertIncubating(JobQueryService.class);
+    assertIncubating(JobContext.class);
   }
 
   @Test

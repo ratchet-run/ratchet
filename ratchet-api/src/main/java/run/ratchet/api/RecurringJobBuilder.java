@@ -26,7 +26,9 @@ import java.util.List;
  *     returned {@link JobHandle}.
  * @see JobOptions
  * @see JobHandle
+ * @since 0.1
  */
+@Incubating
 public interface RecurringJobBuilder {
 
   /**
@@ -69,7 +71,6 @@ public interface RecurringJobBuilder {
    * each occurrence falls back to the platform pool (observed via a metric and a one-time warning)
    * - the target selects a configured pool, not a guaranteed thread type.
    */
-  @Incubating
   RecurringJobBuilder virtual();
 
   /**
@@ -79,7 +80,6 @@ public interface RecurringJobBuilder {
    * <p>Mutually exclusive with {@link #virtual()}; last call wins. Calling neither leaves
    * occurrences on the deployment's default threading mode. The platform pool is always present.
    */
-  @Incubating
   RecurringJobBuilder platform();
 
   /**

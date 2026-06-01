@@ -21,7 +21,12 @@ import java.util.Map;
 import java.util.UUID;
 import run.ratchet.spi.JobLogger;
 
-/** Thread-local context for the executing job. */
+/**
+ * Thread-local context for the executing job.
+ *
+ * @since 0.1
+ */
+@Incubating
 public final class JobContext {
 
   private static final ThreadLocal<JobContext> TL = new ThreadLocal<>();

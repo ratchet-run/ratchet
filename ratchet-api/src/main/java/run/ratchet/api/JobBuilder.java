@@ -41,7 +41,9 @@ import run.ratchet.api.exception.SignalTimeoutException;
  * @see JobSubmitter
  * @see JobOptions
  * @see JobHandle
+ * @since 0.1
  */
+@Incubating
 public interface JobBuilder {
 
   /**
@@ -73,7 +75,6 @@ public interface JobBuilder {
    * @param description human-readable label surfaced in monitoring views
    * @return this builder
    */
-  @Incubating
   JobBuilder branch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description);
 
@@ -126,7 +127,6 @@ public interface JobBuilder {
    * @param next the task to schedule on failure
    * @return this builder
    */
-  @Incubating
   JobBuilder thenOnFailure(SerializableCheckedRunnable next);
 
   /**
@@ -135,7 +135,6 @@ public interface JobBuilder {
    * @param next the task to schedule on success
    * @return this builder
    */
-  @Incubating
   JobBuilder thenOnSuccess(SerializableCheckedRunnable next);
 
   /**
@@ -146,7 +145,6 @@ public interface JobBuilder {
    * @param next task scheduled when {@code condition} is satisfied
    * @return this builder
    */
-  @Incubating
   <T> JobBuilder when(
       SerializablePredicate<JobResult<T>> condition, SerializableCheckedRunnable next);
 
@@ -159,7 +157,6 @@ public interface JobBuilder {
    * @param priority evaluation order when multiple conditions overlap (lower = first)
    * @return this builder
    */
-  @Incubating
   <T> JobBuilder when(
       SerializablePredicate<JobResult<T>> condition,
       SerializableCheckedRunnable next,
@@ -173,7 +170,6 @@ public interface JobBuilder {
    * @param next task scheduled when {@code condition} returns {@code true}
    * @return this builder
    */
-  @Incubating
   <T> JobBuilder whenResult(
       SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next);
 
@@ -186,7 +182,6 @@ public interface JobBuilder {
    * @param priority evaluation order when multiple conditions overlap (lower = first)
    * @return this builder
    */
-  @Incubating
   <T> JobBuilder whenResult(
       SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next, int priority);
 
@@ -235,7 +230,6 @@ public interface JobBuilder {
    *
    * @return this builder
    */
-  @Incubating
   JobBuilder virtual();
 
   /**
@@ -246,7 +240,6 @@ public interface JobBuilder {
    *
    * @return this builder
    */
-  @Incubating
   JobBuilder platform();
 
   /**
@@ -339,7 +332,6 @@ public interface JobBuilder {
    *
    * @return an unmodifiable view of the configured workflow branches
    */
-  @Incubating
   List<WorkflowBranch> workflowBranches();
 
   /**
