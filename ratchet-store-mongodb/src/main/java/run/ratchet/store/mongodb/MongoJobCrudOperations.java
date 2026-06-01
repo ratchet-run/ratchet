@@ -414,37 +414,21 @@ final class MongoJobCrudOperations {
   }
 
   long getQueueWaitTimePercentile(double percentile) {
-    // Prefer MongoDB 7.0+ $percentile; fall back to sort+skip for older servers.
-    List<Document> pipeline =
-        List.of(
-            new Document(
-                "$match",
-                new Document(QUEUE_WAIT_MS, new Document("$ne", null))
-                    .append(STATUS, STATUS_SUCCEEDED)),
-            new Document(
-                "$group",
-                new Document(ID, null)
-                    .append(
-                        "p",
-                        new Document(
-                            "$percentile",
-                            new Document("input", "$" + QUEUE_WAIT_MS)
-                                .append("p", List.of(percentile))
-                                .append("method", "approximate")))));
-    try {
-      Optional<Long> percentileValue = aggregateFirstNumberListValue(ctx.jobs(), pipeline, "p");
-      if (percentileValue.isPresent()) {
-        return percentileValue.get();
-      }
-    } catch (Exception e) {
-      log.debug("$percentile aggregation not available, using sort+skip approximation", e);
+    if (Double.isNaN(percentile) || percentile < 0.0 || percentile > 1.0) {
+      throw new IllegalArgumentException("percentile must be in [0.0, 1.0], got: " + percentile);
     }
+    // Exact discrete nearest-rank over SUCCEEDED jobs, matching PostgreSQL PERCENTILE_DISC and the
+    // MySQL CUME_DIST path. We deliberately avoid $percentile: its only mode is "approximate"
+    // (t-digest), which would diverge from the SQL stores on the same data. Percentile reads are an
+    // admin/metrics path, not the hot path, so the full ordering cost is acceptable.
     long total =
         ctx.jobs().countDocuments(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, STATUS_SUCCEEDED)));
     if (total == 0) {
       return 0;
     }
-    long skipCount = (long) (total * percentile);
+    // Smallest 1-based rank k with k/total >= percentile, clamped to [1, total]; skip = k - 1.
+    long rank = (long) Math.ceil(percentile * total);
+    long skipCount = Math.max(1, Math.min(rank, total)) - 1;
     Document doc =
         ctx.jobs()
             .find(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, STATUS_SUCCEEDED)))
@@ -460,17 +444,6 @@ final class MongoJobCrudOperations {
       MongoCollection<Document> collection, List<? extends Bson> pipeline, String field) {
     Number value = numberField(collection.aggregate(pipeline).first(), field);
     return value == null ? 0.0 : value.doubleValue();
-  }
-
-  private static Optional<Long> aggregateFirstNumberListValue(
-      MongoCollection<Document> collection, List<? extends Bson> pipeline, String field) {
-    Object value = fieldValue(collection.aggregate(pipeline).first(), field);
-    if (!(value instanceof List<?> values)
-        || values.isEmpty()
-        || !(values.get(0) instanceof Number number)) {
-      return Optional.empty();
-    }
-    return Optional.of(number.longValue());
   }
 
   private static double ratioFromAggregate(
