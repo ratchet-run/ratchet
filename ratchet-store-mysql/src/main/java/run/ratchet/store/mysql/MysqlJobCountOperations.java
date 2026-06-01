@@ -280,7 +280,7 @@ final class MysqlJobCountOperations {
           FROM scheduler_job
           WHERE queue_wait_ms IS NOT NULL AND terminal_status = 'SUCCEEDED'
         ) ranked
-        WHERE percentile_rank >= ?1
+        WHERE percentile_rank >= ?
         ORDER BY queue_wait_ms ASC
         LIMIT 1
         """;

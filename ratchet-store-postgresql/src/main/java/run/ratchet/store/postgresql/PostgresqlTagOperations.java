@@ -157,17 +157,18 @@ final class PostgresqlTagOperations implements TagStore {
       // language=PostgreSQL
       String sql =
           """
-          SELECT j.params ->> ?2 AS param_value, COUNT(*) FROM scheduler_job j
+          SELECT j.params ->> ? AS param_value, COUNT(*) FROM scheduler_job j
           JOIN scheduler_job_tag t ON j.job_id = t.job_id
-          WHERE t.tag = ?1 AND j.params ->> ?2 IS NOT NULL
+          WHERE t.tag = ? AND j.params ->> ? IS NOT NULL
           GROUP BY param_value
           ORDER BY param_value
           """;
       List<Object[]> rows =
           ctx.em()
               .createNativeQuery(sql)
-              .setParameter(1, tag)
-              .setParameter(2, paramKey)
+              .setParameter(1, paramKey)
+              .setParameter(2, tag)
+              .setParameter(3, paramKey)
               .getResultList();
       return toStringCountMap(rows);
     } catch (RuntimeException e) {
