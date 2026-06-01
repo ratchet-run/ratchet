@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.mysql;
 
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import jakarta.persistence.EntityManager;
@@ -47,6 +48,22 @@ class MysqlTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class, () -> archives.archiveJob(job, "ttl", "node-1"));
+  }
+
+  @Test
+  void translateLeavesAnAlreadyTranslatedTransientUnwrapped() {
+    // The EM proxy is never touched here; only dialectLabel()/constraintDetector() run.
+    MysqlStoreContext ctx = throwingContext("executeUpdate");
+    RatchetTransientStoreException alreadyTranslated =
+        new RatchetTransientStoreException(
+            "inner operation", new SQLTransientException("connection lost"));
+
+    RuntimeException result =
+        ctx.translateTransientStoreException("outer operation", alreadyTranslated);
+
+    // A nested operation already translated this; re-translating must not double-wrap. The
+    // detector would otherwise walk the cause chain, re-detect the transient, and re-wrap.
+    assertSame(alreadyTranslated, result);
   }
 
   @Test
@@ -134,6 +151,14 @@ class MysqlTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+  }
+
+  @Test
+  void countByNativeTranslatesTransientReadFailure() {
+    MysqlJobCountOperations counts =
+        new MysqlJobCountOperations(throwingContext("getSingleResult"));
+
+    assertThrows(RatchetTransientStoreException.class, counts::countActiveNodes);
   }
 
   private static MysqlStoreContext throwingContext(String throwingQueryMethod) {

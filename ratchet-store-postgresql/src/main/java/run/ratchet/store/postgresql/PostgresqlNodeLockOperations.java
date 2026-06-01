@@ -15,6 +15,10 @@
  */
 package run.ratchet.store.postgresql;
 
+import static run.ratchet.store.util.LockValidation.durationMicros;
+import static run.ratchet.store.util.LockValidation.requireLockName;
+import static run.ratchet.store.util.LockValidation.requirePositiveDuration;
+
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
@@ -110,29 +114,6 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("renew lock", e);
     }
-  }
-
-  private static void requireLockName(String name) {
-    Objects.requireNonNull(name, "name");
-    if (name.isBlank()) {
-      throw new IllegalArgumentException("name must be non-empty");
-    }
-  }
-
-  private static void requirePositiveDuration(Duration duration, String parameterName) {
-    Objects.requireNonNull(duration, parameterName);
-    if (duration.isZero() || duration.isNegative()) {
-      throw new IllegalArgumentException(parameterName + " must be positive");
-    }
-  }
-
-  private static long durationMicros(Duration duration) {
-    long seconds = duration.getSeconds();
-    long microsFromNanos = (duration.getNano() + 999L) / 1_000L;
-    if (seconds > (Long.MAX_VALUE - microsFromNanos) / 1_000_000L) {
-      return Long.MAX_VALUE;
-    }
-    return Math.max(1L, seconds * 1_000_000L + microsFromNanos);
   }
 
   @Override

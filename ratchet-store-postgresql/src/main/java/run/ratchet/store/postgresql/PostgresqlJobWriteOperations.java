@@ -15,6 +15,9 @@
  */
 package run.ratchet.store.postgresql;
 
+import static run.ratchet.store.util.JobWriteSupport.assignIdIfMissing;
+import static run.ratchet.store.util.JobWriteSupport.checkHotField;
+
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -27,7 +30,7 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.util.RowValues;
 
 final class PostgresqlJobWriteOperations {
 
@@ -103,28 +106,6 @@ final class PostgresqlJobWriteOperations {
     this.tags = tags;
   }
 
-  private static void checkHotField(UUID jobId, String fieldName, Object incoming, Object stored) {
-    if (Objects.equals(incoming, stored)) {
-      return;
-    }
-    throw new IllegalStateException(
-        "save() rejected: hot-field mutation detected for id="
-            + jobId
-            + " field="
-            + fieldName
-            + " incoming="
-            + incoming
-            + " stored="
-            + stored
-            + ". Use an explicit transition method.");
-  }
-
-  private static void assignTsidIfMissing(JobEntity job) {
-    if (job.getId() == null) {
-      job.setId(UuidV7Factory.create());
-    }
-  }
-
   JobEntity save(JobEntity job) {
     if (job.getId() == null) {
       saveInsert(job);
@@ -142,7 +123,7 @@ final class PostgresqlJobWriteOperations {
     Timestamp nowTs = Timestamp.from(now);
 
     for (JobEntity job : jobs) {
-      assignTsidIfMissing(job);
+      assignIdIfMissing(job);
       if (job.getCreatedAt() == null) {
         job.setCreatedAt(now);
       }
@@ -167,7 +148,7 @@ final class PostgresqlJobWriteOperations {
   }
 
   void saveInsert(JobEntity job) {
-    assignTsidIfMissing(job);
+    assignIdIfMissing(job);
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
     if (job.getCreatedAt() == null) {
@@ -470,7 +451,7 @@ final class PostgresqlJobWriteOperations {
     if (!"PENDING".equals(storedStatus) && !"WAITING".equals(storedStatus)) {
       return false;
     }
-    Instant storedSched = PostgresqlJobRowMapper.toInstant(row[IDX_HOT_SCHEDULED_TIME]);
+    Instant storedSched = RowValues.instantOrNull(row[IDX_HOT_SCHEDULED_TIME]);
     Instant incomingSched = job.getScheduledTime();
     if (Objects.equals(storedSched, incomingSched)) {
       return false;
@@ -478,8 +459,7 @@ final class PostgresqlJobWriteOperations {
     if (!Objects.equals(JobStatus.valueOf(storedStatus), job.getStatus())
         || !Objects.equals(((Number) row[IDX_HOT_ATTEMPTS]).intValue(), job.getAttempts())
         || !Objects.equals(row[IDX_HOT_PICKED_BY], job.getPickedBy())
-        || !Objects.equals(
-            PostgresqlJobRowMapper.toInstant(row[IDX_HOT_PICKED_AT]), job.getPickedAt())
+        || !Objects.equals(RowValues.instantOrNull(row[IDX_HOT_PICKED_AT]), job.getPickedAt())
         || !Objects.equals(
             row[IDX_HOT_PAUSED_FROM_STATUS] != null
                 ? JobStatus.valueOf((String) row[IDX_HOT_PAUSED_FROM_STATUS])
@@ -607,15 +587,12 @@ final class PostgresqlJobWriteOperations {
           id,
           "scheduledTime",
           incoming.getScheduledTime(),
-          PostgresqlJobRowMapper.toInstant(row[IDX_HOT_SCHEDULED_TIME]));
+          RowValues.instantOrNull(row[IDX_HOT_SCHEDULED_TIME]));
       Integer storedAttempts = ((Number) row[IDX_HOT_ATTEMPTS]).intValue();
       checkHotField(id, "attempts", incoming.getAttempts(), storedAttempts);
       checkHotField(id, "pickedBy", incoming.getPickedBy(), row[IDX_HOT_PICKED_BY]);
       checkHotField(
-          id,
-          "pickedAt",
-          incoming.getPickedAt(),
-          PostgresqlJobRowMapper.toInstant(row[IDX_HOT_PICKED_AT]));
+          id, "pickedAt", incoming.getPickedAt(), RowValues.instantOrNull(row[IDX_HOT_PICKED_AT]));
       String pausedFrom = (String) row[IDX_HOT_PAUSED_FROM_STATUS];
       JobStatus storedPausedFrom = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : null;
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
@@ -657,10 +634,10 @@ final class PostgresqlJobWriteOperations {
     }
 
     JobStatus storedStatus = JobStatus.valueOf(hotStatusStr);
-    Instant storedSched = PostgresqlJobRowMapper.toInstant(row[IDX_HOT_SCHEDULED_TIME]);
+    Instant storedSched = RowValues.instantOrNull(row[IDX_HOT_SCHEDULED_TIME]);
     int storedAttempts = ((Number) row[IDX_HOT_ATTEMPTS]).intValue();
     Object storedPickedBy = row[IDX_HOT_PICKED_BY];
-    Instant storedPickedAt = PostgresqlJobRowMapper.toInstant(row[IDX_HOT_PICKED_AT]);
+    Instant storedPickedAt = RowValues.instantOrNull(row[IDX_HOT_PICKED_AT]);
     String storedPausedFromStr = (String) row[IDX_HOT_PAUSED_FROM_STATUS];
     JobStatus storedPausedFrom =
         storedPausedFromStr != null ? JobStatus.valueOf(storedPausedFromStr) : null;

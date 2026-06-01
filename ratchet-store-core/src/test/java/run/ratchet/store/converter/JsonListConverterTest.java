@@ -19,9 +19,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import jakarta.json.bind.Jsonb;
+import jakarta.json.bind.JsonbBuilder;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.spi.PayloadSerializer;
@@ -79,25 +82,38 @@ class JsonListConverterTest {
   }
 
   @Test
-  void ignoresInstalledPayloadSerializer() {
-    PayloadSerializerHolder.set(new ThrowingSerializer());
+  void routesThroughInstalledPayloadSerializer() {
+    RecordingSerializer recorder = new RecordingSerializer();
+    PayloadSerializerHolder.set(recorder);
 
     String json = converter.convertToDatabaseColumn(List.of("alpha"));
     List<Object> restored = converter.convertToEntityAttribute(json);
 
     assertEquals(List.of("alpha"), restored);
+    assertEquals(1, recorder.serializeCount.get());
+    assertEquals(1, recorder.deserializeCount.get());
   }
 
-  static final class ThrowingSerializer implements PayloadSerializer {
+  /** Records framework invocations while delegating JSON via a nested JSON-B call. */
+  static final class RecordingSerializer implements PayloadSerializer {
+
+    final AtomicInteger serializeCount = new AtomicInteger();
+    final AtomicInteger deserializeCount = new AtomicInteger();
+    private final Jsonb jsonb = JsonbBuilder.create();
 
     @Override
     public String serialize(Object payload) {
-      throw new IllegalArgumentException("holder should not be used");
+      serializeCount.incrementAndGet();
+      return payload == null ? null : jsonb.toJson(payload);
     }
 
     @Override
     public <T> T deserialize(String json, Class<T> type) {
-      throw new IllegalArgumentException("holder should not be used");
+      deserializeCount.incrementAndGet();
+      if (json == null || json.isEmpty()) {
+        return null;
+      }
+      return jsonb.fromJson(json, type);
     }
   }
 }

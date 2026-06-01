@@ -17,8 +17,6 @@ package run.ratchet.store.mysql;
 
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -30,6 +28,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.util.RowValues;
 
 /**
  * MySQL implementation of {@link SignalStore}.
@@ -45,19 +44,6 @@ final class MysqlSignalOperations implements SignalStore {
 
   MysqlSignalOperations(MysqlStoreContext ctx) {
     this.ctx = ctx;
-  }
-
-  private static Instant toInstant(Object value) {
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof Timestamp ts) {
-      return ts.toInstant();
-    }
-    if (value instanceof LocalDateTime ldt) {
-      return ldt.atZone(ZoneId.of("UTC")).toInstant();
-    }
-    return null;
   }
 
   @Override
@@ -93,7 +79,7 @@ final class MysqlSignalOperations implements SignalStore {
         JobEntity job = new JobEntity();
         job.setId(UuidByteArrayConverter.fromBytes((byte[]) row[0]));
         job.setSignalKey((String) row[1]);
-        job.setSignalTimeout(toInstant(row[2]));
+        job.setSignalTimeout(RowValues.instantOrNull(row[2]));
         job.setStatus(JobStatus.WAITING);
         job.setJobType(row[4] != null ? JobExecutionType.valueOf((String) row[4]) : null);
         job.setPriority(
@@ -109,7 +95,7 @@ final class MysqlSignalOperations implements SignalStore {
         job.setSignalPayloadType((String) row[11]);
         job.setSignalOutcome((String) row[12]);
         job.setSignalRejectionReason((String) row[13]);
-        job.setSignalDeliveredAt(toInstant(row[14]));
+        job.setSignalDeliveredAt(RowValues.instantOrNull(row[14]));
         job.setSignalDeliveredBy((String) row[15]);
         job.setSignalDeliveryId((String) row[16]);
         result.add(job);

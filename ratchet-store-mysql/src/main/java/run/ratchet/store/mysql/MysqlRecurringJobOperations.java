@@ -33,6 +33,7 @@ import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.util.JobClaimSqlSupport;
 import run.ratchet.store.util.RecurringJobRows;
+import run.ratchet.store.util.RowValues;
 
 /**
  * MySQL implementation of {@link RecurringJobStore} against the dedicated {@code
@@ -113,7 +114,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     if (rows.isEmpty() || rows.get(0) == null) {
       return Optional.empty();
     }
-    Instant nf = MysqlJobRowMapper.toInstant(rows.get(0));
+    Instant nf = RowValues.instantOrNull(rows.get(0));
     return Optional.ofNullable(nf);
   }
 

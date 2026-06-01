@@ -15,14 +15,11 @@
  */
 package run.ratchet.store.mysql;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
-import java.util.TimeZone;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
@@ -49,17 +46,15 @@ class MysqlJobRowMapperTest {
   }
 
   @Test
-  void toInstantInterpretsLocalDateTimeAsUtc() {
-    TimeZone original = TimeZone.getDefault();
-    try {
-      TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"));
+  void hydrateRejectsRowsWithNoEffectiveStatus() {
+    Object[] row = liveRow();
+    row[MysqlJobRowMapper.IDX_Q_STATUS] = null;
 
-      assertEquals(
-          Instant.parse("2026-05-12T12:00:00Z"),
-          MysqlJobRowMapper.toInstant(LocalDateTime.parse("2026-05-12T12:00:00")));
-    } finally {
-      TimeZone.setDefault(original);
-    }
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class, () -> new MysqlJobRowMapper().hydrateJobEntity(row));
+
+    assertTrue(thrown.getMessage().contains("no live or terminal status"));
   }
 
   private static Object[] liveRow() {

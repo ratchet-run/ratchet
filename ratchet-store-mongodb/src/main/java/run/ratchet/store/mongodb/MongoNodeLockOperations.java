@@ -29,6 +29,8 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.LOCKED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_NODE;
 import static run.ratchet.store.mongodb.MongoFieldNames.STARTED_AT;
+import static run.ratchet.store.util.LockValidation.requireLockName;
+import static run.ratchet.store.util.LockValidation.requirePositiveDuration;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -115,20 +117,6 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
         ctx.locks()
             .updateOne(and(eq(ID, name), eq(OWNER_NODE, nodeId)), set(EXPIRES_AT, newExpiry));
     return result.getModifiedCount() > 0;
-  }
-
-  private static void requireLockName(String name) {
-    Objects.requireNonNull(name, "name");
-    if (name.isBlank()) {
-      throw new IllegalArgumentException("name must be non-empty");
-    }
-  }
-
-  private static void requirePositiveDuration(Duration duration, String parameterName) {
-    Objects.requireNonNull(duration, parameterName);
-    if (duration.isZero() || duration.isNegative()) {
-      throw new IllegalArgumentException(parameterName + " must be positive");
-    }
   }
 
   @Override

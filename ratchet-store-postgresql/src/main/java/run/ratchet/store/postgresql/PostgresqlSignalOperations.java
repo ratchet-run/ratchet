@@ -27,6 +27,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.util.RowValues;
 
 /**
  * PostgreSQL implementation of {@link SignalStore}.
@@ -52,10 +53,6 @@ final class PostgresqlSignalOperations implements SignalStore {
       return uuid;
     }
     return UUID.fromString(value.toString());
-  }
-
-  private static Instant toInstant(Object value) {
-    return PostgresqlJobRowMapper.toInstant(value);
   }
 
   @Override
@@ -91,7 +88,7 @@ final class PostgresqlSignalOperations implements SignalStore {
         JobEntity job = new JobEntity();
         job.setId(toUuid(row[0]));
         job.setSignalKey((String) row[1]);
-        job.setSignalTimeout(toInstant(row[2]));
+        job.setSignalTimeout(RowValues.instantOrNull(row[2]));
         job.setStatus(JobStatus.WAITING);
         job.setJobType(row[4] != null ? JobExecutionType.valueOf((String) row[4]) : null);
         job.setPriority(
@@ -107,7 +104,7 @@ final class PostgresqlSignalOperations implements SignalStore {
         job.setSignalPayloadType((String) row[11]);
         job.setSignalOutcome((String) row[12]);
         job.setSignalRejectionReason((String) row[13]);
-        job.setSignalDeliveredAt(toInstant(row[14]));
+        job.setSignalDeliveredAt(RowValues.instantOrNull(row[14]));
         job.setSignalDeliveredBy((String) row[15]);
         job.setSignalDeliveryId((String) row[16]);
         result.add(job);

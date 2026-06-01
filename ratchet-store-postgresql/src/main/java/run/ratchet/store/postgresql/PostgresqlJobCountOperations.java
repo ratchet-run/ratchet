@@ -24,6 +24,7 @@ import java.util.Optional;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.util.RowValues;
 
 final class PostgresqlJobCountOperations {
 
@@ -272,7 +273,7 @@ final class PostgresqlJobCountOperations {
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
     }
-    return Optional.ofNullable(PostgresqlJobRowMapper.toInstant(results.get(0)));
+    return Optional.ofNullable(RowValues.instantOrNull(results.get(0)));
   }
 
   long getQueueWaitTimePercentile(double percentile) {

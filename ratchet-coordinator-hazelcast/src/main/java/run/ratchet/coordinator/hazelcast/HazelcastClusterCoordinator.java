@@ -31,22 +31,15 @@ import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.AbstractPushCoordinator;
+import run.ratchet.coordinator.common.CoordinatorSupport;
 import run.ratchet.coordinator.common.CoordinatorThreading;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
-import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -73,11 +66,10 @@ import run.ratchet.spi.SchedulerLifecycleHook;
 // Coordinator @Priority order: see PostgresqlListenNotifyCoordinator. Operators MUST pull in
 // exactly one coordinator module; distinct priorities only prevent CDI ambiguity errors on a
 // transitive double-pull.
-public class HazelcastClusterCoordinator implements ClusterCoordinator, SchedulerLifecycleHook {
+public class HazelcastClusterCoordinator extends AbstractPushCoordinator
+    implements ClusterCoordinator, SchedulerLifecycleHook {
 
   private static final Logger log = Logger.getLogger(HazelcastClusterCoordinator.class);
-
-  private static final int PRE_REGISTRATION_BUFFER_CAPACITY = 256;
 
   static final String COORDINATOR_KIND = "hazelcast";
 
@@ -96,18 +88,10 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
 
   private HazelcastCoordinatorConfig config;
 
-  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
-  private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
-      new CopyOnWriteArrayList<>();
-  private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
-      new ArrayBlockingQueue<>(PRE_REGISTRATION_BUFFER_CAPACITY);
-
   private HazelcastInstance directInstance;
   private ITopic<String> topic;
   private UUID listenerRegistrationId;
-  private ExecutorService listenerExecutor;
   private CoordinatorThreading threading;
-  private final AtomicBoolean closed = new AtomicBoolean(false);
 
   HazelcastClusterCoordinator() {
     // CDI proxy constructor — package-private to keep it out of the public API surface.
@@ -130,9 +114,8 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   void init() {
     if (config == null) {
       config =
-          configInstance != null && configInstance.isResolvable()
-              ? configInstance.get()
-              : HazelcastCoordinatorConfig.defaults();
+          CoordinatorSupport.resolveConfigOrDefault(
+              configInstance, HazelcastCoordinatorConfig::defaults);
     }
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
@@ -142,20 +125,34 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
       // factory. Standalone is an explicit opt-in via the test constructor.
       threading = CoordinatorThreading.managed("ratchet-coordinator-hazelcast");
     }
+    configureDispatch(
+        COORDINATOR_KIND,
+        "Hazelcast",
+        metrics,
+        identityProvider,
+        config.maxInboundPayloadChars(),
+        threading.newDispatchPool(
+            "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity()),
+        config.shutdownGraceMs());
     HazelcastInstance hz;
     if (directInstance != null) {
       hz = directInstance;
     } else {
-      HazelcastInstanceProvider provider = resolveProvider();
+      HazelcastInstanceProvider provider =
+          CoordinatorSupport.resolveRequired(
+              providerInstance,
+              "No HazelcastInstanceProvider available. Provide a @Produces"
+                  + " HazelcastInstanceProvider or use the Payara JNDI-bound default.",
+              "Multiple HazelcastInstanceProvider beans visible; first match wins. Use"
+                  + " @Alternative + @Priority for disambiguation.");
       hz = provider.hazelcastInstance();
     }
     topic = hz.getTopic(config.effectiveTopicName());
-    listenerExecutor = newListenerExecutor();
   }
 
   @Override
   public void afterStart() {
-    if (closed.get()) {
+    if (isClosed()) {
       return;
     }
     if (topic == null) {
@@ -168,7 +165,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
     Objects.requireNonNull(priority, "priority");
     Objects.requireNonNull(source, "source");
-    if (closed.get()) {
+    if (isClosed()) {
       return;
     }
     try {
@@ -185,7 +182,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
                   throwable.getMessage());
             }
           },
-          listenerExecutor);
+          listenerExecutor());
     } catch (RuntimeException ex) {
       clusterWakeupPublished("failure");
       log.warnf(
@@ -193,16 +190,6 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
           "Hazelcast coordinator notifyNewWork transport/encode failure: %s — wakeup dropped",
           ex.getMessage());
     }
-  }
-
-  @Override
-  public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
-    Objects.requireNonNull(listener, "listener");
-    if (closed.get()) {
-      return;
-    }
-    listeners.add(listener);
-    drainPreRegistrationBuffer();
   }
 
   /**
@@ -216,7 +203,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
 
   @Override
   public void close() {
-    if (!closed.compareAndSet(false, true)) {
+    if (!markClosed()) {
       return;
     }
     UUID regId = this.listenerRegistrationId;
@@ -227,28 +214,14 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
         // best-effort; Hazelcast may already be stopped (provider-driven)
       }
     }
-    ExecutorService executor = this.listenerExecutor;
-    if (executor != null) {
-      executor.shutdown();
-      try {
-        if (!executor.awaitTermination(config.shutdownGraceMs(), TimeUnit.MILLISECONDS)) {
-          executor.shutdownNow();
-        }
-      } catch (InterruptedException ignored) {
-        Thread.currentThread().interrupt();
-      }
-    }
+    shutdownListenerExecutor();
   }
 
   /** Dispatch path from the Hazelcast topic listener thread. */
   void onTopicMessage(String body) {
     NotifyPayload payload;
     try {
-      if (body != null && body.length() > config.maxInboundPayloadChars()) {
-        clusterWakeupReceived("parse_failure");
-        log.warnf(
-            "Hazelcast coordinator rejected oversized inbound payload (%d chars > cap %d)",
-            body.length(), config.maxInboundPayloadChars());
+      if (rejectIfOversized(body)) {
         return;
       }
       payload = codec.decode(body);
@@ -257,95 +230,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
       log.debugf("Hazelcast coordinator dropped malformed payload: %s", parseEx.getMessage());
       return;
     }
-    NodeIdentity local;
-    try {
-      local = new NodeIdentity(identityProvider.getNodeId());
-    } catch (RuntimeException e) {
-      clusterWakeupReceived("ignored_provider_error");
-      return;
-    }
-    if (payload.node().equals(local)) {
-      clusterWakeupReceived("ignored_self");
-      return;
-    }
-    clusterWakeupReceived("delivered");
-    if (listeners.isEmpty()) {
-      bufferOrDropOldest(payload);
-      return;
-    }
-    dispatchToListeners(payload);
-  }
-
-  private void dispatchToListeners(NotifyPayload msg) {
-    JobWakeupHint hint = new JobWakeupHint(msg.priority(), msg.node(), msg.executionTarget());
-    for (Consumer<JobWakeupHint> listener : listeners) {
-      try {
-        listenerExecutor.execute(
-            () -> {
-              try {
-                listener.accept(hint);
-              } catch (RuntimeException listenerEx) {
-                clusterWakeupReceived("listener_failure");
-                log.warnf(
-                    listenerEx,
-                    "Hazelcast coordinator listener threw: %s — suppressing per SPI contract",
-                    listenerEx.getMessage());
-              }
-            });
-      } catch (RuntimeException submitEx) {
-        log.debugf(
-            submitEx,
-            "Hazelcast coordinator could not enqueue listener task: %s",
-            submitEx.getMessage());
-      }
-    }
-  }
-
-  // Counts as overflow regardless of the second offer's outcome — the boolean is irrelevant.
-  @SuppressWarnings("ResultOfMethodCallIgnored")
-  private void bufferOrDropOldest(NotifyPayload msg) {
-    if (preRegistrationBuffer.offer(msg)) {
-      return;
-    }
-    preRegistrationBuffer.poll();
-    preRegistrationBuffer.offer(msg);
-    clusterWakeupReceived("pre_registration_overflow");
-    log.warn("Hazelcast coordinator pre-registration buffer overflowed; oldest wakeup dropped");
-  }
-
-  private void drainPreRegistrationBuffer() {
-    NotifyPayload msg;
-    while ((msg = preRegistrationBuffer.poll()) != null) {
-      dispatchToListeners(msg);
-    }
-  }
-
-  private void clusterWakeupPublished(String outcome) {
-    metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
-  }
-
-  private void clusterWakeupReceived(String outcome) {
-    metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
-  }
-
-  private HazelcastInstanceProvider resolveProvider() {
-    Instance<HazelcastInstanceProvider> instance = this.providerInstance;
-    if (instance == null || instance.isUnsatisfied()) {
-      throw new IllegalStateException(
-          "No HazelcastInstanceProvider available. Provide a @Produces"
-              + " HazelcastInstanceProvider or use the Payara JNDI-bound default.");
-    }
-    if (instance.isAmbiguous()) {
-      log.warn(
-          "Multiple HazelcastInstanceProvider beans visible; first match wins. Use"
-              + " @Alternative + @Priority for disambiguation.");
-    }
-    return instance.get();
-  }
-
-  private ExecutorService newListenerExecutor() {
-    return threading.newDispatchPool(
-        "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity());
+    deliverDecodedPayload(payload);
   }
 
   /**

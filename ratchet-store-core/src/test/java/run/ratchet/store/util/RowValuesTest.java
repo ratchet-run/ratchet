@@ -20,11 +20,47 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.ByteBuffer;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Date;
+import java.util.TimeZone;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 
 class RowValuesTest {
+
+  @Test
+  void instantOrNullCoercesEverySupportedTemporalType() {
+    Instant expected = Instant.parse("2026-05-12T12:00:00Z");
+
+    assertNull(RowValues.instantOrNull(null));
+    assertEquals(expected, RowValues.instantOrNull(expected));
+    assertEquals(expected, RowValues.instantOrNull(Timestamp.from(expected)));
+    assertEquals(expected, RowValues.instantOrNull(expected.atOffset(ZoneOffset.UTC)));
+    assertEquals(expected, RowValues.instantOrNull(Date.from(expected)));
+  }
+
+  @Test
+  void instantOrNullInterpretsLocalDateTimeAsUtcRegardlessOfDefaultZone() {
+    TimeZone original = TimeZone.getDefault();
+    try {
+      TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"));
+
+      assertEquals(
+          Instant.parse("2026-05-12T12:00:00Z"),
+          RowValues.instantOrNull(LocalDateTime.parse("2026-05-12T12:00:00")));
+    } finally {
+      TimeZone.setDefault(original);
+    }
+  }
+
+  @Test
+  void instantOrNullReturnsNullForUnsupportedType() {
+    assertNull(RowValues.instantOrNull("2026-05-12T12:00:00Z"));
+  }
 
   @Test
   void safeJobPriorityReturnsNormalForOutOfRangeOrdinals() {

@@ -39,6 +39,7 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
+import run.ratchet.store.util.RowValues;
 
 final class MysqlJobClaimOperations implements JobClaimStore {
 
@@ -304,7 +305,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     }
 
     Instant scheduledTime() {
-      return MysqlJobRowMapper.toInstant(value(ClaimColumn.SCHEDULED_TIME));
+      return RowValues.instantOrNull(value(ClaimColumn.SCHEDULED_TIME));
     }
 
     int version() {
@@ -346,9 +347,11 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       String placeholders = String.join(",", Collections.nCopies(jobIds.size(), "?"));
       /*
        * MySQL has no PostgreSQL-style UPDATE ... RETURNING for claiming and hydrating rows in one
-       * statement. The caller already holds candidate row locks from FOR UPDATE SKIP LOCKED, so this
-       * dialect keeps the portable MySQL pattern: UPDATE the locked PENDING rows, then reselect the
-       * ids owned by this node to report which candidates were actually claimed.
+       * statement. The caller already holds candidate row locks from FOR UPDATE SKIP LOCKED, so every
+       * locked candidate is still PENDING at UPDATE time and the affected-row count equals the
+       * candidate count: the whole candidate set is claimed. A read-back SELECT is kept only as a
+       * defensive fallback for the lock-impossible count mismatch, matching PostgreSQL's two
+       * round-trip claim instead of paying a third.
        */
       // language=MySQL
       String updateSql =
@@ -368,7 +371,12 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       for (UUID id : jobIds) {
         updateQuery.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
       }
-      updateQuery.executeUpdate();
+      int affected = updateQuery.executeUpdate();
+      if (affected == jobIds.size()) {
+        boolean[] claimed = new boolean[jobIds.size()];
+        Arrays.fill(claimed, true);
+        return claimed;
+      }
 
       // language=MySQL
       String selectSql =

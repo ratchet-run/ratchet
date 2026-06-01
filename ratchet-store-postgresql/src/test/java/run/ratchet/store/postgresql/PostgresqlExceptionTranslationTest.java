@@ -16,6 +16,7 @@
 package run.ratchet.store.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
@@ -57,6 +58,55 @@ class PostgresqlExceptionTranslationTest {
     assertThrows(
         RatchetTransientStoreException.class,
         () -> archives.archiveJob(input, "retention", "test"));
+  }
+
+  @Test
+  void findJobsForArchivingTranslatesDeadlock() {
+    var archives = archiveOperations(entityManager(queryThrowingOnResults()));
+
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> archives.findJobsForArchiving(Instant.now(), 10));
+  }
+
+  @Test
+  void findJobsForArchivingDoesNotRewrapInnerTagFailure() {
+    var archives =
+        archiveOperations(
+            entityManager(
+                queryReturning(Collections.singletonList(terminalRow())),
+                queryThrowingOnResults()));
+
+    RatchetTransientStoreException thrown =
+        assertThrows(
+            RatchetTransientStoreException.class,
+            () -> archives.findJobsForArchiving(Instant.now(), 10));
+    // The guard rethrows the inner transient as-is; it is not re-translated to the outer op label.
+    assertTrue(thrown.getMessage().contains("hydrate job tags batch"));
+  }
+
+  @Test
+  void findArchivedJobsTranslatesDeadlock() {
+    var archives = archiveOperations(entityManager(queryThrowingOnResults()));
+
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> archives.findArchivedJobs("Job", null, null, null, 10));
+  }
+
+  @Test
+  void purgeArchivedJobsTranslatesDeadlock() {
+    var archives = archiveOperations(entityManager(queryThrowingOnExecute()));
+
+    assertThrows(
+        RatchetTransientStoreException.class, () -> archives.purgeArchivedJobs(Instant.now()));
+  }
+
+  private static PostgresqlArchiveOperations archiveOperations(EntityManager em) {
+    var ctx = new PostgresqlStoreContext(em);
+    var tags = new PostgresqlTagOperations(ctx);
+    var reads = new PostgresqlJobReadOperations(ctx, tags);
+    return new PostgresqlArchiveOperations(ctx, reads);
   }
 
   @Test

@@ -15,6 +15,9 @@
  */
 package run.ratchet.store.mysql;
 
+import static run.ratchet.store.util.JobWriteSupport.assignIdIfMissing;
+import static run.ratchet.store.util.JobWriteSupport.checkHotField;
+
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -27,8 +30,8 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.util.RowValues;
 
 final class MysqlJobWriteOperations {
 
@@ -92,28 +95,6 @@ final class MysqlJobWriteOperations {
     this.tags = tags;
   }
 
-  private static void checkHotField(UUID jobId, String fieldName, Object incoming, Object stored) {
-    if (Objects.equals(incoming, stored)) {
-      return;
-    }
-    throw new IllegalStateException(
-        "save() rejected: hot-field mutation detected for id="
-            + jobId
-            + " field="
-            + fieldName
-            + " incoming="
-            + incoming
-            + " stored="
-            + stored
-            + ". Use an explicit transition method.");
-  }
-
-  private static void assignTsidIfMissing(JobEntity job) {
-    if (job.getId() == null) {
-      job.setId(UuidV7Factory.create());
-    }
-  }
-
   JobEntity save(JobEntity job) {
     if (job.getId() == null) {
       saveInsert(job);
@@ -131,7 +112,7 @@ final class MysqlJobWriteOperations {
     Timestamp nowTs = Timestamp.from(now);
 
     for (JobEntity job : jobs) {
-      assignTsidIfMissing(job);
+      assignIdIfMissing(job);
     }
 
     executeColdBulkInsert(jobs, nowTs);
@@ -142,7 +123,7 @@ final class MysqlJobWriteOperations {
   }
 
   void saveInsert(JobEntity job) {
-    assignTsidIfMissing(job);
+    assignIdIfMissing(job);
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
     if (job.getCreatedAt() == null) {
@@ -384,7 +365,7 @@ final class MysqlJobWriteOperations {
     if (!"PENDING".equals(storedStatus) && !"WAITING".equals(storedStatus)) {
       return false;
     }
-    Instant storedSched = MysqlJobRowMapper.toInstant(row[1]);
+    Instant storedSched = RowValues.instantOrNull(row[1]);
     Instant incomingSched = job.getScheduledTime();
     if (Objects.equals(storedSched, incomingSched)) {
       return false;
@@ -392,7 +373,7 @@ final class MysqlJobWriteOperations {
     if (!Objects.equals(JobStatus.valueOf(storedStatus), job.getStatus())
         || !Objects.equals(((Number) row[2]).intValue(), job.getAttempts())
         || !Objects.equals(row[3], job.getPickedBy())
-        || !Objects.equals(MysqlJobRowMapper.toInstant(row[4]), job.getPickedAt())
+        || !Objects.equals(RowValues.instantOrNull(row[4]), job.getPickedAt())
         || !Objects.equals(
             row[5] != null ? JobStatus.valueOf((String) row[5]) : null, job.getPausedFromStatus())
         || !Objects.equals(row[6], job.getLastError())
@@ -523,11 +504,11 @@ final class MysqlJobWriteOperations {
       JobStatus storedStatus = JobStatus.valueOf(qStatus);
       checkHotField(id, "status", incoming.getStatus(), storedStatus);
       checkHotField(
-          id, "scheduledTime", incoming.getScheduledTime(), MysqlJobRowMapper.toInstant(row[1]));
+          id, "scheduledTime", incoming.getScheduledTime(), RowValues.instantOrNull(row[1]));
       Integer storedAttempts = ((Number) row[2]).intValue();
       checkHotField(id, "attempts", incoming.getAttempts(), storedAttempts);
       checkHotField(id, "pickedBy", incoming.getPickedBy(), row[3]);
-      checkHotField(id, "pickedAt", incoming.getPickedAt(), MysqlJobRowMapper.toInstant(row[4]));
+      checkHotField(id, "pickedAt", incoming.getPickedAt(), RowValues.instantOrNull(row[4]));
       String pausedFrom = (String) row[5];
       JobStatus storedPausedFrom = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : null;
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
@@ -569,10 +550,10 @@ final class MysqlJobWriteOperations {
     }
 
     JobStatus storedStatus = JobStatus.valueOf(hotStatusStr);
-    Instant storedSched = MysqlJobRowMapper.toInstant(row[1]);
+    Instant storedSched = RowValues.instantOrNull(row[1]);
     int storedAttempts = ((Number) row[2]).intValue();
     Object storedPickedBy = row[3];
-    Instant storedPickedAt = MysqlJobRowMapper.toInstant(row[4]);
+    Instant storedPickedAt = RowValues.instantOrNull(row[4]);
     String storedPausedFromStr = (String) row[5];
     JobStatus storedPausedFrom =
         storedPausedFromStr != null ? JobStatus.valueOf(storedPausedFromStr) : null;

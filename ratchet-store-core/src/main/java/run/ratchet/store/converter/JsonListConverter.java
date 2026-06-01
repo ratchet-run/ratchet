@@ -15,8 +15,6 @@
  */
 package run.ratchet.store.converter;
 
-import jakarta.json.bind.JsonbBuilder;
-import jakarta.json.bind.JsonbException;
 import jakarta.persistence.Converter;
 import java.util.List;
 
@@ -27,6 +25,11 @@ import java.util.List;
  * <p>Deserialization intentionally targets raw {@link List} because JSON-B cannot recover erased
  * element types for {@code List<Object>}. Scalar values and nested JSON structures are restored as
  * JSON-B's standard runtime types, not application-specific POJOs.
+ *
+ * <p>Routes through {@link PayloadSerializerHolder} so the framework's {@link
+ * run.ratchet.spi.PayloadSerializer} SPI is the single JSON boundary. JPA converters are not
+ * CDI-managed beans, so the holder's static registration pattern is used instead of field
+ * injection.
  */
 @Converter
 public class JsonListConverter extends AbstractJsonAttributeConverter<List<Object>> {
@@ -37,30 +40,18 @@ public class JsonListConverter extends AbstractJsonAttributeConverter<List<Objec
 
   @Override
   protected String serialize(List<Object> attribute) {
-    try (var jsonb = JsonbBuilder.create()) {
-      return jsonb.toJson(attribute);
-    } catch (JsonbException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new JsonbException("JSON-B list serializer close failed", e);
-    }
+    return PayloadSerializerHolder.get().serialize(attribute);
   }
 
   @SuppressWarnings("unchecked")
   @Override
   protected List<Object> deserialize(String dbData) {
-    try (var jsonb = JsonbBuilder.create()) {
-      return (List<Object>) jsonb.fromJson(dbData, List.class);
-    } catch (JsonbException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new JsonbException("JSON-B list deserializer close failed", e);
-    }
+    return (List<Object>) PayloadSerializerHolder.get().deserialize(dbData, List.class);
   }
 
   @Override
   protected Class<? extends RuntimeException> conversionExceptionType() {
-    return JsonbException.class;
+    return IllegalArgumentException.class;
   }
 
   @Override
