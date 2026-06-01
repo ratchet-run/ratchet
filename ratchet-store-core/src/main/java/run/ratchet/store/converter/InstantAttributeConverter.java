@@ -22,8 +22,13 @@ import java.time.Instant;
 
 /**
  * Converts {@link Instant} fields through JDBC timestamps for JPA providers without native support.
+ *
+ * <p>Not auto-applied. Every JPA provider Ratchet targets maps {@link Instant} natively, so this
+ * converter only takes effect where a field opts in with {@code @Convert}. Auto-applying it would
+ * silently override native {@code TIMESTAMP} handling on every {@link Instant} attribute and route
+ * the value through {@link Timestamp}, which is interpreted in the JVM default time zone.
  */
-@Converter(autoApply = true)
+@Converter
 public class InstantAttributeConverter implements AttributeConverter<Instant, Timestamp> {
 
   @Override
