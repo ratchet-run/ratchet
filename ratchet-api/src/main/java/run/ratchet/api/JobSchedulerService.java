@@ -185,10 +185,10 @@ public interface JobSchedulerService {
    * unbounded latency on the job hot path and can stall the scheduler. For scheduler state-change
    * events raised inside a transaction, the listener runs synchronously <em>after</em> that
    * transaction commits, so a rollback suppresses the event and a listener cannot roll the source
-   * transaction back. (When no transaction is active, dispatch is immediate.) Any listener that does
-   * heavyweight work (I/O, network calls, cross-system notifications) MUST offload to its own thread
-   * pool. For CDI observers of the same events, prefer {@code @ObservesAsync} when the observer does
-   * not need to run on the publishing thread.
+   * transaction back. (When no transaction is active, dispatch is immediate.) Any listener that
+   * does heavyweight work (I/O, network calls, cross-system notifications) MUST offload to its own
+   * thread pool. For CDI observers of the same events, prefer {@code @ObservesAsync} when the
+   * observer does not need to run on the publishing thread.
    *
    * <p>Event types delivered:
    *
