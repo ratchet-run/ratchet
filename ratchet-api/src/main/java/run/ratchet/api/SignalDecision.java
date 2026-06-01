@@ -80,7 +80,14 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
   }
 
   /**
-   * Returns the optional payload cast to the requested type.
+   * Returns the optional inner payload cast to the requested type.
+   *
+   * <p>This is the inner value attached to the decision, not the decision itself. Like a raw signal
+   * payload, it survives delivery only as its JSON structure: after a round-trip it is observed in
+   * its JSON-native form — a {@code String}, a {@link Number}, a {@code Boolean}, a {@code List},
+   * or a {@code Map} — so request that type rather than the original concrete class. The decision's
+   * own {@link #outcome()} and {@link #rejectionReason()} are unaffected and remain typed as
+   * declared.
    *
    * @param type expected payload type
    * @param <T> expected payload type

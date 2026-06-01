@@ -51,6 +51,12 @@ public interface SignalStore {
    * metadata write must be atomic. Implementations must throw if the update cannot be completed; a
    * normal return value means the delivery transaction committed for that many rows.
    *
+   * <p>{@code payloadType} is a short marker classifying the stored payload. Exactly two values are
+   * defined: {@code "RAW"} for a payload delivered through {@code deliverSignal(.., Serializable)},
+   * and {@code "DECISION"} for a {@link run.ratchet.api.SignalDecision}. Stores persist it verbatim
+   * in a {@code VARCHAR(16)} column and do not interpret it; the runtime switches on {@code
+   * "DECISION"} when hydrating the executing job.
+   *
    * @throws RuntimeException when the store cannot complete the delivery atomically
    */
   int deliverSignalById(
@@ -70,6 +76,9 @@ public interface SignalStore {
    * update, or the store's closest equivalent, so concurrent deliveries cannot unblock the same
    * jobs twice. Implementations must throw if the update cannot be completed; a normal return value
    * means the delivery transaction committed for that many rows.
+   *
+   * <p>{@code payloadType} carries the same {@code "RAW"}/{@code "DECISION"} marker contract
+   * described on {@link #deliverSignalById}.
    *
    * @throws RuntimeException when the store cannot complete the delivery atomically
    */
