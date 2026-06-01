@@ -232,6 +232,55 @@ class WorkflowSchedulerTest {
   }
 
   @Test
+  void scheduleNext_unmatchedFailureBranchDoesNotBlockSuccessfulLinearChain() {
+    JobEntity parent = job(new UUID(0L, 300L), JobStatus.SUCCEEDED);
+    JobEntity failureBranch = job(new UUID(0L, 301L), JobStatus.PENDING);
+    JobEntity linearChild = job(new UUID(0L, 302L), JobStatus.PENDING);
+    failureBranch.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    linearChild.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    WorkflowConditionEntity condition = condition(parent.getId(), failureBranch.getId(), 0);
+    condition.setConditionType(WorkflowCondition.ConditionType.FAILURE);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(false);
+    when(jobCrudStore.findById(failureBranch.getId())).thenReturn(Optional.of(failureBranch));
+    when(jobTerminalStore.cancelJob(failureBranch.getId())).thenReturn(true);
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(failureBranch, linearChild));
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(jobTerminalStore).cancelJob(failureBranch.getId());
+    verify(jobCrudStore).save(linearChild);
+    assertEquals(FIXED_NOW, linearChild.getScheduledTime());
+  }
+
+  @Test
+  void scheduleNext_matchedFailureBranchCancelsLinearChainWithoutCancelingBranch() {
+    JobEntity parent = job(new UUID(0L, 310L), JobStatus.FAILED);
+    JobEntity failureBranch = job(new UUID(0L, 311L), JobStatus.PENDING);
+    JobEntity linearChild = job(new UUID(0L, 312L), JobStatus.PENDING);
+    failureBranch.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    linearChild.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    WorkflowConditionEntity condition = condition(parent.getId(), failureBranch.getId(), 0);
+    condition.setConditionType(WorkflowCondition.ConditionType.FAILURE);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(failureBranch.getId())).thenReturn(Optional.of(failureBranch));
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(failureBranch, linearChild));
+    when(jobCrudStore.findDependants(eq(linearChild.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of());
+    when(jobTerminalStore.cancelJob(linearChild.getId())).thenReturn(true);
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(jobCrudStore).save(failureBranch);
+    verify(jobTerminalStore).cancelJob(linearChild.getId());
+    verify(jobTerminalStore, never()).cancelJob(failureBranch.getId());
+    assertEquals(FIXED_NOW, failureBranch.getScheduledTime());
+  }
+
+  @Test
   void scheduleNext_failedParentWithNoConditionsFallsBackToCancelChain() {
     JobEntity parent = job(new UUID(0L, 32L), JobStatus.FAILED);
     JobEntity child = job(new UUID(0L, 33L), JobStatus.PENDING);
