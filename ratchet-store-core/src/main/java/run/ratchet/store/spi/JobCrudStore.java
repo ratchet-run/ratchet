@@ -74,6 +74,9 @@ public interface JobCrudStore {
    *     the {@link Nullable} annotation reflects this contract for static analysers.
    * @param id job id to inspect
    * @return current status, or {@code null} when no job exists for {@code id}
+   * @throws IllegalStateException if a job row exists but carries neither a live nor a terminal
+   *     status. This is a store invariant violation; every store fails loud here rather than
+   *     returning {@code null} (which a caller could not distinguish from "no such job").
    */
   @Nullable JobStatus getJobStatus(UUID id);
 
@@ -88,6 +91,10 @@ public interface JobCrudStore {
    * Finds the active job currently associated with a business key, if any.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
+   *
+   * @throws IllegalStateException if a reservation claims a live-queue owner but no hot row exists.
+   *     This is a store invariant violation; every store fails loud here rather than returning an
+   *     empty {@link Optional}.
    */
   Optional<JobEntity> findActiveByBusinessKey(String businessKey);
 
