@@ -35,8 +35,9 @@ Behavioral, and Advanced categories.
 
 ## API and Jakarta Runtime Reports
 
-Results are published for all 12 server × database combinations (WildFly, Payara, Open Liberty,
-GlassFish × MySQL, PostgreSQL, MongoDB) and regenerated after each successful CI run on `main`.
+Results are published for all 15 server × database combinations (WildFly, WildFly EE 11, Payara,
+Open Liberty, GlassFish × MySQL, PostgreSQL, MongoDB) and regenerated after each successful CI run
+on `main`.
 
 - [API Conformance Matrix](./api/) — Tier 2 results across all runtimes
 - [Jakarta Runtime Conformance Matrix](./jakarta/) — Tier 3 results across all runtimes
