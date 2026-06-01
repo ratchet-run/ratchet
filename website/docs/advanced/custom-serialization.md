@@ -58,6 +58,6 @@ public class RedactingResultPersistence implements ResultPersistenceStrategy {
 
 The default size cap is controlled by `RatchetOptions.builder().payload(p -> p.maxResultBytes(...))`. Set it to `0` to disable truncation. If your `RatchetOptions` producer uses `RatchetOptionsFactory.fromEnvironment()`, the same cap is read from `ratchet.jobs.max-result-bytes` / `RATCHET_JOB_RESULT_MAX_BYTES`.
 
-## Compatibility SPIs
+## Related SPIs
 
-`SerializationStrategy` and `LambdaAnalyzer` remain in `ratchet-api` for compatibility with existing integrations and tests. They are not the primary scheduler extension points for submitted job payloads. New integrations should use `JobInvocationResolver` and `ResultPersistenceStrategy`.
+`LambdaAnalyzer` is the bytecode-inspection SPI used to reduce submitted lambdas to a stored Class/Method/Args payload. It is not the primary scheduler extension point for submitted job payloads. New integrations should use `JobInvocationResolver` and `ResultPersistenceStrategy`.

@@ -308,7 +308,7 @@ Controls per-execution-type concurrency and virtual-thread backpressure limits.
 
 ```java
 public interface ExecutionTuningProvider {
-    boolean useVirtualThreads();
+    RatchetOptions.ThreadingMode defaultThreadingMode();
     int maxConcurrency(String executionTypeName, int defaultValue);
     int virtualThreadLimit(String executionTypeName, int defaultValue);
 }
@@ -355,17 +355,6 @@ public interface SchedulerLifecycleHook {
     default void afterStart() {}
     default void beforeStop() {}
     default void afterStop() {}
-}
-```
-
-## SerializationStrategy
-
-Compatibility SPI for object-to-byte serialization utilities. It is not the primary scheduler payload extension point; use `JobInvocationResolver` for submitted callbacks and `ResultPersistenceStrategy` for return values.
-
-```java
-public interface SerializationStrategy {
-    byte[] serialize(Object obj);
-    <T> T deserialize(byte[] data, Class<T> type);
 }
 ```
 
@@ -606,30 +595,41 @@ This interface is marked `@Incubating` and may change.
 
 ```java
 @Incubating
-public interface ClusterCoordinator {
-    void notifyNewWork(JobPriority priority);
-    void registerWakeupListener(Runnable listener);
+public interface ClusterCoordinator extends AutoCloseable {
+    void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget);
+    void registerWakeupListener(Consumer<JobWakeupHint> listener);
+    void close();
 }
 ```
 
 ### notifyNewWork
 
 ```java
-void notifyNewWork(JobPriority priority)
+void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget)
 ```
 
-Publishes a notification that new work is available. Called when jobs are submitted.
+Publishes a best-effort notification that new work is available somewhere in the cluster. Called when jobs are submitted.
 
 **Parameters:**
-- `priority` -- the priority of the new work, allowing listeners to decide urgency.
+- `priority` -- the priority of the new work, allowing listeners to decide urgency; never null.
+- `source` -- identity of the node submitting the notification, so subscribers can suppress self-wakeups; never null.
+- `executionTarget` -- routing label of the originating job (e.g. `"platform"` or `"virtual"`); informational only, or null when the wakeup is not target-scoped.
 
 ### registerWakeupListener
 
 ```java
-void registerWakeupListener(Runnable listener)
+void registerWakeupListener(Consumer<JobWakeupHint> listener)
 ```
 
-Registers a listener invoked when another node publishes new work.
+Registers a listener invoked when another node publishes new work. The listener receives a `JobWakeupHint` carrying priority, origin `NodeIdentity`, and optional execution target. Listeners must be fast, non-blocking, and thread-safe.
+
+### close
+
+```java
+void close()
+```
+
+Releases transport resources held by this coordinator. Must be idempotent. Called by the scheduler lifecycle during shutdown.
 
 ## StartupCoordinator
 
@@ -671,17 +671,22 @@ Releases a lease previously acquired by this node.
 public class RedisClusterCoordinator implements ClusterCoordinator {
 
     @Inject RedisClient redis;
-    private Runnable wakeupListener;
+    private Consumer<JobWakeupHint> wakeupListener;
 
     @Override
-    public void notifyNewWork(JobPriority priority) {
+    public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
         redis.publish("ratchet:wakeup", priority.name());
     }
 
     @Override
-    public void registerWakeupListener(Runnable listener) {
+    public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
         this.wakeupListener = listener;
-        redis.subscribe("ratchet:wakeup", msg -> listener.run());
+        redis.subscribe("ratchet:wakeup", hint -> listener.accept(hint));
+    }
+
+    @Override
+    public void close() {
+        redis.close();
     }
 }
 ```

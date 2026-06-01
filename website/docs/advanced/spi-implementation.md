@@ -469,9 +469,10 @@ Coordinates job scheduling across cluster nodes by broadcasting wakeup signals.
 
 ```java
 @Incubating
-public interface ClusterCoordinator {
-    void notifyNewWork(JobPriority priority);
-    void registerWakeupListener(Runnable listener);
+public interface ClusterCoordinator extends AutoCloseable {
+    void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget);
+    void registerWakeupListener(Consumer<JobWakeupHint> listener);
+    void close();
 }
 ```
 
@@ -488,25 +489,30 @@ public class RedisClusterCoordinator implements ClusterCoordinator {
     @Inject
     private RedisClient redis;
 
-    private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<JobWakeupHint>> listeners = new CopyOnWriteArrayList<>();
 
     @PostConstruct
     void subscribe() {
-        redis.subscribe(CHANNEL, message -> {
-            for (Runnable listener : listeners) {
-                listener.run();
+        redis.subscribe(CHANNEL, hint -> {
+            for (Consumer<JobWakeupHint> listener : listeners) {
+                listener.accept(hint);
             }
         });
     }
 
     @Override
-    public void notifyNewWork(JobPriority priority) {
+    public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
         redis.publish(CHANNEL, priority.name());
     }
 
     @Override
-    public void registerWakeupListener(Runnable listener) {
+    public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
         listeners.add(listener);
+    }
+
+    @Override
+    public void close() {
+        redis.close();
     }
 }
 ```

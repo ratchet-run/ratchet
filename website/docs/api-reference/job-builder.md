@@ -497,20 +497,13 @@ These methods allow reading the configured state of a builder. They are primaril
 | Method | Return Type | Description |
 |---|---|---|
 | `task()` | `SerializableCheckedRunnable` | The primary task |
-| `chainTasks()` | `List<SerializableCheckedRunnable>` | Immutable list of chained tasks |
 | `workflowBranches()` | `List<WorkflowBranch>` | Immutable list of workflow branches |
-| `opts()` | `JobOptions` | Current job options (defaults to `JobOptions.defaults()`) |
+| `opts()` | `JobOptions` | Current immutable job options snapshot |
 | `params()` | `Map<String, String>` | Unmodifiable parameter map |
 | `tags()` | `List<String>` | Unmodifiable tag list |
-| `delay()` | `Duration` | Delay before execution (never null, may be `Duration.ZERO`) |
-| `idempotencyKey()` | `String` | Idempotency key (never null -- auto-generated UUID or custom) |
-| `businessKey()` | `String` | Business key, or null if not set |
 | `resourceName()` | `String` | Resource name, or null if not set |
 | `isImmediate()` | `boolean` | Whether immediate wakeup is requested |
-| `awaitSignalKey()` | `String` | Signal key for a waiting job, or null |
-| `awaitSignalTimeout()` | `Duration` | Signal wait timeout, or null |
 | `onSuccess()` | `SerializableConsumer<JobContext>` | Success callback, or null |
-| `onFailure()` | `SerializableBiConsumer<JobContext, Throwable>` | Failure callback, or null |
 
 ## Example: Complete Configuration
 

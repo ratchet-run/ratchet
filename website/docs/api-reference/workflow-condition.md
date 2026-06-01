@@ -17,8 +17,8 @@ Workflow conditions are used with [`JobBuilder.when()`](./job-builder#when), [`J
 
 ```java
 scheduler.enqueue(() -> analyzeData())
-    .when(WorkflowCondition.success(), () -> archiveResults(), "Archive on success")
-    .when(WorkflowCondition.failure(), () -> notifyAdmins(), "Alert on failure")
+    .branch(WorkflowCondition.success(), () -> archiveResults(), "Archive on success")
+    .branch(WorkflowCondition.failure(), () -> notifyAdmins(), "Alert on failure")
     .submit();
 ```
 
@@ -316,21 +316,21 @@ public record WorkflowBranch(
 | `task` | `Serializable` | The serialized task to execute |
 | `description` | `String` | Optional human-readable label for monitoring |
 
-### Factory Methods
+### Constructors
 
-#### of (with description)
+#### With description
 
 ```java
-public static WorkflowBranch of(
+public WorkflowBranch(
     WorkflowCondition condition, Serializable task, String description)
 ```
 
-Creates a branch with a descriptive label.
+Creates a branch with a descriptive label. `condition` must not be null.
 
-#### of (without description)
+#### Without description
 
 ```java
-public static WorkflowBranch of(WorkflowCondition condition, Serializable task)
+public WorkflowBranch(WorkflowCondition condition, Serializable task)
 ```
 
 Creates a branch without a description.
