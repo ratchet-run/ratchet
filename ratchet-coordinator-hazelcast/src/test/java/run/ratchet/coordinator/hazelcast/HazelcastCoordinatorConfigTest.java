@@ -39,7 +39,7 @@ class HazelcastCoordinatorConfigTest {
   void effectiveTopicNameAppliesCellId() {
     HazelcastCoordinatorConfig c =
         new HazelcastCoordinatorConfig("base", Optional.of("tenant42"), 16_384, 2, 1_024, 5_000L);
-    assertEquals("base-tenant42", c.effectiveTopicName());
+    assertEquals("base_tenant42", c.effectiveTopicName());
   }
 
   @Test

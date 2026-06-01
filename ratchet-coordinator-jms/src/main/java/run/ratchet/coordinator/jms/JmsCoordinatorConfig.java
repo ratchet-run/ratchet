@@ -17,6 +17,7 @@ package run.ratchet.coordinator.jms;
 
 import java.util.Objects;
 import java.util.Optional;
+import run.ratchet.coordinator.common.CoordinatorConfigChecks;
 
 /**
  * Tunable configuration for {@link JmsClusterCoordinator}.
@@ -73,25 +74,12 @@ public record JmsCoordinatorConfig(
     Objects.requireNonNull(connectionFactoryJndi, "connectionFactoryJndi");
     Objects.requireNonNull(topicJndi, "topicJndi");
     Objects.requireNonNull(cellId, "cellId");
-    if (reconnectBackoffInitialMs <= 0) {
-      throw new IllegalArgumentException("reconnectBackoffInitialMs must be > 0");
-    }
-    if (reconnectBackoffMaxMs < reconnectBackoffInitialMs) {
-      throw new IllegalArgumentException(
-          "reconnectBackoffMaxMs must be >= reconnectBackoffInitialMs");
-    }
-    if (maxInboundPayloadChars <= 0) {
-      throw new IllegalArgumentException("maxInboundPayloadChars must be > 0");
-    }
-    if (listenerExecutorThreads < 1) {
-      throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
-    }
-    if (listenerExecutorQueueCapacity < 1) {
-      throw new IllegalArgumentException("listenerExecutorQueueCapacity must be >= 1");
-    }
-    if (shutdownGraceMs <= 0) {
-      throw new IllegalArgumentException("shutdownGraceMs must be > 0");
-    }
+    CoordinatorConfigChecks.requireBackoffPair(reconnectBackoffInitialMs, reconnectBackoffMaxMs);
+    CoordinatorConfigChecks.requirePositive(maxInboundPayloadChars, "maxInboundPayloadChars");
+    CoordinatorConfigChecks.requireAtLeastOne(listenerExecutorThreads, "listenerExecutorThreads");
+    CoordinatorConfigChecks.requireAtLeastOne(
+        listenerExecutorQueueCapacity, "listenerExecutorQueueCapacity");
+    CoordinatorConfigChecks.requirePositive(shutdownGraceMs, "shutdownGraceMs");
   }
 
   /** Default tuning suitable for typical Jakarta EE deployments. */

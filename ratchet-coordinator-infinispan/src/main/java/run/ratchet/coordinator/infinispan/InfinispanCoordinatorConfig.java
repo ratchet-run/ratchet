@@ -17,6 +17,8 @@ package run.ratchet.coordinator.infinispan;
 
 import java.util.Objects;
 import java.util.Optional;
+import run.ratchet.coordinator.common.CoordinatorCells;
+import run.ratchet.coordinator.common.CoordinatorConfigChecks;
 
 /**
  * Tunable configuration for {@link InfinispanClusterCoordinator}.
@@ -63,21 +65,12 @@ public record InfinispanCoordinatorConfig(
       throw new IllegalArgumentException("cacheName must be non-blank");
     }
     Objects.requireNonNull(cellId, "cellId");
-    if (wakeupTtlSeconds <= 0) {
-      throw new IllegalArgumentException("wakeupTtlSeconds must be > 0");
-    }
-    if (maxInboundPayloadChars <= 0) {
-      throw new IllegalArgumentException("maxInboundPayloadChars must be > 0");
-    }
-    if (listenerExecutorThreads < 1) {
-      throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
-    }
-    if (listenerExecutorQueueCapacity < 1) {
-      throw new IllegalArgumentException("listenerExecutorQueueCapacity must be >= 1");
-    }
-    if (shutdownGraceMs <= 0) {
-      throw new IllegalArgumentException("shutdownGraceMs must be > 0");
-    }
+    CoordinatorConfigChecks.requirePositive(wakeupTtlSeconds, "wakeupTtlSeconds");
+    CoordinatorConfigChecks.requirePositive(maxInboundPayloadChars, "maxInboundPayloadChars");
+    CoordinatorConfigChecks.requireAtLeastOne(listenerExecutorThreads, "listenerExecutorThreads");
+    CoordinatorConfigChecks.requireAtLeastOne(
+        listenerExecutorQueueCapacity, "listenerExecutorQueueCapacity");
+    CoordinatorConfigChecks.requirePositive(shutdownGraceMs, "shutdownGraceMs");
   }
 
   /** Default tuning suitable for WildFly + standalone Infinispan deployments. */
@@ -88,6 +81,6 @@ public record InfinispanCoordinatorConfig(
 
   /** The fully-qualified cache name after applying the optional {@code cellId} suffix. */
   public String effectiveCacheName() {
-    return cellId.map(c -> cacheName + "_" + c).orElse(cacheName);
+    return CoordinatorCells.suffixed(cacheName, cellId);
   }
 }

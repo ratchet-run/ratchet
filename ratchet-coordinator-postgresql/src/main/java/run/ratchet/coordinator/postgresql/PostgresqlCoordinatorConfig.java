@@ -19,6 +19,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Pattern;
+import run.ratchet.coordinator.common.CoordinatorCells;
+import run.ratchet.coordinator.common.CoordinatorConfigChecks;
 
 /**
  * Tunable configuration for {@link PostgresqlListenNotifyCoordinator}.
@@ -95,7 +97,7 @@ public record PostgresqlCoordinatorConfig(
                 "cellId '" + c + "' must match " + IDENTIFIER_PATTERN.pattern());
           }
         });
-    String effective = cellId.map(c -> channel + "_" + c).orElse(channel);
+    String effective = CoordinatorCells.suffixed(channel, cellId);
     int effectiveBytes = effective.getBytes(StandardCharsets.UTF_8).length;
     if (effectiveBytes > MAX_CHANNEL_BYTES) {
       throw new IllegalArgumentException(
@@ -107,28 +109,13 @@ public record PostgresqlCoordinatorConfig(
               + MAX_CHANNEL_BYTES
               + " bytes which would silently merge wakeup traffic across deployments");
     }
-    if (receiveTimeoutMs <= 0) {
-      throw new IllegalArgumentException("receiveTimeoutMs must be > 0");
-    }
-    if (reconnectBackoffInitialMs <= 0) {
-      throw new IllegalArgumentException("reconnectBackoffInitialMs must be > 0");
-    }
-    if (reconnectBackoffMaxMs < reconnectBackoffInitialMs) {
-      throw new IllegalArgumentException(
-          "reconnectBackoffMaxMs must be >= reconnectBackoffInitialMs");
-    }
-    if (maxInboundPayloadChars <= 0) {
-      throw new IllegalArgumentException("maxInboundPayloadChars must be > 0");
-    }
-    if (listenerExecutorThreads < 1) {
-      throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
-    }
-    if (listenerExecutorQueueCapacity < 1) {
-      throw new IllegalArgumentException("listenerExecutorQueueCapacity must be >= 1");
-    }
-    if (shutdownGraceMs <= 0) {
-      throw new IllegalArgumentException("shutdownGraceMs must be > 0");
-    }
+    CoordinatorConfigChecks.requirePositive(receiveTimeoutMs, "receiveTimeoutMs");
+    CoordinatorConfigChecks.requireBackoffPair(reconnectBackoffInitialMs, reconnectBackoffMaxMs);
+    CoordinatorConfigChecks.requirePositive(maxInboundPayloadChars, "maxInboundPayloadChars");
+    CoordinatorConfigChecks.requireAtLeastOne(listenerExecutorThreads, "listenerExecutorThreads");
+    CoordinatorConfigChecks.requireAtLeastOne(
+        listenerExecutorQueueCapacity, "listenerExecutorQueueCapacity");
+    CoordinatorConfigChecks.requirePositive(shutdownGraceMs, "shutdownGraceMs");
   }
 
   /** Default tuning suitable for typical deployments. */
@@ -139,6 +126,6 @@ public record PostgresqlCoordinatorConfig(
 
   /** The fully-qualified channel name after applying the optional {@code cellId} suffix. */
   public String effectiveChannel() {
-    return cellId.map(c -> channel + "_" + c).orElse(channel);
+    return CoordinatorCells.suffixed(channel, cellId);
   }
 }

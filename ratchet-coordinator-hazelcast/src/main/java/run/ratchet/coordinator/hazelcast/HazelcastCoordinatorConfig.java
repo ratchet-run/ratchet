@@ -17,6 +17,8 @@ package run.ratchet.coordinator.hazelcast;
 
 import java.util.Objects;
 import java.util.Optional;
+import run.ratchet.coordinator.common.CoordinatorCells;
+import run.ratchet.coordinator.common.CoordinatorConfigChecks;
 
 /**
  * Tunable configuration for {@link HazelcastClusterCoordinator}.
@@ -54,18 +56,11 @@ public record HazelcastCoordinatorConfig(
       throw new IllegalArgumentException("topicName must be non-blank");
     }
     Objects.requireNonNull(cellId, "cellId");
-    if (maxInboundPayloadChars <= 0) {
-      throw new IllegalArgumentException("maxInboundPayloadChars must be > 0");
-    }
-    if (listenerExecutorThreads < 1) {
-      throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
-    }
-    if (listenerExecutorQueueCapacity < 1) {
-      throw new IllegalArgumentException("listenerExecutorQueueCapacity must be >= 1");
-    }
-    if (shutdownGraceMs <= 0) {
-      throw new IllegalArgumentException("shutdownGraceMs must be > 0");
-    }
+    CoordinatorConfigChecks.requirePositive(maxInboundPayloadChars, "maxInboundPayloadChars");
+    CoordinatorConfigChecks.requireAtLeastOne(listenerExecutorThreads, "listenerExecutorThreads");
+    CoordinatorConfigChecks.requireAtLeastOne(
+        listenerExecutorQueueCapacity, "listenerExecutorQueueCapacity");
+    CoordinatorConfigChecks.requirePositive(shutdownGraceMs, "shutdownGraceMs");
   }
 
   public static HazelcastCoordinatorConfig defaults() {
@@ -75,6 +70,6 @@ public record HazelcastCoordinatorConfig(
 
   /** Effective topic name after applying the optional {@code cellId} suffix. */
   public String effectiveTopicName() {
-    return cellId.map(c -> topicName + "-" + c).orElse(topicName);
+    return CoordinatorCells.suffixed(topicName, cellId);
   }
 }
