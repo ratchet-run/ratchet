@@ -54,12 +54,16 @@ public abstract class AbstractPushCoordinator {
       new ArrayBlockingQueue<>(PRE_REGISTRATION_BUFFER_CAPACITY);
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
-  private String coordinatorKind;
-  private String displayName;
-  private MetricsCollector metrics;
-  private NodeIdentityProvider identityProvider;
-  private int maxInboundPayloadChars;
-  private long shutdownGraceMs;
+  // Written once in configureDispatch (the init thread) and read from the transport listener and
+  // shutdown threads. volatile gives each read the most recent write and makes the 64-bit
+  // shutdownGraceMs write atomic, so the dispatch config is safely published without leaning on
+  // the transport library's internal synchronization for the happens-before.
+  private volatile String coordinatorKind;
+  private volatile String displayName;
+  private volatile MetricsCollector metrics;
+  private volatile NodeIdentityProvider identityProvider;
+  private volatile int maxInboundPayloadChars;
+  private volatile long shutdownGraceMs;
   private volatile ExecutorService listenerExecutor;
 
   protected AbstractPushCoordinator() {}
