@@ -274,12 +274,24 @@ public interface JobSchedulerService {
    * <p>Idempotent: if the job is already in a non-WAITING state (including terminal states), this
    * method returns {@code 0} without modifying the job.
    *
-   * <p>The signal payload is serialized to JSON via the configured {@code PayloadSerializer} and
-   * stored on the job entity. The executing task reads it back through {@link
-   * JobContext#signalPayload(Class)} as its JSON-native form — a {@code String}, boxed number,
-   * boolean, {@code List}, or {@code Map} — so request the type the value maps to. A concrete bean
-   * class is not reconstructed to its original type; deliver a {@link SignalDecision} or a
-   * JSON-native value when the executing code needs typed access.
+   * <p><b>Payload round-trip contract.</b> The payload is serialized to JSON via the configured
+   * {@code PayloadSerializer} and stored on the job entity. Any {@link Serializable} is accepted
+   * here without validation, but only its JSON structure is retained — its concrete Java type is
+   * not. The executing task therefore observes the payload through {@link
+   * JobContext#signalPayload(Class)} in its JSON-native form: a {@code String}, a {@link Number}
+   * (typically a {@code java.math.BigDecimal} under the default JSON-B serializer), a {@code
+   * Boolean}, a {@code List}, or a {@code Map}. Request one of those types, not the original
+   * concrete class.
+   *
+   * <p>Delivering a value whose JSON does not map back to the type the job requests — a custom
+   * bean, for example — is accepted at write time and fails only later, as a {@link
+   * ClassCastException} thrown from {@code signalPayload(Class)} inside the running job. This
+   * deferred, read-side failure is a deliberate choice: it mirrors how JSON-B serializes an
+   * arbitrary {@code Object}, and the producer and consumer of a durable signal are decoupled in
+   * time. When the executing code needs structured typed access, deliver a {@link SignalDecision} —
+   * whose {@code outcome} and {@code rejectionReason} round-trip as declared — or shape the payload
+   * as JSON-native values up front. (A {@code SignalDecision}'s own inner payload carries the same
+   * JSON-native-only limitation; see {@link SignalDecision#payload(Class)}.)
    *
    * <p>Subject to {@link run.ratchet.spi.JobAuthorizationPolicy#checkDeliverSignal(UUID, String,
    * String)}.
@@ -323,6 +335,10 @@ public interface JobSchedulerService {
    *
    * <p>Idempotent: jobs already past WAITING are not affected and do not count toward the return
    * value.
+   *
+   * <p>The payload round-trip contract is identical to {@link #deliverSignal(UUID, Serializable)}:
+   * the value is retained as its JSON structure only and observed by each unblocked job in its
+   * JSON-native form.
    *
    * <p>Subject to {@link run.ratchet.spi.JobAuthorizationPolicy#checkDeliverSignal(String,
    * String)}. Because this is an atomic bulk operation, the policy receives the signal key rather

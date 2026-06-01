@@ -76,6 +76,9 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 public class DefaultJobSchedulerService
     implements JobSchedulerService, RecurringAnnotationMaintenanceService {
 
+  // signal_payload_type markers persisted in the VARCHAR(16) column. These two values are the only
+  // ones defined: RAW for a payload delivered via deliverSignal(.., Serializable), DECISION for a
+  // SignalDecision. JobTask switches on DECISION to rebuild the wrapper; everything else is RAW.
   public static final String SIGNAL_PAYLOAD_TYPE_DECISION = "DECISION";
   static final String SIGNAL_PAYLOAD_TYPE_RAW = "RAW";
   // Used when the caller principal can't be resolved (e.g. no Elytron context in tests).
