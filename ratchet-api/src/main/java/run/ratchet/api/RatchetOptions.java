@@ -329,8 +329,8 @@ public class RatchetOptions {
    * Execution-pool wiring: target executor JNDI names, queue size, and per-execution-type
    * concurrency / virtual-thread / rate caps.
    *
-   * @param useVirtualThreads {@code true} to request virtual-thread execution where supported by
-   *     the chosen executor (the container ultimately decides)
+   * @param defaultThreadingMode default threading mode applied when a job pins no execution target;
+   *     defaults to {@link ThreadingMode#PLATFORM}
    * @param queueSize bounded queue length used by the in-process fallback executor
    * @param maxConcurrency map of execution-type name to maximum concurrent executions; missing keys
    *     fall back to the per-type defaults
@@ -341,6 +341,10 @@ public class RatchetOptions {
    * @param jobExecutorJndi JNDI name of the {@code ManagedExecutorService} that runs jobs
    * @param scheduledExecutorJndi JNDI name of the {@code ManagedScheduledExecutorService} used for
    *     scheduled work
+   * @param virtualExecutorJndi JNDI name of the {@code ManagedExecutorService} used for
+   *     virtual-thread execution; when blank, virtual-targeted jobs fall back to the platform pool
+   * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
+   *     virtual pool instead of the default semaphore bound
    */
   public record ExecutionOptions(
       ThreadingMode defaultThreadingMode,

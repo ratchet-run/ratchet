@@ -43,10 +43,10 @@ import java.io.Serializable;
  * descriptor, arguments) — the same format used for job task lambdas. Predicate lambdas must
  * resolve to a single public method call.
  *
- * <p>This record is marked {@link Incubating}: its binary wire format (including the fixed {@link
- * Serial serialVersionUID} on line 29) may change before the 1.0 release. Callers persisting these
- * events to external systems should treat them as in-memory event payloads, not as a stable
- * long-term storage format.
+ * <p>This record is marked {@link Incubating}: its binary wire format (including the declared
+ * {@link Serial serialVersionUID}) may change before the 1.0 release. Callers persisting these
+ * conditions to external systems should treat them as in-memory payloads, not as a stable long-term
+ * storage format.
  *
  * @param type condition evaluation strategy
  * @param expression type-specific expression data (predicate, threshold, or null)
