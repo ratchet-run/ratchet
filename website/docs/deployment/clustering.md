@@ -94,7 +94,7 @@ Each node registers itself in the `scheduler_node` table:
 | Column | Description |
 |--------|-------------|
 | `node_id` | Unique identifier (hostname, UUID, or configured value) |
-| `last_heartbeat` | Last time this node checked in |
+| `heartbeat_ts` | Last time this node checked in |
 | `started_at` | When the node first registered |
 | `node_info` | Optional JSON metadata (version, IP, etc.) |
 
@@ -215,7 +215,7 @@ The `scheduler_lock` table provides advisory locks for operations that must be c
 | Column | Description |
 |--------|-------------|
 | `lock_name` | Unique lock identifier |
-| `locked_by` | Node that holds the lock |
+| `owner_node` | Node that holds the lock |
 | `locked_at` | When the lock was acquired |
 | `expires_at` | TTL — lock auto-expires for crash safety |
 

@@ -182,12 +182,13 @@ public interface JobSchedulerService {
    *
    * <p><b>Synchronous dispatch — latency warning.</b> Listeners are invoked synchronously on the
    * publishing thread, which is typically the job execution thread. A slow listener creates
-   * unbounded latency on the job hot path and can stall the scheduler. This is intentional — event
-   * publication participates in the same transaction as the state change it announces — but it
-   * means any listener that does heavyweight work (I/O, network calls, cross-system notifications)
-   * MUST offload to its own thread pool. For CDI observers of the same events, prefer
-   * {@code @ObservesAsync} when the observer does not need to participate in the source
-   * transaction.
+   * unbounded latency on the job hot path and can stall the scheduler. For scheduler state-change
+   * events raised inside a transaction, the listener runs synchronously <em>after</em> that
+   * transaction commits, so a rollback suppresses the event and a listener cannot roll the source
+   * transaction back. (When no transaction is active, dispatch is immediate.) Any listener that does
+   * heavyweight work (I/O, network calls, cross-system notifications) MUST offload to its own thread
+   * pool. For CDI observers of the same events, prefer {@code @ObservesAsync} when the observer does
+   * not need to run on the publishing thread.
    *
    * <p>Event types delivered:
    *

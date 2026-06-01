@@ -96,10 +96,11 @@ RATCHET_THREAD_POOL_SIZE_BATCH_CHILD=64
 ### Virtual Threads (Java 21+)
 
 ```bash
-RATCHET_WORKER_USE_VIRTUAL_THREADS=true
+RATCHET_WORKER_DEFAULT_THREADING_MODE=virtual
+RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI=java:app/concurrent/MyVirtualExecutor
 ```
 
-Virtual threads (Project Loom) eliminate the need to carefully size thread pools for I/O-bound workloads. With virtual threads enabled, Ratchet creates a virtual thread per job, and the JVM efficiently multiplexes them across platform threads.
+Virtual threads (Project Loom) eliminate the need to carefully size thread pools for I/O-bound workloads. With the default threading mode set to virtual and a virtual-backed managed executor wired in, Ratchet routes jobs to the virtual pool, and the JVM efficiently multiplexes them across platform threads.
 
 Benefits:
 - No thread pool sizing needed — virtual threads are cheap to create

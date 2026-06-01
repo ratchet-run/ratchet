@@ -180,7 +180,7 @@ Constant delay between each retry attempt. Suitable for rate-limited services.
 
 ### EXPONENTIAL
 
-Delays grow exponentially (doubling) with each attempt. Ideal for reducing load on stressed systems. The delay is capped at a reasonable maximum (typically 5 minutes).
+Delays grow exponentially (doubling) with each attempt. Ideal for reducing load on stressed systems. The delay is capped at a reasonable maximum (24 hours).
 
 **Example with `backoffParam = 1 second`:**
 

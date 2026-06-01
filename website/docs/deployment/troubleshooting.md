@@ -131,7 +131,7 @@ mongosh --eval 'rs.initiate()'
 
 ```sql
 DELETE FROM scheduler_node
-WHERE last_heartbeat < NOW() - INTERVAL '1 hour';
+WHERE heartbeat_ts < NOW() - INTERVAL '1 hour';
 ```
 
 Or use the programmatic API:

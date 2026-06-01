@@ -99,7 +99,7 @@ public class SchedulerConfiguration {
             .execution(e -> e
                 .maxConcurrency("SINGLE", 30)
                 .maxConcurrency("BATCH_CHILD", 50)
-                .useVirtualThreads(false))
+                .defaultThreadingMode(RatchetOptions.ThreadingMode.PLATFORM))
             .node(n -> n
                 .heartbeatIntervalSeconds(5)
                 .orphanGraceSeconds(30))
@@ -187,7 +187,9 @@ DDL, not a datasource.
 
 | Builder method | Default | Description |
 |---|---:|---|
-| `useVirtualThreads(boolean)` | `false` | Use counter-based backpressure instead of semaphores (pair with a virtual-thread executor JNDI) |
+| `defaultThreadingMode(ThreadingMode)` | `PLATFORM` | Pool a job runs on when it sets no target of its own |
+| `virtualExecutorJndi(String)` | _(none)_ | Adds a second managed executor as the virtual pool; absent means virtual-targeted jobs fall back to platform |
+| `virtualCounterAccounting(boolean)` | `false` | Opt the virtual pool into counter-based backpressure instead of a bounded semaphore |
 | `queueSize(int)` | `100` | Reserved for custom executor implementations |
 | `maxConcurrency("SINGLE", int)` | `20` | One-off job concurrency |
 | `maxConcurrency("RECURRING", int)` | `5` | Recurring child concurrency |

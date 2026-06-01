@@ -163,7 +163,7 @@ The circuit breaker is resolved per job by inspecting the `@CircuitBreakerProtec
 Yes, on a Jakarta EE 11 container. Virtual-thread support has two parts:
 
 1. **Where jobs run.** Ratchet runs each job on the `ManagedExecutorService` resolved from `ratchet.worker.job-executor-jndi` (default `java:comp/DefaultManagedExecutorService`). Point that at a virtual-thread-backed managed executor and jobs run on virtual threads — with the container's context propagation (CDI, transaction, security) intact, which a hand-rolled `Thread.ofVirtual()` executor would lose.
-2. **Backpressure accounting.** `execution.useVirtualThreads(true)` swaps the semaphore-based concurrency limits for `AtomicInteger` counters, since virtual threads are cheap and a fixed pool no longer bounds concurrency. Each job type keeps a configurable limit (default 1000) to prevent unbounded growth.
+2. **Backpressure accounting.** `execution.virtualCounterAccounting(true)` swaps the semaphore-based concurrency limits for `AtomicInteger` counters, since virtual threads are cheap and a fixed pool no longer bounds concurrency. Each job type keeps a configurable limit (default 1000) to prevent unbounded growth.
 
 Ratchet stays a single, EE-version-agnostic library and does not ship its own executor definition (resource-definition scanning of library jars is container-specific, so a bundled one would not bind portably). Instead, declare one in your own application on EE 11 (Jakarta Concurrency 3.1) and point Ratchet at it:
 
@@ -174,8 +174,9 @@ public class VirtualExecutorConfig {}
 ```
 
 ```bash
-export RATCHET_WORKER_USE_VIRTUAL_THREADS=true
+export RATCHET_WORKER_DEFAULT_THREADING_MODE=virtual
 export RATCHET_WORKER_JOB_EXECUTOR_JNDI=java:app/concurrent/MyVirtualExecutor
+export RATCHET_WORKER_VIRTUAL_COUNTER_ACCOUNTING=true
 # Optional: adjust per-type limits (default 1000)
 export RATCHET_VIRTUAL_THREAD_LIMIT_SINGLE=500
 export RATCHET_VIRTUAL_THREAD_LIMIT_BATCH_CHILD=2000
@@ -186,13 +187,14 @@ Or programmatically:
 ```java
 RatchetOptions.builder()
     .execution(e -> e
-        .useVirtualThreads(true)
+        .defaultThreadingMode(RatchetOptions.ThreadingMode.VIRTUAL)
+        .virtualCounterAccounting(true)
         .jobExecutorJndi("java:app/concurrent/MyVirtualExecutor"));
 ```
 
 **Requirements:**
 - A Jakarta EE 11 container whose Jakarta Concurrency 3.1 implementation honors `virtual = true`, on Java 21+. Verified on Eclipse GlassFish 8 (the EE 11 reference implementation). Note: WildFly 40.0.0.Final accepts the definition and runs jobs on the configured executor, but does not yet create virtual threads for managed executors — jobs run on platform threads there until a later release implements it.
-- Jakarta EE 10 (Jakarta Concurrency 3.0) has no standard `virtual = true` attribute on `@ManagedExecutorDefinition`, so an application cannot portably declare a virtual-thread executor. `useVirtualThreads(true)` still switches the backpressure model, but jobs run on virtual threads only if you point the JNDI name at an executor the container itself configures as virtual through a vendor-specific mechanism.
+- Jakarta EE 10 (Jakarta Concurrency 3.0) has no standard `virtual = true` attribute on `@ManagedExecutorDefinition`, so an application cannot portably declare a virtual-thread executor. `virtualCounterAccounting(true)` still switches the backpressure model, but jobs run on virtual threads only if you point the JNDI name at an executor the container itself configures as virtual through a vendor-specific mechanism.
 - Your jobs must not hold long `synchronized` blocks or call native methods that pin the carrier thread — prefer `ReentrantLock`.
 
 **When to use virtual threads:** They are most beneficial when your jobs spend the majority of their time waiting on I/O (database queries, HTTP calls, file operations). For CPU-bound workloads, platform threads with appropriate pool sizes are usually sufficient.

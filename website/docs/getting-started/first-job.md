@@ -115,7 +115,7 @@ Ratchet supports three backoff policies:
 
 - **`BackoffPolicy.NONE`** -- Retry immediately. Use for non-transient errors where timing isn't the issue.
 - **`BackoffPolicy.FIXED`** -- Constant delay between retries. Use for rate-limited APIs where you need predictable spacing.
-- **`BackoffPolicy.EXPONENTIAL`** -- Doubling delay (capped at 5 minutes). Use for external services where you want to back off under load.
+- **`BackoffPolicy.EXPONENTIAL`** -- Doubling delay (capped at 24 hours). Use for external services where you want to back off under load.
 
 ## Step 3: Set Priority and Timeout
 

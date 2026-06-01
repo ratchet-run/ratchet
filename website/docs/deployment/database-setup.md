@@ -76,6 +76,8 @@ You should see these scheduler tables plus `ratchet_schema_version`:
 | `scheduler_batch` | Batch progress tracking |
 | `scheduler_batch_metrics` | Batch performance metrics |
 | `scheduler_job_archive` | Archived completed/failed jobs |
+| `scheduler_recurring_job` | Recurring job masters |
+| `scheduler_recurring_job_archive` | Archived recurring job masters |
 | `scheduler_node` | Cluster node heartbeats |
 | `scheduler_lock` | Distributed locks |
 | `scheduler_resource_limit` | Resource concurrency config |
@@ -254,6 +256,8 @@ db.createCollection("scheduler_batch_metrics");
 db.createCollection("scheduler_job_execution");
 db.createCollection("scheduler_job_log");
 db.createCollection("scheduler_job_archive");
+db.createCollection("scheduler_recurring_job");
+db.createCollection("scheduler_recurring_job_archive");
 db.createCollection("scheduler_node");
 db.createCollection("scheduler_lock");
 db.createCollection("scheduler_workflow_condition");
