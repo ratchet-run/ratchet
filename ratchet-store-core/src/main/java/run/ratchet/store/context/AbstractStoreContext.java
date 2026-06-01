@@ -67,6 +67,12 @@ public abstract class AbstractStoreContext {
   public abstract ConstraintDetector constraintDetector();
 
   public RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
+    if (e instanceof RatchetTransientStoreException) {
+      // A nested operation already translated this. Re-running the detector would walk its cause
+      // chain, re-detect the underlying fault, and wrap it a second time — losing the inner
+      // operation label. Return the original transient unchanged, matching timedStoreOperation.
+      return e;
+    }
     RatchetTransientStoreException wrapped =
         TransientStoreExceptions.translateOrNull(
             dialectLabel(), constraintDetector(), operation, e);
