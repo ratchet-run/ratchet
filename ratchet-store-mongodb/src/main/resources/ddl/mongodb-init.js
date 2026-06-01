@@ -24,14 +24,6 @@ db.scheduler_job.createIndex(
   { name: "idx_job_claim_exec" }
 );
 db.scheduler_job.createIndex(
-  { job_type: 1, status: 1, next_fire: 1 },
-  { name: "idx_job_recurring_composite" }
-);
-db.scheduler_job.createIndex(
-  { status: 1, job_type: 1, priority: -1, next_fire: 1, _id: 1 },
-  { name: "idx_job_claim_recurring" }
-);
-db.scheduler_job.createIndex(
   { idempotency_key: 1 },
   { name: "idx_job_idempotency_key", unique: true }
 );
@@ -53,8 +45,24 @@ db.scheduler_job.createIndex({ target_class: 1 }, { name: "idx_job_target_class"
 db.scheduler_job.createIndex({ method_name: 1 }, { name: "idx_job_method_name" });
 db.scheduler_job.createIndex({ created_at: 1 }, { name: "idx_job_created_at" });
 db.scheduler_job.createIndex({ updated_at: 1 }, { name: "idx_job_updated_at" });
+db.scheduler_job.createIndex({ terminated_at: 1 }, { name: "idx_job_terminated_at" });
 db.scheduler_job.createIndex({ job_type: 1 }, { name: "idx_job_type" });
 db.scheduler_job.createIndex({ superseded_by: 1 }, { name: "idx_job_superseded_by" });
+
+// Dashboard query indexes
+db.scheduler_job.createIndex(
+  { "trace_context.traceparent": 1 },
+  { name: "idx_job_traceparent" }
+);
+db.scheduler_job.createIndex(
+  { caller_principal: 1, created_at: 1 },
+  { name: "idx_job_principal_created" }
+);
+db.scheduler_job.createIndex(
+  { status: 1, created_at: -1 },
+  { name: "idx_job_status_created" }
+);
+
 db.scheduler_job.createIndex(
   { signal_key: 1, status: 1 },
   { name: "idx_signal_key_status" }
@@ -64,6 +72,37 @@ db.scheduler_job.createIndex(
   { name: "idx_signal_timeout_status" }
 );
 db.scheduler_job.createIndex({ signal_delivery_id: 1 }, { name: "idx_signal_delivery_id" });
+
+// ── scheduler_recurring_job ──────────────────────────────────────────────────
+db.scheduler_recurring_job.createIndex(
+  { is_paused: 1, next_fire: 1 },
+  { name: "idx_rec_claim" }
+);
+db.scheduler_recurring_job.createIndex(
+  { business_key: 1 },
+  {
+    name: "uk_rec_business_key",
+    unique: true,
+    partialFilterExpression: { business_key: { $type: "string" } }
+  }
+);
+db.scheduler_recurring_job.createIndex({ target_class: 1 }, { name: "idx_rec_target_class" });
+
+// ── scheduler_recurring_job_archive ──────────────────────────────────────────
+db.scheduler_recurring_job_archive.createIndex(
+  { business_key: 1 },
+  { name: "idx_archive_rec_business_key" }
+);
+db.scheduler_recurring_job_archive.createIndex(
+  { archived_at: 1 },
+  { name: "idx_archive_rec_archived_at" }
+);
+
+// ── scheduler_batch ──────────────────────────────────────────────────────────
+db.scheduler_batch.createIndex(
+  { completion_processed: 1 },
+  { name: "idx_batch_completion_processed" }
+);
 
 // ── scheduler_job_execution ──────────────────────────────────────────────────
 db.scheduler_job_execution.createIndex({ job_id: 1 }, { name: "idx_execution_job_id" });
