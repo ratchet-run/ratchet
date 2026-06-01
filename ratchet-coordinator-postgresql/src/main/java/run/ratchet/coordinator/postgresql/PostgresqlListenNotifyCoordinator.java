@@ -29,22 +29,16 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Objects;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.AbstractPushCoordinator;
+import run.ratchet.coordinator.common.CoordinatorSupport;
 import run.ratchet.coordinator.common.CoordinatorThreading;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
-import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -74,13 +68,10 @@ import run.ratchet.spi.SchedulerLifecycleHook;
 //   PG = PLATFORM_BEFORE + 400, JMS = +300, Hazelcast = +200, Infinispan = +100.
 // Operators MUST pull in exactly one coordinator module; distinct priorities only mean a
 // transitive double-pull picks PG over the others — it does not legitimize the configuration.
-public class PostgresqlListenNotifyCoordinator
+public class PostgresqlListenNotifyCoordinator extends AbstractPushCoordinator
     implements ClusterCoordinator, SchedulerLifecycleHook {
 
   private static final Logger log = Logger.getLogger(PostgresqlListenNotifyCoordinator.class);
-
-  /** Bounded buffer holding inbound messages that arrive before any listener registers. */
-  private static final int PRE_REGISTRATION_BUFFER_CAPACITY = 256;
 
   private static final String COORDINATOR_KIND = "postgresql";
 
@@ -100,19 +91,11 @@ public class PostgresqlListenNotifyCoordinator
 
   private PostgresqlCoordinatorConfig config;
 
-  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
-  private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
-      new CopyOnWriteArrayList<>();
-  private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
-      new ArrayBlockingQueue<>(PRE_REGISTRATION_BUFFER_CAPACITY);
-
   private PostgresqlConnectionLifecycle connectionLifecycle;
   private PostgresqlConnectionLifecycle.ConnectionAcquirer publishConnectionAcquirer;
   private PostgresqlListenThread listenThread;
   private Thread listenThreadHandle;
-  private ExecutorService listenerExecutor;
   private CoordinatorThreading threading;
-  private final AtomicBoolean closed = new AtomicBoolean(false);
 
   /** CDI proxy constructor — not for direct use. */
   @SuppressWarnings("unused")
@@ -152,9 +135,8 @@ public class PostgresqlListenNotifyCoordinator
   void init() {
     if (config == null) {
       config =
-          configInstance != null && configInstance.isResolvable()
-              ? configInstance.get()
-              : PostgresqlCoordinatorConfig.defaults();
+          CoordinatorSupport.resolveConfigOrDefault(
+              configInstance, PostgresqlCoordinatorConfig::defaults);
     }
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
@@ -164,9 +146,25 @@ public class PostgresqlListenNotifyCoordinator
       // managed thread factory. Standalone is an explicit opt-in via the test constructors.
       threading = CoordinatorThreading.managed("ratchet-coordinator-postgresql");
     }
+    configureDispatch(
+        COORDINATOR_KIND,
+        "PostgreSQL",
+        metrics,
+        identityProvider,
+        config.maxInboundPayloadChars(),
+        threading.newDispatchPool(
+            "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity()),
+        config.shutdownGraceMs());
     DataSource ds = null;
     if (connectionLifecycle == null || publishConnectionAcquirer == null) {
-      ds = resolveDataSource();
+      ds =
+          CoordinatorSupport.resolveRequired(
+              dataSourceInstance,
+              "No DataSource available for PostgresqlListenNotifyCoordinator. Provide a @Produces"
+                  + " DataSource or wire one via container-managed JNDI.",
+              "Multiple DataSource beans visible to PostgresqlListenNotifyCoordinator; first match"
+                  + " wins. Provide a @CoordinatorDataSource qualifier in a future revision for"
+                  + " disambiguation.");
     }
     if (connectionLifecycle == null) {
       connectionLifecycle = new PostgresqlConnectionLifecycle(ds, config);
@@ -175,7 +173,6 @@ public class PostgresqlListenNotifyCoordinator
       DataSource publishDataSource = ds;
       publishConnectionAcquirer = publishDataSource::getConnection;
     }
-    listenerExecutor = newListenerExecutor();
     listenThread =
         new PostgresqlListenThread(
             connectionLifecycle,
@@ -189,7 +186,7 @@ public class PostgresqlListenNotifyCoordinator
   /** {@inheritDoc} */
   @Override
   public void afterStart() {
-    if (closed.get()) {
+    if (isClosed()) {
       return;
     }
     if (listenThread == null) {
@@ -205,7 +202,7 @@ public class PostgresqlListenNotifyCoordinator
   public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
     Objects.requireNonNull(priority, "priority");
     Objects.requireNonNull(source, "source");
-    if (closed.get()) {
+    if (isClosed()) {
       return;
     }
     try {
@@ -234,16 +231,6 @@ public class PostgresqlListenNotifyCoordinator
     }
   }
 
-  @Override
-  public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
-    Objects.requireNonNull(listener, "listener");
-    if (closed.get()) {
-      return;
-    }
-    listeners.add(listener);
-    drainPreRegistrationBuffer();
-  }
-
   /**
    * Hook chain entry point — runs during {@code RatchetLifecycle.onShutdown} after pollers and the
    * execution coordinator have stopped. Delegates to {@link #close()}, which is idempotent.
@@ -255,7 +242,7 @@ public class PostgresqlListenNotifyCoordinator
 
   @Override
   public void close() {
-    if (!closed.compareAndSet(false, true)) {
+    if (!markClosed()) {
       return;
     }
     PostgresqlListenThread thread = this.listenThread;
@@ -277,17 +264,7 @@ public class PostgresqlListenNotifyCoordinator
         Thread.currentThread().interrupt();
       }
     }
-    ExecutorService executor = this.listenerExecutor;
-    if (executor != null) {
-      executor.shutdown();
-      try {
-        if (!executor.awaitTermination(config.shutdownGraceMs(), TimeUnit.MILLISECONDS)) {
-          executor.shutdownNow();
-        }
-      } catch (InterruptedException ignored) {
-        Thread.currentThread().interrupt();
-      }
-    }
+    shutdownListenerExecutor();
   }
 
   /**
@@ -303,73 +280,12 @@ public class PostgresqlListenNotifyCoordinator
 
   /** Dispatch path from the listen thread. Self-suppresses then routes to listeners. */
   private void onInboundNotification(NotifyPayload msg) {
-    NodeIdentity local;
-    try {
-      local = new NodeIdentity(identityProvider.getNodeId());
-    } catch (RuntimeException e) {
-      log.warnf("PostgreSQL coordinator: NodeIdentityProvider error: %s", e.getMessage());
-      clusterWakeupReceived("ignored_provider_error");
-      return;
-    }
-    if (msg.node().equals(local)) {
-      clusterWakeupReceived("ignored_self");
-      return;
-    }
-    clusterWakeupReceived("delivered");
-    if (listeners.isEmpty()) {
-      bufferOrDropOldest(msg);
-      return;
-    }
-    dispatchToListeners(msg);
+    deliverDecodedPayload(msg);
   }
 
-  private void dispatchToListeners(NotifyPayload msg) {
-    JobWakeupHint hint = new JobWakeupHint(msg.priority(), msg.node(), msg.executionTarget());
-    for (Consumer<JobWakeupHint> listener : listeners) {
-      try {
-        listenerExecutor.execute(
-            () -> {
-              try {
-                listener.accept(hint);
-              } catch (RuntimeException listenerEx) {
-                clusterWakeupReceived("listener_failure");
-                log.warnf(
-                    listenerEx,
-                    "PostgreSQL coordinator listener threw: %s — suppressing per SPI contract",
-                    listenerEx.getMessage());
-              }
-            });
-      } catch (RuntimeException submitEx) {
-        // Executor refused (shutdown or saturated). Skip; the local poller floor is unaffected.
-        log.debugf(
-            submitEx,
-            "PostgreSQL coordinator could not enqueue listener task: %s",
-            submitEx.getMessage());
-      }
-    }
-  }
-
-  // Drop oldest and try once more. Counts as overflow regardless of the second offer's outcome.
-  @SuppressWarnings("ResultOfMethodCallIgnored")
-  private void bufferOrDropOldest(NotifyPayload msg) {
-    if (preRegistrationBuffer.offer(msg)) {
-      return;
-    }
-    preRegistrationBuffer.poll();
-    preRegistrationBuffer.offer(msg);
-    clusterWakeupReceived("pre_registration_overflow");
-    log.warn("PostgreSQL coordinator pre-registration buffer overflowed; oldest wakeup dropped");
-  }
-
-  private void drainPreRegistrationBuffer() {
-    // Drain after the listener is visible so buffered wakeups reach the first subscriber.
-    // A notify can still arrive during concurrent listener registration and get buffered
-    // for the next registration cycle. The local poll loop is the correctness floor; the
-    // SPI wakeup signal is best-effort.
-    NotifyPayload msg;
-    while ((msg = preRegistrationBuffer.poll()) != null) {
-      dispatchToListeners(msg);
-    }
+  @Override
+  protected void onNodeIdentityProviderError(RuntimeException e) {
+    log.warnf("PostgreSQL coordinator: NodeIdentityProvider error: %s", e.getMessage());
   }
 
   private void onParseFailure() {
@@ -378,34 +294,5 @@ public class PostgresqlListenNotifyCoordinator
 
   private void onTransportFailure() {
     clusterWakeupReceived("transport_failure");
-  }
-
-  private void clusterWakeupPublished(String outcome) {
-    metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
-  }
-
-  private void clusterWakeupReceived(String outcome) {
-    metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
-  }
-
-  private DataSource resolveDataSource() {
-    Instance<DataSource> instance = this.dataSourceInstance;
-    if (instance == null || instance.isUnsatisfied()) {
-      throw new IllegalStateException(
-          "No DataSource available for PostgresqlListenNotifyCoordinator. Provide a @Produces"
-              + " DataSource or wire one via container-managed JNDI.");
-    }
-    if (instance.isAmbiguous()) {
-      log.warn(
-          "Multiple DataSource beans visible to PostgresqlListenNotifyCoordinator; first match"
-              + " wins. Provide a @CoordinatorDataSource qualifier in a future revision for"
-              + " disambiguation.");
-    }
-    return instance.get();
-  }
-
-  private ExecutorService newListenerExecutor() {
-    return threading.newDispatchPool(
-        "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity());
   }
 }

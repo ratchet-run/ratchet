@@ -32,22 +32,15 @@ import jakarta.jms.Message;
 import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
 import java.util.Objects;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.AbstractPushCoordinator;
+import run.ratchet.coordinator.common.CoordinatorSupport;
 import run.ratchet.coordinator.common.CoordinatorThreading;
 import run.ratchet.coordinator.common.DecodeException;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
-import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -83,11 +76,10 @@ import run.ratchet.spi.SchedulerLifecycleHook;
 // Coordinator @Priority order: see PostgresqlListenNotifyCoordinator. Operators MUST pull in
 // exactly one coordinator module; distinct priorities only prevent CDI ambiguity errors on a
 // transitive double-pull.
-public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifecycleHook {
+public class JmsClusterCoordinator extends AbstractPushCoordinator
+    implements ClusterCoordinator, SchedulerLifecycleHook {
 
   private static final Logger log = Logger.getLogger(JmsClusterCoordinator.class);
-
-  private static final int PRE_REGISTRATION_BUFFER_CAPACITY = 256;
 
   static final String COORDINATOR_KIND = "jms";
 
@@ -106,19 +98,11 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
 
   private JmsCoordinatorConfig config;
 
-  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
-  private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
-      new CopyOnWriteArrayList<>();
-  private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
-      new ArrayBlockingQueue<>(PRE_REGISTRATION_BUFFER_CAPACITY);
-
   private JmsConnectionLifecycle connectionLifecycle;
   private ConnectionFactory directConnectionFactory;
   private Topic topic;
   private NodeIdentity localIdentity;
-  private ExecutorService listenerExecutor;
   private CoordinatorThreading threading;
-  private final AtomicBoolean closed = new AtomicBoolean(false);
 
   protected JmsClusterCoordinator() {
     // CDI proxy constructor.
@@ -165,9 +149,7 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
   void init() {
     if (config == null) {
       config =
-          configInstance != null && configInstance.isResolvable()
-              ? configInstance.get()
-              : JmsCoordinatorConfig.defaults();
+          CoordinatorSupport.resolveConfigOrDefault(configInstance, JmsCoordinatorConfig::defaults);
     }
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
@@ -177,12 +159,27 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
       // managed thread factory. Standalone is an explicit opt-in via the test constructors.
       threading = CoordinatorThreading.managed("ratchet-coordinator-jms");
     }
+    configureDispatch(
+        COORDINATOR_KIND,
+        "JMS",
+        metrics,
+        identityProvider,
+        config.maxInboundPayloadChars(),
+        threading.newDispatchPool(
+            "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity()),
+        config.shutdownGraceMs());
     if (connectionLifecycle == null) {
       ConnectionFactory cf;
       if (directConnectionFactory != null) {
         cf = directConnectionFactory;
       } else {
-        JmsConnectionFactoryProvider provider = resolveProvider();
+        JmsConnectionFactoryProvider provider =
+            CoordinatorSupport.resolveRequired(
+                providerInstance,
+                "No JmsConnectionFactoryProvider available for JmsClusterCoordinator. Provide a"
+                    + " @Produces JmsConnectionFactoryProvider or use the default JNDI lookup bean.",
+                "Multiple JmsConnectionFactoryProvider beans visible; first match wins. Use"
+                    + " @Alternative + @Priority for disambiguation.");
         cf = provider.connectionFactory();
         if (topic == null) {
           this.topic = provider.topic();
@@ -192,13 +189,12 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
           new JmsConnectionLifecycle(
               cf, topic, config, this::onJmsMessage, this::onConnectionTransportFailure, threading);
     }
-    listenerExecutor = newListenerExecutor();
     localIdentity = new NodeIdentity(identityProvider.getNodeId());
   }
 
   @Override
   public void afterStart() {
-    if (closed.get()) {
+    if (isClosed()) {
       return;
     }
     if (connectionLifecycle == null || localIdentity == null) {
@@ -211,7 +207,7 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
   public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
     Objects.requireNonNull(priority, "priority");
     Objects.requireNonNull(source, "source");
-    if (closed.get()) {
+    if (isClosed()) {
       return;
     }
     try {
@@ -252,16 +248,6 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
     }
   }
 
-  @Override
-  public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
-    Objects.requireNonNull(listener, "listener");
-    if (closed.get()) {
-      return;
-    }
-    listeners.add(listener);
-    drainPreRegistrationBuffer();
-  }
-
   /**
    * Hook chain entry point — runs during {@code RatchetLifecycle.onShutdown} after pollers and the
    * execution coordinator have stopped. Delegates to {@link #close()}, which is idempotent.
@@ -273,24 +259,14 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
 
   @Override
   public void close() {
-    if (!closed.compareAndSet(false, true)) {
+    if (!markClosed()) {
       return;
     }
     JmsConnectionLifecycle lifecycle = this.connectionLifecycle;
     if (lifecycle != null) {
       lifecycle.close();
     }
-    ExecutorService executor = this.listenerExecutor;
-    if (executor != null) {
-      executor.shutdown();
-      try {
-        if (!executor.awaitTermination(config.shutdownGraceMs(), TimeUnit.MILLISECONDS)) {
-          executor.shutdownNow();
-        }
-      } catch (InterruptedException ignored) {
-        Thread.currentThread().interrupt();
-      }
-    }
+    shutdownListenerExecutor();
   }
 
   /** Dispatch path from the JMS provider's listener thread. */
@@ -302,13 +278,9 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
         return;
       }
       String body = tm.getText();
-      if (body != null && body.length() > config.maxInboundPayloadChars()) {
+      if (rejectIfOversized(body)) {
         // Hard cap on listener-thread allocation: a hostile or buggy producer can otherwise
         // attach a multi-MB body that the codec would happily decode into memory.
-        clusterWakeupReceived("parse_failure");
-        log.warnf(
-            "JMS coordinator rejected oversized inbound payload (%d chars > cap %d)",
-            body.length(), config.maxInboundPayloadChars());
         return;
       }
       payload = codec.decode(body);
@@ -321,93 +293,11 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
       log.warnf("JMS coordinator dropped inbound message due to JMS error: %s", ex.getMessage());
       return;
     }
-    NodeIdentity local;
-    try {
-      local = new NodeIdentity(identityProvider.getNodeId());
-    } catch (RuntimeException e) {
-      clusterWakeupReceived("ignored_provider_error");
-      return;
-    }
-    if (payload.node().equals(local)) {
-      clusterWakeupReceived("ignored_self");
-      return;
-    }
-    clusterWakeupReceived("delivered");
-    if (listeners.isEmpty()) {
-      bufferOrDropOldest(payload);
-      return;
-    }
-    dispatchToListeners(payload);
-  }
-
-  private void dispatchToListeners(NotifyPayload msg) {
-    JobWakeupHint hint = new JobWakeupHint(msg.priority(), msg.node(), msg.executionTarget());
-    for (Consumer<JobWakeupHint> listener : listeners) {
-      try {
-        listenerExecutor.execute(
-            () -> {
-              try {
-                listener.accept(hint);
-              } catch (RuntimeException listenerEx) {
-                clusterWakeupReceived("listener_failure");
-                log.warnf(
-                    listenerEx,
-                    "JMS coordinator listener threw: %s — suppressing per SPI contract",
-                    listenerEx.getMessage());
-              }
-            });
-      } catch (RuntimeException submitEx) {
-        // Executor refused — log only; the local poller floor is unaffected.
-        log.debugf(
-            submitEx, "JMS coordinator could not enqueue listener task: %s", submitEx.getMessage());
-      }
-    }
-  }
-
-  // Counts as overflow regardless of the second offer's outcome — the boolean is irrelevant.
-  @SuppressWarnings("ResultOfMethodCallIgnored")
-  private void bufferOrDropOldest(NotifyPayload msg) {
-    if (preRegistrationBuffer.offer(msg)) {
-      return;
-    }
-    preRegistrationBuffer.poll();
-    preRegistrationBuffer.offer(msg);
-    clusterWakeupReceived("pre_registration_overflow");
-    log.warn("JMS coordinator pre-registration buffer overflowed; oldest wakeup dropped");
-  }
-
-  private void drainPreRegistrationBuffer() {
-    NotifyPayload msg;
-    while ((msg = preRegistrationBuffer.poll()) != null) {
-      dispatchToListeners(msg);
-    }
+    deliverDecodedPayload(payload);
   }
 
   private void onConnectionTransportFailure() {
     clusterWakeupReceived("transport_failure");
-  }
-
-  private void clusterWakeupPublished(String outcome) {
-    metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
-  }
-
-  private void clusterWakeupReceived(String outcome) {
-    metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
-  }
-
-  private JmsConnectionFactoryProvider resolveProvider() {
-    Instance<JmsConnectionFactoryProvider> instance = this.providerInstance;
-    if (instance == null || instance.isUnsatisfied()) {
-      throw new IllegalStateException(
-          "No JmsConnectionFactoryProvider available for JmsClusterCoordinator. Provide a"
-              + " @Produces JmsConnectionFactoryProvider or use the default JNDI lookup bean.");
-    }
-    if (instance.isAmbiguous()) {
-      log.warn(
-          "Multiple JmsConnectionFactoryProvider beans visible; first match wins. Use"
-              + " @Alternative + @Priority for disambiguation.");
-    }
-    return instance.get();
   }
 
   /**
@@ -415,10 +305,5 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
    */
   JmsConnectionLifecycle lifecycle() {
     return connectionLifecycle;
-  }
-
-  private ExecutorService newListenerExecutor() {
-    return threading.newDispatchPool(
-        "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity());
   }
 }

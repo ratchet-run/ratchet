@@ -26,24 +26,17 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
 import java.util.Objects;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 import org.infinispan.Cache;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.AbstractPushCoordinator;
+import run.ratchet.coordinator.common.CoordinatorSupport;
 import run.ratchet.coordinator.common.CoordinatorThreading;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
-import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -70,11 +63,10 @@ import run.ratchet.spi.SchedulerLifecycleHook;
 // Coordinator @Priority order: see PostgresqlListenNotifyCoordinator. Operators MUST pull in
 // exactly one coordinator module; distinct priorities only prevent CDI ambiguity errors on a
 // transitive double-pull.
-public class InfinispanClusterCoordinator implements ClusterCoordinator, SchedulerLifecycleHook {
+public class InfinispanClusterCoordinator extends AbstractPushCoordinator
+    implements ClusterCoordinator, SchedulerLifecycleHook {
 
   private static final Logger log = Logger.getLogger(InfinispanClusterCoordinator.class);
-
-  private static final int PRE_REGISTRATION_BUFFER_CAPACITY = 256;
 
   static final String COORDINATOR_KIND = "infinispan";
 
@@ -93,18 +85,11 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
 
   private InfinispanCoordinatorConfig config;
 
-  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final AtomicLong sendSequence = new AtomicLong();
-  private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
-      new CopyOnWriteArrayList<>();
-  private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
-      new ArrayBlockingQueue<>(PRE_REGISTRATION_BUFFER_CAPACITY);
 
   private InfinispanCacheLifecycle cacheLifecycle;
   private Cache<String, String> directCache;
-  private ExecutorService listenerExecutor;
   private CoordinatorThreading threading;
-  private final AtomicBoolean closed = new AtomicBoolean(false);
 
   protected InfinispanClusterCoordinator() {
     // CDI proxy constructor.
@@ -127,9 +112,8 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
   void init() {
     if (config == null) {
       config =
-          configInstance != null && configInstance.isResolvable()
-              ? configInstance.get()
-              : InfinispanCoordinatorConfig.defaults();
+          CoordinatorSupport.resolveConfigOrDefault(
+              configInstance, InfinispanCoordinatorConfig::defaults);
     }
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
@@ -139,23 +123,37 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
       // factory. Standalone is an explicit opt-in via the test constructor.
       threading = CoordinatorThreading.managed("ratchet-coordinator-infinispan");
     }
+    configureDispatch(
+        COORDINATOR_KIND,
+        "Infinispan",
+        metrics,
+        identityProvider,
+        config.maxInboundPayloadChars(),
+        threading.newDispatchPool(
+            "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity()),
+        config.shutdownGraceMs());
     Cache<String, String> cache;
     if (directCache != null) {
       cache = directCache;
     } else {
-      InfinispanCacheManagerProvider provider = resolveProvider();
+      InfinispanCacheManagerProvider provider =
+          CoordinatorSupport.resolveRequired(
+              providerInstance,
+              "No InfinispanCacheManagerProvider available. Provide a @Produces"
+                  + " InfinispanCacheManagerProvider or use the WildFly subsystem-bound default.",
+              "Multiple InfinispanCacheManagerProvider beans visible; first match wins. Use"
+                  + " @Alternative + @Priority for disambiguation.");
       EmbeddedCacheManager cacheManager = provider.cacheManager();
       cache = cacheManager.getCache(config.effectiveCacheName());
     }
     cacheLifecycle =
         new InfinispanCacheLifecycle(
             cache, config, codec, this::onInboundNotification, this::onParseFailure);
-    listenerExecutor = newListenerExecutor();
   }
 
   @Override
   public void afterStart() {
-    if (closed.get()) {
+    if (isClosed()) {
       return;
     }
     if (cacheLifecycle == null) {
@@ -168,7 +166,7 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
   public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
     Objects.requireNonNull(priority, "priority");
     Objects.requireNonNull(source, "source");
-    if (closed.get()) {
+    if (isClosed()) {
       return;
     }
     try {
@@ -187,16 +185,6 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
     }
   }
 
-  @Override
-  public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
-    Objects.requireNonNull(listener, "listener");
-    if (closed.get()) {
-      return;
-    }
-    listeners.add(listener);
-    drainPreRegistrationBuffer();
-  }
-
   /**
    * Hook chain entry point — runs during {@code RatchetLifecycle.onShutdown} after pollers and the
    * execution coordinator have stopped. Delegates to {@link #close()}, which is idempotent.
@@ -208,125 +196,27 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
 
   @Override
   public void close() {
-    if (!closed.compareAndSet(false, true)) {
+    if (!markClosed()) {
       return;
     }
     InfinispanCacheLifecycle lifecycle = this.cacheLifecycle;
     if (lifecycle != null) {
       lifecycle.close();
     }
-    ExecutorService executor = this.listenerExecutor;
-    if (executor != null) {
-      executor.shutdown();
-      try {
-        if (!executor.awaitTermination(config.shutdownGraceMs(), TimeUnit.MILLISECONDS)) {
-          executor.shutdownNow();
-        }
-      } catch (InterruptedException ignored) {
-        Thread.currentThread().interrupt();
-      }
-    }
+    shutdownListenerExecutor();
   }
 
   /** Dispatch path from the cache listener. Self-suppresses then routes to listeners. */
   void onInboundNotification(NotifyPayload msg) {
-    NodeIdentity local;
-    try {
-      local = new NodeIdentity(identityProvider.getNodeId());
-    } catch (RuntimeException e) {
-      clusterWakeupReceived("ignored_provider_error");
-      return;
-    }
-    if (msg.node().equals(local)) {
-      clusterWakeupReceived("ignored_self");
-      return;
-    }
-    clusterWakeupReceived("delivered");
-    if (listeners.isEmpty()) {
-      bufferOrDropOldest(msg);
-      return;
-    }
-    dispatchToListeners(msg);
-  }
-
-  private void dispatchToListeners(NotifyPayload msg) {
-    JobWakeupHint hint = new JobWakeupHint(msg.priority(), msg.node(), msg.executionTarget());
-    for (Consumer<JobWakeupHint> listener : listeners) {
-      try {
-        listenerExecutor.execute(
-            () -> {
-              try {
-                listener.accept(hint);
-              } catch (RuntimeException listenerEx) {
-                clusterWakeupReceived("listener_failure");
-                log.warnf(
-                    listenerEx,
-                    "Infinispan coordinator listener threw: %s — suppressing per SPI contract",
-                    listenerEx.getMessage());
-              }
-            });
-      } catch (RuntimeException submitEx) {
-        log.debugf(
-            submitEx,
-            "Infinispan coordinator could not enqueue listener task: %s",
-            submitEx.getMessage());
-      }
-    }
-  }
-
-  // Counts as overflow regardless of the second offer's outcome — the boolean is irrelevant.
-  @SuppressWarnings("ResultOfMethodCallIgnored")
-  private void bufferOrDropOldest(NotifyPayload msg) {
-    if (preRegistrationBuffer.offer(msg)) {
-      return;
-    }
-    preRegistrationBuffer.poll();
-    preRegistrationBuffer.offer(msg);
-    clusterWakeupReceived("pre_registration_overflow");
-    log.warn("Infinispan coordinator pre-registration buffer overflowed; oldest wakeup dropped");
-  }
-
-  private void drainPreRegistrationBuffer() {
-    NotifyPayload msg;
-    while ((msg = preRegistrationBuffer.poll()) != null) {
-      dispatchToListeners(msg);
-    }
+    deliverDecodedPayload(msg);
   }
 
   private void onParseFailure() {
     clusterWakeupReceived("parse_failure");
   }
 
-  private void clusterWakeupPublished(String outcome) {
-    metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
-  }
-
-  private void clusterWakeupReceived(String outcome) {
-    metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
-  }
-
-  private InfinispanCacheManagerProvider resolveProvider() {
-    Instance<InfinispanCacheManagerProvider> instance = this.providerInstance;
-    if (instance == null || instance.isUnsatisfied()) {
-      throw new IllegalStateException(
-          "No InfinispanCacheManagerProvider available. Provide a @Produces"
-              + " InfinispanCacheManagerProvider or use the WildFly subsystem-bound default.");
-    }
-    if (instance.isAmbiguous()) {
-      log.warn(
-          "Multiple InfinispanCacheManagerProvider beans visible; first match wins. Use"
-              + " @Alternative + @Priority for disambiguation.");
-    }
-    return instance.get();
-  }
-
   /** Test accessor for the harness — exposes the lifecycle so readiness can be polled. */
   InfinispanCacheLifecycle lifecycle() {
     return cacheLifecycle;
-  }
-
-  private ExecutorService newListenerExecutor() {
-    return threading.newDispatchPool(
-        "dispatch", config.listenerExecutorThreads(), config.listenerExecutorQueueCapacity());
   }
 }
