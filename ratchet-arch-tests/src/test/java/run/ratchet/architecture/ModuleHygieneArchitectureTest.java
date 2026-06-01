@@ -20,6 +20,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaModifier;
@@ -31,6 +32,7 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -261,7 +263,90 @@ public class ModuleHygieneArchitectureTest {
                   + "coordinator-common; a sibling-coordinator dependency couples two pluggable "
                   + "modules");
 
+  // --- 9. Coordinator threads go through the managed thread factory ---
+
+  /**
+   * No class in the RI or the coordinator layer may construct a raw {@link Thread} or {@link
+   * java.util.concurrent.ThreadPoolExecutor}, or call a factory method on {@link
+   * java.util.concurrent.Executors}. Threads must be obtained from the container's managed thread
+   * factory so the runtime can govern them (Jakarta Concurrency).
+   *
+   * <p>Three resolver classes are exempt because they are the documented single source of threads:
+   * {@code CoordinatorThreading} in coordinator-common, and {@code DefaultExecutorProvider} /
+   * {@code StandaloneExecutorProvider} in the RI. {@code StandaloneExecutorProvider} and {@code
+   * CoordinatorThreading}'s standalone path create raw daemon threads on purpose for plain-SE runs;
+   * that is an explicit opt-in, never the container default.
+   */
+  @ArchTest
+  static final ArchRule coordinatorsAndRiCreateNoRawThreadsOutsideResolvers =
+      noClasses()
+          .that()
+          .resideInAnyPackage(RI, COORDINATOR)
+          .and(areNotThreadResolvers())
+          .should(createRawThreadsOrExecutors())
+          .because(
+              "threads must come from the container's managed thread factory so the runtime can "
+                  + "govern them; only the documented resolver classes (CoordinatorThreading, "
+                  + "DefaultExecutorProvider, StandaloneExecutorProvider) may create raw threads");
+
   // --- predicates and conditions ---
+
+  private static final Set<String> THREAD_RESOLVERS =
+      Set.of(
+          "run.ratchet.coordinator.common.CoordinatorThreading",
+          "run.ratchet.ri.cdi.internal.DefaultExecutorProvider",
+          "run.ratchet.ri.cdi.StandaloneExecutorProvider");
+
+  private static DescribedPredicate<JavaClass> areNotThreadResolvers() {
+    return new DescribedPredicate<>("are not the documented thread-resolver classes") {
+      @Override
+      public boolean test(JavaClass clazz) {
+        // Compare on the top-level class so a lambda/anonymous nested in a resolver is also exempt.
+        String topLevel = clazz.getName().split("\\$", 2)[0];
+        return !THREAD_RESOLVERS.contains(topLevel);
+      }
+    };
+  }
+
+  private static ArchCondition<JavaClass> createRawThreadsOrExecutors() {
+    return new ArchCondition<>("construct a raw Thread/ThreadPoolExecutor or call Executors.new*") {
+      @Override
+      public void check(JavaClass clazz, ConditionEvents events) {
+        clazz.getConstructorCallsFromSelf().stream()
+            .filter(
+                call -> {
+                  String target = call.getTargetOwner().getFullName();
+                  return target.equals("java.lang.Thread")
+                      || target.equals("java.util.concurrent.ThreadPoolExecutor")
+                      || target.equals("java.util.concurrent.ScheduledThreadPoolExecutor");
+                })
+            .forEach(
+                call ->
+                    events.add(
+                        SimpleConditionEvent.violated(
+                            clazz,
+                            clazz.getFullName()
+                                + " constructs a raw "
+                                + call.getTargetOwner().getSimpleName()
+                                + " at "
+                                + call.getSourceCodeLocation())));
+        clazz.getMethodCallsFromSelf().stream()
+            .filter(
+                call ->
+                    call.getTargetOwner().getFullName().equals("java.util.concurrent.Executors"))
+            .forEach(
+                call ->
+                    events.add(
+                        SimpleConditionEvent.violated(
+                            clazz,
+                            clazz.getFullName()
+                                + " calls Executors."
+                                + call.getTarget().getName()
+                                + " at "
+                                + call.getSourceCodeLocation())));
+      }
+    };
+  }
 
   private static ArchCondition<JavaClass> haveNonPrivateNoArgConstructor() {
     return new ArchCondition<>("have a non-private no-arg constructor") {
