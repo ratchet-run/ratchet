@@ -35,6 +35,7 @@ import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobLogStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.store.util.RowValues;
 
 final class PostgresqlAuxiliaryOperations
     implements ExecutionStore,
@@ -57,7 +58,7 @@ final class PostgresqlAuxiliaryOperations
     condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
     condition.setConditionExpression(row[4] == null ? null : row[4].toString());
     condition.setConditionPriority(((Number) row[5]).intValue());
-    condition.setCreatedAt(PostgresqlJobRowMapper.toInstant(row[6]));
+    condition.setCreatedAt(RowValues.instantOrNull(row[6]));
     return condition;
   }
 

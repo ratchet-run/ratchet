@@ -34,6 +34,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
+import run.ratchet.store.util.RowValues;
 
 final class PostgresqlJobClaimOperations implements JobClaimStore {
 
@@ -345,7 +346,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
 
     Instant scheduledTime() {
-      return PostgresqlJobRowMapper.toInstant(value(ClaimColumn.SCHEDULED_TIME));
+      return RowValues.instantOrNull(value(ClaimColumn.SCHEDULED_TIME));
     }
 
     int version() {

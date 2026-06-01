@@ -39,6 +39,7 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
+import run.ratchet.store.util.RowValues;
 
 final class MysqlJobClaimOperations implements JobClaimStore {
 
@@ -304,7 +305,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     }
 
     Instant scheduledTime() {
-      return MysqlJobRowMapper.toInstant(value(ClaimColumn.SCHEDULED_TIME));
+      return RowValues.instantOrNull(value(ClaimColumn.SCHEDULED_TIME));
     }
 
     int version() {

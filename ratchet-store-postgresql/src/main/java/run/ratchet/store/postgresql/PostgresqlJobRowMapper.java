@@ -15,9 +15,7 @@
  */
 package run.ratchet.store.postgresql;
 
-import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -165,15 +163,15 @@ final class PostgresqlJobRowMapper {
         JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_ON_FAILURE])));
     j.setDependsOn(uuidOrNull(row[IDX_DEPENDS_ON]));
     j.setSupersededBy(uuidOrNull(row[IDX_SUPERSEDED_BY]));
-    j.setCreatedAt(toInstant(row[IDX_CREATED_AT]));
+    j.setCreatedAt(RowValues.instantOrNull(row[IDX_CREATED_AT]));
     j.setCallerPrincipal((String) row[IDX_CALLER_PRINCIPAL]);
 
     JobStatus terminal =
         enumValueOrNull(row, IDX_TERMINAL_STATUS, "terminal_status", JobStatus.class);
     j.setTerminalStatus(terminal);
 
-    j.setExecutionStartTime(toInstant(row[IDX_EXEC_START]));
-    j.setExecutionEndTime(toInstant(row[IDX_EXEC_END]));
+    j.setExecutionStartTime(RowValues.instantOrNull(row[IDX_EXEC_START]));
+    j.setExecutionEndTime(RowValues.instantOrNull(row[IDX_EXEC_END]));
     j.setExecutionDurationMs(longOrNull(row[IDX_EXEC_DURATION]));
     j.setQueueWaitMs(longOrNull(row[IDX_QUEUE_WAIT]));
     j.setJobResult(stringOrNull(row[IDX_JOB_RESULT]));
@@ -182,12 +180,12 @@ final class PostgresqlJobRowMapper {
         JSON_MAP_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_TRACE_CONTEXT])));
     j.setRecurringMasterId(uuidOrNull(row[IDX_RECURRING_MASTER_ID]));
     j.setSignalKey((String) row[IDX_Q_SIGNAL_KEY]);
-    j.setSignalTimeout(toInstant(row[IDX_Q_SIGNAL_TIMEOUT]));
+    j.setSignalTimeout(RowValues.instantOrNull(row[IDX_Q_SIGNAL_TIMEOUT]));
     j.setSignalPayload(stringOrNull(row[IDX_Q_SIGNAL_PAYLOAD]));
     j.setSignalPayloadType(stringOrNull(row[IDX_Q_SIGNAL_PAYLOAD_TYPE]));
     j.setSignalOutcome(stringOrNull(row[IDX_Q_SIGNAL_OUTCOME]));
     j.setSignalRejectionReason(stringOrNull(row[IDX_Q_SIGNAL_REJECTION_REASON]));
-    j.setSignalDeliveredAt(toInstant(row[IDX_Q_SIGNAL_DELIVERED_AT]));
+    j.setSignalDeliveredAt(RowValues.instantOrNull(row[IDX_Q_SIGNAL_DELIVERED_AT]));
     j.setSignalDeliveredBy((String) row[IDX_Q_SIGNAL_DELIVERED_BY]);
     j.setSignalDeliveryId(stringOrNull(row[IDX_Q_SIGNAL_DELIVERY_ID]));
 
@@ -204,27 +202,27 @@ final class PostgresqlJobRowMapper {
     j.setStatus(resolved);
 
     if (live != null) {
-      j.setScheduledTime(toInstant(row[IDX_Q_SCHEDULED_TIME]));
+      j.setScheduledTime(RowValues.instantOrNull(row[IDX_Q_SCHEDULED_TIME]));
       j.setAttempts(requiredNumber(row, IDX_Q_ATTEMPTS, "q.attempts").intValue());
       j.setPickedBy((String) row[IDX_Q_PICKED_BY]);
-      j.setPickedAt(toInstant(row[IDX_Q_PICKED_AT]));
+      j.setPickedAt(RowValues.instantOrNull(row[IDX_Q_PICKED_AT]));
       j.setPausedFromStatus(
           enumValueOrNull(row, IDX_Q_PAUSED, "q.paused_from_status", JobStatus.class));
       j.setLastError(stringOrNull(row[IDX_Q_LAST_ERROR]));
       j.setVersion(requiredNumber(row, IDX_Q_VERSION, "q.version").intValue());
-      Instant updatedAt = toInstant(row[IDX_Q_UPDATED_AT]);
+      Instant updatedAt = RowValues.instantOrNull(row[IDX_Q_UPDATED_AT]);
       j.setUpdatedAt(updatedAt != null ? updatedAt : j.getCreatedAt());
     } else {
       Number ta = numberOrNull(row, IDX_TOTAL_ATTEMPTS, "total_attempts");
       j.setAttempts(ta != null ? ta.intValue() : 0);
       j.setLastError(stringOrNull(row[IDX_TERMINAL_ERROR]));
       j.setVersion(0);
-      Instant fallbackSched = toInstant(row[IDX_EXEC_START]);
+      Instant fallbackSched = RowValues.instantOrNull(row[IDX_EXEC_START]);
       if (fallbackSched == null) {
-        fallbackSched = toInstant(row[IDX_CREATED_AT]);
+        fallbackSched = RowValues.instantOrNull(row[IDX_CREATED_AT]);
       }
       j.setScheduledTime(fallbackSched);
-      Instant updatedAt = toInstant(row[IDX_TERMINATED_AT]);
+      Instant updatedAt = RowValues.instantOrNull(row[IDX_TERMINATED_AT]);
       j.setUpdatedAt(updatedAt != null ? updatedAt : j.getCreatedAt());
     }
     return j;
@@ -244,19 +242,6 @@ final class PostgresqlJobRowMapper {
 
   static boolean isTerminalStatus(JobStatus s) {
     return StatusClassifier.isTerminalStatus(s);
-  }
-
-  static Instant toInstant(Object value) {
-    if (value instanceof Instant i) {
-      return i;
-    }
-    if (value instanceof Timestamp t) {
-      return t.toInstant();
-    }
-    if (value instanceof OffsetDateTime odt) {
-      return odt.toInstant();
-    }
-    return null;
   }
 
   static String stringOrNull(Object value) {

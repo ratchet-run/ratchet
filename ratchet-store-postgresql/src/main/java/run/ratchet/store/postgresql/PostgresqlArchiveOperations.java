@@ -33,6 +33,7 @@ import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ArchiveQuerySupport;
 import run.ratchet.store.util.ArchiveRowMapper;
+import run.ratchet.store.util.RowValues;
 
 final class PostgresqlArchiveOperations implements ArchiveStore {
 
@@ -242,9 +243,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
       ArchiveQuerySupport.bindParameters(query, searchQuery);
       @SuppressWarnings("unchecked")
       List<Object[]> rows = query.getResultList();
-      return rows.stream()
-          .map(row -> ArchiveRowMapper.map(row, PostgresqlJobRowMapper::toInstant))
-          .toList();
+      return rows.stream().map(row -> ArchiveRowMapper.map(row, RowValues::instantOrNull)).toList();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find archived jobs", e);
     }
