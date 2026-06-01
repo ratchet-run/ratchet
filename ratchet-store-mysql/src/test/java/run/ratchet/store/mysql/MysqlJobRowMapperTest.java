@@ -45,6 +45,18 @@ class MysqlJobRowMapperTest {
     assertInstanceOf(IllegalArgumentException.class, thrown.getCause());
   }
 
+  @Test
+  void hydrateRejectsRowsWithNoEffectiveStatus() {
+    Object[] row = liveRow();
+    row[MysqlJobRowMapper.IDX_Q_STATUS] = null;
+
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class, () -> new MysqlJobRowMapper().hydrateJobEntity(row));
+
+    assertTrue(thrown.getMessage().contains("no live or terminal status"));
+  }
+
   private static Object[] liveRow() {
     Object[] row = new Object[MysqlJobRowMapper.HYDRATION_COL_COUNT];
     Instant now = Instant.parse("2026-05-12T14:30:00Z");
