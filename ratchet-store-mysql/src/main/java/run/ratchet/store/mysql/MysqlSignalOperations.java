@@ -215,7 +215,7 @@ final class MysqlSignalOperations implements SignalStore {
           "SELECT "
               + MysqlJobRowMapper.HYDRATION_SELECT
               + " FROM scheduler_job c LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id"
-              + " WHERE q.signal_delivery_id = ? LIMIT 1000";
+              + " WHERE q.signal_delivery_id = ?";
       List<Object[]> rows =
           ctx.em().createNativeQuery(sql).setParameter(1, deliveryId).getResultList();
       return MysqlJobRowMapper.hydrateRows(rows);
