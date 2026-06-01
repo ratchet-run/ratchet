@@ -15,6 +15,9 @@
  */
 package run.ratchet.store.postgresql;
 
+import static run.ratchet.store.util.JobWriteSupport.assignIdIfMissing;
+import static run.ratchet.store.util.JobWriteSupport.checkHotField;
+
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -27,7 +30,6 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.util.RowValues;
 
 final class PostgresqlJobWriteOperations {
@@ -104,28 +106,6 @@ final class PostgresqlJobWriteOperations {
     this.tags = tags;
   }
 
-  private static void checkHotField(UUID jobId, String fieldName, Object incoming, Object stored) {
-    if (Objects.equals(incoming, stored)) {
-      return;
-    }
-    throw new IllegalStateException(
-        "save() rejected: hot-field mutation detected for id="
-            + jobId
-            + " field="
-            + fieldName
-            + " incoming="
-            + incoming
-            + " stored="
-            + stored
-            + ". Use an explicit transition method.");
-  }
-
-  private static void assignTsidIfMissing(JobEntity job) {
-    if (job.getId() == null) {
-      job.setId(UuidV7Factory.create());
-    }
-  }
-
   JobEntity save(JobEntity job) {
     if (job.getId() == null) {
       saveInsert(job);
@@ -143,7 +123,7 @@ final class PostgresqlJobWriteOperations {
     Timestamp nowTs = Timestamp.from(now);
 
     for (JobEntity job : jobs) {
-      assignTsidIfMissing(job);
+      assignIdIfMissing(job);
       if (job.getCreatedAt() == null) {
         job.setCreatedAt(now);
       }
@@ -168,7 +148,7 @@ final class PostgresqlJobWriteOperations {
   }
 
   void saveInsert(JobEntity job) {
-    assignTsidIfMissing(job);
+    assignIdIfMissing(job);
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
     if (job.getCreatedAt() == null) {
