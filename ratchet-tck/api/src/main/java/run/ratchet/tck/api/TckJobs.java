@@ -15,7 +15,10 @@
  */
 package run.ratchet.tck.api;
 
+import java.io.Serializable;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,6 +61,8 @@ public final class TckJobs {
   private static final AtomicReference<CountDownLatch> RELEASE_LATCH = new AtomicReference<>();
   private static final ConcurrentLinkedQueue<String> CHAIN_EVENTS = new ConcurrentLinkedQueue<>();
   private static final ConcurrentLinkedQueue<String> SIGNAL_DECISIONS =
+      new ConcurrentLinkedQueue<>();
+  private static final ConcurrentLinkedQueue<String> RAW_SIGNAL_PAYLOADS =
       new ConcurrentLinkedQueue<>();
 
   private TckJobs() {}
@@ -134,6 +139,52 @@ public final class TckJobs {
                 + decision.rejectionReason());
   }
 
+  /**
+   * Signal-waiting task body that records the delivered <em>raw</em> payload's observed runtime
+   * category and value through {@link JobContext}. Used by {@link AbstractSignalPayloadContract} to
+   * pin the JSON-native round-trip of a {@code deliverSignal(.., Serializable)} payload across
+   * stores. The recorded token is {@code "<category>:<value>"} where category is the JSON-native
+   * shape ({@code String}, {@code Boolean}, {@code Number}, {@code List}, {@code Map}) rather than
+   * the original concrete class, which is intentionally not reconstructed.
+   */
+  public static void recordRawSignalPayload() {
+    RAW_SIGNAL_PAYLOADS.add(
+        describeRawPayload(JobContext.current().signalPayload(Serializable.class)));
+  }
+
+  private static String describeRawPayload(Serializable payload) {
+    if (payload == null) {
+      return "null";
+    }
+    if (payload instanceof String s) {
+      return "String:" + s;
+    }
+    if (payload instanceof Boolean b) {
+      return "Boolean:" + b;
+    }
+    // JSON-B maps a bare JSON number to a Number (commonly a BigDecimal), so the contract
+    // compares by value, not by concrete type.
+    if (payload instanceof Number n) {
+      return "Number:" + n;
+    }
+    // Sort entries/elements so the rendering is deterministic regardless of the deserialized
+    // collection impl's iteration order.
+    if (payload instanceof Map<?, ?> m) {
+      TreeMap<String, String> sorted = new TreeMap<>();
+      m.forEach((k, v) -> sorted.put(String.valueOf(k), String.valueOf(v)));
+      return "Map:" + sorted;
+    }
+    if (payload instanceof List<?> l) {
+      return "List:" + l;
+    }
+    return "Other(" + payload.getClass().getName() + "):" + payload;
+  }
+
+  /** Snapshot of recorded raw signal payload tokens in observation order. */
+  public static List<String> rawSignalPayloads() {
+    return List.copyOf(RAW_SIGNAL_PAYLOADS);
+  }
+
   /** Snapshot of recorded chain events in observation order. */
   public static List<String> chainEvents() {
     return List.copyOf(CHAIN_EVENTS);
@@ -150,5 +201,6 @@ public final class TckJobs {
     RELEASE_LATCH.set(null);
     CHAIN_EVENTS.clear();
     SIGNAL_DECISIONS.clear();
+    RAW_SIGNAL_PAYLOADS.clear();
   }
 }

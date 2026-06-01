@@ -49,7 +49,8 @@ public class ApiConformanceReportExtension extends AbstractConformanceReportExte
                   "AbstractSimpleWorkflowContract",
                   "AbstractResilienceStrategyContract",
                   "AbstractJobAuthorizationContract",
-                  "AbstractSignalDecisionContract")));
+                  "AbstractSignalDecisionContract",
+                  "AbstractSignalPayloadContract")));
 
   @Override
   protected String tierTitle() {
