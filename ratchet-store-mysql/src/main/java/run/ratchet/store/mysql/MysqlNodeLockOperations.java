@@ -156,7 +156,11 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
   @Override
   public Optional<NodeEntity> findNodeById(String nodeId) {
-    return Optional.ofNullable(ctx.em().find(NodeEntity.class, nodeId));
+    try {
+      return Optional.ofNullable(ctx.em().find(NodeEntity.class, nodeId));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find node by id", e);
+    }
   }
 
   @Override

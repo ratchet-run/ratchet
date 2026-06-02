@@ -58,8 +58,10 @@ final class PostgresqlSignalOperations implements SignalStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
+    if (limit <= 0) {
+      throw new IllegalArgumentException("limit must be positive: " + limit);
+    }
     try {
-      int safeLimit = Math.max(1, limit);
       // language=PostgreSQL
       String sql =
           """
@@ -80,7 +82,7 @@ final class PostgresqlSignalOperations implements SignalStore {
           ctx.em()
               .createNativeQuery(sql)
               .setParameter(1, Timestamp.from(now))
-              .setMaxResults(safeLimit)
+              .setMaxResults(limit)
               .getResultList();
 
       List<JobEntity> result = new ArrayList<>(rows.size());
