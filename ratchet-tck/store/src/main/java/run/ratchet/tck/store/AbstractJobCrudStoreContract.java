@@ -61,6 +61,22 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void saveAndFindById_coercesNullCronAndZoneToStoredDefaults() {
+    JobEntity job = newPendingJob();
+    job.setCronExpr(null);
+    job.setZoneId(null);
+
+    JobEntity saved = persist(job);
+    JobEntity reloaded = store().findById(saved.getId()).orElseThrow();
+
+    assertEquals(
+        "",
+        reloaded.getCronExpr(),
+        "null cronExpr must be coerced to an empty string on every store");
+    assertEquals("UTC", reloaded.getZoneId(), "null zoneId must be coerced to UTC on every store");
+  }
+
+  @Test
   void saveAndFindById_roundTripsCallerPrincipalField() {
     JobEntity job = newPendingJob();
     job.setCallerPrincipal("alice");
