@@ -31,6 +31,7 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.util.JobWriteSupport;
 import run.ratchet.store.util.RowValues;
 
 final class MysqlJobWriteOperations {
@@ -244,8 +245,8 @@ final class MysqlJobWriteOperations {
     q.setParameter(i++, job.getBackoffPolicy().name());
     q.setParameter(i++, job.getBackoffParamMs());
     q.setParameter(i++, job.getTimeoutSec());
-    q.setParameter(i++, job.getCronExpr());
-    q.setParameter(i++, job.getZoneId());
+    q.setParameter(i++, JobWriteSupport.coerceCronExpr(job.getCronExpr()));
+    q.setParameter(i++, JobWriteSupport.coerceZoneId(job.getZoneId()));
     q.setParameter(i++, MysqlJobRowMapper.payloadToJson(job));
     q.setParameter(i++, MysqlJobRowMapper.paramsToJson(job));
     q.setParameter(i++, job.getIdempotencyKey());
