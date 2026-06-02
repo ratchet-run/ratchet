@@ -277,13 +277,16 @@ final class PostgresqlJobCountOperations {
   }
 
   long getQueueWaitTimePercentile(double percentile) {
-    if (percentile < 0.0 || percentile > 1.0) {
+    if (Double.isNaN(percentile) || percentile < 0.0 || percentile > 1.0) {
       throw new IllegalArgumentException("percentile must be in [0.0, 1.0], got: " + percentile);
     }
+    // PERCENTILE_DISC (discrete) returns an actually-observed value by nearest-rank, matching the
+    // MySQL CUME_DIST path and the Mongo sort+skip path. PERCENTILE_CONT would interpolate between
+    // observed values and diverge from the other stores.
     // language=PostgreSQL
     String sql =
         """
-        SELECT COALESCE(PERCENTILE_CONT(?) WITHIN GROUP (ORDER BY queue_wait_ms), 0)
+        SELECT COALESCE(PERCENTILE_DISC(?) WITHIN GROUP (ORDER BY queue_wait_ms), 0)
         FROM scheduler_job WHERE queue_wait_ms IS NOT NULL
           AND terminal_status = 'SUCCEEDED'
         """;

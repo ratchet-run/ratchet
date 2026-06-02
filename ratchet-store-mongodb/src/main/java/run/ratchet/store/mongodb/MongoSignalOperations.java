@@ -69,6 +69,9 @@ final class MongoSignalOperations implements SignalStore {
 
   @Override
   public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
+    if (limit <= 0) {
+      throw new IllegalArgumentException("limit must be positive: " + limit);
+    }
     Bson filter =
         and(
             eq(STATUS, JobStatus.WAITING.name()),
@@ -77,7 +80,7 @@ final class MongoSignalOperations implements SignalStore {
 
     List<JobEntity> result = new ArrayList<>();
     for (Document doc :
-        ctx.jobs().find(filter).sort(ascending(SIGNAL_TIMEOUT, "_id")).limit(Math.max(1, limit))) {
+        ctx.jobs().find(filter).sort(ascending(SIGNAL_TIMEOUT, "_id")).limit(limit)) {
       result.add(DocumentMapper.toJobEntity(doc));
     }
     return result;
