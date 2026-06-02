@@ -7,7 +7,12 @@ ARG STORE=postgresql
 ARG EXTRA_PROFILES=
 WORKDIR /workspace
 COPY . .
-RUN mvn -pl ratchet-loadtest -am -P${STORE}${EXTRA_PROFILES:+,${EXTRA_PROFILES}} -DskipTests package
+RUN mvn -pl ratchet-loadtest -am -P${STORE}${EXTRA_PROFILES:+,${EXTRA_PROFILES}} -DskipTests package \
+    && mkdir -p /drivers \
+    && find /root/.m2/repository/org/postgresql/postgresql -name 'postgresql-*.jar' \
+         ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp {} /drivers/postgresql.jar \; \
+    && find /root/.m2/repository/com/mysql/mysql-connector-j -name 'mysql-connector-j-*.jar' \
+         ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp {} /drivers/mysql.jar \;
 
 FROM quay.io/wildfly/wildfly:39.0.1.Final-2-jdk17
 ARG STORE=postgresql
@@ -21,8 +26,8 @@ RUN mkdir -p \
     /opt/jboss/wildfly/standalone/data/content \
     /opt/jboss/wildfly/standalone/log \
     /opt/jboss/wildfly/standalone/tmp
-COPY --from=build /root/.m2/repository/org/postgresql/postgresql/42.7.7/postgresql-42.7.7.jar /opt/jboss/ratchet/drivers/postgresql.jar
-COPY --from=build /root/.m2/repository/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar /opt/jboss/ratchet/drivers/mysql.jar
+COPY --from=build /drivers/postgresql.jar /opt/jboss/ratchet/drivers/postgresql.jar
+COPY --from=build /drivers/mysql.jar /opt/jboss/ratchet/drivers/mysql.jar
 COPY infra/loadtest/wildfly/${STORE}.cli /opt/jboss/ratchet/store.cli
 COPY --from=build /workspace/ratchet-loadtest/target/ratchet-loadtest-0.1.0-SNAPSHOT.war /opt/jboss/wildfly/standalone/deployments/ROOT.war
 RUN chown -R jboss:root /opt/jboss/ratchet /opt/jboss/wildfly/standalone \
