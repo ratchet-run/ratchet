@@ -72,6 +72,27 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
   }
 
   @Test
+  void markBatchCompleteIfReady_isIdempotent_andLeavesRecoverableSet() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 2);
+    batchStore().incrementCompletedAtomic(parent.getId());
+    batchStore().incrementCompletedAtomic(parent.getId());
+
+    // First finalization wins and flips completion_processed -> TRUE.
+    assertTrue(batchStore().markBatchCompleteIfReady(parent.getId()));
+
+    // A second call — from the recovery sweep on another node, or a redelivered child completion —
+    // must no-op. The completion_processed = FALSE guard is the only thing stopping a duplicate
+    // BatchCompletedEvent / parent-terminal transition across nodes.
+    assertFalse(
+        batchStore().markBatchCompleteIfReady(parent.getId()),
+        "Second markBatchCompleteIfReady must no-op once completion is processed");
+    assertFalse(
+        batchStore().findRecoverableBatchIds(10).contains(parent.getId()),
+        "Finalized batch must leave the recoverable set so recovery cannot re-finalize it");
+  }
+
+  @Test
   void incrementFailedAtomic_returnsUpdatedSnapshot() {
     var parent = persist(newBatchParentJob());
     persistBatch(parent.getId(), 2);
