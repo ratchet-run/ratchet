@@ -112,6 +112,43 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void resetOrphanJobsBefore_sparesJobWhosePickedByNodeIsStillAlive() {
+    // Two RUNNING jobs both picked long before the cutoff ("slow jobs"). One's owning node is
+    // still heartbeating; the other's node is gone. Only the dead-node job is an orphan — a live
+    // node whose job is merely slow must NOT be reclaimed, even past the picked_at cutoff. Every
+    // other orphan test uses phantom node ids absent from scheduler_node, so this is the only test
+    // that drives the heartbeat-join branch (PG NOT EXISTS / MySQL NOT IN / Mongo nin) to true.
+    Instant now = Instant.now();
+
+    var liveOwned = persist(newPendingJob());
+    liveOwned.setStatus(JobStatus.RUNNING);
+    liveOwned.setPickedBy("live-node");
+    liveOwned.setPickedAt(now.minusSeconds(120));
+    store().save(liveOwned);
+
+    var deadOwned = persist(newPendingJob());
+    deadOwned.setStatus(JobStatus.RUNNING);
+    deadOwned.setPickedBy("dead-node");
+    deadOwned.setPickedAt(now.minusSeconds(120));
+    store().save(deadOwned);
+
+    // live-node has a fresh heartbeat; dead-node is never registered in scheduler_node.
+    store().upsertHeartbeat("live-node", now);
+
+    int reset = store().resetOrphanJobsBefore(now.minusSeconds(30));
+
+    assertEquals(1, reset, "Only the dead-node's slow job should be reclaimed");
+    assertEquals(
+        JobStatus.PENDING,
+        store().findById(deadOwned.getId()).orElseThrow().getStatus(),
+        "Dead-node's job must be reset to PENDING");
+    assertEquals(
+        JobStatus.RUNNING,
+        store().findById(liveOwned.getId()).orElseThrow().getStatus(),
+        "Live-node's slow job must stay RUNNING despite an old picked_at");
+  }
+
+  @Test
   void deleteJobsByIds_removesSpecifiedJobs() {
     var first = persist(newPendingJob());
     var second = persist(newPendingJob());
