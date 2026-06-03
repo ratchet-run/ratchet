@@ -103,8 +103,8 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
           }
         });
 
-    assertTrue(
-        successCount.get() <= 1, "at most one CAS should succeed; got " + successCount.get());
+    assertEquals(
+        1, successCount.get(), "exactly one CAS should succeed; got " + successCount.get());
     assertEquals(JobStatus.RUNNING, store().getJobStatus(id), "Job should be RUNNING after CAS");
   }
 

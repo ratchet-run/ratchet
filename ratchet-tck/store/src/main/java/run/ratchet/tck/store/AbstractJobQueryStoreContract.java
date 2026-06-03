@@ -378,7 +378,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     List<JobEntity> results = queryStore().searchJobs(JobFilter.builder().build(), 1000, 0);
 
-    assertTrue(results.size() >= 3, "Empty filter should return all persisted jobs");
+    assertEquals(3, results.size(), "Empty filter should return all persisted jobs");
   }
 
   @Test
@@ -411,7 +411,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     List<JobEntity> results = queryStore().searchJobs(filter, 100, 0);
 
-    assertTrue(results.size() >= 2, "Should return multiple results for ordering check");
+    assertEquals(3, results.size(), "Should return all 3 persisted results for ordering check");
     for (int i = 1; i < results.size(); i++) {
       Instant prev = results.get(i - 1).getCreatedAt();
       Instant curr = results.get(i).getCreatedAt();
@@ -436,7 +436,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     List<JobEntity> results = queryStore().searchJobs(filter, 100, 0);
 
-    assertTrue(results.size() >= 2, "Should return at least 2 results for ordering check");
+    assertEquals(2, results.size(), "Should return exactly 2 results for ordering check");
     for (int i = 1; i < results.size(); i++) {
       JobPriority prev = results.get(i - 1).getPriority();
       JobPriority curr = results.get(i).getPriority();
@@ -522,7 +522,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     long count = queryStore().countJobs(JobFilter.builder().statuses(JobStatus.PENDING).build());
 
-    assertTrue(count >= 3, "countJobs should return at least 3 for 3 persisted PENDING jobs");
+    assertEquals(3L, count, "countJobs should return exactly 3 for 3 persisted PENDING jobs");
   }
 
   // ── Parent job filtering ───────────────────────────────────────────────

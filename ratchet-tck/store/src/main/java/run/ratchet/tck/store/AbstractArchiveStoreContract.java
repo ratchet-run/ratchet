@@ -117,7 +117,7 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
 
     int purged = archiveStore().purgeArchivedJobs(archived.getArchivedAt().plusMillis(1));
 
-    assertTrue(purged >= 1, "purgeArchivedJobs should remove the archived record");
+    assertEquals(1, purged, "purgeArchivedJobs should remove exactly the one archived record");
   }
 
   @Test
