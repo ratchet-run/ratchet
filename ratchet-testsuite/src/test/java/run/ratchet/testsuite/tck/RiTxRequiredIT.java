@@ -15,6 +15,8 @@
  */
 package run.ratchet.testsuite.tck;
 
+import static org.junit.jupiter.api.Assertions.fail;
+
 import jakarta.inject.Inject;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
@@ -45,7 +47,11 @@ class RiTxRequiredIT extends AbstractTxRequiredContract {
   @Disabled(
       "Arquillian waits indefinitely for the remote servlet response on this inherited method")
   protected void pauseJob_rollback_doesNotSuppressExecution() {
-    // Disabled explicitly so the unsupported RI contract is visible in test reports.
+    // Kept disabled because the inherited assertion hangs the Arquillian servlet round-trip in the
+    // RI. The body fails loudly so removing @Disabled cannot pass vacuously — a future re-enable
+    // must first restore a real, non-hanging contract body or fix the hang upstream.
+    fail(
+        "re-enable only after resolving the Arquillian servlet-response hang; do not run vacuously");
   }
 
   @Deployment
