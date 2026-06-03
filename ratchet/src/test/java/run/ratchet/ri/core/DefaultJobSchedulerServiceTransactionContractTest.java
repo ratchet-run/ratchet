@@ -19,12 +19,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import jakarta.transaction.Transactional;
+import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.api.SignalDecision;
 
 class DefaultJobSchedulerServiceTransactionContractTest {
 
@@ -44,6 +50,24 @@ class DefaultJobSchedulerServiceTransactionContractTest {
         "scheduleRecurring", String.class, ZoneId.class, SerializableCheckedRunnable.class);
   }
 
+  @Test
+  void mutatingMethods_areRequiredTransactionAttribute() throws NoSuchMethodException {
+    assertRequired("cancelJob", UUID.class);
+    assertRequired("pauseJob", UUID.class);
+    assertRequired("resumeJob", UUID.class);
+    assertRequired("retryJob", UUID.class);
+    assertRequired("deliverSignal", UUID.class, Serializable.class);
+    assertRequired("deliverSignal", UUID.class, SignalDecision.class);
+    assertRequired("deliverSignal", String.class, Serializable.class);
+    assertRequired("deliverSignal", String.class, SignalDecision.class);
+    assertRequired("cancelJobsByTag", String.class);
+    assertRequired("cancelRecurringJobsByTag", String.class);
+    assertRequired("cancelRecurringJobByBusinessKey", String.class);
+    assertRequired("cancelOrphanedRecurringAnnotationJobs", Set.class, Instant.class);
+    assertRequired(
+        "replace", UUID.class, Duration.class, SerializableCheckedRunnable.class, JobOptions.class);
+  }
+
   private static void assertNotSupported(String methodName) throws NoSuchMethodException {
     Method method = DefaultJobSchedulerService.class.getMethod(methodName, Consumer.class);
     Transactional transactional = method.getAnnotation(Transactional.class);
@@ -59,5 +83,14 @@ class DefaultJobSchedulerServiceTransactionContractTest {
 
     assertNotNull(transactional, methodName + " must declare the public API TX attribute");
     assertEquals(Transactional.TxType.SUPPORTS, transactional.value());
+  }
+
+  private static void assertRequired(String methodName, Class<?>... parameterTypes)
+      throws NoSuchMethodException {
+    Method method = DefaultJobSchedulerService.class.getMethod(methodName, parameterTypes);
+    Transactional transactional = method.getAnnotation(Transactional.class);
+
+    assertNotNull(transactional, methodName + " must declare the public API TX attribute");
+    assertEquals(Transactional.TxType.REQUIRED, transactional.value());
   }
 }
