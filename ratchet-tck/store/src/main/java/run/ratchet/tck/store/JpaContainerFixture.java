@@ -38,7 +38,18 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.DlqAlertStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobAuditStore;
+import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
 
 /**
  * Shared Testcontainers + JPA fixture for store TCK suites.
@@ -249,8 +260,35 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     return (JobStore)
         Proxy.newProxyInstance(
             JobStore.class.getClassLoader(),
-            new Class<?>[] {JobStore.class, run.ratchet.store.spi.RecurringJobStore.class},
+            new Class<?>[] {
+              JobStore.class,
+              RecurringJobStore.class,
+              BatchStore.class,
+              WorkflowConditionStore.class,
+              SignalStore.class,
+              ResourcePermitStore.class,
+              LockStore.class,
+              ArchiveStore.class,
+              JobQueryStore.class,
+              JobAnalyticsStore.class,
+              JobAuditStore.class,
+              DlqAlertStore.class
+            },
             (proxy, method, args) -> {
+              // capability() must return a view that still routes through this transactional proxy,
+              // not the bare delegate — otherwise a capability contract would call the underlying
+              // store outside any transaction. Gate on the delegate's real advertisement so a
+              // core-only store still reports a capability as absent.
+              if ("capability".equals(method.getName()) && args != null && args.length == 1) {
+                Class<?> type = (Class<?>) args[0];
+                Object delegated = method.invoke(delegate, args);
+                if (delegated instanceof java.util.Optional<?> opt
+                    && opt.isPresent()
+                    && type.isInstance(proxy)) {
+                  return java.util.Optional.of(type.cast(proxy));
+                }
+                return java.util.Optional.empty();
+              }
               EntityManager em = threadEm.get();
               EntityTransaction tx = em.getTransaction();
               boolean owner = !tx.isActive();

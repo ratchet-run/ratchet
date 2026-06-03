@@ -95,7 +95,7 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     Instant deliveredAt = Instant.now();
 
     int count =
-        store()
+        signalStore()
             .deliverSignalById(
                 jobId,
                 "{\"outcome\":\"REJECTED\"}",
@@ -160,7 +160,7 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     persist(newWaitingJob("other-broadcast-decision", Instant.now().plusSeconds(600)));
 
     int count =
-        store()
+        signalStore()
             .deliverSignalByKey(
                 key,
                 "{\"approved\":true}",
@@ -174,7 +174,9 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     assertEquals(2, count, "both jobs with matching key should be unblocked");
 
     List<UUID> deliveredIds =
-        store().findJobsBySignalDeliveryId("delivery-id-2").stream().map(JobEntity::getId).toList();
+        signalStore().findJobsBySignalDeliveryId("delivery-id-2").stream()
+            .map(JobEntity::getId)
+            .toList();
     assertTrue(deliveredIds.contains(j1.getId()));
     assertTrue(deliveredIds.contains(j2.getId()));
 
@@ -198,7 +200,8 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     JobEntity expired = persist(newWaitingJob("expired-key", pastDeadline));
     persist(newWaitingJob("future-key", futureDeadline));
 
-    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
+    List<JobEntity> timedOut =
+        signalStore().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
 
     assertTrue(
         timedOut.stream().anyMatch(j -> j.getId().equals(expired.getId())),
@@ -214,7 +217,7 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     persist(newWaitingJob("expired-limit-2", Instant.now().minusSeconds(20)));
     persist(newWaitingJob("expired-limit-3", Instant.now().minusSeconds(10)));
 
-    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now(), 2);
+    List<JobEntity> timedOut = signalStore().findTimedOutSignalJobs(Instant.now(), 2);
 
     assertEquals(2, timedOut.size(), "timeout scan must honor the requested batch limit");
   }
@@ -227,7 +230,7 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     JobEntity saved = persist(expired);
 
     JobEntity timedOut =
-        store().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE).stream()
+        signalStore().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE).stream()
             .filter(j -> j.getId().equals(saved.getId()))
             .findFirst()
             .orElseThrow();
@@ -241,7 +244,8 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     Instant futureDeadline = Instant.now().plusSeconds(3600);
     persist(newWaitingJob("future", futureDeadline));
 
-    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
+    List<JobEntity> timedOut =
+        signalStore().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
 
     assertFalse(
         timedOut.stream().anyMatch(j -> "future".equals(j.getSignalKey())),
@@ -254,7 +258,8 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     JobEntity job = persist(newWaitingJob("delivered", pastDeadline));
     deliverSignalById(job.getId(), null, null, Instant.now());
 
-    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
+    List<JobEntity> timedOut =
+        signalStore().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
 
     assertFalse(
         timedOut.stream().anyMatch(j -> j.getId().equals(job.getId())),
@@ -297,7 +302,7 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
 
   private int deliverSignalById(
       UUID jobId, String payload, String deliveredBy, Instant deliveredAt) {
-    return store()
+    return signalStore()
         .deliverSignalById(
             jobId,
             payload,
@@ -311,7 +316,7 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
 
   private int deliverSignalByKey(
       String signalKey, String payload, String deliveredBy, Instant deliveredAt) {
-    return store()
+    return signalStore()
         .deliverSignalByKey(
             signalKey,
             payload,

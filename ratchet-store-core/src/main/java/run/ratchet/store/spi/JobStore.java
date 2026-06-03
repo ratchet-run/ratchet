@@ -19,31 +19,29 @@ import java.util.Optional;
 import run.ratchet.api.Incubating;
 
 /**
- * Composed store abstraction for all job persistence operations. Implementations must be
- * thread-safe.
+ * Mandatory core store contract — the only store interface every conforming implementation must
+ * provide. It composes the job lifecycle surface: CRUD, claiming, terminal transitions, retry,
+ * pause, status CAS, bulk operations, node heartbeat/crash-recovery ({@link NodeStore}), and tag
+ * <em>writes</em> ({@link TagStore}).
+ *
+ * <p>Capabilities a store may legitimately lack — recurring scheduling, batch fan-out, signals,
+ * resource permits, distributed locks, archiving, query/analytics/audit reporting, and dead-letter
+ * alerting — are <strong>not</strong> extended here. A store advertises an optional capability by
+ * additionally implementing its interface; callers probe for it through {@link #capability}.
+ *
+ * <p>Implementations must be thread-safe.
  */
 @Incubating
 public interface JobStore
     extends JobCrudStore,
-        JobAnalyticsStore,
-        JobQueryStore,
         JobClaimStore,
         JobTerminalStore,
         JobRetryStore,
         JobPauseStore,
         JobBatchStatusStore,
         JobBulkStore,
-        BatchStore,
-        LockStore,
         NodeStore,
-        ArchiveStore,
-        JobAuditStore,
-        TagStore,
-        WorkflowConditionStore,
-        DlqAlertStore,
-        ResourcePermitStore,
-        SignalStore,
-        RecurringJobStore {
+        TagStore {
 
   /**
    * Returns this store's view as {@code type} when the store advertises that optional capability,

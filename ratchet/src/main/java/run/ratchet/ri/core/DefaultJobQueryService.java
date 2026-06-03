@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Instant;
@@ -119,6 +120,28 @@ class DefaultJobQueryService implements JobQueryService {
 
   @Inject
   public DefaultJobQueryService(
+      Instance<JobQueryStore> queryStore,
+      JobCrudStore crudStore,
+      Instance<JobAnalyticsStore> analyticsStore,
+      Instance<JobAuditStore> executionStore,
+      Instance<RecurringJobStore> recurringJobStore,
+      JobAuthorizationPolicy authPolicy,
+      CallerPrincipalProvider principalProvider,
+      Clock clock,
+      RatchetOptions options) {
+    this(
+        queryStore.isResolvable() ? queryStore.get() : null,
+        crudStore,
+        analyticsStore.isResolvable() ? analyticsStore.get() : null,
+        executionStore.isResolvable() ? executionStore.get() : null,
+        recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
+        authPolicy,
+        principalProvider,
+        clock,
+        options);
+  }
+
+  DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
       JobAnalyticsStore analyticsStore,
@@ -179,6 +202,11 @@ class DefaultJobQueryService implements JobQueryService {
       return findRecurringMastersWithFilter(scoped, limit, offset);
     }
 
+    if (queryStore == null) {
+      // No JobQueryStore capability: ad-hoc job search/listing is unavailable.
+      return new JobPage<>(List.of(), 0L, limit, offset, false, null);
+    }
+
     boolean cursorMode = scoped.cursor() != null && !scoped.cursor().isBlank();
     boolean probeMode = scoped.skipCount() || cursorMode;
     int fetchLimit = probeMode ? limit + 1 : limit;
@@ -233,9 +261,11 @@ class DefaultJobQueryService implements JobQueryService {
     }
 
     List<ExecutionHistorySummary> history =
-        executionStore.findExecutionsByJobId(jobId, DEFAULT_PAGE_LIMIT, 0).stream()
-            .map(JobEntityMapper::toExecutionSummary)
-            .collect(Collectors.toList());
+        executionStore == null
+            ? List.of()
+            : executionStore.findExecutionsByJobId(jobId, DEFAULT_PAGE_LIMIT, 0).stream()
+                .map(JobEntityMapper::toExecutionSummary)
+                .collect(Collectors.toList());
 
     List<UUID> dependantIds =
         crudStore.findDependants(jobId, DEFAULT_PAGE_LIMIT, 0).stream()
@@ -284,6 +314,10 @@ class DefaultJobQueryService implements JobQueryService {
         return new JobPage<>(List.of(), 0L, limit, offset, false, null);
       }
     }
+    if (executionStore == null) {
+      // No JobAuditStore capability: execution history is not recorded.
+      return new JobPage<>(List.of(), 0L, limit, offset, false, null);
+    }
     List<ExecutionHistorySummary> items =
         executionStore.findExecutionsByJobId(jobId, limit, offset).stream()
             .map(JobEntityMapper::toExecutionSummary)
@@ -295,6 +329,11 @@ class DefaultJobQueryService implements JobQueryService {
 
   @Override
   public QueueHealthSnapshot getQueueHealth() {
+    if (analyticsStore == null) {
+      // No JobAnalyticsStore capability: queue-health aggregates are unavailable.
+      return new QueueHealthSnapshot(
+          0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0.0, 0.0, 0L, null, Map.of(), Map.of());
+    }
     Instant now = effective().instant();
     Instant stuckThreshold = now.minusSeconds(300);
     Instant since = now.minusSeconds(3600);

@@ -45,11 +45,11 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
     var saved = persist(newPendingJob());
     store().insertTags(saved.getId(), List.of("tag1", "tag2"));
 
-    List<UUID> ids = store().findJobIdsByTag("tag1", 10, 0);
+    List<UUID> ids = queryStore().findJobIdsByTag("tag1", 10, 0);
 
     assertTrue(ids.contains(saved.getId()), "findJobIdsByTag should return the tagged job");
     assertTrue(
-        store().findJobIdsByTag("tag2", 10, 0).contains(saved.getId()),
+        queryStore().findJobIdsByTag("tag2", 10, 0).contains(saved.getId()),
         "findJobIdsByTag should return the job for every inserted tag");
   }
 
@@ -62,10 +62,10 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
 
     assertTrue(deleted > 0, "deleteTagsByJobId should report removed tags");
     assertTrue(
-        store().findJobIdsByTag("tag1", 10, 0).isEmpty(),
+        queryStore().findJobIdsByTag("tag1", 10, 0).isEmpty(),
         "findJobIdsByTag should return empty after deletion");
     assertTrue(
-        store().findJobIdsByTag("tag2", 10, 0).isEmpty(),
+        queryStore().findJobIdsByTag("tag2", 10, 0).isEmpty(),
         "findJobIdsByTag should return empty after deletion");
   }
 
@@ -82,7 +82,7 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
 
     assertEquals(
         List.of(saved.getId()),
-        store().findJobIdsByTag("dup-tag", 10, 0),
+        queryStore().findJobIdsByTag("dup-tag", 10, 0),
         "Duplicate tag insertion must leave a single association");
   }
 

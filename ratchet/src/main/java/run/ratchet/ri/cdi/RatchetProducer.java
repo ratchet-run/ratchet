@@ -201,7 +201,7 @@ public class RatchetProducer {
       Clock clock,
       InternalEventPublisher eventPublisher,
       WorkflowScheduler workflowScheduler,
-      SignalStore signalStore) {
+      Instance<SignalStore> signalStore) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
     int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
@@ -216,7 +216,7 @@ public class RatchetProducer {
         clock,
         eventPublisher,
         workflowScheduler,
-        signalStore,
+        signalStore.isResolvable() ? signalStore.get() : null,
         metricsCollector,
         signalTimeoutBatchSize,
         resolveTxRegistry());
@@ -303,10 +303,15 @@ public class RatchetProducer {
   @Produces
   @ApplicationScoped
   public ExecutionObserver executionObserver(
-      InternalEventPublisher eventPublisher, JobAuditStore executionStore) {
+      InternalEventPublisher eventPublisher, Instance<JobAuditStore> executionStore) {
     // delayedJobReadyCallback is null by default; can be wired later if needed
     return new ExecutionObserver(
-        metricsCollector, tracingCollector, eventPublisher, executionStore, executorProvider, null);
+        metricsCollector,
+        tracingCollector,
+        eventPublisher,
+        executionStore.isResolvable() ? executionStore.get() : null,
+        executorProvider,
+        null);
   }
 
   @Produces

@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Duration;
@@ -80,6 +81,25 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
   @Inject
   public DefaultRecurringScheduler(
       ExecutorProvider executorProvider,
+      Instance<RecurringJobStore> recurringJobStore,
+      SingletonLeaseService singletonLeaseService,
+      NodeIdentityProvider nodeIdentityProvider,
+      RecurringJobExecutor recurringJobExecutor,
+      PollerScheduler pollerScheduler,
+      Clock clock) {
+    this(
+        executorProvider,
+        recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
+        singletonLeaseService,
+        nodeIdentityProvider,
+        recurringJobExecutor,
+        pollerScheduler,
+        clock);
+  }
+
+  /** Constructor for tests that supply a store directly (or {@code null} to disable scheduling). */
+  DefaultRecurringScheduler(
+      ExecutorProvider executorProvider,
       RecurringJobStore recurringJobStore,
       SingletonLeaseService singletonLeaseService,
       NodeIdentityProvider nodeIdentityProvider,
@@ -107,6 +127,12 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
 
   @Override
   public void init() {
+    if (recurringJobStore == null) {
+      log.info(
+          "RecurringJobStore capability not advertised by the store — recurring job scheduling"
+              + " is disabled");
+      return;
+    }
     if (!started.compareAndSet(false, true)) {
       log.warn("RecurringScheduler already initialized; skipping re-run");
       return;

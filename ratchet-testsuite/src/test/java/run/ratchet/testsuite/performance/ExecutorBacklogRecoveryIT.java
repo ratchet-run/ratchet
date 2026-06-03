@@ -86,8 +86,8 @@ class ExecutorBacklogRecoveryIT extends BasePerformanceIT {
     awaitAllTerminal(handles, PERF_TIMEOUT);
     long totalMs = System.currentTimeMillis() - startMs;
 
-    long succeeded = jobCrudStore.countJobsByStatus(JobStatus.SUCCEEDED);
-    long failed = jobCrudStore.countJobsByStatus(JobStatus.FAILED);
+    long succeeded = jobAnalyticsStore.countJobsByStatus(JobStatus.SUCCEEDED);
+    long failed = jobAnalyticsStore.countJobsByStatus(JobStatus.FAILED);
     double succeededRate = (double) succeeded / jobCount;
 
     log.info(

@@ -120,6 +120,32 @@ public class BatchService {
 
   @Inject
   public BatchService(
+      Instance<BatchStore> batchStore,
+      JobCrudStore jobCrudStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      MetricsCollector metricsCollector,
+      InternalEventPublisher eventPublisher,
+      WorkflowScheduler workflowScheduler,
+      ClassPolicy classPolicy,
+      BeanResolver beanResolver,
+      Clock clock,
+      Instance<BatchService> self) {
+    this(
+        batchStore.isResolvable() ? batchStore.get() : null,
+        jobCrudStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
+        metricsCollector,
+        eventPublisher,
+        workflowScheduler,
+        classPolicy,
+        beanResolver,
+        clock,
+        self);
+  }
+
+  BatchService(
       BatchStore batchStore,
       JobCrudStore jobCrudStore,
       JobBatchStatusStore jobBatchStatusStore,
@@ -191,6 +217,10 @@ public class BatchService {
    */
   @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public int recoverStuckBatches() {
+    if (batchStore == null) {
+      // No BatchStore capability: batch fan-out is unavailable, so there are no batches to recover.
+      return 0;
+    }
     List<UUID> recoverableIds = batchStore.findRecoverableBatchIds(100);
     if (recoverableIds.isEmpty()) {
       return 0;

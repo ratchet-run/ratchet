@@ -26,6 +26,8 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.loadtest.api.ClusterStatusResponse;
 import run.ratchet.loadtest.api.RunStatusResponse;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
 
 @ApplicationScoped
@@ -34,6 +36,8 @@ public class RunStatusService {
   private static final int PAGE_SIZE = 500;
 
   @Inject JobStore jobStore;
+  @Inject JobAnalyticsStore analyticsStore;
+  @Inject JobQueryStore queryStore;
   @Inject RunRegistry runRegistry;
   @Inject NodeIdentityProvider nodeIdentityProvider;
 
@@ -70,11 +74,11 @@ public class RunStatusService {
     ClusterStatusResponse response = new ClusterStatusResponse();
     response.setNodeId(nodeIdentityProvider.getNodeId());
     response.setActiveNodes(jobStore.countActiveNodes());
-    response.setReadyJobs(jobStore.countReadyJobs(Instant.now()));
+    response.setReadyJobs(analyticsStore.countReadyJobs(Instant.now()));
     response.setPendingJobs(jobStore.countPendingJobs());
     response.setCheckedAt(Instant.now());
     for (JobStatus status : JobStatus.values()) {
-      response.getStatusCounts().put(status.name(), jobStore.countJobsByStatus(status));
+      response.getStatusCounts().put(status.name(), analyticsStore.countJobsByStatus(status));
     }
     return response;
   }
@@ -83,7 +87,7 @@ public class RunStatusService {
     List<UUID> ids = new ArrayList<>();
     int offset = 0;
     while (true) {
-      List<UUID> page = jobStore.findJobIdsByTag(Tags.run(runId), PAGE_SIZE, offset);
+      List<UUID> page = queryStore.findJobIdsByTag(Tags.run(runId), PAGE_SIZE, offset);
       if (page.isEmpty()) {
         return ids;
       }
@@ -93,10 +97,10 @@ public class RunStatusService {
   }
 
   private RunSummary summarizeRun(String tag) {
-    Map<JobStatus, Long> counts = jobStore.countJobsByStatusForTag(tag);
+    Map<JobStatus, Long> counts = analyticsStore.countJobsByStatusForTag(tag);
     Map<String, Long> enqueueNodeCounts =
-        jobStore.countJobsByParamForTag(tag, Tags.PARAM_ENQUEUE_NODE);
-    Map<String, Long> executionNodeCounts = jobStore.countJobsByExecutionNodeForTag(tag);
+        analyticsStore.countJobsByParamForTag(tag, Tags.PARAM_ENQUEUE_NODE);
+    Map<String, Long> executionNodeCounts = analyticsStore.countJobsByExecutionNodeForTag(tag);
     long observedJobs = counts.values().stream().mapToLong(Long::longValue).sum();
     return new RunSummary(counts, enqueueNodeCounts, executionNodeCounts, observedJobs);
   }

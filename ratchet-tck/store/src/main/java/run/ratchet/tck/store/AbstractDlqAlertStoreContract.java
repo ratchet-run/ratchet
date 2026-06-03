@@ -45,10 +45,10 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
     alert.setAlertSentAt(sentAt);
     alert.setAlertChannel("test-channel");
 
-    store().saveDlqAlert(alert);
+    dlqAlertStore().saveDlqAlert(alert);
 
     assertTrue(
-        store().existsRecentDlqAlert(job.getId(), "abc123hash", sentAt.minusSeconds(1)),
+        dlqAlertStore().existsRecentDlqAlert(job.getId(), "abc123hash", sentAt.minusSeconds(1)),
         "saved DLQ alert should be visible through existsRecentDlqAlert");
   }
 
@@ -62,10 +62,11 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
     alert.setAlertSentAt(Instant.now());
     alert.setAlertChannel("test-channel");
 
-    store().saveDlqAlert(alert);
+    dlqAlertStore().saveDlqAlert(alert);
 
     boolean exists =
-        store().existsRecentDlqAlert(job.getId(), "abc123hash", Instant.now().minusSeconds(60));
+        dlqAlertStore()
+            .existsRecentDlqAlert(job.getId(), "abc123hash", Instant.now().minusSeconds(60));
 
     assertTrue(exists, "existsRecentDlqAlert should return true for a recently saved alert");
   }
@@ -73,7 +74,7 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
   @Test
   void existsRecentDlqAlert_returnsFalseWhenNoneExists() {
     boolean exists =
-        store()
+        dlqAlertStore()
             .existsRecentDlqAlert(
                 new UUID(0L, 999_999L), "nonexistent", Instant.now().minusSeconds(60));
 
@@ -89,11 +90,12 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
     alert.setErrorHash("expired-hash");
     alert.setAlertSentAt(Instant.now().minusSeconds(7200));
     alert.setAlertChannel("test-channel");
-    store().saveDlqAlert(alert);
+    dlqAlertStore().saveDlqAlert(alert);
 
     // Cutoff is 1 hour ago — the alert is 2 hours old, so it should not match
     boolean exists =
-        store().existsRecentDlqAlert(job.getId(), "expired-hash", Instant.now().minusSeconds(3600));
+        dlqAlertStore()
+            .existsRecentDlqAlert(job.getId(), "expired-hash", Instant.now().minusSeconds(3600));
 
     assertFalse(exists, "existsRecentDlqAlert should return false for an alert older than cutoff");
   }
@@ -107,10 +109,10 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
     alert.setErrorHash("hash-A");
     alert.setAlertSentAt(Instant.now());
     alert.setAlertChannel("test-channel");
-    store().saveDlqAlert(alert);
+    dlqAlertStore().saveDlqAlert(alert);
 
     boolean exists =
-        store().existsRecentDlqAlert(job.getId(), "hash-B", Instant.now().minusSeconds(60));
+        dlqAlertStore().existsRecentDlqAlert(job.getId(), "hash-B", Instant.now().minusSeconds(60));
 
     assertFalse(exists, "existsRecentDlqAlert should return false when error hash does not match");
   }
@@ -125,10 +127,10 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
     alert.setErrorHash("roundtrip-hash");
     alert.setAlertSentAt(sentAt);
     alert.setAlertChannel("email");
-    store().saveDlqAlert(alert);
+    dlqAlertStore().saveDlqAlert(alert);
 
     boolean exists =
-        store().existsRecentDlqAlert(job.getId(), "roundtrip-hash", sentAt.minusSeconds(1));
+        dlqAlertStore().existsRecentDlqAlert(job.getId(), "roundtrip-hash", sentAt.minusSeconds(1));
 
     assertTrue(exists, "Alert should be retrievable after save");
   }
@@ -143,10 +145,10 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
     alert.setErrorHash("boundary-hash");
     alert.setAlertSentAt(alertTime);
     alert.setAlertChannel("test-channel");
-    store().saveDlqAlert(alert);
+    dlqAlertStore().saveDlqAlert(alert);
 
     // Cutoff exactly at alert time — alert should be included (at or after cutoff)
-    boolean exists = store().existsRecentDlqAlert(job.getId(), "boundary-hash", alertTime);
+    boolean exists = dlqAlertStore().existsRecentDlqAlert(job.getId(), "boundary-hash", alertTime);
 
     assertTrue(exists, "existsRecentDlqAlert with cutoff at exact alert time should return true");
   }

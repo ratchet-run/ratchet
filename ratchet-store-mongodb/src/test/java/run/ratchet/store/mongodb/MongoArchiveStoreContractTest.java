@@ -94,7 +94,7 @@ class MongoArchiveStoreContractTest extends AbstractArchiveStoreContract {
                 set("updated_at", DocumentMapper.toDate(ARCHIVE_NOW.minusSeconds(3600))),
                 set("terminated_at", DocumentMapper.toDate(ARCHIVE_NOW))));
 
-    var candidates = store().findJobsForArchiving(ARCHIVE_NOW.minusSeconds(1800), 10);
+    var candidates = archiveStore().findJobsForArchiving(ARCHIVE_NOW.minusSeconds(1800), 10);
 
     assertTrue(
         candidates.isEmpty(),

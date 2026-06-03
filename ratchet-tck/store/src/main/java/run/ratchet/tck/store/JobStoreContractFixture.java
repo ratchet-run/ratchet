@@ -20,7 +20,18 @@ import java.util.Arrays;
 import java.util.UUID;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.DlqAlertStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobAuditStore;
+import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
 
 /**
  * Fixture contract implemented by concrete TCK suites.
@@ -40,6 +51,68 @@ public interface JobStoreContractFixture {
    *     assume per-call fresh stores.
    */
   JobStore store();
+
+  /**
+   * Returns the store viewed as an optional capability, resolved through {@link
+   * JobStore#capability}. A capability contract calls the matching accessor for its capability
+   * methods (core lifecycle methods still go through {@link #store()}). When the store under test
+   * does not advertise the capability the accessor throws — the conditional-conformance harness is
+   * responsible for not running a capability's contract against a store that lacks it.
+   */
+  private <T> T capabilityView(Class<T> type) {
+    return store()
+        .capability(type)
+        .orElseThrow(
+            () ->
+                new UnsupportedOperationException(
+                    "store under test does not advertise the "
+                        + type.getSimpleName()
+                        + " capability"));
+  }
+
+  default RecurringJobStore recurringStore() {
+    return capabilityView(RecurringJobStore.class);
+  }
+
+  default BatchStore batchStore() {
+    return capabilityView(BatchStore.class);
+  }
+
+  default WorkflowConditionStore workflowConditionStore() {
+    return capabilityView(WorkflowConditionStore.class);
+  }
+
+  default SignalStore signalStore() {
+    return capabilityView(SignalStore.class);
+  }
+
+  default ResourcePermitStore resourcePermitStore() {
+    return capabilityView(ResourcePermitStore.class);
+  }
+
+  default LockStore lockStore() {
+    return capabilityView(LockStore.class);
+  }
+
+  default ArchiveStore archiveStore() {
+    return capabilityView(ArchiveStore.class);
+  }
+
+  default JobQueryStore queryStore() {
+    return capabilityView(JobQueryStore.class);
+  }
+
+  default JobAnalyticsStore analyticsStore() {
+    return capabilityView(JobAnalyticsStore.class);
+  }
+
+  default JobAuditStore auditStore() {
+    return capabilityView(JobAuditStore.class);
+  }
+
+  default DlqAlertStore dlqAlertStore() {
+    return capabilityView(DlqAlertStore.class);
+  }
 
   /**
    * Builds a new {@link JobEntity} in {@code PENDING} status, ready to {@link #persist(JobEntity)}.
@@ -90,7 +163,7 @@ public interface JobStoreContractFixture {
     batch.setCompletedItems(0);
     batch.setFailedItems(0);
     batch.setCompletionProcessed(false);
-    return store().saveBatch(batch);
+    return batchStore().saveBatch(batch);
   }
 
   // false for MongoDB standalone

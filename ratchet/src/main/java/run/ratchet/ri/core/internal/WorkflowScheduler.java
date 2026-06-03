@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
@@ -106,6 +107,24 @@ public class WorkflowScheduler extends ChainScheduler {
       JobCrudStore jobCrudStore,
       JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
+      Instance<WorkflowConditionStore> conditionStore,
+      WorkflowConditionEvaluator conditionEvaluator,
+      Clock clock,
+      InternalEventPublisher eventPublisher) {
+    this(
+        jobCrudStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
+        conditionStore.isResolvable() ? conditionStore.get() : null,
+        conditionEvaluator,
+        clock,
+        eventPublisher);
+  }
+
+  WorkflowScheduler(
+      JobCrudStore jobCrudStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
@@ -129,7 +148,9 @@ public class WorkflowScheduler extends ChainScheduler {
     super.cancelChain(parentJob);
 
     List<WorkflowConditionEntity> conditions =
-        conditionStore.findConditionsByParentJobId(parentJob.getId());
+        conditionStore == null
+            ? List.of()
+            : conditionStore.findConditionsByParentJobId(parentJob.getId());
     Map<UUID, JobEntity> childJobs = loadChildJobs(conditions);
 
     AtomicInteger canceledCount = new AtomicInteger(0);
@@ -166,7 +187,9 @@ public class WorkflowScheduler extends ChainScheduler {
   @Override
   public boolean scheduleNext(JobEntity parentJob) {
     List<WorkflowConditionEntity> conditions =
-        conditionStore.findConditionsByParentJobId(parentJob.getId());
+        conditionStore == null
+            ? List.of()
+            : conditionStore.findConditionsByParentJobId(parentJob.getId());
 
     if (conditions.isEmpty()) {
       // Fall back to original linear chaining behavior

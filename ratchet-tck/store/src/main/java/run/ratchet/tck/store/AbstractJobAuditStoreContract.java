@@ -43,10 +43,10 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
     var job = persist(newPendingJob());
 
     var exec = JobExecutionEntity.start(job.getId(), 1, "node-1");
-    store().saveExecution(exec);
+    auditStore().saveExecution(exec);
 
     var executions =
-        store().findExecutionsByJobId(job.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0);
+        auditStore().findExecutionsByJobId(job.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0);
 
     assertEquals(1, executions.size(), "findExecutionsByJobId should return the saved execution");
     assertEquals(job.getId(), executions.get(0).getJobId());
@@ -57,12 +57,12 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
     var job = persist(newPendingJob());
 
     var first = JobExecutionEntity.start(job.getId(), 1, "node-1");
-    store().saveExecution(first);
+    auditStore().saveExecution(first);
 
     var second = JobExecutionEntity.start(job.getId(), 2, "node-1");
-    store().saveExecution(second);
+    auditStore().saveExecution(second);
 
-    var latest = store().findLatestExecution(job.getId());
+    var latest = auditStore().findLatestExecution(job.getId());
 
     assertTrue(latest.isPresent(), "findLatestExecution should return a result");
     assertEquals(2, latest.get().getAttempt(), "Latest execution should be the second attempt");
@@ -72,11 +72,11 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
   void countExecutionAttempts_returnsCorrectCount() {
     var job = persist(newPendingJob());
 
-    store().saveExecution(JobExecutionEntity.start(job.getId(), 1, "node-1"));
-    store().saveExecution(JobExecutionEntity.start(job.getId(), 2, "node-1"));
-    store().saveExecution(JobExecutionEntity.start(job.getId(), 3, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 1, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 2, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 3, "node-1"));
 
-    int count = store().countExecutionAttempts(job.getId());
+    int count = auditStore().countExecutionAttempts(job.getId());
 
     assertEquals(3, count, "countExecutionAttempts should return 3 after saving 3 executions");
   }
@@ -85,11 +85,11 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
   void findExecutionsByJobId_returnsRequestedPage() {
     var job = persist(newPendingJob());
 
-    store().saveExecution(JobExecutionEntity.start(job.getId(), 1, "node-1"));
-    store().saveExecution(JobExecutionEntity.start(job.getId(), 2, "node-1"));
-    store().saveExecution(JobExecutionEntity.start(job.getId(), 3, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 1, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 2, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 3, "node-1"));
 
-    var executions = store().findExecutionsByJobId(job.getId(), 2, 1);
+    var executions = auditStore().findExecutionsByJobId(job.getId(), 2, 1);
 
     assertEquals(2, executions.size(), "paged execution lookup should return the requested window");
     assertEquals(2, executions.get(0).getAttempt(), "page should preserve attempt ordering");
@@ -99,9 +99,9 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
   @Test
   void findExecutionsByJobId_zeroLimit_returnsEmptyPage() {
     var job = persist(newPendingJob());
-    store().saveExecution(JobExecutionEntity.start(job.getId(), 1, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 1, "node-1"));
 
-    var executions = store().findExecutionsByJobId(job.getId(), 0, 0);
+    var executions = auditStore().findExecutionsByJobId(job.getId(), 0, 0);
 
     assertTrue(executions.isEmpty(), "limit=0 should return an empty execution page");
   }
@@ -109,7 +109,7 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
   @Test
   void findExecutionsByJobId_unknownJob_returnsEmpty() {
     var executions =
-        store()
+        auditStore()
             .findExecutionsByJobId(
                 new UUID(0L, Long.MAX_VALUE), JobAuditStore.DEFAULT_PAGE_LIMIT, 0);
 
@@ -118,7 +118,7 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
 
   @Test
   void findLatestExecution_unknownJob_returnsEmpty() {
-    var latest = store().findLatestExecution(new UUID(0L, Long.MAX_VALUE));
+    var latest = auditStore().findLatestExecution(new UUID(0L, Long.MAX_VALUE));
 
     assertTrue(latest.isEmpty(), "findLatestExecution for unknown job should return empty");
   }
@@ -127,7 +127,7 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
   void countExecutionAttempts_noExecutions_returnsZero() {
     var job = persist(newPendingJob());
 
-    int count = store().countExecutionAttempts(job.getId());
+    int count = auditStore().countExecutionAttempts(job.getId());
 
     assertEquals(0, count, "countExecutionAttempts with no executions should return 0");
   }
@@ -137,17 +137,21 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
     var jobA = persist(newPendingJob());
     var jobB = persist(newPendingJob());
 
-    store().saveExecution(JobExecutionEntity.start(jobA.getId(), 1, "node-1"));
-    store().saveExecution(JobExecutionEntity.start(jobA.getId(), 2, "node-1"));
-    store().saveExecution(JobExecutionEntity.start(jobB.getId(), 1, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(jobA.getId(), 1, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(jobA.getId(), 2, "node-1"));
+    auditStore().saveExecution(JobExecutionEntity.start(jobB.getId(), 1, "node-1"));
 
     assertEquals(
         2,
-        store().findExecutionsByJobId(jobA.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0).size(),
+        auditStore()
+            .findExecutionsByJobId(jobA.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0)
+            .size(),
         "Job A should have 2 executions");
     assertEquals(
         1,
-        store().findExecutionsByJobId(jobB.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0).size(),
+        auditStore()
+            .findExecutionsByJobId(jobB.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0)
+            .size(),
         "Job B should have 1 execution");
   }
 
@@ -159,7 +163,7 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
         new JobLogEntity(
             saved.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, "test log message");
 
-    assertDoesNotThrow(() -> store().appendLog(log), "appendLog should not throw");
+    assertDoesNotThrow(() -> auditStore().appendLog(log), "appendLog should not throw");
   }
 
   @Test
@@ -172,9 +176,9 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
             Instant.now().minusSeconds(3600),
             JobLogEntity.LogLevel.INFO,
             "old log message");
-    store().appendLog(log);
+    auditStore().appendLog(log);
 
-    int purged = store().purgeLogsOlderThan(Instant.now().minusSeconds(1800));
+    int purged = auditStore().purgeLogsOlderThan(Instant.now().minusSeconds(1800));
 
     assertEquals(1, purged, "purgeLogsOlderThan should delete the old log entry");
   }
@@ -185,16 +189,16 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
 
     JobLogEntity recentLog =
         new JobLogEntity(saved.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, "recent log");
-    store().appendLog(recentLog);
+    auditStore().appendLog(recentLog);
 
-    int purged = store().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
+    int purged = auditStore().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
 
     assertEquals(0, purged, "purgeLogsOlderThan should not delete recent logs");
   }
 
   @Test
   void purgeLogsOlderThan_emptyStore_returnsZero() {
-    int purged = store().purgeLogsOlderThan(Instant.now());
+    int purged = auditStore().purgeLogsOlderThan(Instant.now());
 
     assertEquals(0, purged, "purgeLogsOlderThan on empty store should return 0");
   }
@@ -207,10 +211,10 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
     for (int i = 0; i < 3; i++) {
       JobLogEntity log =
           new JobLogEntity(saved.getId(), oldTime, JobLogEntity.LogLevel.INFO, "log entry " + i);
-      store().appendLog(log);
+      auditStore().appendLog(log);
     }
 
-    int purged = store().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
+    int purged = auditStore().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
 
     assertEquals(3, purged, "All 3 old log entries should be purged");
   }
@@ -223,14 +227,14 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
 
     JobLogEntity logA =
         new JobLogEntity(jobA.getId(), oldTime, JobLogEntity.LogLevel.INFO, "log for job A");
-    store().appendLog(logA);
+    auditStore().appendLog(logA);
 
     JobLogEntity logB =
         new JobLogEntity(
             jobB.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, "recent log for job B");
-    store().appendLog(logB);
+    auditStore().appendLog(logB);
 
-    int purged = store().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
+    int purged = auditStore().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
 
     assertEquals(1, purged, "Only the old log entry (job A) should be purged");
   }
@@ -247,7 +251,8 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
             "log with MDC",
             Map.of("traceId", "abc-123", "spanId", "def-456"));
 
-    assertDoesNotThrow(() -> store().appendLog(log), "appendLog with MDC map should not throw");
+    assertDoesNotThrow(
+        () -> auditStore().appendLog(log), "appendLog with MDC map should not throw");
   }
 
   @Test
@@ -258,7 +263,7 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
       JobLogEntity log =
           new JobLogEntity(saved.getId(), Instant.now(), level, "test " + level.name());
       assertDoesNotThrow(
-          () -> store().appendLog(log), "appendLog should accept " + level.name() + " level");
+          () -> auditStore().appendLog(log), "appendLog should accept " + level.name() + " level");
     }
   }
 }

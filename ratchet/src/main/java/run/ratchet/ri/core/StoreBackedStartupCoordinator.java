@@ -16,9 +16,11 @@
 package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.Objects;
+import org.jboss.logging.Logger;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.spi.LockStore;
@@ -27,6 +29,7 @@ import run.ratchet.store.spi.LockStore;
 @ApplicationScoped
 class StoreBackedStartupCoordinator implements StartupCoordinator {
 
+  private static final Logger log = Logger.getLogger(StoreBackedStartupCoordinator.class);
   private static final String LOCK_PREFIX = "startup:";
 
   private final LockStore lockStore;
@@ -39,7 +42,18 @@ class StoreBackedStartupCoordinator implements StartupCoordinator {
 
   @Inject
   public StoreBackedStartupCoordinator(
-      LockStore lockStore, NodeIdentityProvider nodeIdentityProvider) {
+      Instance<LockStore> lockStore, NodeIdentityProvider nodeIdentityProvider) {
+    this.lockStore = lockStore.isResolvable() ? lockStore.get() : null;
+    this.nodeIdentityProvider = nodeIdentityProvider;
+    if (this.lockStore == null) {
+      log.info(
+          "LockStore capability not advertised by the store — startup coordination degrades to"
+              + " single-node semantics (this node always proceeds with one-time startup actions)");
+    }
+  }
+
+  /** Constructor for tests that supply a lock store directly (or {@code null} to degrade). */
+  StoreBackedStartupCoordinator(LockStore lockStore, NodeIdentityProvider nodeIdentityProvider) {
     this.lockStore = lockStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
   }
@@ -62,12 +76,20 @@ class StoreBackedStartupCoordinator implements StartupCoordinator {
 
   @Override
   public boolean tryAcquire(String actionName, Duration leaseTtl) {
-    return lockStore.tryLock(
-        lockName(actionName), positiveLeaseTtl(leaseTtl), nodeIdentityProvider.getNodeId());
+    String lockName = lockName(actionName);
+    Duration ttl = positiveLeaseTtl(leaseTtl);
+    if (lockStore == null) {
+      // No distributed lock: this node proceeds with the one-time action (single-node semantics).
+      return true;
+    }
+    return lockStore.tryLock(lockName, ttl, nodeIdentityProvider.getNodeId());
   }
 
   @Override
   public void release(String actionName) {
+    if (lockStore == null) {
+      return;
+    }
     lockStore.unlock(lockName(actionName), nodeIdentityProvider.getNodeId());
   }
 }

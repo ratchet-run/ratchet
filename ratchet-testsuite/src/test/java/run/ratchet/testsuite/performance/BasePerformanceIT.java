@@ -41,6 +41,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.internal.DefaultPollerScheduler;
+import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
@@ -77,6 +78,7 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
 
   @Inject protected TestJobService jobService;
   @Inject protected JobStore jobCrudStore;
+  @Inject protected JobAnalyticsStore jobAnalyticsStore;
   @Inject protected JobClaimStore jobClaimStore;
   @Inject protected PollerScheduler pollerScheduler;
   @Inject protected PerformanceTestHelper perfHelper;
@@ -247,7 +249,7 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
   protected long[] queryQueueWaitPercentiles(double... percentiles) {
     long[] result = new long[percentiles.length];
     for (int i = 0; i < percentiles.length; i++) {
-      result[i] = jobCrudStore.getQueueWaitTimePercentile(percentiles[i]);
+      result[i] = jobAnalyticsStore.getQueueWaitTimePercentile(percentiles[i]);
     }
     return result;
   }

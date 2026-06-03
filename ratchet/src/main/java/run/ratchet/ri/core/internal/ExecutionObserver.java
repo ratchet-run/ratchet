@@ -112,10 +112,18 @@ public class ExecutionObserver {
 
   public JobExecutionEntity startExecution(UUID jobId, int attemptNumber, String nodeId) {
     JobExecutionEntity execution = JobExecutionEntity.start(jobId, attemptNumber, nodeId);
+    if (executionStore == null) {
+      // No JobAuditStore capability: execution-history recording is disabled. Return the transient
+      // entity so callers still have a usable handle for the in-flight attempt.
+      return execution;
+    }
     return executionStore.saveExecution(execution);
   }
 
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
+    if (executionStore == null) {
+      return execution;
+    }
     return executionStore.saveExecution(execution);
   }
 

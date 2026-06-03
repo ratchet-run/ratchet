@@ -37,17 +37,41 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.DlqAlertStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobAuditStore;
+import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
 
 /**
- * Base implementation of the composed {@link JobStore} marker that throws {@link
- * UnsupportedOperationException} from every method. Subclasses override only the operations they
- * need to support; everything else surfaces as a clear failure rather than a silent no-op.
+ * Base implementation of the {@link JobStore} core plus every optional capability that throws
+ * {@link UnsupportedOperationException} from every method. Subclasses override only the operations
+ * they need to support; everything else surfaces as a clear failure rather than a silent no-op.
  *
  * <p>Used by TCK runtimes that need a minimal, in-memory store for a narrow contract — e.g. {@code
- * InMemoryJobStore} for {@code AbstractDelayedSchedulingContract}.
+ * InMemoryJobStore} for {@code AbstractDelayedSchedulingContract}. Because it implements every
+ * capability interface it advertises full capability through {@link JobStore#capability}.
  */
-public abstract class ThrowingJobStoreBase implements JobStore {
+public abstract class ThrowingJobStoreBase
+    implements JobStore,
+        RecurringJobStore,
+        BatchStore,
+        WorkflowConditionStore,
+        SignalStore,
+        ResourcePermitStore,
+        LockStore,
+        ArchiveStore,
+        JobQueryStore,
+        JobAnalyticsStore,
+        JobAuditStore,
+        DlqAlertStore {
 
   private static <T> T fail(String method) {
     throw new UnsupportedOperationException(

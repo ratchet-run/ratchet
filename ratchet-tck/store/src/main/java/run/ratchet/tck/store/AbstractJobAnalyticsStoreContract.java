@@ -48,7 +48,7 @@ public abstract class AbstractJobAnalyticsStoreContract implements JobStoreContr
     store().compareAndSwapStatus(succeeded.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobSucceeded(succeeded.getId(), null, null, Instant.now(), Instant.now(), 0L, 0L);
 
-    Map<JobStatus, Long> counts = store().countJobsByStatuses();
+    Map<JobStatus, Long> counts = analyticsStore().countJobsByStatuses();
 
     assertEquals(1L, counts.get(JobStatus.PENDING));
     assertEquals(1L, counts.get(JobStatus.RUNNING));
@@ -70,7 +70,7 @@ public abstract class AbstractJobAnalyticsStoreContract implements JobStoreContr
     JobEntity savedRunning = persist(running);
     store().compareAndSwapStatus(savedRunning.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
 
-    Map<JobPriority, Long> counts = store().countPendingJobsByPriorities();
+    Map<JobPriority, Long> counts = analyticsStore().countPendingJobsByPriorities();
 
     assertEquals(1L, counts.get(JobPriority.HIGH));
     assertEquals(1L, counts.get(JobPriority.CRITICAL));
@@ -91,7 +91,7 @@ public abstract class AbstractJobAnalyticsStoreContract implements JobStoreContr
     JobEntity savedRunning = persist(running);
     store().compareAndSwapStatus(savedRunning.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
 
-    Map<JobExecutionType, Long> counts = store().countPendingJobsByTypes();
+    Map<JobExecutionType, Long> counts = analyticsStore().countPendingJobsByTypes();
 
     assertEquals(1L, counts.get(JobExecutionType.SINGLE));
     assertEquals(1L, counts.get(JobExecutionType.BATCH_CHILD));
@@ -114,7 +114,8 @@ public abstract class AbstractJobAnalyticsStoreContract implements JobStoreContr
     third = persist(third);
     store().insertTags(third.getId(), List.of("run-tag"));
 
-    Map<String, Long> counts = store().countJobsByParamForTag("run-tag", "loadtest.enqueue.node");
+    Map<String, Long> counts =
+        analyticsStore().countJobsByParamForTag("run-tag", "loadtest.enqueue.node");
 
     assertEquals(2L, counts.get("node-a"));
     assertEquals(1L, counts.get("node-b"));
@@ -142,7 +143,7 @@ public abstract class AbstractJobAnalyticsStoreContract implements JobStoreContr
     otherTag = persist(otherTag);
     store().insertTags(otherTag.getId(), List.of("other-tag"));
 
-    Map<JobStatus, Long> counts = store().countJobsByStatusForTag("run-tag");
+    Map<JobStatus, Long> counts = analyticsStore().countJobsByStatusForTag("run-tag");
 
     assertEquals(Map.of(JobStatus.PENDING, 1L, JobStatus.RUNNING, 2L), counts);
   }
@@ -173,7 +174,7 @@ public abstract class AbstractJobAnalyticsStoreContract implements JobStoreContr
     otherTag = persist(otherTag);
     store().insertTags(otherTag.getId(), List.of("other-tag"));
 
-    Map<String, Long> counts = store().countJobsByExecutionNodeForTag("run-tag");
+    Map<String, Long> counts = analyticsStore().countJobsByExecutionNodeForTag("run-tag");
 
     assertEquals(Map.of("node-a", 2L, "node-b", 1L), counts);
   }

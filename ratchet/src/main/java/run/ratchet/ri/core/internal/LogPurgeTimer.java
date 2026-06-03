@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Duration;
@@ -70,6 +71,18 @@ public class LogPurgeTimer {
 
   @Inject
   public LogPurgeTimer(
+      Instance<JobAuditStore> jobLogStore,
+      SingletonLeaseService singletonLeaseService,
+      ExecutorProvider executorProvider,
+      Clock clock) {
+    this(
+        jobLogStore.isResolvable() ? jobLogStore.get() : null,
+        singletonLeaseService,
+        executorProvider,
+        clock);
+  }
+
+  LogPurgeTimer(
       JobAuditStore jobLogStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider,
@@ -81,7 +94,12 @@ public class LogPurgeTimer {
   }
 
   public void init(long retentionDays, Cron cronExpression) {
-    if (jobLogStore == null || singletonLeaseService == null || executorProvider == null) {
+    if (jobLogStore == null) {
+      log.info(
+          "JobAuditStore capability not advertised by the store — log purge timer is disabled");
+      return;
+    }
+    if (singletonLeaseService == null || executorProvider == null) {
       throw new IllegalStateException("LogPurgeTimer dependencies are not initialized");
     }
 

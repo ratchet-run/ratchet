@@ -292,7 +292,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   @Test
   void create_persistsRecurringMasterId() {
     UUID masterId = UuidV7Factory.create();
-    store().createRecurring(recurringMaster(masterId));
+    recurringStore().createRecurring(recurringMaster(masterId));
 
     JobEntity child = newPendingJob();
     child.setRecurringMasterId(masterId);

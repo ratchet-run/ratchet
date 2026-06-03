@@ -64,7 +64,7 @@ class MongoSignalStoreContractTest extends AbstractSignalStoreContract {
     Instant deliveredAt = Instant.parse("2026-05-05T12:00:00Z");
 
     int delivered =
-        store()
+        signalStore()
             .deliverSignalById(
                 saved.getId(),
                 null,

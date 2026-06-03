@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
@@ -69,6 +70,7 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -98,6 +100,7 @@ class DefaultJobCreationService
   private final InternalEventPublisher eventPublisher;
   private final MetricsCollector metricsCollector;
   private final Clock clock;
+  private final boolean signalCapabilityAvailable;
 
   private volatile TransactionSynchronizationRegistry txRegistry;
 
@@ -121,9 +124,59 @@ class DefaultJobCreationService
     this.eventPublisher = null;
     this.metricsCollector = null;
     this.clock = null;
+    this.signalCapabilityAvailable = false;
   }
 
   @Inject
+  public DefaultJobCreationService(
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
+      Instance<BatchStore> batchStore,
+      TagStore tagStore,
+      Instance<WorkflowConditionStore> workflowConditionStore,
+      Instance<RecurringJobStore> recurringJobStore,
+      Instance<SignalStore> signalStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      JobPayloadInputValidator payloadValidator,
+      CallerPrincipalProvider callerPrincipalProvider,
+      TracingCollector tracingCollector,
+      JobAuthorizationPolicy authorizationPolicy,
+      ClassPolicy classPolicy,
+      InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
+      Clock clock) {
+    this(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        jobBulkStore,
+        batchStore.isResolvable() ? batchStore.get() : null,
+        tagStore,
+        workflowConditionStore.isResolvable() ? workflowConditionStore.get() : null,
+        recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        payloadValidator,
+        callerPrincipalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        classPolicy,
+        eventPublisher,
+        metricsCollector,
+        clock,
+        signalStore.isResolvable());
+  }
+
+  /**
+   * Constructor for tests that supply stores directly. Signal-waiting job creation is permitted
+   * (assumes the {@code SignalStore} capability is present); pass through the {@code @Inject}
+   * constructor to model an absent capability.
+   */
   public DefaultJobCreationService(
       JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
@@ -144,6 +197,50 @@ class DefaultJobCreationService
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
       Clock clock) {
+    this(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        jobBulkStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        payloadValidator,
+        callerPrincipalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        classPolicy,
+        eventPublisher,
+        metricsCollector,
+        clock,
+        true);
+  }
+
+  private DefaultJobCreationService(
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      JobPayloadInputValidator payloadValidator,
+      CallerPrincipalProvider callerPrincipalProvider,
+      TracingCollector tracingCollector,
+      JobAuthorizationPolicy authorizationPolicy,
+      ClassPolicy classPolicy,
+      InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
+      Clock clock,
+      boolean signalCapabilityAvailable) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
@@ -163,6 +260,7 @@ class DefaultJobCreationService
     this.eventPublisher = eventPublisher;
     this.metricsCollector = metricsCollector;
     this.clock = clock;
+    this.signalCapabilityAvailable = signalCapabilityAvailable;
   }
 
   /**
@@ -199,6 +297,12 @@ class DefaultJobCreationService
 
     String signalKey = state.awaitSignalKey();
     boolean isSignalWaiting = signalKey != null;
+    if (isSignalWaiting && !signalCapabilityAvailable) {
+      // Refuse to persist a WAITING job that could never be delivered or timed out, since signal
+      // delivery and the timeout scanner both require the SignalStore capability.
+      throw new UnsupportedOperationException(
+          "Signal-waiting job creation requires a store advertising the SignalStore capability");
+    }
     Duration signalTimeout = isSignalWaiting ? state.awaitSignalTimeout() : null;
     Instant now = effective().instant();
 
@@ -273,6 +377,7 @@ class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(DefaultBatchBuilder builder) {
+    requireBatchCapability();
     JobEntity parent = newBatchParent();
     parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
@@ -337,6 +442,7 @@ class DefaultJobCreationService
   @Override
   @Transactional
   public <T extends Serializable> JobHandle submit(DefaultStreamingBatchBuilder<T> builder) {
+    requireBatchCapability();
     builder.validateReady();
 
     JobEntity parent = newBatchParent();
@@ -403,6 +509,10 @@ class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(DefaultRecurringJobBuilder builder) {
+    if (recurringJobStore == null) {
+      throw new UnsupportedOperationException(
+          "Recurring job submission requires a store advertising the RecurringJobStore capability");
+    }
     Cron cron = RecurringScheduler.PARSER.parse(builder.cronExpr());
     cron.validate();
 
@@ -477,6 +587,13 @@ class DefaultJobCreationService
 
     recurringScheduler.kick();
     return () -> saved;
+  }
+
+  private void requireBatchCapability() {
+    if (batchStore == null) {
+      throw new UnsupportedOperationException(
+          "Batch submission requires a store advertising the BatchStore capability");
+    }
   }
 
   private String resolveCallerPrincipal() {
@@ -570,6 +687,11 @@ class DefaultJobCreationService
 
   private void createWorkflowBranches(
       UUID parentId, List<WorkflowBranch> branches, String executionTarget) {
+    if (workflowConditionStore == null && !branches.isEmpty()) {
+      throw new UnsupportedOperationException(
+          "Workflow branch scheduling requires a store advertising the WorkflowConditionStore"
+              + " capability");
+    }
     for (WorkflowBranch branch : branches) {
       createWorkflowBranch(parentId, branch, executionTarget);
     }
