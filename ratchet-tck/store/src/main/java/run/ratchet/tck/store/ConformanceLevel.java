@@ -34,12 +34,10 @@ import java.util.Map;
 public enum ConformanceLevel {
   CORE(
       "Core",
-      "Fundamental persistence and locking primitives required by all conforming store"
-          + " implementations.",
+      "Fundamental persistence primitives required by all conforming store implementations.",
       List.of(
           "AbstractJobCrudStoreContract",
           "AbstractJobClaimStoreContract",
-          "AbstractLockStoreContract",
           "AbstractNodeStoreContract",
           "AbstractTagStoreContract"),
       List.of()),
@@ -64,12 +62,13 @@ public enum ConformanceLevel {
 
   ADVANCED(
       "Advanced",
-      "Optional capabilities: archival, dead-letter queues, bulk operations, business-key"
-          + " uniqueness, and — for SQL stores — schema conformance, schema migration, and JTA"
-          + " transaction boundaries.",
+      "Optional capabilities: archival, dead-letter queues, distributed locks, bulk operations,"
+          + " business-key uniqueness, and — for SQL stores — schema conformance, schema migration,"
+          + " and JTA transaction boundaries.",
       List.of(
           "AbstractArchiveStoreContract",
           "AbstractDlqAlertStoreContract",
+          "AbstractLockStoreContract",
           "AbstractJobBulkStoreContract",
           "AbstractActiveBusinessKeyContract",
           "AbstractDualWriteInvariantContract",

@@ -64,10 +64,13 @@ public interface JobStoreContractFixture {
         .capability(type)
         .orElseThrow(
             () ->
-                new UnsupportedOperationException(
+                // Abort (not fail): a store that does not advertise this optional capability makes
+                // the capability's contract not-applicable. JUnit reports the test as skipped, and
+                // the conformance report records it as N/A rather than MISSING.
+                new org.opentest4j.TestAbortedException(
                     "store under test does not advertise the "
                         + type.getSimpleName()
-                        + " capability"));
+                        + " capability — capability contract skipped (N/A)"));
   }
 
   default RecurringJobStore recurringStore() {
