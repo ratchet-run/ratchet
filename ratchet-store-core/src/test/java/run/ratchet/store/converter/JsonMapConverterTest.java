@@ -18,6 +18,7 @@ package run.ratchet.store.converter;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
@@ -73,6 +74,18 @@ class JsonMapConverterTest {
   @Test
   void malformedJson_throwsException() {
     assertThrows(IllegalArgumentException.class, () -> converter.convertToEntityAttribute("{bad}"));
+  }
+
+  @Test
+  void nonStringEntry_throwsWithDocumentedMessage() {
+    // No serializer installed: the holder's JSON-B fallback parses the value 1 as a non-String,
+    // tripping deserialize()'s entry-type guard. deserialize() is called directly so the documented
+    // message is not re-wrapped by convertToEntityAttribute's error wrapper.
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> converter.deserialize("{\"k\":1}"));
+    assertTrue(
+        ex.getMessage().startsWith("JSON map column contains non-String entry"),
+        () -> "unexpected message: " + ex.getMessage());
   }
 
   @Test

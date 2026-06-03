@@ -16,6 +16,7 @@
 package run.ratchet.store.converter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -77,8 +78,12 @@ class JsonListConverterTest {
 
   @Test
   void malformedJson_throwsException() {
-    assertThrows(
-        IllegalArgumentException.class, () -> converter.convertToEntityAttribute("[broken"));
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> converter.convertToEntityAttribute("[broken"));
+
+    assertEquals("JSON list deserialization error", thrown.getMessage());
+    assertInstanceOf(IllegalArgumentException.class, thrown.getCause());
   }
 
   @Test

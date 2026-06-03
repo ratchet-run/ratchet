@@ -90,31 +90,46 @@ class UuidV7FactoryTest {
   }
 
   @Test
-  void counterOverflowWaitsForNextTick() {
-    // n must be large enough that on fast hardware (sub-microsecond per call) the loop spans
-    // multiple wall-clock milliseconds AND forces counter overflow (>4096 IDs in some ms).
-    // 5000 was insufficient — at 200 ns/call on modern hardware the loop finishes in <1 ms
-    // before the counter reaches 4096, so wait-for-tick never triggers and elapsed=0 ms.
-    // 50_000 guarantees multiple ms boundaries are crossed regardless of call-rate.
-    int n = 50_000;
-    UUID[] ids = new UUID[n];
-    long startNs = System.nanoTime();
-    for (int i = 0; i < n; i++) {
-      ids[i] = UuidV7Factory.create();
+  void counterOverflowWaitsForNextTick() throws Exception {
+    // The previous version timed 50_000 create() calls and only asserted elapsed >= 1ms, which the
+    // normal path satisfies by crossing ms boundaries — the overflow branch (counter > COUNTER_MAX
+    // -> wait-for-tick + reset) never ran. Saturate the per-ms counter on the current ms via
+    // reflection so the very next create() must take that branch, mirroring the clock-backward
+    // sibling's setup.
+    Field lockField = UuidV7Factory.class.getDeclaredField("LOCK");
+    lockField.setAccessible(true);
+    Object lock = lockField.get(null);
+
+    Field lastTimestampField = UuidV7Factory.class.getDeclaredField("lastTimestampMs");
+    lastTimestampField.setAccessible(true);
+    Field counterField = UuidV7Factory.class.getDeclaredField("counter");
+    counterField.setAccessible(true);
+    Field counterMaxField = UuidV7Factory.class.getDeclaredField("COUNTER_MAX");
+    counterMaxField.setAccessible(true);
+    int counterMax = counterMaxField.getInt(null);
+
+    long originalTimestamp;
+    int originalCounter;
+    long pinnedTimestamp = System.currentTimeMillis();
+    synchronized (lock) {
+      originalTimestamp = lastTimestampField.getLong(null);
+      originalCounter = counterField.getInt(null);
+      lastTimestampField.setLong(null, pinnedTimestamp);
+      counterField.setInt(null, counterMax);
     }
-    long elapsedMs = (System.nanoTime() - startNs) / 1_000_000L;
-    assertTrue(
-        elapsedMs >= 1,
-        () ->
-            "expected at least one ms wall-clock advance for "
-                + n
-                + " IDs; got "
-                + elapsedMs
-                + "ms");
-    for (int i = 1; i < n; i++) {
-      UUID a = ids[i - 1];
-      UUID b = ids[i];
-      assertTrue(b.compareTo(a) > 0, () -> "IDs not strictly increasing across overflow");
+
+    try {
+      UUID id = UuidV7Factory.create();
+
+      assertTrue(
+          timestampFrom(id) > pinnedTimestamp,
+          () -> "overflow must advance the embedded timestamp past the saturated ms");
+      assertEquals(0, counterFrom(id), "counter must reset to 0 after wait-for-tick overflow");
+    } finally {
+      synchronized (lock) {
+        lastTimestampField.setLong(null, originalTimestamp);
+        counterField.setInt(null, originalCounter);
+      }
     }
   }
 

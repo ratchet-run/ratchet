@@ -16,8 +16,10 @@
 package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.ByteBuffer;
 import java.sql.Timestamp;
@@ -60,6 +62,15 @@ class RowValuesTest {
   @Test
   void instantOrNullReturnsNullForUnsupportedType() {
     assertNull(RowValues.instantOrNull("2026-05-12T12:00:00Z"));
+  }
+
+  @Test
+  void booleanOrFalseCoercesEverySupportedSourceType() {
+    assertFalse(RowValues.booleanOrFalse(null));
+    assertTrue(RowValues.booleanOrFalse(Boolean.TRUE));
+    assertFalse(RowValues.booleanOrFalse(0));
+    assertTrue(RowValues.booleanOrFalse(1));
+    assertTrue(RowValues.booleanOrFalse("true"));
   }
 
   @Test
