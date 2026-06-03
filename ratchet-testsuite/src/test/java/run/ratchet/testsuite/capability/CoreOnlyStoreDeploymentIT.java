@@ -15,7 +15,9 @@
  */
 package run.ratchet.testsuite.capability;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.enterprise.inject.Instance;
@@ -113,5 +115,23 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
 
     assertNotNull(handle);
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
+  }
+
+  @Test
+  void capabilityDependentSubmissionsFailFastAndCancellationsNoOp() {
+    // A recurring-cancel by business key has no RecurringJobStore to consult on a core-only store,
+    // so it reports zero cancellations rather than dereferencing the absent capability.
+    assertEquals(
+        0,
+        scheduler.cancelRecurringJobByBusinessKey("no-such-key"),
+        "cancelRecurringJobByBusinessKey must no-op to 0 when RecurringJobStore is absent");
+
+    // A job that asks for resource-permit gating cannot be honored without the ResourcePermitStore
+    // capability, so the submission is rejected rather than silently running with unbounded
+    // concurrency.
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> jobService.enqueue(SimpleJob::execute).withResource("db-pool").immediate().submit(),
+        "a resource-gated submission must fail fast when ResourcePermitStore is absent");
   }
 }

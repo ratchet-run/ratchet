@@ -70,6 +70,7 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -101,6 +102,7 @@ class DefaultJobCreationService
   private final MetricsCollector metricsCollector;
   private final Clock clock;
   private final boolean signalCapabilityAvailable;
+  private final boolean resourcePermitCapabilityAvailable;
 
   private volatile TransactionSynchronizationRegistry txRegistry;
 
@@ -125,6 +127,7 @@ class DefaultJobCreationService
     this.metricsCollector = null;
     this.clock = null;
     this.signalCapabilityAvailable = false;
+    this.resourcePermitCapabilityAvailable = false;
   }
 
   @Inject
@@ -138,6 +141,7 @@ class DefaultJobCreationService
       Instance<WorkflowConditionStore> workflowConditionStore,
       Instance<RecurringJobStore> recurringJobStore,
       Instance<SignalStore> signalStore,
+      Instance<ResourcePermitStore> resourcePermitStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
@@ -169,7 +173,8 @@ class DefaultJobCreationService
         eventPublisher,
         metricsCollector,
         clock,
-        signalStore.isResolvable());
+        signalStore.isResolvable(),
+        resourcePermitStore.isResolvable());
   }
 
   /**
@@ -217,6 +222,7 @@ class DefaultJobCreationService
         eventPublisher,
         metricsCollector,
         clock,
+        true,
         true);
   }
 
@@ -240,7 +246,8 @@ class DefaultJobCreationService
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
       Clock clock,
-      boolean signalCapabilityAvailable) {
+      boolean signalCapabilityAvailable,
+      boolean resourcePermitCapabilityAvailable) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
@@ -261,6 +268,7 @@ class DefaultJobCreationService
     this.metricsCollector = metricsCollector;
     this.clock = clock;
     this.signalCapabilityAvailable = signalCapabilityAvailable;
+    this.resourcePermitCapabilityAvailable = resourcePermitCapabilityAvailable;
   }
 
   /**
@@ -303,6 +311,17 @@ class DefaultJobCreationService
       throw new UnsupportedOperationException(
           "Signal-waiting job creation requires a store advertising the SignalStore capability");
     }
+    String resourceName = builder.resourceName();
+    boolean resourceGated = resourceName != null && !resourceName.isBlank();
+    if (resourceGated && !resourcePermitCapabilityAvailable) {
+      // The caller asked for concurrency gating on a named resource, but the store cannot enforce
+      // it. Reject the submission rather than silently running the job with unbounded concurrency.
+      throw new UnsupportedOperationException(
+          "Job declares resource '"
+              + resourceName
+              + "' but the store does not advertise the ResourcePermitStore capability; resource"
+              + " concurrency gating cannot be enforced");
+    }
     Duration signalTimeout = isSignalWaiting ? state.awaitSignalTimeout() : null;
     Instant now = effective().instant();
 
@@ -319,7 +338,7 @@ class DefaultJobCreationService
     }
     job.setIdempotencyKey(idempotencyKey);
     job.setBusinessKey(businessKey);
-    job.setResourceName(builder.resourceName());
+    job.setResourceName(resourceName);
     job.setExecutionTarget(state.executionTarget());
     if (builder.onSuccess() != null) {
       job.setOnSuccessPayload(payload(builder.onSuccess()));

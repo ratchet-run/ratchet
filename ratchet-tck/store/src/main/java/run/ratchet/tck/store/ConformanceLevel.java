@@ -44,36 +44,40 @@ public enum ConformanceLevel {
 
   BEHAVIORAL(
       "Behavioral",
-      "Job lifecycle operations: execution tracking, retry, pause/resume, recurring scheduling,"
-          + " batch orchestration, and signal delivery.",
+      "Job lifecycle operations. The required contracts — terminal transitions, retry, pause/resume,"
+          + " and non-terminal status CAS — are part of the mandatory core. The optional contracts"
+          + " apply only to stores advertising the matching capability: audit, recurring scheduling,"
+          + " batch orchestration, workflow conditions, query, analytics, and signal delivery.",
       List.of(
-          "AbstractJobAuditStoreContract",
           "AbstractJobRetryStoreContract",
           "AbstractJobPauseStoreContract",
           "AbstractJobTerminalStoreContract",
+          "AbstractJobBatchStatusStoreContract"),
+      List.of(
+          "AbstractJobAuditStoreContract",
           "AbstractRecurringJobStoreContract",
           "AbstractBatchStoreContract",
           "AbstractWorkflowConditionStoreContract",
-          "AbstractJobBatchStatusStoreContract",
           "AbstractJobQueryStoreContract",
           "AbstractJobAnalyticsStoreContract",
-          "AbstractSignalStoreContract"),
-      List.of()),
+          "AbstractSignalStoreContract")),
 
   ADVANCED(
       "Advanced",
-      "Optional capabilities: archival, dead-letter queues, distributed locks, bulk operations,"
-          + " business-key uniqueness, and — for SQL stores — schema conformance, schema migration,"
-          + " and JTA transaction boundaries.",
+      "Bulk operations, business-key uniqueness, and the dual-write storage invariant are core. The"
+          + " optional contracts apply only to stores that advertise the capability: archival,"
+          + " dead-letter alerting, distributed locks, resource permits, and — for SQL stores —"
+          + " schema conformance, schema migration, JPA recurring-claim concurrency, and JTA"
+          + " transaction boundaries.",
+      List.of(
+          "AbstractJobBulkStoreContract",
+          "AbstractActiveBusinessKeyContract",
+          "AbstractDualWriteInvariantContract"),
       List.of(
           "AbstractArchiveStoreContract",
           "AbstractDlqAlertStoreContract",
           "AbstractLockStoreContract",
-          "AbstractJobBulkStoreContract",
-          "AbstractActiveBusinessKeyContract",
-          "AbstractDualWriteInvariantContract",
-          "AbstractResourcePermitStoreContract"),
-      List.of(
+          "AbstractResourcePermitStoreContract",
           "AbstractSchemaConformanceContract",
           "AbstractSchemaMigratorContract",
           "AbstractJpaRecurringClaimConcurrencyContract",

@@ -52,10 +52,22 @@ public interface JobStore
    * signals, archiving, …) is available, rather than assuming every store implements every
    * capability interface.
    *
-   * <p>The default implementation reflects explicit Java type membership: a store advertises a
-   * capability simply by implementing its interface. Implementations that override this method
-   * <strong>must</strong> advertise a capability all-or-nothing — never report a capability whose
-   * methods are partially or unsupported, since callers treat a present capability as fully usable.
+   * <p>Java type membership is the single normative source of truth for capability advertisement: a
+   * store advertises an optional capability by — and only by — implementing that capability's
+   * interface, and the default implementation reflects exactly that. Dependency-injection runtimes
+   * discover capabilities from the bean's Java type closure rather than by calling this method; the
+   * reference engine, for instance, resolves each optional capability through a CDI {@code
+   * Instance<T>}. Because both views derive from the same type membership, the probe and the
+   * container agree by construction.
+   *
+   * <p>Overriding this method to diverge from {@code instanceof} is
+   * <strong>non-conforming</strong>: reporting a capability the store does not implement as a type
+   * misleads probe-based callers while leaving DI-based callers unable to inject it, and hiding a
+   * capability the store does implement does the reverse. Either way the two discovery paths
+   * desynchronize. An implementation must never report a capability whose methods are partially
+   * implemented or unsupported, since callers treat a present capability as fully usable; the TCK
+   * verifies that {@code capability(X).isPresent()} matches {@code X.isInstance(store)} for every
+   * capability.
    *
    * @param type the capability interface to probe for; never {@code null}
    * @param <T> the capability type

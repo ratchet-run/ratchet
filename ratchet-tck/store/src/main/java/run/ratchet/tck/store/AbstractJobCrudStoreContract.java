@@ -34,8 +34,19 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.DlqAlertStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobCrudStore}. */
@@ -55,6 +66,41 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
 
     assertTrue(reloaded.isPresent(), "Persisted job should be reloadable by ID");
     assertEquals(saved.getId(), reloaded.get().getId());
+  }
+
+  @Test
+  void capabilityProbe_agreesWithJavaTypeMembership() {
+    // Type membership is the single normative rule for capability advertisement: a store that
+    // overrides capability() to report a capability it does not implement, or to hide one it does,
+    // desynchronizes the probe from every dependency-injection consumer (the reference engine
+    // resolves each capability through CDI Instance<T>). The probe must therefore agree with
+    // instanceof, and a present capability must hand back a view of the requested type.
+    var store = store();
+    List<Class<?>> capabilities =
+        List.of(
+            RecurringJobStore.class,
+            BatchStore.class,
+            WorkflowConditionStore.class,
+            SignalStore.class,
+            ResourcePermitStore.class,
+            LockStore.class,
+            ArchiveStore.class,
+            JobQueryStore.class,
+            JobAnalyticsStore.class,
+            JobAuditStore.class,
+            DlqAlertStore.class);
+    for (Class<?> cap : capabilities) {
+      var view = store.capability(cap);
+      assertEquals(
+          cap.isInstance(store),
+          view.isPresent(),
+          () -> "capability(" + cap.getSimpleName() + ") must agree with Java type membership");
+      view.ifPresent(
+          v ->
+              assertTrue(
+                  cap.isInstance(v),
+                  () -> "capability(" + cap.getSimpleName() + ") must return a view of that type"));
+    }
   }
 
   @Test

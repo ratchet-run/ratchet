@@ -721,12 +721,20 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public int cancelRecurringJobByBusinessKey(String businessKey) {
+    if (recurringJobStore == null) {
+      // No RecurringJobStore capability: there are no recurring jobs to cancel.
+      return 0;
+    }
     return recurringJobStore.cancelRecurringJobByBusinessKey(businessKey) ? 1 : 0;
   }
 
   @Transactional
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
+    if (recurringJobStore == null) {
+      // No RecurringJobStore capability: no annotation-driven recurring masters were ever created.
+      return 0;
+    }
     return recurringJobStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
