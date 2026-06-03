@@ -133,6 +133,7 @@ export default defineConfig({
             { text: 'PostgreSQL', link: '/deployment/postgresql' },
             { text: 'MongoDB', link: '/deployment/mongodb' },
             { text: 'Clustering', link: '/deployment/clustering' },
+            { text: 'Cluster Coordinators', link: '/deployment/cluster-coordinators' },
             { text: 'Docker', link: '/deployment/docker' },
             { text: 'Kubernetes', link: '/deployment/kubernetes' },
             { text: 'Cluster Configuration', link: '/deployment/cluster-configuration' },
