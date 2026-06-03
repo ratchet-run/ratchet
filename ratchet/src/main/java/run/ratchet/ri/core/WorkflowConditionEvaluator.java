@@ -28,6 +28,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
+import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -279,7 +280,8 @@ public class WorkflowConditionEvaluator {
         target = beanResolver.resolve(cls);
         args = fillArgs(payload.args(), contextArg);
       }
-      Object result = method.invoke(target, args);
+      Object result =
+          method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args));
       return Boolean.TRUE.equals(result);
     } catch (InvocationTargetException e) {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
