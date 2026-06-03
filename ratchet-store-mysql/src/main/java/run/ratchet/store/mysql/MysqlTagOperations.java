@@ -92,8 +92,7 @@ final class MysqlTagOperations implements TagStore {
     }
   }
 
-  @Override
-  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
+  List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     try {
       // language=MySQL
       String sql = "SELECT job_id FROM scheduler_job_tag WHERE tag = ? LIMIT ? OFFSET ?";
@@ -110,9 +109,8 @@ final class MysqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+  Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
     try {
       // language=MySQL
       String sql =
@@ -140,9 +138,8 @@ final class MysqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+  Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
     try {
       String jsonPath = toJsonFieldPath(paramKey);
       // language=MySQL
@@ -169,9 +166,8 @@ final class MysqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+  Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     try {
       // language=MySQL
       String sql =

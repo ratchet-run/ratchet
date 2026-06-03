@@ -29,17 +29,16 @@ class SpiTransactionContractTest {
   @Test
   void ownedStoreSpiFilesDocumentTransactionAttributes() throws Exception {
     assertDocumentsTransactionAttributes("ArchiveStore.java", 6);
-    assertDocumentsTransactionAttribute("BatchMetricsStore.java");
     assertDocumentsTransactionAttribute("BatchStore.java");
     assertDocumentsTransactionAttribute("DlqAlertStore.java");
-    assertDocumentsTransactionAttributes("ExecutionStore.java", 4);
+    assertDocumentsTransactionAttributes("JobAnalyticsStore.java", 21);
+    assertDocumentsTransactionAttributes("JobAuditStore.java", 6);
     assertDocumentsTransactionAttribute("JobBatchStatusStore.java");
     assertDocumentsTransactionAttribute("JobBulkStore.java");
     assertDocumentsTransactionAttribute("JobClaimStore.java");
     assertDocumentsTransactionAttribute("JobCrudStore.java");
-    assertDocumentsTransactionAttribute("JobLogStore.java");
     assertDocumentsTransactionAttribute("JobPauseStore.java");
-    assertDocumentsTransactionAttributes("JobQueryStore.java", 2);
+    assertDocumentsTransactionAttributes("JobQueryStore.java", 3);
     assertDocumentsTransactionAttribute("JobRetryStore.java");
     assertDocumentsTransactionAttribute("JobTerminalStore.java");
     assertDocumentsTransactionAttributes("LockStore.java", 3);

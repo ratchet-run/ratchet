@@ -24,17 +24,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.JobCrudStore;
@@ -270,66 +267,6 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     long count = store().countPendingJobs();
 
     assertEquals(3L, count, "countPendingJobs should count only PENDING jobs");
-  }
-
-  @Test
-  void countJobsByStatuses_returnsGroupedStatusCounts() {
-    persist(newPendingJob());
-
-    var running = persist(newPendingJob());
-    store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-
-    var succeeded = persist(newPendingJob());
-    store().compareAndSwapStatus(succeeded.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobSucceeded(succeeded.getId(), null, null, Instant.now(), Instant.now(), 0L, 0L);
-
-    Map<JobStatus, Long> counts = store().countJobsByStatuses();
-
-    assertEquals(1L, counts.get(JobStatus.PENDING));
-    assertEquals(1L, counts.get(JobStatus.RUNNING));
-    assertEquals(1L, counts.get(JobStatus.SUCCEEDED));
-  }
-
-  @Test
-  void countPendingJobsByPriorities_returnsGroupedPendingCounts() {
-    JobEntity high = newPendingJob();
-    high.setPriority(JobPriority.HIGH);
-    persist(high);
-
-    JobEntity critical = newPendingJob();
-    critical.setPriority(JobPriority.CRITICAL);
-    persist(critical);
-
-    JobEntity running = newPendingJob();
-    running.setPriority(JobPriority.HIGH);
-    JobEntity savedRunning = persist(running);
-    store().compareAndSwapStatus(savedRunning.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-
-    Map<JobPriority, Long> counts = store().countPendingJobsByPriorities();
-
-    assertEquals(1L, counts.get(JobPriority.HIGH));
-    assertEquals(1L, counts.get(JobPriority.CRITICAL));
-  }
-
-  @Test
-  void countPendingJobsByTypes_returnsGroupedPendingCounts() {
-    JobEntity single = newPendingJob();
-    single.setJobType(JobExecutionType.SINGLE);
-    persist(single);
-
-    JobEntity child = newPendingJob();
-    child.setJobType(JobExecutionType.BATCH_CHILD);
-    persist(child);
-
-    JobEntity running = newPendingJob();
-    running.setJobType(JobExecutionType.SINGLE);
-    JobEntity savedRunning = persist(running);
-    store().compareAndSwapStatus(savedRunning.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-
-    Map<JobExecutionType, Long> counts = store().countPendingJobsByTypes();
-
-    assertEquals(1L, counts.get(JobExecutionType.SINGLE));
-    assertEquals(1L, counts.get(JobExecutionType.BATCH_CHILD));
   }
 
   @Test

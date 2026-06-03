@@ -472,7 +472,7 @@ public abstract class ThrowingJobStoreBase implements JobStore {
     return fail("purgeArchivedJobs");
   }
 
-  // ----- ExecutionStore -----
+  // ----- JobAuditStore (execution history) -----
 
   @Override
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
@@ -494,7 +494,7 @@ public abstract class ThrowingJobStoreBase implements JobStore {
     return fail("countExecutionAttempts");
   }
 
-  // ----- JobLogStore -----
+  // ----- JobAuditStore (logs) -----
 
   @Override
   public void appendLog(JobLogEntity log) {
@@ -586,7 +586,7 @@ public abstract class ThrowingJobStoreBase implements JobStore {
     return fail("countConditionsByParentJobId");
   }
 
-  // ----- BatchMetricsStore -----
+  // ----- BatchStore (metrics) -----
 
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {

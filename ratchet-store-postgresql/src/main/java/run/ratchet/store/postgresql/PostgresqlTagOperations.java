@@ -97,9 +97,8 @@ final class PostgresqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
+  List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     try {
       // language=PostgreSQL
       String sql =
@@ -120,9 +119,8 @@ final class PostgresqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+  Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
     try {
       // language=PostgreSQL
       String sql =
@@ -150,9 +148,8 @@ final class PostgresqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+  Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
     try {
       // language=PostgreSQL
       String sql =
@@ -176,9 +173,8 @@ final class PostgresqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+  Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     try {
       // language=PostgreSQL
       String sql =

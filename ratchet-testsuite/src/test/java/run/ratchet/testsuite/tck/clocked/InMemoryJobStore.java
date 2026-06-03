@@ -294,7 +294,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     return markJobSucceededMinimal(id, start, end, durationMs, queueWaitMs);
   }
 
-  // ----- ExecutionStore (real bodies) -----
+  // ----- JobAuditStore (real bodies) -----
 
   @Override
   public synchronized JobExecutionEntity saveExecution(JobExecutionEntity execution) {

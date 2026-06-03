@@ -15,22 +15,26 @@
  */
 package run.ratchet.tck.store;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobExecutionEntity;
-import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.entity.JobLogEntity;
+import run.ratchet.store.spi.JobAuditStore;
 
-/** Base contract tests for {@code ExecutionStore}. */
-public abstract class AbstractExecutionStoreContract implements JobStoreContractFixture {
+/** Base contract tests for {@code JobAuditStore} (execution history and per-job logs). */
+public abstract class AbstractJobAuditStoreContract implements JobStoreContractFixture {
 
   @BeforeEach
   @AfterEach
-  void cleanupExecutionFixture() {
+  void cleanupAuditFixture() {
     cleanupStore();
   }
 
@@ -42,7 +46,7 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
     store().saveExecution(exec);
 
     var executions =
-        store().findExecutionsByJobId(job.getId(), ExecutionStore.DEFAULT_PAGE_LIMIT, 0);
+        store().findExecutionsByJobId(job.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0);
 
     assertEquals(1, executions.size(), "findExecutionsByJobId should return the saved execution");
     assertEquals(job.getId(), executions.get(0).getJobId());
@@ -107,7 +111,7 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
     var executions =
         store()
             .findExecutionsByJobId(
-                new UUID(0L, Long.MAX_VALUE), ExecutionStore.DEFAULT_PAGE_LIMIT, 0);
+                new UUID(0L, Long.MAX_VALUE), JobAuditStore.DEFAULT_PAGE_LIMIT, 0);
 
     assertTrue(executions.isEmpty(), "findExecutionsByJobId for unknown job should return empty");
   }
@@ -139,11 +143,122 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
 
     assertEquals(
         2,
-        store().findExecutionsByJobId(jobA.getId(), ExecutionStore.DEFAULT_PAGE_LIMIT, 0).size(),
+        store().findExecutionsByJobId(jobA.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0).size(),
         "Job A should have 2 executions");
     assertEquals(
         1,
-        store().findExecutionsByJobId(jobB.getId(), ExecutionStore.DEFAULT_PAGE_LIMIT, 0).size(),
+        store().findExecutionsByJobId(jobB.getId(), JobAuditStore.DEFAULT_PAGE_LIMIT, 0).size(),
         "Job B should have 1 execution");
+  }
+
+  @Test
+  void appendLog_persistsLogEntry() {
+    var saved = persist(newPendingJob());
+
+    JobLogEntity log =
+        new JobLogEntity(
+            saved.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, "test log message");
+
+    assertDoesNotThrow(() -> store().appendLog(log), "appendLog should not throw");
+  }
+
+  @Test
+  void purgeLogsOlderThan_deletesOldLogs() {
+    var saved = persist(newPendingJob());
+
+    JobLogEntity log =
+        new JobLogEntity(
+            saved.getId(),
+            Instant.now().minusSeconds(3600),
+            JobLogEntity.LogLevel.INFO,
+            "old log message");
+    store().appendLog(log);
+
+    int purged = store().purgeLogsOlderThan(Instant.now().minusSeconds(1800));
+
+    assertEquals(1, purged, "purgeLogsOlderThan should delete the old log entry");
+  }
+
+  @Test
+  void purgeLogsOlderThan_preservesRecentLogs() {
+    var saved = persist(newPendingJob());
+
+    JobLogEntity recentLog =
+        new JobLogEntity(saved.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, "recent log");
+    store().appendLog(recentLog);
+
+    int purged = store().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
+
+    assertEquals(0, purged, "purgeLogsOlderThan should not delete recent logs");
+  }
+
+  @Test
+  void purgeLogsOlderThan_emptyStore_returnsZero() {
+    int purged = store().purgeLogsOlderThan(Instant.now());
+
+    assertEquals(0, purged, "purgeLogsOlderThan on empty store should return 0");
+  }
+
+  @Test
+  void appendLog_multipleEntries_allPersisted() {
+    var saved = persist(newPendingJob());
+    Instant oldTime = Instant.now().minusSeconds(7200);
+
+    for (int i = 0; i < 3; i++) {
+      JobLogEntity log =
+          new JobLogEntity(saved.getId(), oldTime, JobLogEntity.LogLevel.INFO, "log entry " + i);
+      store().appendLog(log);
+    }
+
+    int purged = store().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
+
+    assertEquals(3, purged, "All 3 old log entries should be purged");
+  }
+
+  @Test
+  void appendLog_differentJobs_isolatedByJobId() {
+    var jobA = persist(newPendingJob());
+    var jobB = persist(newPendingJob());
+    Instant oldTime = Instant.now().minusSeconds(7200);
+
+    JobLogEntity logA =
+        new JobLogEntity(jobA.getId(), oldTime, JobLogEntity.LogLevel.INFO, "log for job A");
+    store().appendLog(logA);
+
+    JobLogEntity logB =
+        new JobLogEntity(
+            jobB.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, "recent log for job B");
+    store().appendLog(logB);
+
+    int purged = store().purgeLogsOlderThan(Instant.now().minusSeconds(3600));
+
+    assertEquals(1, purged, "Only the old log entry (job A) should be purged");
+  }
+
+  @Test
+  void appendLog_withMdcMap_persistsContext() {
+    var saved = persist(newPendingJob());
+
+    JobLogEntity log =
+        new JobLogEntity(
+            saved.getId(),
+            Instant.now(),
+            JobLogEntity.LogLevel.INFO,
+            "log with MDC",
+            Map.of("traceId", "abc-123", "spanId", "def-456"));
+
+    assertDoesNotThrow(() -> store().appendLog(log), "appendLog with MDC map should not throw");
+  }
+
+  @Test
+  void appendLog_allLogLevels_persists() {
+    var saved = persist(newPendingJob());
+
+    for (JobLogEntity.LogLevel level : JobLogEntity.LogLevel.values()) {
+      JobLogEntity log =
+          new JobLogEntity(saved.getId(), Instant.now(), level, "test " + level.name());
+      assertDoesNotThrow(
+          () -> store().appendLog(log), "appendLog should accept " + level.name() + " level");
+    }
   }
 }

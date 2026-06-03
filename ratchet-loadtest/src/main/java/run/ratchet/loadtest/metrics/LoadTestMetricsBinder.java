@@ -23,12 +23,12 @@ import jakarta.inject.Inject;
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 
 @ApplicationScoped
 public class LoadTestMetricsBinder {
 
-  @Inject JobCrudStore jobStore;
+  @Inject JobStore jobStore;
   @Inject MeterRegistry registry;
 
   private volatile boolean bound;
@@ -47,7 +47,7 @@ public class LoadTestMetricsBinder {
   }
 
   private void bindGauges() {
-    Gauge.builder("ratchet.store.nodes.active", jobStore, JobCrudStore::countActiveNodes)
+    Gauge.builder("ratchet.store.nodes.active", jobStore, JobStore::countActiveNodes)
         .description("Registered Ratchet scheduler nodes")
         .register(registry);
 

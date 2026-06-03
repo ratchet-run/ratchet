@@ -49,8 +49,7 @@ public enum ConformanceLevel {
       "Job lifecycle operations: execution tracking, retry, pause/resume, recurring scheduling,"
           + " batch orchestration, and signal delivery.",
       List.of(
-          "AbstractExecutionStoreContract",
-          "AbstractJobLogStoreContract",
+          "AbstractJobAuditStoreContract",
           "AbstractJobRetryStoreContract",
           "AbstractJobPauseStoreContract",
           "AbstractJobTerminalStoreContract",
@@ -58,8 +57,8 @@ public enum ConformanceLevel {
           "AbstractBatchStoreContract",
           "AbstractWorkflowConditionStoreContract",
           "AbstractJobBatchStatusStoreContract",
-          "AbstractBatchMetricsStoreContract",
           "AbstractJobQueryStoreContract",
+          "AbstractJobAnalyticsStoreContract",
           "AbstractSignalStoreContract"),
       List.of()),
 

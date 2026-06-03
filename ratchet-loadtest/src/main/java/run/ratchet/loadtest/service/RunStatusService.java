@@ -26,16 +26,14 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.loadtest.api.ClusterStatusResponse;
 import run.ratchet.loadtest.api.RunStatusResponse;
 import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.TagStore;
+import run.ratchet.store.spi.JobStore;
 
 @ApplicationScoped
 public class RunStatusService {
 
   private static final int PAGE_SIZE = 500;
 
-  @Inject TagStore tagStore;
-  @Inject JobCrudStore jobStore;
+  @Inject JobStore jobStore;
   @Inject RunRegistry runRegistry;
   @Inject NodeIdentityProvider nodeIdentityProvider;
 
@@ -85,7 +83,7 @@ public class RunStatusService {
     List<UUID> ids = new ArrayList<>();
     int offset = 0;
     while (true) {
-      List<UUID> page = tagStore.findJobIdsByTag(Tags.run(runId), PAGE_SIZE, offset);
+      List<UUID> page = jobStore.findJobIdsByTag(Tags.run(runId), PAGE_SIZE, offset);
       if (page.isEmpty()) {
         return ids;
       }
@@ -95,10 +93,10 @@ public class RunStatusService {
   }
 
   private RunSummary summarizeRun(String tag) {
-    Map<JobStatus, Long> counts = tagStore.countJobsByStatusForTag(tag);
+    Map<JobStatus, Long> counts = jobStore.countJobsByStatusForTag(tag);
     Map<String, Long> enqueueNodeCounts =
-        tagStore.countJobsByParamForTag(tag, Tags.PARAM_ENQUEUE_NODE);
-    Map<String, Long> executionNodeCounts = tagStore.countJobsByExecutionNodeForTag(tag);
+        jobStore.countJobsByParamForTag(tag, Tags.PARAM_ENQUEUE_NODE);
+    Map<String, Long> executionNodeCounts = jobStore.countJobsByExecutionNodeForTag(tag);
     long observedJobs = counts.values().stream().mapToLong(Long::longValue).sum();
     return new RunSummary(counts, enqueueNodeCounts, executionNodeCounts, observedJobs);
   }

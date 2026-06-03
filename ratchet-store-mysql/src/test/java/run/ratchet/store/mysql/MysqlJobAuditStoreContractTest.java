@@ -13,15 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.store.postgresql;
+package run.ratchet.store.mysql;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractExecutionStoreContract;
+import run.ratchet.tck.store.AbstractJobAuditStoreContract;
 
-class PostgresqlExecutionStoreContractTest extends AbstractExecutionStoreContract {
+class MysqlJobAuditStoreContractTest extends AbstractJobAuditStoreContract {
 
-  private final PostgresqlTestFixture fixture = new PostgresqlTestFixture();
+  private final MysqlTestFixture fixture = new MysqlTestFixture();
 
   @Override
   public JobStore store() {

@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.spi;
 
+import java.util.Optional;
 import run.ratchet.api.Incubating;
 
 /**
@@ -24,6 +25,7 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface JobStore
     extends JobCrudStore,
+        JobAnalyticsStore,
         JobQueryStore,
         JobClaimStore,
         JobTerminalStore,
@@ -35,14 +37,33 @@ public interface JobStore
         LockStore,
         NodeStore,
         ArchiveStore,
-        ExecutionStore,
-        JobLogStore,
+        JobAuditStore,
         TagStore,
         WorkflowConditionStore,
-        BatchMetricsStore,
         DlqAlertStore,
         ResourcePermitStore,
         SignalStore,
         RecurringJobStore {
-  // Marker interface — all methods inherited from sub-interfaces.
+
+  /**
+   * Returns this store's view as {@code type} when the store advertises that optional capability,
+   * otherwise {@link Optional#empty()}.
+   *
+   * <p>This is the runtime probe seam for optional store capabilities. The reference engine calls
+   * it to decide whether a capability-dependent feature (recurring scheduling, batch fan-out,
+   * signals, archiving, …) is available, rather than assuming every store implements every
+   * capability interface.
+   *
+   * <p>The default implementation reflects explicit Java type membership: a store advertises a
+   * capability simply by implementing its interface. Implementations that override this method
+   * <strong>must</strong> advertise a capability all-or-nothing — never report a capability whose
+   * methods are partially or unsupported, since callers treat a present capability as fully usable.
+   *
+   * @param type the capability interface to probe for; never {@code null}
+   * @param <T> the capability type
+   * @return the store viewed as {@code type}, or empty when the capability is not advertised
+   */
+  default <T> Optional<T> capability(Class<T> type) {
+    return type.isInstance(this) ? Optional.of(type.cast(this)) : Optional.empty();
+  }
 }

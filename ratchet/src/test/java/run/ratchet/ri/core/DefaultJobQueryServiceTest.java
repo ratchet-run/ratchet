@@ -63,7 +63,8 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.query.JobQueryCursor;
-import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
 
@@ -75,7 +76,8 @@ class DefaultJobQueryServiceTest {
 
   @Mock private JobQueryStore queryStore;
   @Mock private JobCrudStore crudStore;
-  @Mock private ExecutionStore executionStore;
+  @Mock private JobAnalyticsStore analyticsStore;
+  @Mock private JobAuditStore executionStore;
   @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
   @Mock private JobAuthorizationPolicy authPolicy;
   @Mock private CallerPrincipalProvider principalProvider;
@@ -111,6 +113,7 @@ class DefaultJobQueryServiceTest {
         new DefaultJobQueryService(
             queryStore,
             crudStore,
+            analyticsStore,
             executionStore,
             recurringJobStore,
             authPolicy,
@@ -246,7 +249,7 @@ class DefaultJobQueryServiceTest {
   void findJobs_withoutAuthOrPrincipalUsesOriginalFilter() {
     DefaultJobQueryService permissive =
         new DefaultJobQueryService(
-            queryStore, crudStore, executionStore, recurringJobStore, null, null);
+            queryStore, crudStore, analyticsStore, executionStore, recurringJobStore, null, null);
     JobFilter filter = JobFilter.builder().businessKey("bk-1").build();
     when(queryStore.searchJobs(eq(filter), eq(10), eq(0))).thenReturn(Collections.emptyList());
     when(queryStore.countJobs(eq(filter))).thenReturn(0L);
@@ -450,7 +453,7 @@ class DefaultJobQueryServiceTest {
   void getJobDetail_withoutAuthOrPrincipalReturnsDetail() {
     DefaultJobQueryService permissive =
         new DefaultJobQueryService(
-            queryStore, crudStore, executionStore, recurringJobStore, null, null);
+            queryStore, crudStore, analyticsStore, executionStore, recurringJobStore, null, null);
     UUID jobId = UUID.randomUUID();
     when(crudStore.findById(jobId)).thenReturn(Optional.of(minimalJobWithId(jobId)));
     when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
@@ -480,6 +483,7 @@ class DefaultJobQueryServiceTest {
         new DefaultJobQueryService(
             queryStore,
             crudStore,
+            analyticsStore,
             executionStore,
             recurringJobStore,
             authPolicy,
@@ -512,6 +516,7 @@ class DefaultJobQueryServiceTest {
         new DefaultJobQueryService(
             queryStore,
             crudStore,
+            analyticsStore,
             executionStore,
             recurringJobStore,
             authPolicy,
@@ -621,7 +626,7 @@ class DefaultJobQueryServiceTest {
   @Test
   void getQueueHealth_aggregatesAllCountMethods() {
     Instant oldestPending = Instant.parse("2026-05-07T10:15:30Z");
-    when(crudStore.countJobsByStatuses())
+    when(analyticsStore.countJobsByStatuses())
         .thenReturn(
             Map.of(
                 JobStatus.PENDING, 5L,
@@ -631,15 +636,15 @@ class DefaultJobQueryServiceTest {
                 JobStatus.CANCELED, 1L,
                 JobStatus.PAUSED, 6L,
                 JobStatus.WAITING, 9L));
-    when(crudStore.countStuckJobs(any())).thenReturn(1L);
-    when(crudStore.countReadyJobs(any())).thenReturn(3L);
-    when(crudStore.getRetryRateStats(any())).thenReturn(0.1);
-    when(crudStore.getAverageProcessingTime(any())).thenReturn(250.0);
-    when(crudStore.getQueueWaitTimePercentile(0.95)).thenReturn(500L);
-    when(crudStore.getOldestPendingJobTime()).thenReturn(Optional.of(oldestPending));
-    when(crudStore.countPendingJobsByTypes())
+    when(analyticsStore.countStuckJobs(any())).thenReturn(1L);
+    when(analyticsStore.countReadyJobs(any())).thenReturn(3L);
+    when(analyticsStore.getRetryRateStats(any())).thenReturn(0.1);
+    when(analyticsStore.getAverageProcessingTime(any())).thenReturn(250.0);
+    when(analyticsStore.getQueueWaitTimePercentile(0.95)).thenReturn(500L);
+    when(analyticsStore.getOldestPendingJobTime()).thenReturn(Optional.of(oldestPending));
+    when(analyticsStore.countPendingJobsByTypes())
         .thenReturn(Map.of(JobExecutionType.SINGLE, 2L, JobExecutionType.BATCH_CHILD, 3L));
-    when(crudStore.countPendingJobsByPriorities())
+    when(analyticsStore.countPendingJobsByPriorities())
         .thenReturn(Map.of(JobPriority.HIGH, 7L, JobPriority.CRITICAL, 8L));
 
     QueueHealthSnapshot snapshot = service.getQueueHealth();
@@ -660,29 +665,29 @@ class DefaultJobQueryServiceTest {
     assertEquals(Map.of(JobType.SINGLE, 2L, JobType.BATCH, 3L), snapshot.pendingByType());
     assertEquals(
         Map.of(JobPriority.HIGH, 7L, JobPriority.CRITICAL, 8L), snapshot.pendingByPriority());
-    verify(crudStore).countJobsByStatuses();
-    verify(crudStore, never()).countJobsByStatus(any());
-    verify(crudStore, never()).countPendingJobsByType(any());
-    verify(crudStore, never()).countPendingJobsByPriority(any());
+    verify(analyticsStore).countJobsByStatuses();
+    verify(analyticsStore, never()).countJobsByStatus(any());
+    verify(analyticsStore, never()).countPendingJobsByType(any());
+    verify(analyticsStore, never()).countPendingJobsByPriority(any());
   }
 
   @Test
   void getQueueHealth_usesInjectedClockForTimeWindows() {
-    when(crudStore.countJobsByStatuses()).thenReturn(Map.of());
-    when(crudStore.countPendingJobsByTypes()).thenReturn(Map.of());
-    when(crudStore.countPendingJobsByPriorities()).thenReturn(Map.of());
-    when(crudStore.countStuckJobs(any())).thenReturn(0L);
-    when(crudStore.countReadyJobs(any())).thenReturn(0L);
-    when(crudStore.getRetryRateStats(any())).thenReturn(0.0);
-    when(crudStore.getAverageProcessingTime(any())).thenReturn(0.0);
-    when(crudStore.getOldestPendingJobTime()).thenReturn(Optional.empty());
+    when(analyticsStore.countJobsByStatuses()).thenReturn(Map.of());
+    when(analyticsStore.countPendingJobsByTypes()).thenReturn(Map.of());
+    when(analyticsStore.countPendingJobsByPriorities()).thenReturn(Map.of());
+    when(analyticsStore.countStuckJobs(any())).thenReturn(0L);
+    when(analyticsStore.countReadyJobs(any())).thenReturn(0L);
+    when(analyticsStore.getRetryRateStats(any())).thenReturn(0.0);
+    when(analyticsStore.getAverageProcessingTime(any())).thenReturn(0.0);
+    when(analyticsStore.getOldestPendingJobTime()).thenReturn(Optional.empty());
 
     service.getQueueHealth();
 
-    verify(crudStore).countStuckJobs(FIXED_NOW.minusSeconds(300));
-    verify(crudStore).countReadyJobs(FIXED_NOW);
-    verify(crudStore).getRetryRateStats(FIXED_NOW.minusSeconds(3600));
-    verify(crudStore).getAverageProcessingTime(FIXED_NOW.minusSeconds(3600));
+    verify(analyticsStore).countStuckJobs(FIXED_NOW.minusSeconds(300));
+    verify(analyticsStore).countReadyJobs(FIXED_NOW);
+    verify(analyticsStore).getRetryRateStats(FIXED_NOW.minusSeconds(3600));
+    verify(analyticsStore).getAverageProcessingTime(FIXED_NOW.minusSeconds(3600));
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────

@@ -42,7 +42,7 @@ import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.internal.DefaultPollerScheduler;
 import run.ratchet.store.spi.JobClaimStore;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.PerformanceTestHelper;
 import run.ratchet.testsuite.app.TestJobService;
@@ -76,7 +76,7 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
       new ConcurrentHashMap<>();
 
   @Inject protected TestJobService jobService;
-  @Inject protected JobCrudStore jobCrudStore;
+  @Inject protected JobStore jobCrudStore;
   @Inject protected JobClaimStore jobClaimStore;
   @Inject protected PollerScheduler pollerScheduler;
   @Inject protected PerformanceTestHelper perfHelper;

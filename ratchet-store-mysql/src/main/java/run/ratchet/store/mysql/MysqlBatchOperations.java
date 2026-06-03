@@ -30,11 +30,10 @@ import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
-import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.util.BatchProgressRows;
 
-final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
+final class MysqlBatchOperations implements BatchStore {
 
   private static final Logger log = Logger.getLogger(MysqlBatchOperations.class);
 

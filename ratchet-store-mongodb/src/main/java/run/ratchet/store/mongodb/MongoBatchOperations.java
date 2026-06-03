@@ -55,14 +55,13 @@ import org.bson.Document;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 
 /**
  * Batch and batch-metrics collection operations. Batches drive fan-out/fan-in accounting for {@code
  * BATCH_CHILD} jobs; metrics accumulate overhead/execution splits for dashboards.
  */
-final class MongoBatchOperations implements BatchStore, BatchMetricsStore {
+final class MongoBatchOperations implements BatchStore {
 
   private final MongoStoreContext ctx;
   private final Clock clock;

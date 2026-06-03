@@ -103,8 +103,7 @@ final class MongoTagOperations implements TagStore {
     return oldTags == null ? 0 : oldTags.size();
   }
 
-  @Override
-  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
+  List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     try {
       List<UUID> ids = new ArrayList<>();
       for (Document doc :
@@ -122,8 +121,7 @@ final class MongoTagOperations implements TagStore {
     }
   }
 
-  @Override
-  public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+  Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
     try {
       Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
       for (Document doc :
@@ -147,8 +145,7 @@ final class MongoTagOperations implements TagStore {
     }
   }
 
-  @Override
-  public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+  Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
     try {
       return aggregateStringCountsByTag(
           tag,
@@ -158,8 +155,7 @@ final class MongoTagOperations implements TagStore {
     }
   }
 
-  @Override
-  public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+  Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     try {
       return aggregateStringCountsByTag(tag, "$" + PICKED_BY);
     } catch (RuntimeException e) {

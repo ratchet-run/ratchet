@@ -41,7 +41,7 @@ class MysqlTransientExceptionTranslationTest {
     MysqlJobRowMapper mapper = new MysqlJobRowMapper();
     MysqlTagOperations tags = new MysqlTagOperations(ctx);
     MysqlJobReadOperations reads = new MysqlJobReadOperations(ctx, mapper, tags);
-    MysqlJobCrudOperations jobs = new MysqlJobCrudOperations(reads, null, null, null);
+    MysqlJobCrudOperations jobs = new MysqlJobCrudOperations(reads, null, null, null, tags);
     MysqlArchiveOperations archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
     JobEntity job = new JobEntity();
     job.setId(JOB_ID);

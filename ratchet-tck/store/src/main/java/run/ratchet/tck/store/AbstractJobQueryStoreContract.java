@@ -207,6 +207,77 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     assertTrue(results.isEmpty(), "Tag filter with no match should return empty");
   }
 
+  // ── Tag id lookup (findJobIdsByTag) ────────────────────────────────────
+
+  @Test
+  void findJobIdsByTag_respectsPagination() {
+    var first = persist(newPendingJob());
+    var second = persist(newPendingJob());
+    var third = persist(newPendingJob());
+
+    store().insertTags(first.getId(), List.of("shared"));
+    store().insertTags(second.getId(), List.of("shared"));
+    store().insertTags(third.getId(), List.of("shared"));
+
+    List<UUID> page1 = store().findJobIdsByTag("shared", 2, 0);
+    List<UUID> page2 = store().findJobIdsByTag("shared", 2, 2);
+
+    assertEquals(2, page1.size(), "First page should contain 2 results");
+    assertEquals(1, page2.size(), "Second page should contain 1 result");
+    assertTrue(
+        page1.stream().noneMatch(page2::contains),
+        "Second page should contain ids not returned on the first page");
+    assertEquals(
+        List.of(first.getId(), second.getId(), third.getId()).stream()
+            .filter(page2::contains)
+            .count(),
+        page2.size(),
+        "Second page should contain one of the remaining tagged jobs");
+  }
+
+  @Test
+  void findJobIdsByTag_returnsDeterministicIdOrder() {
+    var third = newPendingJob();
+    third.setId(new UUID(0L, 3L));
+    store().create(third);
+
+    var first = newPendingJob();
+    first.setId(new UUID(0L, 1L));
+    store().create(first);
+
+    var second = newPendingJob();
+    second.setId(new UUID(0L, 2L));
+    store().create(second);
+
+    store().insertTags(third.getId(), List.of("ordered-tag"));
+    store().insertTags(first.getId(), List.of("ordered-tag"));
+    store().insertTags(second.getId(), List.of("ordered-tag"));
+
+    assertEquals(
+        List.of(first.getId(), second.getId(), third.getId()),
+        store().findJobIdsByTag("ordered-tag", 10, 0),
+        "tag scans should return deterministic ascending job IDs");
+  }
+
+  @Test
+  void findJobIdsByTag_unknownTag_returnsEmpty() {
+    List<UUID> ids = store().findJobIdsByTag("nonexistent-tag", 10, 0);
+
+    assertTrue(ids.isEmpty(), "findJobIdsByTag with unknown tag should return empty");
+  }
+
+  @Test
+  void findJobIdsByTag_paginationOffset_skipsRows() {
+    for (int i = 0; i < 5; i++) {
+      var job = persist(newPendingJob());
+      store().insertTags(job.getId(), List.of("offset-tag"));
+    }
+
+    List<UUID> page = store().findJobIdsByTag("offset-tag", 10, 3);
+
+    assertEquals(2, page.size(), "Offset 3 with 5 total should return 2 results");
+  }
+
   // ── Caller principal filtering ─────────────────────────────────────────
 
   @Test

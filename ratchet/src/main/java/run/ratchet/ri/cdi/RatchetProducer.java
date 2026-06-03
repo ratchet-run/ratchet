@@ -69,7 +69,7 @@ import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobClaimStore;
@@ -303,7 +303,7 @@ public class RatchetProducer {
   @Produces
   @ApplicationScoped
   public ExecutionObserver executionObserver(
-      InternalEventPublisher eventPublisher, ExecutionStore executionStore) {
+      InternalEventPublisher eventPublisher, JobAuditStore executionStore) {
     // delayedJobReadyCallback is null by default; can be wired later if needed
     return new ExecutionObserver(
         metricsCollector, tracingCollector, eventPublisher, executionStore, executorProvider, null);

@@ -630,17 +630,17 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
-    return tags.countJobsByStatusForTag(tag);
+    return jobs.countJobsByStatusForTag(tag);
   }
 
   @Override
   public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
-    return tags.countJobsByParamForTag(tag, paramKey);
+    return jobs.countJobsByParamForTag(tag, paramKey);
   }
 
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
-    return tags.countJobsByExecutionNodeForTag(tag);
+    return jobs.countJobsByExecutionNodeForTag(tag);
   }
 
   @Override
@@ -822,7 +822,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
             reads,
             new PostgresqlJobCountOperations(ctx),
             new PostgresqlJobDeleteOperations(ctx, reservations),
-            new PostgresqlJobWriteOperations(ctx, reservations, tags));
+            new PostgresqlJobWriteOperations(ctx, reservations, tags),
+            tags);
     query = new PostgresqlJobQueryOperations(ctx, tags);
     batches = new PostgresqlBatchOperations(ctx);
     claims = new PostgresqlJobClaimOperations(ctx, reads);

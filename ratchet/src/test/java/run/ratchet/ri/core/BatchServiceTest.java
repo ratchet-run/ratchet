@@ -59,7 +59,6 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -75,7 +74,6 @@ class BatchServiceTest {
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private JobTerminalStore jobTerminalStore;
-  @Mock private BatchMetricsStore metricsStore;
   @Mock private MetricsCollector metricsCollector;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private WorkflowScheduler workflowScheduler;
@@ -93,7 +91,6 @@ class BatchServiceTest {
             jobCrudStore,
             jobBatchStatusStore,
             jobTerminalStore,
-            metricsStore,
             metricsCollector,
             eventPublisher,
             workflowScheduler,
@@ -149,7 +146,7 @@ class BatchServiceTest {
         .thenReturn(true);
     when(jobTerminalStore.markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L))
         .thenReturn(true);
-    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
     when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
 
     batchService.markChildSucceeded(child);
@@ -214,7 +211,7 @@ class BatchServiceTest {
     when(jobTerminalStore.markJobFailedTerminal(
             parentId, "Batch completed with 1 failed children", 0))
         .thenReturn(true);
-    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
     when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
 
     batchService.markChildSucceeded(child);
@@ -261,7 +258,7 @@ class BatchServiceTest {
         .thenReturn(true);
     when(jobTerminalStore.markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L))
         .thenReturn(true);
-    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
     when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
 
     batchService.markChildSucceeded(child);
@@ -293,7 +290,7 @@ class BatchServiceTest {
     when(jobTerminalStore.markJobFailedTerminal(
             parentId, "Batch completed with 1 failed children", 0))
         .thenReturn(true);
-    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
     when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
 
     batchService.markChildSucceeded(child);
@@ -339,7 +336,7 @@ class BatchServiceTest {
 
     verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
     verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt());
-    verify(metricsStore, never()).finalizeBatchMetrics(any());
+    verify(batchStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(workflowScheduler, never()).scheduleNext(any());
     verify(batchStore).findBatchById(parentId);
@@ -373,7 +370,7 @@ class BatchServiceTest {
     assertEquals(JobStatus.PENDING, parent.getStatus());
     verify(jobBatchStatusStore)
         .resetRunningJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID);
-    verify(metricsStore, never()).finalizeBatchMetrics(any());
+    verify(batchStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(workflowScheduler, never()).scheduleNext(any());
   }

@@ -44,7 +44,8 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.query.JobQueryCursor;
-import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -56,7 +57,8 @@ class DefaultJobQueryService implements JobQueryService {
 
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;
-  private final ExecutionStore executionStore;
+  private final JobAnalyticsStore analyticsStore;
+  private final JobAuditStore executionStore;
   private final RecurringJobStore recurringJobStore;
   private final JobAuthorizationPolicy authPolicy;
   private final CallerPrincipalProvider principalProvider;
@@ -66,6 +68,7 @@ class DefaultJobQueryService implements JobQueryService {
   protected DefaultJobQueryService() {
     this.queryStore = null;
     this.crudStore = null;
+    this.analyticsStore = null;
     this.executionStore = null;
     this.recurringJobStore = null;
     this.authPolicy = null;
@@ -77,13 +80,15 @@ class DefaultJobQueryService implements JobQueryService {
   public DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
-      ExecutionStore executionStore,
+      JobAnalyticsStore analyticsStore,
+      JobAuditStore executionStore,
       RecurringJobStore recurringJobStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider) {
     this(
         queryStore,
         crudStore,
+        analyticsStore,
         executionStore,
         recurringJobStore,
         authPolicy,
@@ -94,7 +99,8 @@ class DefaultJobQueryService implements JobQueryService {
   public DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
-      ExecutionStore executionStore,
+      JobAnalyticsStore analyticsStore,
+      JobAuditStore executionStore,
       RecurringJobStore recurringJobStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
@@ -102,6 +108,7 @@ class DefaultJobQueryService implements JobQueryService {
     this(
         queryStore,
         crudStore,
+        analyticsStore,
         executionStore,
         recurringJobStore,
         authPolicy,
@@ -114,7 +121,8 @@ class DefaultJobQueryService implements JobQueryService {
   public DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
-      ExecutionStore executionStore,
+      JobAnalyticsStore analyticsStore,
+      JobAuditStore executionStore,
       RecurringJobStore recurringJobStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
@@ -122,6 +130,7 @@ class DefaultJobQueryService implements JobQueryService {
       RatchetOptions options) {
     this.queryStore = queryStore;
     this.crudStore = crudStore;
+    this.analyticsStore = analyticsStore;
     this.executionStore = executionStore;
     this.recurringJobStore = recurringJobStore;
     this.authPolicy = authPolicy;
@@ -291,13 +300,13 @@ class DefaultJobQueryService implements JobQueryService {
     Instant since = now.minusSeconds(3600);
 
     Map<JobType, Long> pendingByType = new EnumMap<>(JobType.class);
-    crudStore
+    analyticsStore
         .countPendingJobsByTypes()
         .forEach((type, count) -> pendingByType.merge(type.toPublicType(), count, Long::sum));
 
     Map<JobPriority, Long> pendingByPriority = new EnumMap<>(JobPriority.class);
-    pendingByPriority.putAll(crudStore.countPendingJobsByPriorities());
-    Map<JobStatus, Long> countsByStatus = crudStore.countJobsByStatuses();
+    pendingByPriority.putAll(analyticsStore.countPendingJobsByPriorities());
+    Map<JobStatus, Long> countsByStatus = analyticsStore.countJobsByStatuses();
 
     return new QueueHealthSnapshot(
         countsByStatus.getOrDefault(JobStatus.PENDING, 0L),
@@ -307,12 +316,12 @@ class DefaultJobQueryService implements JobQueryService {
         countsByStatus.getOrDefault(JobStatus.CANCELED, 0L),
         countsByStatus.getOrDefault(JobStatus.PAUSED, 0L),
         countsByStatus.getOrDefault(JobStatus.WAITING, 0L),
-        crudStore.countStuckJobs(stuckThreshold),
-        crudStore.countReadyJobs(now),
-        crudStore.getRetryRateStats(since),
-        crudStore.getAverageProcessingTime(since),
-        crudStore.getQueueWaitTimePercentile(0.95),
-        crudStore.getOldestPendingJobTime().orElse(null),
+        analyticsStore.countStuckJobs(stuckThreshold),
+        analyticsStore.countReadyJobs(now),
+        analyticsStore.getRetryRateStats(since),
+        analyticsStore.getAverageProcessingTime(since),
+        analyticsStore.getQueueWaitTimePercentile(0.95),
+        analyticsStore.getOldestPendingJobTime().orElse(null),
         pendingByType,
         pendingByPriority);
   }

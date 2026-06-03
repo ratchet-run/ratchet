@@ -16,6 +16,7 @@
 package run.ratchet.store.spi;
 
 import java.util.List;
+import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobFilter;
 import run.ratchet.store.entity.JobEntity;
@@ -50,4 +51,14 @@ public interface JobQueryStore {
    *     <p>Transaction attribute: {@code SUPPORTS}.
    */
   long countJobs(JobFilter filter);
+
+  /**
+   * Finds job ids for a tag. Transaction attribute: {@code SUPPORTS}.
+   *
+   * @param tag tag name to look up; never {@code null} or blank
+   * @param limit maximum number of ids to return; must be positive
+   * @param offset zero-based pagination offset; must be non-negative
+   * @return ordered job ids carrying the tag, never {@code null}
+   */
+  List<UUID> findJobIdsByTag(String tag, int limit, int offset);
 }

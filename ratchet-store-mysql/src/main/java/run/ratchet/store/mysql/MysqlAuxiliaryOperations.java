@@ -33,18 +33,13 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.DlqAlertStore;
-import run.ratchet.store.spi.ExecutionStore;
-import run.ratchet.store.spi.JobLogStore;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
 
 final class MysqlAuxiliaryOperations
-    implements ExecutionStore,
-        JobLogStore,
-        WorkflowConditionStore,
-        DlqAlertStore,
-        ResourcePermitStore {
+    implements JobAuditStore, WorkflowConditionStore, DlqAlertStore, ResourcePermitStore {
 
   private static final int PERMIT_CLEANUP_CHUNK_SIZE = 500;
 

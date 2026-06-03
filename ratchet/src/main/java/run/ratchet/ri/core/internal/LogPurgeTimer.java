@@ -30,7 +30,7 @@ import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.spi.JobLogStore;
+import run.ratchet.store.spi.JobAuditStore;
 
 /**
  * Periodically purges old job execution logs to prevent unbounded table growth. Uses a singleton
@@ -43,7 +43,7 @@ public class LogPurgeTimer {
   private static final String LEASE_NAME = "logPurger";
   private static final Duration LEASE_TTL = Duration.ofMinutes(10);
 
-  private final JobLogStore jobLogStore;
+  private final JobAuditStore jobLogStore;
   private final SingletonLeaseService singletonLeaseService;
   private final ExecutorProvider executorProvider;
   private final Clock clock;
@@ -62,7 +62,7 @@ public class LogPurgeTimer {
   }
 
   public LogPurgeTimer(
-      JobLogStore jobLogStore,
+      JobAuditStore jobLogStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider) {
     this(jobLogStore, singletonLeaseService, executorProvider, Clock.systemUTC());
@@ -70,7 +70,7 @@ public class LogPurgeTimer {
 
   @Inject
   public LogPurgeTimer(
-      JobLogStore jobLogStore,
+      JobAuditStore jobLogStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider,
       Clock clock) {
