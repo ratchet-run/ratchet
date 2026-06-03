@@ -21,6 +21,7 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import run.ratchet.loadtest.metrics.DataSourcePoolMetricsBinder;
 import run.ratchet.loadtest.metrics.LoadTestMetricsBinder;
 import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 
@@ -30,11 +31,13 @@ public class MetricsResource {
 
   @Inject PrometheusRegistryProducer registry;
   @Inject LoadTestMetricsBinder metricsBinder;
+  @Inject DataSourcePoolMetricsBinder poolMetricsBinder;
 
   @GET
   @Produces(MediaType.TEXT_PLAIN)
   public String scrape() {
     metricsBinder.ensureBound();
+    poolMetricsBinder.ensureBound();
     return registry.scrape();
   }
 }
