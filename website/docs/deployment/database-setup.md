@@ -410,12 +410,9 @@ If no `DataSource` bean is available when `auto-migrate=true`, deployment fails 
 
 The dialect is auto-detected from `DatabaseMetaData.getDatabaseProductName()`. Look-alike products such as **CockroachDB** report a PostgreSQL wire protocol but lack `pg_advisory_lock`, so they are explicitly rejected even though the wire is compatible. Override the auto-detected value with `RATCHET_SCHEMA_MIGRATION_DIALECT=mysql` (or `postgresql`) only if you have verified your driver-product combination.
 
-### Pre-existing schemas (legacy installs)
+### Enabling auto-migrate on a database that already has the schema
 
-If `ratchet_schema_version` is empty but `scheduler_*` tables already exist (an install that pre-dates auto-migration), the migrator refuses to baseline implicitly — silently skipping migrations would leave column-level upgrades unapplied. Either:
-
-- Seed `ratchet_schema_version` manually with one row per `V###` already applied (look at `mysql-schema.sql` / `postgresql-schema.sql` to see what's in the bundled clean install), then start with `auto-migrate=true`; **or**
-- Keep `auto-migrate=false` and continue applying upgrades via your external tooling.
+The bundled migrations are idempotent (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`), so `auto-migrate=true` is safe to enable against a database whose `scheduler_*` tables already exist — for example, one provisioned directly from the consolidated `*-schema.sql`. On the first run the migrator re-applies each script as a no-op and records it in `ratchet_schema_version`; every subsequent run skips by checksum. If you would rather manage the schema entirely through external tooling, keep `auto-migrate=false`.
 
 ### `CREATE INDEX CONCURRENTLY`
 

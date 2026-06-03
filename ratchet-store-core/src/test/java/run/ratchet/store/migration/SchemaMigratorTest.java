@@ -18,7 +18,6 @@ package run.ratchet.store.migration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeast;
@@ -51,9 +50,6 @@ class SchemaMigratorTest {
   private PreparedStatement insertVersion;
   private ResultSet mysqlLock;
   private ResultSet mysqlRelease;
-  private ResultSet baselineProbe;
-  private DatabaseMetaData metaData;
-  private ResultSet metaDataTables;
 
   private static ResultSet missingVersion() throws Exception {
     ResultSet resultSet = mock(ResultSet.class);
@@ -90,13 +86,9 @@ class SchemaMigratorTest {
     insertVersion = mock(PreparedStatement.class);
     mysqlLock = mock(ResultSet.class);
     mysqlRelease = mock(ResultSet.class);
-    baselineProbe = mock(ResultSet.class);
-    metaData = mock(DatabaseMetaData.class);
-    metaDataTables = mock(ResultSet.class);
 
     when(dataSource.getConnection()).thenReturn(connection);
     when(connection.createStatement()).thenReturn(statement);
-    when(connection.getMetaData()).thenReturn(metaData);
     when(connection.getAutoCommit()).thenReturn(true);
     when(connection.prepareStatement(startsWith("SELECT checksum"))).thenReturn(selectVersion);
     when(connection.prepareStatement(startsWith("INSERT INTO ratchet_schema_version")))
@@ -105,10 +97,6 @@ class SchemaMigratorTest {
         .thenReturn(mysqlLock);
     when(statement.executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')"))
         .thenReturn(mysqlRelease);
-    when(statement.executeQuery("SELECT 1 FROM ratchet_schema_version")).thenReturn(baselineProbe);
-    when(baselineProbe.next()).thenReturn(false);
-    when(metaData.getTables(any(), any(), any(), any())).thenReturn(metaDataTables);
-    when(metaDataTables.next()).thenReturn(false);
     when(mysqlLock.next()).thenReturn(true);
     when(mysqlLock.getInt(1)).thenReturn(1);
     when(mysqlRelease.next()).thenReturn(true);
@@ -204,19 +192,6 @@ class SchemaMigratorTest {
     assertEquals(0, result.skippedCount());
     verify(statement).execute(startsWith("SELECT pg_advisory_lock("));
     verify(statement).execute(startsWith("SELECT pg_advisory_unlock("));
-  }
-
-  @Test
-  void failsWhenLegacySchemaPresentWithoutVersionRows() throws Exception {
-    // Empty version table + scheduler_job_queue exists in metadata = legacy install.
-    when(metaDataTables.next()).thenReturn(true);
-
-    SchemaInitializationException ex =
-        assertThrows(
-            SchemaInitializationException.class, () -> migrator("schema-migrator").migrate());
-    assertTrue(ex.getMessage().contains("ratchet_schema_version is empty"));
-    assertTrue(ex.getMessage().contains("scheduler_job_queue"));
-    verify(insertVersion, never()).executeUpdate();
   }
 
   @Test
