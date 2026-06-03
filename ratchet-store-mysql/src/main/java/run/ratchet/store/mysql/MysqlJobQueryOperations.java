@@ -18,6 +18,7 @@ package run.ratchet.store.mysql;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -279,68 +280,77 @@ final class MysqlJobQueryOperations {
 
   @SuppressWarnings("unchecked")
   List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
-    boolean archive = useArchive(filter);
-    int safeLimit = Math.min(limit, MAX_IN_CLAUSE);
-    int effectiveOffset = (filter != null && filter.cursor() != null) ? 0 : offset;
+    try {
+      boolean archive = useArchive(filter);
+      int safeLimit = Math.min(limit, MAX_IN_CLAUSE);
+      int effectiveOffset = (filter != null && filter.cursor() != null) ? 0 : offset;
 
-    List<Object> params = new ArrayList<>();
-    String sql;
-    if (archive) {
-      sql = buildUnionSearchSql(filter, params, safeLimit, effectiveOffset);
-    } else {
-      sql =
-          "SELECT "
-              + MysqlJobRowMapper.HYDRATION_SELECT
-              + " "
-              + HYDRATION_FROM
-              + buildWhere(filter, params)
-              + buildOrderBy(filter)
-              + " LIMIT "
-              + safeLimit
-              + " OFFSET "
-              + effectiveOffset;
-    }
-
-    Query q = ctx.em().createNativeQuery(sql);
-    bindParams(q, params);
-    List<Object[]> rows = q.getResultList();
-    List<JobEntity> result = new ArrayList<>(rows.size());
-    List<JobEntity> jobsToHydrate = new ArrayList<>(rows.size());
-    for (Object[] row : rows) {
-      JobEntity job = mapper.hydrateJobEntity(row);
-      if (job != null) {
-        // Skip tag hydration for archive rows (null q.status marks terminal-only rows from archive)
-        if (!archive || row[MysqlJobRowMapper.IDX_Q_STATUS] != null) {
-          jobsToHydrate.add(job);
-        }
-        result.add(job);
+      List<Object> params = new ArrayList<>();
+      String sql;
+      if (archive) {
+        sql = buildUnionSearchSql(filter, params, safeLimit, effectiveOffset);
+      } else {
+        sql =
+            "SELECT "
+                + MysqlJobRowMapper.HYDRATION_SELECT
+                + " "
+                + HYDRATION_FROM
+                + buildWhere(filter, params)
+                + buildOrderBy(filter)
+                + " LIMIT "
+                + safeLimit
+                + " OFFSET "
+                + effectiveOffset;
       }
+
+      Query q = ctx.em().createNativeQuery(sql);
+      bindParams(q, params);
+      List<Object[]> rows = q.getResultList();
+      List<JobEntity> result = new ArrayList<>(rows.size());
+      List<JobEntity> jobsToHydrate = new ArrayList<>(rows.size());
+      for (Object[] row : rows) {
+        JobEntity job = mapper.hydrateJobEntity(row);
+        if (job != null) {
+          // Skip tag hydration for archive rows (null q.status marks terminal-only rows from
+          // archive)
+          if (!archive || row[MysqlJobRowMapper.IDX_Q_STATUS] != null) {
+            jobsToHydrate.add(job);
+          }
+          result.add(job);
+        }
+      }
+      tags.hydrateTagsBatch(jobsToHydrate);
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("search jobs", e);
     }
-    tags.hydrateTagsBatch(jobsToHydrate);
-    return result;
   }
 
   long countJobs(JobFilter filter) {
-    boolean archive = useArchive(filter);
-    List<Object> params = new ArrayList<>();
-    String sql;
-    if (archive) {
-      sql =
-          "SELECT COUNT(*) FROM ("
-              + "SELECT 1 "
-              + HYDRATION_FROM
-              + buildWhere(filter, params)
-              + " UNION ALL "
-              + "SELECT 1 FROM scheduler_job_archive a"
-              + buildArchiveWhere(filter, params)
-              + ") AS combined";
-    } else {
-      // language=MySQL
-      sql = "SELECT COUNT(*) " + HYDRATION_FROM + buildWhere(filter, params);
+    try {
+      boolean archive = useArchive(filter);
+      List<Object> params = new ArrayList<>();
+      String sql;
+      if (archive) {
+        sql =
+            "SELECT COUNT(*) FROM ("
+                + "SELECT 1 "
+                + HYDRATION_FROM
+                + buildWhere(filter, params)
+                + " UNION ALL "
+                + "SELECT 1 FROM scheduler_job_archive a"
+                + buildArchiveWhere(filter, params)
+                + ") AS combined";
+      } else {
+        // language=MySQL
+        sql = "SELECT COUNT(*) " + HYDRATION_FROM + buildWhere(filter, params);
+      }
+      Query q = ctx.em().createNativeQuery(sql);
+      bindParams(q, params);
+      return ((Number) q.getSingleResult()).longValue();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs", e);
     }
-    Query q = ctx.em().createNativeQuery(sql);
-    bindParams(q, params);
-    return ((Number) q.getSingleResult()).longValue();
   }
 
   private String buildWhere(JobFilter filter, List<Object> params) {
@@ -617,7 +627,7 @@ final class MysqlJobQueryOperations {
       params.add(sortVal);
       params.add(sortVal);
       params.add(UuidByteArrayConverter.toBytes(c.jobId()));
-    } catch (IllegalArgumentException e) {
+    } catch (IllegalArgumentException | DateTimeParseException e) {
       log.warnf(e, "Ignoring malformed job-query cursor; falling back to offset pagination");
     }
   }
@@ -643,7 +653,7 @@ final class MysqlJobQueryOperations {
       params.add(sortVal);
       params.add(sortVal);
       params.add(UuidByteArrayConverter.toBytes(c.jobId()));
-    } catch (IllegalArgumentException e) {
+    } catch (IllegalArgumentException | DateTimeParseException e) {
       log.warnf(
           e, "Ignoring malformed archive job-query cursor; falling back to offset pagination");
     }

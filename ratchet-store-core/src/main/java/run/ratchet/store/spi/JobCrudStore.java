@@ -74,6 +74,9 @@ public interface JobCrudStore {
    *     the {@link Nullable} annotation reflects this contract for static analysers.
    * @param id job id to inspect
    * @return current status, or {@code null} when no job exists for {@code id}
+   * @throws IllegalStateException if a job row exists but carries neither a live nor a terminal
+   *     status. This is a store invariant violation; every store fails loud here rather than
+   *     returning {@code null} (which a caller could not distinguish from "no such job").
    */
   @Nullable JobStatus getJobStatus(UUID id);
 
@@ -88,6 +91,10 @@ public interface JobCrudStore {
    * Finds the active job currently associated with a business key, if any.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
+   *
+   * @throws IllegalStateException if a reservation claims a live-queue owner but no hot row exists.
+   *     This is a store invariant violation; every store fails loud here rather than returning an
+   *     empty {@link Optional}.
    */
   Optional<JobEntity> findActiveByBusinessKey(String businessKey);
 
@@ -248,10 +255,17 @@ public interface JobCrudStore {
   /**
    * Returns the queue wait time at the given percentile for succeeded jobs.
    *
+   * <p>The value is computed with <b>discrete nearest-rank</b> semantics (equivalent to SQL {@code
+   * PERCENTILE_DISC}): the result is always an actually-observed {@code queueWaitMs} value, never
+   * an interpolation between two observations. All stores return the same value for the same data.
+   *
    * <p>Transaction attribute: {@code SUPPORTS}.
    *
    * @param percentile a fraction in the range [0.0, 1.0], e.g. 0.95 for p95
    * @return queue wait time in milliseconds at the requested percentile, or 0 if no data
+   * @throws IllegalArgumentException if {@code percentile} is {@code NaN} or outside [0.0, 1.0].
+   *     All stores reject an out-of-range percentile rather than clamping or passing it to the
+   *     backend.
    */
   long getQueueWaitTimePercentile(double percentile);
 }

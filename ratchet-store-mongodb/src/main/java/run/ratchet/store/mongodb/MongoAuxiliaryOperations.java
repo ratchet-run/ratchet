@@ -241,6 +241,14 @@ final class MongoAuxiliaryOperations {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
+            // Validate the resource is configured before any fast-path so an unconfigured
+            // resource fails hard even when a stray permit row already exists for
+            // (resource, jobId). The SQL stores take the resource-limit row lock first, so this
+            // keeps the IllegalArgumentException contract identical across stores.
+            if (ctx.resourceLimits().find(session, eq(ID, resource)).first() == null) {
+              throw new IllegalArgumentException("Resource is not configured: " + resource);
+            }
+
             if (ctx.resourcePermits()
                     .find(session, and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)))
                     .first()
@@ -264,9 +272,7 @@ final class MongoAuxiliaryOperations {
                         new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
 
             if (result == null) {
-              if (ctx.resourceLimits().find(session, eq(ID, resource)).first() == null) {
-                throw new IllegalArgumentException("Resource is not configured: " + resource);
-              }
+              // Resource exists (validated above) but is at capacity.
               return false;
             }
 

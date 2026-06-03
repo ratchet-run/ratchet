@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<persistence xmlns="https://jakarta.ee/xml/ns/persistence"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence
+                 https://jakarta.ee/xml/ns/persistence/persistence_3_0.xsd"
+             version="3.0">
+  <persistence-unit name="ratchet-showcase" transaction-type="JTA">
+    <jta-data-source>${showcase.datasource.jndi}</jta-data-source>
+    <class>run.ratchet.store.entity.JobEntity</class>
+    <class>run.ratchet.store.entity.JobExecutionEntity</class>
+    <class>run.ratchet.store.entity.ResourceLimitEntity</class>
+    <class>run.ratchet.store.entity.BatchMetricsEntity</class>
+    <class>run.ratchet.store.entity.WorkflowConditionEntity</class>
+    <class>run.ratchet.store.entity.ArchivedJobEntity</class>
+    <class>run.ratchet.store.entity.NodeEntity</class>
+    <class>run.ratchet.store.entity.DlqAlertEntity</class>
+    <class>run.ratchet.store.entity.JobLogEntity</class>
+    <class>run.ratchet.store.entity.ResourcePermitEntity</class>
+    <class>run.ratchet.store.entity.BatchEntity</class>
+    <exclude-unlisted-classes>true</exclude-unlisted-classes>
+  </persistence-unit>
+</persistence>

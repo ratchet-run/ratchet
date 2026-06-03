@@ -61,6 +61,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.util.StatusClassifier;
 
 /**
  * Job state-transition operations. Every method targets a specific {@code (id, status)}
@@ -83,6 +84,18 @@ final class MongoJobLifecycleOperations
 
   @Override
   public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
+    // A live target is a plain status set. Terminal targets route through the guarded terminal
+    // methods so the picked-by/terminated-at cleanup matches the SQL stores, which never let
+    // updateJobStatus flip a row straight to a terminal status without that bookkeeping.
+    if (!StatusClassifier.isLiveStatus(status)) {
+      switch (status) {
+        case CANCELED -> cancelJob(id);
+        case FAILED -> markJobFailedTerminal(id, errorMessage, 0);
+        case SUCCEEDED -> markJobSucceededMinimal(id, null, null, null, null);
+        default -> throw new IllegalArgumentException("Unsupported status target: " + status);
+      }
+      return;
+    }
     runMutation(
         "update_status",
         () -> {
@@ -102,6 +115,10 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean compareAndSwapStatus(
       UUID id, JobStatus expected, JobStatus newStatus, String error) {
+    if (!StatusClassifier.isLiveStatus(expected)) {
+      throw new IllegalArgumentException(
+          "compareAndSwapStatus expected must be a live status; got " + expected);
+    }
     return ctx.timedStoreOperation(
         "compare_and_swap_status",
         () -> {

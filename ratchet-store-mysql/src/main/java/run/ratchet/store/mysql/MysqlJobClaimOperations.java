@@ -89,6 +89,9 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
+    if (limit <= 0) {
+      return List.of();
+    }
     List<Object[]> candidateRows;
     try {
       candidateRows = selectClaimCandidates(limit, tagFilter);

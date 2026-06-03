@@ -18,6 +18,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -62,6 +63,19 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
         JobStatus.PENDING,
         store().getJobStatus(saved.getId()),
         "Status should remain PENDING after failed CAS");
+  }
+
+  @Test
+  void compareAndSwapStatus_terminalExpected_throws() {
+    // A terminal `expected` is caller misuse. Every store rejects it with IllegalArgumentException
+    // rather than silently returning false, which a caller could not distinguish from a lost race.
+    var saved = persist(newPendingJob());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            store()
+                .compareAndSwapStatus(saved.getId(), JobStatus.SUCCEEDED, JobStatus.PENDING, null));
   }
 
   @Test
@@ -125,6 +139,34 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
     var reloaded = store().findById(saved.getId()).orElseThrow();
     assertEquals(JobStatus.PAUSED, reloaded.getStatus());
     assertEquals("manual pause", reloaded.getLastError());
+  }
+
+  @Test
+  void updateJobStatus_terminalTarget_terminalizesRunningJob() {
+    // A terminal target routes through the guarded terminal transition on every store, so a RUNNING
+    // job becomes SUCCEEDED. Mongo must route here too rather than blindly setting the status
+    // field.
+    var running = runningJob("node-1");
+
+    store().updateJobStatus(running.getId(), JobStatus.SUCCEEDED, null);
+
+    assertEquals(JobStatus.SUCCEEDED, store().getJobStatus(running.getId()));
+  }
+
+  @Test
+  void updateJobStatus_terminalTarget_nonRunningJob_isNoOp() {
+    // Because terminal targets route through the RUNNING-guarded terminal methods, a non-RUNNING
+    // job
+    // is left untouched on every store. The Mongo bug flipped a PENDING job straight to SUCCEEDED;
+    // the SQL stores leave it PENDING. All three must agree.
+    var pending = persist(newPendingJob());
+
+    store().updateJobStatus(pending.getId(), JobStatus.SUCCEEDED, null);
+
+    assertEquals(
+        JobStatus.PENDING,
+        store().getJobStatus(pending.getId()),
+        "a non-RUNNING job must not be flipped straight to a terminal status");
   }
 
   @Test
