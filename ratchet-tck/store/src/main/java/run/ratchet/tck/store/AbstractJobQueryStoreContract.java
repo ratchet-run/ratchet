@@ -708,6 +708,57 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void searchJobs_liveCursorPaginationVisitsEveryRowOnce() {
+    // Mirror the archive cursor-walk, but over the LIVE seek predicate (archive OFF). The live
+    // appendCursorCondition tiebreaks on c.job_id — a column and table distinct from the archive
+    // variant's a.original_job_id — and is only ever checked at the SQL-string level, never walked
+    // end-to-end. Give every live row the same priority so the id tiebreaker, not the primary
+    // sort, decides ordering: that is the slot where an off-by-one in
+    // (col OP ? OR (col = ? AND c.job_id > ?)) drops or repeats a row at each page boundary.
+    int total = 7;
+    Set<UUID> seededIds = new HashSet<>();
+    for (int i = 0; i < total; i++) {
+      JobEntity job = newPendingJob();
+      job.setPriority(JobPriority.NORMAL);
+      seededIds.add(persist(job).getId());
+    }
+
+    int pageSize = 2;
+    List<UUID> seen = new ArrayList<>();
+    String cursor = null;
+    for (int guard = 0; guard <= total; guard++) {
+      var builder = JobFilter.builder().sortField(JobQuerySortField.PRIORITY).sortAscending(false);
+      if (cursor != null) {
+        builder.cursor(cursor);
+      }
+      List<JobEntity> pageRows = queryStore().searchJobs(builder.build(), pageSize, 0);
+      if (pageRows.isEmpty()) {
+        break;
+      }
+      pageRows.forEach(r -> seen.add(r.getId()));
+      JobEntity last = pageRows.get(pageRows.size() - 1);
+      cursor =
+          new JobQueryCursor(
+                  JobQuerySortField.PRIORITY,
+                  /* sortAscending= */ false,
+                  Integer.toString(last.getPriority().ordinal()),
+                  last.getId())
+              .encode();
+      if (pageRows.size() < pageSize) {
+        break;
+      }
+    }
+
+    Set<UUID> distinct = new HashSet<>(seen);
+    assertEquals(
+        seen.size(), distinct.size(), "Live cursor pages must not repeat a row across boundaries");
+    assertEquals(
+        seededIds,
+        distinct,
+        "Live cursor pages must visit every matching row exactly once across page boundaries");
+  }
+
+  @Test
   void searchJobs_cursorMintedForADifferentSortIsIgnored() {
     // A keyset cursor records the sort it was produced under. The seek predicate filters on the
     // cursor's sort field while the ORDER BY comes from the live filter, so reusing a cursor after
