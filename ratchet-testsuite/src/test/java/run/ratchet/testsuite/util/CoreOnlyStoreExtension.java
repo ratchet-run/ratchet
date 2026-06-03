@@ -78,9 +78,15 @@ public class CoreOnlyStoreExtension implements Extension {
     Set<Type> coreTypes = new LinkedHashSet<>();
     for (Type type : beanTypes) {
       Class<?> raw = rawType(type);
-      // Drop the capability interfaces themselves and any type that implements one (the per-store
-      // composite and the concrete impl class), so the bean can no longer satisfy Instance<Cap>.
-      if (raw == null || isCapability(raw) || implementsCapability(raw)) {
+      // Drop the capability interfaces and the per-store composite interface that extends them, so
+      // the bean can no longer satisfy Instance<Cap>. Keep the concrete impl class: CDI matches a
+      // raw required type against a bean's declared types by identity, so retaining the class does
+      // not re-introduce a capability as an injectable type (the @Typed rule). Dropping the class
+      // forced Weld to generate the bean's client proxy in the SPI interface package, where it
+      // could not subclass the package-private impl on a strict proxy loader (OpenLiberty) — the
+      // whole deployment failed with WELD-001524 / IllegalAccessError. Keeping the class anchors
+      // the proxy in the impl's own package, where the package-private access is legal.
+      if (raw == null || isCapability(raw) || (raw.isInterface() && implementsCapability(raw))) {
         continue;
       }
       coreTypes.add(type);
