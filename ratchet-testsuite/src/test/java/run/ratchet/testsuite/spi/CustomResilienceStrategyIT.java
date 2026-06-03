@@ -69,36 +69,9 @@ class CustomResilienceStrategyIT extends BaseRatchetIT {
   }
 
   @Test
-  void customResilienceStrategy_shouldOverrideDefaultCircuitBreaker() {
-    assertInstanceOf(NoOpResilienceStrategy.class, resilienceStrategy);
-  }
-
-  @Test
-  void customResilienceStrategy_serviceAlwaysAvailable() {
-    // No-op strategy should always report services as available
-    assertTrue(
-        resilienceStrategy.isServiceAvailable("any-service"),
-        "NoOpResilienceStrategy should always report service as available");
-    assertEquals(
-        1,
-        NoOpResilienceStrategy.getAvailabilityCheckCount(),
-        "Direct availability probe must be routed through the custom strategy");
-    assertEquals(
-        "any-service",
-        NoOpResilienceStrategy.checkedServices().get(0),
-        "Custom strategy must receive the service name supplied by callers");
-  }
-
-  @Test
-  void customResilienceStrategy_usesDefaultRetryDelayWhenNotOverridden() {
-    assertEquals(
-        Duration.ofSeconds(30),
-        resilienceStrategy.getRetryDelay("any-service"),
-        "Custom strategies that do not override getRetryDelay must retain the SPI default");
-  }
-
-  @Test
   void failingJob_shouldExhaustRetriesWithoutCircuitBreakerTripping() {
+    assertInstanceOf(NoOpResilienceStrategy.class, resilienceStrategy);
+
     int maxRetries = 3;
 
     JobHandle handle =

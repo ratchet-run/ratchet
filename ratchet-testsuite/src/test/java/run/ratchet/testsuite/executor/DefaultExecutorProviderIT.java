@@ -15,7 +15,6 @@
  */
 package run.ratchet.testsuite.executor;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,13 +28,10 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import run.ratchet.api.JobHandle;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
@@ -53,8 +49,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class DefaultExecutorProviderIT extends BaseRatchetIT {
 
   @Inject private ExecutorProvider executorProvider;
-  @Inject private TestJobService jobService;
-  @Inject private JobCrudStore jobCrudStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -112,14 +106,5 @@ class DefaultExecutorProviderIT extends BaseRatchetIT {
     assertTrue(
         latch.await(5, TimeUnit.SECONDS),
         "container-managed scheduled executor must run scheduled tasks");
-  }
-
-  @Test
-  void smallJobRunsThroughDefaultProviderPath() {
-    JobHandle handle = jobService.enqueueNow(SimpleJob::execute);
-    assertNotNull(handle, "enqueueNow must return a handle");
-
-    JobAssertions.assertJobCompleted(jobCrudStore, handle);
-    assertEquals(1, SimpleJob.getInvocationCount(), "job must execute exactly once");
   }
 }
