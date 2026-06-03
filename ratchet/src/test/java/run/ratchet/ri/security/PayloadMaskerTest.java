@@ -37,7 +37,7 @@ class PayloadMaskerTest {
   }
 
   @Test
-  void maskPayload_validJson_maskesSensitiveFields() {
+  void maskPayload_validJson_masksSensitiveFields() {
     String json = "{\"username\":\"alice\",\"password\":\"s3cret\",\"data\":\"public\"}";
     String masked = PayloadMasker.maskPayload(json);
 
