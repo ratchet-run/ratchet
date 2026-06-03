@@ -34,48 +34,50 @@ import java.util.Map;
 public enum ConformanceLevel {
   CORE(
       "Core",
-      "Fundamental persistence and locking primitives required by all conforming store"
-          + " implementations.",
+      "Fundamental persistence primitives required by all conforming store implementations.",
       List.of(
           "AbstractJobCrudStoreContract",
           "AbstractJobClaimStoreContract",
-          "AbstractLockStoreContract",
           "AbstractNodeStoreContract",
           "AbstractTagStoreContract"),
       List.of()),
 
   BEHAVIORAL(
       "Behavioral",
-      "Job lifecycle operations: execution tracking, retry, pause/resume, recurring scheduling,"
-          + " batch orchestration, and signal delivery.",
+      "Job lifecycle operations. The required contracts — terminal transitions, retry, pause/resume,"
+          + " and non-terminal status CAS — are part of the mandatory core. The optional contracts"
+          + " apply only to stores advertising the matching capability: audit, recurring scheduling,"
+          + " batch orchestration, workflow conditions, query, analytics, and signal delivery.",
       List.of(
-          "AbstractExecutionStoreContract",
-          "AbstractJobLogStoreContract",
           "AbstractJobRetryStoreContract",
           "AbstractJobPauseStoreContract",
           "AbstractJobTerminalStoreContract",
+          "AbstractJobBatchStatusStoreContract"),
+      List.of(
+          "AbstractJobAuditStoreContract",
           "AbstractRecurringJobStoreContract",
           "AbstractBatchStoreContract",
           "AbstractWorkflowConditionStoreContract",
-          "AbstractJobBatchStatusStoreContract",
-          "AbstractBatchMetricsStoreContract",
           "AbstractJobQueryStoreContract",
-          "AbstractSignalStoreContract"),
-      List.of()),
+          "AbstractJobAnalyticsStoreContract",
+          "AbstractSignalStoreContract")),
 
   ADVANCED(
       "Advanced",
-      "Optional capabilities: archival, dead-letter queues, bulk operations, business-key"
-          + " uniqueness, and — for SQL stores — schema conformance, schema migration, and JTA"
+      "Bulk operations, business-key uniqueness, and the dual-write storage invariant are core. The"
+          + " optional contracts apply only to stores that advertise the capability: archival,"
+          + " dead-letter alerting, distributed locks, resource permits, and — for SQL stores —"
+          + " schema conformance, schema migration, JPA recurring-claim concurrency, and JTA"
           + " transaction boundaries.",
+      List.of(
+          "AbstractJobBulkStoreContract",
+          "AbstractActiveBusinessKeyContract",
+          "AbstractDualWriteInvariantContract"),
       List.of(
           "AbstractArchiveStoreContract",
           "AbstractDlqAlertStoreContract",
-          "AbstractJobBulkStoreContract",
-          "AbstractActiveBusinessKeyContract",
-          "AbstractDualWriteInvariantContract",
-          "AbstractResourcePermitStoreContract"),
-      List.of(
+          "AbstractLockStoreContract",
+          "AbstractResourcePermitStoreContract",
           "AbstractSchemaConformanceContract",
           "AbstractSchemaMigratorContract",
           "AbstractJpaRecurringClaimConcurrencyContract",

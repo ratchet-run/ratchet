@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.nio.charset.StandardCharsets;
@@ -109,6 +110,28 @@ public class DeadLetterService {
 
   @Inject
   public DeadLetterService(
+      ExecutorProvider executorProvider,
+      JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
+      JobTerminalStore jobTerminalStore,
+      SingletonLeaseService singletonLeaseService,
+      Instance<DlqAlertStore> dlqAlertStore,
+      InternalEventPublisher eventPublisher,
+      ErrorSanitizer errorSanitizer,
+      Clock clock) {
+    this(
+        executorProvider,
+        jobCrudStore,
+        jobBulkStore,
+        jobTerminalStore,
+        singletonLeaseService,
+        dlqAlertStore.isResolvable() ? dlqAlertStore.get() : null,
+        eventPublisher,
+        errorSanitizer,
+        clock);
+  }
+
+  DeadLetterService(
       ExecutorProvider executorProvider,
       JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
@@ -226,6 +249,11 @@ public class DeadLetterService {
   }
 
   private void recordDlqAlert(JobEntity job, Throwable cause) {
+    if (dlqAlertStore == null) {
+      // No DlqAlertStore capability: dead-letter alert dedup/recording is disabled. DLQ purging
+      // (backed by the core JobBulkStore) is unaffected.
+      return;
+    }
     try {
       String errorHash = hashError(cause);
       Instant now = effective().instant();

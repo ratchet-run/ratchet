@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
@@ -75,6 +76,20 @@ public class RecurringJobExecutor {
 
   @Inject
   public RecurringJobExecutor(
+      JobBulkStore jobBulkStore,
+      Instance<RecurringJobStore> recurringJobStore,
+      RecurringRegistrationState registrationState,
+      NodeTagAffinityProvider tagAffinityProvider,
+      Clock clock) {
+    this(
+        jobBulkStore,
+        recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
+        registrationState,
+        tagAffinityProvider,
+        clock);
+  }
+
+  RecurringJobExecutor(
       JobBulkStore jobBulkStore,
       RecurringJobStore recurringJobStore,
       RecurringRegistrationState registrationState,

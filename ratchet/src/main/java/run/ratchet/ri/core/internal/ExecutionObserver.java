@@ -25,7 +25,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
-import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.spi.JobAuditStore;
 
 /**
  * Bundles metrics, event publishing, and execution history to reduce {@link JobTask}'s dependency
@@ -38,7 +38,7 @@ public class ExecutionObserver {
   private final MetricsCollector metricsCollector;
   private final TracingCollector tracingCollector;
   private final InternalEventPublisher eventPublisher;
-  private final ExecutionStore executionStore;
+  private final JobAuditStore executionStore;
   private final ExecutorProvider executorProvider;
   private final Runnable delayedJobReadyCallback;
 
@@ -55,7 +55,7 @@ public class ExecutionObserver {
       MetricsCollector metricsCollector,
       TracingCollector tracingCollector,
       InternalEventPublisher eventPublisher,
-      ExecutionStore executionStore,
+      JobAuditStore executionStore,
       ExecutorProvider executorProvider,
       Runnable delayedJobReadyCallback) {
     this.metricsCollector = metricsCollector;
@@ -112,10 +112,18 @@ public class ExecutionObserver {
 
   public JobExecutionEntity startExecution(UUID jobId, int attemptNumber, String nodeId) {
     JobExecutionEntity execution = JobExecutionEntity.start(jobId, attemptNumber, nodeId);
+    if (executionStore == null) {
+      // No JobAuditStore capability: execution-history recording is disabled. Return the transient
+      // entity so callers still have a usable handle for the in-flight attempt.
+      return execution;
+    }
     return executionStore.saveExecution(execution);
   }
 
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
+    if (executionStore == null) {
+      return execution;
+    }
     return executionStore.saveExecution(execution);
   }
 

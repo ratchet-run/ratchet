@@ -24,21 +24,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.DlqAlertStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.ResourcePermitStore;
+import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobCrudStore}. */
@@ -58,6 +66,41 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
 
     assertTrue(reloaded.isPresent(), "Persisted job should be reloadable by ID");
     assertEquals(saved.getId(), reloaded.get().getId());
+  }
+
+  @Test
+  void capabilityProbe_agreesWithJavaTypeMembership() {
+    // Type membership is the single normative rule for capability advertisement: a store that
+    // overrides capability() to report a capability it does not implement, or to hide one it does,
+    // desynchronizes the probe from every dependency-injection consumer (the reference engine
+    // resolves each capability through CDI Instance<T>). The probe must therefore agree with
+    // instanceof, and a present capability must hand back a view of the requested type.
+    var store = store();
+    List<Class<?>> capabilities =
+        List.of(
+            RecurringJobStore.class,
+            BatchStore.class,
+            WorkflowConditionStore.class,
+            SignalStore.class,
+            ResourcePermitStore.class,
+            LockStore.class,
+            ArchiveStore.class,
+            JobQueryStore.class,
+            JobAnalyticsStore.class,
+            JobAuditStore.class,
+            DlqAlertStore.class);
+    for (Class<?> cap : capabilities) {
+      var view = store.capability(cap);
+      assertEquals(
+          cap.isInstance(store),
+          view.isPresent(),
+          () -> "capability(" + cap.getSimpleName() + ") must agree with Java type membership");
+      view.ifPresent(
+          v ->
+              assertTrue(
+                  cap.isInstance(v),
+                  () -> "capability(" + cap.getSimpleName() + ") must return a view of that type"));
+    }
   }
 
   @Test
@@ -289,66 +332,6 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
-  void countJobsByStatuses_returnsGroupedStatusCounts() {
-    persist(newPendingJob());
-
-    var running = persist(newPendingJob());
-    store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-
-    var succeeded = persist(newPendingJob());
-    store().compareAndSwapStatus(succeeded.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobSucceeded(succeeded.getId(), null, null, Instant.now(), Instant.now(), 0L, 0L);
-
-    Map<JobStatus, Long> counts = store().countJobsByStatuses();
-
-    assertEquals(1L, counts.get(JobStatus.PENDING));
-    assertEquals(1L, counts.get(JobStatus.RUNNING));
-    assertEquals(1L, counts.get(JobStatus.SUCCEEDED));
-  }
-
-  @Test
-  void countPendingJobsByPriorities_returnsGroupedPendingCounts() {
-    JobEntity high = newPendingJob();
-    high.setPriority(JobPriority.HIGH);
-    persist(high);
-
-    JobEntity critical = newPendingJob();
-    critical.setPriority(JobPriority.CRITICAL);
-    persist(critical);
-
-    JobEntity running = newPendingJob();
-    running.setPriority(JobPriority.HIGH);
-    JobEntity savedRunning = persist(running);
-    store().compareAndSwapStatus(savedRunning.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-
-    Map<JobPriority, Long> counts = store().countPendingJobsByPriorities();
-
-    assertEquals(1L, counts.get(JobPriority.HIGH));
-    assertEquals(1L, counts.get(JobPriority.CRITICAL));
-  }
-
-  @Test
-  void countPendingJobsByTypes_returnsGroupedPendingCounts() {
-    JobEntity single = newPendingJob();
-    single.setJobType(JobExecutionType.SINGLE);
-    persist(single);
-
-    JobEntity child = newPendingJob();
-    child.setJobType(JobExecutionType.BATCH_CHILD);
-    persist(child);
-
-    JobEntity running = newPendingJob();
-    running.setJobType(JobExecutionType.SINGLE);
-    JobEntity savedRunning = persist(running);
-    store().compareAndSwapStatus(savedRunning.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-
-    Map<JobExecutionType, Long> counts = store().countPendingJobsByTypes();
-
-    assertEquals(1L, counts.get(JobExecutionType.SINGLE));
-    assertEquals(1L, counts.get(JobExecutionType.BATCH_CHILD));
-  }
-
-  @Test
   void create_setsCreatedAt() {
     JobEntity job = newPendingJob();
 
@@ -371,7 +354,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   @Test
   void create_persistsRecurringMasterId() {
     UUID masterId = UuidV7Factory.create();
-    store().createRecurring(recurringMaster(masterId));
+    recurringStore().createRecurring(recurringMaster(masterId));
 
     JobEntity child = newPendingJob();
     child.setRecurringMasterId(masterId);
@@ -429,14 +412,18 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     // Every store rejects NaN and out-of-[0,1] percentiles identically rather than clamping or
     // forwarding the value to the backend.
     assertThrows(
-        IllegalArgumentException.class, () -> store().getQueueWaitTimePercentile(Double.NaN));
-    assertThrows(IllegalArgumentException.class, () -> store().getQueueWaitTimePercentile(-0.1));
-    assertThrows(IllegalArgumentException.class, () -> store().getQueueWaitTimePercentile(1.5));
+        IllegalArgumentException.class,
+        () -> analyticsStore().getQueueWaitTimePercentile(Double.NaN));
+    assertThrows(
+        IllegalArgumentException.class, () -> analyticsStore().getQueueWaitTimePercentile(-0.1));
+    assertThrows(
+        IllegalArgumentException.class, () -> analyticsStore().getQueueWaitTimePercentile(1.5));
   }
 
   @Test
   void getQueueWaitTimePercentile_noData_returnsZero() {
-    assertEquals(0L, store().getQueueWaitTimePercentile(0.95), "no succeeded jobs yields 0");
+    assertEquals(
+        0L, analyticsStore().getQueueWaitTimePercentile(0.95), "no succeeded jobs yields 0");
   }
 
   @Test
@@ -449,12 +436,14 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
       persistSucceededJobWithQueueWait(queueWaitMs);
     }
 
-    assertEquals(10L, store().getQueueWaitTimePercentile(0.0), "p0 is the minimum observation");
+    assertEquals(
+        10L, analyticsStore().getQueueWaitTimePercentile(0.0), "p0 is the minimum observation");
     assertEquals(
         20L,
-        store().getQueueWaitTimePercentile(0.5),
+        analyticsStore().getQueueWaitTimePercentile(0.5),
         "discrete p50 returns an observed value (20), not the interpolated 25");
-    assertEquals(40L, store().getQueueWaitTimePercentile(1.0), "p100 is the maximum observation");
+    assertEquals(
+        40L, analyticsStore().getQueueWaitTimePercentile(1.0), "p100 is the maximum observation");
   }
 
   private void persistSucceededJobWithQueueWait(long queueWaitMs) {

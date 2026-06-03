@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Instant;
@@ -44,7 +45,8 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.query.JobQueryCursor;
-import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -56,7 +58,8 @@ class DefaultJobQueryService implements JobQueryService {
 
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;
-  private final ExecutionStore executionStore;
+  private final JobAnalyticsStore analyticsStore;
+  private final JobAuditStore executionStore;
   private final RecurringJobStore recurringJobStore;
   private final JobAuthorizationPolicy authPolicy;
   private final CallerPrincipalProvider principalProvider;
@@ -66,6 +69,7 @@ class DefaultJobQueryService implements JobQueryService {
   protected DefaultJobQueryService() {
     this.queryStore = null;
     this.crudStore = null;
+    this.analyticsStore = null;
     this.executionStore = null;
     this.recurringJobStore = null;
     this.authPolicy = null;
@@ -77,13 +81,15 @@ class DefaultJobQueryService implements JobQueryService {
   public DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
-      ExecutionStore executionStore,
+      JobAnalyticsStore analyticsStore,
+      JobAuditStore executionStore,
       RecurringJobStore recurringJobStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider) {
     this(
         queryStore,
         crudStore,
+        analyticsStore,
         executionStore,
         recurringJobStore,
         authPolicy,
@@ -94,7 +100,8 @@ class DefaultJobQueryService implements JobQueryService {
   public DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
-      ExecutionStore executionStore,
+      JobAnalyticsStore analyticsStore,
+      JobAuditStore executionStore,
       RecurringJobStore recurringJobStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
@@ -102,6 +109,7 @@ class DefaultJobQueryService implements JobQueryService {
     this(
         queryStore,
         crudStore,
+        analyticsStore,
         executionStore,
         recurringJobStore,
         authPolicy,
@@ -112,9 +120,32 @@ class DefaultJobQueryService implements JobQueryService {
 
   @Inject
   public DefaultJobQueryService(
+      Instance<JobQueryStore> queryStore,
+      JobCrudStore crudStore,
+      Instance<JobAnalyticsStore> analyticsStore,
+      Instance<JobAuditStore> executionStore,
+      Instance<RecurringJobStore> recurringJobStore,
+      JobAuthorizationPolicy authPolicy,
+      CallerPrincipalProvider principalProvider,
+      Clock clock,
+      RatchetOptions options) {
+    this(
+        queryStore.isResolvable() ? queryStore.get() : null,
+        crudStore,
+        analyticsStore.isResolvable() ? analyticsStore.get() : null,
+        executionStore.isResolvable() ? executionStore.get() : null,
+        recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
+        authPolicy,
+        principalProvider,
+        clock,
+        options);
+  }
+
+  DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
-      ExecutionStore executionStore,
+      JobAnalyticsStore analyticsStore,
+      JobAuditStore executionStore,
       RecurringJobStore recurringJobStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
@@ -122,6 +153,7 @@ class DefaultJobQueryService implements JobQueryService {
       RatchetOptions options) {
     this.queryStore = queryStore;
     this.crudStore = crudStore;
+    this.analyticsStore = analyticsStore;
     this.executionStore = executionStore;
     this.recurringJobStore = recurringJobStore;
     this.authPolicy = authPolicy;
@@ -168,6 +200,11 @@ class DefaultJobQueryService implements JobQueryService {
         && scoped.types().size() == 1
         && scoped.types().contains(JobType.RECURRING)) {
       return findRecurringMastersWithFilter(scoped, limit, offset);
+    }
+
+    if (queryStore == null) {
+      // No JobQueryStore capability: ad-hoc job search/listing is unavailable.
+      return new JobPage<>(List.of(), 0L, limit, offset, false, null);
     }
 
     boolean cursorMode = scoped.cursor() != null && !scoped.cursor().isBlank();
@@ -224,9 +261,11 @@ class DefaultJobQueryService implements JobQueryService {
     }
 
     List<ExecutionHistorySummary> history =
-        executionStore.findExecutionsByJobId(jobId, DEFAULT_PAGE_LIMIT, 0).stream()
-            .map(JobEntityMapper::toExecutionSummary)
-            .collect(Collectors.toList());
+        executionStore == null
+            ? List.of()
+            : executionStore.findExecutionsByJobId(jobId, DEFAULT_PAGE_LIMIT, 0).stream()
+                .map(JobEntityMapper::toExecutionSummary)
+                .collect(Collectors.toList());
 
     List<UUID> dependantIds =
         crudStore.findDependants(jobId, DEFAULT_PAGE_LIMIT, 0).stream()
@@ -275,6 +314,10 @@ class DefaultJobQueryService implements JobQueryService {
         return new JobPage<>(List.of(), 0L, limit, offset, false, null);
       }
     }
+    if (executionStore == null) {
+      // No JobAuditStore capability: execution history is not recorded.
+      return new JobPage<>(List.of(), 0L, limit, offset, false, null);
+    }
     List<ExecutionHistorySummary> items =
         executionStore.findExecutionsByJobId(jobId, limit, offset).stream()
             .map(JobEntityMapper::toExecutionSummary)
@@ -286,18 +329,23 @@ class DefaultJobQueryService implements JobQueryService {
 
   @Override
   public QueueHealthSnapshot getQueueHealth() {
+    if (analyticsStore == null) {
+      // No JobAnalyticsStore capability: queue-health aggregates are unavailable.
+      return new QueueHealthSnapshot(
+          0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0.0, 0.0, 0L, null, Map.of(), Map.of());
+    }
     Instant now = effective().instant();
     Instant stuckThreshold = now.minusSeconds(300);
     Instant since = now.minusSeconds(3600);
 
     Map<JobType, Long> pendingByType = new EnumMap<>(JobType.class);
-    crudStore
+    analyticsStore
         .countPendingJobsByTypes()
         .forEach((type, count) -> pendingByType.merge(type.toPublicType(), count, Long::sum));
 
     Map<JobPriority, Long> pendingByPriority = new EnumMap<>(JobPriority.class);
-    pendingByPriority.putAll(crudStore.countPendingJobsByPriorities());
-    Map<JobStatus, Long> countsByStatus = crudStore.countJobsByStatuses();
+    pendingByPriority.putAll(analyticsStore.countPendingJobsByPriorities());
+    Map<JobStatus, Long> countsByStatus = analyticsStore.countJobsByStatuses();
 
     return new QueueHealthSnapshot(
         countsByStatus.getOrDefault(JobStatus.PENDING, 0L),
@@ -307,12 +355,12 @@ class DefaultJobQueryService implements JobQueryService {
         countsByStatus.getOrDefault(JobStatus.CANCELED, 0L),
         countsByStatus.getOrDefault(JobStatus.PAUSED, 0L),
         countsByStatus.getOrDefault(JobStatus.WAITING, 0L),
-        crudStore.countStuckJobs(stuckThreshold),
-        crudStore.countReadyJobs(now),
-        crudStore.getRetryRateStats(since),
-        crudStore.getAverageProcessingTime(since),
-        crudStore.getQueueWaitTimePercentile(0.95),
-        crudStore.getOldestPendingJobTime().orElse(null),
+        analyticsStore.countStuckJobs(stuckThreshold),
+        analyticsStore.countReadyJobs(now),
+        analyticsStore.getRetryRateStats(since),
+        analyticsStore.getAverageProcessingTime(since),
+        analyticsStore.getQueueWaitTimePercentile(0.95),
+        analyticsStore.getOldestPendingJobTime().orElse(null),
         pendingByType,
         pendingByPriority);
   }

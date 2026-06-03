@@ -48,7 +48,7 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
             job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
     var completed = store().findById(job.getId()).orElseThrow();
 
-    var archived = store().archiveJob(completed, "test", "tck");
+    var archived = archiveStore().archiveJob(completed, "test", "tck");
 
     assertNotNull(archived, "archiveJob should return a non-null archived entity");
     assertEquals(
@@ -65,9 +65,10 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
         .markJobSucceeded(
             job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
     var completed = store().findById(job.getId()).orElseThrow();
-    store().archiveJob(completed, "test", "tck");
+    archiveStore().archiveJob(completed, "test", "tck");
 
-    var results = store().findArchivedJobs(completed.getPayload().target(), null, null, null, 10);
+    var results =
+        archiveStore().findArchivedJobs(completed.getPayload().target(), null, null, null, 10);
 
     assertFalse(results.isEmpty(), "findArchivedJobs should return the archived job");
     assertEquals(
@@ -81,7 +82,7 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
     var job1 = completeJob(persist(newPendingJob()));
     var job2 = completeJob(persist(newPendingJob()));
 
-    int count = store().archiveJobsBatch(List.of(job1, job2), "batch-test", "tck");
+    int count = archiveStore().archiveJobsBatch(List.of(job1, job2), "batch-test", "tck");
 
     assertEquals(2, count, "archiveJobsBatch should archive both jobs");
   }
@@ -90,7 +91,7 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   void findJobsForArchiving_excludesRecentJobs() {
     persist(newPendingJob());
 
-    var candidates = store().findJobsForArchiving(Instant.now().minusSeconds(3600), 10);
+    var candidates = archiveStore().findJobsForArchiving(Instant.now().minusSeconds(3600), 10);
 
     assertTrue(
         candidates.isEmpty(),
@@ -102,8 +103,8 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
     persist(newPendingJob());
 
     Instant cutoff = Instant.now().minusSeconds(3600);
-    long count = store().countJobsForArchiving(cutoff);
-    var candidates = store().findJobsForArchiving(cutoff, 100);
+    long count = archiveStore().countJobsForArchiving(cutoff);
+    var candidates = archiveStore().findJobsForArchiving(cutoff, 100);
 
     assertEquals(
         count, candidates.size(), "countJobsForArchiving and findJobsForArchiving should agree");
@@ -112,9 +113,9 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   @Test
   void purgeArchivedJobs_removesOldArchives() {
     var job = completeJob(persist(newPendingJob()));
-    var archived = store().archiveJob(job, "purge-test", "tck");
+    var archived = archiveStore().archiveJob(job, "purge-test", "tck");
 
-    int purged = store().purgeArchivedJobs(archived.getArchivedAt().plusMillis(1));
+    int purged = archiveStore().purgeArchivedJobs(archived.getArchivedAt().plusMillis(1));
 
     assertTrue(purged >= 1, "purgeArchivedJobs should remove the archived record");
   }
@@ -124,14 +125,14 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
     var job1 = newPendingJob();
     job1.setBusinessKey("bk-archive-1");
     job1 = completeJob(persist(job1));
-    store().archiveJob(job1, "test", "tck");
+    archiveStore().archiveJob(job1, "test", "tck");
 
     var job2 = newPendingJob();
     job2.setBusinessKey("bk-archive-2");
     job2 = completeJob(persist(job2));
-    store().archiveJob(job2, "test", "tck");
+    archiveStore().archiveJob(job2, "test", "tck");
 
-    var results = store().findArchivedJobs(null, "bk-archive-1", null, null, 10);
+    var results = archiveStore().findArchivedJobs(null, "bk-archive-1", null, null, 10);
 
     assertEquals(1, results.size(), "findArchivedJobs should filter by businessKey");
     assertEquals("bk-archive-1", results.get(0).getBusinessKey());
@@ -139,7 +140,7 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
 
   @Test
   void findArchivedJobs_emptyStore_returnsEmptyList() {
-    var results = store().findArchivedJobs(null, null, null, null, 10);
+    var results = archiveStore().findArchivedJobs(null, null, null, null, 10);
 
     assertTrue(results.isEmpty(), "findArchivedJobs on empty store should return empty list");
   }

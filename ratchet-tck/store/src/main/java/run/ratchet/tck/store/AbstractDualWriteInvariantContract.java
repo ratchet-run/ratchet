@@ -135,14 +135,14 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     String bk = uniqueBusinessKey();
     JobEntity job = persist(jobWithBusinessKey(bk));
 
-    long pendingBefore = store().countJobsByStatus(JobStatus.PENDING);
-    long succeededBefore = store().countJobsByStatus(JobStatus.SUCCEEDED);
+    long pendingBefore = analyticsStore().countJobsByStatus(JobStatus.PENDING);
+    long succeededBefore = analyticsStore().countJobsByStatus(JobStatus.SUCCEEDED);
 
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobSucceededMinimal(job.getId(), Instant.now(), Instant.now(), 0L, 0L);
 
-    long pendingAfter = store().countJobsByStatus(JobStatus.PENDING);
-    long succeededAfter = store().countJobsByStatus(JobStatus.SUCCEEDED);
+    long pendingAfter = analyticsStore().countJobsByStatus(JobStatus.PENDING);
+    long succeededAfter = analyticsStore().countJobsByStatus(JobStatus.SUCCEEDED);
 
     assertEquals(
         pendingBefore - 1,

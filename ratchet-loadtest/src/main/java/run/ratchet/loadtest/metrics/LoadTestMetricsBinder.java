@@ -23,12 +23,14 @@ import jakarta.inject.Inject;
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
 import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobAnalyticsStore;
+import run.ratchet.store.spi.JobStore;
 
 @ApplicationScoped
 public class LoadTestMetricsBinder {
 
-  @Inject JobCrudStore jobStore;
+  @Inject JobStore jobStore;
+  @Inject JobAnalyticsStore analyticsStore;
   @Inject MeterRegistry registry;
 
   private volatile boolean bound;
@@ -47,7 +49,7 @@ public class LoadTestMetricsBinder {
   }
 
   private void bindGauges() {
-    Gauge.builder("ratchet.store.nodes.active", jobStore, JobCrudStore::countActiveNodes)
+    Gauge.builder("ratchet.store.nodes.active", jobStore, JobStore::countActiveNodes)
         .description("Registered Ratchet scheduler nodes")
         .register(registry);
 
@@ -59,12 +61,14 @@ public class LoadTestMetricsBinder {
         .register(registry);
 
     Gauge.builder(
-            "ratchet.store.jobs.ready", jobStore, store -> store.countReadyJobs(Instant.now()))
+            "ratchet.store.jobs.ready",
+            analyticsStore,
+            store -> store.countReadyJobs(Instant.now()))
         .description("Jobs ready to be claimed")
         .register(registry);
 
     for (JobStatus status : JobStatus.values()) {
-      Gauge.builder("ratchet.store.jobs", jobStore, store -> store.countJobsByStatus(status))
+      Gauge.builder("ratchet.store.jobs", analyticsStore, store -> store.countJobsByStatus(status))
           .tag("status", status.name())
           .description("Jobs by persisted status")
           .register(registry);
@@ -72,7 +76,7 @@ public class LoadTestMetricsBinder {
 
     Gauge.builder(
             "ratchet.signal.waiting_count",
-            jobStore,
+            analyticsStore,
             store -> store.countJobsByStatus(JobStatus.WAITING))
         .description("Signal-waiting jobs currently blocked on an external signal")
         .register(registry);

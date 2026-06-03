@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
@@ -219,6 +220,50 @@ public class DefaultJobSchedulerService
   }
 
   @Inject
+  DefaultJobSchedulerService(
+      InternalEventPublisher eventPublisher,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobPauseStore jobPauseStore,
+      JobRetryStore jobRetryStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      Instance<BatchStore> batchStore,
+      TagStore tagStore,
+      Instance<WorkflowConditionStore> workflowConditionStore,
+      Instance<RecurringJobStore> recurringJobStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      DefaultJobCreationService jobCreationService,
+      CallerPrincipalProvider callerPrincipalProvider,
+      JobAuthorizationPolicy authorizationPolicy,
+      Instance<SignalStore> signalStore,
+      PayloadSerializer payloadSerializer,
+      MetricsCollector metricsCollector,
+      Clock clock) {
+    this(
+        eventPublisher,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore.isResolvable() ? batchStore.get() : null,
+        tagStore,
+        workflowConditionStore.isResolvable() ? workflowConditionStore.get() : null,
+        recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        jobCreationService,
+        callerPrincipalProvider,
+        authorizationPolicy,
+        signalStore.isResolvable() ? signalStore.get() : null,
+        payloadSerializer,
+        metricsCollector,
+        clock);
+  }
+
   DefaultJobSchedulerService(
       InternalEventPublisher eventPublisher,
       JobBatchStatusStore jobBatchStatusStore,
@@ -655,6 +700,10 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public int cancelRecurringJobsByTag(String tag) {
+    if (recurringJobStore == null) {
+      // No RecurringJobStore capability: there are no recurring jobs to cancel.
+      return 0;
+    }
     int count = recurringJobStore.cancelRecurringJobsByTag(tag);
     if (count > 0) {
       publishBulkCancelledEvent(tag, count);
@@ -672,12 +721,20 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public int cancelRecurringJobByBusinessKey(String businessKey) {
+    if (recurringJobStore == null) {
+      // No RecurringJobStore capability: there are no recurring jobs to cancel.
+      return 0;
+    }
     return recurringJobStore.cancelRecurringJobByBusinessKey(businessKey) ? 1 : 0;
   }
 
   @Transactional
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
+    if (recurringJobStore == null) {
+      // No RecurringJobStore capability: no annotation-driven recurring masters were ever created.
+      return 0;
+    }
     return recurringJobStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 

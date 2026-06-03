@@ -57,7 +57,8 @@ class MysqlBatchStoreContractTest extends AbstractBatchStoreContract {
     fixture.corruptProgressHook(parent.getId());
 
     assertThrows(
-        IllegalArgumentException.class, () -> store().incrementCompletedAtomic(parent.getId()));
+        IllegalArgumentException.class,
+        () -> batchStore().incrementCompletedAtomic(parent.getId()));
   }
 
   @Test
@@ -69,15 +70,15 @@ class MysqlBatchStoreContractTest extends AbstractBatchStoreContract {
 
     Runnable[] tasks = new Runnable[completedCount + failedCount];
     for (int i = 0; i < completedCount; i++) {
-      tasks[i] = () -> store().incrementCompletedAtomic(parent.getId());
+      tasks[i] = () -> batchStore().incrementCompletedAtomic(parent.getId());
     }
     for (int i = completedCount; i < tasks.length; i++) {
-      tasks[i] = () -> store().incrementFailedAtomic(parent.getId());
+      tasks[i] = () -> batchStore().incrementFailedAtomic(parent.getId());
     }
 
     ConcurrentTestRunner.runAll(Duration.ofSeconds(10), tasks);
 
-    var batch = store().findBatchById(parent.getId()).orElseThrow();
+    var batch = batchStore().findBatchById(parent.getId()).orElseThrow();
     assertEquals(completedCount, batch.getCompletedItems());
     assertEquals(failedCount, batch.getFailedItems());
   }

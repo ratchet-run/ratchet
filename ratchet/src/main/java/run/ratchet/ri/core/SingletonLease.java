@@ -32,8 +32,14 @@ public final class SingletonLease implements AutoCloseable {
   private final String ownerNode;
   private final AtomicBoolean closed = new AtomicBoolean();
 
+  /**
+   * @param lockStore the backing distributed lock, or {@code null} for a no-op lease. A {@code
+   *     null} store models a deployment whose store does not advertise the {@code LockStore}
+   *     capability: the lease is perpetually held by this node (single-node semantics, no
+   *     cluster-wide coordination), so leased work still runs.
+   */
   public SingletonLease(LockStore lockStore, String name, String ownerNode) {
-    this.lockStore = Objects.requireNonNull(lockStore, "lockStore must not be null");
+    this.lockStore = lockStore;
     this.name = Objects.requireNonNull(name, "name must not be null");
     this.ownerNode = Objects.requireNonNull(ownerNode, "ownerNode must not be null");
   }
@@ -51,12 +57,16 @@ public final class SingletonLease implements AutoCloseable {
     if (closed.get()) {
       return false;
     }
-    return lockStore.renewLock(name, extension, ownerNode);
+    // A no-op lease (no LockStore) is always considered renewed while open.
+    return lockStore == null || lockStore.renewLock(name, extension, ownerNode);
   }
 
   @Override
   public void close() {
     if (!closed.compareAndSet(false, true)) {
+      return;
+    }
+    if (lockStore == null) {
       return;
     }
 

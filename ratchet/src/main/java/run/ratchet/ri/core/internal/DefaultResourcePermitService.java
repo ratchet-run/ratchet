@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.List;
 import java.util.UUID;
@@ -51,6 +52,19 @@ public class DefaultResourcePermitService implements ResourcePermitService {
 
   @Inject
   public DefaultResourcePermitService(
+      Instance<ResourcePermitStore> resourcePermitStore, PollerScheduler pollerScheduler) {
+    this.resourcePermitStore =
+        resourcePermitStore.isResolvable() ? resourcePermitStore.get() : null;
+    this.pollerScheduler = pollerScheduler;
+    if (this.resourcePermitStore == null) {
+      log.info(
+          "ResourcePermitStore capability not advertised by the store — resource concurrency"
+              + " gating is disabled (permits always granted)");
+    }
+  }
+
+  /** Constructor for tests that supply a store directly (or {@code null} to disable gating). */
+  public DefaultResourcePermitService(
       ResourcePermitStore resourcePermitStore, PollerScheduler pollerScheduler) {
     this.resourcePermitStore = resourcePermitStore;
     this.pollerScheduler = pollerScheduler;
@@ -66,6 +80,10 @@ public class DefaultResourcePermitService implements ResourcePermitService {
    */
   @Override
   public boolean tryAcquire(String resourceName, UUID jobId, String nodeId) {
+    if (resourcePermitStore == null) {
+      // No permit store: gating disabled, so every acquisition succeeds (unbounded concurrency).
+      return true;
+    }
     boolean acquired = resourcePermitStore.tryAcquirePermit(resourceName, jobId, nodeId);
     if (acquired) {
       log.debugf("Job %s acquired permit for resource %s", jobId, resourceName);
@@ -87,8 +105,10 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   @Override
   public void release(String resourceName, UUID jobId) {
     try {
-      resourcePermitStore.releasePermit(resourceName, jobId);
-      log.debugf("Job %s released permit for resource %s", jobId, resourceName);
+      if (resourcePermitStore != null) {
+        resourcePermitStore.releasePermit(resourceName, jobId);
+        log.debugf("Job %s released permit for resource %s", jobId, resourceName);
+      }
     } finally {
       pollerScheduler.wakeup();
     }
@@ -103,7 +123,9 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   @Override
   public void releaseAll(UUID jobId) {
     try {
-      resourcePermitStore.releaseAllPermits(jobId);
+      if (resourcePermitStore != null) {
+        resourcePermitStore.releaseAllPermits(jobId);
+      }
     } finally {
       pollerScheduler.wakeup();
     }
@@ -114,12 +136,18 @@ public class DefaultResourcePermitService implements ResourcePermitService {
    */
   @Override
   public int getRetryDelay(String resourceName) {
+    if (resourcePermitStore == null) {
+      return 5000;
+    }
     return resourcePermitStore.getPermitRetryDelay(resourceName);
   }
 
   @Override
   public void configureResource(
       String resourceName, int maxConcurrent, int retryDelayMs, String description) {
+    if (resourcePermitStore == null) {
+      return;
+    }
     resourcePermitStore.configureResource(resourceName, maxConcurrent, retryDelayMs, description);
     log.infof(
         "Configured resource %s with max=%s, retryDelay=%sms",
@@ -129,7 +157,7 @@ public class DefaultResourcePermitService implements ResourcePermitService {
   /** Call periodically, e.g. during node heartbeat. */
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
-    if (staleNodeIds == null || staleNodeIds.isEmpty()) {
+    if (resourcePermitStore == null || staleNodeIds == null || staleNodeIds.isEmpty()) {
       return 0;
     }
 

@@ -188,7 +188,7 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
 
     for (int i = 0; i < measured; i++) {
       long start = System.nanoTime();
-      jobCrudStore.countReadyJobs(now);
+      jobAnalyticsStore.countReadyJobs(now);
       long elapsed = System.nanoTime() - start;
       pollTimes[i] = elapsed / 1_000_000;
     }

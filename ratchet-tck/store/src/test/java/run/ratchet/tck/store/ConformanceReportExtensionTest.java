@@ -99,7 +99,10 @@ class ConformanceReportExtensionTest {
   void conformanceLevel_coreContractsAreRecognized() {
     assertEquals(
         ConformanceLevel.CORE, ConformanceLevel.forContract("AbstractJobCrudStoreContract"));
-    assertEquals(ConformanceLevel.CORE, ConformanceLevel.forContract("AbstractLockStoreContract"));
+    assertEquals(ConformanceLevel.CORE, ConformanceLevel.forContract("AbstractNodeStoreContract"));
+    // LockStore is an optional capability, not a core primitive — it lives in the Advanced tier.
+    assertEquals(
+        ConformanceLevel.ADVANCED, ConformanceLevel.forContract("AbstractLockStoreContract"));
   }
 
   @Test

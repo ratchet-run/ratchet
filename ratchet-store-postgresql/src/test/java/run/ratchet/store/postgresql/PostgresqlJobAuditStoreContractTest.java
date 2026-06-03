@@ -17,9 +17,9 @@ package run.ratchet.store.postgresql;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractJobLogStoreContract;
+import run.ratchet.tck.store.AbstractJobAuditStoreContract;
 
-class PostgresqlJobLogStoreContractTest extends AbstractJobLogStoreContract {
+class PostgresqlJobAuditStoreContractTest extends AbstractJobAuditStoreContract {
 
   private final PostgresqlTestFixture fixture = new PostgresqlTestFixture();
 

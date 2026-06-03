@@ -63,11 +63,11 @@ class MongoJobQueryStoreContractTest extends AbstractJobQueryStoreContract {
     }
 
     List<UUID> expectedIds =
-        store().searchJobs(JobFilter.builder().build(), 2, 1).stream()
+        queryStore().searchJobs(JobFilter.builder().build(), 2, 1).stream()
             .map(JobEntity::getId)
             .toList();
     List<UUID> actualIds =
-        store().searchJobs(JobFilter.builder().cursor("not-base64").build(), 2, 1).stream()
+        queryStore().searchJobs(JobFilter.builder().cursor("not-base64").build(), 2, 1).stream()
             .map(JobEntity::getId)
             .toList();
 

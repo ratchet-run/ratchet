@@ -15,31 +15,21 @@
  */
 package run.ratchet.store.postgresql;
 
-import run.ratchet.store.entity.JobEntity;
+import jakarta.persistence.EntityManager;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractBatchMetricsStoreContract;
+import run.ratchet.tck.store.CoreOnlyStoreView;
 
-class PostgresqlBatchMetricsStoreContractTest extends AbstractBatchMetricsStoreContract {
-
-  private final PostgresqlTestFixture fixture = new PostgresqlTestFixture();
-
-  @Override
-  public JobStore store() {
-    return fixture.store();
-  }
-
-  @Override
-  public JobEntity newPendingJob() {
-    return fixture.newPendingJob();
-  }
+/**
+ * PostgreSQL fixture whose store advertises only the mandatory core contract. The real PostgreSQL
+ * store implements every capability; this fixture hides them behind {@link CoreOnlyStoreView} so
+ * the conformance suite sees a store that supports core lifecycle and crash recovery but no
+ * optional capability.
+ */
+public class PostgresqlCoreOnlyTestFixture extends PostgresqlTestFixture {
 
   @Override
-  public JobEntity newBatchParentJob() {
-    return fixture.newBatchParentJob();
-  }
-
-  @Override
-  public void cleanupStore() {
-    fixture.cleanupStore();
+  protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
+    return CoreOnlyStoreView.of(super.createStore(em, metrics));
   }
 }

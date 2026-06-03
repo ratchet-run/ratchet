@@ -239,67 +239,65 @@ UUID id = UuidV7Factory.create();
 
 ## JobStore SPI
 
-The `JobStore` interface is a marker that composes the store SPIs used by the RI. Store implementations (MySQL, PostgreSQL, MongoDB, or your own backend) implement that full surface through one CDI bean.
+The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by additionally implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, and MongoDB stores advertise every capability.
 
 ```java
 public interface JobStore
     extends JobCrudStore,
-            JobQueryStore,
             JobClaimStore,
             JobTerminalStore,
             JobRetryStore,
             JobPauseStore,
             JobBatchStatusStore,
             JobBulkStore,
-            BatchStore,
-            LockStore,
             NodeStore,
-            ArchiveStore,
-            ExecutionStore,
-            JobLogStore,
-            TagStore,
-            WorkflowConditionStore,
-            BatchMetricsStore,
-            DlqAlertStore,
-            ResourcePermitStore,
-            SignalStore {
-    // Marker interface — all methods inherited from sub-interfaces
+            TagStore {
+
+    // Probe for an optional capability this store may also implement.
+    default <T> Optional<T> capability(Class<T> type) {
+        return type.isInstance(this) ? Optional.of(type.cast(this)) : Optional.empty();
+    }
 }
 ```
 
-### Sub-Interface Responsibilities
+### Core Interface Responsibilities (mandatory)
 
 | Interface | Responsibility |
 |-----------|---------------|
 | `JobCrudStore` | Create, read, update, delete individual jobs |
-| `JobQueryStore` | Read-only list/detail/history/queue-health queries |
 | `JobClaimStore` | Atomic batch claiming (`SKIP LOCKED` for SQL stores, atomic updates for MongoDB) |
 | `JobTerminalStore` | Terminal success, failure, and cancellation transitions |
 | `JobRetryStore` | Retry scheduling and attempt-state updates |
 | `JobPauseStore` | Pause and resume transitions |
-| `JobBatchStatusStore` | Non-terminal status, pickup, orphan, and recurring-cancel operations |
+| `JobBatchStatusStore` | Non-terminal status, pickup, and orphan operations |
 | `JobBulkStore` | Bulk operations (DLQ purge, batch insert) |
-| `BatchStore` | Batch parent/child management, progress tracking |
-| `LockStore` | Distributed lock acquisition and release |
-| `NodeStore` | Node registration and heartbeat |
-| `ArchiveStore` | Job archival to the archive table/collection |
-| `ExecutionStore` | Execution history recording |
-| `JobLogStore` | Structured job log storage |
-| `TagStore` | Tag-based job queries |
-| `WorkflowConditionStore` | Workflow condition persistence and retrieval |
-| `BatchMetricsStore` | Batch-level metrics and progress |
-| `DlqAlertStore` | DLQ alert audit trail and deduplication |
-| `ResourcePermitStore` | Resource permit acquisition and release |
-| `SignalStore` | Atomic signal delivery, signal-timeout scans, and signal-event lookup |
+| `NodeStore` | Node registration, heartbeat, and crash recovery |
+| `TagStore` | Job tag writes |
 
-### Why Sub-Interfaces?
+### Optional Capability Responsibilities
+
+| Capability | Responsibility |
+|-----------|---------------|
+| `RecurringJobStore` | Recurring-master persistence (claim, advance, cancel/archive) |
+| `BatchStore` | Batch parent/child management, progress tracking, and metrics |
+| `WorkflowConditionStore` | Workflow condition persistence and retrieval |
+| `SignalStore` | Atomic signal delivery, signal-timeout scans, and signal-event lookup |
+| `ResourcePermitStore` | Resource permit acquisition and release |
+| `LockStore` | Distributed lock acquisition and release |
+| `ArchiveStore` | Job archival to the archive table/collection |
+| `JobQueryStore` | Read-only list/detail/queue-health queries and tag lookups |
+| `JobAnalyticsStore` | Aggregate counts, rate statistics, and percentile metrics |
+| `JobAuditStore` | Execution history recording and structured job log storage |
+| `DlqAlertStore` | DLQ alert audit trail and deduplication |
+
+### Why a Core-Plus-Capabilities Split?
 
 The decomposition serves multiple purposes:
 
-1. **TCK modularity:** Future TCK versions can test sub-interfaces independently
-2. **Cognitive load:** Each interface has a focused, understandable contract
-3. **Dependency injection:** RI services depend only on the sub-interfaces they need (e.g., `Poller` depends on `JobClaimStore`, not the full `JobStore`)
-4. **Alternative implementations:** A NoSQL store might implement `JobCrudStore` and `JobClaimStore` differently while reusing other sub-interface implementations
+1. **No forced surface:** A store implements only what its backend can support. An in-memory test double or a Redis backend can ship the core and skip archiving, analytics, or distributed locks.
+2. **Conditional conformance:** The TCK reports a capability contract as `N/A` for a store that does not advertise it, so a core-only store stays conformant rather than failing for absent features.
+3. **Cognitive load:** Each interface has a focused, understandable contract.
+4. **Dependency injection:** RI services depend only on the interfaces they need (e.g. `Poller` depends on `JobClaimStore`, not the full `JobStore`), and resolve optional capabilities through a nullable `Instance<T>`.
 
 ## Constraint Detection
 

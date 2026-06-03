@@ -627,17 +627,17 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
-    return tags.countJobsByStatusForTag(tag);
+    return jobs.countJobsByStatusForTag(tag);
   }
 
   @Override
   public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
-    return tags.countJobsByParamForTag(tag, paramKey);
+    return jobs.countJobsByParamForTag(tag, paramKey);
   }
 
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
-    return tags.countJobsByExecutionNodeForTag(tag);
+    return jobs.countJobsByExecutionNodeForTag(tag);
   }
 
   @Override
@@ -819,7 +819,8 @@ class MysqlJobStoreImpl implements MysqlJobStore {
             reads,
             new MysqlJobCountOperations(ctx),
             new MysqlJobDeleteOperations(ctx, reservations),
-            new MysqlJobWriteOperations(ctx, reservations, tags));
+            new MysqlJobWriteOperations(ctx, reservations, tags),
+            tags);
     query = new MysqlJobQueryOperations(ctx, mapper, tags);
     batches = new MysqlBatchOperations(ctx);
     claims = new MysqlJobClaimOperations(ctx, jobs);

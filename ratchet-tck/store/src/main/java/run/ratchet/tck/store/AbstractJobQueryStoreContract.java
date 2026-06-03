@@ -61,7 +61,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob());
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().statuses(JobStatus.PENDING).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().statuses(JobStatus.PENDING).build(), 100, 0);
 
     assertFalse(results.isEmpty(), "searchByStatus(PENDING) should return results");
     results.forEach(
@@ -74,7 +74,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob());
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().statuses(JobStatus.CANCELED).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().statuses(JobStatus.CANCELED).build(), 100, 0);
 
     assertTrue(
         results.isEmpty(),
@@ -89,7 +89,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     var b = persist(running);
 
     List<JobEntity> results =
-        store()
+        queryStore()
             .searchJobs(
                 JobFilter.builder().statuses(JobStatus.PENDING, JobStatus.RUNNING).build(), 100, 0);
 
@@ -111,7 +111,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(normal);
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().priorities(JobPriority.HIGH).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().priorities(JobPriority.HIGH).build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
     assertTrue(
@@ -134,7 +134,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     UUID batchId = batch.getId();
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().types(JobType.BATCH).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().types(JobType.BATCH).build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
     assertTrue(ids.contains(batchId), "Filter by BATCH type should return the batch parent job");
@@ -145,7 +145,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob());
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().types(JobType.WORKFLOW).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().types(JobType.WORKFLOW).build(), 100, 0);
 
     assertTrue(
         results.isEmpty(),
@@ -165,7 +165,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(b);
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().businessKey("order-42").build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().businessKey("order-42").build(), 100, 0);
 
     assertEquals(1, results.size(), "Business key filter should return exactly one match");
     assertEquals(
@@ -177,7 +177,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob());
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().businessKey("nonexistent-key").build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().businessKey("nonexistent-key").build(), 100, 0);
 
     assertTrue(results.isEmpty(), "Business key filter with no match should return empty");
   }
@@ -190,7 +190,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob("shipping"));
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().tags("billing").build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().tags("billing").build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
     assertTrue(ids.contains(tagged.getId()), "Tag filter should return the tagged job");
@@ -202,9 +202,80 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob("billing"));
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().tags("nonexistent-tag").build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().tags("nonexistent-tag").build(), 100, 0);
 
     assertTrue(results.isEmpty(), "Tag filter with no match should return empty");
+  }
+
+  // ── Tag id lookup (findJobIdsByTag) ────────────────────────────────────
+
+  @Test
+  void findJobIdsByTag_respectsPagination() {
+    var first = persist(newPendingJob());
+    var second = persist(newPendingJob());
+    var third = persist(newPendingJob());
+
+    store().insertTags(first.getId(), List.of("shared"));
+    store().insertTags(second.getId(), List.of("shared"));
+    store().insertTags(third.getId(), List.of("shared"));
+
+    List<UUID> page1 = queryStore().findJobIdsByTag("shared", 2, 0);
+    List<UUID> page2 = queryStore().findJobIdsByTag("shared", 2, 2);
+
+    assertEquals(2, page1.size(), "First page should contain 2 results");
+    assertEquals(1, page2.size(), "Second page should contain 1 result");
+    assertTrue(
+        page1.stream().noneMatch(page2::contains),
+        "Second page should contain ids not returned on the first page");
+    assertEquals(
+        List.of(first.getId(), second.getId(), third.getId()).stream()
+            .filter(page2::contains)
+            .count(),
+        page2.size(),
+        "Second page should contain one of the remaining tagged jobs");
+  }
+
+  @Test
+  void findJobIdsByTag_returnsDeterministicIdOrder() {
+    var third = newPendingJob();
+    third.setId(new UUID(0L, 3L));
+    store().create(third);
+
+    var first = newPendingJob();
+    first.setId(new UUID(0L, 1L));
+    store().create(first);
+
+    var second = newPendingJob();
+    second.setId(new UUID(0L, 2L));
+    store().create(second);
+
+    store().insertTags(third.getId(), List.of("ordered-tag"));
+    store().insertTags(first.getId(), List.of("ordered-tag"));
+    store().insertTags(second.getId(), List.of("ordered-tag"));
+
+    assertEquals(
+        List.of(first.getId(), second.getId(), third.getId()),
+        queryStore().findJobIdsByTag("ordered-tag", 10, 0),
+        "tag scans should return deterministic ascending job IDs");
+  }
+
+  @Test
+  void findJobIdsByTag_unknownTag_returnsEmpty() {
+    List<UUID> ids = queryStore().findJobIdsByTag("nonexistent-tag", 10, 0);
+
+    assertTrue(ids.isEmpty(), "findJobIdsByTag with unknown tag should return empty");
+  }
+
+  @Test
+  void findJobIdsByTag_paginationOffset_skipsRows() {
+    for (int i = 0; i < 5; i++) {
+      var job = persist(newPendingJob());
+      store().insertTags(job.getId(), List.of("offset-tag"));
+    }
+
+    List<UUID> page = queryStore().findJobIdsByTag("offset-tag", 10, 3);
+
+    assertEquals(2, page.size(), "Offset 3 with 5 total should return 2 results");
   }
 
   // ── Caller principal filtering ─────────────────────────────────────────
@@ -220,7 +291,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(other);
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().callerPrincipal("alice").build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().callerPrincipal("alice").build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
     assertTrue(ids.contains(owned.getId()), "CallerPrincipal filter should return alice's job");
@@ -237,7 +308,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     recent = persist(recent);
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().createdAfter(cutoff).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().createdAfter(cutoff).build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
     assertTrue(
@@ -250,7 +321,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob());
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().createdBefore(pastCutoff).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().createdBefore(pastCutoff).build(), 100, 0);
 
     assertTrue(
         results.isEmpty(),
@@ -265,7 +336,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       persist(newPendingJob());
     }
 
-    List<JobEntity> page = store().searchJobs(JobFilter.builder().build(), 2, 0);
+    List<JobEntity> page = queryStore().searchJobs(JobFilter.builder().build(), 2, 0);
 
     assertEquals(2, page.size(), "Limit 2 offset 0 should return 2 results");
   }
@@ -276,8 +347,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       persist(newPendingJob());
     }
 
-    List<JobEntity> page1 = store().searchJobs(JobFilter.builder().build(), 3, 0);
-    List<JobEntity> page2 = store().searchJobs(JobFilter.builder().build(), 3, 3);
+    List<JobEntity> page1 = queryStore().searchJobs(JobFilter.builder().build(), 3, 0);
+    List<JobEntity> page2 = queryStore().searchJobs(JobFilter.builder().build(), 3, 3);
 
     assertFalse(
         page1.stream().anyMatch(j -> page2.stream().anyMatch(k -> k.getId().equals(j.getId()))),
@@ -293,8 +364,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     }
     JobFilter filter = JobFilter.builder().statuses(JobStatus.PENDING).build();
 
-    long count = store().countJobs(filter);
-    List<JobEntity> all = store().searchJobs(filter, 1000, 0);
+    long count = queryStore().countJobs(filter);
+    List<JobEntity> all = queryStore().searchJobs(filter, 1000, 0);
 
     assertEquals(all.size(), count, "countJobs must equal the full result set size");
   }
@@ -305,7 +376,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob());
     persist(newPendingJob());
 
-    List<JobEntity> results = store().searchJobs(JobFilter.builder().build(), 1000, 0);
+    List<JobEntity> results = queryStore().searchJobs(JobFilter.builder().build(), 1000, 0);
 
     assertTrue(results.size() >= 3, "Empty filter should return all persisted jobs");
   }
@@ -313,7 +384,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   @Test
   void searchWithNoMatchingFilter_returnsEmpty() {
     List<JobEntity> results =
-        store()
+        queryStore()
             .searchJobs(JobFilter.builder().businessKey("absolutely-nonexistent").build(), 100, 0);
 
     assertTrue(results.isEmpty(), "Filter matching nothing should return empty list");
@@ -323,7 +394,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   void countJobs_noMatchingFilter_returnsZero() {
     persist(newPendingJob());
 
-    long count = store().countJobs(JobFilter.builder().businessKey("no-such-key").build());
+    long count = queryStore().countJobs(JobFilter.builder().businessKey("no-such-key").build());
 
     assertEquals(0L, count, "countJobs with no matching filter should return 0");
   }
@@ -338,7 +409,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     JobFilter filter =
         JobFilter.builder().sortField(JobQuerySortField.CREATED_AT).sortAscending(true).build();
 
-    List<JobEntity> results = store().searchJobs(filter, 100, 0);
+    List<JobEntity> results = queryStore().searchJobs(filter, 100, 0);
 
     assertTrue(results.size() >= 2, "Should return multiple results for ordering check");
     for (int i = 1; i < results.size(); i++) {
@@ -363,7 +434,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     JobFilter filter =
         JobFilter.builder().sortField(JobQuerySortField.PRIORITY).sortAscending(false).build();
 
-    List<JobEntity> results = store().searchJobs(filter, 100, 0);
+    List<JobEntity> results = queryStore().searchJobs(filter, 100, 0);
 
     assertTrue(results.size() >= 2, "Should return at least 2 results for ordering check");
     for (int i = 1; i < results.size(); i++) {
@@ -387,7 +458,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob()); // no trace context
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().traceCorrelationId(traceparent).build(), 100, 0);
+        queryStore()
+            .searchJobs(JobFilter.builder().traceCorrelationId(traceparent).build(), 100, 0);
 
     assertFalse(results.isEmpty(), "traceCorrelationId filter should return the traced job");
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
@@ -403,7 +475,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(traced);
 
     List<JobEntity> results =
-        store()
+        queryStore()
             .searchJobs(
                 JobFilter.builder().traceCorrelationId("00-xxxxxx-yyyyyy-01").build(), 100, 0);
 
@@ -420,8 +492,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       persist(newPendingJob());
     }
 
-    List<JobEntity> page1 = store().searchJobs(JobFilter.builder().build(), 3, 0);
-    List<JobEntity> page2 = store().searchJobs(JobFilter.builder().build(), 3, 3);
+    List<JobEntity> page1 = queryStore().searchJobs(JobFilter.builder().build(), 3, 0);
+    List<JobEntity> page2 = queryStore().searchJobs(JobFilter.builder().build(), 3, 3);
 
     List<UUID> allIds = new ArrayList<>();
     page1.forEach(j -> allIds.add(j.getId()));
@@ -448,7 +520,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob());
     persist(newPendingJob());
 
-    long count = store().countJobs(JobFilter.builder().statuses(JobStatus.PENDING).build());
+    long count = queryStore().countJobs(JobFilter.builder().statuses(JobStatus.PENDING).build());
 
     assertTrue(count >= 3, "countJobs should return at least 3 for 3 persisted PENDING jobs");
   }
@@ -466,7 +538,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob());
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().parentJobId(parent.getId()).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().parentJobId(parent.getId()).build(), 100, 0);
 
     assertEquals(1, results.size(), "parentJobId filter should return only direct dependants");
     assertEquals(child.getId(), results.get(0).getId(), "Returned job should be the child job");
@@ -480,7 +552,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     UUID archivedId = archiveOnly(newPendingJob());
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().includeArchived(true).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().includeArchived(true).build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
     assertTrue(ids.contains(live.getId()), "includeArchived search must still return live jobs");
@@ -498,7 +570,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     UUID archivedId = archiveOnly(pending);
 
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().includeArchived(true).build(), 100, 0);
+        queryStore().searchJobs(JobFilter.builder().includeArchived(true).build(), 100, 0);
 
     JobEntity archived =
         results.stream()
@@ -532,7 +604,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     UUID archivedHigh = archiveOnly(high);
 
     List<JobEntity> results =
-        store()
+        queryStore()
             .searchJobs(
                 JobFilter.builder()
                     .includeArchived(true)
@@ -561,7 +633,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     UUID archivedNewer = archiveOnly(newPendingJob());
 
     List<JobEntity> results =
-        store()
+        queryStore()
             .searchJobs(
                 JobFilter.builder()
                     .includeArchived(true)
@@ -608,7 +680,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       if (cursor != null) {
         builder.cursor(cursor);
       }
-      List<JobEntity> pageRows = store().searchJobs(builder.build(), pageSize, 0);
+      List<JobEntity> pageRows = queryStore().searchJobs(builder.build(), pageSize, 0);
       if (pageRows.isEmpty()) {
         break;
       }
@@ -670,12 +742,12 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
             .build();
 
     List<UUID> baseline =
-        store().searchJobs(priorityNoCursor, 100, 0).stream()
+        queryStore().searchJobs(priorityNoCursor, 100, 0).stream()
             .map(JobEntity::getId)
             .filter(mine::contains)
             .toList();
     List<UUID> withStaleCursor =
-        store().searchJobs(priorityStaleCursor, 100, 0).stream()
+        queryStore().searchJobs(priorityStaleCursor, 100, 0).stream()
             .map(JobEntity::getId)
             .filter(mine::contains)
             .toList();
@@ -697,7 +769,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     store()
         .markJobSucceeded(id, null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
     JobEntity completed = store().findById(id).orElseThrow();
-    store().archiveJob(completed, "tck-archive-search", "tck");
+    archiveStore().archiveJob(completed, "tck-archive-search", "tck");
     store().deleteJobsByIds(List.of(id));
     return id;
   }

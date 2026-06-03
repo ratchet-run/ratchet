@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.Objects;
@@ -40,7 +41,19 @@ public class SingletonLeaseService {
   }
 
   @Inject
-  public SingletonLeaseService(LockStore lockStore, NodeIdentityProvider nodeIdentityProvider) {
+  public SingletonLeaseService(
+      Instance<LockStore> lockStore, NodeIdentityProvider nodeIdentityProvider) {
+    this.lockStore = lockStore.isResolvable() ? lockStore.get() : null;
+    this.nodeIdentityProvider = nodeIdentityProvider;
+    if (this.lockStore == null) {
+      log.info(
+          "LockStore capability not advertised by the store — singleton leases degrade to"
+              + " single-node semantics (always granted, no cluster-wide coordination)");
+    }
+  }
+
+  /** Constructor for tests that supply a lock store directly (or {@code null} for no-op leases). */
+  SingletonLeaseService(LockStore lockStore, NodeIdentityProvider nodeIdentityProvider) {
     this.lockStore = lockStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
   }
@@ -65,6 +78,11 @@ public class SingletonLeaseService {
     requirePositiveDuration(ttl, "ttl");
 
     String nodeId = nodeIdentityProvider.getNodeId();
+    if (lockStore == null) {
+      // No distributed lock available: grant a perpetually-held no-op lease so leased work (e.g.
+      // orphan recovery, which is core) still runs on this node.
+      return Optional.of(new SingletonLease(null, normalizedName, nodeId));
+    }
     try {
       if (!lockStore.tryLock(normalizedName, ttl, nodeId)) {
         return Optional.empty();

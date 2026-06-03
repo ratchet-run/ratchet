@@ -25,25 +25,29 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 
-final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
+final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAnalyticsStore {
 
   private final PostgresqlJobReadOperations reads;
   private final PostgresqlJobCountOperations counts;
   private final PostgresqlJobDeleteOperations deletes;
   private final PostgresqlJobWriteOperations writes;
+  private final PostgresqlTagOperations tags;
 
   PostgresqlJobCrudOperations(
       PostgresqlJobReadOperations reads,
       PostgresqlJobCountOperations counts,
       PostgresqlJobDeleteOperations deletes,
-      PostgresqlJobWriteOperations writes) {
+      PostgresqlJobWriteOperations writes,
+      PostgresqlTagOperations tags) {
     this.reads = reads;
     this.counts = counts;
     this.deletes = deletes;
     this.writes = writes;
+    this.tags = tags;
   }
 
   @Override
@@ -225,5 +229,20 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   @Override
   public int resetOrphanJobsForNode(String nodeId) {
     return deletes.resetOrphanJobsForNode(nodeId);
+  }
+
+  @Override
+  public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+    return tags.countJobsByStatusForTag(tag);
+  }
+
+  @Override
+  public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+    return tags.countJobsByParamForTag(tag, paramKey);
+  }
+
+  @Override
+  public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+    return tags.countJobsByExecutionNodeForTag(tag);
   }
 }

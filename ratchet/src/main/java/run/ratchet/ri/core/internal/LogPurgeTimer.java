@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Duration;
@@ -30,7 +31,7 @@ import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.spi.JobLogStore;
+import run.ratchet.store.spi.JobAuditStore;
 
 /**
  * Periodically purges old job execution logs to prevent unbounded table growth. Uses a singleton
@@ -43,7 +44,7 @@ public class LogPurgeTimer {
   private static final String LEASE_NAME = "logPurger";
   private static final Duration LEASE_TTL = Duration.ofMinutes(10);
 
-  private final JobLogStore jobLogStore;
+  private final JobAuditStore jobLogStore;
   private final SingletonLeaseService singletonLeaseService;
   private final ExecutorProvider executorProvider;
   private final Clock clock;
@@ -62,7 +63,7 @@ public class LogPurgeTimer {
   }
 
   public LogPurgeTimer(
-      JobLogStore jobLogStore,
+      JobAuditStore jobLogStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider) {
     this(jobLogStore, singletonLeaseService, executorProvider, Clock.systemUTC());
@@ -70,7 +71,19 @@ public class LogPurgeTimer {
 
   @Inject
   public LogPurgeTimer(
-      JobLogStore jobLogStore,
+      Instance<JobAuditStore> jobLogStore,
+      SingletonLeaseService singletonLeaseService,
+      ExecutorProvider executorProvider,
+      Clock clock) {
+    this(
+        jobLogStore.isResolvable() ? jobLogStore.get() : null,
+        singletonLeaseService,
+        executorProvider,
+        clock);
+  }
+
+  LogPurgeTimer(
+      JobAuditStore jobLogStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider,
       Clock clock) {
@@ -81,7 +94,12 @@ public class LogPurgeTimer {
   }
 
   public void init(long retentionDays, Cron cronExpression) {
-    if (jobLogStore == null || singletonLeaseService == null || executorProvider == null) {
+    if (jobLogStore == null) {
+      log.info(
+          "JobAuditStore capability not advertised by the store — log purge timer is disabled");
+      return;
+    }
+    if (singletonLeaseService == null || executorProvider == null) {
       throw new IllegalStateException("LogPurgeTimer dependencies are not initialized");
     }
 

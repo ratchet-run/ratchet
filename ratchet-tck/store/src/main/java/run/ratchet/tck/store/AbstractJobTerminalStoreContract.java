@@ -94,7 +94,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     var reloaded = store().findById(saved.getId()).orElseThrow();
     assertEquals(JobStatus.SUCCEEDED, reloaded.getStatus());
     assertNotNull(reloaded.getJobResult(), "Result JSON should be persisted");
-    assertEquals(1, store().findBatchById(parent.getId()).orElseThrow().getCompletedItems());
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getCompletedItems());
   }
 
   @Test

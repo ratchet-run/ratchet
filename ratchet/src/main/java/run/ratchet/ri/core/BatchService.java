@@ -49,7 +49,6 @@ import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -71,7 +70,6 @@ public class BatchService {
   private final JobCrudStore jobCrudStore;
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobTerminalStore jobTerminalStore;
-  private final BatchMetricsStore metricsStore;
   private final MetricsCollector metricsCollector;
   private final InternalEventPublisher eventPublisher;
   private final WorkflowScheduler workflowScheduler;
@@ -87,7 +85,6 @@ public class BatchService {
     this.jobCrudStore = null;
     this.jobBatchStatusStore = null;
     this.jobTerminalStore = null;
-    this.metricsStore = null;
     this.metricsCollector = null;
     this.eventPublisher = null;
     this.workflowScheduler = null;
@@ -102,7 +99,6 @@ public class BatchService {
       JobCrudStore jobCrudStore,
       JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
-      BatchMetricsStore metricsStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
       WorkflowScheduler workflowScheduler,
@@ -113,7 +109,6 @@ public class BatchService {
         jobCrudStore,
         jobBatchStatusStore,
         jobTerminalStore,
-        metricsStore,
         metricsCollector,
         eventPublisher,
         workflowScheduler,
@@ -125,11 +120,36 @@ public class BatchService {
 
   @Inject
   public BatchService(
+      Instance<BatchStore> batchStore,
+      JobCrudStore jobCrudStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      MetricsCollector metricsCollector,
+      InternalEventPublisher eventPublisher,
+      WorkflowScheduler workflowScheduler,
+      ClassPolicy classPolicy,
+      BeanResolver beanResolver,
+      Clock clock,
+      Instance<BatchService> self) {
+    this(
+        batchStore.isResolvable() ? batchStore.get() : null,
+        jobCrudStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
+        metricsCollector,
+        eventPublisher,
+        workflowScheduler,
+        classPolicy,
+        beanResolver,
+        clock,
+        self);
+  }
+
+  BatchService(
       BatchStore batchStore,
       JobCrudStore jobCrudStore,
       JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
-      BatchMetricsStore metricsStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
       WorkflowScheduler workflowScheduler,
@@ -141,7 +161,6 @@ public class BatchService {
     this.jobCrudStore = jobCrudStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
-    this.metricsStore = metricsStore;
     this.metricsCollector = metricsCollector;
     this.eventPublisher = eventPublisher;
     this.workflowScheduler = workflowScheduler;
@@ -156,7 +175,6 @@ public class BatchService {
       JobCrudStore jobCrudStore,
       JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
-      BatchMetricsStore metricsStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
       WorkflowScheduler workflowScheduler,
@@ -168,7 +186,6 @@ public class BatchService {
         jobCrudStore,
         jobBatchStatusStore,
         jobTerminalStore,
-        metricsStore,
         metricsCollector,
         eventPublisher,
         workflowScheduler,
@@ -200,6 +217,10 @@ public class BatchService {
    */
   @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public int recoverStuckBatches() {
+    if (batchStore == null) {
+      // No BatchStore capability: batch fan-out is unavailable, so there are no batches to recover.
+      return 0;
+    }
     List<UUID> recoverableIds = batchStore.findRecoverableBatchIds(100);
     if (recoverableIds.isEmpty()) {
       return 0;
@@ -326,10 +347,10 @@ public class BatchService {
     }
     parent.setStatus(terminalStatus);
 
-    metricsStore.finalizeBatchMetrics(parentId);
+    batchStore.finalizeBatchMetrics(parentId);
 
     Long totalDurationMs =
-        metricsStore
+        batchStore
             .findBatchMetrics(parentId)
             .map(BatchMetricsEntity::getTotalDurationMs)
             .orElse(null);
@@ -512,7 +533,7 @@ public class BatchService {
     }
 
     if (jobSuccessful && child.getExecutionDurationMs() != null) {
-      metricsStore.addChildExecutionTime(parentId, child.getExecutionDurationMs());
+      batchStore.addChildExecutionTime(parentId, child.getExecutionDurationMs());
     }
 
     BatchProgress progress;

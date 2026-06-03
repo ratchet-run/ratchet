@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
@@ -92,6 +93,20 @@ public class DefaultJobArchivingService implements JobArchivingService {
   @Inject
   public DefaultJobArchivingService(
       JobBulkStore jobBulkStore,
+      Instance<ArchiveStore> archiveStore,
+      SingletonLeaseService singletonLeaseService,
+      ExecutorProvider executorProvider,
+      Clock clock) {
+    this(
+        jobBulkStore,
+        archiveStore.isResolvable() ? archiveStore.get() : null,
+        singletonLeaseService,
+        executorProvider,
+        clock);
+  }
+
+  DefaultJobArchivingService(
+      JobBulkStore jobBulkStore,
       ArchiveStore archiveStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider,
@@ -123,6 +138,12 @@ public class DefaultJobArchivingService implements JobArchivingService {
    */
   @Override
   public void init(boolean enabled, long retentionDays, int batchSize, Cron cronExpression) {
+    if (archiveStore == null) {
+      this.enabled = false;
+      log.info("ArchiveStore capability not advertised by the store — job archiving is disabled");
+      return;
+    }
+
     this.enabled = enabled;
 
     if (!enabled) {

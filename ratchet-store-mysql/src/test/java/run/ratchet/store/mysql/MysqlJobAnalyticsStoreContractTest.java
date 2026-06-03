@@ -13,22 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.store.mongodb;
+package run.ratchet.store.mysql;
 
-import org.junit.jupiter.api.AfterAll;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractBatchMetricsStoreContract;
+import run.ratchet.tck.store.AbstractJobAnalyticsStoreContract;
 
-/** MongoDB contract test for {@code BatchMetricsStore} operations. */
-class MongoBatchMetricsStoreContractTest extends AbstractBatchMetricsStoreContract {
+class MysqlJobAnalyticsStoreContractTest extends AbstractJobAnalyticsStoreContract {
 
-  private static final MongoTestFixture fixture = new MongoTestFixture();
-
-  @AfterAll
-  static void closeFixture() {
-    fixture.close();
-  }
+  private final MysqlTestFixture fixture = new MysqlTestFixture();
 
   @Override
   public JobStore store() {

@@ -22,12 +22,14 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import run.ratchet.api.JobStatus;
 import run.ratchet.showcase.service.OrderRepository;
+import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobCrudStore;
 
 @ApplicationScoped
 public class ShowcaseMetricsBinder {
 
   @Inject JobCrudStore jobStore;
+  @Inject JobAnalyticsStore analyticsStore;
   @Inject MeterRegistry registry;
   @Inject OrderRepository orders;
 
@@ -62,7 +64,7 @@ public class ShowcaseMetricsBinder {
         .description("Registered Ratchet scheduler nodes")
         .register(registry);
     for (JobStatus status : JobStatus.values()) {
-      Gauge.builder("ratchet.store.jobs", jobStore, store -> store.countJobsByStatus(status))
+      Gauge.builder("ratchet.store.jobs", analyticsStore, store -> store.countJobsByStatus(status))
           .tag("status", status.name())
           .description("Jobs by persisted status")
           .register(registry);

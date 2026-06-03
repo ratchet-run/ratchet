@@ -195,11 +195,18 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
         if (r == null) {
           // Optional contract not run: applies only to runtimes that support the capability.
           pw.printf("| `%s` | — | — | — | — | ⚪ N/A |%n", contractName);
+        } else if (r.passed == 0 && r.failed == 0) {
+          // Selected but every case aborted: the store does not advertise this optional capability,
+          // so the fixture accessor threw TestAbortedException for each case. That makes the whole
+          // contract not-applicable, not a failure — report N/A like a contract that never ran.
+          pw.printf(
+              "| `%s` | %d | %d | %d | %d | ⚪ N/A |%n",
+              contractName, r.total(), r.passed, r.failed, r.aborted);
         } else {
           // Aborted tests are JUnit assumption-skips (a contract may skip a case a fixture cannot
           // surface, e.g. optimistic-lock failures on a standalone document store). They are
           // neutral, not failures. A contract conforms when at least one case verified and none
-          // failed; an all-skipped contract still does not pass.
+          // failed.
           boolean passed = r.failed == 0 && r.passed > 0;
           if (!passed) counts[2]++;
           pw.printf(

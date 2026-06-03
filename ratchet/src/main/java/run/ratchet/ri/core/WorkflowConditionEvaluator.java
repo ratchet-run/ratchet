@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -60,6 +61,19 @@ public class WorkflowConditionEvaluator {
 
   @Inject
   public WorkflowConditionEvaluator(
+      Instance<BatchStore> batchStore,
+      BeanResolver beanResolver,
+      ClassPolicy classPolicy,
+      PayloadSerializer payloadSerializer) {
+    this(
+        batchStore.isResolvable() ? batchStore.get() : null,
+        beanResolver,
+        classPolicy,
+        payloadSerializer);
+  }
+
+  /** Constructor for tests that supply a store directly (or {@code null} for no batch support). */
+  WorkflowConditionEvaluator(
       BatchStore batchStore,
       BeanResolver beanResolver,
       ClassPolicy classPolicy,
@@ -97,7 +111,7 @@ public class WorkflowConditionEvaluator {
   }
 
   private Optional<BatchEntity> getBatchForParent(JobEntity parentJob) {
-    if (parentJob.getJobType() != JobExecutionType.BATCH_PARENT) {
+    if (batchStore == null || parentJob.getJobType() != JobExecutionType.BATCH_PARENT) {
       return Optional.empty();
     }
     return batchStore.findBatchById(parentJob.getId());

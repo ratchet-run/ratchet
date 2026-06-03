@@ -16,12 +16,36 @@
 package run.ratchet.store.spi;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 
-/** Per-job log storage operations. */
+/** Execution-history and per-job log recording operations. */
 @Incubating
-public interface JobLogStore {
+public interface JobAuditStore {
+
+  int DEFAULT_PAGE_LIMIT = 100;
+
+  /** Saves one execution record. Transaction attribute: {@code REQUIRED}. */
+  JobExecutionEntity saveExecution(JobExecutionEntity execution);
+
+  /**
+   * Returns a page of execution records for a job, ordered by attempt ascending.
+   *
+   * @param limit maximum number of rows to return; {@code 0} returns an empty page
+   * @param offset number of matching rows to skip
+   *     <p>Transaction attribute: {@code SUPPORTS}.
+   */
+  List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset);
+
+  /** Finds the latest execution for one job. Transaction attribute: {@code SUPPORTS}. */
+  Optional<JobExecutionEntity> findLatestExecution(UUID jobId);
+
+  /** Counts execution attempts for one job. Transaction attribute: {@code SUPPORTS}. */
+  int countExecutionAttempts(UUID jobId);
 
   /**
    * Appends one per-job log line.

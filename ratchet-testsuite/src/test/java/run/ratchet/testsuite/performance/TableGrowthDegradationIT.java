@@ -143,7 +143,7 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
   private void assertClaimQueriesUseIndexes(String sizeKey) {
     Instant now = Instant.now();
     perfHelper.assertNoFullScan(
-        "countReadyJobs @ " + sizeKey, () -> jobCrudStore.countReadyJobs(now));
+        "countReadyJobs @ " + sizeKey, () -> jobAnalyticsStore.countReadyJobs(now));
 
     perfHelper.assertNoFullScan(
         "claimNextBatch @ " + sizeKey,
@@ -152,7 +152,7 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
 
   private long measureClaimQueryLatency(int iterations) {
     Instant now = Instant.now();
-    long[] times = measureQueryTimes(iterations, () -> jobCrudStore.countReadyJobs(now));
+    long[] times = measureQueryTimes(iterations, () -> jobAnalyticsStore.countReadyJobs(now));
 
     long[] percentiles = computePercentiles(times, 0.99);
     return percentiles[0];

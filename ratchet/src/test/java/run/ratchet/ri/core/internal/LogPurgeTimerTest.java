@@ -44,7 +44,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.spi.JobLogStore;
+import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.LockStore;
 
 @ExtendWith(MockitoExtension.class)
@@ -56,7 +56,7 @@ class LogPurgeTimerTest {
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
   private static final String DAILY_CRON = "0 0 2 * * ?";
 
-  @Mock private JobLogStore jobLogStore;
+  @Mock private JobAuditStore jobLogStore;
   @Mock private SingletonLeaseService singletonLeaseService;
   @Mock private ExecutorProvider executorProvider;
   @Mock private ScheduledExecutorService scheduledExecutor;

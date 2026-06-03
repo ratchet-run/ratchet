@@ -14,7 +14,7 @@ compatibility.
 
 | Tier | Module | What it proves |
 |------|--------|----------------|
-| **Store Compatible** | `ratchet-tck-store` | The `JobStore` SPI implementation correctly persists, queries, and manages job state across 22 required contracts (plus 4 SQL-only optional) covering CRUD, locking, lifecycle, archival, and schema conformance |
+| **Store Compatible** | `ratchet-tck-store` | The `JobStore` SPI implementation correctly persists, queries, and manages job state across 11 required core contracts, plus 15 optional capability contracts reported `N/A` when the store does not advertise the capability, covering CRUD, lifecycle, locking, archival, signals, analytics, and schema conformance |
 | **API Compatible** | `ratchet-tck-api` | The `JobSchedulerService` API implementation correctly handles job submission, lifecycle, retry, cancel, delayed scheduling, and idempotency without a Jakarta EE container |
 | **Jakarta Runtime Compatible** | `ratchet-tck-api` + `ratchet-tck-jakarta` | The runtime passes both API contracts and CDI injection, CDI event, and JTA transaction contracts in a live Jakarta EE container |
 
@@ -24,8 +24,9 @@ tiers on a published matrix of servers and databases.
 ## Store Conformance Reports
 
 The reports below are generated automatically during CI from the test runs of each store module.
-Each report lists every store contract with its pass/fail/missing status, grouped by Core,
-Behavioral, and Advanced categories.
+Each report lists every store contract with its pass/fail/missing/N/A status, grouped by Core,
+Behavioral, and Advanced categories. An optional capability contract is reported `N/A` when the
+store under test does not advertise that capability.
 
 | Store | Report |
 |-------|--------|

@@ -45,10 +45,10 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
 
     WorkflowConditionEntity condition = newCondition(parent.getId(), child.getId());
 
-    var saved = store().saveCondition(condition);
+    var saved = workflowConditionStore().saveCondition(condition);
     assertNotNull(saved.getId(), "Saved condition should have an assigned ID");
 
-    var reloaded = store().findConditionById(saved.getId());
+    var reloaded = workflowConditionStore().findConditionById(saved.getId());
     assertNotNull(reloaded, "findConditionById should return the persisted condition");
     assertEquals(saved.getId(), reloaded.getId());
     assertEquals(parent.getId(), reloaded.getParentJobId());
@@ -62,13 +62,13 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var childB = persist(newPendingJob());
 
     WorkflowConditionEntity first = newCondition(parent.getId(), childA.getId());
-    store().saveCondition(first);
+    workflowConditionStore().saveCondition(first);
 
     WorkflowConditionEntity second =
         newCondition(parent.getId(), childB.getId(), WorkflowCondition.ConditionType.FAILURE, 1);
-    store().saveCondition(second);
+    workflowConditionStore().saveCondition(second);
 
-    var conditions = store().findConditionsByParentJobId(parent.getId());
+    var conditions = workflowConditionStore().findConditionsByParentJobId(parent.getId());
     assertEquals(2, conditions.size(), "findConditionsByParentJobId should return both conditions");
   }
 
@@ -79,21 +79,21 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var highPriorityChild = persist(newPendingJob());
     var middlePriorityChild = persist(newPendingJob());
 
-    store()
+    workflowConditionStore()
         .saveCondition(
             newCondition(
                 parent.getId(),
                 lowPriorityChild.getId(),
                 WorkflowCondition.ConditionType.SUCCESS,
                 20));
-    store()
+    workflowConditionStore()
         .saveCondition(
             newCondition(
                 parent.getId(),
                 highPriorityChild.getId(),
                 WorkflowCondition.ConditionType.SUCCESS,
                 5));
-    store()
+    workflowConditionStore()
         .saveCondition(
             newCondition(
                 parent.getId(),
@@ -102,7 +102,7 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
                 10));
 
     var orderedChildIds =
-        store().findConditionsByParentJobId(parent.getId()).stream()
+        workflowConditionStore().findConditionsByParentJobId(parent.getId()).stream()
             .map(WorkflowConditionEntity::getChildJobId)
             .toList();
 
@@ -118,13 +118,13 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var child = persist(newPendingJob());
 
     WorkflowConditionEntity condition = newCondition(parent.getId(), child.getId());
-    store().saveCondition(condition);
+    workflowConditionStore().saveCondition(condition);
 
-    store().deleteConditionsByParentJobId(parent.getId());
+    workflowConditionStore().deleteConditionsByParentJobId(parent.getId());
 
     assertEquals(
         0,
-        store().countConditionsByParentJobId(parent.getId()),
+        workflowConditionStore().countConditionsByParentJobId(parent.getId()),
         "All conditions for the parent should be deleted");
   }
 
@@ -134,10 +134,10 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var parent2 = persist(newPendingJob());
     var child = persist(newPendingJob());
 
-    store().saveCondition(newCondition(parent1.getId(), child.getId()));
-    store().saveCondition(newCondition(parent2.getId(), child.getId()));
+    workflowConditionStore().saveCondition(newCondition(parent1.getId(), child.getId()));
+    workflowConditionStore().saveCondition(newCondition(parent2.getId(), child.getId()));
 
-    var conditions = store().findConditionsByChildJobId(child.getId());
+    var conditions = workflowConditionStore().findConditionsByChildJobId(child.getId());
 
     assertEquals(2, conditions.size(), "findConditionsByChildJobId should return both conditions");
   }
@@ -148,14 +148,14 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var lowPriorityParent = persist(newPendingJob());
     var child = persist(newPendingJob());
 
-    store()
+    workflowConditionStore()
         .saveCondition(
             newCondition(
                 lowPriorityParent.getId(),
                 child.getId(),
                 WorkflowCondition.ConditionType.SUCCESS,
                 20));
-    store()
+    workflowConditionStore()
         .saveCondition(
             newCondition(
                 highPriorityParent.getId(),
@@ -164,7 +164,7 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
                 5));
 
     var orderedParentIds =
-        store().findConditionsByChildJobId(child.getId()).stream()
+        workflowConditionStore().findConditionsByChildJobId(child.getId()).stream()
             .map(WorkflowConditionEntity::getParentJobId)
             .toList();
 
@@ -182,14 +182,15 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
 
     WorkflowConditionEntity success = newCondition(parent.getId(), childA.getId());
     success.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
-    store().saveCondition(success);
+    workflowConditionStore().saveCondition(success);
 
     WorkflowConditionEntity failure = newCondition(parent.getId(), childB.getId());
     failure.setConditionType(WorkflowCondition.ConditionType.FAILURE);
-    store().saveCondition(failure);
+    workflowConditionStore().saveCondition(failure);
 
     var successConditions =
-        store().findConditionsByType(parent.getId(), WorkflowCondition.ConditionType.SUCCESS);
+        workflowConditionStore()
+            .findConditionsByType(parent.getId(), WorkflowCondition.ConditionType.SUCCESS);
 
     assertEquals(1, successConditions.size(), "Should return only SUCCESS conditions");
     assertEquals(childA.getId(), successConditions.get(0).getChildJobId());
@@ -201,14 +202,14 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var lowPriorityChild = persist(newPendingJob());
     var highPriorityChild = persist(newPendingJob());
 
-    store()
+    workflowConditionStore()
         .saveCondition(
             newCondition(
                 parent.getId(),
                 lowPriorityChild.getId(),
                 WorkflowCondition.ConditionType.SUCCESS,
                 20));
-    store()
+    workflowConditionStore()
         .saveCondition(
             newCondition(
                 parent.getId(),
@@ -217,7 +218,7 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
                 5));
 
     var orderedChildIds =
-        store()
+        workflowConditionStore()
             .findConditionsByType(parent.getId(), WorkflowCondition.ConditionType.SUCCESS)
             .stream()
             .map(WorkflowConditionEntity::getChildJobId)
@@ -235,14 +236,15 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var childA = persist(newPendingJob());
     var childB = persist(newPendingJob());
 
-    var saved1 = store().saveCondition(newCondition(parent.getId(), childA.getId()));
-    store().saveCondition(newCondition(parent.getId(), childB.getId()));
+    var saved1 =
+        workflowConditionStore().saveCondition(newCondition(parent.getId(), childA.getId()));
+    workflowConditionStore().saveCondition(newCondition(parent.getId(), childB.getId()));
 
-    store().deleteConditionById(saved1.getId());
+    workflowConditionStore().deleteConditionById(saved1.getId());
 
     assertEquals(
         1,
-        store().countConditionsByParentJobId(parent.getId()),
+        workflowConditionStore().countConditionsByParentJobId(parent.getId()),
         "Only one condition should remain after deleting the other");
   }
 
@@ -251,12 +253,12 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var parent = persist(newPendingJob());
     var child = persist(newPendingJob());
 
-    store().saveCondition(newCondition(parent.getId(), child.getId()));
+    workflowConditionStore().saveCondition(newCondition(parent.getId(), child.getId()));
 
-    store().deleteConditionsByChildJobId(child.getId());
+    workflowConditionStore().deleteConditionsByChildJobId(child.getId());
 
     assertTrue(
-        store().findConditionsByChildJobId(child.getId()).isEmpty(),
+        workflowConditionStore().findConditionsByChildJobId(child.getId()).isEmpty(),
         "All conditions for the child should be deleted");
   }
 
@@ -264,18 +266,21 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
   void countConditionsByParentJobId_returnsAccurateCount() {
     var parent = persist(newPendingJob());
 
-    store().saveCondition(newCondition(parent.getId(), persist(newPendingJob()).getId()));
-    store().saveCondition(newCondition(parent.getId(), persist(newPendingJob()).getId()));
-    store().saveCondition(newCondition(parent.getId(), persist(newPendingJob()).getId()));
+    workflowConditionStore()
+        .saveCondition(newCondition(parent.getId(), persist(newPendingJob()).getId()));
+    workflowConditionStore()
+        .saveCondition(newCondition(parent.getId(), persist(newPendingJob()).getId()));
+    workflowConditionStore()
+        .saveCondition(newCondition(parent.getId(), persist(newPendingJob()).getId()));
 
-    long count = store().countConditionsByParentJobId(parent.getId());
+    long count = workflowConditionStore().countConditionsByParentJobId(parent.getId());
 
     assertEquals(3, count, "countConditionsByParentJobId should return 3");
   }
 
   @Test
   void findConditionById_unknownId_returnsNull() {
-    var result = store().findConditionById(new UUID(0L, Long.MAX_VALUE));
+    var result = workflowConditionStore().findConditionById(new UUID(0L, Long.MAX_VALUE));
 
     assertNull(result, "findConditionById with unknown ID should return null");
   }

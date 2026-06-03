@@ -84,12 +84,12 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
         // Warmup queries
         Instant now = Instant.now();
         for (int w = 0; w < 20; w++) {
-          jobCrudStore.countReadyJobs(now);
+          jobAnalyticsStore.countReadyJobs(now);
         }
 
         // Measured queries
         long[] times =
-            measureQueryTimes(iterations, () -> jobCrudStore.countReadyJobs(Instant.now()));
+            measureQueryTimes(iterations, () -> jobAnalyticsStore.countReadyJobs(Instant.now()));
 
         long[] percentiles = computePercentiles(times, 0.50, 0.95, 0.99);
         String sizeKey = formatSizeKey(tableSize);
@@ -127,7 +127,8 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
       if (baselineP99 > 0) {
         long finalP99 =
             computePercentiles(
-                measureQueryTimes(iterations, () -> jobCrudStore.countReadyJobs(Instant.now())),
+                measureQueryTimes(
+                    iterations, () -> jobAnalyticsStore.countReadyJobs(Instant.now())),
                 0.99)[0];
         double degradationRatio = (double) finalP99 / baselineP99;
         log.info(
@@ -144,7 +145,7 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
     try {
       Instant finalNow = Instant.now();
       perfHelper.assertNoFullScan(
-          "countReadyJobs @ " + lastSizeKey, () -> jobCrudStore.countReadyJobs(finalNow));
+          "countReadyJobs @ " + lastSizeKey, () -> jobAnalyticsStore.countReadyJobs(finalNow));
 
       perfHelper.assertNoFullScan(
           "claimNextBatch @ " + lastSizeKey,

@@ -42,7 +42,7 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.spi.JobAuditStore;
 
 @ExtendWith(MockitoExtension.class)
 class ExecutionObserverTest {
@@ -50,7 +50,7 @@ class ExecutionObserverTest {
   @Mock private MetricsCollector metricsCollector;
   @Mock private TracingCollector tracingCollector;
   @Mock private InternalEventPublisher eventPublisher;
-  @Mock private ExecutionStore executionStore;
+  @Mock private JobAuditStore executionStore;
   @Mock private ExecutorProvider executorProvider;
 
   private ExecutionObserver observer;

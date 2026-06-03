@@ -66,7 +66,7 @@ class MongoResourcePermitConfigCheckOrderingTest {
 
     assertThrows(
         IllegalArgumentException.class,
-        () -> fixture.store().tryAcquirePermit(resource, job.getId(), "node-1"),
+        () -> fixture.resourcePermitStore().tryAcquirePermit(resource, job.getId(), "node-1"),
         "an unconfigured resource must fail hard even when a stray permit row already exists");
   }
 }

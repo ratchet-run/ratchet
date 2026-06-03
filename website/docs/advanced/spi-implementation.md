@@ -629,61 +629,68 @@ public record LambdaDescriptor(
 
 ## Store SPI: Custom Persistence
 
-The store layer is the most complex SPI surface in Ratchet. The `JobStore` interface composes the focused store SPIs used by the RI, each handling a specific persistence concern:
+The store layer is the largest SPI surface in Ratchet. The mandatory `JobStore` interface composes only the persistence concerns every conforming store must provide. Capabilities a store may legitimately lack are advertised separately and discovered through a runtime probe, so a minimal backend implements the core and nothing more:
 
 ```java
 public interface JobStore
     extends JobCrudStore,        // Basic CRUD for job entities
-            JobQueryStore,       // Read-only query projections
             JobClaimStore,       // Atomic job claiming for execution
             JobTerminalStore,    // Terminal success/failure/cancel transitions
             JobRetryStore,       // Retry scheduling
             JobPauseStore,       // Pause/resume transitions
             JobBatchStatusStore, // Non-terminal status and batch/orphan operations
             JobBulkStore,        // Bulk operations (orphan recovery, cleanup)
-            BatchStore,          // Batch progress tracking
-            LockStore,           // Distributed locks
-            NodeStore,           // Node registration and heartbeat
-            ArchiveStore,        // Job archiving (completed → archive storage)
-            ExecutionStore,      // Execution history tracking
-            JobLogStore,         // Per-job log persistence
-            TagStore,            // Job tagging
-            WorkflowConditionStore, // Workflow branch conditions
-            BatchMetricsStore,   // Batch-level metrics
-            DlqAlertStore,       // Dead letter queue alerting
-            ResourcePermitStore, // Resource permit management
-            SignalStore,         // Signal-waiting delivery and timeout operations
-            RecurringJobStore    // Recurring-master persistence (claim, advance, cancel/archive)
-{ }
+            NodeStore,           // Node registration, heartbeat, crash recovery
+            TagStore             // Job tag writes
+{
+    // Probe for an optional capability this store may also implement. The default reflects Java
+    // type membership: a store advertises a capability simply by implementing its interface.
+    default <T> Optional<T> capability(Class<T> type) {
+        return type.isInstance(this) ? Optional.of(type.cast(this)) : Optional.empty();
+    }
+}
 ```
 
-Ratchet ships with MySQL, PostgreSQL, and MongoDB implementations. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement `JobStore` and validate it against the TCK.
+A store opts into an optional capability by additionally implementing its interface. Callers never assume a capability is present — they probe for it, and the engine disables the dependent feature when it is absent:
 
-### Store Sub-Interface Summary
+```java
+jobStore.capability(SignalStore.class)
+    .ifPresent(signals -> signals.deliverSignalByKey(key, payload));
+```
+
+Ratchet ships MySQL, PostgreSQL, and MongoDB implementations, all of which advertise every capability. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore` — plus any optional capabilities your backend can support — and validate it against the TCK.
+
+### Core Store Interfaces (mandatory)
 
 | Interface | Responsibility | Key Methods |
 |-----------|---------------|-------------|
 | `JobCrudStore` | Create, read, update, delete jobs | `save()`, `findById()`, `delete()` |
-| `JobQueryStore` | Read-only admin/query projections | `searchJobs()`, `countJobs()` |
 | `JobClaimStore` | Atomic job claiming for execution | `claimNextBatch()`, `claimNextBatchOptimized()` |
 | `JobTerminalStore` | Terminal success, failure, and cancellation transitions | `markJobSucceeded()`, `markJobFailedTerminal()`, `cancelJob()` |
 | `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `incrementRetryAttempt()` |
 | `JobPauseStore` | Pause and resume transitions | `transitionToPaused()`, `transitionFromPausedAtomic()` |
-| `JobBatchStatusStore` | Non-terminal status, pickup, orphan, and recurring-cancel operations | `updateJobStatus()`, `compareAndSwapStatus()`, `resetRunningJobs()` |
+| `JobBatchStatusStore` | Non-terminal status, pickup, and orphan operations | `updateJobStatus()`, `compareAndSwapStatus()`, `resetRunningJobs()` |
 | `JobBulkStore` | Bulk operations | `bulkInsert()`, `resetOrphanJobs()`, `deleteDlqOlderThan()` |
-| `BatchStore` | Batch progress tracking | `saveBatch()`, `incrementCompletedAtomic()`, `incrementFailedAtomic()` |
-| `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
-| `NodeStore` | Node registration and heartbeat | `upsertHeartbeat()`, `findInactiveNodesSince()` |
-| `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedJobs()` |
-| `ExecutionStore` | Execution history | `saveExecution()`, `findExecutionsByJobId()` |
-| `JobLogStore` | Per-job log persistence | `appendLog()`, `purgeLogsOlderThan()` |
-| `TagStore` | Job tagging | `insertTags()`, `findJobIdsByTag()` |
-| `WorkflowConditionStore` | Workflow branch conditions | `saveCondition()`, `findConditionsByParentJobId()` |
-| `BatchMetricsStore` | Batch metrics | `saveBatchMetrics()`, `findBatchMetrics()` |
-| `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `existsRecentDlqAlert()` |
-| `ResourcePermitStore` | Resource permits | `tryAcquirePermit()`, `releasePermit()` |
-| `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
+| `NodeStore` | Node registration, heartbeat, and crash recovery | `upsertHeartbeat()`, `findInactiveNodesSince()` |
+| `TagStore` | Job tag writes | `insertTags()`, `deleteTagsByJobId()` |
+
+### Optional Capabilities
+
+A store advertises each of these by implementing the interface; the engine probes with `capability()` and disables the feature when the capability is absent.
+
+| Capability | Responsibility | Key Methods |
+|-----------|---------------|-------------|
 | `RecurringJobStore` | Recurring-master persistence | `claimDueRecurring()`, `advanceNextFire()`, `cancelRecurringAndArchive()` |
+| `BatchStore` | Batch progress tracking and metrics | `saveBatch()`, `incrementCompletedAtomic()`, `markBatchCompleteIfReady()` |
+| `WorkflowConditionStore` | Workflow branch conditions | `saveCondition()`, `findConditionsByParentJobId()` |
+| `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
+| `ResourcePermitStore` | Resource permits | `tryAcquirePermit()`, `releasePermit()` |
+| `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
+| `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedJobs()` |
+| `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
+| `JobAnalyticsStore` | Aggregate counts, rates, and percentiles | `countJobsByStatus()`, `getQueueWaitTimePercentile()` |
+| `JobAuditStore` | Execution history and per-job logs | `saveExecution()`, `findExecutionsByJobId()`, `appendLog()` |
+| `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `existsRecentDlqAlert()` |
 
 ### Implementing a Custom Store
 
@@ -758,13 +765,15 @@ public class CustomDocumentJobStore implements JobStore {
         return claimed;
     }
 
-    // ... implement the remaining JobStore SPIs
+    // ... implement the remaining core JobStore methods. Add an optional capability only when your
+    // backend supports it — e.g. `implements JobStore, SignalStore` — and the engine will probe
+    // for it through capability(); leave it off and the dependent feature stays disabled.
 }
 ```
 
 ### Validating with the TCK
 
-The published store SPI Technology Compatibility Kit (TCK) provides abstract test contracts for each store sub-interface. To validate your custom store, extend the TCK contracts and provide a `JobStoreContractFixture`:
+The published store SPI Technology Compatibility Kit (TCK) provides abstract test contracts for the core surface and for each optional capability. A capability contract is conditional: it runs against a store that advertises the capability and is reported `N/A` against one that does not, so a core-only store stays conformant. To validate your custom store, extend the TCK contracts and provide a `JobStoreContractFixture`:
 
 ```java
 import run.ratchet.tck.store.JobStoreContractFixture;

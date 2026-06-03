@@ -92,8 +92,7 @@ final class MysqlTagOperations implements TagStore {
     }
   }
 
-  @Override
-  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
+  List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     try {
       // ORDER BY job_id makes the "ordered" contract explicit in the query rather than relying on
       // the (tag, job_id) index returning rows in id order, which a plan change could break.
@@ -113,9 +112,8 @@ final class MysqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+  Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
     try {
       // language=MySQL
       String sql =
@@ -143,9 +141,8 @@ final class MysqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+  Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
     try {
       String jsonPath = toJsonFieldPath(paramKey);
       // language=MySQL
@@ -172,9 +169,8 @@ final class MysqlTagOperations implements TagStore {
     }
   }
 
-  @Override
   @SuppressWarnings("unchecked")
-  public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+  Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
     try {
       // language=MySQL
       String sql =
