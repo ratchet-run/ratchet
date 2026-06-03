@@ -83,6 +83,10 @@ public interface ClusterCoordinator extends AutoCloseable {
 
 If you do not provide a `ClusterCoordinator`, Ratchet still coordinates one-shot claims, recurring scheduler execution, and destructive startup cleanup through the store. Each node simply polls independently, so wakeups are slower.
 
+### First-party coordinator modules
+
+You usually do not implement this SPI yourself. Ratchet ships four coordinator modules — PostgreSQL `LISTEN`/`NOTIFY`, JMS, Hazelcast, and Infinispan — that you enable by adding a dependency, with no `beans.xml` change. See [Cluster Coordinators](/deployment/cluster-coordinators) for setup, configuration, delivery guarantees, failure behavior, and metrics. The examples below show how to build a custom transport when none of the shipped modules fit.
+
 ## StartupCoordinator
 
 `StartupCoordinator` gates destructive startup work behind a store-backed lease:
@@ -137,9 +141,11 @@ public class RedisClusterCoordinator implements ClusterCoordinator {
 
 ### JMS/Messaging-Based Coordinator
 
-For environments that already have a message broker, implement `ClusterCoordinator` over a shared
-topic or channel and invoke the registered listeners from the container-managed consumer when a
-wakeup signal arrives.
+For environments that already have a message broker, use the first-party
+[`ratchet-coordinator-jms`](/deployment/cluster-coordinators) module rather than
+building this by hand. If you need a transport it does not cover, implement
+`ClusterCoordinator` over a shared topic and invoke the registered listeners
+from the container-managed consumer when a wakeup signal arrives.
 
 ## Distributed Locking
 

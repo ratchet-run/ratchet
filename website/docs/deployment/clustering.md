@@ -153,54 +153,11 @@ Normal and low-priority jobs wait for the next poll cycle.
 
 Out of the box, Ratchet uses `NoOpClusterCoordinator`. That is fine for any deployment that can tolerate poll-interval latency for cross-node wakeups, because correctness still comes from the store.
 
-### Example: JGroups Implementation
+### First-party coordinator modules
 
-```java
-@ApplicationScoped
-@Alternative
-@Priority(1000)
-public class JGroupsClusterCoordinator implements ClusterCoordinator {
+To enable push-based wakeups, add one of the first-party coordinator modules — PostgreSQL `LISTEN`/`NOTIFY`, JMS, Hazelcast, or Infinispan/JGroups. They are opt-in by dependency (no `beans.xml` change) and share a common delivery, self-suppression, failure, and metrics contract. See [Cluster Coordinators](/deployment/cluster-coordinators) for setup, configuration, delivery guarantees, and the polling fallback floor.
 
-    private JChannel channel;
-    private final List<Consumer<JobWakeupHint>> listeners =
-        new CopyOnWriteArrayList<>();
-
-    @PostConstruct
-    void init() throws Exception {
-        channel = new JChannel("jgroups-config.xml");
-        channel.setReceiver(new ReceiverAdapter() {
-            @Override
-            public void receive(Message msg) {
-                NodeIdentity sender = new NodeIdentity(msg.getSrc().toString());
-                JobWakeupHint hint = new JobWakeupHint(JobPriority.CRITICAL, sender, null);
-                listeners.forEach(l -> l.accept(hint));
-            }
-        });
-        channel.connect("ratchet-cluster");
-    }
-
-    @Override
-    public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
-        try {
-            channel.send(new ObjectMessage(null, "WAKEUP"));
-        } catch (Exception e) {
-            // Log and continue — wakeup is best-effort
-        }
-    }
-
-    @Override
-    public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
-        listeners.add(listener);
-    }
-
-    @Override
-    public void close() {
-        if (channel != null) {
-            channel.close();
-        }
-    }
-}
-```
+To build your own transport instead, implement the `ClusterCoordinator` SPI — see [Clustering concepts](/concepts/clustering).
 
 ## Priority Boosting
 
