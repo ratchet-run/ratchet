@@ -177,10 +177,17 @@ public interface JobAnalyticsStore {
   /**
    * Returns the queue wait time at the given percentile for succeeded jobs.
    *
+   * <p>The value is computed with <b>discrete nearest-rank</b> semantics (equivalent to SQL {@code
+   * PERCENTILE_DISC}): the result is always an actually-observed {@code queueWaitMs} value, never
+   * an interpolation between two observations. All stores return the same value for the same data.
+   *
    * <p>Transaction attribute: {@code SUPPORTS}.
    *
    * @param percentile a fraction in the range [0.0, 1.0], e.g. 0.95 for p95
    * @return queue wait time in milliseconds at the requested percentile, or 0 if no data
+   * @throws IllegalArgumentException if {@code percentile} is {@code NaN} or outside [0.0, 1.0].
+   *     All stores reject an out-of-range percentile rather than clamping or passing it to the
+   *     backend.
    */
   long getQueueWaitTimePercentile(double percentile);
 

@@ -315,8 +315,8 @@ final class PostgresqlBatchOperations implements BatchStore {
     try {
       return PayloadSerializerHolder.get().deserialize(jsonValue.toString(), JobPayload.class);
     } catch (IllegalArgumentException e) {
-      log.warn("Bad progress_hook JSON", e);
-      return null;
+      log.warn("Failed to deserialize stored batch progress hook payload", e);
+      throw new IllegalArgumentException("JobPayload deserialization error", e);
     }
   }
 

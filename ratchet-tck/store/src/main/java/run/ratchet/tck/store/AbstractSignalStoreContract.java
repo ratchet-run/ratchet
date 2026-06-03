@@ -18,6 +18,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -220,6 +221,20 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     List<JobEntity> timedOut = signalStore().findTimedOutSignalJobs(Instant.now(), 2);
 
     assertEquals(2, timedOut.size(), "timeout scan must honor the requested batch limit");
+  }
+
+  @Test
+  void findTimedOutSignalJobs_nonPositiveLimit_throws() {
+    // Every store rejects a non-positive limit identically (no silent clamp to 1), so callers see
+    // the same IllegalArgumentException regardless of backend.
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> signalStore().findTimedOutSignalJobs(Instant.now(), 0),
+        "limit == 0 must be rejected, not clamped");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> signalStore().findTimedOutSignalJobs(Instant.now(), -5),
+        "negative limit must be rejected");
   }
 
   @Test

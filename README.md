@@ -26,6 +26,18 @@ Ratchet gives Jakarta EE 10/11 applications a clean, annotation-driven API for b
 | **Concurrency** | Permit-based backpressure, adaptive polling, resource limiting |
 | **CDI Integration** | Zero-ceremony wiring — inject `JobSchedulerService` and go |
 
+## Showcase App
+
+Ratchet includes `ratchet-showcase`, a runnable Jakarta EE WAR with an order-fulfillment dashboard that demonstrates live workflow chains, conditional fraud-review signals, retries, resource limits, queue health, job details, and Prometheus metrics.
+
+With PostgreSQL running locally, start the WildFly showcase at `/app/`:
+
+```bash
+POSTGRES_PORT=5432 mvn -pl ratchet-showcase -P wildfly-managed,postgresql -DskipTests -Dshowcase.http.port=4176 -Dshowcase.context.path=/app -Dwildfly.management.port=19993 -Dwildfly.https.port=18446 exec:exec@run-showcase
+```
+
+Then open `http://127.0.0.1:4176/app/`. See [`ratchet-showcase/README.md`](./ratchet-showcase/README.md) for Payara, Open Liberty, GlassFish, MySQL, and MongoDB variants.
+
 ## Quick Start
 
 ### 1. Add Dependencies
@@ -327,6 +339,7 @@ flowchart TD
 | `ratchet-coordinator-hazelcast` | Hazelcast topic-backed wakeup notifications for Hazelcast clusters | ratchet-coordinator-common, Hazelcast client (provided) |
 | `ratchet-micrometer` | Micrometer metrics adapter | ratchet-api, Micrometer |
 | `ratchet-otel` | OpenTelemetry-based `TracingCollector` implementation (incubating; not yet in the BOM) | ratchet-api, OpenTelemetry API |
+| `ratchet-showcase` | Runnable order-fulfillment dashboard demonstrating workflows, signals, retries, resource limits, and Micrometer metrics | ratchet, store modules, ratchet-micrometer, Jakarta EE Web APIs |
 | `ratchet-tck` | Aggregator (pom-packaging) for the four TCK submodules below | — |
 | `ratchet-tck-util` | JUnit-only helpers shared across TCK modules | JUnit 5 |
 | `ratchet-tck-store` | Store SPI conformance — CRUD, claiming, status transitions, archiving, batches, locks | ratchet-store-core, ratchet-tck-util, JUnit 5 |

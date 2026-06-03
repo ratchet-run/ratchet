@@ -48,3 +48,6 @@ website/static/javadoc/
 qodana.sarif.json
 .qodana/
 .env
+
+# Load-test profiling run output (large JFR + captures)
+infra/loadtest/profiling-out/

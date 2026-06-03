@@ -109,9 +109,13 @@ The default implementation does nothing -- wakeup notifications are only deliver
 
 With the no-op coordinator, jobs submitted on Node A will be picked up by Node B at the next natural poll cycle. The adaptive polling algorithm ensures this happens within seconds during active periods, or up to 60 seconds during deep idle.
 
-### Implementing a ClusterCoordinator
+### First-party coordinator modules
 
-You can implement `ClusterCoordinator` using any messaging technology available in your environment:
+For push-based wakeups you normally do not write any code: add one of the shipped coordinator modules (PostgreSQL `LISTEN`/`NOTIFY`, JMS, Hazelcast, or Infinispan) and it activates by dependency. See the [Cluster Coordinators](/deployment/cluster-coordinators) operator guide for setup, delivery guarantees, and the polling fallback floor.
+
+### Implementing a custom ClusterCoordinator
+
+When none of the shipped modules fit, you can implement `ClusterCoordinator` using any messaging technology available in your environment:
 
 **JMS-based (Jakarta EE native):** publish a best-effort wakeup message to a shared topic and
 invoke registered listeners from a message-driven bean or other container-managed consumer.

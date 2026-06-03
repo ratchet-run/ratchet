@@ -30,6 +30,7 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.util.JobWriteSupport;
 import run.ratchet.store.util.RowValues;
 
 final class PostgresqlJobWriteOperations {
@@ -234,8 +235,8 @@ final class PostgresqlJobWriteOperations {
     q.setParameter(i++, job.getBackoffPolicy().name());
     q.setParameter(i++, job.getBackoffParamMs());
     q.setParameter(i++, job.getTimeoutSec());
-    q.setParameter(i++, job.getCronExpr() == null ? "" : job.getCronExpr());
-    q.setParameter(i++, job.getZoneId() == null ? "UTC" : job.getZoneId());
+    q.setParameter(i++, JobWriteSupport.coerceCronExpr(job.getCronExpr()));
+    q.setParameter(i++, JobWriteSupport.coerceZoneId(job.getZoneId()));
     q.setParameter(i++, PostgresqlJobRowMapper.payloadToJson(job));
     q.setParameter(i++, PostgresqlJobRowMapper.paramsToJson(job));
     q.setParameter(i++, job.getIdempotencyKey());

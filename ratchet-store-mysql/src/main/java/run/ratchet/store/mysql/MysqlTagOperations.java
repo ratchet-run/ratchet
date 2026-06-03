@@ -94,8 +94,11 @@ final class MysqlTagOperations implements TagStore {
 
   List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     try {
+      // ORDER BY job_id makes the "ordered" contract explicit in the query rather than relying on
+      // the (tag, job_id) index returning rows in id order, which a plan change could break.
       // language=MySQL
-      String sql = "SELECT job_id FROM scheduler_job_tag WHERE tag = ? LIMIT ? OFFSET ?";
+      String sql =
+          "SELECT job_id FROM scheduler_job_tag WHERE tag = ? ORDER BY job_id LIMIT ? OFFSET ?";
       List<?> rows =
           ctx.em()
               .createNativeQuery(sql)
@@ -184,8 +187,10 @@ final class MysqlTagOperations implements TagStore {
               JOIN scheduler_job_tag t ON t.job_id = c2.job_id
               JOIN scheduler_job_execution e ON e.job_id = c2.job_id
               WHERE t.tag = ? AND c2.terminal_status IS NOT NULL
-                AND e.id = (SELECT MAX(e2.id) FROM scheduler_job_execution e2
-                            WHERE e2.job_id = c2.job_id)
+                AND e.id = (SELECT e2.id FROM scheduler_job_execution e2
+                            WHERE e2.job_id = c2.job_id
+                            ORDER BY e2.attempt DESC, e2.started_at DESC, e2.id DESC
+                            LIMIT 1)
                 AND e.node_id IS NOT NULL AND e.node_id <> ''
               GROUP BY e.node_id
           ) u GROUP BY node ORDER BY node

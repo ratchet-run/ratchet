@@ -40,6 +40,8 @@ public interface SignalStore {
    * @param limit maximum number of jobs to return; must be positive
    * @return expired WAITING jobs, never null
    *     <p>Transaction attribute: {@code SUPPORTS}.
+   * @throws IllegalArgumentException if {@code limit} is not positive ({@code limit <= 0}). All
+   *     stores reject a non-positive limit rather than clamping, so callers see identical behavior.
    * @throws RuntimeException when the store cannot read timed-out signal jobs
    */
   List<JobEntity> findTimedOutSignalJobs(Instant now, int limit);
