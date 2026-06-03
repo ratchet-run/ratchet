@@ -46,24 +46,4 @@ public final class StatusClassifier {
   public static JobStatus effectiveStatus(JobStatus status) {
     return status == null ? JobStatus.PENDING : status;
   }
-
-  public static String recStatusForLiveStatus(JobStatus status) {
-    if (status == JobStatus.PENDING) {
-      return "P";
-    }
-    if (status == JobStatus.PAUSED) {
-      return "A";
-    }
-    return null;
-  }
-
-  public static JobStatus recStatusDecode(String value) {
-    if ("P".equals(value)) {
-      return JobStatus.PENDING;
-    }
-    if ("A".equals(value)) {
-      return JobStatus.PAUSED;
-    }
-    return null;
-  }
 }
