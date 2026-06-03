@@ -72,6 +72,27 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
   }
 
   @Test
+  void markBatchCompleteIfReady_isIdempotent_andLeavesRecoverableSet() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 2);
+    batchStore().incrementCompletedAtomic(parent.getId());
+    batchStore().incrementCompletedAtomic(parent.getId());
+
+    // First finalization wins and flips completion_processed -> TRUE.
+    assertTrue(batchStore().markBatchCompleteIfReady(parent.getId()));
+
+    // A second call — from the recovery sweep on another node, or a redelivered child completion —
+    // must no-op. The completion_processed = FALSE guard is the only thing stopping a duplicate
+    // BatchCompletedEvent / parent-terminal transition across nodes.
+    assertFalse(
+        batchStore().markBatchCompleteIfReady(parent.getId()),
+        "Second markBatchCompleteIfReady must no-op once completion is processed");
+    assertFalse(
+        batchStore().findRecoverableBatchIds(10).contains(parent.getId()),
+        "Finalized batch must leave the recoverable set so recovery cannot re-finalize it");
+  }
+
+  @Test
   void incrementFailedAtomic_returnsUpdatedSnapshot() {
     var parent = persist(newBatchParentJob());
     persistBatch(parent.getId(), 2);
@@ -240,7 +261,7 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
   }
 
   @Test
-  void finalizeBatchMetrics_isIdempotent() throws InterruptedException {
+  void finalizeBatchMetrics_isIdempotent() {
     var parent = persist(newBatchParentJob());
     persistBatch(parent.getId(), 1);
 
@@ -254,15 +275,25 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
     Instant completedAt = first.getCompletedAt();
     Long totalDurationMs = first.getTotalDurationMs();
     Long overheadMs = first.getOverheadMs();
+    assertNotNull(completedAt, "first finalize must record completedAt");
 
-    Thread.sleep(25);
+    // Mutate an input that feeds overheadMs (overhead = totalDuration - childExecutionMs) BETWEEN
+    // the two finalize calls. A store that re-derives on the second finalize would recompute a
+    // smaller overhead from the now-larger childExecutionMs; a store that honors idempotency leaves
+    // every finalized field at its first-call value. This catches a rewrite without depending on
+    // clock resolution, so a second-truncating store cannot hide the regression behind a rounded
+    // timestamp.
+    batchStore().addChildExecutionTime(parent.getId(), 500L);
     batchStore().finalizeBatchMetrics(parent.getId());
 
     var second = batchStore().findBatchMetrics(parent.getId()).orElseThrow();
     assertEquals(completedAt, second.getCompletedAt(), "completedAt should not be rewritten");
     assertEquals(
         totalDurationMs, second.getTotalDurationMs(), "totalDurationMs should not be rewritten");
-    assertEquals(overheadMs, second.getOverheadMs(), "overheadMs should not be rewritten");
+    assertEquals(
+        overheadMs,
+        second.getOverheadMs(),
+        "overheadMs must stay sticky even after childExecutionMs changes between finalize calls");
   }
 
   @Test

@@ -102,6 +102,45 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
   }
 
   @Test
+  void claimNextBatch_skipsFutureScheduledJobs() {
+    JobEntity due = newPendingJob();
+    due.setScheduledTime(Instant.now().minusSeconds(1));
+    due = persist(due);
+
+    JobEntity future = newPendingJob();
+    future.setScheduledTime(Instant.now().plus(Duration.ofHours(1)));
+    persist(future);
+
+    List<JobEntity> claimed = store().claimNextBatch(10, "node-1");
+
+    assertEquals(1, claimed.size(), "only the due job is claimable");
+    assertEquals(
+        due.getId(),
+        claimed.get(0).getId(),
+        "a job scheduled in the future must not be claimed before its scheduled time");
+  }
+
+  @Test
+  void claimNextBatchOptimized_skipsFutureScheduledJobs() {
+    JobEntity due = newPendingJob();
+    due.setScheduledTime(Instant.now().minusSeconds(1));
+    due = persist(due);
+
+    JobEntity future = newPendingJob();
+    future.setScheduledTime(Instant.now().plus(Duration.ofHours(1)));
+    persist(future);
+
+    List<JobClaimDto> claims =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-1");
+
+    assertEquals(1, claims.size(), "only the due job is claimable");
+    assertEquals(
+        due.getId(),
+        claims.get(0).id(),
+        "a job scheduled in the future must not be claimed before its scheduled time");
+  }
+
+  @Test
   void claimNextBatchOptimized_usesAgeBoostedEffectivePriority() {
     JobEntity oldLow = newPendingJob();
     oldLow.setPriority(JobPriority.LOWEST);

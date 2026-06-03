@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -240,6 +241,14 @@ class SubmissionFailureHandlerTest {
     assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
     assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
     assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
+
+    // Every rejection releases the permit and wakes the poller; the claim is offered to the retry
+    // buffer each time, and only the two calls where the buffer refused fall through to a state
+    // reset. Pinning the counts proves which recovery branch ran instead of merely "did not throw".
+    verify(pool, times(3)).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler, times(3)).wakeup();
+    verify(retryBufferManager, times(3)).offer(claim);
+    verify(jobStateManager, times(2)).resetJobToPending(claimJobId);
   }
 
   @Test

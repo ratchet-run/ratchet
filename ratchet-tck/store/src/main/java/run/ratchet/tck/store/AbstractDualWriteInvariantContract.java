@@ -89,7 +89,9 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
         store().findActiveByBusinessKey(bk).isEmpty(),
         "Business key should be released after terminal FAILED");
 
-    persist(jobWithBusinessKey(bk));
+    JobEntity second = persist(jobWithBusinessKey(bk));
+    assertNotNull(second.getId(), "Re-enqueue with the same business key should succeed");
+    assertEquals(JobStatus.PENDING, store().getJobStatus(second.getId()));
   }
 
   @Test
@@ -104,7 +106,9 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
         store().findActiveByBusinessKey(bk).isEmpty(),
         "Business key should be released after terminal CANCELED");
 
-    persist(jobWithBusinessKey(bk));
+    JobEntity second = persist(jobWithBusinessKey(bk));
+    assertNotNull(second.getId(), "Re-enqueue with the same business key should succeed");
+    assertEquals(JobStatus.PENDING, store().getJobStatus(second.getId()));
   }
 
   @Test

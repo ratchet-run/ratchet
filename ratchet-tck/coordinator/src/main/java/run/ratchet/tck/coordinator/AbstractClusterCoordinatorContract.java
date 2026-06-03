@@ -152,20 +152,47 @@ public abstract class AbstractClusterCoordinatorContract {
 
   @Test
   void selfNotifyIncrementsSelfSuppressedMetricOrFiltersAtWire() {
-    // Either the receive-side metric increments (transports without a broker-side filter:
-    // PG LISTEN/NOTIFY, Infinispan cache events, Hazelcast topic default), or the broker filters
-    // the message at the wire so it never reaches the receiver (JMS with a node<>id selector).
-    // Both modes satisfy the contract: the listener must not fire. The metric assertion is
-    // expressed as ≥ 0 so a broker-side-filter implementation passes without inflating the count.
+    // Self-suppression is satisfied two ways. Receive-side transports (PG LISTEN/NOTIFY,
+    // Infinispan cache events, Hazelcast topic) deliver the self-broadcast to the receiver, which
+    // drops it and counts ignored_self — selfNotifySuppressed() increments by exactly one. A
+    // broker-side filter (JMS with a node<>id selector) drops the message at the wire so it never
+    // reaches the receiver: the counter stays flat AND no delivery is recorded. Both modes keep the
+    // local listener silent. Anything else — a self-message that arrived and was dispatched, or one
+    // that vanished while also recording a delivery — is a self-suppression defect.
     RecordingWakeupListener listenerA = new RecordingWakeupListener();
     fixture.nodeA().registerWakeupListener(listenerA);
+
+    long suppressedBefore = fixture.metricsA().selfNotifySuppressed();
+    long deliveredBefore = fixture.metricsA().received();
 
     fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
 
     sleepPastLatencyWindow();
     assertTrue(listenerA.received().isEmpty(), "self-notification must not fire local listener");
-    long suppressed = fixture.metricsA().selfNotifySuppressed();
-    assertTrue(suppressed >= 0, "selfNotifySuppressed must be a stable non-negative counter");
+
+    long suppressedAfter = fixture.metricsA().selfNotifySuppressed();
+    long deliveredAfter = fixture.metricsA().received();
+    assertTrue(
+        suppressedAfter >= suppressedBefore,
+        "selfNotifySuppressed must be monotonic; before="
+            + suppressedBefore
+            + " after="
+            + suppressedAfter);
+
+    boolean countedAtReceiver = suppressedAfter == suppressedBefore + 1;
+    boolean filteredAtWire =
+        suppressedAfter == suppressedBefore && deliveredAfter == deliveredBefore;
+    assertTrue(
+        countedAtReceiver || filteredAtWire,
+        "self-notification must be suppressed at the receiver (ignored_self +1) or filtered at the"
+            + " wire (counter flat, no delivery); selfNotifySuppressed "
+            + suppressedBefore
+            + "->"
+            + suppressedAfter
+            + ", delivered "
+            + deliveredBefore
+            + "->"
+            + deliveredAfter);
   }
 
   // ─── Listener isolation ───────────────────────────────────────────────────────

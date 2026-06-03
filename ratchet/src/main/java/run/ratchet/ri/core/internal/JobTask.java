@@ -49,6 +49,7 @@ import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -1053,7 +1054,8 @@ public class JobTask implements Callable<Void> {
   private Object invokeTargetMethod(Method method, Object target, List<Object> args)
       throws Exception {
     try {
-      return method.invoke(target, args.toArray());
+      return method.invoke(
+          target, ArgumentCoercion.coerce(method.getParameterTypes(), args.toArray()));
     } catch (InvocationTargetException e) {
       Throwable cause = e.getCause();
       if (cause instanceof Exception exception) {

@@ -469,17 +469,3 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
-
--- Clean-install version ledger: every migration the canonical schema already incorporates.
--- INSERT IGNORE keeps this idempotent against schemas that were built migration-by-migration.
-INSERT IGNORE INTO ratchet_schema_version (version, description) VALUES
-    ('001', 'Initial schema'),
-    ('002', 'Hot/cold store split: scheduler_job_queue + scheduler_business_key_reservation + cold terminal fields'),
-    ('003', 'Align executable claim index for due-time filtering under computed priority boosting'),
-    ('004', 'Add caller_principal audit column to scheduler_job'),
-    ('005', 'Add trace_context propagation column to scheduler_job'),
-    ('006', 'Drop created_by column superseded by caller_principal'),
-    ('007', 'Query-layer generated column for traceCorrelationId + dashboard indexes'),
-    ('008', 'Signal-waiting job columns, decision metadata, and indexes on scheduler_job_queue'),
-    ('009', 'Drop legacy JDK-serialized predicate blobs from scheduler_workflow_condition'),
-    ('010', 'Recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');

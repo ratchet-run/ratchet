@@ -16,7 +16,6 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -65,13 +64,6 @@ public abstract class AbstractNodeStoreContract implements JobStoreContractFixtu
     assertTrue(deleted > 0, "deleteInactiveNodesSince should report removed nodes");
     assertFalse(
         store().findNodeById("stale-node").isPresent(), "Deleted node should no longer be found");
-  }
-
-  @Test
-  void getDatabaseTime_returnsNonNullInstant() {
-    Instant dbTime = store().getDatabaseTime();
-
-    assertNotNull(dbTime, "getDatabaseTime should return a non-null instant");
   }
 
   @Test

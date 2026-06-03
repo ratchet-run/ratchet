@@ -125,10 +125,38 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
     JobEntity saved = persist(job);
     UUID jobId = saved.getId();
 
-    deliverSignalById(jobId, null, null, Instant.now());
+    String firstDeliveryId = "first-delivery-id";
+    int first =
+        signalStore()
+            .deliverSignalById(
+                jobId,
+                "{\"approved\":true}",
+                null,
+                "APPROVED",
+                null,
+                "admin",
+                Instant.now(),
+                firstDeliveryId);
+    assertEquals(1, first, "first delivery to a WAITING job must unblock it");
+
     int second = deliverSignalById(jobId, null, null, Instant.now());
 
     assertEquals(0, second, "second delivery to a non-WAITING job must return 0");
+    JobEntity reloaded = store().findById(jobId).orElseThrow();
+    assertEquals(
+        JobStatus.PENDING, reloaded.getStatus(), "no-op second delivery must not change status");
+    assertEquals(
+        "{\"approved\":true}",
+        reloaded.getSignalPayload(),
+        "no-op second delivery must not overwrite the first payload");
+    assertEquals(
+        "admin",
+        reloaded.getSignalDeliveredBy(),
+        "no-op second delivery must not overwrite deliveredBy");
+    assertEquals(
+        firstDeliveryId,
+        reloaded.getSignalDeliveryId(),
+        "no-op second delivery must not overwrite the first deliveryId");
   }
 
   @Test

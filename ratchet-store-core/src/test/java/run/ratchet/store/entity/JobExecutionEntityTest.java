@@ -17,6 +17,7 @@ package run.ratchet.store.entity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,17 @@ class JobExecutionEntityTest {
     assertEquals(2000L, execution.getDurationMs());
     assertEquals(IllegalArgumentException.class.getName(), execution.getErrorClass());
     assertEquals("bad input", execution.getErrorMessage());
+  }
+
+  @Test
+  void markFailedTruncatesOversizedErrorMessage() {
+    JobExecutionEntity execution = executionStartedAt("2026-05-09T12:00:00Z");
+
+    execution.markFailed(
+        new IllegalArgumentException("x".repeat(70000)), Instant.parse("2026-05-09T12:00:02Z"));
+
+    assertEquals(65535, execution.getErrorMessage().length());
+    assertTrue(execution.getErrorMessage().endsWith("..."));
   }
 
   @Test

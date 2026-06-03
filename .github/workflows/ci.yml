@@ -7,6 +7,13 @@ on:
     branches: [main]
   merge_group:
 
+# Ryuk, the Testcontainers resource reaper, is unnecessary on ephemeral GitHub runners — the VM is
+# thrown away after each job, so anything it would reap dies with it. Its image pull is also an
+# intermittent failure point: a stalled testcontainers/ryuk pull during a fixture's static init
+# aborts every test in that module. Disabling it removes the flake without losing cleanup we rely on.
+env:
+  TESTCONTAINERS_RYUK_DISABLED: "true"
+
 jobs:
   build:
     runs-on: ubuntu-latest

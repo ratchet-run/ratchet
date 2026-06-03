@@ -22,8 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -400,6 +402,81 @@ public abstract class AbstractRecurringJobStoreContract {
     assertEquals(1, canceled, "only the legacy-tagged master is canceled");
     assertTrue(recurringStore().getRecurring(legacy).isEmpty());
     assertTrue(recurringStore().getRecurring(survivor).isPresent());
+  }
+
+  /**
+   * Annotation-orphan cleanup must honor BOTH predicates: a master is canceled only when its
+   * business key is absent from the known set AND it was created strictly before the node-start
+   * cutoff. Masters registered after node start are exempt even when unknown; an empty known set
+   * cancels every business-keyed master created before the cutoff. The only prior coverage mocked
+   * the store, so a sign-flip on either predicate (the created_at comparison or the NOT-IN
+   * membership) would silently cancel live recurring masters or strand orphans firing forever. This
+   * drives the real SQL/Mongo filter on every store.
+   *
+   * <p>created_at is settable on the definition (all three stores honor {@code createdAt()}), so
+   * before/after-cutoff is expressed directly on each master rather than relying on persist order:
+   * keyA/keyB are stamped 60s before a fixed cutoff, keyC 60s after it. The cutoff is truncated to
+   * milliseconds because MongoDB persists Dates at millisecond precision.
+   */
+  @Test
+  void cancelOrphanedRecurringAnnotationJobs_honorsKnownSetAndCreatedAtCutoff() {
+    Instant cutoff = Instant.now().truncatedTo(ChronoUnit.MILLIS);
+    Instant beforeCutoff = cutoff.minusSeconds(60);
+    Instant afterCutoff = cutoff.plusSeconds(60);
+
+    String keyA = "tck-orphan-a-" + UUID.randomUUID();
+    String keyB = "tck-orphan-b-" + UUID.randomUUID();
+    String keyC = "tck-orphan-c-" + UUID.randomUUID();
+    UUID idA = UuidV7Factory.create();
+    UUID idB = UuidV7Factory.create();
+    UUID idC = UuidV7Factory.create();
+    Instant fire = Instant.now().plusSeconds(60);
+    recurringStore().createRecurring(orphanCandidate(idA, keyA, fire, beforeCutoff));
+    recurringStore().createRecurring(orphanCandidate(idB, keyB, fire, beforeCutoff));
+    recurringStore().createRecurring(orphanCandidate(idC, keyC, fire, afterCutoff));
+
+    // keyA is known (survives), keyB is unknown + before cutoff (canceled), keyC is unknown but
+    // after cutoff (exempt — registered after this node started).
+    int firstPass = recurringStore().cancelOrphanedRecurringAnnotationJobs(Set.of(keyA), cutoff);
+    assertEquals(1, firstPass, "only the unknown, before-cutoff master (keyB) is canceled");
+    assertTrue(recurringStore().getRecurring(idA).isPresent(), "known key survives cleanup");
+    assertTrue(recurringStore().getRecurring(idB).isEmpty(), "unknown + before-cutoff is canceled");
+    assertTrue(
+        recurringStore().getRecurring(idC).isPresent(),
+        "after-cutoff master is exempt even when unknown");
+
+    // Empty known set: every business-keyed master before the cutoff is now an orphan, so keyA is
+    // canceled too — but keyC stays spared because the created_at cutoff still protects it.
+    int secondPass = recurringStore().cancelOrphanedRecurringAnnotationJobs(Set.of(), cutoff);
+    assertEquals(
+        1, secondPass, "empty known set cancels the remaining before-cutoff master (keyA)");
+    assertTrue(recurringStore().getRecurring(idA).isEmpty(), "empty known set cancels keyA");
+    assertTrue(
+        recurringStore().getRecurring(idC).isPresent(), "created_at cutoff still spares keyC");
+  }
+
+  private RecurringJobDefinition orphanCandidate(
+      UUID id, String businessKey, Instant nextFire, Instant createdAt) {
+    return new RecurringJobDefinition(
+        id,
+        "0 * * * * ?",
+        "UTC",
+        nextFire,
+        false,
+        null,
+        2,
+        0,
+        BackoffPolicy.NONE,
+        0,
+        0,
+        noopPayload(),
+        null,
+        null,
+        businessKey,
+        null,
+        null,
+        createdAt,
+        null);
   }
 
   private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {

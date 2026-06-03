@@ -23,9 +23,11 @@ import org.junit.jupiter.api.Test;
 class ResourceLimitEntityTest {
 
   @Test
-  void defaultRetryDelayUsesNamedConstant() {
-    assertEquals(
-        ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS, new ResourceLimitEntity().getRetryDelayMs());
+  void defaultRetryDelayPinsExpectedLiteral() {
+    // Pin the literal, not the named constant: clients and the NOT-NULL DDL column default both
+    // depend on 5000ms, and asserting the constant against a field initialized from it can never
+    // catch a wrong default.
+    assertEquals(5000, new ResourceLimitEntity().getRetryDelayMs());
   }
 
   @Test

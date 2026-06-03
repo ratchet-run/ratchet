@@ -16,7 +16,8 @@
 package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
@@ -24,18 +25,27 @@ import run.ratchet.api.JobStatus;
 class StatusClassifierTest {
 
   @Test
-  void recStatusForLiveStatusEncodesOnlyRecurringColdStatuses() {
-    assertEquals("P", StatusClassifier.recStatusForLiveStatus(JobStatus.PENDING));
-    assertEquals("A", StatusClassifier.recStatusForLiveStatus(JobStatus.PAUSED));
-    assertNull(StatusClassifier.recStatusForLiveStatus(JobStatus.RUNNING));
-    assertNull(StatusClassifier.recStatusForLiveStatus(JobStatus.SUCCEEDED));
+  void effectiveStatusDefaultsNullToPending() {
+    assertEquals(JobStatus.PENDING, StatusClassifier.effectiveStatus(null));
+    assertEquals(JobStatus.RUNNING, StatusClassifier.effectiveStatus(JobStatus.RUNNING));
   }
 
   @Test
-  void recStatusDecodeRecognizesRecurringColdStatuses() {
-    assertEquals(JobStatus.PENDING, StatusClassifier.recStatusDecode("P"));
-    assertEquals(JobStatus.PAUSED, StatusClassifier.recStatusDecode("A"));
-    assertNull(StatusClassifier.recStatusDecode(null));
-    assertNull(StatusClassifier.recStatusDecode("R"));
+  void isLiveStatusCoversActiveStatusesIncludingWaiting() {
+    assertTrue(StatusClassifier.isLiveStatus(JobStatus.PENDING));
+    assertTrue(StatusClassifier.isLiveStatus(JobStatus.RUNNING));
+    assertTrue(StatusClassifier.isLiveStatus(JobStatus.PAUSED));
+    assertTrue(StatusClassifier.isLiveStatus(JobStatus.WAITING));
+    assertFalse(StatusClassifier.isLiveStatus(JobStatus.SUCCEEDED));
+    assertFalse(StatusClassifier.isLiveStatus(JobStatus.CANCELED));
+  }
+
+  @Test
+  void isTerminalStatusCoversTerminalStatusesOnly() {
+    assertTrue(StatusClassifier.isTerminalStatus(JobStatus.SUCCEEDED));
+    assertTrue(StatusClassifier.isTerminalStatus(JobStatus.FAILED));
+    assertTrue(StatusClassifier.isTerminalStatus(JobStatus.CANCELED));
+    assertFalse(StatusClassifier.isTerminalStatus(JobStatus.WAITING));
+    assertFalse(StatusClassifier.isTerminalStatus(JobStatus.PENDING));
   }
 }

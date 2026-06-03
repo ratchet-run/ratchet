@@ -62,7 +62,6 @@ public final class SchemaMigrator {
   private static final Pattern SCRIPT_NAME = Pattern.compile("V(\\d+)__(.+)\\.sql");
   private static final String LOCK_NAME = "ratchet_schema_migration";
   private static final long POSTGRESQL_LOCK_KEY = 0x52617463686574L;
-  private static final String BASELINE_PROBE_TABLE = "scheduler_job_queue";
 
   private final DataSource dataSource;
   private final Dialect dialect;
@@ -247,7 +246,6 @@ public final class SchemaMigrator {
       Throwable migrationFailure = null;
       try {
         ensureSchemaVersionTable(connection);
-        verifyBaselineCompatible(connection);
         for (MigrationScript script : scripts) {
           String existingChecksum = existingChecksum(connection, script.version());
           if (existingChecksum != null) {
@@ -360,55 +358,6 @@ public final class SchemaMigrator {
     try (Statement statement = connection.createStatement()) {
       statement.execute(dialect.createVersionTableSql());
     }
-  }
-
-  /**
-   * Refuses to baseline a pre-existing Ratchet schema implicitly. A populated set of {@code
-   * scheduler_*} tables coupled with an empty {@code ratchet_schema_version} table would silently
-   * skip every migration on first run, leaving column-level upgrades (V005 hot/cold split, V006
-   * trace_context, V007/V008 query indexes) unapplied.
-   */
-  private void verifyBaselineCompatible(Connection connection) throws SQLException {
-    if (!isVersionTableEmpty(connection)) {
-      return;
-    }
-    if (!coreTableExists(connection)) {
-      return;
-    }
-    throw new SchemaInitializationException(
-        "Detected existing Ratchet tables ("
-            + BASELINE_PROBE_TABLE
-            + " is present) but ratchet_schema_version is empty."
-            + " Auto-migration would skip the upgrade history and leave the schema stale."
-            + " To enable auto-migration on this database, seed ratchet_schema_version manually"
-            + " with the highest applied version (one row per V### already applied; see"
-            + " docs/deployment/database-setup.md), or drop and recreate the schema. To keep"
-            + " managing the schema externally, set ratchet.schema.auto-migrate=false.");
-  }
-
-  private boolean isVersionTableEmpty(Connection connection) throws SQLException {
-    try (Statement statement = connection.createStatement();
-        ResultSet rs = statement.executeQuery("SELECT 1 FROM ratchet_schema_version")) {
-      return !rs.next();
-    }
-  }
-
-  private boolean coreTableExists(Connection connection) throws SQLException {
-    DatabaseMetaData metaData = connection.getMetaData();
-    String[] candidates =
-        new String[] {
-          BASELINE_PROBE_TABLE,
-          BASELINE_PROBE_TABLE.toUpperCase(Locale.ROOT),
-          BASELINE_PROBE_TABLE.toLowerCase(Locale.ROOT)
-        };
-    for (String candidate : candidates) {
-      try (ResultSet rs = metaData.getTables(null, null, candidate, new String[] {"TABLE"})) {
-        if (rs.next()) {
-          return true;
-        }
-      }
-    }
-    return false;
   }
 
   private String existingChecksum(Connection connection, String version) throws SQLException {

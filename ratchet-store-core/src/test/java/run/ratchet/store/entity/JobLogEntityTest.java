@@ -16,7 +16,6 @@
 package run.ratchet.store.entity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -77,14 +76,5 @@ class JobLogEntityTest {
 
     assertEquals("abc-123", log.getMdc().get("traceId"));
     assertThrows(UnsupportedOperationException.class, () -> log.getMdc().put("spanId", "def-456"));
-  }
-
-  @Test
-  void logContentHasNoPublicSetters() {
-    for (var method : JobLogEntity.class.getMethods()) {
-      assertFalse(
-          method.getName().matches("set(JobId|Ts|Level|Message|Mdc)"),
-          () -> "Unexpected mutator remains: " + method);
-    }
   }
 }

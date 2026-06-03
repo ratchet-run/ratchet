@@ -75,6 +75,86 @@ class CircuitBreakerTest {
   }
 
   @Test
+  void agedOutFailuresDoNotReopenWhenSlidingWindowWraps() throws Exception {
+    // Window=4, threshold=50%, minimumCalls=2. Drive only through execute(), never opening,
+    // so the ring buffer wraps in steady state and the failure-evicted-by-success eviction
+    // path runs. A broken decrement would leave failureCount stale and spuriously reopen.
+
+    // Phase 1: fill the window just below threshold -> [F,S,S,S] = 25%. The lone failure is
+    // recorded first: at totalCalls=1 the minimumCalls=2 gate skips evaluation, so a window
+    // that is momentarily 100%-of-one cannot open the breaker.
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new RuntimeException("warmup-failure");
+                }));
+    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+
+    // Phase 2: four successes wrap the buffer and evict the original failure -> [S,S,S,S].
+    // failureCount must be decremented to 0 by the eviction math.
+    for (int i = 0; i < 4; i++) {
+      assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+
+    // Phase 3: one late failure -> live window [F,S,S,S] = 25% < 50%. The breaker must stay
+    // CLOSED. If the eviction decrement had been dropped, failureCount would read high here and
+    // the breaker would open on a healthy service.
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new RuntimeException("late-failure");
+                }));
+    assertEquals(
+        CircuitBreaker.State.CLOSED,
+        breaker.getState(),
+        "aged-out failures must not reopen a breaker whose live window is below threshold");
+  }
+
+  @Test
+  void freshFailuresOpenWhenTheyEvictSuccessesAcrossTheWindowBoundary() throws Exception {
+    // Mirror of the eviction logic: fill with successes, then age them out with failures until
+    // the LIVE window crosses threshold. Exercises the failure-evicts-success increment path,
+    // which only runs once totalCalls > slidingWindowSize.
+
+    // Fill the window: [S,S,S,S], failureCount=0.
+    for (int i = 0; i < 4; i++) {
+      assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+
+    // First wrapping failure evicts a success -> [F,S,S,S] = 25% < 50%, still CLOSED.
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new RuntimeException("fail-1");
+                }));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+
+    // Second wrapping failure evicts another success -> [F,F,S,S] = 50% >= 50%, opens (>=).
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new RuntimeException("fail-2");
+                }));
+    assertEquals(
+        CircuitBreaker.State.OPEN,
+        breaker.getState(),
+        "the breaker must open exactly when the live window reaches the failure threshold");
+  }
+
+  @Test
   void failuresAboveThresholdOpenCircuit() {
     assertThrows(
         RuntimeException.class,

@@ -15,7 +15,9 @@
  */
 package run.ratchet.api;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -39,5 +41,27 @@ class WorkflowConditionTest {
     assertThrows(
         NullPointerException.class,
         () -> new WorkflowBranch(null, (SerializableCheckedRunnable) () -> {}));
+  }
+
+  @Test
+  void successRateRejectsOutOfRangeValues() {
+    assertThrows(IllegalArgumentException.class, () -> WorkflowCondition.successRate(-0.1));
+    assertThrows(IllegalArgumentException.class, () -> WorkflowCondition.successRate(1.1));
+  }
+
+  @Test
+  void successRateAcceptsInclusiveBoundaries() {
+    assertNotNull(assertDoesNotThrow(() -> WorkflowCondition.successRate(0.0)));
+    assertNotNull(assertDoesNotThrow(() -> WorkflowCondition.successRate(1.0)));
+  }
+
+  @Test
+  void failureCountRejectsNegativeValues() {
+    assertThrows(IllegalArgumentException.class, () -> WorkflowCondition.failureCount(-1));
+  }
+
+  @Test
+  void failureCountAcceptsZero() {
+    assertNotNull(assertDoesNotThrow(() -> WorkflowCondition.failureCount(0)));
   }
 }

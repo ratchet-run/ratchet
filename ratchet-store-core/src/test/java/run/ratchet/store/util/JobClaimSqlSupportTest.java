@@ -26,6 +26,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 
 class JobClaimSqlSupportTest {
 
@@ -58,6 +59,52 @@ class JobClaimSqlSupportTest {
     order.verify(query).setParameter(3, "fast");
     order.verify(query).setParameter(4, "io");
     order.verify(query).setParameter(5, "gpu");
+  }
+
+  @Test
+  void buildExecutionTargetFilterSqlMatchesNothingShortCircuitsToContradiction() {
+    assertEquals(
+        "\n  AND 1 = 0",
+        JobClaimSqlSupport.buildExecutionTargetFilterSql(
+            ExecutionTargetFilter.matching(List.of(), false), "execution_target"));
+  }
+
+  @Test
+  void buildExecutionTargetFilterSqlExplicitTargetsWithoutNullUsesIn() {
+    assertEquals(
+        "\n  AND execution_target IN (?,?)",
+        JobClaimSqlSupport.buildExecutionTargetFilterSql(
+            ExecutionTargetFilter.matching(List.of("gpu", "fast"), false), "execution_target"));
+  }
+
+  @Test
+  void buildExecutionTargetFilterSqlExclusionWithoutNullUsesNotIn() {
+    assertEquals(
+        "\n  AND execution_target NOT IN (?)",
+        JobClaimSqlSupport.buildExecutionTargetFilterSql(
+            ExecutionTargetFilter.excluding(List.of("gpu"), false), "execution_target"));
+  }
+
+  @Test
+  void buildExecutionTargetFilterSqlEmptyExclusionWithoutNullRequiresNonNull() {
+    assertEquals(
+        "\n  AND execution_target IS NOT NULL",
+        JobClaimSqlSupport.buildExecutionTargetFilterSql(
+            ExecutionTargetFilter.excluding(List.of(), false), "execution_target"));
+  }
+
+  @Test
+  void bindExecutionTargetFilterBindsExplicitTargetsInOrder() {
+    Query query = mock(Query.class);
+
+    int next =
+        JobClaimSqlSupport.bindExecutionTargetFilter(
+            query, ExecutionTargetFilter.matching(List.of("gpu", "fast"), false), 2);
+
+    assertEquals(4, next);
+    InOrder order = inOrder(query);
+    order.verify(query).setParameter(2, "gpu");
+    order.verify(query).setParameter(3, "fast");
   }
 
   @Test

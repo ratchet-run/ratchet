@@ -378,7 +378,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     List<JobEntity> results = queryStore().searchJobs(JobFilter.builder().build(), 1000, 0);
 
-    assertTrue(results.size() >= 3, "Empty filter should return all persisted jobs");
+    assertEquals(3, results.size(), "Empty filter should return all persisted jobs");
   }
 
   @Test
@@ -411,7 +411,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     List<JobEntity> results = queryStore().searchJobs(filter, 100, 0);
 
-    assertTrue(results.size() >= 2, "Should return multiple results for ordering check");
+    assertEquals(3, results.size(), "Should return all 3 persisted results for ordering check");
     for (int i = 1; i < results.size(); i++) {
       Instant prev = results.get(i - 1).getCreatedAt();
       Instant curr = results.get(i).getCreatedAt();
@@ -436,7 +436,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     List<JobEntity> results = queryStore().searchJobs(filter, 100, 0);
 
-    assertTrue(results.size() >= 2, "Should return at least 2 results for ordering check");
+    assertEquals(2, results.size(), "Should return exactly 2 results for ordering check");
     for (int i = 1; i < results.size(); i++) {
       JobPriority prev = results.get(i - 1).getPriority();
       JobPriority curr = results.get(i).getPriority();
@@ -522,7 +522,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     long count = queryStore().countJobs(JobFilter.builder().statuses(JobStatus.PENDING).build());
 
-    assertTrue(count >= 3, "countJobs should return at least 3 for 3 persisted PENDING jobs");
+    assertEquals(3L, count, "countJobs should return exactly 3 for 3 persisted PENDING jobs");
   }
 
   // ── Parent job filtering ───────────────────────────────────────────────
@@ -705,6 +705,57 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
         archivedIds,
         distinct,
         "Cursor pages over the archive must visit every archived row exactly once");
+  }
+
+  @Test
+  void searchJobs_liveCursorPaginationVisitsEveryRowOnce() {
+    // Mirror the archive cursor-walk, but over the LIVE seek predicate (archive OFF). The live
+    // appendCursorCondition tiebreaks on c.job_id — a column and table distinct from the archive
+    // variant's a.original_job_id — and is only ever checked at the SQL-string level, never walked
+    // end-to-end. Give every live row the same priority so the id tiebreaker, not the primary
+    // sort, decides ordering: that is the slot where an off-by-one in
+    // (col OP ? OR (col = ? AND c.job_id > ?)) drops or repeats a row at each page boundary.
+    int total = 7;
+    Set<UUID> seededIds = new HashSet<>();
+    for (int i = 0; i < total; i++) {
+      JobEntity job = newPendingJob();
+      job.setPriority(JobPriority.NORMAL);
+      seededIds.add(persist(job).getId());
+    }
+
+    int pageSize = 2;
+    List<UUID> seen = new ArrayList<>();
+    String cursor = null;
+    for (int guard = 0; guard <= total; guard++) {
+      var builder = JobFilter.builder().sortField(JobQuerySortField.PRIORITY).sortAscending(false);
+      if (cursor != null) {
+        builder.cursor(cursor);
+      }
+      List<JobEntity> pageRows = queryStore().searchJobs(builder.build(), pageSize, 0);
+      if (pageRows.isEmpty()) {
+        break;
+      }
+      pageRows.forEach(r -> seen.add(r.getId()));
+      JobEntity last = pageRows.get(pageRows.size() - 1);
+      cursor =
+          new JobQueryCursor(
+                  JobQuerySortField.PRIORITY,
+                  /* sortAscending= */ false,
+                  Integer.toString(last.getPriority().ordinal()),
+                  last.getId())
+              .encode();
+      if (pageRows.size() < pageSize) {
+        break;
+      }
+    }
+
+    Set<UUID> distinct = new HashSet<>(seen);
+    assertEquals(
+        seen.size(), distinct.size(), "Live cursor pages must not repeat a row across boundaries");
+    assertEquals(
+        seededIds,
+        distinct,
+        "Live cursor pages must visit every matching row exactly once across page boundaries");
   }
 
   @Test

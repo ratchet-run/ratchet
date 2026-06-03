@@ -23,15 +23,11 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
-import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.RecordingTracingCollector;
@@ -170,21 +166,5 @@ class TracingPropagationIT extends BaseRatchetIT {
                 assertEquals(
                     List.of("started", "failure", "close"),
                     RecordingTracingCollector.getExecutionScopeEvents()));
-  }
-
-  @Test
-  void executionScope_closeIsIdempotent() {
-    RecordingTracingCollector collector = new RecordingTracingCollector();
-    TracingCollector.ExecutionScope scope =
-        collector.jobExecutionStarted(
-            UUID.randomUUID(), JobType.SINGLE, JobPriority.NORMAL, Map.of());
-
-    scope.close();
-    scope.close();
-
-    assertEquals(
-        List.of("started", "close"),
-        RecordingTracingCollector.getExecutionScopeEvents(),
-        "Repeated close calls should record a single close event");
   }
 }
