@@ -23,7 +23,10 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  # Let an in-flight deploy finish instead of cancelling it. A failed CI run still
+  # fires the workflow_run trigger, and cancelling here would kill a good push-triggered
+  # deploy before its skipped build no-ops. Matches GitHub's recommended Pages config.
+  cancel-in-progress: false
 
 jobs:
   build:
