@@ -39,7 +39,7 @@ The SQL modules provide DDL scripts (`src/main/resources/ddl/`) as plain SQL fil
 
 When a job fails, Ratchet follows this decision path:
 
-1. **Check for `@DoNotRetry`:** If the exception class (or any class in its hierarchy) is annotated with `@DoNotRetry`, the job skips all retry logic and moves directly to the DLQ.
+1. **Check for `@DoNotRetry`:** If the exception class (or any exception in its cause chain) is annotated with `@DoNotRetry`, the job skips all retry logic and moves directly to the DLQ.
 
 2. **Consult the RetryPolicy SPI:** The `RetryPolicy.shouldRetry(attempt, cause)` method is called. The default implementation (`DefaultRetryPolicy`) always returns `true`, deferring to the attempt limit.
 
@@ -79,7 +79,7 @@ Yes. Ratchet is designed for multi-node deployment. Each node runs its own polle
 - **Automatic failover:** If a node crashes, the `OrphanRecoveryTimer` on surviving nodes detects stale heartbeats and resets orphaned RUNNING jobs back to PENDING.
 - **Node identity:** Each node registers in `scheduler_node` with a unique ID and periodic heartbeat (default every 10 seconds).
 
-There is no built-in job routing or affinity -- any node can execute any job. If you need affinity (e.g., "only node X should run this type of job"), implement a custom `ClusterCoordinator` SPI.
+Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrain which jobs a node claims by providing a `NodeTagAffinityProvider` (default `DefaultNodeTagAffinityProvider`, consumed by the poller). For fully custom routing or cross-node wakeups, implement the `ClusterCoordinator` SPI.
 
 **Key multi-node settings:**
 

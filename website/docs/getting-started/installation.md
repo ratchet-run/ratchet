@@ -156,7 +156,7 @@ Ratchet keeps its dependency footprint small. Here's what each module brings in:
 | Module | Key Dependencies |
 |--------|-----------------|
 | `ratchet-api` | `jakarta.enterprise.cdi-api` (for `@InterceptorBinding` on `@CircuitBreakerProtected`) |
-| `ratchet` | ASM 9.7.1 (lambda bytecode analysis), cron-utils 9.2.1 (cron expression parsing), JBoss Logging; Jakarta EE APIs are provided by the runtime |
+| `ratchet` | ASM 9.8 (lambda bytecode analysis), cron-utils 9.2.1 (cron expression parsing), JBoss Logging; Jakarta EE APIs are provided by the runtime |
 | `ratchet-store-core` | Jakarta Persistence / JSON APIs, ASM, JBoss Logging |
 | `ratchet-store-mysql` / `ratchet-store-postgresql` | SQL store logic; JDBC drivers are supplied by the application server or your deployment |
 | `ratchet-store-mongodb` | MongoDB sync driver |

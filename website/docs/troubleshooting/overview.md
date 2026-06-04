@@ -13,7 +13,7 @@ When something goes wrong with your Ratchet jobs, there are several layers of ob
 Follow this general strategy when troubleshooting Ratchet issues:
 
 1. **Check the job status in the database** -- live state (`PENDING`/`RUNNING`/`PAUSED`/`WAITING`) is on the `scheduler_job_queue` table; terminal outcome lives on `scheduler_job`
-2. **Review the logs** -- Ratchet uses `java.util.logging` (JUL) with detailed lifecycle messages
+2. **Review the logs** -- Ratchet logs through JBoss Logging (most Jakarta EE runtimes route this to their own logging subsystem; it falls back to `java.util.logging` if no other backend is present) with detailed lifecycle messages
 3. **Listen to events** -- the event system provides real-time visibility into job state transitions
 4. **Inspect execution history** -- the `scheduler_job_execution` table records every attempt
 
@@ -100,7 +100,6 @@ public class JobDiagnosticObserver {
 | `JobCompletedEvent` | Job finishes successfully |
 | `JobRetryingEvent` | Job failed but will be retried (includes next scheduled time) |
 | `JobDlqEvent` | Job exhausted retries and moved to dead letter queue |
-| `JobCancellingEvent` | Cancel request received for a job |
 | `JobCancelledEvent` | Job successfully canceled |
 | `JobPausedEvent` | Job paused via `pauseJob()` |
 | `JobResumedEvent` | Job resumed via `resumeJob()` |
@@ -110,11 +109,10 @@ public class JobDiagnosticObserver {
 | `ChainCompletedEvent` | All chain steps completed successfully |
 | `ChainFailedEvent` | A chain step failed permanently |
 | `WorkflowBranchTriggeredEvent` | A conditional workflow branch was activated |
-| `PerformanceMetricsEvent` | Periodic metrics snapshot |
 
 ## Logging Configuration
 
-Ratchet uses `java.util.logging` (JUL) under the package `run.ratchet`. Most Jakarta EE runtimes bridge JUL to their logging subsystem.
+Ratchet logs through JBoss Logging (most Jakarta EE runtimes route this to their own logging subsystem; it falls back to `java.util.logging` if no other backend is present) under the package `run.ratchet`. Most Jakarta EE runtimes bridge it to their logging subsystem.
 
 ### WildFly / JBoss EAP
 
@@ -126,10 +124,10 @@ Add a logger category in your `standalone.xml`:
         <level name="DEBUG"/>
     </logger>
     <!-- For detailed poller and thread pool diagnostics -->
-    <logger category="run.ratchet.ri.core.Poller">
+    <logger category="run.ratchet.ri.core.internal.Poller">
         <level name="FINE"/>
     </logger>
-    <logger category="run.ratchet.ri.core.ThreadPoolManager">
+    <logger category="run.ratchet.ri.core.internal.ThreadPoolManager">
         <level name="FINE"/>
     </logger>
 </subsystem>
@@ -155,10 +153,10 @@ Add to `server.xml`:
 
 | Logger | What It Logs |
 |---|---|
-| `run.ratchet.ri.core.JobTask` | Job execution lifecycle, payload resolution, retry decisions |
-| `run.ratchet.ri.core.Poller` | Poll cycle results, claim counts, adaptive delay changes |
-| `run.ratchet.ri.core.OrphanRecoveryTimer` | Orphan detection and recovery actions |
-| `run.ratchet.ri.core.JobTimeoutHandler` | Soft and hard timeout warnings |
+| `run.ratchet.ri.core.internal.JobTask` | Job execution lifecycle, payload resolution, retry decisions |
+| `run.ratchet.ri.core.internal.Poller` | Poll cycle results, claim counts, adaptive delay changes |
+| `run.ratchet.ri.core.internal.OrphanRecoveryTimer` | Orphan detection and recovery actions |
+| `run.ratchet.ri.core.internal.JobTimeoutHandler` | Soft and hard timeout warnings |
 | `run.ratchet.ri.resilience.CircuitBreaker` | Circuit breaker state transitions |
 | `run.ratchet.ri.security.JobSecurityValidator` | Security validation results and rejections |
 | `run.ratchet.ri.security.PackagePrefixClassPolicy` | Class policy allow/deny decisions |
@@ -168,14 +166,15 @@ Add to `server.xml`:
 Ratchet automatically sets MDC (Mapped Diagnostic Context) values during job execution:
 
 - `jobId` -- the job's unique identifier
-- `nodeId` -- the cluster node executing the job
+- `node` -- the cluster node executing the job
+- `jobType` -- the job's execution type
 - `jobCreator` -- the user who created the job (if set)
 
 These MDC values are available in your log format patterns for correlation:
 
 ```
 # Example log4j2 pattern
-%d{ISO8601} [%X{jobId}] [%X{nodeId}] %-5p %c - %m%n
+%d{ISO8601} [%X{jobId}] [%X{node}] %-5p %c - %m%n
 ```
 
 ## Configuration Reference

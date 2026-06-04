@@ -14,7 +14,7 @@ Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11. It deploys 
 |-----------|-------------|-------|
 | **Java** | 17 or later | Virtual threads available on 21+ |
 | **Jakarta EE Runtime** | 10/11 with CDI, JPA, Interceptors, and Jakarta Concurrency | WildFly, Payara, Open Liberty, GlassFish 8, etc. |
-| **CDI** | 4.0+ | `beans.xml` with `bean-discovery-mode="all"` |
+| **CDI** | 4.0+ | `beans.xml` with `bean-discovery-mode="annotated"` |
 | **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ | One store module per database |
 | **Build Tool** | Maven 3.8+ | BOM import for version management |
 

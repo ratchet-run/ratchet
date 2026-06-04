@@ -152,8 +152,8 @@ When the application starts, you should see:
 
 ```
 INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet starting
-INFO [run.ratchet.ri.core.DefaultNodeIdentityProvider] Scheduler nodeId=...
-INFO [run.ratchet.ri.core.Poller] Poller initialized (batch=50)
+INFO [run.ratchet.ri.core.internal.DefaultNodeIdentityProvider] Scheduler nodeId=...
+INFO [run.ratchet.ri.core.internal.Poller] Poller initialized (batch=50)
 INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet started
 ```
 

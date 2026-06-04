@@ -54,8 +54,8 @@ The most common cause of a broken fresh deployment is an empty `ClassPolicy` all
 ```
 ERROR: ClassPolicy allowedPackages is empty — refusing to start. Provide an
 @Alternative @Priority(APPLICATION) ClassPolicy bean with your application's package
-prefixes, or opt out (ONLY for demos/tests) with
-RatchetOptions.builder().security(s -> s.allowEmptyClassPolicy(true)).build()
+prefixes, or set RatchetOptions.security(...allowEmptyClassPolicy(true)) ONLY for
+demos/tests.
 ```
 
 You must provide a `ClassPolicy` bean that allows your application packages:
@@ -129,7 +129,7 @@ SEVERE: Job 12345 target method not found: processData with descriptor (Ljava/la
 Ratchet requires the target method to be `public`. If the method is `private`, `protected`, or package-private, you will see:
 
 ```
-SecurityException: Method processData in class com.myapp.MyService is private
+Method processData in class com.myapp.MyService is private
     — only public methods can be scheduled as jobs. Change the method visibility to public.
 ```
 
@@ -321,7 +321,7 @@ Ratchet uses type-isolated thread pools with semaphore-based concurrency limits.
 When a pool is at capacity, the poller skips claiming jobs of that type. Look for:
 
 ```
-ThreadPoolManager initialized with managed executors with semaphore-based limiting
+Thread pool 'ratchet' initialized with semaphore-based accounting
 ```
 
 **Diagnosis:**

@@ -75,7 +75,7 @@ scheduler.enqueue(() -> processInvoice(invoiceId))
     .submit();                         // Persists and returns a JobHandle
 ```
 
-The builder is not submitted until you call `.submit()` (or `.immediate()` for cluster-wide wakeup). See the [JobBuilder API](../api-reference/job-builder.md) for all options.
+The builder is not submitted until you call `.submit()`. Use `.immediate()` beforehand to flag the job for an immediate cross-node wakeup hint. See the [JobBuilder API](../api-reference/job-builder.md) for all options.
 
 ## JobHandle
 
@@ -132,8 +132,7 @@ A **store** is the persistence backend that holds jobs, execution history, locks
 |-----------|---------------|
 | `JobCrudStore` | CRUD operations on jobs |
 | `JobClaimStore` | Claiming due jobs for execution (`SKIP LOCKED` on SQL stores, atomic updates on MongoDB) |
-| `ExecutionStore` | Recording execution history |
-| `JobLogStore` | Optional structured storage for persisted `JobLogLine` events |
+| `JobAuditStore` | Execution history and per-job log persistence (optional capability) |
 | `ArchiveStore` | Moving completed jobs to archive |
 | `NodeStore` | Cluster node heartbeats |
 | `LockStore` | Distributed advisory locks |

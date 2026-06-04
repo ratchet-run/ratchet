@@ -609,7 +609,7 @@ The default implementation already handles JDBC URLs with embedded credentials, 
 
 ---
 
-### 13. LambdaDescriptor
+### 14. LambdaDescriptor
 
 **Module:** `ratchet-api`
 **Package:** `run.ratchet.spi`
@@ -854,11 +854,10 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractLockStoreContract` | Lock acquire, release, expiry |
 | `AbstractNodeStoreContract` | Node registration, heartbeat, dead node detection |
 | `AbstractArchiveStoreContract` | Job archiving and retrieval |
-| `AbstractExecutionStoreContract` | Execution history persistence |
-| `AbstractJobLogStoreContract` | Log persistence and retrieval |
+| `AbstractJobAuditStoreContract` | Execution history + per-job log persistence |
+| `AbstractJobAnalyticsStoreContract` | Analytics/aggregation queries |
 | `AbstractTagStoreContract` | Tag-based job queries |
 | `AbstractWorkflowConditionStoreContract` | Workflow condition evaluation |
-| `AbstractBatchMetricsStoreContract` | Batch-level metrics |
 | `AbstractDlqAlertStoreContract` | DLQ alert lifecycle |
 | `AbstractResourcePermitStoreContract` | Permit acquire and release |
 | `AbstractDualWriteInvariantContract` | Cross-store invariants for dual hot/cold write paths |

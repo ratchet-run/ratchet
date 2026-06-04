@@ -308,7 +308,7 @@ SPIs marked `@Incubating` may change before 1.0:
 
 | SPI | Purpose | Default |
 |-----|---------|---------|
-| `NodeIdentityProvider` | Cluster node identity | Hostname + PID |
+| `NodeIdentityProvider` | Cluster node identity | Hostname-PID-UUID suffix |
 | `ExecutorProvider` | Thread pool management | Container-managed executors |
 | `JobLoggerFactory` | Structured job logging | JBoss Logging-backed logger |
 | `ErrorSanitizer` | Exception message sanitization | Truncate + strip PII |

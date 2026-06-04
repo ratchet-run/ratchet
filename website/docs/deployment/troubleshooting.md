@@ -165,7 +165,7 @@ Only reset jobs if you're certain the claiming node is truly dead. Resetting a j
 
 ### Poll cycle taking too long
 
-**Symptom:** `PerformanceMetricsEvent` shows poll cycles > 1 second.
+**Symptom:** Poller logs or claim-query latency show poll cycles taking longer than 1 second.
 
 **Diagnosis:** Check if the polling query is using indexes:
 

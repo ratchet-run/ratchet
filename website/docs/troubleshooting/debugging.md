@@ -313,14 +313,14 @@ Set fine-grained log levels to focus on the subsystem you are debugging:
 
 | What you are debugging | Logger to set to FINE/DEBUG |
 |---|---|
-| Job not being picked up | `run.ratchet.ri.core.Poller` |
-| Job execution failures | `run.ratchet.ri.core.JobTask` |
-| Retry/backoff decisions | `run.ratchet.ri.core.JobTask` |
+| Job not being picked up | `run.ratchet.ri.core.internal.Poller` |
+| Job execution failures | `run.ratchet.ri.core.internal.JobTask` |
+| Retry/backoff decisions | `run.ratchet.ri.core.internal.JobTask` |
 | Security/ClassPolicy rejections | `run.ratchet.ri.security` |
 | Circuit breaker behavior | `run.ratchet.ri.resilience` |
-| Thread pool saturation | `run.ratchet.ri.core.ThreadPoolManager` |
-| Orphan recovery | `run.ratchet.ri.core.OrphanRecoveryTimer` |
-| Timeout enforcement | `run.ratchet.ri.core.JobTimeoutHandler` |
+| Thread pool saturation | `run.ratchet.ri.core.internal.ThreadPoolManager` |
+| Orphan recovery | `run.ratchet.ri.core.internal.OrphanRecoveryTimer` |
+| Timeout enforcement | `run.ratchet.ri.core.internal.JobTimeoutHandler` |
 | CDI bean resolution | `run.ratchet.ri.cdi` |
 | Recurring job scheduling | `run.ratchet.ri.core.RecurringScheduler` |
 | Batch orchestration | `run.ratchet.ri.core.BatchService` |

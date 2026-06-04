@@ -57,7 +57,7 @@ It is clean, it is minimal, and it works.
 
 ## What Ratchet is
 
-Ratchet is bigger. It assumes CDI, ships multiple stores including MongoDB, has workflow primitives, captures `CallerPrincipal`, has a circuit breaker, a `RetryPolicy` SPI, a dead letter queue, and worker tag affinity. The reference implementation is around 60 files of source code in the `ratchet` module alone.
+Ratchet is bigger. It assumes CDI, ships multiple stores including MongoDB, has workflow primitives, captures `CallerPrincipal`, has a circuit breaker, a `RetryPolicy` SPI, a dead letter queue, and worker tag affinity. The reference implementation is around 112 files of source code in the `ratchet` module alone.
 
 Where db-scheduler asks "what's the smallest correct way to schedule a task?", Ratchet asks "what do Jakarta EE apps actually need from a scheduler, including the things you do not realize you need until you are in production?"
 

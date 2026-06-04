@@ -157,13 +157,13 @@ scheduler.<User>streamingBatch("Process All Users")
 
 ### How Streaming Works
 
-1. The stream is consumed in chunks of `chunkSize` items (default: 500)
+1. The stream is consumed in chunks of `chunkSize` items (default: 100)
 2. Each chunk creates a batch of child jobs via a bulk insert
 3. The parent BATCH_PARENT job is created to track overall progress
 4. Streaming continues until the stream is exhausted
 5. Child jobs execute in parallel as they're created (no need to wait for streaming to finish)
 
-This means a million-row result set never needs to be held in memory -- it's processed in 500-item chunks.
+This means a million-row result set never needs to be held in memory -- it's processed in 100-item chunks.
 
 ### Streaming Progress
 
@@ -211,7 +211,7 @@ scheduler.<Record>streamingBatch("ETL Pipeline")
 |--------|-------------|
 | `fromStream(stream)` | Set the input stream |
 | `process(action)` | Define per-item processing logic |
-| `withChunkSize(size)` | Items per bulk insert (default: 500) |
+| `withChunkSize(size)` | Items per bulk insert (default: 100) |
 | `onProgress(hook)` | Track streaming progress |
 | `onBatchProgress(hook)` | Track batch execution progress |
 | `thenOnBatchSuccess(task)` | Execute on 100% success |
