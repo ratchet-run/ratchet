@@ -47,9 +47,10 @@ import run.ratchet.api.exception.PayloadDecryptionException;
  * </pre>
  *
  * <p>The <b>wrapped-key</b> field is reserved and always empty in this version. Static and
- * environment-variable key providers leave it absent; a future KMS-style provider stores the wrapped
- * data-encryption key here so envelope encryption works without a later format break. Reserving it
- * now — and authenticating it now — is cheaper than versioning a persisted format later.
+ * environment-variable key providers leave it absent; a future KMS-style provider stores the
+ * wrapped data-encryption key here so envelope encryption works without a later format break.
+ * Reserving it now — and authenticating it now — is cheaper than versioning a persisted format
+ * later.
  */
 public final class EncryptionEnvelope {
 
@@ -78,12 +79,14 @@ public final class EncryptionEnvelope {
       String algorithmId, String keyId, byte[] wrappedKey, byte[] body, byte[] canonicalHeader) {}
 
   /**
-   * Builds the canonical header bytes for a write. The caller needs these before encrypting, because
-   * they are part of the AEAD additional-authenticated-data the engine binds the ciphertext to.
+   * Builds the canonical header bytes for a write. The caller needs these before encrypting,
+   * because they are part of the AEAD additional-authenticated-data the engine binds the ciphertext
+   * to.
    *
    * @param algorithmId the writing engine's algorithm id; must not be {@code null}
    * @param keyId the writing key's id; must not be {@code null}
-   * @param wrappedKey the wrapped-DEK blob, or {@code null}/empty when the provider does not use one
+   * @param wrappedKey the wrapped-DEK blob, or {@code null}/empty when the provider does not use
+   *     one
    * @return the canonical header bytes
    */
   public static byte[] canonicalHeader(String algorithmId, String keyId, byte[] wrappedKey) {
@@ -102,8 +105,8 @@ public final class EncryptionEnvelope {
   }
 
   /**
-   * Encodes a complete stored value from the canonical header (see {@link #canonicalHeader}) and the
-   * engine body produced under that header.
+   * Encodes a complete stored value from the canonical header (see {@link #canonicalHeader}) and
+   * the engine body produced under that header.
    *
    * @param canonicalHeader the header bytes used as AAD when {@code body} was produced
    * @param body the engine's opaque AEAD output
@@ -116,8 +119,8 @@ public final class EncryptionEnvelope {
   }
 
   /**
-   * Reports whether a stored value carries the v3 frame marker. A quick prefix check; full
-   * validity is established by {@link #decode(String)}.
+   * Reports whether a stored value carries the v3 frame marker. A quick prefix check; full validity
+   * is established by {@link #decode(String)}.
    */
   public static boolean isFramed(String stored) {
     return stored != null && stored.startsWith(MARKER);
@@ -127,8 +130,8 @@ public final class EncryptionEnvelope {
    * Decodes a stored value.
    *
    * @param stored the stored column/field value
-   * @return the decoded {@link Frame}, or {@code null} when {@code stored} is not a v3 frame (legacy
-   *     plaintext — left for the caller to pass through)
+   * @return the decoded {@link Frame}, or {@code null} when {@code stored} is not a v3 frame
+   *     (legacy plaintext — left for the caller to pass through)
    * @throws PayloadDecryptionException when the value carries the marker but is not a well-formed
    *     frame (corrupt or truncated ciphertext, or an unsupported version)
    */

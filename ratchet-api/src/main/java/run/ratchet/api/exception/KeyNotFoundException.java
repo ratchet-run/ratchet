@@ -22,10 +22,10 @@ import java.io.Serial;
  * provider — typically a key retired before every row that referenced it had drained.
  *
  * <p><b>Poison data, non-retryable.</b> The key the value was encrypted under no longer exists, so
- * the value cannot be recovered until it is restored: the runtime routes the value to the controlled
- * failure path (DLQ) rather than retrying. The remediation is operational — re-add the missing key
- * to the provider and replay the affected jobs from the DLQ — which is why key retirement is gated
- * on a drain check.
+ * the value cannot be recovered until it is restored: the runtime routes the value to the
+ * controlled failure path (DLQ) rather than retrying. The remediation is operational — re-add the
+ * missing key to the provider and replay the affected jobs from the DLQ — which is why key
+ * retirement is gated on a drain check.
  *
  * <p>Distinct from {@link KeyProviderUnavailableException}: a transiently unreachable provider may
  * know the key perfectly well and should be retried, whereas this exception means the id is

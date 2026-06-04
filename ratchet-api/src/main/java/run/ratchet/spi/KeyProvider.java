@@ -33,8 +33,9 @@ import run.ratchet.api.exception.KeyProviderUnavailableException;
  *
  * <p><b>Failure classification is part of the contract,</b> because the framework routes on the
  * exception type. A transient outage of an external key service must be retried, not turned into a
- * lost job; a reference to a key the provider has permanently forgotten is poison data that no retry
- * can fix. Implementations MUST map their failures onto the typed exceptions below accordingly.
+ * lost job; a reference to a key the provider has permanently forgotten is poison data that no
+ * retry can fix. Implementations MUST map their failures onto the typed exceptions below
+ * accordingly.
  *
  * <p><b>Thread-safety:</b> implementations MUST be thread-safe. A single provider instance serves
  * concurrent poller worker threads on both the write (encrypt) and read (decrypt) paths.
@@ -49,11 +50,12 @@ public interface KeyProvider {
    *
    * @return the current key; never {@code null}
    * @throws KeyProviderUnavailableException if the provider is transiently unreachable (for example
-   *     a KMS/HSM timeout or 5xx). This is retryable: a short outage must not permanently lose jobs.
+   *     a KMS/HSM timeout or 5xx). This is retryable: a short outage must not permanently lose
+   *     jobs.
    * @throws EncryptionConfigurationException if the provider is misconfigured such that no current
    *     key can ever be produced (for example a missing or malformed key reference). This is a
-   *     bootstrap-time error; the reference implementation's installer raises it to fail the node at
-   *     startup rather than poll with encryption that cannot work.
+   *     bootstrap-time error; the reference implementation's installer raises it to fail the node
+   *     at startup rather than poll with encryption that cannot work.
    */
   EncryptionKey currentKey();
 

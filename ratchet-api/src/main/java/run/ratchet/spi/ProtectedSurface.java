@@ -24,11 +24,12 @@ import run.ratchet.api.Incubating;
  * stored in a surface named here is encrypted when the owning job opts in; every other column —
  * routing keys, correlation metadata, timestamps, parameter <em>keys</em> — is cleartext by design
  * so that claim, query, dedup, and tracing keep working. Adding a member is the additive way to
- * widen the boundary; nothing outside this set is ever handed to a {@link PayloadEncryption} engine.
+ * widen the boundary; nothing outside this set is ever handed to a {@link PayloadEncryption}
+ * engine.
  *
  * <p>The surface also drives the additional-authenticated-data (AAD) policy. Most surfaces bind
- * their ciphertext to the job id so a value lifted from one row fails to decrypt in another, but two
- * surfaces cannot and bind to the surface alone — see {@link #SIGNAL_PAYLOAD} and {@link
+ * their ciphertext to the job id so a value lifted from one row fails to decrypt in another, but
+ * two surfaces cannot and bind to the surface alone — see {@link #SIGNAL_PAYLOAD} and {@link
  * #WORKFLOW_CONDITION_PREDICATE}. The framework computes the final AAD bytes from this surface and
  * hands them to the engine; the engine never recomputes them.
  */
@@ -38,7 +39,9 @@ public enum ProtectedSurface {
   /** The {@code args} sub-tree of a job's {@code payload}. AAD binds surface and job id. */
   PAYLOAD_ARGS,
 
-  /** A value in a job's {@code params} map (the keys stay cleartext). AAD binds surface and job id. */
+  /**
+   * A value in a job's {@code params} map (the keys stay cleartext). AAD binds surface and job id.
+   */
   PARAM_VALUE,
 
   /** A persisted job result ({@code job_result}). AAD binds surface and job id. */

@@ -34,13 +34,13 @@ import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
 
@@ -232,8 +232,7 @@ public class WorkflowConditionEvaluator {
     if (jobResult == null) {
       return false;
     }
-    return invokePredicatePayload(
-        condition.getConditionExpression(), jobResult, parentJob.getId());
+    return invokePredicatePayload(condition.getConditionExpression(), jobResult, parentJob.getId());
   }
 
   private boolean evaluateSuccess(JobEntity parentJob) {

@@ -15,7 +15,6 @@
  */
 package run.ratchet.store.converter;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -73,7 +72,8 @@ class EncryptionHolderTest {
 
   @Test
   void engine_unknownAlgorithm_isPoison() {
-    EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
+    EncryptionHolder.install(
+        List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
     assertThrows(PayloadDecryptionException.class, () -> EncryptionHolder.engine("alg-missing"));
   }
 
@@ -97,14 +97,19 @@ class EncryptionHolderTest {
         EncryptionConfigurationException.class,
         () ->
             EncryptionHolder.install(
-                List.of(new StubEngine("dup"), new StubEngine("dup")), "dup", new StubKeyProvider(), true));
+                List.of(new StubEngine("dup"), new StubEngine("dup")),
+                "dup",
+                new StubKeyProvider(),
+                true));
   }
 
   @Test
   void install_blankAlgorithmId_failsLoud() {
     assertThrows(
         EncryptionConfigurationException.class,
-        () -> EncryptionHolder.install(List.of(new StubEngine("  ")), "  ", new StubKeyProvider(), true));
+        () ->
+            EncryptionHolder.install(
+                List.of(new StubEngine("  ")), "  ", new StubKeyProvider(), true));
   }
 
   @Test
@@ -118,14 +123,16 @@ class EncryptionHolderTest {
 
   @Test
   void disable_revertsToDisabled() {
-    EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
+    EncryptionHolder.install(
+        List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
     EncryptionHolder.disable();
     assertFalse(EncryptionHolder.isEnabled());
   }
 
   @Test
   void encryptionActiveFor_globalOn_encryptsEveryJob() {
-    EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
+    EncryptionHolder.install(
+        List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
     assertTrue(EncryptionHolder.isGloballyEnabled());
     assertTrue(EncryptionHolder.encryptionActiveFor(false));
     assertTrue(EncryptionHolder.encryptionActiveFor(true));

@@ -40,8 +40,8 @@ import run.ratchet.store.converter.EncryptionHolder;
  * <p><b>Fail loud, never fail open.</b> The startup state is one of three:
  *
  * <ul>
- *   <li><b>Disabled</b> — neither an engine nor a provider is produced and the global switch is off.
- *       The holder stays disabled; an opted-in job later fails loud at write time rather than
+ *   <li><b>Disabled</b> — neither an engine nor a provider is produced and the global switch is
+ *       off. The holder stays disabled; an opted-in job later fails loud at write time rather than
  *       silently writing plaintext.
  *   <li><b>Enabled</b> — an engine and a provider are both produced. Encryption is installed; the
  *       global switch decides whether every job is encrypted or only opted-in ones.
@@ -58,8 +58,8 @@ public class EncryptionInstaller {
   private final RatchetOptions options;
 
   /**
-   * No-arg constructor so Weld can instantiate the client-proxy subclass (CDI 4.0 §3.15); never used
-   * for a real instance.
+   * No-arg constructor so Weld can instantiate the client-proxy subclass (CDI 4.0 §3.15); never
+   * used for a real instance.
    */
   protected EncryptionInstaller() {
     this.engines = null;
@@ -69,7 +69,9 @@ public class EncryptionInstaller {
 
   @Inject
   public EncryptionInstaller(
-      Instance<PayloadEncryption> engines, Instance<KeyProvider> keyProvider, RatchetOptions options) {
+      Instance<PayloadEncryption> engines,
+      Instance<KeyProvider> keyProvider,
+      RatchetOptions options) {
     this.engines = engines;
     this.keyProvider = keyProvider;
     this.options = options;

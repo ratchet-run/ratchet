@@ -58,8 +58,7 @@ public final class EncryptionContext {
     this.surface = Objects.requireNonNull(surface, "surface must not be null");
     this.jobId = jobId;
     this.key = Objects.requireNonNull(key, "key must not be null");
-    this.additionalAuthenticatedData =
-        Objects.requireNonNull(aad, "aad must not be null").clone();
+    this.additionalAuthenticatedData = Objects.requireNonNull(aad, "aad must not be null").clone();
   }
 
   /**

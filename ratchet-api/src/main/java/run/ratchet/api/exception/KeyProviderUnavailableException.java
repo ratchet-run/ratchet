@@ -22,8 +22,8 @@ import java.io.Serial;
  * timeout, a 5xx response, or a dropped connection.
  *
  * <p><b>Transient, retryable.</b> The key still exists; the provider is just momentarily out of
- * reach. The runtime retries the operation with backoff rather than failing the job, because a short
- * key-service outage must not permanently lose work.
+ * reach. The runtime retries the operation with backoff rather than failing the job, because a
+ * short key-service outage must not permanently lose work.
  *
  * <p>This exception intentionally does <em>not</em> extend {@link RatchetTransientStoreException}.
  * That store-transient path bypasses the attempt counter and would retry forever; a downed key

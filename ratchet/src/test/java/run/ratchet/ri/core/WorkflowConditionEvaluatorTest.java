@@ -38,8 +38,8 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.ri.payload.JobPayloadFactory;
-import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
+import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
@@ -483,5 +483,4 @@ class WorkflowConditionEvaluatorTest {
     assertFalse(
         evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_SUCCESS), parent));
   }
-
 }

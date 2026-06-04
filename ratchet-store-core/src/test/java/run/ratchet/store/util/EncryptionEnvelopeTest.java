@@ -109,8 +109,8 @@ class EncryptionEnvelopeTest {
   void decode_unsupportedVersion_isPoison() {
     // A frame whose first byte is not the current version: base64url of {0x09} alone.
     String wrongVersion =
-        EncryptionEnvelope.MARKER + java.util.Base64.getUrlEncoder().withoutPadding()
-            .encodeToString(new byte[] {0x09});
+        EncryptionEnvelope.MARKER
+            + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[] {0x09});
 
     assertThrows(PayloadDecryptionException.class, () -> EncryptionEnvelope.decode(wrongVersion));
   }

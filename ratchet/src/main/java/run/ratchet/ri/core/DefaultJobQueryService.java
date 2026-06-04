@@ -42,6 +42,7 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.PayloadMasker;
 import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.query.JobQueryCursor;
@@ -51,7 +52,6 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
-import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
 

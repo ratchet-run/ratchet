@@ -24,8 +24,8 @@ import run.ratchet.spi.LocalEncryptionKey;
 
 /**
  * A test {@link KeyProvider} holding a single deterministic 256-bit AES key. {@link
- * #keyById(String)} resolves the known id and throws {@link KeyNotFoundException} for anything else,
- * so the poison-on-retired-key path is exercisable.
+ * #keyById(String)} resolves the known id and throws {@link KeyNotFoundException} for anything
+ * else, so the poison-on-retired-key path is exercisable.
  */
 public final class StaticKeyProvider implements KeyProvider {
 

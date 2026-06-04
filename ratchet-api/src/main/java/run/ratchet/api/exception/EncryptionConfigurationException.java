@@ -24,9 +24,9 @@ import java.io.Serial;
  * <p><b>Configuration error: fail the node at startup.</b> The reference implementation's installer
  * raises this so the node refuses to start rather than begin polling with encryption that cannot
  * function. Jobs stay {@code PENDING} and run once the configuration is corrected; a deploy mistake
- * must never send jobs to the DLQ. This is distinct from the runtime failures in this family — it is
- * neither retried nor routed to a failure path, because there is no per-job operation in flight when
- * it fires.
+ * must never send jobs to the DLQ. This is distinct from the runtime failures in this family — it
+ * is neither retried nor routed to a failure path, because there is no per-job operation in flight
+ * when it fires.
  */
 public class EncryptionConfigurationException extends PayloadEncryptionException {
 

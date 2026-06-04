@@ -45,7 +45,8 @@ public final class EncryptionTestKit {
 
   /** Installs a working AES-GCM engine + static key provider, with the given global switch. */
   public static void install(boolean globalEnabled) {
-    EncryptionHolder.install(List.of(new AesGcmEngine()), ALGORITHM_ID, new Provider(), globalEnabled);
+    EncryptionHolder.install(
+        List.of(new AesGcmEngine()), ALGORITHM_ID, new Provider(), globalEnabled);
   }
 
   /** A real AES-256-GCM engine, so tamper and round-trip behave like production. */

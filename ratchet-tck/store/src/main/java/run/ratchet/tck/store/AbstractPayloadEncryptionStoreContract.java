@@ -100,7 +100,8 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
     assertEquals("super-secret-value", reloaded.getParams().get("apiKey"));
 
     // 2. The engine was actually invoked on the write path — proves the store routes payload args
-    // and param values through the seam (not that the value merely survived a plaintext round-trip).
+    // and param values through the seam (not that the value merely survived a plaintext
+    // round-trip).
     assertTrue(
         engine.encryptedPlaintexts.stream().anyMatch(p -> p.contains("4111-secret-pan")),
         "payload args were not handed to the engine before storage");

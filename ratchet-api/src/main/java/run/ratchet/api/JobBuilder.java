@@ -297,8 +297,8 @@ public interface JobBuilder {
    * (its arguments, parameter values, result, callback payloads, and any signal or
    * workflow-condition payload).
    *
-   * <p>The opt-in is one-way: there is no per-job opt-out. A deployment can instead opt every job in
-   * with the global encryption switch on {@code RatchetOptions}; this method is the per-job
+   * <p>The opt-in is one-way: there is no per-job opt-out. A deployment can instead opt every job
+   * in with the global encryption switch on {@code RatchetOptions}; this method is the per-job
    * equivalent. Either way, encryption only takes effect when the deployment has a {@code
    * PayloadEncryption} engine and a {@code KeyProvider} installed — without them an opted-in job
    * fails the node at startup rather than persisting unprotected data it was asked to encrypt.

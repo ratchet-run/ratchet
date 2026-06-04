@@ -52,8 +52,7 @@ class EncryptionContextTest {
   @Test
   void constructor_copiesAad_soLaterCallerMutationDoesNotLeakIn() {
     byte[] source = {1, 2, 3};
-    EncryptionContext ctx =
-        new EncryptionContext(ProtectedSurface.RESULT, null, KEY, source);
+    EncryptionContext ctx = new EncryptionContext(ProtectedSurface.RESULT, null, KEY, source);
 
     source[0] = 99; // mutate the caller's array after construction
 
@@ -76,8 +75,7 @@ class EncryptionContextTest {
   @Test
   void nullSurface_keyOrAad_areRejected() {
     assertThrows(
-        NullPointerException.class,
-        () -> new EncryptionContext(null, null, KEY, new byte[0]));
+        NullPointerException.class, () -> new EncryptionContext(null, null, KEY, new byte[0]));
     assertThrows(
         NullPointerException.class,
         () -> new EncryptionContext(ProtectedSurface.RESULT, null, null, new byte[0]));

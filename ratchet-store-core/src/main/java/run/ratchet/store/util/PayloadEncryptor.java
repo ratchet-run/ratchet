@@ -46,10 +46,10 @@ import run.ratchet.store.converter.EncryptionHolder;
  *
  * <p><b>The gate.</b> Every write-side method takes an {@code active} flag — the caller's single
  * decision, computed once via {@link EncryptionHolder#encryptionActiveFor(boolean)} so the same
- * value drives both the encryption and the row's {@code encrypted_payload}/{@code encryption_key_id}
- * columns. When {@code active} is false the input is returned unchanged with no JSON walk, so an
- * unencrypted deployment stores byte-for-byte identical data. Read-side methods are driven purely by
- * the frame marker, so they remain correct regardless of the gate.
+ * value drives both the encryption and the row's {@code encrypted_payload}/{@code
+ * encryption_key_id} columns. When {@code active} is false the input is returned unchanged with no
+ * JSON walk, so an unencrypted deployment stores byte-for-byte identical data. Read-side methods
+ * are driven purely by the frame marker, so they remain correct regardless of the gate.
  */
 public final class PayloadEncryptor {
 
@@ -186,7 +186,8 @@ public final class PayloadEncryptor {
         EncryptionEnvelope.canonicalHeader(engine.algorithmId(), key.keyId(), NO_WRAPPED_KEY);
     byte[] aad = EncryptionAad.compute(header, target.surface(), target.binding());
     byte[] body =
-        engine.encrypt(plaintext, new EncryptionContext(target.surface(), target.jobId(), key, aad));
+        engine.encrypt(
+            plaintext, new EncryptionContext(target.surface(), target.jobId(), key, aad));
     return EncryptionEnvelope.encode(header, body);
   }
 
@@ -220,9 +221,7 @@ public final class PayloadEncryptor {
       if (value.getValueType() == JsonValue.ValueType.STRING) {
         String raw = ((JsonString) value).getString();
         String transformed =
-            encrypt
-                ? encryptToFrame(raw.getBytes(UTF_8), target)
-                : decryptStringValue(raw, target);
+            encrypt ? encryptToFrame(raw.getBytes(UTF_8), target) : decryptStringValue(raw, target);
         builder.add(entry.getKey(), transformed);
       } else {
         builder.add(entry.getKey(), value);

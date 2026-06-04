@@ -84,7 +84,8 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
       // cleartext — it is a separate column and names the deserialization target on read.
       //
       // The result is written after creation, so the per-job opt-in is not in scope here; we read
-      // it back from the row (one indexed lookup) so an opted-in job's result is protected even when
+      // it back from the row (one indexed lookup) so an opted-in job's result is protected even
+      // when
       // the global switch is off.
       boolean optedIn =
           jobCrudStore != null

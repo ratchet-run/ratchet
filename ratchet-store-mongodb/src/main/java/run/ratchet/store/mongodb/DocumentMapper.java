@@ -27,6 +27,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -43,7 +44,6 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.RecurringJobDefinition;
-import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -102,7 +102,9 @@ public final class DocumentMapper {
     doc.append(
         "params",
         paramsToDocument(
-            job.getParams(), active, EncryptionTarget.rowBound(ProtectedSurface.PARAM_VALUE, jobId)));
+            job.getParams(),
+            active,
+            EncryptionTarget.rowBound(ProtectedSurface.PARAM_VALUE, jobId)));
     doc.append(
         "target_class",
         job.getPayload() != null ? job.getPayload().target() : job.getTargetClass());
@@ -698,7 +700,8 @@ public final class DocumentMapper {
         args);
   }
 
-  static Document paramsToDocument(Map<String, String> params, boolean active, EncryptionTarget target) {
+  static Document paramsToDocument(
+      Map<String, String> params, boolean active, EncryptionTarget target) {
     if (params == null) {
       return new Document();
     }

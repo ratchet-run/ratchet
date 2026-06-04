@@ -19,8 +19,8 @@ import java.io.Serial;
 
 /**
  * Thrown when a protected value cannot be decrypted: an AEAD authentication-tag mismatch, corrupted
- * ciphertext, or a key or additional-authenticated-data that does not match what the value was bound
- * to.
+ * ciphertext, or a key or additional-authenticated-data that does not match what the value was
+ * bound to.
  *
  * <p><b>Poison data, non-retryable.</b> A retry cannot fix a value whose authentication fails — the
  * bytes are wrong, not temporarily unavailable. The runtime routes this to the controlled failure

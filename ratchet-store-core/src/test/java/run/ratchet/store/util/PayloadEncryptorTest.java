@@ -35,7 +35,8 @@ import run.ratchet.store.testsupport.StaticKeyProvider;
 class PayloadEncryptorTest {
 
   private static final UUID JOB = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
-  private final EncryptionTarget args = EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, JOB);
+  private final EncryptionTarget args =
+      EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, JOB);
   private final EncryptionTarget params =
       EncryptionTarget.rowBound(ProtectedSurface.PARAM_VALUE, JOB);
   private final EncryptionTarget result = EncryptionTarget.rowBound(ProtectedSurface.RESULT, JOB);
@@ -45,7 +46,10 @@ class PayloadEncryptorTest {
     // Engine installed so writeEngine/keyProvider resolve; each test passes the active flag
     // explicitly (the global/per-job decision lives in EncryptionHolder.encryptionActiveFor).
     EncryptionHolder.install(
-        List.of(new AesGcmTestEngine()), AesGcmTestEngine.ALGORITHM_ID, new StaticKeyProvider(), false);
+        List.of(new AesGcmTestEngine()),
+        AesGcmTestEngine.ALGORITHM_ID,
+        new StaticKeyProvider(),
+        false);
   }
 
   @AfterEach

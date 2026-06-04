@@ -26,16 +26,16 @@ import run.ratchet.spi.ProtectedSurface;
  * to. The framework owns this computation so that read and write reconstruct identical bytes by
  * construction; the engine consumes the result verbatim and never recomputes it.
  *
- * <p>The AAD binds three things, each length-prefixed so the concatenation is injective (no
- * {@code surface="AB"||binding="C"} colliding with {@code surface="A"||binding="BC"}):
+ * <p>The AAD binds three things, each length-prefixed so the concatenation is injective (no {@code
+ * surface="AB"||binding="C"} colliding with {@code surface="A"||binding="BC"}):
  *
  * <ol>
  *   <li>the envelope's <b>canonical header</b> (version, algorithm id, key id, wrapped key), so a
  *       tampered or corrupted routing field fails the AEAD tag instead of silently redirecting
  *       dispatch or key resolution;
  *   <li>the <b>protected surface</b>, so a ciphertext cannot be moved between surfaces;
- *   <li>a per-surface <b>binding</b> identity, so a ciphertext cannot be relocated between rows that
- *       share a surface.
+ *   <li>a per-surface <b>binding</b> identity, so a ciphertext cannot be relocated between rows
+ *       that share a surface.
  * </ol>
  *
  * <p>The binding identity depends on the surface and is supplied by the caller:

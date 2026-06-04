@@ -308,5 +308,4 @@ class DefaultJobCreationServiceExecutionTargetTest {
       assertEquals(executionTarget, job.getExecutionTarget());
     }
   }
-
 }

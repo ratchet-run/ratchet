@@ -27,7 +27,8 @@ import run.ratchet.spi.ProtectedSurface;
 
 class EncryptionAadTest {
 
-  private static final byte[] HEADER = EncryptionEnvelope.canonicalHeader("alg", "key-1", new byte[0]);
+  private static final byte[] HEADER =
+      EncryptionEnvelope.canonicalHeader("alg", "key-1", new byte[0]);
 
   @Test
   void compute_isDeterministic() {

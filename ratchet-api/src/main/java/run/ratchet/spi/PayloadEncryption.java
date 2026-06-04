@@ -22,27 +22,28 @@ import run.ratchet.api.exception.PayloadDecryptionException;
  * SPI for the keyed authenticated-encryption (AEAD) transform that protects sensitive job-data
  * values at rest.
  *
- * <p>This is a pure transform over bytes and nothing more. It holds no key state and performs no key
- * lookup — the key for the operation arrives already resolved on the {@link EncryptionContext}. The
- * framework decides <em>which</em> leaves to protect, selects the key, owns the persisted envelope
- * and its framing, and computes the additional-authenticated-data (AAD) bytes; this engine owns only
- * the algorithm. That split keeps the default engine small enough to audit and lets a future key
- * service replace key handling without touching the cipher, or replace the cipher without touching
- * key handling.
+ * <p>This is a pure transform over bytes and nothing more. It holds no key state and performs no
+ * key lookup — the key for the operation arrives already resolved on the {@link EncryptionContext}.
+ * The framework decides <em>which</em> leaves to protect, selects the key, owns the persisted
+ * envelope and its framing, and computes the additional-authenticated-data (AAD) bytes; this engine
+ * owns only the algorithm. That split keeps the default engine small enough to audit and lets a
+ * future key service replace key handling without touching the cipher, or replace the cipher
+ * without touching key handling.
  *
  * <p><b>Authenticated, not merely reversible.</b> Unlike a plain reversible transform, an AEAD
- * cipher binds the ciphertext to the {@link EncryptionContext#additionalAuthenticatedData() AAD} and
- * detects tampering: decrypting corrupted bytes, or bytes whose AAD or key does not match, MUST fail
- * loudly with {@link PayloadDecryptionException} rather than return plausible-looking garbage. That
- * failure is what lets the framework route poison data to a controlled failure path instead of
+ * cipher binds the ciphertext to the {@link EncryptionContext#additionalAuthenticatedData() AAD}
+ * and detects tampering: decrypting corrupted bytes, or bytes whose AAD or key does not match, MUST
+ * fail loudly with {@link PayloadDecryptionException} rather than return plausible-looking garbage.
+ * That failure is what lets the framework route poison data to a controlled failure path instead of
  * executing a job on silently wrong arguments.
  *
- * <p><b>The engine owns the nonce.</b> {@link #encrypt(byte[], EncryptionContext)} returns an opaque
- * body that carries everything decryption needs except the key and AAD — for an AES-GCM engine that
- * is {@code nonce ∥ ciphertext ∥ tag}. The framework does not generate, supply, or interpret the
- * nonce; it wraps the returned body in its versioned envelope as opaque payload. Nonce uniqueness
- * per key is the engine's responsibility, and getting it wrong (nonce reuse under one key) is
- * catastrophic for GCM, so the construction is a security-critical detail of the implementation.
+ * <p><b>The engine owns the nonce.</b> {@link #encrypt(byte[], EncryptionContext)} returns an
+ * opaque body that carries everything decryption needs except the key and AAD — for an AES-GCM
+ * engine that is {@code nonce ∥ ciphertext ∥ tag}. The framework does not generate, supply, or
+ * interpret the nonce; it wraps the returned body in its versioned envelope as opaque payload.
+ * Nonce uniqueness per key is the engine's responsibility, and getting it wrong (nonce reuse under
+ * one key) is catastrophic for GCM, so the construction is a security-critical detail of the
+ * implementation.
  *
  * <p><b>Algorithm dispatch.</b> {@link #algorithmId()} is recorded in the envelope and selects the
  * engine at read time, so a value is always decrypted by the same algorithm that wrote it. An id
@@ -72,8 +73,8 @@ public interface PayloadEncryption {
    *
    * @param plaintext the bytes to protect; never {@code null}
    * @param ctx the operation context carrying the resolved key and final AAD; never {@code null}
-   * @return an opaque AEAD body that carries its own nonce (for AES-GCM, {@code nonce ∥ ciphertext ∥
-   *     tag}); the framework stores it as opaque envelope payload. Never {@code null}.
+   * @return an opaque AEAD body that carries its own nonce (for AES-GCM, {@code nonce ∥ ciphertext
+   *     ∥ tag}); the framework stores it as opaque envelope payload. Never {@code null}.
    */
   byte[] encrypt(byte[] plaintext, EncryptionContext ctx);
 
@@ -87,8 +88,9 @@ public interface PayloadEncryption {
    * @param ctx the operation context carrying the resolved key and final AAD; never {@code null}
    * @return the recovered plaintext; never {@code null}
    * @throws PayloadDecryptionException if authentication fails — corrupted bytes, a mismatched key,
-   *     or AAD that does not match the value the ciphertext was bound to. This is poison data, not a
-   *     transient fault: the framework routes it to the controlled failure path, never to a retry.
+   *     or AAD that does not match the value the ciphertext was bound to. This is poison data, not
+   *     a transient fault: the framework routes it to the controlled failure path, never to a
+   *     retry.
    */
   byte[] decrypt(byte[] ciphertext, EncryptionContext ctx);
 }

@@ -30,16 +30,16 @@ public final class JobEncryption {
 
   /**
    * Whether this row's protected surfaces must be encrypted: the global switch or the job's opt-in.
-   * Fails loud (via {@link EncryptionHolder#encryptionActiveFor(boolean)}) when encryption is wanted
-   * but no engine is installed.
+   * Fails loud (via {@link EncryptionHolder#encryptionActiveFor(boolean)}) when encryption is
+   * wanted but no engine is installed.
    */
   public static boolean activeFor(JobEntity job) {
     return EncryptionHolder.encryptionActiveFor(job.isEncryptedPayload());
   }
 
   /**
-   * The current key id to stamp on the row when it is encrypted, or {@code null} when it is not. The
-   * id is recorded so a key cannot be retired while a live row still references it.
+   * The current key id to stamp on the row when it is encrypted, or {@code null} when it is not.
+   * The id is recorded so a key cannot be retired while a live row still references it.
    */
   public static String keyId(boolean active) {
     return active ? EncryptionHolder.keyProvider().currentKey().keyId() : null;
