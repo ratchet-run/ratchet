@@ -285,6 +285,7 @@ class RecurringJobExecutorGraceTest {
         null,
         executionTarget,
         FIXED_NOW,
-        null);
+        null,
+        false);
   }
 }

@@ -353,11 +353,40 @@ contract.
 The framework still authenticates the full canonical envelope header (version, algorithm id, key
 id, reserved wrapped-key field) as part of the AAD, so a tampered routing field fails the tag.
 
-Per-job opt-in (`withEncryptedPayload()`) covers the surfaces decided at creation (payload args,
-parameter values, callback payloads) and the result (resolved by an indexed lookup of the row's
-flag). The signal and workflow-condition-predicate surfaces gate on the global switch in this
-version, because broadcast delivery spans many jobs and the predicate write site holds only the
-parent id; their AAD bindings above are unaffected by this gating choice.
+Per-job opt-in (`withEncryptedPayload()`) covers every job surface: payload args, parameter
+values, callback payloads, the result (resolved by an indexed lookup of the row's flag), targeted
+signal payloads (the awaiting job's flag), and the workflow-condition predicate (the parent job's
+flag). Broadcast signal delivery cannot read a per-job flag because one ciphertext lands on many
+rows, so it encrypts whenever an engine is configured rather than gating on the global switch
+alone; over-encrypting a non-opted row is harmless because reads are marker-driven. Recurring
+masters carry their own opt-in flag (`scheduler_recurring_job.encrypted_payload`): the stored
+payload templates are encrypted at rest and every fired child inherits the flag.
+
+## Hardening (2026-06-04, post-review)
+
+An adversarial review of the implementation surfaced and closed the following:
+
+- **Broadcast signals honor opt-in.** Previously a broadcast `deliverSignal` gated on the global
+  switch only, so an opted-in waiting job could receive a plaintext signal payload. It now encrypts
+  whenever an engine is installed; the `SIGNAL_PAYLOAD` binding (the signal key) already makes one
+  ciphertext decryptable on every matching row.
+- **Predicates and recurring jobs honor opt-in.** The workflow-condition predicate now follows the
+  parent job's flag, and recurring master templates plus their fired children are encrypted (a new
+  `encrypted_payload` column on `scheduler_recurring_job`). Both previously gated on the global
+  switch only.
+- **Hydration-time poison routes to the DLQ.** A payload that fails to decrypt while a claimed
+  RUNNING job is being loaded is now moved to a terminal FAILED state and emits a `JobDlqEvent`,
+  rather than being swallowed and left to stall until lease recovery — the `getJob()` path now
+  matches the controlled failure path the signal-payload decrypt already used.
+- **`encryption_key_id` is a hint, not a drain oracle.** The column is a denormalized summary of
+  the most recently written surface's write key; the authoritative key for any value is the one
+  named in its self-describing envelope. Drain-checking that retires a key must scan envelopes, not
+  this column. This is documented rather than re-engineered because there is no rotation in this
+  version.
+- **Algorithm rotation stays deferred.** The engine registry already dispatches reads by algorithm
+  id, but the installer accepts a single write engine and the options carry no
+  active-write-algorithm selector. Multi-engine algorithm rotation arrives with the key-rotation
+  tooling; the single-write constraint fails loud rather than guessing.
 
 ## Still open (do not block this ADR)
 

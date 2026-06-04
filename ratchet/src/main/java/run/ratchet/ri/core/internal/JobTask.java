@@ -46,6 +46,8 @@ import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
+import run.ratchet.api.exception.KeyNotFoundException;
+import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
@@ -224,8 +226,16 @@ public class JobTask implements Callable<Void> {
     try {
       jobEntity = getJob();
     } catch (Exception e) {
-      log.errorf(e, "Job %s failed to load entity from database - aborting execution", jobId);
       // Defensive: bind() hasn't run yet, but MDC.remove() of unset keys is a safe no-op.
+      if (isPoison(e)) {
+        // Row hydration decrypted a protected surface and the decrypt failed (tampered ciphertext,
+        // wrong/retired key, or an uninstalled algorithm). This is non-retryable per the DLQ
+        // contract, so dead-letter the claimed RUNNING job rather than silently returning and
+        // leaving it to stall until lease recovery.
+        deadLetterPoisonedJob(jobId, e);
+      } else {
+        log.errorf(e, "Job %s failed to load entity from database - aborting execution", jobId);
+      }
       JobMdcContext.clear();
       return null;
     }
@@ -413,6 +423,59 @@ public class JobTask implements Callable<Void> {
 
   private UUID getJobId() {
     return job != null ? job.getId() : claim.id();
+  }
+
+  /**
+   * Detects payload-decryption poison anywhere in a throwable's cause chain. These are the
+   * exceptions {@link run.ratchet.ri.core.DoNotRetryPolicy} treats as non-retryable: the ciphertext
+   * cannot be recovered by re-running, so the job must be dead-lettered rather than retried or left
+   * stalled. A non-poison load failure (a missing row, a transient store error) falls through to
+   * the caller's normal abort, which leaves the claim for lease/orphan recovery.
+   */
+  private static boolean isPoison(Throwable t) {
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c instanceof PayloadDecryptionException || c instanceof KeyNotFoundException) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Moves a job whose payload failed to decrypt during hydration to a terminal FAILED state without
+   * retry, and emits the DLQ event. The entity never finished hydrating, so this works from the job
+   * id alone: it CAS-transitions RUNNING to FAILED (the same guard {@link #transitionToDlq} uses)
+   * and publishes a best-effort {@link JobDlqEvent}. The richer metadata the normal terminal path
+   * carries is unavailable here precisely because the row could not be read.
+   */
+  private void deadLetterPoisonedJob(UUID jobId, Throwable ex) {
+    String safeError;
+    try {
+      safeError = errorSanitizer.sanitize(ex);
+    } catch (Throwable sanitizerError) {
+      safeError = ex.getClass().getName();
+    }
+    log.errorf(
+        ex,
+        "Job %s carries undecryptable payload ciphertext (poison) — moving to FAILED/DLQ without"
+            + " retry",
+        jobId);
+    boolean moved;
+    try {
+      moved = jobStore.compareAndSwapStatus(jobId, JobStatus.RUNNING, JobStatus.FAILED, safeError);
+    } catch (Throwable t) {
+      log.errorf(
+          t, "Job %s could not be transitioned to FAILED — will require orphan recovery", jobId);
+      return;
+    }
+    if (moved) {
+      try {
+        observabilityFacade.publishEvent(
+            new JobDlqEvent(jobId, null, null, null, nodeIdProvider.getNodeId(), safeError, 1));
+      } catch (Throwable eventError) {
+        log.warnf(eventError, "Poison DLQ event publish failed for job %s", jobId);
+      }
+    }
   }
 
   private Serializable deserializeSignalPayload(JobEntity jobEntity, UUID jobId) {

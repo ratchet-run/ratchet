@@ -227,6 +227,7 @@ public final class RatchetSchemaCatalog {
         .column(nullable("execution_target", TEXT))
         .column(required("created_at", TIMESTAMP_TZ))
         .column(nullable("caller_principal", TEXT))
+        .column(required("encrypted_payload", BOOLEAN))
         .primaryKey("id")
         .index(Index.of("idx_rec_business_key", "business_key"))
         .build();

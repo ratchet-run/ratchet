@@ -34,12 +34,29 @@ public final class JobEncryption {
    * wanted but no engine is installed.
    */
   public static boolean activeFor(JobEntity job) {
-    return EncryptionHolder.encryptionActiveFor(job.isEncryptedPayload());
+    return activeFor(job.isEncryptedPayload());
+  }
+
+  /**
+   * Whether a write must be encrypted given the owning row's opt-in flag. Used by surfaces that
+   * carry the flag outside a {@link JobEntity} (e.g. a recurring master template). Fails loud when
+   * encryption is wanted but no engine is installed.
+   */
+  public static boolean activeFor(boolean encryptedPayload) {
+    return EncryptionHolder.encryptionActiveFor(encryptedPayload);
   }
 
   /**
    * The current key id to stamp on the row when it is encrypted, or {@code null} when it is not.
-   * The id is recorded so a key cannot be retired while a live row still references it.
+   *
+   * <p><b>Best-effort hint, not a drain oracle.</b> The authoritative key for any stored value is
+   * the one named inside its self-describing envelope; this column is a denormalized, queryable
+   * summary of the <em>most recently written</em> surface's write key. A single row can carry
+   * surfaces written at different times (the payload at creation, a signal payload on delivery),
+   * and under a future key rotation those can name a different key than this column. Treat it as a
+   * coarse "is any row still plausibly on key K" filter, never as proof a key is safe to retire;
+   * authoritative drain-checking arrives with the rotation tooling, which must scan envelopes
+   * rather than trust this column.
    */
   public static String keyId(boolean active) {
     return active ? EncryptionHolder.keyProvider().currentKey().keyId() : null;

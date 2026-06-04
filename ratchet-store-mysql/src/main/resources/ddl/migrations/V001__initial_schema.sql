@@ -87,6 +87,7 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     method_name           VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.method'))) STORED,
     created_at            DATETIME(6)                                                       NOT NULL,
     caller_principal      VARCHAR(255)                                                      NULL,
+    encrypted_payload     BOOLEAN                                                           NOT NULL DEFAULT FALSE,
     PRIMARY KEY (id),
     CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
     -- Claim index: filter unpaused rows first, then order by next_fire.

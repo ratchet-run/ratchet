@@ -177,6 +177,7 @@ public abstract class AbstractJpaRecurringClaimConcurrencyContract {
         null,
         null,
         Instant.now(),
-        null);
+        null,
+        false);
   }
 }

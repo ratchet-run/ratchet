@@ -1030,9 +1030,11 @@ public class DefaultJobSchedulerService
       authorizationPolicy.checkDeliverSignal(signalKey, principal);
     }
     String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
-    // Broadcast: one ciphertext lands on every matching row, so it binds the key and gates on the
-    // global switch only (per-job opt-in is ill-defined across many jobs).
-    String serializedPayload = serializeSignalPayload(payload, signalKey, globalSignalActive());
+    // Broadcast: one ciphertext lands on every matching row, and the AAD binds the signal key (not
+    // a job id), so a single ciphertext decrypts on all of them. Per-job opt-in can't be expressed
+    // per row here, so encrypt whenever an engine is configured — that keeps an opted-in waiting
+    // job from receiving a plaintext signal payload when the global switch is off.
+    String serializedPayload = serializeSignalPayload(payload, signalKey, broadcastSignalActive());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -1068,7 +1070,7 @@ public class DefaultJobSchedulerService
     }
     String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
     String serializedPayload =
-        serializeSignalPayload(decision.payload(), signalKey, globalSignalActive());
+        serializeSignalPayload(decision.payload(), signalKey, broadcastSignalActive());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -1141,9 +1143,15 @@ public class DefaultJobSchedulerService
     return job != null && EncryptionHolder.encryptionActiveFor(job.isEncryptedPayload());
   }
 
-  /** Broadcast delivery: per-job opt-in is undefined across many jobs, so gate on global only. */
-  private static boolean globalSignalActive() {
-    return EncryptionHolder.encryptionActiveFor(false);
+  /**
+   * Broadcast delivery: one ciphertext lands on every waiting row matching the key, and the AAD
+   * binds the signal key rather than any job id, so the same ciphertext decrypts on all of them.
+   * Per-job opt-in cannot be applied per row, so encrypt whenever an engine is configured. This
+   * stops an opted-in waiting job from receiving a plaintext signal payload when the global switch
+   * is off; over-encrypting a non-opted row is harmless because reads are marker-driven.
+   */
+  private static boolean broadcastSignalActive() {
+    return EncryptionHolder.isEnabled();
   }
 
   private String serializeSignalPayload(Serializable payload, String signalKey, boolean active) {

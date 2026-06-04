@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     method_name           TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED,
     created_at            TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     caller_principal      VARCHAR(255),
+    encrypted_payload     BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT pk_scheduler_recurring_job PRIMARY KEY (id),
     CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_rec_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))

@@ -382,7 +382,7 @@ class DefaultJobCreationService
 
     List<WorkflowBranch> branches = builder.workflowBranches();
     if (!branches.isEmpty()) {
-      createWorkflowBranches(jobId, branches, state.executionTarget());
+      createWorkflowBranches(jobId, branches, state.executionTarget(), saved.isEncryptedPayload());
     }
 
     boolean shouldWakeup =
@@ -445,7 +445,8 @@ class DefaultJobCreationService
     bulkStore().bulkInsert(childJobs);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
-      createWorkflowBranch(parentId, branch, builder.executionTarget());
+      createWorkflowBranch(
+          parentId, branch, builder.executionTarget(), savedParent.isEncryptedPayload());
     }
 
     wakeupService.notifyIfNeeded(
@@ -512,7 +513,8 @@ class DefaultJobCreationService
     batchStore.updateBatchTotalItems(parentId, totalItems);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
-      createWorkflowBranch(parentId, branch, builder.executionTarget());
+      createWorkflowBranch(
+          parentId, branch, builder.executionTarget(), savedParent.isEncryptedPayload());
     }
 
     wakeupService.notifyIfNeeded(
@@ -598,7 +600,8 @@ class DefaultJobCreationService
             /* resourceName */ null,
             builder.executionTarget(),
             base,
-            callerPrincipal);
+            callerPrincipal,
+            builder.encryptedPayload());
 
     UUID saved = recurringJobStore.createRecurring(definition);
 
@@ -711,24 +714,29 @@ class DefaultJobCreationService
   }
 
   private void createWorkflowBranches(
-      UUID parentId, List<WorkflowBranch> branches, String executionTarget) {
+      UUID parentId,
+      List<WorkflowBranch> branches,
+      String executionTarget,
+      boolean parentEncrypted) {
     if (workflowConditionStore == null && !branches.isEmpty()) {
       throw new UnsupportedOperationException(
           "Workflow branch scheduling requires a store advertising the WorkflowConditionStore"
               + " capability");
     }
     for (WorkflowBranch branch : branches) {
-      createWorkflowBranch(parentId, branch, executionTarget);
+      createWorkflowBranch(parentId, branch, executionTarget, parentEncrypted);
     }
   }
 
-  private void createWorkflowBranch(UUID parentId, WorkflowBranch branch, String executionTarget) {
+  private void createWorkflowBranch(
+      UUID parentId, WorkflowBranch branch, String executionTarget, boolean parentEncrypted) {
     JobEntity branchJob = new JobEntity();
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
     branchJob.setPriority(JobPriority.NORMAL);
     branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
     branchJob.setPayload(payload(branch.task()));
+    branchJob.setEncryptedPayload(parentEncrypted);
     branchJob.setIdempotencyKey(UUID.randomUUID().toString());
     branchJob.setDependsOn(parentId);
     branchJob.setExecutionTarget(executionTarget);
@@ -745,13 +753,13 @@ class DefaultJobCreationService
       Serializable expr = branch.condition().expression();
       if (expr instanceof SerializablePredicate<?> || expr instanceof SerializableFunction<?, ?>) {
         JobPayload p = JobPayloadFactory.fromLambda(expr);
-        // The predicate belongs to the parent job and binds the parent id. Gated on the global
-        // switch: createWorkflowBranch holds only the parent id, and the predicate is framework
-        // metadata, so per-job opt-in is not applied to it in this version.
+        // The predicate belongs to the parent job, binds the parent id, and follows the parent's
+        // encryption opt-in: an opted-in workflow encrypts its predicate even when the global
+        // switch is off.
         condition.setConditionExpression(
             PayloadEncryptor.encryptArgs(
                 PayloadSerializerHolder.get().serialize(p),
-                EncryptionHolder.encryptionActiveFor(false),
+                EncryptionHolder.encryptionActiveFor(parentEncrypted),
                 EncryptionTarget.predicate(parentId)));
       } else {
         condition.setConditionExpression(expr.toString());

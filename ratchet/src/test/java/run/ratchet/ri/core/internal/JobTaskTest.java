@@ -399,6 +399,31 @@ class JobTaskTest {
   }
 
   @Test
+  void call_hydrationDecryptPoison_movesToDlqWithoutRetry() {
+    // A claimed RUNNING job whose payload fails to decrypt during hydration is poison: the
+    // ciphertext cannot be recovered by re-running. It must be dead-lettered, not swallowed and
+    // left to stall until lease recovery (the regression this guards).
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+    when(errorSanitizer.sanitize(any())).thenReturn("decryption failed");
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    // Routed through the controlled DLQ path: terminal FAILED + a DLQ event.
+    verify(jobStore)
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(observabilityFacade).publishEvent(any(JobDlqEvent.class));
+    // Non-retryable: never rescheduled, never increments the attempt counter.
+    verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void handleFailure_nonRetryable_movesToFailedWithoutIncrementingRetryAttempt() throws Exception {
     JobEntity job = createTestJob();

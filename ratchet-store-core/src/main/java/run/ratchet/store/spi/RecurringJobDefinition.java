@@ -56,6 +56,9 @@ import run.ratchet.store.entity.JobPayload;
  * @param createdAt instant the master was registered; never {@code null}
  * @param callerPrincipal caller principal captured at registration, or {@code null} when no
  *     security context was present
+ * @param encryptedPayload whether this master opted into payload encryption; fired child jobs
+ *     inherit it, and the master's own {@code payload}/{@code on_success_payload}/{@code
+ *     on_failure_payload} templates are encrypted at rest when it (or the global switch) is on
  */
 @Incubating
 public record RecurringJobDefinition(
@@ -77,4 +80,5 @@ public record RecurringJobDefinition(
     String resourceName,
     String executionTarget,
     Instant createdAt,
-    String callerPrincipal) {}
+    String callerPrincipal,
+    boolean encryptedPayload) {}

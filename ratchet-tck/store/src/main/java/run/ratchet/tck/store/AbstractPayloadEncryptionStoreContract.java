@@ -21,9 +21,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.crypto.Cipher;
@@ -33,6 +35,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.PayloadEncryptionException;
 import run.ratchet.spi.EncryptionContext;
@@ -43,6 +46,7 @@ import run.ratchet.spi.PayloadEncryption;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.RecurringJobDefinition;
 
 /**
  * Portability contract: every store MUST route payload arguments and parameter values through the
@@ -116,6 +120,54 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
     assertFalse(
         engine.encryptedPlaintexts.contains("com.example.Svc"),
         "routing metadata must not be encrypted");
+  }
+
+  @Test
+  void recurringMasterTemplate_roundTripsThroughTheEncryptionSeam() {
+    UUID id = UUID.randomUUID();
+    RecurringJobDefinition master =
+        new RecurringJobDefinition(
+            id,
+            "0 * * * * ?",
+            "UTC",
+            Instant.now().plusSeconds(3600),
+            false,
+            null,
+            2,
+            0,
+            BackoffPolicy.NONE,
+            0,
+            0,
+            new JobPayload(
+                "com.example.Svc",
+                "charge",
+                "(Ljava/lang/String;)V",
+                true,
+                List.of("4111-recurring-secret")),
+            null,
+            null,
+            null,
+            null,
+            null,
+            Instant.now(),
+            null,
+            true);
+
+    recurringStore().createRecurring(master);
+    RecurringJobDefinition reloaded = recurringStore().getRecurring(id).orElseThrow();
+
+    // 1. Transparent round-trip: the template args survive encrypt + decrypt.
+    assertEquals(List.of("4111-recurring-secret"), reloaded.payload().args());
+    assertTrue(reloaded.encryptedPayload(), "recurring master should report its encryption flag");
+
+    // 2. The engine actually saw the template plaintext on the write path — proves the recurring
+    // store routes its payload template through the seam, not just the live-job path.
+    assertTrue(
+        engine.encryptedPlaintexts.stream().anyMatch(p -> p.contains("4111-recurring-secret")),
+        "recurring template args were not handed to the engine before storage");
+
+    // 3. Routing metadata stays cleartext so the generated target/method columns keep working.
+    assertEquals("com.example.Svc", reloaded.payload().target());
   }
 
   /** Real AES-256-GCM engine that records every plaintext it was asked to encrypt. */
