@@ -289,7 +289,7 @@ LIMIT 100
 FOR UPDATE SKIP LOCKED;
 ```
 
-The query should use `idx_claim_executable` on `scheduler_job_queue` on both PostgreSQL and MySQL — it is the hot-path claim index, partial on `status = 'PENDING'`. A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
+The query should use `idx_claim_executable` on `scheduler_job_queue` on both PostgreSQL and MySQL — it is the hot-path claim index. On PostgreSQL it is partial on `status = 'PENDING'`; on MySQL it is a plain index with `status` as the leading column (MySQL has no partial indexes). A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
 
 ```sql
 -- PostgreSQL

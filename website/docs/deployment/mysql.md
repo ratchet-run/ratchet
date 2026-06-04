@@ -180,7 +180,7 @@ INDEX idx_claim_executable (status, job_type, scheduled_time, priority, job_id)
 INDEX idx_queue_orphan (status, picked_at, picked_by)
 
 -- recurring-master scheduling
-INDEX idx_job_recurring_pending (job_type, rec_status, next_fire)
+INDEX idx_rec_claim (is_paused, next_fire)
 ```
 
 ## Performance Tuning

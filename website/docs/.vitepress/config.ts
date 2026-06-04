@@ -137,6 +137,7 @@ export default defineConfig({
             { text: 'Docker', link: '/deployment/docker' },
             { text: 'Kubernetes', link: '/deployment/kubernetes' },
             { text: 'Cluster Configuration', link: '/deployment/cluster-configuration' },
+            { text: 'Multi-Cell Deployment', link: '/deployment/multi-cell' },
             { text: 'Performance Tuning', link: '/deployment/performance-tuning' },
             { text: 'Monitoring', link: '/deployment/monitoring' },
             { text: 'Troubleshooting', link: '/deployment/troubleshooting' },

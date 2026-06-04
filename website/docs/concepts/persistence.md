@@ -167,7 +167,7 @@ indexes for traversal/search. MongoDB defines analogous collection indexes in
 | `idx_job_depends_on` | `scheduler_job(depends_on)` | Chain/workflow traversal |
 | `idx_job_superseded_by` | `scheduler_job(superseded_by)` | Replacement lookup |
 | `idx_job_created_at` | `scheduler_job(created_at)` | Operational search and retention |
-| `idx_job_recurring_pending` | recurring state (`job_type`, `rec_status`, `next_fire`) | Transitional recurring-master scheduling |
+| `idx_rec_claim` | `scheduler_recurring_job(next_fire) WHERE is_paused = FALSE` (PostgreSQL) / `scheduler_recurring_job(is_paused, next_fire)` (MySQL) | Recurring-master claim scheduling |
 | `idx_signal_key_status` | `scheduler_job_queue(signal_key, status)` | Atomic signal delivery by key |
 | `idx_signal_timeout_status` | `scheduler_job_queue(status, signal_timeout)` | Signal timeout scans |
 | `idx_signal_delivery_id` | `scheduler_job_queue(signal_delivery_id)` | Signal delivery event lookup |
@@ -305,15 +305,18 @@ Different databases report constraint violations differently. The `ConstraintDet
 
 ```java
 public interface ConstraintDetector {
-    boolean isUniqueConstraintViolation(Exception e);
-    boolean isForeignKeyViolation(Exception e);
+    @Nullable String constraintName(Exception e);
+    boolean isDuplicateKey(Exception e);
+    default boolean isDuplicateBusinessKey(Exception e);
+    boolean isDeadlock(Exception e);
+    boolean isTransientConnectionFailure(Exception e);
 }
 ```
 
 Each SQL store module provides a dialect-specific implementation:
 
 - **MySQL:** Parses for "Duplicate entry" in the error message
-- **PostgreSQL:** Checks SQL state codes (23505 for unique violation, 23503 for FK violation)
+- **PostgreSQL:** Checks SQL state codes (23505 for unique violation, plus deadlock/serialization and connection-failure states)
 
 This is used primarily for idempotency key enforcement -- when a duplicate key is detected, the submission is silently rejected rather than throwing an error to the caller.
 

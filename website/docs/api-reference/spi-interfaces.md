@@ -527,7 +527,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
 ## JobLogger
 
-Custom logging backend for job execution. The default RI bridges to `java.util.logging`.
+Custom logging backend for job execution. The default RI bridges to JBoss Logging.
 
 :::info
 This interface is marked `@Incubating` and may change.

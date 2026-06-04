@@ -39,7 +39,7 @@ Each job execution receives its own `JobLogger` instance, bound to that job's ID
 
 ## Reference Pattern: JBoss Logging Implementation
 
-The default `JBossLoggingJobLogger` bridges job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and publishes each log line as an internal `JobLogLine` event. The event is delivered to programmatic listeners and CDI observers; database persistence is not automatic unless your application observes the event and calls `JobLogStore.appendLog(...)` or installs an equivalent integration.
+The default `JBossLoggingJobLogger` bridges job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and publishes each log line as an internal `JobLogLine` event. The event is delivered to programmatic listeners and CDI observers; database persistence is not automatic unless your application observes the event and calls `JobAuditStore.appendLog(...)` or installs an equivalent integration.
 
 ```java
 public class JBossLoggingJobLogger implements JobLogger {
@@ -97,7 +97,7 @@ public class JBossLoggingJobLogger implements JobLogger {
 If you wire a logger like this, the dual routing means:
 
 1. **Backend log output** -- Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`. The actual backend depends on what JBoss Logging detects at startup: JBoss LogManager on WildFly, Logback when `ch.qos.logback.classic.Logger` is on the classpath, Log4j 2 when its API is present, and JDK `java.util.logging` as the final fallback.
-2. **Event publishing** -- Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which delivers them to registered programmatic listeners and CDI observers. Persist them to `JobLogStore` only if your application wants database-backed job traces.
+2. **Event publishing** -- Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which delivers them to registered programmatic listeners and CDI observers. Persist them to `JobAuditStore` only if your application wants database-backed job traces.
 
 ### Level Mapping
 
@@ -277,52 +277,51 @@ If you only need log persistence without console output:
 
 ```java
 import run.ratchet.spi.JobLogger;
-import run.ratchet.ri.core.InternalEventPublisher;
-import run.ratchet.ri.core.JobLogLine;
+import run.ratchet.store.spi.JobAuditStore;
+import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobLogEntity.LogLevel;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.UUID;
 
 public class SilentJobLogger implements JobLogger {
 
     private final UUID jobId;
-    private final InternalEventPublisher eventPublisher;
+    private final JobAuditStore auditStore;
 
-    public SilentJobLogger(UUID jobId, InternalEventPublisher eventPublisher) {
+    public SilentJobLogger(UUID jobId, JobAuditStore auditStore) {
         this.jobId = jobId;
-        this.eventPublisher = eventPublisher;
+        this.auditStore = auditStore;
     }
 
     @Override
     public void info(String message) {
-        publish(LogLevel.INFO, message);
+        persist(LogLevel.INFO, message);
     }
 
     @Override
     public void debug(String message) {
-        publish(LogLevel.DEBUG, message);
+        persist(LogLevel.DEBUG, message);
     }
 
     @Override
     public void warn(String message) {
-        publish(LogLevel.WARN, message);
+        persist(LogLevel.WARN, message);
     }
 
     @Override
     public void error(String message) {
-        publish(LogLevel.ERROR, message);
+        persist(LogLevel.ERROR, message);
     }
 
     @Override
     public void trace(String message) {
-        publish(LogLevel.TRACE, message);
+        persist(LogLevel.TRACE, message);
     }
 
-    private void publish(LogLevel level, String message) {
-        if (eventPublisher != null) {
-            eventPublisher.publish(
-                new JobLogLine(jobId, Instant.now(), level, message, new HashMap<>()));
+    private void persist(LogLevel level, String message) {
+        if (auditStore != null) {
+            auditStore.appendLog(
+                new JobLogEntity(jobId, Instant.now(), level, message));
         }
     }
 }
@@ -370,7 +369,7 @@ A worked example showing the SLF4J + Logback + JBoss Logging triangle is in [`ex
 
 ## Log Persistence
 
-If your application observes `JobLogLine` events and persists them through the `JobLogStore` SPI, you get a queryable `scheduler_job_log` table or collection:
+If your application observes `JobLogLine` events and persists them through the `JobAuditStore` SPI, you get a queryable `scheduler_job_log` table or collection:
 
 ```sql
 -- Find recent error logs for a specific job
@@ -393,7 +392,7 @@ When log persistence is wired, the `LogPurgeTimer` in the RI cleans up old log e
 
 **Leverage the event system carefully.** If your logger publishes through `InternalEventPublisher`, that dispatch is synchronous. If your custom logger does expensive work (network calls, file I/O), consider queuing log entries and flushing asynchronously to avoid blocking job execution.
 
-**Configure logger levels per category.** Ratchet's framework loggers use the fully-qualified class name as the logger category (e.g. `run.ratchet.ri.core.JobTask`). Configure levels through your backend of choice. Examples:
+**Configure logger levels per category.** Ratchet's framework loggers use the fully-qualified class name as the logger category (e.g. `run.ratchet.ri.core.internal.JobTask`). Configure levels through your backend of choice. Examples:
 
 WildFly (`standalone.xml`):
 ```xml

@@ -160,7 +160,7 @@ When a job permanently fails (exhausts retries, `@DoNotRetry`, or `RetryPolicy` 
 ```java
 public void onDlq(@Observes JobDlqEvent event) {
     slackService.alert(String.format(
-        "Job %d moved to DLQ after %d attempts: %s",
+        "Job %s moved to DLQ after %d attempts: %s",
         event.getJobId(), event.getRetryAttempt(), event.getErrorMessage()));
 }
 ```
@@ -203,8 +203,8 @@ The failure callback is invoked **only on permanent failure** (DLQ entry), not o
 
 | Event | When | Key Fields |
 |-------|------|------------|
-| `JobRetryingEvent` | Each retry attempt | `jobId`, `errorMessage`, `attemptCount`, `nextScheduledTime` |
-| `JobDlqEvent` | Permanent failure (DLQ entry) | `jobId`, `errorMessage`, `attemptCount` |
+| `JobRetryingEvent` | Each retry attempt | `jobId`, `errorMessage`, `retryAttempt`, `scheduledTime` |
+| `JobDlqEvent` | Permanent failure (DLQ entry) | `jobId`, `errorMessage`, `retryAttempt` |
 | `JobFailedEvent` | Terminal failure only (job reaches FAILED state) -- not fired on retryable attempts | `jobId`, `errorMessage`, `retryAttempt` |
 
 ## Circuit Breaker Integration

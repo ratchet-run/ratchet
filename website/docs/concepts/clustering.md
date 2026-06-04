@@ -168,7 +168,7 @@ public interface NodeIdentityProvider {
 
 ### Default: DefaultNodeIdentityProvider
 
-The default implementation constructs the node ID from `hostname + PID`, providing uniqueness across machines and across multiple instances on the same machine.
+The default implementation constructs the node ID as `hostname-PID-<8-char UUID>` (falling back to a bare random UUID when hostname resolution fails), providing uniqueness across machines and across multiple instances on the same machine.
 
 ### Custom Implementation
 

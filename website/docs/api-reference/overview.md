@@ -37,7 +37,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`JobPriority`](./job-options#jobpriority) | Enum | Priority levels: LOWEST, LOW, NORMAL, HIGH, CRITICAL |
 | [`BackoffPolicy`](./job-options#backoffpolicy) | Enum | Retry delay strategies: NONE, FIXED, EXPONENTIAL |
 | [`JobType`](./job-options#jobtype) | Enum | Job categories: SINGLE, RECURRING, BATCH, CHAIN, WORKFLOW, SYSTEM |
-| [`CircuitBreakerProfile`](./annotations#circuitbreakerprotected) | Enum | Pre-configured circuit breaker profiles: DEFAULT, FAST, CRITICAL, EXTERNAL_API |
+| [`CircuitBreakerProfile`](./annotations#circuitbreakerprotected) | Enum | Pre-configured circuit breaker profiles: DEFAULT, FAST, CRITICAL, EXTERNAL_API, CLAIM_PATH |
 
 ### `run.ratchet.api` — Annotations
 

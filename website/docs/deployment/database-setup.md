@@ -316,7 +316,7 @@ A reasonable starting point:
 
 | Executor Threads | Recommended Pool Size |
 |-----------------|----------------------|
-| 8 (default) | 15-20 |
+| 20 (default) | 15-20 |
 | 16 | 25-30 |
 | 32 | 40-50 |
 | 64+ | executor threads * 1.5 |
@@ -350,7 +350,7 @@ max_connections = 200
 
 ## Schema Upgrades
 
-Ratchet uses `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS` in its DDL. This means you can safely re-run the schema file against an existing database — it will create any missing tables or indexes without modifying existing ones.
+Ratchet uses `CREATE TABLE IF NOT EXISTS` in its DDL on both MySQL and PostgreSQL. On PostgreSQL it also uses `CREATE INDEX IF NOT EXISTS`; on MySQL indexes are declared inline within `CREATE TABLE IF NOT EXISTS` (MySQL has no partial indexes), so MySQL re-run safety relies on `CREATE TABLE IF NOT EXISTS` across the 18 tables. This means you can safely re-run the schema file against an existing database — it will create any missing tables or indexes without modifying existing ones.
 
 For schema changes between Ratchet versions:
 

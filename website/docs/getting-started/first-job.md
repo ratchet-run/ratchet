@@ -270,7 +270,6 @@ Ratchet fires events for every job lifecycle transition. The full set of event t
 | `JobCompletedEvent` | Job finishes successfully |
 | `JobFailedEvent` | Job fails after exhausting retries |
 | `JobRetryingEvent` | Job failed but will be retried |
-| `JobCancellingEvent` | Job cancellation requested |
 | `JobCancelledEvent` | Job successfully cancelled |
 | `JobPausedEvent` | Job paused via `pauseJob()` |
 | `JobResumedEvent` | Job resumed via `resumeJob()` |
@@ -281,7 +280,6 @@ Ratchet fires events for every job lifecycle transition. The full set of event t
 | `ChainCompletedEvent` | Final step in a chain completes |
 | `ChainFailedEvent` | A chain step failed |
 | `WorkflowBranchTriggeredEvent` | A conditional workflow branch was triggered |
-| `PerformanceMetricsEvent` | Periodic performance metrics snapshot |
 
 All events extend `AbstractJobSchedulerEvent`, which provides common fields: `jobId`, `businessKey`, `jobType`, `priority`, `nodeId`, and `timestamp`.
 
