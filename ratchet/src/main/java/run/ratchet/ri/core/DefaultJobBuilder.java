@@ -60,6 +60,7 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   private String executionTarget;
   private String awaitSignalKey;
   private Duration awaitSignalTimeout;
+  private boolean encryptedPayload;
 
   DefaultJobBuilder(JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
     this.submitter = submitter;
@@ -259,6 +260,12 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   }
 
   @Override
+  public JobBuilder withEncryptedPayload() {
+    this.encryptedPayload = true;
+    return this;
+  }
+
+  @Override
   public List<SerializableCheckedRunnable> chainTasks() {
     return Collections.unmodifiableList(chain);
   }
@@ -326,5 +333,10 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   @Override
   public String executionTarget() {
     return executionTarget;
+  }
+
+  @Override
+  public boolean encryptedPayload() {
+    return encryptedPayload;
   }
 }
