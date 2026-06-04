@@ -133,6 +133,17 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "trace_context")
   private Map<String, String> traceContext;
 
+  // Per-row encryption metadata. encryptedPayload records whether this row's protected surfaces are
+  // stored as ciphertext (the global switch OR the job's withEncryptedPayload() opt-in); read paths
+  // and integrity tooling use it. encryptionKeyId records the key the creation-time payload was
+  // written under, so a key cannot be retired until an indexed query confirms no live row still
+  // references it. Both are cleartext by design — the key id is not secret.
+  @Column(name = "encrypted_payload", nullable = false)
+  private boolean encryptedPayload = false;
+
+  @Column(name = "encryption_key_id", length = 256)
+  private String encryptionKeyId;
+
   // target_class and method_name are populated outside JPA so they remain queryable for
   // dashboards without round-tripping the JobPayload converter. Store implementations must
   // populate these columns through a DDL-level generated column or a native INSERT path —
@@ -390,6 +401,22 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public void setParams(Map<String, String> params) {
     this.params = params;
+  }
+
+  public boolean isEncryptedPayload() {
+    return encryptedPayload;
+  }
+
+  public void setEncryptedPayload(boolean encryptedPayload) {
+    this.encryptedPayload = encryptedPayload;
+  }
+
+  public String getEncryptionKeyId() {
+    return encryptionKeyId;
+  }
+
+  public void setEncryptionKeyId(String encryptionKeyId) {
+    this.encryptionKeyId = encryptionKeyId;
   }
 
   public Map<String, String> getTraceContext() {

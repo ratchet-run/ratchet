@@ -20,12 +20,15 @@ import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.context.AbstractJobRowMapper;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.StatusClassifier;
 
@@ -46,7 +49,7 @@ final class MysqlJobRowMapper extends AbstractJobRowMapper {
       q.paused_from_status, q.last_error, q.version, q.updated_at,
       q.signal_key, q.signal_timeout, q.signal_payload, q.signal_payload_type,
       q.signal_outcome, q.signal_rejection_reason, q.signal_delivered_at,
-      q.signal_delivered_by, q.signal_delivery_id\
+      q.signal_delivered_by, q.signal_delivery_id, c.encrypted_payload\
       """;
   static final int HYDRATION_COL_COUNT = AbstractJobRowMapper.HYDRATION_COL_COUNT;
   static final int IDX_Q_STATUS = AbstractJobRowMapper.IDX_Q_STATUS;
@@ -98,16 +101,26 @@ final class MysqlJobRowMapper extends AbstractJobRowMapper {
     return jobs;
   }
 
-  static String payloadToJson(JobEntity job) {
-    return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(job.getPayload());
+  static String payloadToJson(JobEntity job, boolean active) {
+    return PayloadEncryptor.encryptArgs(
+        JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(job.getPayload()),
+        active,
+        EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, job.getId()));
   }
 
-  static String paramsToJson(JobEntity job) {
-    return JSON_MAP_CONVERTER.convertToDatabaseColumn(job.getParams());
+  static String paramsToJson(JobEntity job, boolean active) {
+    return PayloadEncryptor.encryptParamMap(
+        JSON_MAP_CONVERTER.convertToDatabaseColumn(job.getParams()),
+        active,
+        EncryptionTarget.rowBound(ProtectedSurface.PARAM_VALUE, job.getId()));
   }
 
-  static String callbackPayloadToJson(JobPayload payload) {
-    return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload);
+  static String callbackPayloadToJson(
+      JobEntity job, JobPayload payload, ProtectedSurface surface, boolean active) {
+    return PayloadEncryptor.encryptArgs(
+        JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload),
+        active,
+        EncryptionTarget.rowBound(surface, job.getId()));
   }
 
   static String traceContextToJson(JobEntity job) {

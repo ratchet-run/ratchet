@@ -57,26 +57,33 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
+import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.EncryptionContext;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadEncryption;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 @ExtendWith(MockitoExtension.class)
 class JobTaskTest {
@@ -179,7 +186,7 @@ class JobTaskTest {
             errorSanitizer,
             classPolicy,
             context -> new JBossLoggingJobLogger(context.jobId(), null),
-            new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer),
+            new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
             serializer,
             Clock.systemUTC());
@@ -188,6 +195,8 @@ class JobTaskTest {
   @AfterEach
   void tearDown() {
     OBSERVED_SIGNAL_DECISION.remove();
+    OBSERVED_SIGNAL_STRING.remove();
+    EncryptionHolder.disable();
   }
 
   @Test
@@ -832,6 +841,36 @@ class JobTaskTest {
     Assertions.assertEquals("hello", OBSERVED_SIGNAL_STRING.get());
   }
 
+  @Test
+  void call_signalPayloadDecryptionFailureMovesJobToFailurePath() throws Exception {
+    EncryptionHolder.install(
+        List.of(new FailingDecryptEngine()),
+        FailingDecryptEngine.ALGORITHM_ID,
+        new EncryptionTestKit.Provider(),
+        true);
+    JobEntity job = createTestJob();
+    job.setSignalPayload(
+        PayloadEncryptor.encryptValue(
+            "\"hello\"", true, EncryptionTarget.signal(job.getSignalKey())));
+    jobTask.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    when(validationFacade.shouldNotRetry(any(Throwable.class))).thenReturn(true);
+    when(errorSanitizer.sanitize(any(Throwable.class))).thenReturn("safe decrypt failure");
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(jobStore)
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(observabilityFacade)
+        .recordJobFailure(eq(job), any(IllegalArgumentException.class), eq(0));
+    verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
+    verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
+    verify(lifecycleFacade).moveToDlq(eq(job), any(IllegalArgumentException.class));
+  }
+
   private JobEntity createTestJob() {
     JobEntity job = new JobEntity();
     job.setId(JOB_UUID);
@@ -900,6 +939,26 @@ class JobTaskTest {
         null,
         null,
         taskClock);
+  }
+
+  /** Encrypts to a real frame but always fails to decrypt — a tampered/wrong-key analogue. */
+  private static final class FailingDecryptEngine implements PayloadEncryption {
+    static final String ALGORITHM_ID = "FAIL-DECRYPT";
+
+    @Override
+    public String algorithmId() {
+      return ALGORITHM_ID;
+    }
+
+    @Override
+    public byte[] encrypt(byte[] plaintext, EncryptionContext ctx) {
+      return new byte[] {1, 2, 3};
+    }
+
+    @Override
+    public byte[] decrypt(byte[] ciphertext, EncryptionContext ctx) {
+      throw new PayloadDecryptionException("wrong key");
+    }
   }
 
   public static class AnnotatedJobTarget {

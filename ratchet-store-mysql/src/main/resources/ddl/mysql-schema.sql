@@ -179,6 +179,12 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- pointers. ON DELETE SET NULL so cancel of the master does not cascade-delete in-flight
     -- children.
     recurring_master_id   BINARY(16)                                                                                                          NULL,
+    -- Per-row payload-encryption metadata (cleartext by design). encrypted_payload marks whether
+    -- this row's protected surfaces are ciphertext; encryption_key_id records the key the
+    -- creation-time payload was written under, so a key cannot be retired while a live row still
+    -- references it.
+    encrypted_payload     BOOLEAN                                                                                                             NOT NULL DEFAULT FALSE,
+    encryption_key_id     VARCHAR(256)                                                                                                        NULL,
     PRIMARY KEY (job_id),
     UNIQUE KEY uk_idempotency_key (idempotency_key),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
@@ -187,6 +193,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     INDEX idx_job_depends_on (depends_on),
     INDEX idx_job_superseded_by (superseded_by),
     INDEX idx_job_recurring_master_id (recurring_master_id),
+    -- Indexed for the key-rotation drain check (SELECT ... WHERE encryption_key_id = ? AND status...).
+    INDEX idx_job_encryption_key_id (encryption_key_id),
     -- business_key is observability-only here; uniqueness is in scheduler_business_key_reservation.
     INDEX idx_job_business_key (business_key),
     -- Audit / archival indexes.

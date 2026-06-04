@@ -16,13 +16,17 @@
 package run.ratchet.store.context;
 
 import java.time.Instant;
+import java.util.UUID;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobStatus;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.JobHydrationSupport;
+import run.ratchet.store.util.PayloadEncryptor;
 import run.ratchet.store.util.RowValues;
 
 /**
@@ -36,7 +40,7 @@ import run.ratchet.store.util.RowValues;
  */
 public abstract class AbstractJobRowMapper {
 
-  public static final int HYDRATION_COL_COUNT = 52;
+  public static final int HYDRATION_COL_COUNT = 53;
   public static final int IDX_Q_STATUS = 34;
 
   protected static final int IDX_JOB_ID = 0;
@@ -90,6 +94,9 @@ public abstract class AbstractJobRowMapper {
   protected static final int IDX_Q_SIGNAL_DELIVERED_AT = 49;
   protected static final int IDX_Q_SIGNAL_DELIVERED_BY = 50;
   protected static final int IDX_Q_SIGNAL_DELIVERY_ID = 51;
+  // Appended last so the queue-column indexes above do not shift. encryption_key_id is NOT in the
+  // hydration projection — it is read only by the rare key-rotation drain-check query.
+  protected static final int IDX_ENCRYPTED_PAYLOAD = 52;
 
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
@@ -120,7 +127,12 @@ public abstract class AbstractJobRowMapper {
               + row.length);
     }
     JobEntity j = new JobEntity();
-    j.setId(RowValues.uuidOrNull(row[IDX_JOB_ID]));
+    UUID jobId = RowValues.uuidOrNull(row[IDX_JOB_ID]);
+    j.setId(jobId);
+    // Surfaces are decrypted in place; decryption is marker-driven, so an unencrypted (unframed)
+    // value passes through unchanged regardless of the per-row flag. The flag is hydrated below for
+    // re-write paths (e.g. result persistence) and integrity tooling.
+    j.setEncryptedPayload(Boolean.TRUE.equals(row[IDX_ENCRYPTED_PAYLOAD]));
     j.setJobType(enumValue(row, IDX_JOB_TYPE, "job_type", JobExecutionType.class));
     j.setPriority(
         RowValues.safeJobPriority(requiredNumber(row, IDX_PRIORITY, "priority").intValue()));
@@ -131,9 +143,15 @@ public abstract class AbstractJobRowMapper {
     j.setCronExpr((String) row[IDX_CRON_EXPR]);
     j.setZoneId((String) row[IDX_ZONE_ID]);
     j.setPayload(
-        JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(RowValues.stringOrNull(row[IDX_PAYLOAD])));
+        JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(
+            PayloadEncryptor.decryptArgs(
+                RowValues.stringOrNull(row[IDX_PAYLOAD]),
+                EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, jobId))));
     j.setParams(
-        JSON_MAP_CONVERTER.convertToEntityAttribute(RowValues.stringOrNull(row[IDX_PARAMS])));
+        JSON_MAP_CONVERTER.convertToEntityAttribute(
+            PayloadEncryptor.decryptParamMap(
+                RowValues.stringOrNull(row[IDX_PARAMS]),
+                EncryptionTarget.rowBound(ProtectedSurface.PARAM_VALUE, jobId))));
     j.setTargetClass((String) row[IDX_TARGET_CLASS]);
     j.setMethodName((String) row[IDX_METHOD_NAME]);
     j.setIdempotencyKey((String) row[IDX_IDEMPOTENCY_KEY]);
@@ -141,10 +159,14 @@ public abstract class AbstractJobRowMapper {
     j.setResourceName((String) row[IDX_RESOURCE_NAME]);
     j.setOnSuccessPayload(
         JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(
-            RowValues.stringOrNull(row[IDX_ON_SUCCESS])));
+            PayloadEncryptor.decryptArgs(
+                RowValues.stringOrNull(row[IDX_ON_SUCCESS]),
+                EncryptionTarget.rowBound(ProtectedSurface.ON_SUCCESS_PAYLOAD, jobId))));
     j.setOnFailurePayload(
         JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(
-            RowValues.stringOrNull(row[IDX_ON_FAILURE])));
+            PayloadEncryptor.decryptArgs(
+                RowValues.stringOrNull(row[IDX_ON_FAILURE]),
+                EncryptionTarget.rowBound(ProtectedSurface.ON_FAILURE_PAYLOAD, jobId))));
     j.setDependsOn(RowValues.uuidOrNull(row[IDX_DEPENDS_ON]));
     j.setSupersededBy(RowValues.uuidOrNull(row[IDX_SUPERSEDED_BY]));
     j.setCreatedAt(RowValues.instantOrNull(row[IDX_CREATED_AT]));

@@ -28,9 +28,11 @@ import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.JobWriteSupport;
 import run.ratchet.store.util.RowValues;
 
@@ -46,14 +48,14 @@ final class MysqlJobWriteOperations {
         timeout_sec, cron_expr, zone_id, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
         superseded_by, created_at, caller_principal, trace_context, recurring_master_id,
-        execution_target)
+        execution_target, encrypted_payload, encryption_key_id)
       VALUES
       """;
 
   private static final String COLD_INSERT_VALUES =
       """
       (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
-              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON), ?, ?)
+              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON), ?, ?, ?, ?)
       """;
 
   private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
@@ -221,11 +223,18 @@ final class MysqlJobWriteOperations {
             resource_name = ?
         WHERE job_id = ?
         """;
+    boolean active = JobEncryption.activeFor(job);
     ctx.em()
         .createNativeQuery(sql)
-        .setParameter(1, MysqlJobRowMapper.paramsToJson(job))
-        .setParameter(2, MysqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(3, MysqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(1, MysqlJobRowMapper.paramsToJson(job, active))
+        .setParameter(
+            2,
+            MysqlJobRowMapper.callbackPayloadToJson(
+                job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active))
+        .setParameter(
+            3,
+            MysqlJobRowMapper.callbackPayloadToJson(
+                job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active))
         .setParameter(4, UuidByteArrayConverter.toBytes(job.getDependsOn()))
         .setParameter(5, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
         .setParameter(6, job.getResourceName())
@@ -238,6 +247,8 @@ final class MysqlJobWriteOperations {
   }
 
   private int bindColdInsert(Query q, JobEntity job, Timestamp nowTs, int i) {
+    boolean active = JobEncryption.activeFor(job);
+    String keyId = JobEncryption.keyId(active);
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getId()));
     q.setParameter(i++, job.getJobType().name());
     q.setParameter(i++, job.getPriority().ordinal());
@@ -247,20 +258,28 @@ final class MysqlJobWriteOperations {
     q.setParameter(i++, job.getTimeoutSec());
     q.setParameter(i++, JobWriteSupport.coerceCronExpr(job.getCronExpr()));
     q.setParameter(i++, JobWriteSupport.coerceZoneId(job.getZoneId()));
-    q.setParameter(i++, MysqlJobRowMapper.payloadToJson(job));
-    q.setParameter(i++, MysqlJobRowMapper.paramsToJson(job));
+    q.setParameter(i++, MysqlJobRowMapper.payloadToJson(job, active));
+    q.setParameter(i++, MysqlJobRowMapper.paramsToJson(job, active));
     q.setParameter(i++, job.getIdempotencyKey());
     q.setParameter(i++, job.getBusinessKey());
     q.setParameter(i++, job.getResourceName());
-    q.setParameter(i++, MysqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()));
-    q.setParameter(i++, MysqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()));
+    q.setParameter(
+        i++,
+        MysqlJobRowMapper.callbackPayloadToJson(
+            job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active));
+    q.setParameter(
+        i++,
+        MysqlJobRowMapper.callbackPayloadToJson(
+            job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active));
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getDependsOn()));
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getSupersededBy()));
     q.setParameter(i++, nowTs);
     q.setParameter(i++, job.getCallerPrincipal());
     q.setParameter(i++, MysqlJobRowMapper.traceContextToJson(job));
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getRecurringMasterId()));
-    q.setParameter(i, job.getExecutionTarget());
+    q.setParameter(i++, job.getExecutionTarget());
+    q.setParameter(i++, active);
+    q.setParameter(i, keyId);
     return i + 1;
   }
 

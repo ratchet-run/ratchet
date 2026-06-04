@@ -27,6 +27,11 @@ import run.ratchet.store.entity.JobPayload;
  * run.ratchet.spi.PayloadSerializer} SPI is the single JSON boundary. JPA converters are not
  * CDI-managed beans, so the holder's static registration pattern is used instead of field
  * injection.
+ *
+ * <p>This converter performs serialization only. Payload-args encryption is applied a layer up, in
+ * the row mappers and document mapper, which alone see the whole row and can supply the job id and
+ * surface that the {@code byte[]} AEAD seam binds each ciphertext to. A JPA converter only ever
+ * receives the value, never the row, so it cannot carry that context.
  */
 @Converter
 public class JobPayloadConverter implements AttributeConverter<JobPayload, String> {

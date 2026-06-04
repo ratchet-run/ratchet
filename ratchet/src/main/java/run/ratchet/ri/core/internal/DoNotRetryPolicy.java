@@ -38,7 +38,12 @@ public class DoNotRetryPolicy {
           "java.lang.IllegalArgumentException",
           "java.lang.NullPointerException",
           "java.lang.SecurityException",
-          "jakarta.security.enterprise.AuthenticationException");
+          "jakarta.security.enterprise.AuthenticationException",
+          // Encryption poison data: corrupt/tampered ciphertext or a key the provider has
+          // permanently forgotten. A retry cannot fix either, so route to DLQ. The transient
+          // KeyProviderUnavailableException is deliberately absent — it must stay retryable.
+          "run.ratchet.api.exception.PayloadDecryptionException",
+          "run.ratchet.api.exception.KeyNotFoundException");
 
   public boolean shouldNotRetry(Throwable exception) {
     if (exception == null) {

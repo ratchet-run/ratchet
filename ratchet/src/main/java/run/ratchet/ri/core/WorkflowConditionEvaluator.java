@@ -24,6 +24,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
@@ -39,6 +40,9 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /**
  * Evaluates workflow conditions against parent job results to decide which child jobs to schedule.
@@ -121,7 +125,7 @@ public class WorkflowConditionEvaluator {
   private JobResult<?> createJobResult(JobEntity job) {
     return JobResult.of(
         job.getStatus() == JobStatus.SUCCEEDED,
-        parseJobResult(job.getJobResult(), job.getResultType()),
+        parseJobResult(job.getJobResult(), job.getResultType(), job.getId()),
         job.getLastError(),
         null,
         job.getExecutionDurationMs(),
@@ -155,7 +159,8 @@ public class WorkflowConditionEvaluator {
                       batch.getTotalItems(),
                       batch.getCompletedItems(),
                       batch.getFailedItems());
-              return invokePredicatePayload(condition.getConditionExpression(), context);
+              return invokePredicatePayload(
+                  condition.getConditionExpression(), context, parentJob.getId());
             })
         .orElse(false);
   }
@@ -210,7 +215,8 @@ public class WorkflowConditionEvaluator {
   }
 
   private boolean evaluateCustomCondition(WorkflowConditionEntity condition, JobEntity parentJob) {
-    return invokePredicatePayload(condition.getConditionExpression(), createJobResult(parentJob));
+    return invokePredicatePayload(
+        condition.getConditionExpression(), createJobResult(parentJob), parentJob.getId());
   }
 
   private boolean evaluateFailure(JobEntity parentJob) {
@@ -221,11 +227,13 @@ public class WorkflowConditionEvaluator {
     if (parentJob.getJobResult() == null) {
       return false;
     }
-    Object jobResult = parseJobResult(parentJob.getJobResult(), parentJob.getResultType());
+    Object jobResult =
+        parseJobResult(parentJob.getJobResult(), parentJob.getResultType(), parentJob.getId());
     if (jobResult == null) {
       return false;
     }
-    return invokePredicatePayload(condition.getConditionExpression(), jobResult);
+    return invokePredicatePayload(
+        condition.getConditionExpression(), jobResult, parentJob.getId());
   }
 
   private boolean evaluateSuccess(JobEntity parentJob) {
@@ -249,12 +257,15 @@ public class WorkflowConditionEvaluator {
    *       bean is the receiver; null slots are filled with {@code contextArg}.
    * </ul>
    */
-  private boolean invokePredicatePayload(String expression, Object contextArg) {
+  private boolean invokePredicatePayload(String expression, Object contextArg, UUID parentJobId) {
     if (expression == null) {
       return false;
     }
     try {
-      JobPayload payload = payloadSerializer.deserialize(expression, JobPayload.class);
+      JobPayload payload =
+          payloadSerializer.deserialize(
+              PayloadEncryptor.decryptArgs(expression, EncryptionTarget.predicate(parentJobId)),
+              JobPayload.class);
       if (payload == null) {
         return false;
       }
@@ -328,10 +339,14 @@ public class WorkflowConditionEvaluator {
     throw new NoSuchMethodException(payload.method() + " not found in " + cls.getName());
   }
 
-  private Object parseJobResult(String jobResultJson, String resultType) {
+  private Object parseJobResult(String jobResultJson, String resultType, UUID jobId) {
     if (jobResultJson == null) {
       return null;
     }
+    // Decrypt at rest before deserializing; marker-driven, so plaintext passes through.
+    jobResultJson =
+        PayloadEncryptor.decryptJsonColumn(
+            jobResultJson, EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId));
     try {
       if (resultType != null) {
         if (classPolicy != null && !classPolicy.isAllowed(resultType)) {

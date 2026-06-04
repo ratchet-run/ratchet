@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,15 +39,19 @@ import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
+import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 @ExtendWith(MockitoExtension.class)
 class WorkflowConditionEvaluatorTest {
@@ -129,6 +134,11 @@ class WorkflowConditionEvaluatorTest {
   void setUp() {
     evaluator =
         new WorkflowConditionEvaluator(batchStore, beanResolver, classPolicy, payloadSerializer);
+  }
+
+  @AfterEach
+  void resetEncryption() {
+    EncryptionHolder.disable();
   }
 
   @Test
@@ -278,6 +288,21 @@ class WorkflowConditionEvaluatorTest {
     JobEntity parent = parentJob(JobStatus.SUCCEEDED);
     String expression =
         serializeCondition((SerializablePredicate<JobResult<?>>) JobResult::isSuccess);
+
+    assertTrue(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression), parent));
+  }
+
+  @Test
+  void customCondition_decryptsEncryptedPredicatePayload() {
+    EncryptionTestKit.install(true);
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    String expression =
+        PayloadEncryptor.encryptArgs(
+            serializeCondition((SerializablePredicate<JobResult<?>>) JobResult::isSuccess),
+            true,
+            EncryptionTarget.predicate(parent.getId()));
 
     assertTrue(
         evaluator.evaluate(
@@ -458,4 +483,5 @@ class WorkflowConditionEvaluatorTest {
     assertFalse(
         evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_SUCCESS), parent));
   }
+
 }

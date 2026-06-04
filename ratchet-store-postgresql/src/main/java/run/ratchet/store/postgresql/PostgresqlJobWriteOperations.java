@@ -28,8 +28,10 @@ import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.JobWriteSupport;
 import run.ratchet.store.util.RowValues;
 
@@ -45,14 +47,14 @@ final class PostgresqlJobWriteOperations {
         timeout_sec, cron_expr, zone_id, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
         superseded_by, created_at, caller_principal, trace_context, recurring_master_id,
-        execution_target)
+        execution_target, encrypted_payload, encryption_key_id)
       VALUES
       """;
 
   private static final String COLD_INSERT_VALUES =
       """
       (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
-              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, CAST(? AS jsonb), ?, ?)
+              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?)
       """;
 
   private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
@@ -228,6 +230,8 @@ final class PostgresqlJobWriteOperations {
   }
 
   private int bindColdInsert(Query q, JobEntity job, Timestamp nowTs, int i) {
+    boolean active = JobEncryption.activeFor(job);
+    String keyId = JobEncryption.keyId(active);
     q.setParameter(i++, job.getId());
     q.setParameter(i++, job.getJobType().name());
     q.setParameter(i++, job.getPriority().ordinal());
@@ -237,20 +241,28 @@ final class PostgresqlJobWriteOperations {
     q.setParameter(i++, job.getTimeoutSec());
     q.setParameter(i++, JobWriteSupport.coerceCronExpr(job.getCronExpr()));
     q.setParameter(i++, JobWriteSupport.coerceZoneId(job.getZoneId()));
-    q.setParameter(i++, PostgresqlJobRowMapper.payloadToJson(job));
-    q.setParameter(i++, PostgresqlJobRowMapper.paramsToJson(job));
+    q.setParameter(i++, PostgresqlJobRowMapper.payloadToJson(job, active));
+    q.setParameter(i++, PostgresqlJobRowMapper.paramsToJson(job, active));
     q.setParameter(i++, job.getIdempotencyKey());
     q.setParameter(i++, job.getBusinessKey());
     q.setParameter(i++, job.getResourceName());
-    q.setParameter(i++, PostgresqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()));
-    q.setParameter(i++, PostgresqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()));
+    q.setParameter(
+        i++,
+        PostgresqlJobRowMapper.callbackPayloadToJson(
+            job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active));
+    q.setParameter(
+        i++,
+        PostgresqlJobRowMapper.callbackPayloadToJson(
+            job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active));
     q.setParameter(i++, job.getDependsOn());
     q.setParameter(i++, job.getSupersededBy());
     q.setParameter(i++, job.getCreatedAt() != null ? Timestamp.from(job.getCreatedAt()) : nowTs);
     q.setParameter(i++, job.getCallerPrincipal());
     q.setParameter(i++, PostgresqlJobRowMapper.traceContextToJson(job));
     q.setParameter(i++, job.getRecurringMasterId());
-    q.setParameter(i, job.getExecutionTarget());
+    q.setParameter(i++, job.getExecutionTarget());
+    q.setParameter(i++, active);
+    q.setParameter(i, keyId);
     return i + 1;
   }
 
@@ -431,11 +443,18 @@ final class PostgresqlJobWriteOperations {
             resource_name = ?
         WHERE job_id = ?
         """;
+    boolean active = JobEncryption.activeFor(job);
     ctx.em()
         .createNativeQuery(sql)
-        .setParameter(1, PostgresqlJobRowMapper.paramsToJson(job))
-        .setParameter(2, PostgresqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(3, PostgresqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(1, PostgresqlJobRowMapper.paramsToJson(job, active))
+        .setParameter(
+            2,
+            PostgresqlJobRowMapper.callbackPayloadToJson(
+                job, job.getOnSuccessPayload(), ProtectedSurface.ON_SUCCESS_PAYLOAD, active))
+        .setParameter(
+            3,
+            PostgresqlJobRowMapper.callbackPayloadToJson(
+                job, job.getOnFailurePayload(), ProtectedSurface.ON_FAILURE_PAYLOAD, active))
         .setParameter(4, job.getDependsOn())
         .setParameter(5, job.getSupersededBy())
         .setParameter(6, job.getResourceName())

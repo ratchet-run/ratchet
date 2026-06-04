@@ -43,6 +43,10 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.JobEncryption;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /** Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents. */
 public final class DocumentMapper {
@@ -87,8 +91,18 @@ public final class DocumentMapper {
     doc.append("cron_expr", stringOrDefault(job.getCronExpr(), DEFAULT_CRON_EXPR));
     doc.append("zone_id", stringOrDefault(job.getZoneId(), DEFAULT_ZONE_ID));
     doc.append("next_fire", toDate(job.getNextFire()));
-    doc.append("payload", payloadToStoredValue(job.getPayload()));
-    doc.append("params", paramsToDocument(job.getParams()));
+    UUID jobId = job.getId();
+    boolean active = JobEncryption.activeFor(job);
+    doc.append(
+        "payload",
+        PayloadEncryptor.encryptArgs(
+            payloadToStoredValue(job.getPayload()),
+            active,
+            EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, jobId)));
+    doc.append(
+        "params",
+        paramsToDocument(
+            job.getParams(), active, EncryptionTarget.rowBound(ProtectedSurface.PARAM_VALUE, jobId)));
     doc.append(
         "target_class",
         job.getPayload() != null ? job.getPayload().target() : job.getTargetClass());
@@ -99,8 +113,20 @@ public final class DocumentMapper {
     doc.append("tags", listOrEmpty(job.getTags()));
     doc.append("resource_name", job.getResourceName());
     doc.append("execution_target", job.getExecutionTarget());
-    doc.append("on_success_payload", payloadToStoredValue(job.getOnSuccessPayload()));
-    doc.append("on_failure_payload", payloadToStoredValue(job.getOnFailurePayload()));
+    doc.append(
+        "on_success_payload",
+        PayloadEncryptor.encryptArgs(
+            payloadToStoredValue(job.getOnSuccessPayload()),
+            active,
+            EncryptionTarget.rowBound(ProtectedSurface.ON_SUCCESS_PAYLOAD, jobId)));
+    doc.append(
+        "on_failure_payload",
+        PayloadEncryptor.encryptArgs(
+            payloadToStoredValue(job.getOnFailurePayload()),
+            active,
+            EncryptionTarget.rowBound(ProtectedSurface.ON_FAILURE_PAYLOAD, jobId)));
+    doc.append("encrypted_payload", active);
+    doc.append("encryption_key_id", JobEncryption.keyId(active));
     doc.append("depends_on", job.getDependsOn());
     doc.append("superseded_by", job.getSupersededBy());
     doc.append("recurring_master_id", job.getRecurringMasterId());
@@ -148,8 +174,17 @@ public final class DocumentMapper {
     job.setCronExpr(doc.getString("cron_expr"));
     job.setZoneId(doc.getString("zone_id"));
     job.setNextFire(toInstant(doc.getDate("next_fire")));
-    job.setPayload(storedValueToPayload(doc.get("payload")));
-    job.setParams(documentToParams(doc.get("params", Document.class)));
+    job.setEncryptedPayload(Boolean.TRUE.equals(doc.getBoolean("encrypted_payload", false)));
+    UUID readJobId = job.getId();
+    job.setPayload(
+        storedValueToPayload(
+            decryptArgsValue(
+                doc.get("payload"),
+                EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, readJobId))));
+    job.setParams(
+        documentToParams(
+            doc.get("params", Document.class),
+            EncryptionTarget.rowBound(ProtectedSurface.PARAM_VALUE, readJobId)));
     job.setTargetClass(doc.getString("target_class"));
     job.setMethodName(doc.getString("method_name"));
     job.setIdempotencyKey(doc.getString("idempotency_key"));
@@ -157,8 +192,16 @@ public final class DocumentMapper {
     job.setTags(doc.getList("tags", String.class));
     job.setResourceName(doc.getString("resource_name"));
     job.setExecutionTarget(doc.getString("execution_target"));
-    job.setOnSuccessPayload(storedValueToPayload(doc.get("on_success_payload")));
-    job.setOnFailurePayload(storedValueToPayload(doc.get("on_failure_payload")));
+    job.setOnSuccessPayload(
+        storedValueToPayload(
+            decryptArgsValue(
+                doc.get("on_success_payload"),
+                EncryptionTarget.rowBound(ProtectedSurface.ON_SUCCESS_PAYLOAD, readJobId))));
+    job.setOnFailurePayload(
+        storedValueToPayload(
+            decryptArgsValue(
+                doc.get("on_failure_payload"),
+                EncryptionTarget.rowBound(ProtectedSurface.ON_FAILURE_PAYLOAD, readJobId))));
     job.setDependsOn(doc.get("depends_on", UUID.class));
     job.setSupersededBy(doc.get("superseded_by", UUID.class));
     job.setRecurringMasterId(doc.get("recurring_master_id", UUID.class));
@@ -634,6 +677,14 @@ public final class DocumentMapper {
         "Unsupported MongoDB job payload type: " + value.getClass().getSimpleName());
   }
 
+  /**
+   * Decrypts a stored job-payload value when it is a framed string; a {@link Document}-shaped value
+   * (no frame) or plaintext passes through for {@link #storedValueToPayload} to handle.
+   */
+  private static Object decryptArgsValue(Object value, EncryptionTarget target) {
+    return value instanceof String s ? PayloadEncryptor.decryptArgs(s, target) : value;
+  }
+
   private static JobPayload documentToPayload(Document doc) {
     if (doc == null || doc.isEmpty()) {
       return null;
@@ -647,21 +698,25 @@ public final class DocumentMapper {
         args);
   }
 
-  static Document paramsToDocument(Map<String, String> params) {
+  static Document paramsToDocument(Map<String, String> params, boolean active, EncryptionTarget target) {
     if (params == null) {
       return new Document();
     }
     Document doc = new Document();
-    params.forEach(doc::append);
+    // Encrypt each parameter value at rest (keys stay cleartext); no-op when inactive.
+    params.forEach((k, v) -> doc.append(k, PayloadEncryptor.encryptValue(v, active, target)));
     return doc;
   }
 
-  static Map<String, String> documentToParams(Document doc) {
+  static Map<String, String> documentToParams(Document doc, EncryptionTarget target) {
     if (doc == null) {
       return Collections.emptyMap();
     }
     Map<String, String> out = new LinkedHashMap<>();
-    doc.forEach((k, v) -> out.put(k, v == null ? null : String.valueOf(v)));
+    doc.forEach(
+        (k, v) ->
+            out.put(
+                k, v == null ? null : PayloadEncryptor.decryptValue(String.valueOf(v), target)));
     return out;
   }
 

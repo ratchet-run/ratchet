@@ -17,6 +17,8 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,12 +43,16 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobResult;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
@@ -55,6 +62,8 @@ import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 @ExtendWith(MockitoExtension.class)
 class DefaultJobCreationServiceExecutionTargetTest {
@@ -74,6 +83,10 @@ class DefaultJobCreationServiceExecutionTargetTest {
   public static void noopTask() {}
 
   public static void consumeString(String value) {}
+
+  public static boolean jobSucceeded(JobResult<Void> result) {
+    return result.isSuccess();
+  }
 
   private static class NoopJobWakeupService extends JobWakeupService {
     @Override
@@ -111,6 +124,11 @@ class DefaultJobCreationServiceExecutionTargetTest {
     lenient()
         .when(jobCrudStore.create(any(JobEntity.class)))
         .thenAnswer(invocation -> persist(invocation));
+  }
+
+  @AfterEach
+  void resetEncryption() {
+    EncryptionHolder.disable();
   }
 
   @Test
@@ -228,6 +246,35 @@ class DefaultJobCreationServiceExecutionTargetTest {
   }
 
   @Test
+  void workflowBranchPredicateExpression_encryptsStoredPayloadArgs() {
+    EncryptionTestKit.install(true);
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceExecutionTargetTest::noopTask, Duration.ZERO);
+    builder.<Void>when(
+        DefaultJobCreationServiceExecutionTargetTest::jobSucceeded,
+        DefaultJobCreationServiceExecutionTargetTest::noopTask);
+
+    service.submit(builder);
+
+    ArgumentCaptor<WorkflowConditionEntity> conditionCaptor =
+        ArgumentCaptor.forClass(WorkflowConditionEntity.class);
+    verify(workflowConditionStore).saveCondition(conditionCaptor.capture());
+    WorkflowConditionEntity condition = conditionCaptor.getValue();
+    String storedExpression = condition.getConditionExpression();
+
+    // args is now a framed ciphertext string, so the key "args" is present but the [] is not.
+    assertTrue(storedExpression.contains("\"args\":\""));
+    assertFalse(storedExpression.contains("\"args\":[]"));
+    assertTrue(
+        PayloadEncryptor.decryptArgs(
+                storedExpression, EncryptionTarget.predicate(condition.getParentJobId()))
+            .contains("\"args\":[]"));
+  }
+
+  @Test
   void recurringSubmit_persistsExecutionTargetOnMasterDefinition() {
     when(recurringJobStore.createRecurring(any(RecurringJobDefinition.class)))
         .thenAnswer(invocation -> invocation.<RecurringJobDefinition>getArgument(0).id());
@@ -261,4 +308,5 @@ class DefaultJobCreationServiceExecutionTargetTest {
       assertEquals(executionTarget, job.getExecutionTarget());
     }
   }
+
 }

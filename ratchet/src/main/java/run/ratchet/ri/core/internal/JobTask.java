@@ -70,6 +70,8 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /**
  * Runs a single job via reflection, handling retries, lifecycle events, and post-execution workflow
@@ -248,41 +250,13 @@ public class JobTask implements Callable<Void> {
                 jobEntity.getCallerPrincipal(),
                 jobEntity.getParams()));
     JobType jobType = jobEntity.getPublicJobType();
-    Serializable deserializedSignalPayload = null;
-    String rawSignalPayload = jobEntity.getSignalPayload();
-    if (DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
-        jobEntity.getSignalPayloadType())) {
-      Serializable innerPayload = null;
-      if (rawSignalPayload != null && payloadSerializer != null) {
-        try {
-          Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
-          if (obj instanceof Serializable s) {
-            innerPayload = s;
-          }
-        } catch (Exception e) {
-          log.warnf(
-              "Failed to deserialize signal inner payload for job %s: %s", jobId, e.getMessage());
-        }
-      }
-      String outcomeStr = jobEntity.getSignalOutcome();
-      if (outcomeStr != null) {
-        SignalDecision.Outcome outcome = SignalDecision.Outcome.valueOf(outcomeStr);
-        deserializedSignalPayload =
-            new SignalDecision(outcome, innerPayload, jobEntity.getSignalRejectionReason());
-      }
-    } else if (rawSignalPayload != null && payloadSerializer != null) {
-      // Deserialize to Object.class, not Serializable.class: JSON-B cannot instantiate the abstract
-      // Serializable target, so the old form always threw and silently left the payload null. This
-      // mirrors the SignalDecision inner-payload branch above. The payload round-trips as its
-      // JSON-native shape (String / Number / Boolean / List / Map); see signalPayload(Class).
-      try {
-        Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
-        if (obj instanceof Serializable s) {
-          deserializedSignalPayload = s;
-        }
-      } catch (Exception e) {
-        log.warnf("Failed to deserialize signal payload for job %s: %s", jobId, e.getMessage());
-      }
+    Serializable deserializedSignalPayload;
+    try {
+      deserializedSignalPayload = deserializeSignalPayload(jobEntity, jobId);
+    } catch (RuntimeException e) {
+      handleFailureSafely(e);
+      JobMdcContext.clear();
+      return null;
     }
 
     JobMdcContext.bindJobContext(
@@ -377,31 +351,7 @@ public class JobTask implements Callable<Void> {
             jobId, resilienceServiceName);
         rescheduleForCircuitBreaker(jobEntity, resilienceServiceName, e);
       } catch (Throwable t) {
-        try {
-          handleFailure(t);
-        } catch (Throwable failureHandlingError) {
-          log.errorf(
-              failureHandlingError,
-              "Job %s failure handling itself failed, forcing FAILED status",
-              job.getId());
-          String safeError;
-          try {
-            safeError = errorSanitizer.sanitize(t);
-          } catch (Throwable sanitizerError) {
-            safeError = t.getClass().getName();
-          }
-          try {
-            if (jobStore.compareAndSwapStatus(
-                job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError)) {
-              publishForcedTerminalFailure(t, safeError);
-            }
-          } catch (Throwable lastResort) {
-            log.errorf(
-                lastResort,
-                "Job %s could not be transitioned to FAILED — will require orphan recovery",
-                job.getId());
-          }
-        }
+        handleFailureSafely(t);
       } finally {
         if (permitAcquired) {
           releaseResourcePermit();
@@ -463,6 +413,84 @@ public class JobTask implements Callable<Void> {
 
   private UUID getJobId() {
     return job != null ? job.getId() : claim.id();
+  }
+
+  private Serializable deserializeSignalPayload(JobEntity jobEntity, UUID jobId) {
+    // Decrypt at rest before deserializing; no-op when no cipher is active or the value is
+    // plaintext. Decryption failures are configuration/data failures, so they enter the normal job
+    // failure path instead of escaping before a claimed RUNNING job can be finalized.
+    String rawSignalPayload;
+    try {
+      rawSignalPayload =
+          PayloadEncryptor.decryptValue(
+              jobEntity.getSignalPayload(), EncryptionTarget.signal(jobEntity.getSignalKey()));
+    } catch (RuntimeException e) {
+      throw new IllegalArgumentException(
+          "Signal payload could not be decrypted for job " + jobId, e);
+    }
+
+    if (DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
+        jobEntity.getSignalPayloadType())) {
+      Serializable innerPayload = null;
+      if (rawSignalPayload != null && payloadSerializer != null) {
+        try {
+          Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
+          if (obj instanceof Serializable s) {
+            innerPayload = s;
+          }
+        } catch (Exception e) {
+          log.warnf(
+              "Failed to deserialize signal inner payload for job %s: %s", jobId, e.getMessage());
+        }
+      }
+      String outcomeStr = jobEntity.getSignalOutcome();
+      if (outcomeStr != null) {
+        SignalDecision.Outcome outcome = SignalDecision.Outcome.valueOf(outcomeStr);
+        return new SignalDecision(outcome, innerPayload, jobEntity.getSignalRejectionReason());
+      }
+    } else if (rawSignalPayload != null && payloadSerializer != null) {
+      // Deserialize to Object.class, not Serializable.class: JSON-B cannot instantiate the abstract
+      // Serializable target, so the old form always threw and silently left the payload null. This
+      // mirrors the SignalDecision inner-payload branch above. The payload round-trips as its
+      // JSON-native shape (String / Number / Boolean / List / Map); see signalPayload(Class).
+      try {
+        Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
+        if (obj instanceof Serializable s) {
+          return s;
+        }
+      } catch (Exception e) {
+        log.warnf("Failed to deserialize signal payload for job %s: %s", jobId, e.getMessage());
+      }
+    }
+    return null;
+  }
+
+  private void handleFailureSafely(Throwable t) {
+    try {
+      handleFailure(t);
+    } catch (Throwable failureHandlingError) {
+      log.errorf(
+          failureHandlingError,
+          "Job %s failure handling itself failed, forcing FAILED status",
+          job.getId());
+      String safeError;
+      try {
+        safeError = errorSanitizer.sanitize(t);
+      } catch (Throwable sanitizerError) {
+        safeError = t.getClass().getName();
+      }
+      try {
+        if (jobStore.compareAndSwapStatus(
+            job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError)) {
+          publishForcedTerminalFailure(t, safeError);
+        }
+      } catch (Throwable lastResort) {
+        log.errorf(
+            lastResort,
+            "Job %s could not be transitioned to FAILED — will require orphan recovery",
+            job.getId());
+      }
+    }
   }
 
   private boolean tryAcquireResourcePermit() {

@@ -71,6 +71,9 @@ import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /** Core scheduling API implementation. Delegates builder persistence to a CDI-managed service. */
 @ApplicationScoped
@@ -954,7 +957,7 @@ public class DefaultJobSchedulerService
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
     }
-    String serializedPayload = serializeSignalPayload(payload);
+    String serializedPayload = serializeSignalPayload(payload, signalKeyOf(job), signalActive(job));
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -990,7 +993,8 @@ public class DefaultJobSchedulerService
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
     }
-    String serializedPayload = serializeSignalPayload(decision.payload());
+    String serializedPayload =
+        serializeSignalPayload(decision.payload(), signalKeyOf(job), signalActive(job));
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -1026,7 +1030,9 @@ public class DefaultJobSchedulerService
       authorizationPolicy.checkDeliverSignal(signalKey, principal);
     }
     String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
-    String serializedPayload = serializeSignalPayload(payload);
+    // Broadcast: one ciphertext lands on every matching row, so it binds the key and gates on the
+    // global switch only (per-job opt-in is ill-defined across many jobs).
+    String serializedPayload = serializeSignalPayload(payload, signalKey, globalSignalActive());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -1061,7 +1067,8 @@ public class DefaultJobSchedulerService
       authorizationPolicy.checkDeliverSignal(signalKey, principal);
     }
     String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
-    String serializedPayload = serializeSignalPayload(decision.payload());
+    String serializedPayload =
+        serializeSignalPayload(decision.payload(), signalKey, globalSignalActive());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -1125,12 +1132,30 @@ public class DefaultJobSchedulerService
     }
   }
 
-  private String serializeSignalPayload(Serializable payload) {
+  private static String signalKeyOf(JobEntity job) {
+    return job != null ? job.getSignalKey() : null;
+  }
+
+  /** Targeted delivery: encrypt iff the global switch is on or the target job opted in. */
+  private static boolean signalActive(JobEntity job) {
+    return job != null && EncryptionHolder.encryptionActiveFor(job.isEncryptedPayload());
+  }
+
+  /** Broadcast delivery: per-job opt-in is undefined across many jobs, so gate on global only. */
+  private static boolean globalSignalActive() {
+    return EncryptionHolder.encryptionActiveFor(false);
+  }
+
+  private String serializeSignalPayload(Serializable payload, String signalKey, boolean active) {
     if (payload == null) {
       return null;
     }
     if (payloadSerializer != null) {
-      return payloadSerializer.serialize(payload);
+      // signal_payload is a TEXT column, so the engine output is stored as a bare token (no JSON
+      // envelope needed). Bound to the signal key, not a job id: a broadcast writes one ciphertext
+      // to every waiting row matching the key. No-op when inactive.
+      return PayloadEncryptor.encryptValue(
+          payloadSerializer.serialize(payload), active, EncryptionTarget.signal(signalKey));
     }
     throw new IllegalStateException(
         "Cannot deliver a non-null signal payload without a PayloadSerializer");

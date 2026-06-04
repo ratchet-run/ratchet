@@ -51,6 +51,9 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /** Default {@link JobQueryService} implementation backed by the store SPI. */
 @ApplicationScoped
@@ -279,12 +282,19 @@ class DefaultJobQueryService implements JobQueryService {
     // key-based and result masking walks the serialized JSON object (a non-object result passes
     // through). Free-text fields such as lastError are out of scope — see
     // RatchetOptions.SecurityOptions#maskPayloads.
+    // params arrive already decrypted by the row mapper; trace_context is never encrypted.
     Map<String, String> params =
         maskPayloads ? PayloadMasker.maskParams(e.getParams()) : e.getParams();
     Map<String, String> traceContext =
         maskPayloads ? PayloadMasker.maskParams(e.getTraceContext()) : e.getTraceContext();
+    // job_result is a raw column (no row-mapper decryption), so decrypt at rest first, then mask.
+    // Decryption is marker-driven (no-op on plaintext); masking is a no-op when disabled.
     String jobResult =
-        maskPayloads ? PayloadMasker.maskPayload(e.getJobResult()) : e.getJobResult();
+        PayloadEncryptor.decryptJsonColumn(
+            e.getJobResult(), EncryptionTarget.rowBound(ProtectedSurface.RESULT, e.getId()));
+    if (maskPayloads) {
+      jobResult = PayloadMasker.maskPayload(jobResult);
+    }
 
     JobDetail detail =
         new JobDetail(

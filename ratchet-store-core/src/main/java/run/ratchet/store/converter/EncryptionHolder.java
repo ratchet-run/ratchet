@@ -51,9 +51,10 @@ public final class EncryptionHolder {
       Map<String, PayloadEncryption> engines,
       PayloadEncryption writeEngine,
       KeyProvider keyProvider,
-      boolean enabled) {}
+      boolean enabled,
+      boolean globalEnabled) {}
 
-  private static final State DISABLED = new State(Map.of(), null, null, false);
+  private static final State DISABLED = new State(Map.of(), null, null, false, false);
 
   private static volatile State state = DISABLED;
 
@@ -67,12 +68,17 @@ public final class EncryptionHolder {
    * @param writeAlgorithmId the algorithm id of the engine used for new writes; must name one of
    *     {@code engines}
    * @param keyProvider the key provider; must not be {@code null}
+   * @param globalEnabled whether the deployment-wide encryption switch is on; when {@code true}
+   *     every job's surfaces are encrypted, when {@code false} only jobs that opt in are
    * @throws EncryptionConfigurationException if {@code engines} is empty, {@code keyProvider} is
    *     {@code null}, an engine reports a blank algorithm id, two engines report the same id, or
    *     {@code writeAlgorithmId} names no installed engine
    */
   public static void install(
-      Collection<PayloadEncryption> engines, String writeAlgorithmId, KeyProvider keyProvider) {
+      Collection<PayloadEncryption> engines,
+      String writeAlgorithmId,
+      KeyProvider keyProvider,
+      boolean globalEnabled) {
     if (engines == null || engines.isEmpty()) {
       throw new EncryptionConfigurationException(
           "Payload encryption is enabled but no PayloadEncryption engine is installed");
@@ -98,7 +104,7 @@ public final class EncryptionHolder {
       throw new EncryptionConfigurationException(
           "Configured write algorithm is not installed: " + writeAlgorithmId);
     }
-    state = new State(Map.copyOf(registry), write, keyProvider, true);
+    state = new State(Map.copyOf(registry), write, keyProvider, true, globalEnabled);
   }
 
   /** Reverts to the disabled state. Called at container shutdown and between tests. */
@@ -107,11 +113,43 @@ public final class EncryptionHolder {
   }
 
   /**
-   * Returns {@code true} when encryption is active. The write-side walk uses this to decide whether
-   * to run at all; when it returns {@code false} serialized payloads are left untouched.
+   * Returns {@code true} when an engine and key provider are installed. The read path uses this to
+   * know whether decryption is even possible; write-side callers use {@link
+   * #encryptionActiveFor(boolean)} instead, which also applies the global and per-job switches.
    */
   public static boolean isEnabled() {
     return state.enabled;
+  }
+
+  /**
+   * Decides whether a write must be encrypted, given whether the owning job opted in.
+   *
+   * <p>Encryption is wanted when the deployment-wide switch is on or the job opted in. When it is
+   * wanted but no engine/provider is installed, this fails loud rather than silently writing
+   * plaintext for a value the caller asked to protect — the runtime mirror of the installer's
+   * startup check.
+   *
+   * @param jobOptedIn whether the owning job opted in via {@code withEncryptedPayload()}
+   * @return {@code true} if the value must be encrypted, {@code false} to store it as plaintext
+   * @throws EncryptionConfigurationException if encryption is wanted but not configured
+   */
+  public static boolean encryptionActiveFor(boolean jobOptedIn) {
+    State current = state;
+    boolean wanted = current.globalEnabled || jobOptedIn;
+    if (!wanted) {
+      return false;
+    }
+    if (!current.enabled) {
+      throw new EncryptionConfigurationException(
+          "A job requested payload encryption but no PayloadEncryption engine and KeyProvider are"
+              + " installed");
+    }
+    return true;
+  }
+
+  /** Returns {@code true} when the deployment-wide encryption switch is on. */
+  public static boolean isGloballyEnabled() {
+    return state.globalEnabled;
   }
 
   /**

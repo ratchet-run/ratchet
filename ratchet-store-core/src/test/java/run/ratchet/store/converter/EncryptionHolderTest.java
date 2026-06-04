@@ -50,7 +50,7 @@ class EncryptionHolderTest {
     PayloadEncryption engine = new StubEngine("alg-1");
     KeyProvider provider = new StubKeyProvider();
 
-    EncryptionHolder.install(List.of(engine), "alg-1", provider);
+    EncryptionHolder.install(List.of(engine), "alg-1", provider, true);
 
     assertTrue(EncryptionHolder.isEnabled());
     assertSame(engine, EncryptionHolder.writeEngine());
@@ -63,7 +63,7 @@ class EncryptionHolderTest {
     PayloadEncryption v1 = new StubEngine("alg-1");
     PayloadEncryption v2 = new StubEngine("alg-2");
 
-    EncryptionHolder.install(List.of(v1, v2), "alg-2", new StubKeyProvider());
+    EncryptionHolder.install(List.of(v1, v2), "alg-2", new StubKeyProvider(), true);
 
     // Writes use the designated engine; reads of an older algorithm still resolve.
     assertSame(v2, EncryptionHolder.writeEngine());
@@ -73,7 +73,7 @@ class EncryptionHolderTest {
 
   @Test
   void engine_unknownAlgorithm_isPoison() {
-    EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider());
+    EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
     assertThrows(PayloadDecryptionException.class, () -> EncryptionHolder.engine("alg-missing"));
   }
 
@@ -81,14 +81,14 @@ class EncryptionHolderTest {
   void install_emptyEngines_failsLoud() {
     assertThrows(
         EncryptionConfigurationException.class,
-        () -> EncryptionHolder.install(List.of(), "alg-1", new StubKeyProvider()));
+        () -> EncryptionHolder.install(List.of(), "alg-1", new StubKeyProvider(), true));
   }
 
   @Test
   void install_nullProvider_failsLoud() {
     assertThrows(
         EncryptionConfigurationException.class,
-        () -> EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", null));
+        () -> EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", null, true));
   }
 
   @Test
@@ -97,14 +97,14 @@ class EncryptionHolderTest {
         EncryptionConfigurationException.class,
         () ->
             EncryptionHolder.install(
-                List.of(new StubEngine("dup"), new StubEngine("dup")), "dup", new StubKeyProvider()));
+                List.of(new StubEngine("dup"), new StubEngine("dup")), "dup", new StubKeyProvider(), true));
   }
 
   @Test
   void install_blankAlgorithmId_failsLoud() {
     assertThrows(
         EncryptionConfigurationException.class,
-        () -> EncryptionHolder.install(List.of(new StubEngine("  ")), "  ", new StubKeyProvider()));
+        () -> EncryptionHolder.install(List.of(new StubEngine("  ")), "  ", new StubKeyProvider(), true));
   }
 
   @Test
@@ -113,14 +113,39 @@ class EncryptionHolderTest {
         EncryptionConfigurationException.class,
         () ->
             EncryptionHolder.install(
-                List.of(new StubEngine("alg-1")), "alg-other", new StubKeyProvider()));
+                List.of(new StubEngine("alg-1")), "alg-other", new StubKeyProvider(), true));
   }
 
   @Test
   void disable_revertsToDisabled() {
-    EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider());
+    EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
     EncryptionHolder.disable();
     assertFalse(EncryptionHolder.isEnabled());
+  }
+
+  @Test
+  void encryptionActiveFor_globalOn_encryptsEveryJob() {
+    EncryptionHolder.install(List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
+    assertTrue(EncryptionHolder.isGloballyEnabled());
+    assertTrue(EncryptionHolder.encryptionActiveFor(false));
+    assertTrue(EncryptionHolder.encryptionActiveFor(true));
+  }
+
+  @Test
+  void encryptionActiveFor_globalOff_onlyEncryptsOptedInJobs() {
+    EncryptionHolder.install(
+        List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), false);
+    assertFalse(EncryptionHolder.isGloballyEnabled());
+    assertFalse(EncryptionHolder.encryptionActiveFor(false));
+    assertTrue(EncryptionHolder.encryptionActiveFor(true));
+  }
+
+  @Test
+  void encryptionActiveFor_disabled_falseWhenNotWanted_butFailsLoudWhenWanted() {
+    // No engine installed.
+    assertFalse(EncryptionHolder.encryptionActiveFor(false));
+    assertThrows(
+        EncryptionConfigurationException.class, () -> EncryptionHolder.encryptionActiveFor(true));
   }
 
   private record StubEngine(String algorithmId) implements PayloadEncryption {

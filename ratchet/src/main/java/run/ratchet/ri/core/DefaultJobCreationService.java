@@ -74,6 +74,9 @@ import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /** CDI-managed persistence boundary for scheduler builders. */
 @ApplicationScoped
@@ -340,6 +343,9 @@ class DefaultJobCreationService
     job.setBusinessKey(businessKey);
     job.setResourceName(resourceName);
     job.setExecutionTarget(state.executionTarget());
+    // Per-job opt-in from withEncryptedPayload(). The store write derives the actual
+    // encrypted-or-not decision (global switch OR this flag) and the encryption_key_id column.
+    job.setEncryptedPayload(state.encryptedPayload());
     if (builder.onSuccess() != null) {
       job.setOnSuccessPayload(payload(builder.onSuccess()));
     }
@@ -739,7 +745,14 @@ class DefaultJobCreationService
       Serializable expr = branch.condition().expression();
       if (expr instanceof SerializablePredicate<?> || expr instanceof SerializableFunction<?, ?>) {
         JobPayload p = JobPayloadFactory.fromLambda(expr);
-        condition.setConditionExpression(PayloadSerializerHolder.get().serialize(p));
+        // The predicate belongs to the parent job and binds the parent id. Gated on the global
+        // switch: createWorkflowBranch holds only the parent id, and the predicate is framework
+        // metadata, so per-job opt-in is not applied to it in this version.
+        condition.setConditionExpression(
+            PayloadEncryptor.encryptArgs(
+                PayloadSerializerHolder.get().serialize(p),
+                EncryptionHolder.encryptionActiveFor(false),
+                EncryptionTarget.predicate(parentId)));
       } else {
         condition.setConditionExpression(expr.toString());
       }

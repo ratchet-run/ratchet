@@ -22,8 +22,14 @@ import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.SerializedJobResult;
+import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /** Default JSON result persistence with a configurable size cap. */
 @ApplicationScoped
@@ -33,17 +39,20 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
 
   private final RatchetOptions options;
   private final PayloadSerializer payloadSerializer;
+  private final JobCrudStore jobCrudStore;
 
   protected DefaultResultPersistenceStrategy() {
     this.options = null;
     this.payloadSerializer = null;
+    this.jobCrudStore = null;
   }
 
   @Inject
   public DefaultResultPersistenceStrategy(
-      RatchetOptions options, PayloadSerializer payloadSerializer) {
+      RatchetOptions options, PayloadSerializer payloadSerializer, JobCrudStore jobCrudStore) {
     this.options = options;
     this.payloadSerializer = payloadSerializer;
+    this.jobCrudStore = jobCrudStore;
   }
 
   @Override
@@ -70,6 +79,20 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
                 + resultType.replace("\"", "\\\"")
                 + "\"}";
       }
+      // Encrypt last: the size cap above measures plaintext bytes, and job_result is a JSON/JSONB
+      // column, so the engine output is wrapped as a valid-JSON string envelope. resultType stays
+      // cleartext — it is a separate column and names the deserialization target on read.
+      //
+      // The result is written after creation, so the per-job opt-in is not in scope here; we read
+      // it back from the row (one indexed lookup) so an opted-in job's result is protected even when
+      // the global switch is off.
+      boolean optedIn =
+          jobCrudStore != null
+              && jobCrudStore.findById(jobId).map(JobEntity::isEncryptedPayload).orElse(false);
+      boolean active = EncryptionHolder.encryptionActiveFor(optedIn);
+      resultJson =
+          PayloadEncryptor.encryptJsonColumn(
+              resultJson, active, EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId));
       return new SerializedJobResult(resultJson, resultType);
     } catch (Exception e) {
       log.warnf(e, "Result serialization error for job %s", jobId);
