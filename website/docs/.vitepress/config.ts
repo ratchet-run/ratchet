@@ -228,6 +228,18 @@ export default defineConfig({
           ],
         },
       ],
+      '/adr/': [
+        {
+          text: 'Architecture Decision Records',
+          items: [
+            { text: 'Overview', link: '/adr/' },
+            {
+              text: '0001 — Payload encryption threat model',
+              link: '/adr/0001-payload-encryption-threat-model',
+            },
+          ],
+        },
+      ],
     },
 
     socialLinks: [
