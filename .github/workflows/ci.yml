@@ -125,3 +125,26 @@ jobs:
         with:
           name: tck-conformance-reports-${{ matrix.server }}-${{ matrix.database }}
           path: ratchet-testsuite/target/tck-*-conformance-report.md
+
+  # Single aggregating gate. Branch protection requires only this context (plus
+  # CodeQL's "Analyze (Java)" and DCO), so the volatile set of CI jobs lives
+  # here in the workflow instead of being re-enumerated in repo settings. Adding
+  # or dropping an integration-test matrix cell is gated automatically: needs
+  # waits on the whole matrix and reports its aggregate result.
+  #
+  # if: always() is required — without it a skipped upstream skips this job too,
+  # and a skipped required check sits "pending" forever and hard-blocks the PR.
+  # The step keys on failure/cancelled (not "all success") so a legitimately
+  # skipped upstream still passes the gate.
+  ci-required:
+    name: CI required
+    if: ${{ always() }}
+    needs: [build, spotbugs, ee11-verify, integration-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all required jobs passed
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          echo "A required upstream job failed or was cancelled:"
+          echo '${{ toJSON(needs) }}'
+          exit 1
