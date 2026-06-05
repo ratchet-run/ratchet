@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.util;
 
+import run.ratchet.spi.KeyProvider;
+import run.ratchet.spi.WrappedKeyProvider;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
 
@@ -57,8 +59,21 @@ public final class JobEncryption {
    * coarse "is any row still plausibly on key K" filter, never as proof a key is safe to retire;
    * authoritative drain-checking arrives with the rotation tooling, which must scan envelopes
    * rather than trust this column.
+   *
+   * <p>A {@link WrappedKeyProvider} (KMS-style envelope encryption) leaves the hint {@code null}:
+   * it has no single current key — it mints a fresh ephemeral DEK per write and identifies a row by
+   * the master key id stored inside its self-describing envelope. Stamping a hint here would force
+   * a throwaway DEK (a real KMS {@code GenerateDataKey} call) on every insert just to read an id,
+   * with no value the envelope does not already carry.
    */
   public static String keyId(boolean active) {
-    return active ? EncryptionHolder.keyProvider().currentKey().keyId() : null;
+    if (!active) {
+      return null;
+    }
+    KeyProvider provider = EncryptionHolder.keyProvider();
+    if (provider instanceof WrappedKeyProvider) {
+      return null;
+    }
+    return provider.currentKey().keyId();
   }
 }
