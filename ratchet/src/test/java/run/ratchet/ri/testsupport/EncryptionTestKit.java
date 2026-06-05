@@ -80,6 +80,9 @@ public final class EncryptionTestKit {
 
     @Override
     public byte[] decrypt(byte[] ciphertext, EncryptionContext ctx) {
+      if (ciphertext.length < NONCE_LENGTH) {
+        throw new PayloadDecryptionException("Ciphertext too short to carry a nonce");
+      }
       try {
         byte[] nonce = Arrays.copyOfRange(ciphertext, 0, NONCE_LENGTH);
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");

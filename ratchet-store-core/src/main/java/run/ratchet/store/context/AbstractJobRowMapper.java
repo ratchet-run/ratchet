@@ -133,7 +133,7 @@ public abstract class AbstractJobRowMapper {
     // Surfaces are decrypted in place; decryption is marker-driven, so an unencrypted (unframed)
     // value passes through unchanged regardless of the per-row flag. The flag is hydrated below for
     // re-write paths (e.g. result persistence) and integrity tooling.
-    j.setEncryptedPayload(Boolean.TRUE.equals(row[IDX_ENCRYPTED_PAYLOAD]));
+    j.setEncryptedPayload(RowValues.booleanOrFalse(row[IDX_ENCRYPTED_PAYLOAD]));
     j.setJobType(enumValue(row, IDX_JOB_TYPE, "job_type", JobExecutionType.class));
     j.setPriority(
         RowValues.safeJobPriority(requiredNumber(row, IDX_PRIORITY, "priority").intValue()));

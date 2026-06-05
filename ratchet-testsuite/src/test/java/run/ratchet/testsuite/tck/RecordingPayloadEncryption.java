@@ -88,6 +88,9 @@ public class RecordingPayloadEncryption implements PayloadEncryption {
 
   @Override
   public byte[] decrypt(byte[] ciphertext, EncryptionContext ctx) {
+    if (ciphertext.length < NONCE_LENGTH) {
+      throw new PayloadDecryptionException("Ciphertext too short to carry a nonce");
+    }
     DECRYPT_COUNT.incrementAndGet();
     try {
       byte[] nonce = Arrays.copyOfRange(ciphertext, 0, NONCE_LENGTH);
