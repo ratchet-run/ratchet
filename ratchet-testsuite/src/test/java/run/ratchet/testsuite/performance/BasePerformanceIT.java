@@ -20,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
-import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.Future;
 import java.util.function.LongSupplier;
 import org.awaitility.core.ConditionTimeoutException;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -40,7 +38,6 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.ri.core.PollerScheduler;
-import run.ratchet.ri.core.internal.DefaultPollerScheduler;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobStore;
@@ -53,6 +50,7 @@ import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
 import run.ratchet.testsuite.util.PerformanceReportWriter;
+import run.ratchet.testsuite.util.PollerControl;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Shared setup for performance ITs. */
@@ -69,8 +67,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
   protected static final Duration PERF_POLL_INTERVAL =
       Duration.ofMillis(Long.getLong("perf.poll.interval.ms", 200));
 
-  private static final Duration POLLER_STOP_TIMEOUT = Duration.ofSeconds(5);
-  private static final Duration POLLER_STOP_POLL_INTERVAL = Duration.ofMillis(10);
   private static final ConcurrentMap<Class<?>, PerformanceBaseline> BASELINES =
       new ConcurrentHashMap<>();
   private static final ConcurrentMap<Class<?>, PerformanceReportWriter> REPORT_WRITERS =
@@ -191,31 +187,12 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
   /** Stop poller to avoid TRUNCATE deadlock. */
   @Override
   protected void truncateAll() throws Exception {
-    pollerScheduler.stop();
-    await()
-        .atMost(POLLER_STOP_TIMEOUT)
-        .pollInterval(POLLER_STOP_POLL_INTERVAL)
-        .until(() -> pollerSchedulerStopped(pollerScheduler));
+    PollerControl.stopAndAwait(pollerScheduler);
     super.truncateAll();
   }
 
   static boolean pollerSchedulerStopped(PollerScheduler scheduler) {
-    Object lock = readField(scheduler, "scheduleLock", Object.class);
-    synchronized (lock) {
-      Future<?> handle = readField(scheduler, "handle", Future.class);
-      return !readField(scheduler, "cycleRunning", Boolean.class)
-          && (handle == null || handle.isDone() || handle.isCancelled());
-    }
-  }
-
-  private static <T> T readField(Object target, String name, Class<T> type) {
-    try {
-      Field field = DefaultPollerScheduler.class.getDeclaredField(name);
-      field.setAccessible(true);
-      return type.cast(field.get(target));
-    } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException("Unable to read " + name + " from " + target.getClass(), e);
-    }
+    return PollerControl.isStopped(scheduler);
   }
 
   protected List<JobHandle> enqueueN(int count, SerializableCheckedRunnable task) {
