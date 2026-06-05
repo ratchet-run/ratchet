@@ -219,8 +219,7 @@ reuse a nonce. For uniqueness across nodes — and across a checkpoint/restore t
 clone `SecureRandom` state — the deployment mixes per-node entropy (derived from the node
 id) into the epoch, so two nodes sharing a key hold disjoint nonce spaces even with
 identical RNG state. (XChaCha20-Poly1305, whose 192-bit nonce makes random nonces safe
-without a counter, is a candidate alternative engine the algorithm registry can carry
-later.)
+without a counter, now ships as a second engine — see the round 5 note below.)
 
 Key-material adapters (environment variable, JCA `KeyStore`) and external key services
 (AWS KMS, GCP KMS, HashiCorp Vault) ship as separate modules and must drop in without any
@@ -501,15 +500,54 @@ surfaced.
   fields before allocating, so a corrupt or hostile length prefix cannot drive a large
   pre-authentication allocation.
 
+## Hardening (round 5, 2026-06-05, XChaCha20-Poly1305 engine)
+
+The reference engines moved out of `ratchet-store-core` into a dedicated `ratchet-encryption`
+module (package `run.ratchet.encryption`). The engines import only `ratchet-api`, so they are SPI
+implementations that belong beside the other leaf modules, not inside the framing seam; store-core
+keeps the envelope, AAD, and registry. The move is free while the feature is unreleased and would be
+a breaking coordinate change afterward.
+
+A second reference engine ships: **XChaCha20-Poly1305** (`XChaCha20Poly1305PayloadEncryption`,
+algorithm id `XChaCha20-Poly1305`, body `nonce(24) ∥ ciphertext ∥ tag(16)`), for a different
+operational profile than the AES-GCM engine.
+
+- **Random 192-bit nonce, stateless.** The 192-bit nonce moves the random-nonce birthday bound to
+  roughly 2^96 writes per key, so a fresh `SecureRandom` nonce per write is safe with no per-key
+  ceiling. The engine therefore drops the whole AES-GCM deterministic-nonce apparatus — no
+  per-process epoch, no counter, no overflow redraw, no synchronization. It also has no nonce-epoch
+  to clone, so the CRaC concern the AES engine carries does not apply here; the only residual
+  assumption is a correctly seeded RNG, which every randomized cipher shares. Thread-safe by
+  construction.
+- **Pure-Java bridge, AES-NI-independent.** The JDK ships IETF ChaCha20-Poly1305 (96-bit nonce) but
+  not XChaCha20 (192-bit). The engine derives the standard composition: `HChaCha20(key,
+  nonce[0..16])` yields a 256-bit subkey, then the JDK's `ChaCha20-Poly1305` runs under that subkey
+  with the inner nonce `0x00000000 ∥ nonce[16..24]`. Only `HChaCha20` — the one primitive the JDK
+  does not expose, a single ChaCha20 permutation with no counter and no feed-forward — is
+  hand-rolled; the stream cipher, the Poly1305 MAC, and the constant-time tag comparison stay in the
+  audited JDK cipher. `HChaCha20` is locked to draft-irtf-cfrg-xchacha-03 Appendix A.1, and the whole
+  engine path to Appendix A.3, so correctness is checked against the spec, not self-consistency.
+- **Native-image rationale, stated honestly.** ChaCha20 is a software cipher with no AES-NI
+  intrinsic, so the engine behaves identically on any CPU — useful for GraalVM native image and
+  CPU-heterogeneous fleets. It is not provider-free: the inner AEAD is SunJCE's `ChaCha20-Poly1305`,
+  which a native image still carries (modern GraalVM bundles it by default; no
+  `--enable-all-security-services`). A fully provider-free variant would mean hand-rolling Poly1305
+  and its constant-time verification — not worth the risk for the marginal gain, and left as a future
+  option for a deployment that bans SunJCE entirely.
+
+Both engines pass the same `AbstractPayloadEncryptionEngineContract`, and a registry-coexistence
+test installs both, makes each the write engine in turn, and confirms a value written by one still
+decrypts after the other takes over writes — read dispatch by algorithm id, working across two
+genuinely different algorithms.
+
 ## Still open (do not block this ADR)
 
 - **Checkpoint/restore (CRaC) nonce safety.** Per-node epoch entropy makes two distinct nodes
   safe even with cloned RNG state, but a checkpoint/restore that resumes the *same* node id from a
   snapshot would resume its nonce epoch. A CRaC `Resource` hook that redraws the epoch on restore
-  closes this; it is out of scope here and noted for the first CRaC-targeted release.
-- **XChaCha20-Poly1305 alternative engine.** The 192-bit-nonce option (random nonces without a
-  counter) is a candidate the algorithm registry can carry later; the registry and read-time
-  algorithm dispatch already support coexisting engines.
+  closes this; it is out of scope here and noted for the first CRaC-targeted release. (The
+  XChaCha20-Poly1305 engine sidesteps it — random nonce, no epoch — so a CRaC-targeted deployment
+  can select it as the write engine.)
 
 ## References
 
