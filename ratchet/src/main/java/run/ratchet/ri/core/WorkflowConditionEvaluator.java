@@ -29,6 +29,9 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.KeyNotFoundException;
+import run.ratchet.api.exception.KeyProviderUnavailableException;
+import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
@@ -103,6 +106,11 @@ public class WorkflowConditionEvaluator {
         case BATCH_CUSTOM -> evaluateBatchCustom(condition, parentJob);
       };
     } catch (WorkflowConditionConfigurationException e) {
+      throw e;
+    } catch (KeyProviderUnavailableException e) {
+      // Transient key-provider outage: the predicate could decrypt later. Propagate it so the
+      // scheduler can preserve the branches and defer, not collapse it into a false branch
+      // decision.
       throw e;
     } catch (Exception e) {
       log.errorf(
@@ -307,6 +315,15 @@ public class WorkflowConditionEvaluator {
           e);
     } catch (SecurityException e) {
       throw e;
+    } catch (KeyProviderUnavailableException e) {
+      // Transient: the key provider is temporarily unreachable. Stay retryable -- do not bury it as
+      // a permanent configuration error.
+      throw e;
+    } catch (PayloadDecryptionException | KeyNotFoundException e) {
+      // Poison: corrupt/tampered ciphertext or a permanently-forgotten key. The predicate can never
+      // be evaluated, so it is a permanent configuration failure.
+      throw new WorkflowConditionConfigurationException(
+          "Workflow condition predicate could not be decrypted: " + e.getMessage(), e);
     } catch (RuntimeException e) {
       throw new WorkflowConditionConfigurationException(
           "Workflow condition expression metadata could not be loaded: " + e.getMessage(), e);

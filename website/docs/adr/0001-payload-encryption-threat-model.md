@@ -387,6 +387,14 @@ An adversarial review of the implementation surfaced and closed the following:
 
 A second adversarial review surfaced and closed the following:
 
+- **Workflow predicate decryption no longer silently stalls the flow.** A predicate that fails to
+  decrypt during branch evaluation is now classified. A transient key-provider outage is rethrown so
+  the post-execution transaction rolls back and the branches are preserved (the parent has already
+  completed, so there is no automatic re-evaluation — an operator re-triggers branch scheduling once
+  keys are reachable). A poison/permanent failure leaves the broken branch unscheduled, so it is
+  durably canceled and committed while sibling branches and the linear chain still proceed.
+  Previously every predicate-evaluation failure tried to mark the already-completed parent FAILED,
+  which rolled back and left the workflow silently stuck.
 - **Signal-decrypt failures preserve the retry taxonomy.** Signal-payload decryption no longer wraps
   every failure in a non-retryable `IllegalArgumentException`. A transient
   `KeyProviderUnavailableException` now stays retryable; corrupt-ciphertext / forgotten-key poison

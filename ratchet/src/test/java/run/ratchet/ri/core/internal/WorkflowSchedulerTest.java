@@ -45,12 +45,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
-import run.ratchet.ri.core.DefaultBatchBuilder;
+import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -62,7 +61,6 @@ class WorkflowSchedulerTest {
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private JobCrudStore jobCrudStore;
-  @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private WorkflowConditionStore conditionStore;
   @Mock private WorkflowConditionEvaluator conditionEvaluator;
@@ -91,12 +89,7 @@ class WorkflowSchedulerTest {
   void setUp() {
     scheduler =
         new WorkflowScheduler(
-            jobCrudStore,
-            jobBatchStatusStore,
-            jobTerminalStore,
-            conditionStore,
-            conditionEvaluator,
-            FIXED_CLOCK);
+            jobCrudStore, jobTerminalStore, conditionStore, conditionEvaluator, FIXED_CLOCK);
     lenient()
         .when(jobCrudStore.findByIds(anyList()))
         .thenAnswer(
@@ -192,7 +185,6 @@ class WorkflowSchedulerTest {
     scheduler =
         new WorkflowScheduler(
             jobCrudStore,
-            jobBatchStatusStore,
             jobTerminalStore,
             conditionStore,
             conditionEvaluator,
@@ -365,57 +357,40 @@ class WorkflowSchedulerTest {
   }
 
   @Test
-  void scheduleNext_conditionEvaluatorExceptionMarksParentFailedAndCancelsBranches() {
-    JobEntity parent = job(new UUID(0L, 60L), JobStatus.PENDING);
-    parent.setAttempts(2);
-    JobEntity child = job(new UUID(0L, 61L), JobStatus.WAITING);
+  void scheduleNext_permanentConditionFailureCancelsItsBranchAndCommits() {
+    // The parent has already completed (terminal) by the time its branches are evaluated.
+    JobEntity parent = job(new UUID(0L, 60L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 61L), JobStatus.PENDING);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
-    RuntimeException failure = new RuntimeException("predicate exploded");
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
-    when(conditionEvaluator.evaluate(condition, parent)).thenThrow(failure);
-    when(jobBatchStatusStore.tryPickUpJob(
-            parent.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
-        .thenReturn(true);
-    when(jobTerminalStore.markJobFailedTerminal(
-            parent.getId(),
-            "Workflow condition evaluation failed: predicate exploded",
-            parent.getAttempts()))
-        .thenReturn(true);
-    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt())).thenReturn(List.of());
+    // A permanently unevaluable predicate (corrupt/forgotten-key, or bad metadata) surfaces here.
+    when(conditionEvaluator.evaluate(condition, parent))
+        .thenThrow(new IllegalStateException("predicate permanently unevaluable"));
     when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
     when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
 
-    IllegalStateException thrown =
-        assertThrows(IllegalStateException.class, () -> scheduler.scheduleNext(parent));
+    // No throw: the broken branch is canceled and the result commits; the parent is left as-is.
+    assertFalse(scheduler.scheduleNext(parent));
 
-    assertEquals(JobStatus.FAILED, parent.getStatus());
-    assertEquals("Workflow condition evaluation failed: predicate exploded", parent.getLastError());
-    assertEquals(failure, thrown.getCause());
-    verify(jobTerminalStore)
-        .markJobFailedTerminal(parent.getId(), parent.getLastError(), parent.getAttempts());
     verify(jobTerminalStore).cancelJob(child.getId());
+    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt());
+    assertEquals(JobStatus.SUCCEEDED, parent.getStatus());
   }
 
   @Test
-  void scheduleNext_conditionEvaluatorExceptionDoesNotMutateParentWhenRecoveryPickupFails() {
-    JobEntity parent = job(new UUID(0L, 62L), JobStatus.PENDING);
-    parent.setAttempts(1);
-    JobEntity child = job(new UUID(0L, 63L), JobStatus.WAITING);
+  void scheduleNext_transientKeyOutagePreservesBranchesAndRethrows() {
+    JobEntity parent = job(new UUID(0L, 62L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 63L), JobStatus.PENDING);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
-    RuntimeException failure = new RuntimeException("predicate exploded");
+    KeyProviderUnavailableException outage = new KeyProviderUnavailableException("KMS unreachable");
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
-    when(conditionEvaluator.evaluate(condition, parent)).thenThrow(failure);
-    when(jobBatchStatusStore.tryPickUpJob(
-            parent.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
-        .thenReturn(false);
-    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+    when(conditionEvaluator.evaluate(condition, parent)).thenThrow(outage);
 
-    IllegalStateException thrown =
-        assertThrows(IllegalStateException.class, () -> scheduler.scheduleNext(parent));
+    // Transient: rethrown so the post-execution transaction rolls back; branches stay preserved.
+    KeyProviderUnavailableException thrown =
+        assertThrows(KeyProviderUnavailableException.class, () -> scheduler.scheduleNext(parent));
 
-    assertEquals(JobStatus.PENDING, parent.getStatus());
-    assertEquals(failure, thrown.getCause());
-    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt());
+    assertEquals("KMS unreachable", thrown.getMessage());
     verify(jobTerminalStore, never()).cancelJob(child.getId());
   }
 
