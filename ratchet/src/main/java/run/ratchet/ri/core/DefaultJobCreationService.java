@@ -377,7 +377,7 @@ class DefaultJobCreationService
 
     List<SerializableCheckedRunnable> chainTasks = state.chainTasks();
     if (!chainTasks.isEmpty()) {
-      createChainSteps(jobId, chainTasks, opts, state.executionTarget());
+      createChainSteps(jobId, chainTasks, opts, state.executionTarget(), state.encryptedPayload());
     }
 
     List<WorkflowBranch> branches = builder.workflowBranches();
@@ -661,7 +661,8 @@ class DefaultJobCreationService
       UUID predecessorId,
       List<SerializableCheckedRunnable> chainTasks,
       JobOptions opts,
-      String executionTarget) {
+      String executionTarget,
+      boolean parentEncrypted) {
     UUID prevId = predecessorId;
     for (SerializableCheckedRunnable chainTask : chainTasks) {
       JobEntity step = new JobEntity();
@@ -670,6 +671,12 @@ class DefaultJobCreationService
       step.setPriority(opts.priority());
       step.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
       step.setPayload(payload(chainTask));
+      // A chain step inherits its parent's encryption opt-in: the row mapper encrypts the step's
+      // own
+      // payload args off this flag, exactly as it does for the parent job, so an opted-in
+      // .then(...)
+      // chain never persists plaintext args.
+      step.setEncryptedPayload(parentEncrypted);
       step.setIdempotencyKey(UUID.randomUUID().toString());
       step.setDependsOn(prevId);
       step.setExecutionTarget(executionTarget);

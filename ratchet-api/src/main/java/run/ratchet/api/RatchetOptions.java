@@ -112,7 +112,7 @@ public class RatchetOptions {
         security,
         store,
         circuitBreaker,
-        new EncryptionOptions(false));
+        new EncryptionOptions(false, null));
   }
 
   public RatchetOptions(
@@ -654,17 +654,25 @@ public class RatchetOptions {
       int minimumCalls) {}
 
   /**
-   * Deployment-wide payload-encryption switch.
+   * Deployment-wide payload-encryption switch and write-algorithm selection.
    *
    * <p>A single on/off covering every protected surface of an opted-in job; there is no per-surface
    * global selection in this version. Off by default, and a disabled deployment produces
    * byte-identical storage to one with no encryption configured. When {@code true}, every job is
    * treated as opted in, the same as calling {@link JobBuilder#withEncryptedPayload()} on each.
    *
+   * <p>{@code writeAlgorithm} names the algorithm new writes use when more than one {@link
+   * run.ratchet.spi.PayloadEncryption} engine is installed — the seam for algorithm rotation, where
+   * an old engine stays installed to decrypt not-yet-drained rows while a new engine takes over
+   * writes. It may be left {@code null} when exactly one engine is installed (that engine is used);
+   * it is required, and must name an installed engine, when several are.
+   *
    * @param enabled {@code true} to encrypt protected surfaces for all jobs
+   * @param writeAlgorithm the algorithm id new writes use, or {@code null} to use the sole
+   *     installed engine
    */
   @Incubating
-  public record EncryptionOptions(boolean enabled) {}
+  public record EncryptionOptions(boolean enabled, String writeAlgorithm) {}
 
   public static final class Builder {
     private final PollingBuilder polling = new PollingBuilder();
@@ -1421,6 +1429,7 @@ public class RatchetOptions {
   @Incubating
   public static final class EncryptionBuilder {
     private boolean enabled;
+    private String writeAlgorithm;
 
     private EncryptionBuilder() {}
 
@@ -1433,8 +1442,18 @@ public class RatchetOptions {
       return this;
     }
 
+    /**
+     * Names the algorithm id new writes use when more than one {@link
+     * run.ratchet.spi.PayloadEncryption} engine is installed (the algorithm-rotation seam). Leave
+     * unset when a single engine is installed — that engine is used for writes.
+     */
+    public EncryptionBuilder writeAlgorithm(String writeAlgorithm) {
+      this.writeAlgorithm = writeAlgorithm;
+      return this;
+    }
+
     private EncryptionOptions build() {
-      return new EncryptionOptions(enabled);
+      return new EncryptionOptions(enabled, writeAlgorithm);
     }
   }
 }

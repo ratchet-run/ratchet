@@ -140,4 +140,30 @@ class PayloadEncryptorTest {
     assertThrows(
         PayloadDecryptionException.class, () -> PayloadEncryptor.decryptValue(token, otherSurface));
   }
+
+  @Test
+  void argsFlaggedButUnframed_detectsPlaintextArgsUnderASetFlag() {
+    // An array, an object, or a string without the frame marker is plaintext the flag promised
+    // would be ciphertext.
+    assertTrue(PayloadEncryptor.argsFlaggedButUnframed("{\"args\":[\"x\"]}"));
+    assertTrue(PayloadEncryptor.argsFlaggedButUnframed("{\"args\":{\"k\":1}}"));
+    assertTrue(PayloadEncryptor.argsFlaggedButUnframed("{\"args\":\"plain\"}"));
+  }
+
+  @Test
+  void argsFlaggedButUnframed_framedArgsAreNotFlagged() {
+    String framed = PayloadEncryptor.encryptArgs("{\"args\":[\"secret\"]}", true, args);
+
+    assertFalse(PayloadEncryptor.argsFlaggedButUnframed(framed));
+  }
+
+  @Test
+  void argsFlaggedButUnframed_absentArgsOrMalformedInputIsNotAnAnomaly() {
+    assertFalse(PayloadEncryptor.argsFlaggedButUnframed("{\"args\":null}"));
+    assertFalse(PayloadEncryptor.argsFlaggedButUnframed("{\"target\":\"C\"}"));
+    assertFalse(PayloadEncryptor.argsFlaggedButUnframed(null));
+    assertFalse(PayloadEncryptor.argsFlaggedButUnframed(""));
+    assertFalse(PayloadEncryptor.argsFlaggedButUnframed("not json"));
+    assertFalse(PayloadEncryptor.argsFlaggedButUnframed("[1,2,3]"));
+  }
 }

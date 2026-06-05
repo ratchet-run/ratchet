@@ -28,10 +28,11 @@ import run.ratchet.api.Incubating;
  * engine.
  *
  * <p>The surface also drives the additional-authenticated-data (AAD) policy. Most surfaces bind
- * their ciphertext to the job id so a value lifted from one row fails to decrypt in another, but
- * two surfaces cannot and bind to the surface alone — see {@link #SIGNAL_PAYLOAD} and {@link
- * #WORKFLOW_CONDITION_PREDICATE}. The framework computes the final AAD bytes from this surface and
- * hands them to the engine; the engine never recomputes them.
+ * their ciphertext to the job id so a value lifted from one row fails to decrypt in another. Two
+ * surfaces cannot bind the owning job id and bind a different discriminator instead — the signal
+ * key or the parent job id — see {@link #SIGNAL_PAYLOAD} and {@link #WORKFLOW_CONDITION_PREDICATE}.
+ * The framework computes the final AAD bytes from the surface and that binding and hands them to
+ * the engine; the engine never recomputes them.
  */
 @Incubating
 public enum ProtectedSurface {
@@ -54,16 +55,17 @@ public enum ProtectedSurface {
   ON_FAILURE_PAYLOAD,
 
   /**
-   * A delivered signal payload ({@code signal_payload}). AAD binds the surface only: broadcast
-   * delivery writes one ciphertext to every waiting row matching the signal key, so binding to a
-   * single job id would fail the authentication tag on all rows but one.
+   * A delivered signal payload ({@code signal_payload}). AAD binds the surface and the signal key:
+   * broadcast delivery writes one ciphertext to every waiting row matching the key, so binding to a
+   * single job id would fail the authentication tag on all rows but one. The signal key is the
+   * identity every targeted row shares.
    */
   SIGNAL_PAYLOAD,
 
   /**
    * A serialized workflow-condition predicate ({@code condition_expression}). AAD binds the surface
-   * only: the predicate is decrypted at a call site that has no job id in scope, and a predicate
-   * belongs to exactly one parent job and is never shared, so surface-only binding is acceptable.
+   * and the parent job id, which is in scope at both the write site and the evaluation site, so a
+   * predicate lifted to another parent fails the authentication tag.
    */
   WORKFLOW_CONDITION_PREDICATE
 }

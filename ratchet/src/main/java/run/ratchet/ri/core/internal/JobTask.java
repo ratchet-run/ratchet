@@ -480,17 +480,14 @@ public class JobTask implements Callable<Void> {
 
   private Serializable deserializeSignalPayload(JobEntity jobEntity, UUID jobId) {
     // Decrypt at rest before deserializing; no-op when no cipher is active or the value is
-    // plaintext. Decryption failures are configuration/data failures, so they enter the normal job
-    // failure path instead of escaping before a claimed RUNNING job can be finalized.
-    String rawSignalPayload;
-    try {
-      rawSignalPayload =
-          PayloadEncryptor.decryptValue(
-              jobEntity.getSignalPayload(), EncryptionTarget.signal(jobEntity.getSignalKey()));
-    } catch (RuntimeException e) {
-      throw new IllegalArgumentException(
-          "Signal payload could not be decrypted for job " + jobId, e);
-    }
+    // plaintext. Let the decryption exception types propagate unwrapped so DoNotRetryPolicy can
+    // tell poison (corrupt ciphertext / forgotten key -> DLQ) from a transient key-provider outage
+    // (KeyProviderUnavailableException -> retry). Wrapping them in IllegalArgumentException here
+    // would force every case onto the non-retryable path and dead-letter a job a retry could have
+    // recovered.
+    String rawSignalPayload =
+        PayloadEncryptor.decryptValue(
+            jobEntity.getSignalPayload(), EncryptionTarget.signal(jobEntity.getSignalKey()));
 
     if (DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
         jobEntity.getSignalPayloadType())) {

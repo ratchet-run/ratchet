@@ -26,12 +26,15 @@ import run.ratchet.api.exception.PayloadDecryptionException;
 /**
  * The versioned, self-describing envelope the framework wraps around each AEAD ciphertext.
  *
- * <p>The framework — not the engine — owns this framing. A stored value is treated as ciphertext
- * only when the complete {@code rcph:3:} frame is present, so a legacy plaintext value that merely
- * shares a prefix is never mistaken for an encrypted one, and plaintext and encrypted rows coexist
- * during a rollout. The marker is a commitment: a value that carries it but fails to parse is
- * corrupt ciphertext (poison), not plaintext, and surfaces as {@link PayloadDecryptionException}
- * rather than passing silently through to a confusing deserialization error downstream.
+ * <p>The framework — not the engine — owns this framing. {@code rcph:3:} is a <b>reserved marker
+ * prefix</b>: a stored value is detected as a v3 frame when it begins with the marker (a prefix
+ * check, see {@link #isFramed}), and the framework's encode path is the only writer that emits the
+ * prefix, so plaintext and encrypted rows coexist safely during a rollout. The marker is a
+ * commitment: a value that carries it but does not parse as a well-formed frame is corrupt
+ * ciphertext (poison), not plaintext, and surfaces as {@link PayloadDecryptionException} rather
+ * than passing silently through to a confusing deserialization error downstream. A legacy value
+ * that merely begins with the reserved prefix is therefore read as poison, not silently as
+ * plaintext — fail-closed, not fail-open.
  *
  * <p><b>Binary layout</b> (base64url-encoded after the {@code rcph:3:} marker):
  *

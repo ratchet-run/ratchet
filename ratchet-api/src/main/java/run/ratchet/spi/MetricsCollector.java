@@ -173,4 +173,16 @@ public interface MetricsCollector {
   default void pollerBreakerState(String breakerName, String state) {
     // default no-op
   }
+
+  /**
+   * Called when a row flagged {@code encrypted_payload} is read back as unframed plaintext (ADR
+   * Q-D). An operational-integrity signal — a write-time downgrade, an un-upgraded node, or a bug —
+   * never a read failure. The read still succeeds with the plaintext value.
+   *
+   * @param jobId the affected job or recurring master
+   * @param surface the protected surface that read back unframed, e.g. {@code PAYLOAD_ARGS}
+   */
+  default void encryptionIntegrityViolation(UUID jobId, String surface) {
+    // default no-op
+  }
 }

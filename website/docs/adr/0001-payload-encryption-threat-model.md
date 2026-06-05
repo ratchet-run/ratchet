@@ -381,12 +381,34 @@ An adversarial review of the implementation surfaced and closed the following:
 - **`encryption_key_id` is a hint, not a drain oracle.** The column is a denormalized summary of
   the most recently written surface's write key; the authoritative key for any value is the one
   named in its self-describing envelope. Drain-checking that retires a key must scan envelopes, not
-  this column. This is documented rather than re-engineered because there is no rotation in this
-  version.
-- **Algorithm rotation stays deferred.** The engine registry already dispatches reads by algorithm
-  id, but the installer accepts a single write engine and the options carry no
-  active-write-algorithm selector. Multi-engine algorithm rotation arrives with the key-rotation
-  tooling; the single-write constraint fails loud rather than guessing.
+  this column — the envelope, not the column, is the rotation-safe source of truth.
+
+## Hardening (round 2, 2026-06-04, post second review)
+
+A second adversarial review surfaced and closed the following:
+
+- **Signal-decrypt failures preserve the retry taxonomy.** Signal-payload decryption no longer wraps
+  every failure in a non-retryable `IllegalArgumentException`. A transient
+  `KeyProviderUnavailableException` now stays retryable; corrupt-ciphertext / forgotten-key poison
+  still routes to the DLQ.
+- **Chain steps inherit the parent opt-in.** A `.then(...)` chain off an opted-in job now stamps each
+  step's `encrypted_payload` flag, so the row mapper encrypts the step's own args instead of
+  persisting them as plaintext — the same gap the workflow-branch path had in round one.
+- **Algorithm rotation is wired.** The engine registry dispatches reads by algorithm id, and the
+  installer now accepts several engines when `RatchetOptions.encryption().writeAlgorithm` names which
+  one writes — the rotation seam where an old engine stays installed to decrypt not-yet-drained rows
+  while a new engine takes over writes. A single installed engine needs no selector; several engines
+  without one fail loud rather than guessing.
+- **Flagged-but-unframed reads are surfaced (Q-D, now implemented).** The hydrate paths in all three
+  stores compare the `encrypted_payload` flag against the stored value's frame marker; a row flagged
+  encrypted but read back as unframed plaintext increments a metric and a throttled log via
+  `EncryptionIntegrity`, without failing the read.
+- **`rcph:3:` is documented as a reserved marker prefix.** Frame detection is a prefix check, so a
+  stored value beginning with the marker is treated as a v3 frame — fail-closed to poison, never
+  silently as plaintext. The framework's encode path is the only writer of the prefix.
+- **AAD-binding Javadoc corrected.** `SIGNAL_PAYLOAD` binds the surface and the signal key; the
+  workflow predicate binds the surface and the parent job id — not "the surface only" as previously
+  documented.
 
 ## Still open (do not block this ADR)
 

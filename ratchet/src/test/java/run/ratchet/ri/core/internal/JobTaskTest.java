@@ -54,6 +54,7 @@ import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
+import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
@@ -65,8 +66,10 @@ import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.EncryptionContext;
+import run.ratchet.spi.EncryptionKey;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobLogger;
+import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadEncryption;
 import run.ratchet.spi.PayloadSerializer;
@@ -421,6 +424,53 @@ class JobTaskTest {
     // Non-retryable: never rescheduled, never increments the attempt counter.
     verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+  }
+
+  @Test
+  void call_signalDecryptTransientKeyOutage_retriesInsteadOfDlq() {
+    // A transient key-provider outage during signal-payload decrypt must stay retryable, not be
+    // flattened into a non-retryable IllegalArgumentException that dead-letters a recoverable job.
+    EncryptionTestKit.install(false);
+    String framedSignal =
+        PayloadEncryptor.encryptValue("\"payload\"", true, EncryptionTarget.signal("sig-key"));
+    EncryptionHolder.install(
+        List.of(new EncryptionTestKit.AesGcmEngine()),
+        EncryptionTestKit.ALGORITHM_ID,
+        new TransientKeyProvider(),
+        false);
+
+    JobEntity job = createTestJob();
+    job.setSignalKey("sig-key");
+    job.setSignalPayload(framedSignal);
+    jobTask.init(job);
+    // Exercise the real do-not-retry classification, not the mocked facade's default.
+    DoNotRetryPolicy realPolicy = new DoNotRetryPolicy();
+    when(validationFacade.shouldNotRetry(any()))
+        .thenAnswer(inv -> realPolicy.shouldNotRetry(inv.getArgument(0)));
+    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
+    when(retryPolicy.shouldRetry(eq(1), any())).thenReturn(true);
+    when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
+    when(errorSanitizer.sanitize(any())).thenReturn("safe transient failure");
+    when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt())).thenReturn(true);
+
+    jobTask.call();
+
+    // Transient outage is retryable: the job is rescheduled, never dead-lettered.
+    verify(jobStore).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+  }
+
+  /** A key provider that is transiently unreachable on every lookup. */
+  private static final class TransientKeyProvider implements KeyProvider {
+    @Override
+    public EncryptionKey currentKey() {
+      throw new KeyProviderUnavailableException("KMS unreachable");
+    }
+
+    @Override
+    public EncryptionKey keyById(String keyId) {
+      throw new KeyProviderUnavailableException("KMS unreachable");
+    }
   }
 
   @Test
@@ -889,11 +939,12 @@ class JobTaskTest {
 
     verify(jobStore)
         .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    // Poison surfaces with its true type now (no IllegalArgumentException wrap); it is still DLQ'd.
     verify(observabilityFacade)
-        .recordJobFailure(eq(job), any(IllegalArgumentException.class), eq(0));
+        .recordJobFailure(eq(job), any(PayloadDecryptionException.class), eq(0));
     verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
     verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
-    verify(lifecycleFacade).moveToDlq(eq(job), any(IllegalArgumentException.class));
+    verify(lifecycleFacade).moveToDlq(eq(job), any(PayloadDecryptionException.class));
   }
 
   private JobEntity createTestJob() {

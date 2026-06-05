@@ -134,6 +134,36 @@ public final class PayloadEncryptor {
     }
   }
 
+  /**
+   * Reports whether a row whose {@code encrypted_payload} flag is set nonetheless stored an
+   * unframed {@code args} subtree — a write-time integrity anomaly (a plaintext downgrade, a node
+   * without the engine active, or a bug). Returns {@code false} for a payload that legitimately
+   * carries no {@code args} to protect. Marker-driven and allocation-light: it parses the envelope
+   * JSON but never decrypts.
+   *
+   * <p>The {@code args} subtree is the canonical probe — every protected surface on a row shares
+   * the single per-row {@code active} decision, so a systemic downgrade surfaces here. See {@link
+   * run.ratchet.store.util.EncryptionIntegrity}.
+   */
+  public static boolean argsFlaggedButUnframed(String payloadJson) {
+    if (payloadJson == null || payloadJson.isEmpty()) {
+      return false;
+    }
+    JsonValue root = tryParse(payloadJson);
+    if (root == null || root.getValueType() != JsonValue.ValueType.OBJECT) {
+      return false;
+    }
+    JsonValue args = root.asJsonObject().get(ARGS);
+    if (args == null || args.getValueType() == JsonValue.ValueType.NULL) {
+      return false;
+    }
+    // Encrypted args are a single framed string; anything else under a set flag (an array/object,
+    // or
+    // a string without the frame marker) is plaintext the flag promised would be ciphertext.
+    return args.getValueType() != JsonValue.ValueType.STRING
+        || !EncryptionEnvelope.isFramed(((JsonString) args).getString());
+  }
+
   /** Reverses {@link #encryptArgs}, restoring the {@code args} value in place. */
   public static String decryptArgs(String payloadJson, EncryptionTarget target) {
     if (payloadJson == null || payloadJson.isEmpty()) {

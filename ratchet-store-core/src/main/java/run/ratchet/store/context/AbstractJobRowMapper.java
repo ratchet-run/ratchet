@@ -24,6 +24,7 @@ import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.util.EncryptionIntegrity;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.JobHydrationSupport;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -142,11 +143,14 @@ public abstract class AbstractJobRowMapper {
     j.setTimeoutSec(requiredNumber(row, IDX_TIMEOUT_SEC, "timeout_sec").intValue());
     j.setCronExpr((String) row[IDX_CRON_EXPR]);
     j.setZoneId((String) row[IDX_ZONE_ID]);
+    String rawPayload = RowValues.stringOrNull(row[IDX_PAYLOAD]);
+    if (j.isEncryptedPayload() && PayloadEncryptor.argsFlaggedButUnframed(rawPayload)) {
+      EncryptionIntegrity.flaggedButUnframed(jobId, ProtectedSurface.PAYLOAD_ARGS);
+    }
     j.setPayload(
         JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(
             PayloadEncryptor.decryptArgs(
-                RowValues.stringOrNull(row[IDX_PAYLOAD]),
-                EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, jobId))));
+                rawPayload, EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, jobId))));
     j.setParams(
         JSON_MAP_CONVERTER.convertToEntityAttribute(
             PayloadEncryptor.decryptParamMap(

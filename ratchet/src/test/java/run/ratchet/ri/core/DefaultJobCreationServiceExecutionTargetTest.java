@@ -230,6 +230,28 @@ class DefaultJobCreationServiceExecutionTargetTest {
   }
 
   @Test
+  void chainSteps_inheritParentEncryptionOptIn() {
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceExecutionTargetTest::noopTask, Duration.ZERO);
+    builder.withEncryptedPayload();
+    builder
+        .virtual()
+        .then(DefaultJobCreationServiceExecutionTargetTest::noopTask)
+        .then(DefaultJobCreationServiceExecutionTargetTest::noopTask);
+
+    service.submit(builder);
+
+    ArgumentCaptor<JobEntity> jobCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore, times(3)).create(jobCaptor.capture());
+    // Parent plus both chain steps carry the opt-in, so the row mapper encrypts each step's args.
+    org.junit.jupiter.api.Assertions.assertTrue(
+        jobCaptor.getAllValues().stream().allMatch(JobEntity::isEncryptedPayload));
+  }
+
+  @Test
   void workflowBranches_inheritRootExecutionTarget() {
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     DefaultJobBuilder builder =

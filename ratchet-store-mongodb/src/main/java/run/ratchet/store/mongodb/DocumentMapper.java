@@ -44,6 +44,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.util.EncryptionIntegrity;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -178,11 +179,16 @@ public final class DocumentMapper {
     job.setNextFire(toInstant(doc.getDate("next_fire")));
     job.setEncryptedPayload(Boolean.TRUE.equals(doc.getBoolean("encrypted_payload", false)));
     UUID readJobId = job.getId();
+    Object rawPayload = doc.get("payload");
+    if (job.isEncryptedPayload()
+        && rawPayload instanceof String s
+        && PayloadEncryptor.argsFlaggedButUnframed(s)) {
+      EncryptionIntegrity.flaggedButUnframed(readJobId, ProtectedSurface.PAYLOAD_ARGS);
+    }
     job.setPayload(
         storedValueToPayload(
             decryptArgsValue(
-                doc.get("payload"),
-                EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, readJobId))));
+                rawPayload, EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, readJobId))));
     job.setParams(
         documentToParams(
             doc.get("params", Document.class),
@@ -298,6 +304,12 @@ public final class DocumentMapper {
         BackoffPolicy.valueOf(
             doc.getString("backoff_policy") != null ? doc.getString("backoff_policy") : "NONE");
     UUID id = doc.get("_id", UUID.class);
+    Object rawPayload = doc.get("payload");
+    if (Boolean.TRUE.equals(doc.getBoolean("encrypted_payload", false))
+        && rawPayload instanceof String s
+        && PayloadEncryptor.argsFlaggedButUnframed(s)) {
+      EncryptionIntegrity.flaggedButUnframed(id, ProtectedSurface.PAYLOAD_ARGS);
+    }
     return new RecurringJobDefinition(
         id,
         doc.getString("cron_expr"),
@@ -312,7 +324,7 @@ public final class DocumentMapper {
         timeoutSec != null ? timeoutSec.intValue() : DEFAULT_COUNT,
         storedValueToPayload(
             decryptArgsValue(
-                doc.get("payload"), EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, id))),
+                rawPayload, EncryptionTarget.rowBound(ProtectedSurface.PAYLOAD_ARGS, id))),
         storedValueToPayload(
             decryptArgsValue(
                 doc.get("on_success_payload"),

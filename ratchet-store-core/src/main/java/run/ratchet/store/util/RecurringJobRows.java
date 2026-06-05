@@ -51,6 +51,11 @@ public final class RecurringJobRows {
     Instant nextFire = RowValues.instantOrNull(row[8]);
     boolean isPaused = RowValues.booleanOrFalse(row[9]);
     Instant pausedAt = RowValues.instantOrNull(row[10]);
+    boolean encryptedPayload = RowValues.booleanOrFalse(row[19]);
+    if (encryptedPayload
+        && PayloadEncryptor.argsFlaggedButUnframed(RowValues.stringOrNull(row[11]))) {
+      EncryptionIntegrity.flaggedButUnframed(id, ProtectedSurface.PAYLOAD_ARGS);
+    }
     JobPayload payload = decryptPayload(row[11], ProtectedSurface.PAYLOAD_ARGS, id);
     JobPayload onSuccess = decryptPayload(row[12], ProtectedSurface.ON_SUCCESS_PAYLOAD, id);
     JobPayload onFailure = decryptPayload(row[13], ProtectedSurface.ON_FAILURE_PAYLOAD, id);
@@ -59,7 +64,6 @@ public final class RecurringJobRows {
     String executionTarget = (String) row[16];
     Instant createdAt = RowValues.instantOrNull(row[17]);
     String callerPrincipal = (String) row[18];
-    boolean encryptedPayload = RowValues.booleanOrFalse(row[19]);
 
     return new RecurringJobDefinition(
         id,
