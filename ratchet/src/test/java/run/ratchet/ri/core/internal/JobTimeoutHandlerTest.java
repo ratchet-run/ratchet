@@ -357,6 +357,31 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void scanSignalTimeoutsIsolatesPerJobFailuresAndProcessesRemainingJobs() {
+    JobTimeoutHandler scanHandler =
+        newHandler(
+            signalStore, metricsCollector, JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+    UUID poisonedId = new UUID(0L, 1L);
+    UUID survivorId = new UUID(0L, 2L);
+    JobEntity survivor = waitingJob(survivorId, 0);
+    when(signalStore.findTimedOutSignalJobs(any(Instant.class), anyInt()))
+        .thenReturn(List.of(waitingJob(poisonedId, 0), survivor));
+    when(jobRetryStore.incrementRetryAttempt(poisonedId))
+        .thenThrow(new IllegalStateException("store down"));
+    when(jobRetryStore.incrementRetryAttempt(survivorId)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(survivorId), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+
+    scanHandler.scanSignalTimeouts();
+
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(
+            eq(survivorId), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString());
+    verify(lifecycleFacade).handlePermanentFailure(eq(survivor), any());
+  }
+
+  @Test
   void signalTimeoutPublishesTimedOutMetricWhenFailureIsApplied() {
     JobTimeoutHandler metricsHandler =
         newHandler(null, metricsCollector, JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
@@ -446,6 +471,19 @@ class JobTimeoutHandlerTest {
   private JobEntity waitingJobWithMaxRetries(int maxRetries) {
     JobEntity job = new JobEntity();
     job.setId(JOB_ID);
+    job.setMaxRetries(maxRetries);
+    job.setStatus(JobStatus.WAITING);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
+    job.setSignalKey("approval");
+    job.setSignalTimeout(Instant.now().minusSeconds(1));
+    job.setBackoffPolicy(BackoffPolicy.NONE);
+    return job;
+  }
+
+  private JobEntity waitingJob(UUID id, int maxRetries) {
+    JobEntity job = new JobEntity();
+    job.setId(id);
     job.setMaxRetries(maxRetries);
     job.setStatus(JobStatus.WAITING);
     job.setJobType(JobExecutionType.SINGLE);

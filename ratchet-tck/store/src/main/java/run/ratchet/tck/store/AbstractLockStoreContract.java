@@ -116,6 +116,25 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
   }
 
   @Test
+  void renewLock_extensionKeepsCompetingNodeLockedOutPastOriginalTtl() throws InterruptedException {
+    assertTrue(
+        lockStore().tryLock("renew-observable-lock", Duration.ofMillis(500), "node-A"),
+        "First tryLock should succeed");
+
+    assertTrue(
+        lockStore().renewLock("renew-observable-lock", Duration.ofMinutes(5), "node-A"),
+        "renewLock should succeed for the lock owner");
+
+    // Sleep past the ORIGINAL 500ms ttl. If renewLock were a silent no-op that returned true
+    // without moving the expiry forward, the lease would now be expired and node-B could claim it.
+    Thread.sleep(800);
+
+    assertFalse(
+        lockStore().tryLock("renew-observable-lock", Duration.ofMinutes(5), "node-B"),
+        "Competing node must stay locked out — renewLock must extend the lease, not just return true");
+  }
+
+  @Test
   void unlock_releasesForOtherNode() {
     lockStore().tryLock("lock1", Duration.ofMinutes(5), "node-A");
     lockStore().unlock("lock1", "node-A");
