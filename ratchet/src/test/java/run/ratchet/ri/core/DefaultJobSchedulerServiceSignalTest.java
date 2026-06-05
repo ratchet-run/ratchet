@@ -398,6 +398,49 @@ class DefaultJobSchedulerServiceSignalTest {
   }
 
   @Test
+  void deliverSignalDecisionByIdReturnsZeroWithoutEventOrMetricsWhenNoRowsUnblocked() {
+    SignalDecision decision = SignalDecision.approved("approved-payload");
+    when(payloadSerializer.serialize("approved-payload")).thenReturn("serialized-payload");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job(JOB_ID, "approval-key")));
+    when(signalStore.deliverSignalById(
+            eq(JOB_ID),
+            eq("serialized-payload"),
+            eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString()))
+        .thenReturn(0);
+
+    assertEquals(0, service.deliverSignal(JOB_ID, decision));
+
+    verify(eventPublisher, never()).publish(any());
+    verify(metricsCollector, never()).signalDelivered(any(), any(), anyString(), any());
+  }
+
+  @Test
+  void deliverSignalDecisionByKeyReturnsZeroWithoutEventWhenNoRowsUnblocked() {
+    SignalDecision decision = SignalDecision.rejected("needs-review", "nope");
+    when(payloadSerializer.serialize("needs-review")).thenReturn("serialized-payload");
+    when(signalStore.deliverSignalByKey(
+            eq("approval-key"),
+            eq("serialized-payload"),
+            eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION),
+            eq("REJECTED"),
+            eq("nope"),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString()))
+        .thenReturn(0);
+
+    assertEquals(0, service.deliverSignal("approval-key", decision));
+
+    verify(eventPublisher, never()).publish(any());
+    verify(metricsCollector, never()).signalDelivered(any(), any(), anyString(), any());
+  }
+
+  @Test
   void cancelJobsByTagPublishesBulkEventUsingInjectedClock() {
     when(jobBatchStatusStore.cancelJobsByTag("stale")).thenReturn(3);
 
