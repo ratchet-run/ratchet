@@ -127,6 +127,7 @@ final class PostgresqlJobQueryOperations {
       NULL,
       NULL,
       NULL,
+      NULL,
       NULL\
       """;
 

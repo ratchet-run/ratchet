@@ -386,7 +386,8 @@ class DefaultJobSchedulerServiceEventTest {
         null,
         null,
         FIXED_NOW,
-        null);
+        null,
+        false);
   }
 
   private static JobEntity job(JobStatus status, JobExecutionType type) {

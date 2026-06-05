@@ -47,6 +47,7 @@
     <module>ratchet-api</module>
     <module>ratchet</module>
     <module>ratchet-store-core</module>
+    <module>ratchet-encryption</module>
     <module>ratchet-store-mysql</module>
     <module>ratchet-store-postgresql</module>
     <module>ratchet-store-mongodb</module>
@@ -365,6 +366,11 @@
       <dependency>
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-store-core</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-encryption</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

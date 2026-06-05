@@ -102,4 +102,15 @@ public interface JobBuilderState {
    * @return the execution target, or {@code null} when no explicit target was set
    */
   String executionTarget();
+
+  /**
+   * Returns whether this job opted in to payload encryption via {@link
+   * JobBuilder#withEncryptedPayload()}.
+   *
+   * <p>The creation service later carries this onto the entity's {@code encrypted_payload} flag so
+   * the write path knows to encrypt the job's protected surfaces.
+   *
+   * @return {@code true} if the job opted in to encryption
+   */
+  boolean encryptedPayload();
 }

@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     method_name           TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED,
     created_at            TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     caller_principal      VARCHAR(255),
+    encrypted_payload     BOOLEAN NOT NULL DEFAULT FALSE,
     CONSTRAINT pk_scheduler_recurring_job PRIMARY KEY (id),
     CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_rec_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
@@ -179,6 +180,12 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- elsewhere. ON DELETE SET NULL so cancel of a master does not cascade-delete in-flight
     -- children.
     recurring_master_id   uuid,
+    -- Per-row payload-encryption metadata (cleartext by design). encrypted_payload marks whether
+    -- this row's protected surfaces are ciphertext; encryption_key_id records the key the
+    -- creation-time payload was written under, so a key cannot be retired while a live row still
+    -- references it.
+    encrypted_payload     boolean       NOT NULL DEFAULT FALSE,
+    encryption_key_id     varchar(256),
     CONSTRAINT pk_scheduler_job PRIMARY KEY (job_id),
     CONSTRAINT uk_idempotency_key UNIQUE (idempotency_key),
     CONSTRAINT chk_job_type CHECK (job_type IN
@@ -283,6 +290,8 @@ CREATE INDEX IF NOT EXISTS idx_job_created_at ON scheduler_job (created_at);
 CREATE INDEX IF NOT EXISTS idx_job_terminal ON scheduler_job (terminal_status, terminated_at);
 -- Child lineage pointer to recurring master.
 CREATE INDEX IF NOT EXISTS idx_job_recurring_master_id ON scheduler_job (recurring_master_id);
+-- Indexed for the key-rotation drain check (WHERE encryption_key_id = ? AND status NOT IN (...)).
+CREATE INDEX IF NOT EXISTS idx_job_encryption_key_id ON scheduler_job (encryption_key_id);
 -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
 -- write amplification on the hot insert path. See ddl/postgresql-debug-indexes.sql for
 -- the optional companion file that adds them back when needed.

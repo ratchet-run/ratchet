@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-parent</artifactId>
+    <version>${revision}</version>
+  </parent>
+
+  <artifactId>ratchet-encryption</artifactId>
+  <name>Ratchet :: Encryption</name>
+  <description>Reference PayloadEncryption engines and KeyProviders for Ratchet</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-api</artifactId>
+    </dependency>
+
+    <!--
+      The engine code itself uses only ratchet-api + the JDK. These jakarta APIs are not used by
+      this module's classes; they are required on the module path only because ratchet-api
+      `requires transitive jakarta.cdi`, so the JPMS resolver must observe jakarta.cdi (and its own
+      transitive interceptor/inject/annotation) when this module `requires run.ratchet.api`. Same
+      provided recipe as the other ratchet-api-only leaf modules (e.g. ratchet-otel).
+    -->
+    <dependency>
+      <groupId>jakarta.annotation</groupId>
+      <artifactId>jakarta.annotation-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.enterprise</groupId>
+      <artifactId>jakarta.enterprise.cdi-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.inject</groupId>
+      <artifactId>jakarta.inject-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Test-only crypto oracle: an independent XChaCha20-Poly1305 implementation (Tink) to
+         differentially validate the hand-rolled HChaCha20 over random inputs. Never on the runtime
+         path. BouncyCastle's lightweight API ships no XChaCha20, so Tink is the independent oracle. -->
+    <dependency>
+      <groupId>com.google.crypto.tink</groupId>
+      <artifactId>tink</artifactId>
+      <version>1.13.0</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- Test-only JSON-P, to parse the vendored Project Wycheproof vector file. -->
+    <dependency>
+      <groupId>jakarta.json</groupId>
+      <artifactId>jakarta.json-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse.parsson</groupId>
+      <artifactId>parsson</artifactId>
+      <version>1.1.7</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

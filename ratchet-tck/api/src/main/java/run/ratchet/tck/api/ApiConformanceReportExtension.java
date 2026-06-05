@@ -50,7 +50,12 @@ public class ApiConformanceReportExtension extends AbstractConformanceReportExte
                   "AbstractResilienceStrategyContract",
                   "AbstractJobAuthorizationContract",
                   "AbstractSignalDecisionContract",
-                  "AbstractSignalPayloadContract")));
+                  "AbstractSignalPayloadContract")),
+          new ContractGroup(
+              "Encryption SPI",
+              "Conformance contract every PayloadEncryption engine must satisfy: AEAD round-trip,"
+                  + " tamper/mismatched-AAD/wrong-key rejection, and nonce uniqueness.",
+              List.of("AbstractPayloadEncryptionEngineContract")));
 
   @Override
   protected String tierTitle() {

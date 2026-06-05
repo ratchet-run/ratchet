@@ -184,7 +184,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             null,
             java.time.Instant.parse("2026-05-19T00:00:00Z"),
-            OWNER);
+            OWNER,
+            false);
     when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(def));
 
     service.cancelJob(JOB_ID);

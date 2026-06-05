@@ -24,21 +24,29 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.KeyNotFoundException;
+import run.ratchet.api.exception.KeyProviderUnavailableException;
+import run.ratchet.api.exception.PayloadDecryptionException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /**
  * Evaluates workflow conditions against parent job results to decide which child jobs to schedule.
@@ -100,6 +108,12 @@ public class WorkflowConditionEvaluator {
       };
     } catch (WorkflowConditionConfigurationException e) {
       throw e;
+    } catch (KeyProviderUnavailableException | UnsupportedEnvelopeVersionException e) {
+      // Deferrable: a transient key-provider outage, or a predicate written by a newer Ratchet that
+      // this node cannot read yet. Either could decrypt later (once the provider recovers or this
+      // node is upgraded), so propagate it and let the scheduler preserve the branches and defer,
+      // not collapse it into a false branch decision.
+      throw e;
     } catch (Exception e) {
       log.errorf(
           e,
@@ -121,7 +135,7 @@ public class WorkflowConditionEvaluator {
   private JobResult<?> createJobResult(JobEntity job) {
     return JobResult.of(
         job.getStatus() == JobStatus.SUCCEEDED,
-        parseJobResult(job.getJobResult(), job.getResultType()),
+        parseJobResult(job.getJobResult(), job.getResultType(), job.getId()),
         job.getLastError(),
         null,
         job.getExecutionDurationMs(),
@@ -155,7 +169,8 @@ public class WorkflowConditionEvaluator {
                       batch.getTotalItems(),
                       batch.getCompletedItems(),
                       batch.getFailedItems());
-              return invokePredicatePayload(condition.getConditionExpression(), context);
+              return invokePredicatePayload(
+                  condition.getConditionExpression(), context, parentJob.getId());
             })
         .orElse(false);
   }
@@ -210,7 +225,8 @@ public class WorkflowConditionEvaluator {
   }
 
   private boolean evaluateCustomCondition(WorkflowConditionEntity condition, JobEntity parentJob) {
-    return invokePredicatePayload(condition.getConditionExpression(), createJobResult(parentJob));
+    return invokePredicatePayload(
+        condition.getConditionExpression(), createJobResult(parentJob), parentJob.getId());
   }
 
   private boolean evaluateFailure(JobEntity parentJob) {
@@ -221,11 +237,12 @@ public class WorkflowConditionEvaluator {
     if (parentJob.getJobResult() == null) {
       return false;
     }
-    Object jobResult = parseJobResult(parentJob.getJobResult(), parentJob.getResultType());
+    Object jobResult =
+        parseJobResult(parentJob.getJobResult(), parentJob.getResultType(), parentJob.getId());
     if (jobResult == null) {
       return false;
     }
-    return invokePredicatePayload(condition.getConditionExpression(), jobResult);
+    return invokePredicatePayload(condition.getConditionExpression(), jobResult, parentJob.getId());
   }
 
   private boolean evaluateSuccess(JobEntity parentJob) {
@@ -249,12 +266,15 @@ public class WorkflowConditionEvaluator {
    *       bean is the receiver; null slots are filled with {@code contextArg}.
    * </ul>
    */
-  private boolean invokePredicatePayload(String expression, Object contextArg) {
+  private boolean invokePredicatePayload(String expression, Object contextArg, UUID parentJobId) {
     if (expression == null) {
       return false;
     }
     try {
-      JobPayload payload = payloadSerializer.deserialize(expression, JobPayload.class);
+      JobPayload payload =
+          payloadSerializer.deserialize(
+              PayloadEncryptor.decryptArgs(expression, EncryptionTarget.predicate(parentJobId)),
+              JobPayload.class);
       if (payload == null) {
         return false;
       }
@@ -297,6 +317,16 @@ public class WorkflowConditionEvaluator {
           e);
     } catch (SecurityException e) {
       throw e;
+    } catch (KeyProviderUnavailableException | UnsupportedEnvelopeVersionException e) {
+      // Deferrable: a transient key-provider outage, or a predicate written by a newer Ratchet this
+      // node cannot read yet. Stay propagatable -- do not bury it as a permanent configuration
+      // error; it resolves once the provider recovers or this node is upgraded.
+      throw e;
+    } catch (PayloadDecryptionException | KeyNotFoundException e) {
+      // Poison: corrupt/tampered ciphertext or a permanently-forgotten key. The predicate can never
+      // be evaluated, so it is a permanent configuration failure.
+      throw new WorkflowConditionConfigurationException(
+          "Workflow condition predicate could not be decrypted: " + e.getMessage(), e);
     } catch (RuntimeException e) {
       throw new WorkflowConditionConfigurationException(
           "Workflow condition expression metadata could not be loaded: " + e.getMessage(), e);
@@ -328,10 +358,14 @@ public class WorkflowConditionEvaluator {
     throw new NoSuchMethodException(payload.method() + " not found in " + cls.getName());
   }
 
-  private Object parseJobResult(String jobResultJson, String resultType) {
+  private Object parseJobResult(String jobResultJson, String resultType, UUID jobId) {
     if (jobResultJson == null) {
       return null;
     }
+    // Decrypt at rest before deserializing; marker-driven, so plaintext passes through.
+    jobResultJson =
+        PayloadEncryptor.decryptJsonColumn(
+            jobResultJson, EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId));
     try {
       if (resultType != null) {
         if (classPolicy != null && !classPolicy.isAllowed(resultType)) {

@@ -253,7 +253,7 @@ class JobTaskAuthorizationTest {
             errorSanitizer,
             classPolicy,
             loggerFactory,
-            new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer),
+            new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
             serializer,
             Clock.systemUTC());

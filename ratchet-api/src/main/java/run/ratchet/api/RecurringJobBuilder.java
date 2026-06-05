@@ -83,6 +83,17 @@ public interface RecurringJobBuilder {
   RecurringJobBuilder platform();
 
   /**
+   * Encrypts the payload arguments and parameter values of children created from this schedule, and
+   * the master's stored payload templates, at rest — the recurring-job equivalent of {@link
+   * JobBuilder#withEncryptedPayload()}. Requires a {@code PayloadEncryption} engine and {@code
+   * KeyProvider} to be installed; with none, submission fails fast rather than storing plaintext.
+   * The deployment-wide encryption switch, when on, encrypts every job regardless of this call.
+   *
+   * @return this builder
+   */
+  RecurringJobBuilder withEncryptedPayload();
+
+  /**
    * Persists the recurring job and returns a handle to it.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory

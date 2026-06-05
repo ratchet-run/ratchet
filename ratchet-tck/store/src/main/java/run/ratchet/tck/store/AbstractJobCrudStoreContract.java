@@ -388,7 +388,8 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
         null,
         null,
         Instant.now(),
-        null);
+        null,
+        false);
   }
 
   @Test

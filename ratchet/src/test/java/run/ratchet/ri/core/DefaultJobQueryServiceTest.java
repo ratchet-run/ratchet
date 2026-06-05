@@ -149,7 +149,8 @@ class DefaultJobQueryServiceTest {
             null,
             null,
             Instant.parse("2026-05-19T00:00:00Z"),
-            "alice");
+            "alice",
+            false);
     when(recurringJobStore.listAll()).thenReturn(new java.util.ArrayList<>(List.of(def)));
 
     JobPage<JobSummary> page = service.getRecurringMasters(10, 0);
@@ -766,7 +767,8 @@ class DefaultJobQueryServiceTest {
         null,
         null,
         Instant.parse("2026-05-19T00:00:00Z"),
-        null);
+        null,
+        false);
   }
 
   private static run.ratchet.store.spi.RecurringJobDefinition recurringDefWithPrincipal(
@@ -791,7 +793,8 @@ class DefaultJobQueryServiceTest {
         null,
         null,
         Instant.parse("2026-05-19T00:00:00Z"),
-        principal);
+        principal,
+        false);
   }
 
   private static run.ratchet.store.spi.RecurringJobDefinition recurringDefWithBusinessKey(
@@ -816,6 +819,7 @@ class DefaultJobQueryServiceTest {
         null,
         null,
         Instant.parse("2026-05-19T00:00:00Z"),
-        null);
+        null,
+        false);
   }
 }

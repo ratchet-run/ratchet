@@ -16,6 +16,7 @@
 module run.ratchet.ri {
   requires run.ratchet.api;
   requires run.ratchet.store.core;
+  requires run.ratchet.encryption;
   requires com.cronutils;
   requires jakarta.annotation;
   requires jakarta.cdi;

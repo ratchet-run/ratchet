@@ -125,7 +125,7 @@ class JobTaskClassCacheBypassTest {
         null,
         classPolicy,
         context -> new JBossLoggingJobLogger(context.jobId(), null),
-        new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer),
+        new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
         null,
         serializer,
         Clock.systemUTC());

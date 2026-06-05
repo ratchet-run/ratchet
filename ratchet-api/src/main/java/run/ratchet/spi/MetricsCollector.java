@@ -173,4 +173,30 @@ public interface MetricsCollector {
   default void pollerBreakerState(String breakerName, String state) {
     // default no-op
   }
+
+  /**
+   * Called when a row flagged {@code encrypted_payload} is read back as unframed plaintext (ADR
+   * Q-D). An operational-integrity signal — a write-time downgrade, an un-upgraded node, or a bug —
+   * never a read failure. The read still succeeds with the plaintext value.
+   *
+   * @param jobId the affected job or recurring master
+   * @param surface the protected surface that read back unframed, e.g. {@code PAYLOAD_ARGS}
+   */
+  default void encryptionIntegrityViolation(UUID jobId, String surface) {
+    // default no-op
+  }
+
+  /**
+   * Called when a job's payload carries an encryption-envelope version newer than this node can
+   * read — written by a newer Ratchet during a rolling upgrade. The job is valid data, not poison:
+   * the runtime releases the claim for an already-upgraded peer rather than dead-lettering it. A
+   * persistently non-zero rate means a node is stuck behind the fleet and should be upgraded.
+   *
+   * @param jobId the affected job
+   * @param version the envelope version read from the stored value
+   * @param maxSupportedVersion the highest version this node can read
+   */
+  default void encryptionEnvelopeVersionSkew(UUID jobId, int version, int maxSupportedVersion) {
+    // default no-op
+  }
 }

@@ -476,7 +476,8 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         null,
         createdAt,
-        null);
+        null,
+        false);
   }
 
   private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
@@ -504,7 +505,8 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         executionTarget,
         Instant.now(),
-        null);
+        null,
+        false);
   }
 
   private RecurringJobDefinition definitionWithBusinessKey(
@@ -528,6 +530,7 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         null,
         Instant.now(),
-        null);
+        null,
+        false);
   }
 }

@@ -1,0 +1,208 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.ri.cdi;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.when;
+
+import jakarta.enterprise.inject.Instance;
+import java.util.Base64;
+import java.util.List;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.EncryptionConfigurationException;
+import run.ratchet.spi.EncryptionContext;
+import run.ratchet.spi.KeyProvider;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadEncryption;
+import run.ratchet.store.converter.EncryptionHolder;
+
+@ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
+class EncryptionInstallerTest {
+
+  @Mock private Instance<PayloadEncryption> engines;
+  @Mock private Instance<KeyProvider> keyProvider;
+  @Mock private Instance<MetricsCollector> metricsCollector;
+  @Mock private KeyProvider provider;
+  @Mock private NodeIdentityProvider nodeIdProvider;
+
+  @AfterEach
+  void reset() {
+    EncryptionHolder.disable();
+    System.clearProperty(ReferenceEncryptionFactory.KEYS_PROPERTY);
+    System.clearProperty(ReferenceEncryptionFactory.CURRENT_KEY_PROPERTY);
+  }
+
+  @Test
+  void multipleEngines_withWriteAlgorithm_installTheNamedWriteEngine() {
+    installerWith(options("engine-b"), new StubEngine("engine-a"), new StubEngine("engine-b"))
+        .onStartup(new Object());
+
+    assertEquals("engine-b", EncryptionHolder.writeEngine().algorithmId());
+  }
+
+  @Test
+  void multipleEngines_withoutWriteAlgorithm_failLoud() {
+    EncryptionInstaller installer =
+        installerWith(options(null), new StubEngine("engine-a"), new StubEngine("engine-b"));
+
+    assertThrows(EncryptionConfigurationException.class, () -> installer.onStartup(new Object()));
+  }
+
+  @Test
+  void singleEngine_noWriteAlgorithm_usesTheSoleEngine() {
+    installerWith(options(null), new StubEngine("only")).onStartup(new Object());
+
+    assertEquals("only", EncryptionHolder.writeEngine().algorithmId());
+  }
+
+  @Test
+  void globalEnabled_nothingInstalled_failLoud() {
+    EncryptionInstaller installer = installer(enabledOptions(), false /* providerResolvable */);
+
+    assertThrows(EncryptionConfigurationException.class, () -> installer.onStartup(new Object()));
+  }
+
+  @Test
+  void disabled_nothingInstalled_staysDisabled() {
+    // Seed an installed state so the assertion proves the disable() branch ran, not a stale state.
+    EncryptionHolder.install(List.of(new StubEngine("seed")), "seed", provider, false);
+    EncryptionInstaller installer = installer(options(null), false /* providerResolvable */);
+
+    installer.onStartup(new Object());
+
+    assertFalse(EncryptionHolder.isEnabled());
+  }
+
+  @Test
+  void keyProviderWithoutEngine_failLoud() {
+    EncryptionInstaller installer = installer(options(null), true /* providerResolvable */);
+
+    assertThrows(EncryptionConfigurationException.class, () -> installer.onStartup(new Object()));
+  }
+
+  @Test
+  void engineWithoutKeyProvider_failLoud() {
+    EncryptionInstaller installer =
+        installer(options(null), false /* providerResolvable */, new StubEngine("only"));
+
+    assertThrows(EncryptionConfigurationException.class, () -> installer.onStartup(new Object()));
+  }
+
+  @Test
+  void multipleKeyProviders_failLoud() {
+    when(keyProvider.isAmbiguous()).thenReturn(true);
+    EncryptionInstaller installer =
+        installer(options(null), true /* providerResolvable */, new StubEngine("only"));
+
+    assertThrows(EncryptionConfigurationException.class, () -> installer.onStartup(new Object()));
+  }
+
+  @Test
+  void noAppBeans_referenceKeysConfigured_installsBundledStack() {
+    // No application engine/provider, but the deployment supplied reference keys via configuration:
+    // the bundled AES-256-GCM engine + SecretKeyProvider are installed instead of failing or
+    // silently disabling.
+    System.setProperty(ReferenceEncryptionFactory.KEYS_PROPERTY, "k1:" + base64Key());
+    System.setProperty(ReferenceEncryptionFactory.CURRENT_KEY_PROPERTY, "k1");
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    EncryptionInstaller installer = installer(enabledOptions(), false /* providerResolvable */);
+
+    installer.onStartup(new Object());
+
+    assertEquals("AES-256-GCM", EncryptionHolder.writeEngine().algorithmId());
+    assertEquals(true, EncryptionHolder.isGloballyEnabled());
+  }
+
+  @Test
+  void noAppBeans_referenceKeysConfigured_perJobOptInWhenGlobalDisabled() {
+    // Keys configured but the global switch off: the stack is still installed (so per-job opt-in
+    // works), just not applied to every job.
+    System.setProperty(ReferenceEncryptionFactory.KEYS_PROPERTY, "k1:" + base64Key());
+    EncryptionInstaller installer = installer(options(null), false /* providerResolvable */);
+
+    installer.onStartup(new Object());
+
+    assertEquals("AES-256-GCM", EncryptionHolder.writeEngine().algorithmId());
+    assertFalse(EncryptionHolder.isGloballyEnabled());
+  }
+
+  @Test
+  void appBeansTakePrecedence_overReferenceKeys() {
+    // An application-provided engine/provider wins even when reference keys are also configured.
+    System.setProperty(ReferenceEncryptionFactory.KEYS_PROPERTY, "k1:" + base64Key());
+    installerWith(options(null), new StubEngine("app-engine")).onStartup(new Object());
+
+    assertEquals("app-engine", EncryptionHolder.writeEngine().algorithmId());
+  }
+
+  private static String base64Key() {
+    return Base64.getEncoder().encodeToString(new byte[32]);
+  }
+
+  /**
+   * Builds an installer with caller-controlled engine presence and provider resolvability so the
+   * fail-loud branches (no engine, no provider, asymmetric wiring) can be driven independently —
+   * unlike {@link #installerWith} which always wires a resolvable provider and an engine.
+   */
+  private EncryptionInstaller installer(
+      RatchetOptions options, boolean providerResolvable, PayloadEncryption... installed) {
+    when(engines.stream()).thenReturn(Stream.of(installed));
+    when(keyProvider.isResolvable()).thenReturn(providerResolvable);
+    return new EncryptionInstaller(engines, keyProvider, metricsCollector, nodeIdProvider, options);
+  }
+
+  private EncryptionInstaller installerWith(
+      RatchetOptions options, PayloadEncryption... installed) {
+    when(engines.stream()).thenReturn(Stream.of(installed));
+    when(keyProvider.isAmbiguous()).thenReturn(false);
+    when(keyProvider.isResolvable()).thenReturn(true);
+    when(keyProvider.get()).thenReturn(provider);
+    when(metricsCollector.isResolvable()).thenReturn(false);
+    return new EncryptionInstaller(engines, keyProvider, metricsCollector, nodeIdProvider, options);
+  }
+
+  private static RatchetOptions options(String writeAlgorithm) {
+    return RatchetOptions.builder().encryption(e -> e.writeAlgorithm(writeAlgorithm)).build();
+  }
+
+  private static RatchetOptions enabledOptions() {
+    return RatchetOptions.builder().encryption(e -> e.enabled(true)).build();
+  }
+
+  private record StubEngine(String algorithmId) implements PayloadEncryption {
+    @Override
+    public byte[] encrypt(byte[] plaintext, EncryptionContext ctx) {
+      return plaintext;
+    }
+
+    @Override
+    public byte[] decrypt(byte[] ciphertext, EncryptionContext ctx) {
+      return ciphertext;
+    }
+  }
+}

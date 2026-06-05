@@ -110,6 +110,8 @@ public final class RatchetSchemaCatalog {
         .column(nullable("queue_wait_ms", INT64))
         .column(nullable("job_result", JSON))
         .column(nullable("result_type", TEXT))
+        .column(required("encrypted_payload", BOOLEAN))
+        .column(nullable("encryption_key_id", TEXT))
         .primaryKey("job_id")
         .foreignKey(
             new ForeignKey(
@@ -125,6 +127,7 @@ public final class RatchetSchemaCatalog {
         .index(Index.of("idx_job_created_at", "created_at"))
         .index(Index.of("idx_job_terminal", "terminal_status", "terminated_at"))
         .index(Index.of("idx_job_recurring_master_id", "recurring_master_id"))
+        .index(Index.of("idx_job_encryption_key_id", "encryption_key_id"))
         .build();
   }
 
@@ -224,6 +227,7 @@ public final class RatchetSchemaCatalog {
         .column(nullable("execution_target", TEXT))
         .column(required("created_at", TIMESTAMP_TZ))
         .column(nullable("caller_principal", TEXT))
+        .column(required("encrypted_payload", BOOLEAN))
         .primaryKey("id")
         .index(Index.of("idx_rec_business_key", "business_key"))
         .build();

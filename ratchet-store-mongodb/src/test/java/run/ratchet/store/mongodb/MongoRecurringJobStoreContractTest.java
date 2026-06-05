@@ -137,6 +137,7 @@ class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
         null,
         null,
         Instant.now(),
-        null);
+        null,
+        false);
   }
 }
