@@ -16,6 +16,7 @@
 package run.ratchet.tck.api;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -80,7 +81,7 @@ public abstract class AbstractPayloadEncryptionEngineContract {
   @Test
   void algorithmId_isStableAndNonBlank() {
     assertFalse(engine.algorithmId() == null || engine.algorithmId().isBlank());
-    assertTrue(engine.algorithmId().equals(engine.algorithmId()));
+    assertEquals(engine.algorithmId(), engine.algorithmId());
   }
 
   @Test
@@ -166,11 +167,6 @@ public abstract class AbstractPayloadEncryptionEngineContract {
     } finally {
       pool.shutdownNow();
     }
-    assertTrue(
-        bodies.size() == threads * perThread,
-        "Engine reused a nonce under concurrency: expected "
-            + (threads * perThread)
-            + " distinct bodies, got "
-            + bodies.size());
+    assertEquals(threads * perThread, bodies.size(), "Engine reused a nonce under concurrency");
   }
 }

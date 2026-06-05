@@ -56,3 +56,6 @@ exclude:
     paths:
       # Schema DSL parameter object; Optional makes absence explicit at the call boundary.
       - ratchet-tck/store/src/main/java/run/ratchet/tck/store/schema/DialectTypeMapper.java
+      # Coordinator cell suffix: every caller holds an Optional<String> cellId and threads it
+      # straight through, so Optional at the boundary is intentional, not a leaked return type.
+      - ratchet-coordinator-common/src/main/java/run/ratchet/coordinator/common/CoordinatorCells.java

@@ -187,7 +187,7 @@ public class WorkflowScheduler extends ChainScheduler {
         conditions.stream().map(WorkflowConditionEntity::getChildJobId).collect(Collectors.toSet());
     WorkflowConditionEntity scheduledCondition = null;
     for (WorkflowConditionEntity condition : conditions) {
-      boolean matched = false;
+      boolean matched;
       try {
         matched = conditionEvaluator.evaluate(condition, parentJob);
       } catch (KeyProviderUnavailableException | UnsupportedEnvelopeVersionException deferrable) {

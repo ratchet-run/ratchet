@@ -177,7 +177,7 @@ public final class DocumentMapper {
     job.setCronExpr(doc.getString("cron_expr"));
     job.setZoneId(doc.getString("zone_id"));
     job.setNextFire(toInstant(doc.getDate("next_fire")));
-    job.setEncryptedPayload(Boolean.TRUE.equals(doc.getBoolean("encrypted_payload", false)));
+    job.setEncryptedPayload(doc.getBoolean("encrypted_payload", false));
     UUID readJobId = job.getId();
     Object rawPayload = doc.get("payload");
     if (job.isEncryptedPayload()
@@ -305,7 +305,7 @@ public final class DocumentMapper {
             doc.getString("backoff_policy") != null ? doc.getString("backoff_policy") : "NONE");
     UUID id = doc.get("_id", UUID.class);
     Object rawPayload = doc.get("payload");
-    if (Boolean.TRUE.equals(doc.getBoolean("encrypted_payload", false))
+    if (doc.getBoolean("encrypted_payload", false)
         && rawPayload instanceof String s
         && PayloadEncryptor.argsFlaggedButUnframed(s)) {
       EncryptionIntegrity.flaggedButUnframed(id, ProtectedSurface.PAYLOAD_ARGS);
