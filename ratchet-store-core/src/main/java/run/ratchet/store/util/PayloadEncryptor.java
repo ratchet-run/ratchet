@@ -27,7 +27,9 @@ import jakarta.json.stream.JsonParsingException;
 import java.io.StringReader;
 import run.ratchet.spi.EncryptionContext;
 import run.ratchet.spi.EncryptionKey;
+import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.PayloadEncryption;
+import run.ratchet.spi.WrappedKeyProvider;
 import run.ratchet.store.converter.EncryptionHolder;
 
 /**
@@ -39,7 +41,7 @@ import run.ratchet.store.converter.EncryptionHolder;
  *
  * <p><b>Framing and binding.</b> This class — not the engine — owns the {@link EncryptionEnvelope}
  * and the {@link EncryptionAad} computation. Each protected leaf is encrypted under the active
- * engine and key, wrapped in a versioned {@code rcph:3} frame, and bound to its {@link
+ * engine and key, wrapped in a versioned {@code rcph:e} frame, and bound to its {@link
  * EncryptionTarget} so a ciphertext lifted into another row, surface, or signal fails the AEAD tag.
  * On read, only values carrying a complete frame are decrypted; everything else passes through, so
  * encrypted and legacy-plaintext rows coexist during a rollout.
@@ -141,9 +143,17 @@ public final class PayloadEncryptor {
    * carries no {@code args} to protect. Marker-driven and allocation-light: it parses the envelope
    * JSON but never decrypts.
    *
-   * <p>The {@code args} subtree is the canonical probe — every protected surface on a row shares
-   * the single per-row {@code active} decision, so a systemic downgrade surfaces here. See {@link
-   * run.ratchet.store.util.EncryptionIntegrity}.
+   * <p><b>Scope: systemic downgrade only.</b> The {@code args} subtree is the probe for a
+   * <em>systemic</em> downgrade — a node without the engine active, a flipped global switch, or a
+   * write-path bug on the shared gate — because every protected surface on a row resolves the same
+   * per-row {@code active} decision ({@link EncryptionHolder#encryptionActiveFor(boolean)}), and
+   * {@code args} is present on every job row. It does <em>not</em> detect a
+   * <em>partial-surface</em> downgrade where {@code args} is framed but {@code job_result}, a
+   * parameter value, or a signal payload was stored as plaintext: those surfaces are decrypted
+   * marker-driven on read but are not independently integrity-probed. That gap is bounded by the
+   * single-gate design (a per-surface divergence requires a surface computing {@code active}
+   * differently from the row flag, not a routine misconfiguration); widening the probe to those
+   * surfaces is tracked as future work. See {@link run.ratchet.store.util.EncryptionIntegrity}.
    */
   public static boolean argsFlaggedButUnframed(String payloadJson) {
     if (payloadJson == null || payloadJson.isEmpty()) {
@@ -211,9 +221,22 @@ public final class PayloadEncryptor {
 
   private static String encryptToFrame(byte[] plaintext, EncryptionTarget target) {
     PayloadEncryption engine = EncryptionHolder.writeEngine();
-    EncryptionKey key = EncryptionHolder.keyProvider().currentKey();
+    KeyProvider provider = EncryptionHolder.keyProvider();
+    EncryptionKey key;
+    byte[] wrappedKey;
+    if (provider instanceof WrappedKeyProvider wrappingProvider) {
+      // Envelope encryption: a fresh DEK encrypts the value and its wrapped form is persisted in
+      // the
+      // (authenticated) envelope wrapped-key field so a later read can recover the DEK.
+      WrappedKeyProvider.WrappedKey wrapped = wrappingProvider.currentWrappedKey();
+      key = wrapped.key();
+      wrappedKey = wrapped.wrapped();
+    } else {
+      key = provider.currentKey();
+      wrappedKey = NO_WRAPPED_KEY;
+    }
     byte[] header =
-        EncryptionEnvelope.canonicalHeader(engine.algorithmId(), key.keyId(), NO_WRAPPED_KEY);
+        EncryptionEnvelope.canonicalHeader(engine.algorithmId(), key.keyId(), wrappedKey);
     byte[] aad = EncryptionAad.compute(header, target.surface(), target.binding());
     byte[] body =
         engine.encrypt(
@@ -225,7 +248,15 @@ public final class PayloadEncryptor {
     // engine() throws PayloadDecryptionException for an unknown/uninstalled algorithm (poison),
     // which also covers a node that holds ciphertext but has no engine configured.
     PayloadEncryption engine = EncryptionHolder.engine(frame.algorithmId());
-    EncryptionKey key = EncryptionHolder.keyProvider().keyById(frame.keyId());
+    KeyProvider provider = EncryptionHolder.keyProvider();
+    EncryptionKey key;
+    if (frame.wrappedKey().length > 0 && provider instanceof WrappedKeyProvider wrappingProvider) {
+      // The value was written under envelope encryption: recover the DEK by unwrapping under the
+      // master key named by keyId. A wrapped value cannot be resolved by id alone.
+      key = wrappingProvider.unwrapKey(frame.keyId(), frame.wrappedKey());
+    } else {
+      key = provider.keyById(frame.keyId());
+    }
     byte[] aad = EncryptionAad.compute(frame.canonicalHeader(), target.surface(), target.binding());
     return engine.decrypt(
         frame.body(), new EncryptionContext(target.surface(), target.jobId(), key, aad));

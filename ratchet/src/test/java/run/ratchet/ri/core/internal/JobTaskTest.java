@@ -57,6 +57,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
@@ -424,6 +425,27 @@ class JobTaskTest {
     // Non-retryable: never rescheduled, never increments the attempt counter.
     verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+  }
+
+  @Test
+  void call_hydrationFutureEnvelopeVersion_requeuesForUpgradeNotDlq() {
+    // A claimed RUNNING job whose payload was written by a newer Ratchet (an envelope version this
+    // node cannot read yet) is valid data, not poison. It must be released back to the pool with
+    // backoff for an already-upgraded peer — never dead-lettered, never left stuck RUNNING.
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID)).thenThrow(new UnsupportedEnvelopeVersionException(2, 1));
+    when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt())).thenReturn(true);
+
+    jobTask.call();
+
+    // Released for an upgraded peer (attempt count preserved), with a skew metric.
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(claim.attempts()));
+    verify(observabilityFacade).recordEnvelopeVersionSkew(JOB_UUID, 2, 1);
+    // Not poison: never dead-lettered.
+    verify(jobStore, never())
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
   }
 
   @Test

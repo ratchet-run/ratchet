@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.PayloadDecryptionException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.store.util.EncryptionEnvelope.Frame;
 
 class EncryptionEnvelopeTest {
@@ -106,12 +107,50 @@ class EncryptionEnvelopeTest {
   }
 
   @Test
-  void decode_unsupportedVersion_isPoison() {
-    // A frame whose first byte is not the current version: base64url of {0x09} alone.
-    String wrongVersion =
+  void decode_futureVersion_isUpgradePendingNotPoison() {
+    // A frame written by a newer Ratchet (version byte beyond MAX_READABLE_VERSION). The
+    // version-independent marker means it is still DETECTED as a frame and fails closed here —
+    // never mistaken for plaintext — but as upgrade-pending (release + retry), not poison (DLQ).
+    String futureVersion =
         EncryptionEnvelope.MARKER
             + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[] {0x09});
 
-    assertThrows(PayloadDecryptionException.class, () -> EncryptionEnvelope.decode(wrongVersion));
+    assertTrue(EncryptionEnvelope.isFramed(futureVersion));
+    UnsupportedEnvelopeVersionException ex =
+        assertThrows(
+            UnsupportedEnvelopeVersionException.class,
+            () -> EncryptionEnvelope.decode(futureVersion));
+    assertEquals(9, ex.version());
+    assertEquals(EncryptionEnvelope.MAX_READABLE_VERSION, ex.maxSupportedVersion());
+  }
+
+  @Test
+  void decode_invalidVersionZero_isPoison() {
+    // A zero/negative version byte is not a future version — it is a corrupt frame.
+    String zeroVersion =
+        EncryptionEnvelope.MARKER
+            + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[] {0x00});
+
+    assertThrows(PayloadDecryptionException.class, () -> EncryptionEnvelope.decode(zeroVersion));
+  }
+
+  @Test
+  void decode_oversizedWrappedKeyLength_isPoison() {
+    // A header that declares a wrapped-key length beyond the cap must fail closed before
+    // allocating.
+    byte[] full =
+        java.nio.ByteBuffer.allocate(1 + 4 + 1 + 4 + 1 + 4)
+            .put(EncryptionEnvelope.VERSION)
+            .putInt(1)
+            .put((byte) 'A') // algorithmId "A"
+            .putInt(1)
+            .put((byte) 'k') // keyId "k"
+            .putInt(Integer.MAX_VALUE) // wrappedKey length far beyond the cap
+            .array();
+    String stored =
+        EncryptionEnvelope.MARKER
+            + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(full);
+
+    assertThrows(PayloadDecryptionException.class, () -> EncryptionEnvelope.decode(stored));
   }
 }

@@ -22,10 +22,13 @@ import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.List;
+import java.util.Optional;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.EncryptionConfigurationException;
+import run.ratchet.ri.cdi.ReferenceEncryptionFactory.ReferenceEncryption;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadEncryption;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.util.EncryptionIntegrity;
@@ -62,6 +65,7 @@ public class EncryptionInstaller {
   private final Instance<PayloadEncryption> engines;
   private final Instance<KeyProvider> keyProvider;
   private final Instance<MetricsCollector> metricsCollector;
+  private final NodeIdentityProvider nodeIdProvider;
   private final RatchetOptions options;
 
   /**
@@ -72,6 +76,7 @@ public class EncryptionInstaller {
     this.engines = null;
     this.keyProvider = null;
     this.metricsCollector = null;
+    this.nodeIdProvider = null;
     this.options = null;
   }
 
@@ -80,10 +85,12 @@ public class EncryptionInstaller {
       Instance<PayloadEncryption> engines,
       Instance<KeyProvider> keyProvider,
       Instance<MetricsCollector> metricsCollector,
+      NodeIdentityProvider nodeIdProvider,
       RatchetOptions options) {
     this.engines = engines;
     this.keyProvider = keyProvider;
     this.metricsCollector = metricsCollector;
+    this.nodeIdProvider = nodeIdProvider;
     this.options = options;
   }
 
@@ -103,10 +110,22 @@ public class EncryptionInstaller {
     boolean hasProvider = keyProvider.isResolvable();
 
     if (!hasEngine && !hasProvider) {
+      // No application beans. Fall back to the bundled reference stack if the deployment configured
+      // keys via the environment; an app that brings its own engine/provider takes precedence and
+      // never reaches here.
+      Optional<ReferenceEncryption> reference =
+          ReferenceEncryptionFactory.fromEnvironment(resolveNodeEntropy());
+      if (reference.isPresent()) {
+        ReferenceEncryption ref = reference.get();
+        EncryptionHolder.install(
+            List.of(ref.engine()), ref.engine().algorithmId(), ref.keyProvider(), globalEnabled);
+        return;
+      }
       if (globalEnabled) {
         throw new EncryptionConfigurationException(
             "Payload encryption is enabled (RatchetOptions.encryption) but no PayloadEncryption"
-                + " engine and KeyProvider are installed.");
+                + " engine and KeyProvider are installed, and no reference keys are configured"
+                + " (RATCHET_ENCRYPTION_KEYS).");
       }
       EncryptionHolder.disable();
       return;
@@ -160,6 +179,21 @@ public class EncryptionInstaller {
     MetricsCollector metrics = metricsCollector.get();
     EncryptionIntegrity.setListener(
         (jobId, surface) -> metrics.encryptionIntegrityViolation(jobId, surface.name()));
+  }
+
+  /**
+   * Per-node entropy mixed into the reference engine's nonce epoch so two nodes that share a key
+   * produce disjoint nonce spaces. Falls back to {@code 0} when the node id is unavailable.
+   */
+  private long resolveNodeEntropy() {
+    if (nodeIdProvider == null) {
+      return 0L;
+    }
+    try {
+      return ReferenceEncryptionFactory.nodeEntropy(nodeIdProvider.getNodeId());
+    } catch (RuntimeException e) {
+      return 0L;
+    }
   }
 
   @PreDestroy

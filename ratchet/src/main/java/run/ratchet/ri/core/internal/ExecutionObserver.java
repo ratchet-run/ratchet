@@ -98,6 +98,10 @@ public class ExecutionObserver {
     // The public MetricsCollector SPI has no cancellation callback.
   }
 
+  public void recordEnvelopeVersionSkew(UUID jobId, int version, int maxSupportedVersion) {
+    metricsCollector.encryptionEnvelopeVersionSkew(jobId, version, maxSupportedVersion);
+  }
+
   public void publishEvent(Object event) {
     eventPublisher.publish(event);
   }

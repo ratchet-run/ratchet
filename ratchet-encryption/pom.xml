@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-parent</artifactId>
+    <version>${revision}</version>
+  </parent>
+
+  <artifactId>ratchet-encryption</artifactId>
+  <name>Ratchet :: Encryption</name>
+  <description>Reference PayloadEncryption engines and KeyProviders for Ratchet</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-api</artifactId>
+    </dependency>
+
+    <!--
+      The engine code itself uses only ratchet-api + the JDK. These jakarta APIs are not used by
+      this module's classes; they are required on the module path only because ratchet-api
+      `requires transitive jakarta.cdi`, so the JPMS resolver must observe jakarta.cdi (and its own
+      transitive interceptor/inject/annotation) when this module `requires run.ratchet.api`. Same
+      provided recipe as the other ratchet-api-only leaf modules (e.g. ratchet-otel).
+    -->
+    <dependency>
+      <groupId>jakarta.annotation</groupId>
+      <artifactId>jakarta.annotation-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.enterprise</groupId>
+      <artifactId>jakarta.enterprise.cdi-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.inject</groupId>
+      <artifactId>jakarta.inject-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

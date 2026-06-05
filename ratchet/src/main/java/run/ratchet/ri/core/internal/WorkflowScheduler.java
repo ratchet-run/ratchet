@@ -32,6 +32,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -189,20 +190,23 @@ public class WorkflowScheduler extends ChainScheduler {
       boolean matched = false;
       try {
         matched = conditionEvaluator.evaluate(condition, parentJob);
-      } catch (KeyProviderUnavailableException transientOutage) {
-        // A transient key-provider outage means this branch cannot be decided now. Abort before the
-        // post-loop branch cancellation so every PENDING/WAITING branch is preserved, and let the
-        // throw unwind the post-execution REQUIRES_NEW. The parent has already completed, so there
-        // is no automatic re-evaluation: an operator must re-trigger branch scheduling for this
-        // parent once the key provider is reachable again.
+      } catch (KeyProviderUnavailableException | UnsupportedEnvelopeVersionException deferrable) {
+        // The branch cannot be decided now, but the data is valid and becomes readable later: a
+        // transient key-provider outage (recovers), or a predicate written by a newer Ratchet this
+        // node cannot read yet (becomes readable after upgrade). Abort before the post-loop branch
+        // cancellation so every PENDING/WAITING branch is preserved, and let the throw unwind the
+        // post-execution REQUIRES_NEW. The parent has already completed, so there is no automatic
+        // re-evaluation: an operator re-triggers branch scheduling once the key provider is
+        // reachable again, or once this node is upgraded.
         log.errorf(
-            transientOutage,
-            "Transient key-provider outage evaluating workflow condition %s for parent %s; branch"
-                + " scheduling deferred and all branches preserved. Re-trigger scheduling for this"
-                + " parent after key availability is restored.",
+            deferrable,
+            "Workflow condition %s for parent %s cannot be decided yet (%s); branch scheduling"
+                + " deferred and all branches preserved. Re-trigger scheduling after key"
+                + " availability or node upgrade.",
             condition.getId(),
-            parentJob.getId());
-        throw transientOutage;
+            parentJob.getId(),
+            deferrable.getClass().getSimpleName());
+        throw deferrable;
       } catch (RuntimeException permanentFailure) {
         // evaluate() lets only a permanent WorkflowConditionConfigurationException escape here
         // (every

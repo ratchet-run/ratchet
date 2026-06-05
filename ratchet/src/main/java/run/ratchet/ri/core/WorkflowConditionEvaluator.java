@@ -32,6 +32,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
@@ -107,10 +108,11 @@ public class WorkflowConditionEvaluator {
       };
     } catch (WorkflowConditionConfigurationException e) {
       throw e;
-    } catch (KeyProviderUnavailableException e) {
-      // Transient key-provider outage: the predicate could decrypt later. Propagate it so the
-      // scheduler can preserve the branches and defer, not collapse it into a false branch
-      // decision.
+    } catch (KeyProviderUnavailableException | UnsupportedEnvelopeVersionException e) {
+      // Deferrable: a transient key-provider outage, or a predicate written by a newer Ratchet that
+      // this node cannot read yet. Either could decrypt later (once the provider recovers or this
+      // node is upgraded), so propagate it and let the scheduler preserve the branches and defer,
+      // not collapse it into a false branch decision.
       throw e;
     } catch (Exception e) {
       log.errorf(
@@ -315,9 +317,10 @@ public class WorkflowConditionEvaluator {
           e);
     } catch (SecurityException e) {
       throw e;
-    } catch (KeyProviderUnavailableException e) {
-      // Transient: the key provider is temporarily unreachable. Stay retryable -- do not bury it as
-      // a permanent configuration error.
+    } catch (KeyProviderUnavailableException | UnsupportedEnvelopeVersionException e) {
+      // Deferrable: a transient key-provider outage, or a predicate written by a newer Ratchet this
+      // node cannot read yet. Stay propagatable -- do not bury it as a permanent configuration
+      // error; it resolves once the provider recovers or this node is upgraded.
       throw e;
     } catch (PayloadDecryptionException | KeyNotFoundException e) {
       // Poison: corrupt/tampered ciphertext or a permanently-forgotten key. The predicate can never

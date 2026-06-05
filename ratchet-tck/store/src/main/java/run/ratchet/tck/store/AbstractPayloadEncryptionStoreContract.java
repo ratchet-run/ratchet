@@ -43,6 +43,7 @@ import run.ratchet.spi.EncryptionKey;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.LocalEncryptionKey;
 import run.ratchet.spi.PayloadEncryption;
+import run.ratchet.spi.WrappedKeyProvider;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
@@ -170,6 +171,34 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
     assertEquals("com.example.Svc", reloaded.payload().target());
   }
 
+  @Test
+  void wrappedKeyEnvelope_roundTripsThroughTheStore() {
+    // Envelope encryption (KMS-style WrappedKeyProvider): the per-write wrapped DEK is persisted in
+    // the frame and must survive the store round-trip so the read path can unwrap it. Proven
+    // without
+    // reading raw columns: if unwrapKey fires on read, the store persisted and returned the wrapped
+    // field intact.
+    WrappingKeyProvider wrappingProvider = new WrappingKeyProvider();
+    EncryptionHolder.install(List.of(engine), RecordingEngine.ALGORITHM_ID, wrappingProvider, true);
+
+    JobEntity job = newPendingJob();
+    job.setPayload(
+        new JobPayload(
+            "com.example.Svc",
+            "charge",
+            "(Ljava/lang/String;)V",
+            true,
+            List.of("4111-wrapped-secret")));
+
+    JobEntity saved = persist(job);
+    JobEntity reloaded = store().findById(saved.getId()).orElseThrow();
+
+    assertEquals(List.of("4111-wrapped-secret"), reloaded.getPayload().args());
+    assertTrue(
+        wrappingProvider.unwrapCount.get() > 0,
+        "the store did not persist + recover the wrapped DEK (unwrapKey never invoked on read)");
+  }
+
   /** Real AES-256-GCM engine that records every plaintext it was asked to encrypt. */
   static final class RecordingEngine implements PayloadEncryption {
 
@@ -258,6 +287,88 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
         raw[i] = (byte) (i * 7 + 1);
       }
       return new SecretKeySpec(raw, "AES");
+    }
+  }
+
+  /**
+   * A KMS-style provider that wraps a fresh per-write DEK under a master key (AES-256-GCM) and
+   * records unwrap calls, so a test can prove a wrapped frame round-trips through the store.
+   */
+  static final class WrappingKeyProvider implements WrappedKeyProvider {
+
+    static final String MASTER_KEY_ID = "tck-master-1";
+    private static final int NONCE_LENGTH = 12;
+    private static final int TAG_BITS = 128;
+
+    final AtomicInteger unwrapCount = new AtomicInteger();
+    private final SecretKey masterKey;
+    private final SecureRandom random = new SecureRandom();
+
+    WrappingKeyProvider() {
+      byte[] raw = new byte[32];
+      for (int i = 0; i < raw.length; i++) {
+        raw[i] = (byte) (i * 13 + 5);
+      }
+      this.masterKey = new SecretKeySpec(raw, "AES");
+    }
+
+    @Override
+    public WrappedKey currentWrappedKey() {
+      byte[] dek = new byte[32];
+      random.nextBytes(dek);
+      return new WrappedKey(
+          localKey(new SecretKeySpec(dek, "AES")), transform(Cipher.ENCRYPT_MODE, dek, null));
+    }
+
+    @Override
+    public EncryptionKey unwrapKey(String keyId, byte[] wrappedKey) {
+      unwrapCount.incrementAndGet();
+      return localKey(new SecretKeySpec(transform(Cipher.DECRYPT_MODE, null, wrappedKey), "AES"));
+    }
+
+    @Override
+    public EncryptionKey currentKey() {
+      throw new UnsupportedOperationException("envelope encryption; use currentWrappedKey()");
+    }
+
+    @Override
+    public EncryptionKey keyById(String keyId) {
+      throw new UnsupportedOperationException("envelope encryption; use unwrapKey()");
+    }
+
+    private LocalEncryptionKey localKey(SecretKey dek) {
+      return new LocalEncryptionKey() {
+        @Override
+        public String keyId() {
+          return MASTER_KEY_ID;
+        }
+
+        @Override
+        public SecretKey material() {
+          return dek;
+        }
+      };
+    }
+
+    private byte[] transform(int mode, byte[] dek, byte[] wrapped) {
+      try {
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        if (mode == Cipher.ENCRYPT_MODE) {
+          byte[] nonce = new byte[NONCE_LENGTH];
+          random.nextBytes(nonce);
+          cipher.init(mode, masterKey, new GCMParameterSpec(TAG_BITS, nonce));
+          byte[] ct = cipher.doFinal(dek);
+          byte[] out = new byte[NONCE_LENGTH + ct.length];
+          System.arraycopy(nonce, 0, out, 0, NONCE_LENGTH);
+          System.arraycopy(ct, 0, out, NONCE_LENGTH, ct.length);
+          return out;
+        }
+        byte[] nonce = Arrays.copyOfRange(wrapped, 0, NONCE_LENGTH);
+        cipher.init(mode, masterKey, new GCMParameterSpec(TAG_BITS, nonce));
+        return cipher.doFinal(wrapped, NONCE_LENGTH, wrapped.length - NONCE_LENGTH);
+      } catch (GeneralSecurityException e) {
+        throw new PayloadEncryptionException("TCK wrap/unwrap failed", e);
+      }
     }
   }
 }

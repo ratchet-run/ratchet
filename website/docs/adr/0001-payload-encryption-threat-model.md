@@ -212,9 +212,15 @@ by the NIST SP 800-38D §8.2.1 deterministic construction (Q-A): a 96-bit nonce 
 with a 32-bit monotonic counter, and a fresh epoch is drawn if the counter would
 overflow. Because every process draws a distinct epoch, nodes that share a key never
 collide, and uniqueness per key is structural rather than probabilistic — there is no
-per-key write ceiling for operators to size rotation against. (XChaCha20-Poly1305, whose
-192-bit nonce makes random nonces safe without a counter, is a candidate alternative
-engine the algorithm registry can carry later.)
+per-key write ceiling for operators to size rotation against. The whole nonce is generated
+under one lock, so the epoch read, counter increment, and overflow redraw are a single
+atomic step; a non-atomic construction could pair a stale epoch with a reset counter and
+reuse a nonce. For uniqueness across nodes — and across a checkpoint/restore that could
+clone `SecureRandom` state — the deployment mixes per-node entropy (derived from the node
+id) into the epoch, so two nodes sharing a key hold disjoint nonce spaces even with
+identical RNG state. (XChaCha20-Poly1305, whose 192-bit nonce makes random nonces safe
+without a counter, is a candidate alternative engine the algorithm registry can carry
+later.)
 
 Key-material adapters (environment variable, JCA `KeyStore`) and external key services
 (AWS KMS, GCP KMS, HashiCorp Vault) ship as separate modules and must drop in without any
@@ -226,6 +232,19 @@ key. Direct service-side encryption of payloads is not viable — AWS KMS `Encry
 plaintext at 4 KB while job payloads default to as much as 100 KB — which is why KMS is a
 key provider, not an engine. That the adapters drop in without an SPI change is the test
 of whether the SPI was drawn correctly.
+
+> **Implementation status (updated 2026-06-05).** The reference stack now ships. The
+> deterministic-nonce AES-256-GCM engine (`AesGcmPayloadEncryption`) and a rotation-capable
+> `SecretKeyProvider` live in `ratchet-store-core`; `EncryptionInstaller` instantiates and
+> installs them from environment configuration (`RATCHET_ENCRYPTION_KEYS` /
+> `RATCHET_ENCRYPTION_CURRENT_KEY`) when no application-provided `PayloadEncryption`/`KeyProvider`
+> beans are present — an application that brings its own takes precedence. The envelope-encryption
+> (KMS) seam is the `WrappedKeyProvider` SPI sub-interface (decision below); the framework
+> populates the authenticated wrapped-key field on write and unwraps it on read. Every engine is
+> gated by the conformance TCK `AbstractPayloadEncryptionEngineContract` (round-trip,
+> tamper-rejection, mismatched-AAD rejection, wrong-key rejection, nonce uniqueness under load). A
+> deployment that enables encryption with neither application beans nor reference keys configured
+> fails loud at startup rather than degrading to plaintext.
 
 ## Threat model
 
@@ -302,9 +321,10 @@ of whether the SPI was drawn correctly.
 
 **Risks**
 
-- AES-GCM nonce reuse under one key is catastrophic. The reference engine avoids the
-  random-nonce birthday bound by the deterministic construction in decision 9, so the
-  residual risk shifts to per-process epoch uniqueness: two processes drawing the same
+- AES-GCM nonce reuse under one key is catastrophic. The reference engine (not yet shipped;
+  see the implementation-status note in decision 9) is specified to avoid the random-nonce
+  birthday bound by the deterministic construction in decision 9, so the residual risk shifts
+  to per-process epoch uniqueness: two processes drawing the same
   64-bit epoch would collide on their first write under a shared key. A 64-bit epoch from
   `SecureRandom` keeps that probability negligible across realistic fleet lifetimes, but
   it depends on a correctly seeded RNG — a container image that ships a seeded or
@@ -418,12 +438,78 @@ A second adversarial review surfaced and closed the following:
   workflow predicate binds the surface and the parent job id — not "the surface only" as previously
   documented.
 
+## Hardening (round 3, 2026-06-05, post third review)
+
+A third adversarial review surfaced and closed the following. None were framing or correctness
+bugs; all were coverage and documentation-accuracy gaps.
+
+- **Fail-loud startup branches are now tested.** `EncryptionInstaller`'s misconfiguration guards —
+  enabled-but-nothing-installed, a `KeyProvider` without an engine, an engine without a provider,
+  and multiple resolvable providers — previously had no test because the only test helper always
+  wired a resolvable provider and at least one engine, so every test entered the install path. The
+  disabled-no-op path (nothing installed, global switch off) is now asserted too. This is the
+  feature's primary "fail loud, never fail open" guarantee.
+- **Downgrade-probe scope documented honestly.** The `argsFlaggedButUnframed` Javadoc claimed
+  `args` was the canonical probe for *every* protected surface. It is the probe for a *systemic*
+  downgrade (shared per-row gate, `args` present on every row); a *partial-surface* downgrade where
+  `args` is framed but a result, parameter, or signal value was stored as plaintext is decrypted
+  marker-driven on read but not independently integrity-probed. The Javadoc now scopes the
+  guarantee accurately and records widening the probe as future work.
+- **ADR no longer reads as if the engine ships.** Decision 9 and the nonce-reuse risk described the
+  deterministic-nonce reference engine in the present tense; an implementation-status note and a
+  "Still open" conformance-gate entry now make explicit that no production engine ships here, the
+  in-tree engines are random-nonce test fixtures, and the deterministic construction has no
+  conformance coverage until the reference engine lands.
+
+## Hardening (round 4, 2026-06-05, reference implementation)
+
+The contract-first preview was completed into a usable, conformance-gated implementation. Each
+item below was either a "Still open" entry now closed, or a gap a release-readiness review
+surfaced.
+
+- **Reference engine + key provider ship.** `AesGcmPayloadEncryption` (deterministic §8.2.1
+  nonce, generated atomically, with per-node epoch entropy for clone-safety) and the
+  rotation-capable `SecretKeyProvider` (a map of keys by id plus a designated current key) live in
+  `ratchet-store-core`. `EncryptionInstaller` builds and installs them from environment
+  configuration when no application beans are present; application-provided beans take precedence.
+- **Engine-conformance TCK.** `AbstractPayloadEncryptionEngineContract` gates any
+  `PayloadEncryption` implementation on encrypt/decrypt round-trip, tamper-rejection,
+  mismatched-AAD rejection, wrong-key rejection, nonce uniqueness over 1000 sequential and
+  thousands of concurrent encryptions, and stable algorithm id. This closes the gap where an
+  engine that silently returned garbage on an authentication failure would pass every store test.
+- **`WrappedKeyProvider` closes the KMS signature gap.** Envelope encryption is now expressible:
+  the additive `WrappedKeyProvider extends KeyProvider` returns a fresh wrapped DEK per write and
+  unwraps on read; `PayloadEncryptor` populates and consumes the (already authenticated)
+  wrapped-key envelope field. Existing local providers are untouched. The provider's failure
+  contract is specified: transient → `KeyProviderUnavailableException`, removed master key →
+  `KeyNotFoundException`, and `keyById` on a pure-KMS provider → `EncryptionConfigurationException`
+  (in-taxonomy), never `UnsupportedOperationException`. The `keyId` stamped for a wrapped value
+  names the master key, not the ephemeral DEK.
+- **Envelope version reset to v1 with a forward-safe marker.** The pre-release marker `rcph:3:`
+  encoded the version in the prefix, so a future `rcph:4:` value would have failed frame detection
+  and been read as plaintext (fail-open). The marker is now the version-independent `rcph:e:` with
+  the version in the framed body (reset to v1), so a future version is always detected as a frame
+  and fails closed.
+- **Rolling-upgrade handling is implemented, not just documented.** Reading a version newer than a
+  node supports raises `UnsupportedEnvelopeVersionException` (a sibling of
+  `PayloadDecryptionException`, so it is not poison). The runtime treats it as upgrade-pending:
+  it releases the claim back to the pending pool with backoff (preserving the attempt count) so an
+  already-upgraded peer drains it, emits a `MetricsCollector.encryptionEnvelopeVersionSkew` metric,
+  and — for workflow predicates — defers branch scheduling exactly as a transient key outage does,
+  preserving all branches. A version-skewed value is never dead-lettered and never left stuck.
+- **Defense-in-depth bounds.** The envelope decoder caps the length-prefixed id and wrapped-key
+  fields before allocating, so a corrupt or hostile length prefix cannot drive a large
+  pre-authentication allocation.
+
 ## Still open (do not block this ADR)
 
-- Final `KeyProvider` read-resolution signature for the envelope-encryption case (it must
-  carry the key id and the optional wrapped-key blob). The SPI is `@Incubating`, so this
-  can be fixed when the first KMS adapter is built; only the persisted envelope field is
-  locked now.
+- **Checkpoint/restore (CRaC) nonce safety.** Per-node epoch entropy makes two distinct nodes
+  safe even with cloned RNG state, but a checkpoint/restore that resumes the *same* node id from a
+  snapshot would resume its nonce epoch. A CRaC `Resource` hook that redraws the epoch on restore
+  closes this; it is out of scope here and noted for the first CRaC-targeted release.
+- **XChaCha20-Poly1305 alternative engine.** The 192-bit-nonce option (random nonces without a
+  counter) is a candidate the algorithm registry can carry later; the registry and read-time
+  algorithm dispatch already support coexisting engines.
 
 ## References
 

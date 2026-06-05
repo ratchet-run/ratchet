@@ -49,6 +49,7 @@ import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.payload.ArgumentCoercion;
@@ -96,6 +97,14 @@ public class JobTask implements Callable<Void> {
   private static final int SUCCESS_FINALIZATION_MAX_ATTEMPTS = 5;
   private static final long[] SUCCESS_FINALIZATION_BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
   private static final long SUCCESS_FINALIZATION_JITTER_MAX_MS = 25L;
+
+  /**
+   * Backoff before a job released for being written by a newer Ratchet is eligible again. Long
+   * enough that a laggard node does not hot-loop re-claiming an envelope it cannot read, short
+   * enough that an upgraded peer drains it promptly during a rolling upgrade.
+   */
+  private static final Duration UPGRADE_PENDING_BACKOFF = Duration.ofSeconds(30);
+
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler lifecycleFacade;
@@ -227,12 +236,20 @@ public class JobTask implements Callable<Void> {
       jobEntity = getJob();
     } catch (Exception e) {
       // Defensive: bind() hasn't run yet, but MDC.remove() of unset keys is a safe no-op.
+      UnsupportedEnvelopeVersionException upgradePending = findUpgradePending(e);
       if (isPoison(e)) {
         // Row hydration decrypted a protected surface and the decrypt failed (tampered ciphertext,
         // wrong/retired key, or an uninstalled algorithm). This is non-retryable per the DLQ
         // contract, so dead-letter the claimed RUNNING job rather than silently returning and
         // leaving it to stall until lease recovery.
         deadLetterPoisonedJob(jobId, e);
+      } else if (upgradePending != null) {
+        // The row carries an envelope version this node cannot read yet — written by a newer
+        // Ratchet during a rolling upgrade. It is valid data, not poison, so release the claim back
+        // to the pending pool with backoff (preserving the attempt count) so an already-upgraded
+        // peer can drain it, rather than dead-lettering valid work or stalling until lease
+        // recovery.
+        requeueForUpgrade(jobId, upgradePending);
       } else {
         log.errorf(e, "Job %s failed to load entity from database - aborting execution", jobId);
       }
@@ -264,7 +281,12 @@ public class JobTask implements Callable<Void> {
     try {
       deserializedSignalPayload = deserializeSignalPayload(jobEntity, jobId);
     } catch (RuntimeException e) {
-      handleFailureSafely(e);
+      UnsupportedEnvelopeVersionException upgradePending = findUpgradePending(e);
+      if (upgradePending != null) {
+        requeueForUpgrade(jobId, upgradePending);
+      } else {
+        handleFailureSafely(e);
+      }
       JobMdcContext.clear();
       return null;
     }
@@ -442,6 +464,21 @@ public class JobTask implements Callable<Void> {
   }
 
   /**
+   * Returns the {@link UnsupportedEnvelopeVersionException} in a throwable's cause chain, or {@code
+   * null}. A future-version envelope is valid data this node cannot read yet (a newer Ratchet wrote
+   * it mid-rollout), distinct from poison: it must be requeued for an upgraded peer, not
+   * dead-lettered.
+   */
+  private static UnsupportedEnvelopeVersionException findUpgradePending(Throwable t) {
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c instanceof UnsupportedEnvelopeVersionException u) {
+        return u;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Moves a job whose payload failed to decrypt during hydration to a terminal FAILED state without
    * retry, and emits the DLQ event. The entity never finished hydrating, so this works from the job
    * id alone: it CAS-transitions RUNNING to FAILED (the same guard {@link #transitionToDlq} uses)
@@ -475,6 +512,30 @@ public class JobTask implements Callable<Void> {
       } catch (Throwable eventError) {
         log.warnf(eventError, "Poison DLQ event publish failed for job %s", jobId);
       }
+    }
+  }
+
+  /**
+   * Releases a claimed job whose payload was written by a newer Ratchet (an envelope version this
+   * node cannot read yet) back to the pending pool with backoff, so an already-upgraded peer drains
+   * it. The attempt count is preserved — this is not a failed attempt, it is a node that has not
+   * caught up — and a metric plus a throttled warning surface a node stuck behind the fleet.
+   */
+  private void requeueForUpgrade(UUID jobId, UnsupportedEnvelopeVersionException ex) {
+    observabilityFacade.recordEnvelopeVersionSkew(jobId, ex.version(), ex.maxSupportedVersion());
+    log.warnf(
+        "Job %s carries encryption envelope version %d but this node reads up to %d — releasing the"
+            + " claim for an upgraded peer. Upgrade this node to drain these rows.",
+        jobId, ex.version(), ex.maxSupportedVersion());
+    Instant newScheduledTime = effective().instant().plus(UPGRADE_PENDING_BACKOFF);
+    int attempts = claim != null ? claim.attempts() : 0;
+    try {
+      jobStore.scheduleJobRetry(jobId, ex.getMessage(), newScheduledTime, attempts);
+    } catch (Throwable t) {
+      log.errorf(
+          t,
+          "Job %s could not be released for upgrade — will require lease/orphan recovery",
+          jobId);
     }
   }
 
