@@ -43,8 +43,9 @@ public final class PollerControl {
 
   /** Stops the poller and blocks until no cycle is running and no future cycle is scheduled. */
   public static void stopAndAwait(PollerScheduler scheduler) {
-    scheduler.stop();
-    await().atMost(STOP_TIMEOUT).pollInterval(STOP_POLL_INTERVAL).until(() -> isStopped(scheduler));
+    DefaultPollerScheduler poller = asDefault(scheduler);
+    poller.stop();
+    await().atMost(STOP_TIMEOUT).pollInterval(STOP_POLL_INTERVAL).until(() -> isStopped(poller));
   }
 
   /**
@@ -53,20 +54,37 @@ public final class PollerControl {
    * idle-state query.
    */
   public static boolean isStopped(PollerScheduler scheduler) {
-    Object lock = readField(scheduler, "scheduleLock", Object.class);
+    DefaultPollerScheduler poller = asDefault(scheduler);
+    Object lock = readField(poller, "scheduleLock", Object.class);
     synchronized (lock) {
-      Future<?> handle = readField(scheduler, "handle", Future.class);
-      return !readField(scheduler, "cycleRunning", Boolean.class)
+      Future<?> handle = readField(poller, "handle", Future.class);
+      return !readField(poller, "cycleRunning", Boolean.class)
           && (handle == null || handle.isDone() || handle.isCancelled());
     }
   }
 
-  private static <T> T readField(Object target, String name, Class<T> type) {
+  /**
+   * Narrows to the concrete poller whose internals this helper reflects over, failing fast with an
+   * actionable message if a different {@link PollerScheduler} implementation is ever wired in. (A
+   * normal-scoped CDI client proxy still passes, since it subclasses the bean type.)
+   */
+  private static DefaultPollerScheduler asDefault(PollerScheduler scheduler) {
+    if (scheduler instanceof DefaultPollerScheduler poller) {
+      return poller;
+    }
+    throw new IllegalStateException(
+        "PollerControl requires a "
+            + DefaultPollerScheduler.class.getName()
+            + " but was given "
+            + (scheduler == null ? "null" : scheduler.getClass().getName()));
+  }
+
+  private static <T> T readField(DefaultPollerScheduler target, String name, Class<T> type) {
     try {
       Field field = DefaultPollerScheduler.class.getDeclaredField(name);
       field.setAccessible(true);
       return type.cast(field.get(target));
-    } catch (ReflectiveOperationException e) {
+    } catch (ReflectiveOperationException | RuntimeException e) {
       throw new IllegalStateException("Unable to read " + name + " from " + target.getClass(), e);
     }
   }
