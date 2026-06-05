@@ -27,6 +27,7 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -35,6 +36,7 @@ import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.PollerControl;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
@@ -46,6 +48,7 @@ class WorkerTagAffinityIT extends BaseRatchetIT {
   @Inject private JobCrudStore jobCrudStore;
   @Inject private JobClaimStore jobClaimStore;
   @Inject private TagStore tagStore;
+  @Inject private PollerScheduler pollerScheduler;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -56,6 +59,16 @@ class WorkerTagAffinityIT extends BaseRatchetIT {
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
+  }
+
+  // This IT drives the claim store directly, so the engine's auto-started poller must not race it
+  // for the same PENDING rows (a poll tick between persistJob and claim consumes the job, and the
+  // direct claim then sees nothing). Stop the poller before each truncate; nothing restarts it, so
+  // it stays quiescent for the test body. This also keeps TRUNCATE from deadlocking a live cycle.
+  @Override
+  protected void truncateAll() throws Exception {
+    PollerControl.stopAndAwait(pollerScheduler);
+    super.truncateAll();
   }
 
   @Test

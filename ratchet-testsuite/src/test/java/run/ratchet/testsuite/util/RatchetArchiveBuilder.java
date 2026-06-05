@@ -165,6 +165,7 @@ public class RatchetArchiveBuilder {
     archive.addClasses(
         BaseRatchetIT.class,
         JobAssertions.class,
+        PollerControl.class,
         TestClassPolicy.class,
         TestCleanupStrategy.class,
         TestDataManipulator.class,
