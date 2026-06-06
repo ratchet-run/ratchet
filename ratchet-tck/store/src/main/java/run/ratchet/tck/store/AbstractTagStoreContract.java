@@ -17,7 +17,6 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.UUID;
@@ -28,9 +27,13 @@ import org.junit.jupiter.api.Test;
 /**
  * Base contract tests for {@code TagStore} writes.
  *
- * <p>Tag writes are verified through {@code findJobIdsByTag} (a {@code JobQueryStore} read); there
- * is no read on the write-only {@code TagStore} contract itself. Tag id lookup and per-tag
- * aggregate counts have their own contracts on the optional query/analytics capabilities.
+ * <p>{@code insertTags} and {@code deleteTagsByJobId} are part of the mandatory core surface, so
+ * this contract verifies them through {@code deleteTagsByJobId}'s own row count — a core read that
+ * exists on every conforming store. It deliberately avoids {@code findJobIdsByTag}, which lives on
+ * the optional {@code JobQueryStore} capability: routing the only assertion through that accessor
+ * would skip the whole core tag-write contract on a core-only store. Tag-index reads (lookup by
+ * tag, pagination, ordering) are covered by the optional query-store contract where the capability
+ * gating is correct.
  */
 public abstract class AbstractTagStoreContract implements JobStoreContractFixture {
 
@@ -41,16 +44,14 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
   }
 
   @Test
-  void insertTags_andFindByTag_returnsJobId() {
+  void insertTags_persistsOneRowPerTag() {
     var saved = persist(newPendingJob());
     store().insertTags(saved.getId(), List.of("tag1", "tag2"));
 
-    List<UUID> ids = queryStore().findJobIdsByTag("tag1", 10, 0);
-
-    assertTrue(ids.contains(saved.getId()), "findJobIdsByTag should return the tagged job");
-    assertTrue(
-        queryStore().findJobIdsByTag("tag2", 10, 0).contains(saved.getId()),
-        "findJobIdsByTag should return the job for every inserted tag");
+    assertEquals(
+        2,
+        store().deleteTagsByJobId(saved.getId()),
+        "insertTags must persist one row per tag; the delete count reflects both writes");
   }
 
   @Test
@@ -58,15 +59,12 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
     var saved = persist(newPendingJob());
     store().insertTags(saved.getId(), List.of("tag1", "tag2"));
 
-    int deleted = store().deleteTagsByJobId(saved.getId());
-
-    assertTrue(deleted > 0, "deleteTagsByJobId should report removed tags");
-    assertTrue(
-        queryStore().findJobIdsByTag("tag1", 10, 0).isEmpty(),
-        "findJobIdsByTag should return empty after deletion");
-    assertTrue(
-        queryStore().findJobIdsByTag("tag2", 10, 0).isEmpty(),
-        "findJobIdsByTag should return empty after deletion");
+    assertEquals(
+        2, store().deleteTagsByJobId(saved.getId()), "deleteTagsByJobId should remove every tag");
+    assertEquals(
+        0,
+        store().deleteTagsByJobId(saved.getId()),
+        "a second delete should find nothing left to remove");
   }
 
   @Test
@@ -81,8 +79,8 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
         "Inserting the same tag twice should not throw");
 
     assertEquals(
-        List.of(saved.getId()),
-        queryStore().findJobIdsByTag("dup-tag", 10, 0),
+        1,
+        store().deleteTagsByJobId(saved.getId()),
         "Duplicate tag insertion must leave a single association");
   }
 
@@ -93,6 +91,8 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
     assertDoesNotThrow(
         () -> store().insertTags(saved.getId(), List.of()),
         "Inserting empty tag list should not throw");
+    assertEquals(
+        0, store().deleteTagsByJobId(saved.getId()), "an empty insert must write no tag rows");
   }
 
   @Test
