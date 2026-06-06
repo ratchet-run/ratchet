@@ -43,8 +43,11 @@ import run.ratchet.tck.api.TckJobs;
  * store-specific preconditions (PAUSED / FAILED state) that cannot be set up generically without
  * additional TCK infrastructure.
  *
- * <p>Implementations backed by a non-JTA store (e.g. MongoDB) should annotate their concrete
- * subclass with {@code @Disabled("Store does not participate in JTA")}.
+ * <p>Implementations backed by a non-JTA store (e.g. MongoDB) skip per method, not per class: the
+ * two rollback contracts self-skip via {@code assumeTrue} on the {@code ratchet.test.db.type}
+ * property (a non-JTA store cannot undo the write on {@code rollback}), while the commit-visible
+ * contracts still run and must pass. Do not {@code @Disabled} the whole subclass — that would
+ * suppress the commit assertions that a non-JTA store is expected to satisfy.
  */
 public abstract class AbstractTxRequiredContract {
 
@@ -74,8 +77,16 @@ public abstract class AbstractTxRequiredContract {
             + "within the TX.");
   }
 
+  /**
+   * @apiNote Intentionally {@code protected} so runtime-specific TCK subclasses can override this
+   *     test to attach deployment-specific annotations. Overriders MUST delegate to {@code super};
+   *     replacing the body silently suppresses the contract.
+   */
   @Test
-  void cancelJob_rollback_isNotVisible() throws Exception {
+  protected void cancelJob_rollback_isNotVisible() throws Exception {
+    assumeTrue(
+        !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
+        "MongoDB does not participate in JTA rollback");
     JobHandle handle =
         runtime().scheduler().schedule(Duration.ofSeconds(30), TckJobs::noop).submit();
     runtime().probe().track(handle);
