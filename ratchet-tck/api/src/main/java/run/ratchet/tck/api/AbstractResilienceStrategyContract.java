@@ -16,7 +16,9 @@
 package run.ratchet.tck.api;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -25,12 +27,35 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.spi.ResilienceStrategy;
 
 /**
- * Base contract for {@link ResilienceStrategy} open-circuit semantics.
+ * Base contract for {@link ResilienceStrategy} open- and closed-circuit semantics.
  *
  * <p>Implementations subclass this contract with a strategy instance and an implementation-specific
  * way to force the named service into an open-circuit state before assertions run.
  */
 public abstract class AbstractResilienceStrategyContract {
+
+  @Test
+  void closedCircuitInvokesTaskAndReturnsItsResult() throws Exception {
+    String serviceName = "tck-closed-circuit";
+    Object sentinel = new Object();
+    AtomicBoolean taskCalled = new AtomicBoolean(false);
+
+    assertTrue(
+        resilienceStrategy().isServiceAvailable(serviceName),
+        "A service that was never tripped must report available");
+
+    Object result =
+        resilienceStrategy()
+            .execute(
+                serviceName,
+                () -> {
+                  taskCalled.set(true);
+                  return sentinel;
+                });
+
+    assertTrue(taskCalled.get(), "Closed circuit must invoke the task body");
+    assertSame(sentinel, result, "Closed circuit must return the task's own result unchanged");
+  }
 
   @Test
   void openCircuitExecuteThrowsDistinctRuntimeExceptionWithoutCallingTask() throws Exception {
