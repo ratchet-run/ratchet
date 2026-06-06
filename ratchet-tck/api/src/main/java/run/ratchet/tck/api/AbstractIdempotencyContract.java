@@ -21,13 +21,16 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
+import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /**
  * Base contract for {@link run.ratchet.api.JobBuilder#withIdempotencyKey(String)
@@ -38,7 +41,10 @@ import run.ratchet.api.JobPriority;
  * a permanent dedup could take — <b>merge, not reject</b>. A duplicate idempotency key MUST return
  * the <em>original</em> job's {@link JobHandle} so the caller gets a usable handle back, MUST NOT
  * start a second execution, and MUST hold even after the original job has reached a terminal state
- * and even when the duplicate carries a different task or config. The complementary {@link
+ * and even when the duplicate carries a different task or config. Under a <em>concurrent</em> race
+ * on the same key the losing submit MAY surface an error instead of merging, but the key must still
+ * bind to exactly one job, execute exactly once, and merge on any subsequent re-submit — see {@link
+ * #concurrentDuplicateIdempotencyKey_convergesOnSingleJob()}. The complementary {@link
  * AbstractBusinessKeyContract} pins the looser active-only {@code withBusinessKey} semantics and
  * tolerates either a throw or a merge.
  */
@@ -121,6 +127,75 @@ public abstract class AbstractIdempotencyContract {
         "The changed duplicate task (throwIntentional) must not execute");
     assertEquals(
         1, runtime().probe().invocationCount(first), "The original job executed exactly once");
+  }
+
+  /**
+   * Concurrent variant. Two callers race the same idempotency key. The merge mandate applies to the
+   * <em>observable-duplicate</em> case; under a true race the loser MAY surface an error (a
+   * unique-constraint loss aborts the surrounding transaction on some SQL stores, so merge cannot
+   * be required portably). What MUST hold regardless of which caller wins:
+   *
+   * <ul>
+   *   <li>at least one submission succeeds,
+   *   <li>every successful submission returns the <em>same</em> job id (never two jobs),
+   *   <li>the task executes exactly once, and
+   *   <li>a subsequent re-submit with the same key converges on the original handle — the key is
+   *       permanently bound to the single winning job.
+   * </ul>
+   */
+  @Test
+  void concurrentDuplicateIdempotencyKey_convergesOnSingleJob() {
+    String key = freshKey();
+    AtomicReference<JobHandle> handleA = new AtomicReference<>();
+    AtomicReference<JobHandle> handleB = new AtomicReference<>();
+
+    List<Throwable> outcomes =
+        ConcurrentTestRunner.runAll(
+            defaultTimeout().plus(Duration.ofSeconds(2)),
+            () -> {
+              JobHandle h =
+                  runtime().scheduler().enqueue(TckJobs::noop).withIdempotencyKey(key).submit();
+              handleA.set(h);
+              runtime().probe().track(h);
+            },
+            () -> {
+              JobHandle h =
+                  runtime().scheduler().enqueue(TckJobs::noop).withIdempotencyKey(key).submit();
+              handleB.set(h);
+              runtime().probe().track(h);
+            });
+
+    long submitWinners = outcomes.stream().filter(t -> t == null).count();
+    assertTrue(
+        submitWinners >= 1,
+        "At least one of two concurrent same-key submitters must succeed; outcomes=" + outcomes);
+    if (handleA.get() != null && handleB.get() != null) {
+      assertEquals(
+          handleA.get().id(),
+          handleB.get().id(),
+          "Concurrent same-key submits that both succeed MUST agree on a single job id");
+    }
+
+    JobHandle winner = handleA.get() != null ? handleA.get() : handleB.get();
+    assertTrue(
+        runtime().probe().awaitCompleted(winner, defaultTimeout().plus(Duration.ofSeconds(10))),
+        "The single winning job must complete");
+    assertEquals(
+        1,
+        runtime().probe().invocationCount(winner),
+        "Exactly one execution may occur across concurrent same-key submitters");
+
+    // Permanence under race: whichever caller lost (or errored), the key is now bound to the
+    // winning job, so a clean re-submit MUST merge onto the original handle.
+    JobHandle retry = runtime().scheduler().enqueue(TckJobs::noop).withIdempotencyKey(key).submit();
+    assertEquals(
+        winner.id(),
+        retry.id(),
+        "A re-submit after the race must return the original job's handle (merge), not a new id");
+    assertEquals(
+        1,
+        runtime().probe().invocationCount(winner),
+        "The re-submit must not trigger a second execution");
   }
 
   /** Distinct idempotency keys are independent: both jobs run. */

@@ -190,7 +190,12 @@ public interface JobBuilder {
    *
    * <p>A UUID is auto-generated at builder creation time. Use this when an external ID (e.g. a
    * webhook delivery ID or payment request ID) should map to exactly one job permanently. Unlike
-   * {@link #withBusinessKey(String)}, once consumed this key is never reusable.
+   * {@link #withBusinessKey(String)}, once consumed this key is never reusable. A duplicate
+   * submission returns the original job's handle rather than creating a second job.
+   *
+   * <p>When two submissions <em>race</em> on the same key, the losing {@code submit()} may throw
+   * instead of merging, but the key still binds to exactly one job: the task executes exactly once,
+   * and a subsequent re-submit with the same key returns the original job's handle.
    *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
