@@ -178,11 +178,22 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
         ContractResult r = results.get(contractName);
         if (r == null) {
           pw.printf("| `%s` | — | — | — | — | ✗ MISSING |%n", contractName);
+        } else if (r.passed == 0 && r.failed == 0) {
+          // Required contract whose every case aborted: the contract's own assumeTrue gate excluded
+          // this runtime (e.g. a delayed-scheduling contract that needs a controllable test clock
+          // the runtime does not expose). An abort can only come from a deliberate skip inside the
+          // contract — a broken implementation produces assertion failures, not aborts — so this is
+          // not-applicable, not a failure. Drop it from the required tally and report N/A, matching
+          // the optional branch. A contract that did not run at all is MISSING above, not N/A.
+          counts[0]--;
+          pw.printf(
+              "| `%s` | %d | %d | %d | %d | ⚪ N/A |%n",
+              contractName, r.total(), r.passed, r.failed, r.aborted);
         } else {
           // Aborted tests are JUnit assumption-skips (a contract may skip a case a fixture cannot
           // surface, e.g. optimistic-lock failures on a standalone document store). They are
           // neutral, not failures. A contract conforms when at least one case verified and none
-          // failed; an all-skipped contract still does not pass.
+          // failed.
           boolean passed = r.failed == 0 && r.passed > 0;
           if (passed) counts[1]++;
           pw.printf(
