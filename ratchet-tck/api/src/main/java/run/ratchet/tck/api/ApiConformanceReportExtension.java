@@ -52,7 +52,8 @@ public class ApiConformanceReportExtension extends AbstractConformanceReportExte
                   "AbstractJobAuthorizationContract",
                   "AbstractSignalDecisionContract",
                   "AbstractSignalPayloadContract",
-                  "AbstractBroadcastSignalContract")),
+                  "AbstractBroadcastSignalContract",
+                  "AbstractBulkCancelEventContract")),
           new ContractGroup(
               "Encryption SPI",
               "Conformance contract every PayloadEncryption engine must satisfy: AEAD round-trip,"
