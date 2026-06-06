@@ -17,6 +17,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -97,13 +98,22 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   void resetFailedToPending_transitionsAndResetsMetadata() {
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    // Accumulate retry metadata so the reset has something to actually clear; otherwise
+    // asserting attempts==0 is vacuous (the row started at 0).
+    store().incrementRetryAttempt(saved.getId());
     store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "error");
 
     boolean reset = store().resetFailedToPending(saved.getId());
+    Instant afterReset = Instant.now();
 
     assertTrue(reset, "resetFailedToPending should succeed for a FAILED job");
     var reloaded = store().findById(saved.getId()).orElseThrow();
-    assertEquals(JobStatus.PENDING, reloaded.getStatus());
+    assertEquals(JobStatus.PENDING, reloaded.getStatus(), "status must flip FAILED -> PENDING");
+    assertEquals(0, reloaded.getAttempts(), "retry attempts must reset to 0");
+    assertNull(reloaded.getLastError(), "last error must be cleared");
+    assertFalse(
+        reloaded.getScheduledTime().isAfter(afterReset.plusSeconds(60)),
+        "job must be rescheduled to ~now (immediately eligible), not left in the future");
   }
 
   @Test

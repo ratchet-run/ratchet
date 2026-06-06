@@ -49,8 +49,10 @@ public interface JobRetryStore {
   boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts);
 
   /**
-   * Atomically resets FAILED to PENDING including retry metadata in one operation to avoid TOCTOU
-   * gaps. Transaction attribute: {@code REQUIRED}.
+   * Atomically resets a FAILED job to PENDING in one operation to avoid TOCTOU gaps. The reset
+   * clears the retry metadata left by the failed run: the attempt counter returns to {@code 0}, the
+   * last-error message is cleared, and the job is rescheduled to now so it becomes eligible for
+   * immediate re-pickup. Transaction attribute: {@code REQUIRED}.
    *
    * @param id job id to reset; never {@code null}
    * @return {@code true} when the row was FAILED and was reset to PENDING, {@code false} otherwise
