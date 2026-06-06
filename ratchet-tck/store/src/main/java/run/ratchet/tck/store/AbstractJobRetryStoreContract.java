@@ -17,6 +17,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -95,15 +96,31 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
 
   @Test
   void resetFailedToPending_transitionsAndResetsMetadata() {
-    var saved = persist(newPendingJob());
+    // Schedule the job an hour out so the ~now assertion below proves the reset actually
+    // rewrote scheduled_time; with a ~now starting value the assertion would be vacuous.
+    var pending = newPendingJob();
+    pending.setScheduledTime(Instant.now().plusSeconds(3600));
+    var saved = persist(pending);
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    // Accumulate retry metadata so the reset has something to actually clear; otherwise
+    // asserting attempts==0 is vacuous (the row started at 0).
+    store().incrementRetryAttempt(saved.getId());
     store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "error");
 
     boolean reset = store().resetFailedToPending(saved.getId());
+    Instant afterReset = Instant.now();
 
     assertTrue(reset, "resetFailedToPending should succeed for a FAILED job");
     var reloaded = store().findById(saved.getId()).orElseThrow();
-    assertEquals(JobStatus.PENDING, reloaded.getStatus());
+    assertEquals(JobStatus.PENDING, reloaded.getStatus(), "status must flip FAILED -> PENDING");
+    assertEquals(0, reloaded.getAttempts(), "retry attempts must reset to 0");
+    assertNull(reloaded.getLastError(), "last error must be cleared");
+    // 5 s of slack covers DB-server-clock vs JVM-clock skew (SQL stores write NOW()/
+    // statement_timestamp() while this test reads Instant.now()) without letting a deliberate
+    // future reschedule pass for "immediately eligible".
+    assertFalse(
+        reloaded.getScheduledTime().isAfter(afterReset.plusSeconds(5)),
+        "job must be rescheduled to ~now (immediately eligible), not left in the future");
   }
 
   @Test

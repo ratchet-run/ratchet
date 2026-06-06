@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
@@ -84,6 +85,43 @@ public abstract class AbstractSignalDecisionContract {
         runtime().probe().awaitCompleted(handle, defaultTimeout()),
         "Rejected signal decision should unblock and complete the job");
     assertEquals(List.of("REJECTED:needs-review:denied"), TckJobs.signalDecisions());
+  }
+
+  @Test
+  void deliverDecisionToUnknownJobReturnsZero() {
+    assertEquals(
+        0,
+        runtime().scheduler().deliverSignal(new UUID(0L, 1L), SignalDecision.approved("ignored")),
+        "Delivering a decision to an unknown job id must return 0");
+  }
+
+  @Test
+  void deliverDecisionToAlreadyCompletedJobReturnsZeroWithoutReinvoking() {
+    JobHandle handle =
+        runtime()
+            .scheduler()
+            .enqueue(TckJobs::recordSignalDecision)
+            .awaitSignal("approval-tck-idempotent", defaultTimeout())
+            .submit();
+    runtime().probe().track(handle);
+
+    // First delivery unblocks the WAITING job and lets it run to completion.
+    assertEquals(
+        1, runtime().scheduler().deliverSignal(handle.id(), SignalDecision.approved("first")));
+    assertTrue(
+        runtime().probe().awaitCompleted(handle, defaultTimeout()),
+        "First decision should unblock and complete the job");
+
+    // The job is now terminal. A second delivery must be a no-op per the documented idempotency
+    // contract: return 0 and do not re-invoke the job body.
+    assertEquals(
+        0,
+        runtime().scheduler().deliverSignal(handle.id(), SignalDecision.approved("second")),
+        "Delivering to a non-WAITING (terminal) job must return 0 without modifying it");
+    assertEquals(
+        List.of("APPROVED:first:null"),
+        TckJobs.signalDecisions(),
+        "The second delivery must not re-invoke the job body");
   }
 
   protected abstract RatchetTckRuntime runtime();

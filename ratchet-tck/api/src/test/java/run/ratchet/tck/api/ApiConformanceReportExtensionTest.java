@@ -55,13 +55,47 @@ class ApiConformanceReportExtensionTest {
           classes
               .map(path -> path.getFileName().toString())
               .filter(name -> name.startsWith("Abstract"))
-              .filter(name -> name.endsWith("Contract.class"))
+              .filter(name -> name.endsWith(".class"))
+              .filter(name -> !name.contains("$"))
               .map(name -> name.substring(0, name.length() - ".class".length()))
+              .filter(ApiConformanceReportExtensionTest::declaresTestMethods)
               .filter(name -> !cataloged.contains(name))
               .sorted()
               .toList();
     }
 
-    assertEquals(List.of(), uncataloged, "all API Abstract*Contract classes are cataloged");
+    assertEquals(
+        List.of(),
+        uncataloged,
+        "every API contract (any Abstract* class declaring @Test methods) must be cataloged;"
+            + " keying on @Test rather than the *Contract suffix stops a contract from hiding under"
+            + " a different name");
+  }
+
+  /**
+   * Treats an {@code Abstract*} class as a contract when it declares at least one {@code @Test}
+   * method. Keying on {@code @Test} rather than the {@code *Contract} suffix keeps a renamed
+   * contract (e.g. an {@code Abstract*Test}) from silently escaping the catalog, the same way the
+   * store tier guards its own scan.
+   */
+  private static boolean declaresTestMethods(String simpleName) {
+    Class<?> type;
+    try {
+      type =
+          Class.forName(
+              "run.ratchet.tck.api." + simpleName,
+              false,
+              ApiConformanceReportExtensionTest.class.getClassLoader());
+    } catch (ClassNotFoundException | LinkageError e) {
+      return false;
+    }
+    for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+      for (var method : c.getDeclaredMethods()) {
+        if (method.isAnnotationPresent(Test.class)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 }

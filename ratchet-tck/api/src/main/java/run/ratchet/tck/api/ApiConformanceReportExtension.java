@@ -45,6 +45,7 @@ public class ApiConformanceReportExtension extends AbstractConformanceReportExte
                   "AbstractJobRetryContract",
                   "AbstractJobCancelContract",
                   "AbstractDelayedSchedulingContract",
+                  "AbstractBusinessKeyContract",
                   "AbstractIdempotencyContract",
                   "AbstractSimpleWorkflowContract",
                   "AbstractResilienceStrategyContract",
