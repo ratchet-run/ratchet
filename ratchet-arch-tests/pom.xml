@@ -7,7 +7,7 @@
   <parent>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-parent</artifactId>
-    <version>${revision}</version>
+    <version>0.1.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>ratchet-arch-tests</artifactId>
@@ -20,6 +20,11 @@
     against: CDI bootstrap defects (CdiBeanArchitectureTest) and module
     boundary drift (LayeringArchitectureTest).
   </description>
+
+  <properties>
+    <!-- Test/dev infrastructure: never published. Guards plain mvn deploy; Central is additionally gated by excludeArtifacts in the central profile. -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+  </properties>
 
   <dependencies>
     <!--

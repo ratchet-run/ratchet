@@ -6,7 +6,7 @@
 
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-parent</artifactId>
-  <version>${revision}</version>
+  <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>Ratchet</name>
@@ -69,9 +69,11 @@
   </modules>
 
   <properties>
-    <revision>0.1.0-SNAPSHOT</revision>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- Reproducible builds: two builds of the same tag produce identical jar hashes.
+         maven-release-plugin refreshes this on each release:prepare. -->
+    <project.build.outputTimestamp>2026-06-06T00:00:00Z</project.build.outputTimestamp>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.release>17</maven.compiler.release>
@@ -120,6 +122,9 @@
     <maven-war-plugin.version>3.5.1</maven-war-plugin.version>
     <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
     <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
+    <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
+    <maven-release-plugin.version>3.3.1</maven-release-plugin.version>
+    <central-publishing-maven-plugin.version>0.10.0</central-publishing-maven-plugin.version>
     <build-helper-maven-plugin.version>3.6.0</build-helper-maven-plugin.version>
     <spotless-maven-plugin.version>2.46.1</spotless-maven-plugin.version>
     <google-java-format.version>1.35.0</google-java-format.version>
@@ -843,6 +848,82 @@
         </plugins>
       </build>
     </profile>
+    <!-- Release publishing profiles. maven-release-plugin activates central+sign together
+         via releaseProfiles during release:perform; none are active in normal builds. -->
+    <profile>
+      <id>sign</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>${maven-gpg-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>central</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>${central-publishing-maven-plugin.version}</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>false</autoPublish>
+              <waitUntil>validated</waitUntil>
+              <deploymentName>${project.artifactId}:${project.version}</deploymentName>
+              <!-- Test/dev infrastructure stays out of the Central bundle. Central artifacts
+                   are immutable, so a stray deploy of these could never be undone. Each of
+                   these modules also sets maven.deploy.skip=true, which guards the plain
+                   mvn-deploy path (e.g. GitHub Packages snapshots). -->
+              <excludeArtifacts>
+                <excludeArtifact>ratchet-testsuite</excludeArtifact>
+                <excludeArtifact>ratchet-testsuite-jpms</excludeArtifact>
+                <excludeArtifact>ratchet-loadtest</excludeArtifact>
+                <excludeArtifact>ratchet-showcase</excludeArtifact>
+                <excludeArtifact>ratchet-coverage</excludeArtifact>
+                <excludeArtifact>ratchet-arch-tests</excludeArtifact>
+              </excludeArtifacts>
+            </configuration>
+          </plugin>
+          <!-- Central requires -sources.jar and -javadoc.jar for every jar artifact.
+               Listed explicitly (instead of relying on the super-POM release-profile,
+               which Maven 4 removes) so the managed attach-sources/attach-javadocs
+               executions run whenever this profile is active. -->
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+    <profile>
+      <id>github</id>
+      <distributionManagement>
+        <repository>
+          <id>github</id>
+          <name>GitHub Packages</name>
+          <url>https://maven.pkg.github.com/ratchet-run/ratchet</url>
+        </repository>
+      </distributionManagement>
+    </profile>
   </profiles>
 
   <build>
@@ -883,11 +964,44 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-source-plugin</artifactId>
           <version>${maven-source-plugin.version}</version>
+          <executions>
+            <execution>
+              <id>attach-sources</id>
+              <goals>
+                <goal>jar-no-fork</goal>
+              </goals>
+            </execution>
+          </executions>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-javadoc-plugin</artifactId>
           <version>${maven-javadoc-plugin.version}</version>
+          <configuration>
+            <additionalOptions>-Xdoclint:-missing</additionalOptions>
+          </configuration>
+          <executions>
+            <execution>
+              <id>attach-javadocs</id>
+              <goals>
+                <goal>jar</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-release-plugin</artifactId>
+          <version>${maven-release-plugin.version}</version>
+          <configuration>
+            <!-- The release workflow gates on the full CI matrix before release:prepare
+                 runs, so the forked builds skip tests and SpotBugs instead of repeating
+                 the Testcontainers suites. -->
+            <arguments>-ntp -DskipTests -Dspotbugs.skip=true</arguments>
+            <scmCommentPrefix />
+            <tagNameFormat>v@{project.version}</tagNameFormat>
+            <releaseProfiles>central,sign</releaseProfiles>
+          </configuration>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -1245,6 +1359,10 @@
           <schemaVersion>1.6</schemaVersion>
           <outputFormat>all</outputFormat>
           <includeTestScope>false</includeTestScope>
+          <!-- The central-publishing extension disables the standard deploy step for
+               every module, which the default skipNotDeployed=true misreads as "don't
+               need an SBOM" — release builds would silently ship without bom.{json,xml}. -->
+          <skipNotDeployed>false</skipNotDeployed>
         </configuration>
       </plugin>
     </plugins>
