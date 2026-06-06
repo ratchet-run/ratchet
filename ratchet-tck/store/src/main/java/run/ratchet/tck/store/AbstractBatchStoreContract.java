@@ -29,6 +29,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
@@ -51,6 +52,37 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
     assertEquals(2, progress.totalItems());
     assertEquals(1, progress.completedItems());
     assertEquals(0, progress.failedItems());
+  }
+
+  @Test
+  void markJobSucceededAndUpdateBatch_updatesJobAndBatchAtomically() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    var saved = persist(newPendingJob());
+    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+
+    Instant start = Instant.now().minusSeconds(5);
+    Instant end = Instant.now();
+    boolean marked =
+        store()
+            .markJobSucceededAndUpdateBatch(
+                saved.getId(),
+                "{\"ok\":true}",
+                "java.lang.String",
+                start,
+                end,
+                5000L,
+                100L,
+                parent.getId());
+
+    assertTrue(marked, "markJobSucceededAndUpdateBatch should return true for a running job");
+    // Job-side transition is verified through the mandatory core read, so the atomic terminal
+    // move is pinned regardless of how the batch counters are exposed.
+    var reloaded = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.SUCCEEDED, reloaded.getStatus());
+    assertNotNull(reloaded.getJobResult(), "Result JSON should be persisted");
+    // Batch-side increment is the capability-specific half, asserted through the batch view.
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getCompletedItems());
   }
 
   @Test

@@ -70,34 +70,6 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
   }
 
   @Test
-  void markJobSucceededAndUpdateBatch_updatesJobAndBatchAtomically() {
-    var parent = persist(newBatchParentJob());
-    persistBatch(parent.getId(), 1);
-    var saved = persist(newPendingJob());
-    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-
-    Instant start = Instant.now().minusSeconds(5);
-    Instant end = Instant.now();
-    boolean marked =
-        store()
-            .markJobSucceededAndUpdateBatch(
-                saved.getId(),
-                "{\"ok\":true}",
-                "java.lang.String",
-                start,
-                end,
-                5000L,
-                100L,
-                parent.getId());
-
-    assertTrue(marked, "markJobSucceededAndUpdateBatch should return true for a running job");
-    var reloaded = store().findById(saved.getId()).orElseThrow();
-    assertEquals(JobStatus.SUCCEEDED, reloaded.getStatus());
-    assertNotNull(reloaded.getJobResult(), "Result JSON should be persisted");
-    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getCompletedItems());
-  }
-
-  @Test
   void markJobFailedTerminal_usesCallerAttemptsAndPersistsTimingFields() {
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
