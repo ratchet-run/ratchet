@@ -16,6 +16,7 @@
 package run.ratchet.tck.coordinator;
 
 import java.time.Duration;
+import run.ratchet.api.NodeIdentity;
 import run.ratchet.spi.ClusterCoordinator;
 
 /**
@@ -77,6 +78,24 @@ public interface CoordinatorTestHarness extends AutoCloseable {
    * loud.
    */
   default void injectRawMessage(ClusterCoordinator receiver, String rawPayload) throws Exception {
+    throw new UnsupportedOperationException(
+        "harness does not support raw wire injection — see supportsRawWireInjection()");
+  }
+
+  /**
+   * Returns a raw wire message, addressed from {@code source}, carrying an envelope version far
+   * beyond any this coordinator's codec will ever support. The unknown-envelope-version contract
+   * injects it and expects the receiver to reject it loudly.
+   *
+   * <p>This keeps the concrete wire schema out of the abstract contract: a JSON coordinator emits a
+   * bumped JSON envelope, a protobuf coordinator emits a bumped protobuf frame, a JMS-object
+   * coordinator emits its own form. Only invoked when {@link #supportsRawWireInjection()} returns
+   * {@code true}; the default throws to make accidental calls loud.
+   *
+   * @param source the originating node identity to stamp into the envelope
+   * @return the raw, transport-ready payload string
+   */
+  default String futureVersionRawMessage(NodeIdentity source) {
     throw new UnsupportedOperationException(
         "harness does not support raw wire injection — see supportsRawWireInjection()");
   }

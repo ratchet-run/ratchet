@@ -331,11 +331,10 @@ public abstract class AbstractClusterCoordinatorContract {
     fixture.nodeB().registerWakeupListener(listenerB);
 
     long before = fixture.metricsB().transportFailure();
-    // A version far above any the codec will ever support. Hardcoding the then-current+1 (e.g. 2)
-    // silently became a *valid* envelope once the wire version was bumped, so pin it well clear.
-    harness.injectRawMessage(
-        fixture.nodeB(),
-        "{\"v\":999,\"node\":\"" + fixture.identityA().value() + "\",\"prio\":\"HIGH\"}");
+    // The harness owns the wire schema: it emits an envelope whose version is far above any its
+    // codec supports. Keeping the concrete field names out of this contract lets a non-JSON
+    // coordinator exercise the same rejection path with its own wire form.
+    harness.injectRawMessage(fixture.nodeB(), harness.futureVersionRawMessage(fixture.identityA()));
 
     sleepPastLatencyWindow();
     assertTrue(
