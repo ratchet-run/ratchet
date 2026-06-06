@@ -170,17 +170,25 @@ public abstract class AbstractBusinessKeyContract {
         runtime().probe().awaitCompleted(survivor, completionTimeout),
         "Survivor handle must complete within timeout");
 
+    // Sum invocations per DISTINCT job id: a merge implementation hands both submitters the
+    // same id, and counting that job twice would fail a conformant merge with 1 + 1 != 1.
+    boolean merged =
+        handleA.get() != null
+            && handleB.get() != null
+            && handleA.get().id().equals(handleB.get().id());
     int invocationsOnA =
         handleA.get() == null ? 0 : runtime().probe().invocationCount(handleA.get());
     int invocationsOnB =
-        handleB.get() == null ? 0 : runtime().probe().invocationCount(handleB.get());
+        handleB.get() == null || merged ? 0 : runtime().probe().invocationCount(handleB.get());
     assertEquals(
         1,
         invocationsOnA + invocationsOnB,
         "Exactly one execution across concurrent duplicate-business-key submitters; A="
             + invocationsOnA
             + ", B="
-            + invocationsOnB);
+            + invocationsOnB
+            + ", merged="
+            + merged);
   }
 
   /**
