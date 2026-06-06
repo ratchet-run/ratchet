@@ -33,6 +33,8 @@ import run.ratchet.store.spi.NodeStore;
 
 final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
+  private static final int MAX_INACTIVE_NODES = 1000;
+
   private final MysqlStoreContext ctx;
 
   MysqlNodeLockOperations(MysqlStoreContext ctx) {
@@ -168,10 +170,11 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
     try {
       // language=MySQL
-      String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ? LIMIT 1000";
+      String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ? LIMIT ?";
       return ctx.em()
           .createNativeQuery(sql, NodeEntity.class)
           .setParameter(1, Timestamp.from(cutoff))
+          .setParameter(2, MAX_INACTIVE_NODES)
           .getResultList();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find inactive nodes", e);

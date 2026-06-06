@@ -79,7 +79,7 @@ class MysqlNodeLockOperationsTest {
 
     assertEquals(List.of(inactive), result);
     assertEquals(
-        List.of("SELECT * FROM scheduler_node WHERE heartbeat_ts < ? LIMIT 1000"), sqlStatements);
+        List.of("SELECT * FROM scheduler_node WHERE heartbeat_ts < ? LIMIT ?"), sqlStatements);
   }
 
   @Test

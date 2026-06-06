@@ -28,6 +28,7 @@ import run.ratchet.store.entity.JobEntity;
 final class PostgresqlJobReadOperations {
 
   private static final Logger log = Logger.getLogger(PostgresqlJobReadOperations.class);
+  private static final int FIND_BY_IDS_CHUNK_SIZE = 500;
 
   // language=PostgreSQL
   private static final String HYDRATION_FROM =
@@ -100,37 +101,47 @@ final class PostgresqlJobReadOperations {
     }
   }
 
-  @SuppressWarnings("unchecked")
   List<JobEntity> findByIds(List<UUID> ids) {
-    if (ids.isEmpty()) {
-      return List.of();
-    }
     try {
-      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-      // language=PostgreSQL
-      String sql =
-          "SELECT "
-              + PostgresqlJobRowMapper.hydrationSelect()
-              + " "
-              + HYDRATION_FROM
-              + " WHERE c.job_id IN ("
-              + placeholders
-              + ")";
-      Query query = ctx.em().createNativeQuery(sql);
-      int parameter = 1;
-      for (UUID id : ids) {
-        query.setParameter(parameter++, id);
+      if (ids.isEmpty()) {
+        return List.of();
       }
-      List<Object[]> rows = query.getResultList();
-      List<JobEntity> jobs = new ArrayList<>(rows.size());
-      for (Object[] row : rows) {
-        jobs.add(PostgresqlJobRowMapper.hydrate(row));
+      List<JobEntity> jobs = new ArrayList<>(ids.size());
+      for (int start = 0; start < ids.size(); start += FIND_BY_IDS_CHUNK_SIZE) {
+        jobs.addAll(
+            findByIdsChunk(
+                ids.subList(start, Math.min(start + FIND_BY_IDS_CHUNK_SIZE, ids.size()))));
       }
       tags.hydrateTagsBatch(jobs);
       return jobs;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find jobs by ids", e);
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<JobEntity> findByIdsChunk(List<UUID> ids) {
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    // language=PostgreSQL
+    String sql =
+        "SELECT "
+            + PostgresqlJobRowMapper.hydrationSelect()
+            + " "
+            + HYDRATION_FROM
+            + " WHERE c.job_id IN ("
+            + placeholders
+            + ")";
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) {
+      query.setParameter(parameter++, id);
+    }
+    List<Object[]> rows = query.getResultList();
+    List<JobEntity> jobs = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      jobs.add(PostgresqlJobRowMapper.hydrate(row));
+    }
+    return jobs;
   }
 
   @SuppressWarnings("unchecked")

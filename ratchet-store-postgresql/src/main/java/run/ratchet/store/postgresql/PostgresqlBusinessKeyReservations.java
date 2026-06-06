@@ -30,6 +30,8 @@ final class PostgresqlBusinessKeyReservations {
   static final String OWNER_TABLE_QUEUE = BusinessKeyReservations.OWNER_TABLE_QUEUE;
   static final String OWNER_TABLE_RECURRING = BusinessKeyReservations.OWNER_TABLE_RECURRING;
 
+  private static final int DELETE_RESERVATIONS_CHUNK_SIZE = 500;
+
   private final PostgresqlStoreContext ctx;
 
   PostgresqlBusinessKeyReservations(PostgresqlStoreContext ctx) {
@@ -87,6 +89,14 @@ final class PostgresqlBusinessKeyReservations {
     if (ownerJobIds.isEmpty()) {
       return;
     }
+    for (int start = 0; start < ownerJobIds.size(); start += DELETE_RESERVATIONS_CHUNK_SIZE) {
+      deleteReservationsByOwnersChunk(
+          ownerJobIds.subList(
+              start, Math.min(start + DELETE_RESERVATIONS_CHUNK_SIZE, ownerJobIds.size())));
+    }
+  }
+
+  private void deleteReservationsByOwnersChunk(List<UUID> ownerJobIds) {
     try {
       String placeholders = String.join(",", Collections.nCopies(ownerJobIds.size(), "?"));
       // language=PostgreSQL
