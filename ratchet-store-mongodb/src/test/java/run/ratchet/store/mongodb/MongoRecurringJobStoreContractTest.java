@@ -37,6 +37,7 @@ import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.tck.store.AbstractRecurringJobStoreContract;
+import run.ratchet.tck.store.JobStoreContractFixture;
 
 class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContract {
 
@@ -50,6 +51,11 @@ class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
   @Override
   protected RecurringJobStore recurringStore() {
     return (RecurringJobStore) fixture.store();
+  }
+
+  @Override
+  protected JobStoreContractFixture jobFixture() {
+    return fixture;
   }
 
   @Override

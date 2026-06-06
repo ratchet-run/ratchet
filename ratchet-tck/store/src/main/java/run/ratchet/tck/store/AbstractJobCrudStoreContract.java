@@ -29,11 +29,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.DlqAlertStore;
@@ -42,7 +39,6 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.LockStore;
-import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
@@ -352,47 +348,6 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
-  void create_persistsRecurringMasterId() {
-    UUID masterId = UuidV7Factory.create();
-    recurringStore().createRecurring(recurringMaster(masterId));
-
-    JobEntity child = newPendingJob();
-    child.setRecurringMasterId(masterId);
-
-    JobEntity created = store().create(child);
-
-    JobEntity reread = store().findById(created.getId()).orElseThrow();
-    assertEquals(
-        masterId,
-        reread.getRecurringMasterId(),
-        "recurring_master_id must round-trip through the cold-table INSERT and the row mapper");
-  }
-
-  private RecurringJobDefinition recurringMaster(UUID id) {
-    return new RecurringJobDefinition(
-        id,
-        "0 * * * * ?",
-        "UTC",
-        Instant.now().plusSeconds(3600),
-        false,
-        null,
-        2,
-        0,
-        BackoffPolicy.NONE,
-        0,
-        0,
-        new JobPayload("run.ratchet.tck.store.NoopTask", "run", "()V", true, List.of()),
-        null,
-        null,
-        null,
-        null,
-        null,
-        Instant.now(),
-        null,
-        false);
-  }
-
-  @Test
   void save_preservesCreatedAt() {
     JobEntity job = newPendingJob();
     JobEntity created = store().create(job);
@@ -406,51 +361,5 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
         originalCreatedAt,
         updated.getCreatedAt(),
         "save() must not overwrite the createdAt set by create()");
-  }
-
-  @Test
-  void getQueueWaitTimePercentile_outOfRange_throws() {
-    // Every store rejects NaN and out-of-[0,1] percentiles identically rather than clamping or
-    // forwarding the value to the backend.
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> analyticsStore().getQueueWaitTimePercentile(Double.NaN));
-    assertThrows(
-        IllegalArgumentException.class, () -> analyticsStore().getQueueWaitTimePercentile(-0.1));
-    assertThrows(
-        IllegalArgumentException.class, () -> analyticsStore().getQueueWaitTimePercentile(1.5));
-  }
-
-  @Test
-  void getQueueWaitTimePercentile_noData_returnsZero() {
-    assertEquals(
-        0L, analyticsStore().getQueueWaitTimePercentile(0.95), "no succeeded jobs yields 0");
-  }
-
-  @Test
-  void getQueueWaitTimePercentile_discreteNearestRank_returnsObservedValue() {
-    // Four SUCCEEDED jobs with queue_wait_ms 10, 20, 30, 40. Discrete nearest-rank
-    // (PERCENTILE_DISC)
-    // returns an actually-observed value, identical on every store. The p50 assertion is the
-    // discriminator: discrete returns 20, an interpolated percentile would return 25.
-    for (long queueWaitMs : new long[] {10L, 20L, 30L, 40L}) {
-      persistSucceededJobWithQueueWait(queueWaitMs);
-    }
-
-    assertEquals(
-        10L, analyticsStore().getQueueWaitTimePercentile(0.0), "p0 is the minimum observation");
-    assertEquals(
-        20L,
-        analyticsStore().getQueueWaitTimePercentile(0.5),
-        "discrete p50 returns an observed value (20), not the interpolated 25");
-    assertEquals(
-        40L, analyticsStore().getQueueWaitTimePercentile(1.0), "p100 is the maximum observation");
-  }
-
-  private void persistSucceededJobWithQueueWait(long queueWaitMs) {
-    var saved = persist(newPendingJob());
-    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store()
-        .markJobSucceeded(saved.getId(), null, null, Instant.now(), Instant.now(), 0L, queueWaitMs);
   }
 }

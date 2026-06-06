@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -72,6 +73,14 @@ public abstract class AbstractRecurringJobStoreContract {
 
   /** Builds a no-op {@link JobPayload} so the contract is store-impl agnostic. */
   protected abstract JobPayload noopPayload();
+
+  /**
+   * Returns the core {@link JobStoreContractFixture} backing the same store as {@link
+   * #recurringStore()}. Used by the child-job round-trip contract, which needs a core {@code
+   * create}/{@code findById} plus a transient job factory. Implementors return the same fixture
+   * they use to back the recurring store.
+   */
+  protected abstract JobStoreContractFixture jobFixture();
 
   /** Removes all rows from the live + archive tables/collections. */
   protected abstract void cleanupRecurringStore();
@@ -276,9 +285,9 @@ public abstract class AbstractRecurringJobStoreContract {
    * the value it needs to stamp onto every spawned child's {@code recurring_master_id} column. The
    * child-side half of this contract — actually writing a {@link
    * run.ratchet.store.entity.JobEntity} with {@code recurringMasterId} set and re-reading it
-   * through the cold-table mapper — lives in {@link
-   * AbstractJobCrudStoreContract#create_persistsRecurringMasterId} because the write touches {@code
-   * scheduler_job}, not {@code scheduler_recurring_job}.
+   * through the cold-table mapper — lives in {@link #create_persistsRecurringMasterIdOnChildJob}:
+   * it needs both this capability (to create the master the child's foreign key references) and the
+   * core {@code create}/{@code findById} round-trip.
    */
   @Test
   void getRecurring_returnsCompleteDefinitionForChildLineage() {
@@ -453,6 +462,29 @@ public abstract class AbstractRecurringJobStoreContract {
     assertTrue(recurringStore().getRecurring(idA).isEmpty(), "empty known set cancels keyA");
     assertTrue(
         recurringStore().getRecurring(idC).isPresent(), "created_at cutoff still spares keyC");
+  }
+
+  /**
+   * A child job created with a {@code recurringMasterId} must persist that link and read it back.
+   * The child references a live master through a foreign key on SQL stores, so this contract
+   * belongs to the recurring capability rather than the core CRUD contract — it needs both a
+   * created master and the core {@code create}/{@code findById} round-trip.
+   */
+  @Test
+  void create_persistsRecurringMasterIdOnChildJob() {
+    UUID masterId = UuidV7Factory.create();
+    recurringStore()
+        .createRecurring(definition(masterId, "0 * * * * ?", Instant.now().plusSeconds(3600)));
+
+    JobEntity child = jobFixture().newPendingJob();
+    child.setRecurringMasterId(masterId);
+    JobEntity created = jobFixture().store().create(child);
+
+    JobEntity reread = jobFixture().store().findById(created.getId()).orElseThrow();
+    assertEquals(
+        masterId,
+        reread.getRecurringMasterId(),
+        "recurring_master_id must round-trip through the child INSERT and the row mapper");
   }
 
   private RecurringJobDefinition orphanCandidate(

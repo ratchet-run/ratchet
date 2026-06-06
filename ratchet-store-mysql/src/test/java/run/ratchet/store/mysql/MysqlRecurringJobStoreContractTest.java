@@ -20,6 +20,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.tck.store.AbstractRecurringJobStoreContract;
+import run.ratchet.tck.store.JobStoreContractFixture;
 
 class MysqlRecurringJobStoreContractTest extends AbstractRecurringJobStoreContract {
 
@@ -28,6 +29,11 @@ class MysqlRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
   @Override
   protected RecurringJobStore recurringStore() {
     return (RecurringJobStore) fixture.store();
+  }
+
+  @Override
+  protected JobStoreContractFixture jobFixture() {
+    return fixture;
   }
 
   @Override
