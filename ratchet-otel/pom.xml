@@ -7,7 +7,7 @@
   <parent>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-parent</artifactId>
-    <version>${revision}</version>
+    <version>0.1.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>ratchet-otel</artifactId>

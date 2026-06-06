@@ -1,0 +1,208 @@
+name: Release
+
+permissions:
+  contents: write
+  packages: write
+  statuses: write
+  checks: write
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # Branch guard: workflow_dispatch can run from any branch by default; lock to main
+  # so an operator clicking "Run workflow" from a feature branch does NOT publish a
+  # release tag from non-main code.
+  guard:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "branch guard ok — running release on main"
+
+  # Fast operator-mistake checks (~5s) before the ~20-minute verify matrix.
+  preflight:
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Pre-flight check (pom version)
+        run: |
+          set -euo pipefail
+          # The root pom <version> must be -SNAPSHOT (release:prepare rewrites it to
+          # the release version and then bumps to the next development iteration).
+          POM_VERSION=$(grep -oE '<version>[^<]+</version>' pom.xml | head -1 | sed 's|<[^>]*>||g')
+          if [[ ! "$POM_VERSION" =~ -SNAPSHOT$ ]]; then
+            echo "::error::pom.xml <version> must end in -SNAPSHOT before release:prepare; got: $POM_VERSION"
+            exit 1
+          fi
+          echo "✓ Pre-flight green for ${POM_VERSION%-SNAPSHOT}"
+
+  # Full CI matrix as the release gate — the release MUST NOT proceed if any cell is
+  # red. Because this gate runs the whole test suite, the maven-release-plugin's own
+  # forked builds skip tests (see <arguments> in the root pom's release plugin config).
+  verify:
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  release:
+    needs: verify
+    permissions:
+      contents: write
+      # id-token + attestations are needed by actions/attest-build-provenance, which
+      # mints a sigstore-backed attestation against the GitHub OIDC token.
+      id-token: write
+      attestations: write
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout with RELEASE_TOKEN (fine-grained PAT owned by a repo admin, Contents +
+      # Workflows R/W on this repo only). actions/checkout configures an http.extraheader
+      # so the git pushes from release:prepare authenticate as the PAT owner, who must be
+      # a bypass actor on the main branch protection — the `prepare release` and `prepare
+      # for next development iteration` commits push directly to main without PR checks.
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+          # OSSRH_USERNAME/OSSRH_TOKEN are a Central Portal token generated at
+          # https://central.sonatype.com/account (the names keep mjml-java/magika-java
+          # parity; the credentials are NOT legacy oss.sonatype.org).
+          server-id: central
+          server-username: OSSRH_USERNAME
+          server-password: OSSRH_TOKEN
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Publish to Maven Central
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The pom's <developerConnection> uses an SSH URL for local-dev convenience.
+          # release:prepare reads it directly and offers no CLI override, so rewrite
+          # SSH to HTTPS globally — the http.extraheader from actions/checkout then
+          # authenticates the push with the RELEASE_TOKEN PAT.
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          mvn -B -ntp -Dstyle.color=always release:prepare -P sign
+          cat release.properties
+          RELEASE_TAG=$(grep '^scm.tag=' release.properties | cut -d'=' -f2)
+          echo "RELEASE_TAG=${RELEASE_TAG}" >> "$GITHUB_ENV"
+          mvn -B -ntp -Dstyle.color=always release:perform -P sign \
+            -DconnectionUrl=scm:git:https://github.com/${REPO}.git
+          echo "Released ${RELEASE_TAG} 🚀" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+          REPO: ${{ github.repository }}
+
+      # release:perform checks the tagged code into target/checkout/ and runs the
+      # central+sign release profiles; cyclonedx makeBom (bound in the default build)
+      # drops bom.{json,xml} into each module's target/. Collect everything under
+      # versioned names so release-asset downloads identify their module/version.
+      - name: Collect release artifacts (JARs + SBOMs)
+        run: |
+          set -euo pipefail
+          RELEASE_VERSION="${RELEASE_TAG#v}"
+          echo "RELEASE_VERSION=${RELEASE_VERSION}" >> "$GITHUB_ENV"
+          mkdir -p release-assets
+          missing=0
+          # Every Central-published jar artifact. ratchet-tck's five sub-modules live
+          # one level deeper; ratchet-bom and the ratchet-tck aggregator are
+          # pom-packaging (no jar). The six test/dev modules are never published.
+          JAR_PATHS=""
+          for m in ratchet-api ratchet ratchet-store-core ratchet-encryption \
+                   ratchet-store-mysql ratchet-store-postgresql ratchet-store-mongodb \
+                   ratchet-coordinator-common ratchet-coordinator-postgresql \
+                   ratchet-coordinator-jms ratchet-coordinator-infinispan \
+                   ratchet-coordinator-hazelcast ratchet-micrometer ratchet-otel; do
+            JAR_PATHS="$JAR_PATHS target/checkout/${m}:${m}"
+          done
+          for m in util store api jakarta coordinator; do
+            JAR_PATHS="$JAR_PATHS target/checkout/ratchet-tck/${m}:ratchet-tck-${m}"
+          done
+          for entry in $JAR_PATHS; do
+            dir="${entry%%:*}"; artifact="${entry##*:}"
+            jar="${dir}/target/${artifact}-${RELEASE_VERSION}.jar"
+            if [ -f "$jar" ]; then
+              cp "$jar" "release-assets/"
+            else
+              echo "::error::Expected JAR not found at $jar"
+              missing=1
+            fi
+            # SBOMs — both formats, required for every published jar module: a missing
+            # SBOM means cyclonedx didn't run and the release config is broken.
+            for fmt in json xml; do
+              src="${dir}/target/bom.${fmt}"
+              if [ -f "$src" ]; then
+                cp "$src" "release-assets/${artifact}-${RELEASE_VERSION}-cyclonedx.${fmt}"
+              else
+                echo "::error::Expected SBOM not found at $src"
+                missing=1
+              fi
+            done
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Required release artifacts are missing (see errors above); aborting before GitHub Release"
+            exit 1
+          fi
+          ls -la release-assets/
+
+      - name: Attest build provenance for JARs
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: 'release-assets/*.jar'
+
+      - name: Create GitHub Release
+        # Release notes come from the commit list (Haiku-categorized when an API key is
+        # available, raw list otherwise) — the project keeps no tracked CHANGELOG.
+        # Commit subjects are passed through shell vars + jq --arg, never interpolated
+        # into the script via ${{ }}, so a crafted commit message cannot inject commands.
+        run: |
+          set -euo pipefail
+          PREV_TAG=$(git describe --tags --abbrev=0 "${RELEASE_TAG}^" 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            COMMITS=$(git log "${PREV_TAG}..${RELEASE_TAG}" --pretty=format:"- %s" \
+              | grep -v -E 'prepare release|prepare for next development iteration')
+          else
+            COMMITS=$(git log "${RELEASE_TAG}" --pretty=format:"- %s" \
+              | grep -v -E 'prepare release|prepare for next development iteration')
+          fi
+
+          printf '%s\n' "$COMMITS" > release-notes.md
+          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+            NOTES=$(curl -sf https://api.anthropic.com/v1/messages \
+              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+              -H "anthropic-version: 2023-06-01" \
+              -H "content-type: application/json" \
+              -d "$(jq -n --arg commits "$COMMITS" '{
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 1024,
+                messages: [{role: "user", content: ("Categorize these git commits into GitHub release notes. Use these sections as needed: ## New Features, ## Bug Fixes, ## Dependency Updates, ## Other Changes. Use bulleted markdown lists. Only include sections that have entries. Do not add any preamble or explanation, just the categorized notes.\n\nCommits:\n" + $commits)}]
+              }')" | jq -r '.content[0].text') || NOTES=""
+            if [ -n "$NOTES" ]; then
+              printf '%s\n' "$NOTES" > release-notes.md
+            fi
+          fi
+
+          # SBOMs attach as release assets; JARs live on Maven Central. Collect via a
+          # counted array so an empty glob is a hard error, not a silent mis-expansion.
+          shopt -s nullglob
+          sboms=(release-assets/*-cyclonedx.json release-assets/*-cyclonedx.xml)
+          if [ "${#sboms[@]}" -lt 2 ]; then
+            echo "::error::No SBOM assets found to attach"
+            exit 1
+          fi
+          gh release create "${RELEASE_TAG}" \
+            --title "${RELEASE_TAG}" \
+            --notes-file release-notes.md \
+            --latest \
+            "${sboms[@]}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
