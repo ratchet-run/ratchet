@@ -146,8 +146,13 @@ public abstract class AbstractIdempotencyContract {
     return Duration.ofSeconds(5);
   }
 
-  /** Negative-assertion window: long enough to catch an erroneous extra execution, short to run. */
+  /**
+   * Negative-assertion window used to assert a duplicate does NOT execute. Must comfortably exceed
+   * a full poller backoff cycle of the implementation under test — a window shorter than one poll
+   * interval passes vacuously because the erroneous execution has not had a chance to start yet.
+   * (The RI test deployment backs off to 2 s between polls when idle.)
+   */
   protected Duration quietWindow() {
-    return Duration.ofMillis(750);
+    return Duration.ofSeconds(3);
   }
 }
