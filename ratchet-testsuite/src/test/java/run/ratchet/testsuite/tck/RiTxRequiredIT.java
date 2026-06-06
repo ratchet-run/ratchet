@@ -23,6 +23,7 @@ import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.jakarta.AbstractTxRequiredContract;
@@ -40,6 +41,16 @@ class RiTxRequiredIT extends AbstractTxRequiredContract {
   @Override
   protected RatchetTckRuntime runtime() {
     return runtime;
+  }
+
+  @Override
+  @Test
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  protected void cancelJob_rollback_isNotVisible() throws Exception {
+    // The inherited assumeTrue guard fires in-container, where Arquillian wraps the
+    // TestAbortedException in IdentifiedTestException and reports an ERROR instead of a skip.
+    // Evaluate the same condition client-side so MongoDB cells skip cleanly.
+    super.cancelJob_rollback_isNotVisible();
   }
 
   @Override
