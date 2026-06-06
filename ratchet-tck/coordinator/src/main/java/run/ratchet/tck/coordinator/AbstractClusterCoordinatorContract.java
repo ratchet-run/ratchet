@@ -18,6 +18,7 @@ package run.ratchet.tck.coordinator;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -330,11 +331,10 @@ public abstract class AbstractClusterCoordinatorContract {
     fixture.nodeB().registerWakeupListener(listenerB);
 
     long before = fixture.metricsB().transportFailure();
-    // A version far above any the codec will ever support. Hardcoding the then-current+1 (e.g. 2)
-    // silently became a *valid* envelope once the wire version was bumped, so pin it well clear.
-    harness.injectRawMessage(
-        fixture.nodeB(),
-        "{\"v\":999,\"node\":\"" + fixture.identityA().value() + "\",\"prio\":\"HIGH\"}");
+    // The harness owns the wire schema: it emits an envelope whose version is far above any its
+    // codec supports. Keeping the concrete field names out of this contract lets a non-JSON
+    // coordinator exercise the same rejection path with its own wire form.
+    harness.injectRawMessage(fixture.nodeB(), harness.futureVersionRawMessage(fixture.identityA()));
 
     sleepPastLatencyWindow();
     assertTrue(
@@ -359,6 +359,37 @@ public abstract class AbstractClusterCoordinatorContract {
         record.source().value(),
         "source identity must round-trip exactly");
     assertEquals(JobPriority.LOW, record.priority(), "priority must round-trip exactly");
+  }
+
+  @Test
+  void envelopeRoundTripPreservesNonNullExecutionTarget() {
+    RecordingWakeupListener listenerB = new RecordingWakeupListener();
+    fixture.nodeB().registerWakeupListener(listenerB);
+
+    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), "export-pool");
+
+    listenerB.awaitOne(harness.maxExpectedLatency());
+    var record = listenerB.received().get(0);
+    assertEquals(
+        "export-pool",
+        record.executionTarget(),
+        "executionTarget is the third wire field and must round-trip exactly when non-null; a codec"
+            + " that drops or corrupts it must fail here");
+  }
+
+  @Test
+  void envelopeRoundTripPreservesNullExecutionTarget() {
+    RecordingWakeupListener listenerB = new RecordingWakeupListener();
+    fixture.nodeB().registerWakeupListener(listenerB);
+
+    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
+
+    listenerB.awaitOne(harness.maxExpectedLatency());
+    var record = listenerB.received().get(0);
+    assertNull(
+        record.executionTarget(),
+        "an unscoped wakeup (null executionTarget) must arrive with executionTarget still null,"
+            + " never coerced to a sentinel string");
   }
 
   // ─── Metrics surface ──────────────────────────────────────────────────────────

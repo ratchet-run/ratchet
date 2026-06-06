@@ -24,6 +24,14 @@
             <groupId>run.ratchet</groupId>
             <artifactId>ratchet-tck-util</artifactId>
         </dependency>
+        <!-- ratchet-api declares `requires transitive jakarta.cdi` (driven by @CircuitBreakerProtected),
+             so the module graph needs the CDI API present to resolve. Provided scope: this tier never
+             touches CDI types itself. -->
+        <dependency>
+            <groupId>jakarta.enterprise</groupId>
+            <artifactId>jakarta.enterprise.cdi-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

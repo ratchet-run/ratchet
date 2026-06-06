@@ -25,6 +25,13 @@ public interface RetryPolicy {
   /**
    * Returns whether a failed job attempt should be retried.
    *
+   * <p>The result is combined with the job's configured {@code maxRetries} using logical AND: the
+   * engine schedules another attempt only when this method returns {@code true} <em>and</em> the
+   * attempt is still within {@code maxRetries}. A policy MAY therefore terminate retries earlier
+   * than {@code maxRetries}, but MUST NOT extend them beyond it — once {@code maxRetries} is
+   * reached the job moves to terminal failure regardless of what this method returns. Use {@code
+   * maxRetries} as the ceiling and this method to stop sooner.
+   *
    * @param attempt 1-based attempt number
    * @param cause failure that ended the attempt; never {@code null}
    * @return {@code true} to schedule another attempt, {@code false} to move toward terminal failure

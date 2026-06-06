@@ -33,6 +33,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.api.SignalDecision;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -128,6 +130,16 @@ public final class PostgresqlCoordinatorTestHarness implements CoordinatorTestHa
       // Use NOTIFY with a parameter-escaped string payload.
       s.execute("NOTIFY " + channel + ", " + quote(rawPayload));
     }
+  }
+
+  @Override
+  public String futureVersionRawMessage(NodeIdentity source) {
+    // Encode through the production codec with a version well clear of CURRENT_VERSION, so the
+    // payload stays unsupported even after a future wire bump.
+    return new NotifyPayloadCodec()
+        .encode(
+            new NotifyPayload(
+                NotifyPayloadCodec.CURRENT_VERSION + 1000, source, JobPriority.HIGH, null));
   }
 
   @Override

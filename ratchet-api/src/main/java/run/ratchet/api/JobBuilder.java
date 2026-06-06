@@ -197,6 +197,11 @@ public interface JobBuilder {
    * instead of merging, but the key still binds to exactly one job: the task executes exactly once,
    * and a subsequent re-submit with the same key returns the original job's handle.
    *
+   * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column, so it must be at most 36
+   * characters. A longer key is rejected when the job is submitted. {@link
+   * #withBusinessKey(String)} carries no such limit. The auto-generated default is a 36-character
+   * UUID.
+   *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
    */

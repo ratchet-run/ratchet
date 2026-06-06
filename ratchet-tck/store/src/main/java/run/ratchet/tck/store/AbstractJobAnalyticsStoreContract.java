@@ -16,6 +16,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Instant;
 import java.util.List;
@@ -177,5 +178,51 @@ public abstract class AbstractJobAnalyticsStoreContract implements JobStoreContr
     Map<String, Long> counts = analyticsStore().countJobsByExecutionNodeForTag("run-tag");
 
     assertEquals(Map.of("node-a", 2L, "node-b", 1L), counts);
+  }
+
+  @Test
+  void getQueueWaitTimePercentile_outOfRange_throws() {
+    // Every store rejects NaN and out-of-[0,1] percentiles identically rather than clamping or
+    // forwarding the value to the backend.
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> analyticsStore().getQueueWaitTimePercentile(Double.NaN));
+    assertThrows(
+        IllegalArgumentException.class, () -> analyticsStore().getQueueWaitTimePercentile(-0.1));
+    assertThrows(
+        IllegalArgumentException.class, () -> analyticsStore().getQueueWaitTimePercentile(1.5));
+  }
+
+  @Test
+  void getQueueWaitTimePercentile_noData_returnsZero() {
+    assertEquals(
+        0L, analyticsStore().getQueueWaitTimePercentile(0.95), "no succeeded jobs yields 0");
+  }
+
+  @Test
+  void getQueueWaitTimePercentile_discreteNearestRank_returnsObservedValue() {
+    // Four SUCCEEDED jobs with queue_wait_ms 10, 20, 30, 40. Discrete nearest-rank
+    // (PERCENTILE_DISC)
+    // returns an actually-observed value, identical on every store. The p50 assertion is the
+    // discriminator: discrete returns 20, an interpolated percentile would return 25.
+    for (long queueWaitMs : new long[] {10L, 20L, 30L, 40L}) {
+      persistSucceededJobWithQueueWait(queueWaitMs);
+    }
+
+    assertEquals(
+        10L, analyticsStore().getQueueWaitTimePercentile(0.0), "p0 is the minimum observation");
+    assertEquals(
+        20L,
+        analyticsStore().getQueueWaitTimePercentile(0.5),
+        "discrete p50 returns an observed value (20), not the interpolated 25");
+    assertEquals(
+        40L, analyticsStore().getQueueWaitTimePercentile(1.0), "p100 is the maximum observation");
+  }
+
+  private void persistSucceededJobWithQueueWait(long queueWaitMs) {
+    var saved = persist(newPendingJob());
+    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(saved.getId(), null, null, Instant.now(), Instant.now(), 0L, queueWaitMs);
   }
 }
