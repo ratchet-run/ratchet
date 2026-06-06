@@ -39,7 +39,8 @@ public enum ConformanceLevel {
           "AbstractJobCrudStoreContract",
           "AbstractJobClaimStoreContract",
           "AbstractNodeStoreContract",
-          "AbstractTagStoreContract"),
+          "AbstractTagStoreContract",
+          "AbstractPayloadEncryptionStoreContract"),
       List.of()),
 
   BEHAVIORAL(

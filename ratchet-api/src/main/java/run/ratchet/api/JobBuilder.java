@@ -293,6 +293,26 @@ public interface JobBuilder {
   JobBuilder withTimeout(Duration timeout);
 
   /**
+   * Opts this job in to payload encryption at rest, covering every protected surface of the job
+   * (its arguments, parameter values, result, callback payloads, and any signal or
+   * workflow-condition payload).
+   *
+   * <p>The opt-in is one-way: there is no per-job opt-out. A deployment can instead opt every job
+   * in with the global encryption switch on {@code RatchetOptions}; this method is the per-job
+   * equivalent. Either way, encryption only takes effect when the deployment has a {@code
+   * PayloadEncryption} engine and a {@code KeyProvider} installed — without them an opted-in job
+   * fails the node at startup rather than persisting unprotected data it was asked to encrypt.
+   *
+   * <p>Reads do not consult this flag: decryption is driven by the envelope marker the framework
+   * writes around each ciphertext, so a value written before the opt-in (legacy plaintext) and a
+   * value written after it coexist and round-trip correctly.
+   *
+   * @return this builder
+   */
+  @Incubating
+  JobBuilder withEncryptedPayload();
+
+  /**
    * Returns the success callback, or {@code null} if not configured.
    *
    * @return the configured success callback, or {@code null}

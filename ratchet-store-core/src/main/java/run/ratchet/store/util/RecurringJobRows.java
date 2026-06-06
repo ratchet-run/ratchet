@@ -18,6 +18,7 @@ package run.ratchet.store.util;
 import java.time.Instant;
 import java.util.UUID;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -50,12 +51,14 @@ public final class RecurringJobRows {
     Instant nextFire = RowValues.instantOrNull(row[8]);
     boolean isPaused = RowValues.booleanOrFalse(row[9]);
     Instant pausedAt = RowValues.instantOrNull(row[10]);
-    JobPayload payload =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(RowValues.stringOrNull(row[11]));
-    JobPayload onSuccess =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(RowValues.stringOrNull(row[12]));
-    JobPayload onFailure =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(RowValues.stringOrNull(row[13]));
+    boolean encryptedPayload = RowValues.booleanOrFalse(row[19]);
+    if (encryptedPayload
+        && PayloadEncryptor.argsFlaggedButUnframed(RowValues.stringOrNull(row[11]))) {
+      EncryptionIntegrity.flaggedButUnframed(id, ProtectedSurface.PAYLOAD_ARGS);
+    }
+    JobPayload payload = decryptPayload(row[11], ProtectedSurface.PAYLOAD_ARGS, id);
+    JobPayload onSuccess = decryptPayload(row[12], ProtectedSurface.ON_SUCCESS_PAYLOAD, id);
+    JobPayload onFailure = decryptPayload(row[13], ProtectedSurface.ON_FAILURE_PAYLOAD, id);
     String businessKey = (String) row[14];
     String resourceName = (String) row[15];
     String executionTarget = (String) row[16];
@@ -81,6 +84,29 @@ public final class RecurringJobRows {
         resourceName,
         executionTarget,
         createdAt,
-        callerPrincipal);
+        callerPrincipal,
+        encryptedPayload);
+  }
+
+  /**
+   * Encrypts a recurring-master payload template column. The master's row id is the AAD binding, so
+   * a template ciphertext cannot be lifted into a regular job row (which binds the job id) or
+   * another master; it reuses the per-surface {@link ProtectedSurface} the equivalent live-job
+   * column uses. No-op when {@code active} is false, when the payload is {@code null}, or when it
+   * carries no arguments.
+   */
+  public static String encryptPayloadColumn(
+      JobPayload payload, boolean active, ProtectedSurface surface, UUID masterId) {
+    return PayloadEncryptor.encryptArgs(
+        PAYLOAD_CONVERTER.convertToDatabaseColumn(payload),
+        active,
+        EncryptionTarget.rowBound(surface, masterId));
+  }
+
+  private static JobPayload decryptPayload(Object column, ProtectedSurface surface, UUID masterId) {
+    String decrypted =
+        PayloadEncryptor.decryptArgs(
+            RowValues.stringOrNull(column), EncryptionTarget.rowBound(surface, masterId));
+    return PAYLOAD_CONVERTER.convertToEntityAttribute(decrypted);
   }
 }

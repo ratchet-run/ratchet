@@ -34,6 +34,11 @@
             </dependency>
             <dependency>
                 <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-encryption</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
                 <artifactId>ratchet-store-mysql</artifactId>
                 <version>${project.version}</version>
             </dependency>

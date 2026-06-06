@@ -52,6 +52,7 @@ public class RatchetOptions {
   private final SecurityOptions security;
   private final StoreOptions store;
   private final CircuitBreakerOptions circuitBreaker;
+  private final EncryptionOptions encryption;
 
   /**
    * No-arg constructor used only by CDI to generate the client proxy subclass. Sets all fields to
@@ -74,6 +75,44 @@ public class RatchetOptions {
     this.security = null;
     this.store = null;
     this.circuitBreaker = null;
+    this.encryption = null;
+  }
+
+  /**
+   * Backward-compatible overload that defaults encryption to disabled. Delegates to the canonical
+   * 15-argument constructor.
+   */
+  public RatchetOptions(
+      PollingOptions polling,
+      ExecutionOptions execution,
+      NodeOptions node,
+      RecurringOptions recurring,
+      RetryBufferOptions retryBuffer,
+      TimeoutOptions timeout,
+      MaintenanceOptions maintenance,
+      NotificationOptions notifications,
+      SchemaOptions schema,
+      PayloadOptions payload,
+      MetricsOptions metrics,
+      SecurityOptions security,
+      StoreOptions store,
+      CircuitBreakerOptions circuitBreaker) {
+    this(
+        polling,
+        execution,
+        node,
+        recurring,
+        retryBuffer,
+        timeout,
+        maintenance,
+        notifications,
+        schema,
+        payload,
+        metrics,
+        security,
+        store,
+        circuitBreaker,
+        new EncryptionOptions(false, null));
   }
 
   public RatchetOptions(
@@ -90,7 +129,8 @@ public class RatchetOptions {
       MetricsOptions metrics,
       SecurityOptions security,
       StoreOptions store,
-      CircuitBreakerOptions circuitBreaker) {
+      CircuitBreakerOptions circuitBreaker,
+      EncryptionOptions encryption) {
     this.polling = Objects.requireNonNull(polling, "polling must not be null");
     this.execution = Objects.requireNonNull(execution, "execution must not be null");
     this.node = Objects.requireNonNull(node, "node must not be null");
@@ -105,6 +145,7 @@ public class RatchetOptions {
     this.security = Objects.requireNonNull(security, "security must not be null");
     this.store = Objects.requireNonNull(store, "store must not be null");
     this.circuitBreaker = Objects.requireNonNull(circuitBreaker, "circuitBreaker must not be null");
+    this.encryption = Objects.requireNonNull(encryption, "encryption must not be null");
   }
 
   public static RatchetOptions defaults() {
@@ -273,6 +314,12 @@ public class RatchetOptions {
   /** Returns the circuit breaker configuration. */
   public CircuitBreakerOptions circuitBreaker() {
     return circuitBreaker;
+  }
+
+  /** Returns the payload-encryption configuration. */
+  @Incubating
+  public EncryptionOptions encryption() {
+    return encryption;
   }
 
   public enum IsolationCheckMode {
@@ -606,6 +653,27 @@ public class RatchetOptions {
       int permittedCallsInHalfOpen,
       int minimumCalls) {}
 
+  /**
+   * Deployment-wide payload-encryption switch and write-algorithm selection.
+   *
+   * <p>A single on/off covering every protected surface of an opted-in job; there is no per-surface
+   * global selection in this version. Off by default, and a disabled deployment produces
+   * byte-identical storage to one with no encryption configured. When {@code true}, every job is
+   * treated as opted in, the same as calling {@link JobBuilder#withEncryptedPayload()} on each.
+   *
+   * <p>{@code writeAlgorithm} names the algorithm new writes use when more than one {@link
+   * run.ratchet.spi.PayloadEncryption} engine is installed — the seam for algorithm rotation, where
+   * an old engine stays installed to decrypt not-yet-drained rows while a new engine takes over
+   * writes. It may be left {@code null} when exactly one engine is installed (that engine is used);
+   * it is required, and must name an installed engine, when several are.
+   *
+   * @param enabled {@code true} to encrypt protected surfaces for all jobs
+   * @param writeAlgorithm the algorithm id new writes use, or {@code null} to use the sole
+   *     installed engine
+   */
+  @Incubating
+  public record EncryptionOptions(boolean enabled, String writeAlgorithm) {}
+
   public static final class Builder {
     private final PollingBuilder polling = new PollingBuilder();
     private final ExecutionBuilder execution = new ExecutionBuilder();
@@ -621,6 +689,7 @@ public class RatchetOptions {
     private final SecurityBuilder security = new SecurityBuilder();
     private final StoreBuilder store = new StoreBuilder();
     private final CircuitBreakerBuilder circuitBreaker = new CircuitBreakerBuilder();
+    private final EncryptionBuilder encryption = new EncryptionBuilder();
 
     private Builder() {}
 
@@ -695,6 +764,12 @@ public class RatchetOptions {
       return this;
     }
 
+    @Incubating
+    public Builder encryption(Consumer<EncryptionBuilder> customizer) {
+      customizer.accept(encryption);
+      return this;
+    }
+
     public RatchetOptions build() {
       return new RatchetOptions(
           polling.build(),
@@ -710,7 +785,8 @@ public class RatchetOptions {
           metrics.build(),
           security.build(),
           store.build(),
-          circuitBreaker.build());
+          circuitBreaker.build(),
+          encryption.build());
     }
   }
 
@@ -1347,6 +1423,37 @@ public class RatchetOptions {
           waitDurationMs,
           permittedCallsInHalfOpen,
           minimumCalls);
+    }
+  }
+
+  @Incubating
+  public static final class EncryptionBuilder {
+    private boolean enabled;
+    private String writeAlgorithm;
+
+    private EncryptionBuilder() {}
+
+    /**
+     * Enables or disables payload encryption for the whole deployment. Defaults to disabled, which
+     * leaves stored data byte-identical to a deployment with no encryption configured.
+     */
+    public EncryptionBuilder enabled(boolean enabled) {
+      this.enabled = enabled;
+      return this;
+    }
+
+    /**
+     * Names the algorithm id new writes use when more than one {@link
+     * run.ratchet.spi.PayloadEncryption} engine is installed (the algorithm-rotation seam). Leave
+     * unset when a single engine is installed — that engine is used for writes.
+     */
+    public EncryptionBuilder writeAlgorithm(String writeAlgorithm) {
+      this.writeAlgorithm = writeAlgorithm;
+      return this;
+    }
+
+    private EncryptionOptions build() {
+      return new EncryptionOptions(enabled, writeAlgorithm);
     }
   }
 }

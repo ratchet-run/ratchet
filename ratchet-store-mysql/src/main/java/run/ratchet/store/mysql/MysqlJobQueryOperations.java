@@ -136,6 +136,7 @@ final class MysqlJobQueryOperations {
       NULL,
       NULL,
       NULL,
+      NULL,
       NULL\
       """;
 

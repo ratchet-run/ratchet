@@ -26,6 +26,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,17 +37,25 @@ import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.KeyNotFoundException;
+import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.EncryptionKey;
+import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 @ExtendWith(MockitoExtension.class)
 class WorkflowConditionEvaluatorTest {
@@ -129,6 +138,11 @@ class WorkflowConditionEvaluatorTest {
   void setUp() {
     evaluator =
         new WorkflowConditionEvaluator(batchStore, beanResolver, classPolicy, payloadSerializer);
+  }
+
+  @AfterEach
+  void resetEncryption() {
+    EncryptionHolder.disable();
   }
 
   @Test
@@ -282,6 +296,97 @@ class WorkflowConditionEvaluatorTest {
     assertTrue(
         evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression), parent));
+  }
+
+  @Test
+  void customCondition_decryptsEncryptedPredicatePayload() {
+    EncryptionTestKit.install(true);
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    String expression =
+        PayloadEncryptor.encryptArgs(
+            serializeCondition((SerializablePredicate<JobResult<?>>) JobResult::isSuccess),
+            true,
+            EncryptionTarget.predicate(parent.getId()));
+
+    assertTrue(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression), parent));
+  }
+
+  @Test
+  void customCondition_transientKeyOutage_propagatesRetryable() {
+    EncryptionTestKit.install(true);
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    String expression =
+        PayloadEncryptor.encryptArgs(
+            serializeCondition((SerializablePredicate<JobResult<?>>) JobResult::isSuccess),
+            true,
+            EncryptionTarget.predicate(parent.getId()));
+    // The key provider goes transiently unreachable before the predicate is read back.
+    EncryptionHolder.install(
+        List.of(new EncryptionTestKit.AesGcmEngine()),
+        EncryptionTestKit.ALGORITHM_ID,
+        new TransientKeyProvider(),
+        true);
+
+    // Transient -> retryable: propagates as KeyProviderUnavailableException, not a config error.
+    assertThrows(
+        KeyProviderUnavailableException.class,
+        () ->
+            evaluator.evaluate(
+                conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
+                parent));
+  }
+
+  @Test
+  void customCondition_forgottenKeyPoison_failsHardAsConfigurationError() {
+    EncryptionTestKit.install(true);
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    String expression =
+        PayloadEncryptor.encryptArgs(
+            serializeCondition((SerializablePredicate<JobResult<?>>) JobResult::isSuccess),
+            true,
+            EncryptionTarget.predicate(parent.getId()));
+    // The key the predicate was written under is permanently gone.
+    EncryptionHolder.install(
+        List.of(new EncryptionTestKit.AesGcmEngine()),
+        EncryptionTestKit.ALGORITHM_ID,
+        new ForgottenKeyProvider(),
+        true);
+
+    // Poison -> permanent configuration failure (a WorkflowConditionConfigurationException, which
+    // is
+    // an IllegalStateException), distinct from the transient KeyProviderUnavailableException above.
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            evaluator.evaluate(
+                conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
+                parent));
+  }
+
+  private static final class TransientKeyProvider implements KeyProvider {
+    @Override
+    public EncryptionKey currentKey() {
+      throw new KeyProviderUnavailableException("KMS unreachable");
+    }
+
+    @Override
+    public EncryptionKey keyById(String keyId) {
+      throw new KeyProviderUnavailableException("KMS unreachable");
+    }
+  }
+
+  private static final class ForgottenKeyProvider implements KeyProvider {
+    @Override
+    public EncryptionKey currentKey() {
+      throw new KeyNotFoundException("key forgotten");
+    }
+
+    @Override
+    public EncryptionKey keyById(String keyId) {
+      throw new KeyNotFoundException("No key for id: " + keyId);
+    }
   }
 
   @Test

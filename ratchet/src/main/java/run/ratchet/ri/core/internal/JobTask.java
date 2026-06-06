@@ -46,7 +46,10 @@ import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
+import run.ratchet.api.exception.KeyNotFoundException;
+import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.payload.ArgumentCoercion;
@@ -70,6 +73,8 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /**
  * Runs a single job via reflection, handling retries, lifecycle events, and post-execution workflow
@@ -92,6 +97,14 @@ public class JobTask implements Callable<Void> {
   private static final int SUCCESS_FINALIZATION_MAX_ATTEMPTS = 5;
   private static final long[] SUCCESS_FINALIZATION_BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
   private static final long SUCCESS_FINALIZATION_JITTER_MAX_MS = 25L;
+
+  /**
+   * Backoff before a job released for being written by a newer Ratchet is eligible again. Long
+   * enough that a laggard node does not hot-loop re-claiming an envelope it cannot read, short
+   * enough that an upgraded peer drains it promptly during a rolling upgrade.
+   */
+  private static final Duration UPGRADE_PENDING_BACKOFF = Duration.ofSeconds(30);
+
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler lifecycleFacade;
@@ -222,8 +235,24 @@ public class JobTask implements Callable<Void> {
     try {
       jobEntity = getJob();
     } catch (Exception e) {
-      log.errorf(e, "Job %s failed to load entity from database - aborting execution", jobId);
       // Defensive: bind() hasn't run yet, but MDC.remove() of unset keys is a safe no-op.
+      UnsupportedEnvelopeVersionException upgradePending = findUpgradePending(e);
+      if (isPoison(e)) {
+        // Row hydration decrypted a protected surface and the decrypt failed (tampered ciphertext,
+        // wrong/retired key, or an uninstalled algorithm). This is non-retryable per the DLQ
+        // contract, so dead-letter the claimed RUNNING job rather than silently returning and
+        // leaving it to stall until lease recovery.
+        deadLetterPoisonedJob(jobId, e);
+      } else if (upgradePending != null) {
+        // The row carries an envelope version this node cannot read yet — written by a newer
+        // Ratchet during a rolling upgrade. It is valid data, not poison, so release the claim back
+        // to the pending pool with backoff (preserving the attempt count) so an already-upgraded
+        // peer can drain it, rather than dead-lettering valid work or stalling until lease
+        // recovery.
+        requeueForUpgrade(jobId, upgradePending);
+      } else {
+        log.errorf(e, "Job %s failed to load entity from database - aborting execution", jobId);
+      }
       JobMdcContext.clear();
       return null;
     }
@@ -248,41 +277,18 @@ public class JobTask implements Callable<Void> {
                 jobEntity.getCallerPrincipal(),
                 jobEntity.getParams()));
     JobType jobType = jobEntity.getPublicJobType();
-    Serializable deserializedSignalPayload = null;
-    String rawSignalPayload = jobEntity.getSignalPayload();
-    if (DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
-        jobEntity.getSignalPayloadType())) {
-      Serializable innerPayload = null;
-      if (rawSignalPayload != null && payloadSerializer != null) {
-        try {
-          Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
-          if (obj instanceof Serializable s) {
-            innerPayload = s;
-          }
-        } catch (Exception e) {
-          log.warnf(
-              "Failed to deserialize signal inner payload for job %s: %s", jobId, e.getMessage());
-        }
+    Serializable deserializedSignalPayload;
+    try {
+      deserializedSignalPayload = deserializeSignalPayload(jobEntity, jobId);
+    } catch (RuntimeException e) {
+      UnsupportedEnvelopeVersionException upgradePending = findUpgradePending(e);
+      if (upgradePending != null) {
+        requeueForUpgrade(jobId, upgradePending);
+      } else {
+        handleFailureSafely(e);
       }
-      String outcomeStr = jobEntity.getSignalOutcome();
-      if (outcomeStr != null) {
-        SignalDecision.Outcome outcome = SignalDecision.Outcome.valueOf(outcomeStr);
-        deserializedSignalPayload =
-            new SignalDecision(outcome, innerPayload, jobEntity.getSignalRejectionReason());
-      }
-    } else if (rawSignalPayload != null && payloadSerializer != null) {
-      // Deserialize to Object.class, not Serializable.class: JSON-B cannot instantiate the abstract
-      // Serializable target, so the old form always threw and silently left the payload null. This
-      // mirrors the SignalDecision inner-payload branch above. The payload round-trips as its
-      // JSON-native shape (String / Number / Boolean / List / Map); see signalPayload(Class).
-      try {
-        Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
-        if (obj instanceof Serializable s) {
-          deserializedSignalPayload = s;
-        }
-      } catch (Exception e) {
-        log.warnf("Failed to deserialize signal payload for job %s: %s", jobId, e.getMessage());
-      }
+      JobMdcContext.clear();
+      return null;
     }
 
     JobMdcContext.bindJobContext(
@@ -377,31 +383,7 @@ public class JobTask implements Callable<Void> {
             jobId, resilienceServiceName);
         rescheduleForCircuitBreaker(jobEntity, resilienceServiceName, e);
       } catch (Throwable t) {
-        try {
-          handleFailure(t);
-        } catch (Throwable failureHandlingError) {
-          log.errorf(
-              failureHandlingError,
-              "Job %s failure handling itself failed, forcing FAILED status",
-              job.getId());
-          String safeError;
-          try {
-            safeError = errorSanitizer.sanitize(t);
-          } catch (Throwable sanitizerError) {
-            safeError = t.getClass().getName();
-          }
-          try {
-            if (jobStore.compareAndSwapStatus(
-                job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError)) {
-              publishForcedTerminalFailure(t, safeError);
-            }
-          } catch (Throwable lastResort) {
-            log.errorf(
-                lastResort,
-                "Job %s could not be transitioned to FAILED — will require orphan recovery",
-                job.getId());
-          }
-        }
+        handleFailureSafely(t);
       } finally {
         if (permitAcquired) {
           releaseResourcePermit();
@@ -463,6 +445,173 @@ public class JobTask implements Callable<Void> {
 
   private UUID getJobId() {
     return job != null ? job.getId() : claim.id();
+  }
+
+  /**
+   * Detects payload-decryption poison anywhere in a throwable's cause chain. These are the
+   * exceptions {@link run.ratchet.ri.core.DoNotRetryPolicy} treats as non-retryable: the ciphertext
+   * cannot be recovered by re-running, so the job must be dead-lettered rather than retried or left
+   * stalled. A non-poison load failure (a missing row, a transient store error) falls through to
+   * the caller's normal abort, which leaves the claim for lease/orphan recovery.
+   */
+  private static boolean isPoison(Throwable t) {
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c instanceof PayloadDecryptionException || c instanceof KeyNotFoundException) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Returns the {@link UnsupportedEnvelopeVersionException} in a throwable's cause chain, or {@code
+   * null}. A future-version envelope is valid data this node cannot read yet (a newer Ratchet wrote
+   * it mid-rollout), distinct from poison: it must be requeued for an upgraded peer, not
+   * dead-lettered.
+   */
+  private static UnsupportedEnvelopeVersionException findUpgradePending(Throwable t) {
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c instanceof UnsupportedEnvelopeVersionException u) {
+        return u;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Moves a job whose payload failed to decrypt during hydration to a terminal FAILED state without
+   * retry, and emits the DLQ event. The entity never finished hydrating, so this works from the job
+   * id alone: it CAS-transitions RUNNING to FAILED (the same guard {@link #transitionToDlq} uses)
+   * and publishes a best-effort {@link JobDlqEvent}. The richer metadata the normal terminal path
+   * carries is unavailable here precisely because the row could not be read.
+   */
+  private void deadLetterPoisonedJob(UUID jobId, Throwable ex) {
+    String safeError;
+    try {
+      safeError = errorSanitizer.sanitize(ex);
+    } catch (Throwable sanitizerError) {
+      safeError = ex.getClass().getName();
+    }
+    log.errorf(
+        ex,
+        "Job %s carries undecryptable payload ciphertext (poison) — moving to FAILED/DLQ without"
+            + " retry",
+        jobId);
+    boolean moved;
+    try {
+      moved = jobStore.compareAndSwapStatus(jobId, JobStatus.RUNNING, JobStatus.FAILED, safeError);
+    } catch (Throwable t) {
+      log.errorf(
+          t, "Job %s could not be transitioned to FAILED — will require orphan recovery", jobId);
+      return;
+    }
+    if (moved) {
+      try {
+        observabilityFacade.publishEvent(
+            new JobDlqEvent(jobId, null, null, null, nodeIdProvider.getNodeId(), safeError, 1));
+      } catch (Throwable eventError) {
+        log.warnf(eventError, "Poison DLQ event publish failed for job %s", jobId);
+      }
+    }
+  }
+
+  /**
+   * Releases a claimed job whose payload was written by a newer Ratchet (an envelope version this
+   * node cannot read yet) back to the pending pool with backoff, so an already-upgraded peer drains
+   * it. The attempt count is preserved — this is not a failed attempt, it is a node that has not
+   * caught up — and a metric plus a throttled warning surface a node stuck behind the fleet.
+   */
+  private void requeueForUpgrade(UUID jobId, UnsupportedEnvelopeVersionException ex) {
+    observabilityFacade.recordEnvelopeVersionSkew(jobId, ex.version(), ex.maxSupportedVersion());
+    log.warnf(
+        "Job %s carries encryption envelope version %d but this node reads up to %d — releasing the"
+            + " claim for an upgraded peer. Upgrade this node to drain these rows.",
+        jobId, ex.version(), ex.maxSupportedVersion());
+    Instant newScheduledTime = effective().instant().plus(UPGRADE_PENDING_BACKOFF);
+    int attempts = claim != null ? claim.attempts() : 0;
+    try {
+      jobStore.scheduleJobRetry(jobId, ex.getMessage(), newScheduledTime, attempts);
+    } catch (Throwable t) {
+      log.errorf(
+          t,
+          "Job %s could not be released for upgrade — will require lease/orphan recovery",
+          jobId);
+    }
+  }
+
+  private Serializable deserializeSignalPayload(JobEntity jobEntity, UUID jobId) {
+    // Decrypt at rest before deserializing; no-op when no cipher is active or the value is
+    // plaintext. Let the decryption exception types propagate unwrapped so DoNotRetryPolicy can
+    // tell poison (corrupt ciphertext / forgotten key -> DLQ) from a transient key-provider outage
+    // (KeyProviderUnavailableException -> retry). Wrapping them in IllegalArgumentException here
+    // would force every case onto the non-retryable path and dead-letter a job a retry could have
+    // recovered.
+    String rawSignalPayload =
+        PayloadEncryptor.decryptValue(
+            jobEntity.getSignalPayload(), EncryptionTarget.signal(jobEntity.getSignalKey()));
+
+    if (DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
+        jobEntity.getSignalPayloadType())) {
+      Serializable innerPayload = null;
+      if (rawSignalPayload != null && payloadSerializer != null) {
+        try {
+          Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
+          if (obj instanceof Serializable s) {
+            innerPayload = s;
+          }
+        } catch (Exception e) {
+          log.warnf(
+              "Failed to deserialize signal inner payload for job %s: %s", jobId, e.getMessage());
+        }
+      }
+      String outcomeStr = jobEntity.getSignalOutcome();
+      if (outcomeStr != null) {
+        SignalDecision.Outcome outcome = SignalDecision.Outcome.valueOf(outcomeStr);
+        return new SignalDecision(outcome, innerPayload, jobEntity.getSignalRejectionReason());
+      }
+    } else if (rawSignalPayload != null && payloadSerializer != null) {
+      // Deserialize to Object.class, not Serializable.class: JSON-B cannot instantiate the abstract
+      // Serializable target, so the old form always threw and silently left the payload null. This
+      // mirrors the SignalDecision inner-payload branch above. The payload round-trips as its
+      // JSON-native shape (String / Number / Boolean / List / Map); see signalPayload(Class).
+      try {
+        Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
+        if (obj instanceof Serializable s) {
+          return s;
+        }
+      } catch (Exception e) {
+        log.warnf("Failed to deserialize signal payload for job %s: %s", jobId, e.getMessage());
+      }
+    }
+    return null;
+  }
+
+  private void handleFailureSafely(Throwable t) {
+    try {
+      handleFailure(t);
+    } catch (Throwable failureHandlingError) {
+      log.errorf(
+          failureHandlingError,
+          "Job %s failure handling itself failed, forcing FAILED status",
+          job.getId());
+      String safeError;
+      try {
+        safeError = errorSanitizer.sanitize(t);
+      } catch (Throwable sanitizerError) {
+        safeError = t.getClass().getName();
+      }
+      try {
+        if (jobStore.compareAndSwapStatus(
+            job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError)) {
+          publishForcedTerminalFailure(t, safeError);
+        }
+      } catch (Throwable lastResort) {
+        log.errorf(
+            lastResort,
+            "Job %s could not be transitioned to FAILED — will require orphan recovery",
+            job.getId());
+      }
+    }
   }
 
   private boolean tryAcquireResourcePermit() {

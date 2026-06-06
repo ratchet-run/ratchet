@@ -54,29 +54,40 @@ import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
+import run.ratchet.api.exception.KeyProviderUnavailableException;
+import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.EncryptionContext;
+import run.ratchet.spi.EncryptionKey;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobLogger;
+import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadEncryption;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 @ExtendWith(MockitoExtension.class)
 class JobTaskTest {
@@ -179,7 +190,7 @@ class JobTaskTest {
             errorSanitizer,
             classPolicy,
             context -> new JBossLoggingJobLogger(context.jobId(), null),
-            new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer),
+            new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
             serializer,
             Clock.systemUTC());
@@ -188,6 +199,8 @@ class JobTaskTest {
   @AfterEach
   void tearDown() {
     OBSERVED_SIGNAL_DECISION.remove();
+    OBSERVED_SIGNAL_STRING.remove();
+    EncryptionHolder.disable();
   }
 
   @Test
@@ -387,6 +400,99 @@ class JobTaskTest {
     jobTask.call();
 
     verify(lifecycleFacade).moveToDlq(eq(job), eq(error));
+  }
+
+  @Test
+  void call_hydrationDecryptPoison_movesToDlqWithoutRetry() {
+    // A claimed RUNNING job whose payload fails to decrypt during hydration is poison: the
+    // ciphertext cannot be recovered by re-running. It must be dead-lettered, not swallowed and
+    // left to stall until lease recovery (the regression this guards).
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+    when(errorSanitizer.sanitize(any())).thenReturn("decryption failed");
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    // Routed through the controlled DLQ path: terminal FAILED + a DLQ event.
+    verify(jobStore)
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(observabilityFacade).publishEvent(any(JobDlqEvent.class));
+    // Non-retryable: never rescheduled, never increments the attempt counter.
+    verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+  }
+
+  @Test
+  void call_hydrationFutureEnvelopeVersion_requeuesForUpgradeNotDlq() {
+    // A claimed RUNNING job whose payload was written by a newer Ratchet (an envelope version this
+    // node cannot read yet) is valid data, not poison. It must be released back to the pool with
+    // backoff for an already-upgraded peer — never dead-lettered, never left stuck RUNNING.
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID)).thenThrow(new UnsupportedEnvelopeVersionException(2, 1));
+    when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt())).thenReturn(true);
+
+    jobTask.call();
+
+    // Released for an upgraded peer (attempt count preserved), with a skew metric.
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(claim.attempts()));
+    verify(observabilityFacade).recordEnvelopeVersionSkew(JOB_UUID, 2, 1);
+    // Not poison: never dead-lettered.
+    verify(jobStore, never())
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
+  }
+
+  @Test
+  void call_signalDecryptTransientKeyOutage_retriesInsteadOfDlq() {
+    // A transient key-provider outage during signal-payload decrypt must stay retryable, not be
+    // flattened into a non-retryable IllegalArgumentException that dead-letters a recoverable job.
+    EncryptionTestKit.install(false);
+    String framedSignal =
+        PayloadEncryptor.encryptValue("\"payload\"", true, EncryptionTarget.signal("sig-key"));
+    EncryptionHolder.install(
+        List.of(new EncryptionTestKit.AesGcmEngine()),
+        EncryptionTestKit.ALGORITHM_ID,
+        new TransientKeyProvider(),
+        false);
+
+    JobEntity job = createTestJob();
+    job.setSignalKey("sig-key");
+    job.setSignalPayload(framedSignal);
+    jobTask.init(job);
+    // Exercise the real do-not-retry classification, not the mocked facade's default.
+    DoNotRetryPolicy realPolicy = new DoNotRetryPolicy();
+    when(validationFacade.shouldNotRetry(any()))
+        .thenAnswer(inv -> realPolicy.shouldNotRetry(inv.getArgument(0)));
+    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
+    when(retryPolicy.shouldRetry(eq(1), any())).thenReturn(true);
+    when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
+    when(errorSanitizer.sanitize(any())).thenReturn("safe transient failure");
+    when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt())).thenReturn(true);
+
+    jobTask.call();
+
+    // Transient outage is retryable: the job is rescheduled, never dead-lettered.
+    verify(jobStore).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+  }
+
+  /** A key provider that is transiently unreachable on every lookup. */
+  private static final class TransientKeyProvider implements KeyProvider {
+    @Override
+    public EncryptionKey currentKey() {
+      throw new KeyProviderUnavailableException("KMS unreachable");
+    }
+
+    @Override
+    public EncryptionKey keyById(String keyId) {
+      throw new KeyProviderUnavailableException("KMS unreachable");
+    }
   }
 
   @Test
@@ -832,6 +938,37 @@ class JobTaskTest {
     Assertions.assertEquals("hello", OBSERVED_SIGNAL_STRING.get());
   }
 
+  @Test
+  void call_signalPayloadDecryptionFailureMovesJobToFailurePath() throws Exception {
+    EncryptionHolder.install(
+        List.of(new FailingDecryptEngine()),
+        FailingDecryptEngine.ALGORITHM_ID,
+        new EncryptionTestKit.Provider(),
+        true);
+    JobEntity job = createTestJob();
+    job.setSignalPayload(
+        PayloadEncryptor.encryptValue(
+            "\"hello\"", true, EncryptionTarget.signal(job.getSignalKey())));
+    jobTask.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    when(validationFacade.shouldNotRetry(any(Throwable.class))).thenReturn(true);
+    when(errorSanitizer.sanitize(any(Throwable.class))).thenReturn("safe decrypt failure");
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(jobStore)
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    // Poison surfaces with its true type now (no IllegalArgumentException wrap); it is still DLQ'd.
+    verify(observabilityFacade)
+        .recordJobFailure(eq(job), any(PayloadDecryptionException.class), eq(0));
+    verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
+    verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
+    verify(lifecycleFacade).moveToDlq(eq(job), any(PayloadDecryptionException.class));
+  }
+
   private JobEntity createTestJob() {
     JobEntity job = new JobEntity();
     job.setId(JOB_UUID);
@@ -900,6 +1037,26 @@ class JobTaskTest {
         null,
         null,
         taskClock);
+  }
+
+  /** Encrypts to a real frame but always fails to decrypt — a tampered/wrong-key analogue. */
+  private static final class FailingDecryptEngine implements PayloadEncryption {
+    static final String ALGORITHM_ID = "FAIL-DECRYPT";
+
+    @Override
+    public String algorithmId() {
+      return ALGORITHM_ID;
+    }
+
+    @Override
+    public byte[] encrypt(byte[] plaintext, EncryptionContext ctx) {
+      return new byte[] {1, 2, 3};
+    }
+
+    @Override
+    public byte[] decrypt(byte[] ciphertext, EncryptionContext ctx) {
+      throw new PayloadDecryptionException("wrong key");
+    }
   }
 
   public static class AnnotatedJobTarget {

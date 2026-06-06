@@ -56,6 +56,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -74,6 +75,8 @@ import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /** CDI-managed persistence boundary for scheduler builders. */
 @ApplicationScoped
@@ -340,6 +343,9 @@ class DefaultJobCreationService
     job.setBusinessKey(businessKey);
     job.setResourceName(resourceName);
     job.setExecutionTarget(state.executionTarget());
+    // Per-job opt-in from withEncryptedPayload(). The store write derives the actual
+    // encrypted-or-not decision (global switch OR this flag) and the encryption_key_id column.
+    job.setEncryptedPayload(state.encryptedPayload());
     if (builder.onSuccess() != null) {
       job.setOnSuccessPayload(payload(builder.onSuccess()));
     }
@@ -371,12 +377,12 @@ class DefaultJobCreationService
 
     List<SerializableCheckedRunnable> chainTasks = state.chainTasks();
     if (!chainTasks.isEmpty()) {
-      createChainSteps(jobId, chainTasks, opts, state.executionTarget());
+      createChainSteps(jobId, chainTasks, opts, state.executionTarget(), state.encryptedPayload());
     }
 
     List<WorkflowBranch> branches = builder.workflowBranches();
     if (!branches.isEmpty()) {
-      createWorkflowBranches(jobId, branches, state.executionTarget());
+      createWorkflowBranches(jobId, branches, state.executionTarget(), saved.isEncryptedPayload());
     }
 
     boolean shouldWakeup =
@@ -439,7 +445,8 @@ class DefaultJobCreationService
     bulkStore().bulkInsert(childJobs);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
-      createWorkflowBranch(parentId, branch, builder.executionTarget());
+      createWorkflowBranch(
+          parentId, branch, builder.executionTarget(), savedParent.isEncryptedPayload());
     }
 
     wakeupService.notifyIfNeeded(
@@ -506,7 +513,8 @@ class DefaultJobCreationService
     batchStore.updateBatchTotalItems(parentId, totalItems);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
-      createWorkflowBranch(parentId, branch, builder.executionTarget());
+      createWorkflowBranch(
+          parentId, branch, builder.executionTarget(), savedParent.isEncryptedPayload());
     }
 
     wakeupService.notifyIfNeeded(
@@ -592,7 +600,8 @@ class DefaultJobCreationService
             /* resourceName */ null,
             builder.executionTarget(),
             base,
-            callerPrincipal);
+            callerPrincipal,
+            builder.encryptedPayload());
 
     UUID saved = recurringJobStore.createRecurring(definition);
 
@@ -652,7 +661,8 @@ class DefaultJobCreationService
       UUID predecessorId,
       List<SerializableCheckedRunnable> chainTasks,
       JobOptions opts,
-      String executionTarget) {
+      String executionTarget,
+      boolean parentEncrypted) {
     UUID prevId = predecessorId;
     for (SerializableCheckedRunnable chainTask : chainTasks) {
       JobEntity step = new JobEntity();
@@ -661,6 +671,12 @@ class DefaultJobCreationService
       step.setPriority(opts.priority());
       step.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
       step.setPayload(payload(chainTask));
+      // A chain step inherits its parent's encryption opt-in: the row mapper encrypts the step's
+      // own
+      // payload args off this flag, exactly as it does for the parent job, so an opted-in
+      // .then(...)
+      // chain never persists plaintext args.
+      step.setEncryptedPayload(parentEncrypted);
       step.setIdempotencyKey(UUID.randomUUID().toString());
       step.setDependsOn(prevId);
       step.setExecutionTarget(executionTarget);
@@ -705,24 +721,29 @@ class DefaultJobCreationService
   }
 
   private void createWorkflowBranches(
-      UUID parentId, List<WorkflowBranch> branches, String executionTarget) {
+      UUID parentId,
+      List<WorkflowBranch> branches,
+      String executionTarget,
+      boolean parentEncrypted) {
     if (workflowConditionStore == null && !branches.isEmpty()) {
       throw new UnsupportedOperationException(
           "Workflow branch scheduling requires a store advertising the WorkflowConditionStore"
               + " capability");
     }
     for (WorkflowBranch branch : branches) {
-      createWorkflowBranch(parentId, branch, executionTarget);
+      createWorkflowBranch(parentId, branch, executionTarget, parentEncrypted);
     }
   }
 
-  private void createWorkflowBranch(UUID parentId, WorkflowBranch branch, String executionTarget) {
+  private void createWorkflowBranch(
+      UUID parentId, WorkflowBranch branch, String executionTarget, boolean parentEncrypted) {
     JobEntity branchJob = new JobEntity();
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
     branchJob.setPriority(JobPriority.NORMAL);
     branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
     branchJob.setPayload(payload(branch.task()));
+    branchJob.setEncryptedPayload(parentEncrypted);
     branchJob.setIdempotencyKey(UUID.randomUUID().toString());
     branchJob.setDependsOn(parentId);
     branchJob.setExecutionTarget(executionTarget);
@@ -739,7 +760,14 @@ class DefaultJobCreationService
       Serializable expr = branch.condition().expression();
       if (expr instanceof SerializablePredicate<?> || expr instanceof SerializableFunction<?, ?>) {
         JobPayload p = JobPayloadFactory.fromLambda(expr);
-        condition.setConditionExpression(PayloadSerializerHolder.get().serialize(p));
+        // The predicate belongs to the parent job, binds the parent id, and follows the parent's
+        // encryption opt-in: an opted-in workflow encrypts its predicate even when the global
+        // switch is off.
+        condition.setConditionExpression(
+            PayloadEncryptor.encryptArgs(
+                PayloadSerializerHolder.get().serialize(p),
+                EncryptionHolder.encryptionActiveFor(parentEncrypted),
+                EncryptionTarget.predicate(parentId)));
       } else {
         condition.setConditionExpression(expr.toString());
       }

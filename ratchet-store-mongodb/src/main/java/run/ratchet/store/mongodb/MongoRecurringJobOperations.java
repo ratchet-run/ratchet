@@ -65,8 +65,10 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.util.JobEncryption;
 
 /**
  * MongoDB implementation of {@link RecurringJobStore} over the dedicated {@code
@@ -262,6 +264,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
 
   @Override
   public boolean updateRecurring(UUID id, RecurringJobDefinition d) {
+    boolean active = JobEncryption.activeFor(d.encryptedPayload());
     UpdateResult r =
         ctx.recurringJobs()
             .updateOne(
@@ -277,15 +280,21 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                     set(CRON_EXPR, d.cronExpr()),
                     set(ZONE_ID, d.zoneId() != null ? d.zoneId() : "UTC"),
                     set(NEXT_FIRE, Date.from(d.nextFire())),
-                    set(PAYLOAD, DocumentMapper.payloadToStoredValue(d.payload())),
+                    set(
+                        PAYLOAD,
+                        DocumentMapper.encryptedRecurringColumn(
+                            d.payload(), active, ProtectedSurface.PAYLOAD_ARGS, id)),
                     set(
                         ON_SUCCESS_PAYLOAD,
-                        DocumentMapper.payloadToStoredValue(d.onSuccessPayload())),
+                        DocumentMapper.encryptedRecurringColumn(
+                            d.onSuccessPayload(), active, ProtectedSurface.ON_SUCCESS_PAYLOAD, id)),
                     set(
                         ON_FAILURE_PAYLOAD,
-                        DocumentMapper.payloadToStoredValue(d.onFailurePayload())),
+                        DocumentMapper.encryptedRecurringColumn(
+                            d.onFailurePayload(), active, ProtectedSurface.ON_FAILURE_PAYLOAD, id)),
                     set(RESOURCE_NAME, d.resourceName()),
-                    set(EXECUTION_TARGET, d.executionTarget())),
+                    set(EXECUTION_TARGET, d.executionTarget()),
+                    set("encrypted_payload", active)),
                 new UpdateOptions().upsert(false));
     return r.getModifiedCount() > 0;
   }

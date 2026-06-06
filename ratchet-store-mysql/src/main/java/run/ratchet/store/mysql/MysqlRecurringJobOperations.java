@@ -26,12 +26,13 @@ import java.util.Set;
 import java.util.UUID;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.util.JobClaimSqlSupport;
+import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.RecurringJobRows;
 import run.ratchet.store.util.RowValues;
 
@@ -42,14 +43,13 @@ import run.ratchet.store.util.RowValues;
 final class MysqlRecurringJobOperations implements RecurringJobStore {
 
   private static final int CANCEL_CHUNK = 500;
-  private static final JobPayloadConverter PAYLOAD_CONVERTER = new JobPayloadConverter();
 
   // language=MySQL
   private static final String SELECT_COLUMNS =
       "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec, cron_expr,"
           + " zone_id, next_fire, is_paused, paused_at, payload, on_success_payload,"
           + " on_failure_payload, business_key, resource_name, execution_target, created_at,"
-          + " caller_principal";
+          + " caller_principal, encrypted_payload";
 
   private final MysqlStoreContext ctx;
   private final MysqlBusinessKeyReservations reservations;
@@ -230,10 +230,11 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
             + "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec,"
             + " cron_expr, zone_id, next_fire, is_paused, paused_at, payload,"
             + " on_success_payload, on_failure_payload, business_key, resource_name,"
-            + " execution_target, created_at, caller_principal)"
+            + " execution_target, created_at, caller_principal, encrypted_payload)"
             + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON),"
-            + " CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?)";
+            + " CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, ?)";
     Instant created = d.createdAt() != null ? d.createdAt() : Instant.now();
+    boolean active = JobEncryption.activeFor(d.encryptedPayload());
     Query q = ctx.em().createNativeQuery(sql);
     int i = 1;
     q.setParameter(i++, UuidByteArrayConverter.toBytes(d.id()));
@@ -247,14 +248,24 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, Timestamp.from(d.nextFire()));
     q.setParameter(i++, d.paused());
     q.setParameter(i++, d.pausedAt() != null ? Timestamp.from(d.pausedAt()) : null);
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.payload()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onSuccessPayload()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onFailurePayload()));
+    q.setParameter(
+        i++,
+        RecurringJobRows.encryptPayloadColumn(
+            d.payload(), active, ProtectedSurface.PAYLOAD_ARGS, d.id()));
+    q.setParameter(
+        i++,
+        RecurringJobRows.encryptPayloadColumn(
+            d.onSuccessPayload(), active, ProtectedSurface.ON_SUCCESS_PAYLOAD, d.id()));
+    q.setParameter(
+        i++,
+        RecurringJobRows.encryptPayloadColumn(
+            d.onFailurePayload(), active, ProtectedSurface.ON_FAILURE_PAYLOAD, d.id()));
     q.setParameter(i++, d.businessKey());
     q.setParameter(i++, d.resourceName());
     q.setParameter(i++, d.executionTarget());
     q.setParameter(i++, Timestamp.from(created));
-    q.setParameter(i, d.callerPrincipal());
+    q.setParameter(i++, d.callerPrincipal());
+    q.setParameter(i, active);
     try {
       q.executeUpdate();
       if (d.businessKey() != null) {
@@ -280,8 +291,9 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
             + " timeout_sec = ?, cron_expr = ?, zone_id = ?, next_fire = ?,"
             + " payload = CAST(? AS JSON),"
             + " on_success_payload = CAST(? AS JSON), on_failure_payload = CAST(? AS JSON),"
-            + " resource_name = ?, execution_target = ?"
+            + " resource_name = ?, execution_target = ?, encrypted_payload = ?"
             + " WHERE id = ?";
+    boolean active = JobEncryption.activeFor(d.encryptedPayload());
     Query q = ctx.em().createNativeQuery(sql);
     int i = 1;
     q.setParameter(i++, d.priority());
@@ -292,11 +304,21 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, d.cronExpr());
     q.setParameter(i++, d.zoneId() != null ? d.zoneId() : "UTC");
     q.setParameter(i++, Timestamp.from(d.nextFire()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.payload()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onSuccessPayload()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onFailurePayload()));
+    q.setParameter(
+        i++,
+        RecurringJobRows.encryptPayloadColumn(
+            d.payload(), active, ProtectedSurface.PAYLOAD_ARGS, id));
+    q.setParameter(
+        i++,
+        RecurringJobRows.encryptPayloadColumn(
+            d.onSuccessPayload(), active, ProtectedSurface.ON_SUCCESS_PAYLOAD, id));
+    q.setParameter(
+        i++,
+        RecurringJobRows.encryptPayloadColumn(
+            d.onFailurePayload(), active, ProtectedSurface.ON_FAILURE_PAYLOAD, id));
     q.setParameter(i++, d.resourceName());
     q.setParameter(i++, d.executionTarget());
+    q.setParameter(i++, active);
     q.setParameter(i, UuidByteArrayConverter.toBytes(id));
     return q.executeUpdate() > 0;
   }

@@ -36,6 +36,7 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
   private List<String> tags = List.of();
   private String businessKey;
   private String executionTarget;
+  private boolean encryptedPayload;
 
   DefaultRecurringJobBuilder(
       String cronExpr,
@@ -79,6 +80,12 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
   }
 
   @Override
+  public RecurringJobBuilder withEncryptedPayload() {
+    this.encryptedPayload = true;
+    return this;
+  }
+
+  @Override
   public JobHandle submit() {
     return submitter.submit(this);
   }
@@ -109,5 +116,9 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   String executionTarget() {
     return executionTarget;
+  }
+
+  boolean encryptedPayload() {
+    return encryptedPayload;
   }
 }

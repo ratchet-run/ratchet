@@ -58,6 +58,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
@@ -71,6 +72,8 @@ import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 
 /** Core scheduling API implementation. Delegates builder persistence to a CDI-managed service. */
 @ApplicationScoped
@@ -954,7 +957,7 @@ public class DefaultJobSchedulerService
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
     }
-    String serializedPayload = serializeSignalPayload(payload);
+    String serializedPayload = serializeSignalPayload(payload, signalKeyOf(job), signalActive(job));
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -990,7 +993,8 @@ public class DefaultJobSchedulerService
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
     }
-    String serializedPayload = serializeSignalPayload(decision.payload());
+    String serializedPayload =
+        serializeSignalPayload(decision.payload(), signalKeyOf(job), signalActive(job));
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -1026,7 +1030,11 @@ public class DefaultJobSchedulerService
       authorizationPolicy.checkDeliverSignal(signalKey, principal);
     }
     String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
-    String serializedPayload = serializeSignalPayload(payload);
+    // Broadcast: one ciphertext lands on every matching row, and the AAD binds the signal key (not
+    // a job id), so a single ciphertext decrypts on all of them. Per-job opt-in can't be expressed
+    // per row here, so encrypt whenever an engine is configured — that keeps an opted-in waiting
+    // job from receiving a plaintext signal payload when the global switch is off.
+    String serializedPayload = serializeSignalPayload(payload, signalKey, broadcastSignalActive());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -1061,7 +1069,8 @@ public class DefaultJobSchedulerService
       authorizationPolicy.checkDeliverSignal(signalKey, principal);
     }
     String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
-    String serializedPayload = serializeSignalPayload(decision.payload());
+    String serializedPayload =
+        serializeSignalPayload(decision.payload(), signalKey, broadcastSignalActive());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -1125,12 +1134,36 @@ public class DefaultJobSchedulerService
     }
   }
 
-  private String serializeSignalPayload(Serializable payload) {
+  private static String signalKeyOf(JobEntity job) {
+    return job != null ? job.getSignalKey() : null;
+  }
+
+  /** Targeted delivery: encrypt iff the global switch is on or the target job opted in. */
+  private static boolean signalActive(JobEntity job) {
+    return job != null && EncryptionHolder.encryptionActiveFor(job.isEncryptedPayload());
+  }
+
+  /**
+   * Broadcast delivery: one ciphertext lands on every waiting row matching the key, and the AAD
+   * binds the signal key rather than any job id, so the same ciphertext decrypts on all of them.
+   * Per-job opt-in cannot be applied per row, so encrypt whenever an engine is configured. This
+   * stops an opted-in waiting job from receiving a plaintext signal payload when the global switch
+   * is off; over-encrypting a non-opted row is harmless because reads are marker-driven.
+   */
+  private static boolean broadcastSignalActive() {
+    return EncryptionHolder.isEnabled();
+  }
+
+  private String serializeSignalPayload(Serializable payload, String signalKey, boolean active) {
     if (payload == null) {
       return null;
     }
     if (payloadSerializer != null) {
-      return payloadSerializer.serialize(payload);
+      // signal_payload is a TEXT column, so the engine output is stored as a bare token (no JSON
+      // envelope needed). Bound to the signal key, not a job id: a broadcast writes one ciphertext
+      // to every waiting row matching the key. No-op when inactive.
+      return PayloadEncryptor.encryptValue(
+          payloadSerializer.serialize(payload), active, EncryptionTarget.signal(signalKey));
     }
     throw new IllegalStateException(
         "Cannot deliver a non-null signal payload without a PayloadSerializer");

@@ -31,12 +31,12 @@ import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
-import run.ratchet.ri.core.DefaultBatchBuilder;
+import run.ratchet.api.exception.KeyProviderUnavailableException;
+import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -57,7 +57,6 @@ public class WorkflowScheduler extends ChainScheduler {
 
   private final WorkflowConditionStore conditionStore;
   private final WorkflowConditionEvaluator conditionEvaluator;
-  private final JobBatchStatusStore jobBatchStatusStore;
   private final JobTerminalStore jobTerminalStore;
   private final Clock clock;
 
@@ -65,47 +64,30 @@ public class WorkflowScheduler extends ChainScheduler {
     super();
     this.conditionStore = null;
     this.conditionEvaluator = null;
-    this.jobBatchStatusStore = null;
     this.jobTerminalStore = null;
     this.clock = null;
   }
 
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator) {
-    this(
-        jobCrudStore,
-        jobBatchStatusStore,
-        jobTerminalStore,
-        conditionStore,
-        conditionEvaluator,
-        Clock.systemUTC());
+    this(jobCrudStore, jobTerminalStore, conditionStore, conditionEvaluator, Clock.systemUTC());
   }
 
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock) {
-    this(
-        jobCrudStore,
-        jobBatchStatusStore,
-        jobTerminalStore,
-        conditionStore,
-        conditionEvaluator,
-        clock,
-        null);
+    this(jobCrudStore, jobTerminalStore, conditionStore, conditionEvaluator, clock, null);
   }
 
   @Inject
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
       Instance<WorkflowConditionStore> conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
@@ -113,7 +95,6 @@ public class WorkflowScheduler extends ChainScheduler {
       InternalEventPublisher eventPublisher) {
     this(
         jobCrudStore,
-        jobBatchStatusStore,
         jobTerminalStore,
         conditionStore.isResolvable() ? conditionStore.get() : null,
         conditionEvaluator,
@@ -123,14 +104,12 @@ public class WorkflowScheduler extends ChainScheduler {
 
   WorkflowScheduler(
       JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
       InternalEventPublisher eventPublisher) {
     super(jobCrudStore, jobTerminalStore, clock, eventPublisher);
-    this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.conditionStore = conditionStore;
     this.conditionEvaluator = conditionEvaluator;
@@ -208,27 +187,49 @@ public class WorkflowScheduler extends ChainScheduler {
         conditions.stream().map(WorkflowConditionEntity::getChildJobId).collect(Collectors.toSet());
     WorkflowConditionEntity scheduledCondition = null;
     for (WorkflowConditionEntity condition : conditions) {
+      boolean matched;
       try {
-        if (conditionEvaluator.evaluate(condition, parentJob)) {
-          boolean scheduled = scheduleChildJob(condition, parentJob, childJobs);
-          if (scheduled) {
-            scheduledCondition = condition;
-            log.infof(
-                "Scheduled workflow branch job %s after condition evaluation (type: %s, priority: %s)",
-                condition.getChildJobId(),
-                condition.getConditionType(),
-                condition.getConditionPriority());
-            break;
-          }
-        }
-      } catch (Exception e) {
+        matched = conditionEvaluator.evaluate(condition, parentJob);
+      } catch (KeyProviderUnavailableException | UnsupportedEnvelopeVersionException deferrable) {
+        // The branch cannot be decided now, but the data is valid and becomes readable later: a
+        // transient key-provider outage (recovers), or a predicate written by a newer Ratchet this
+        // node cannot read yet (becomes readable after upgrade). Abort before the post-loop branch
+        // cancellation so every PENDING/WAITING branch is preserved, and let the throw unwind the
+        // post-execution REQUIRES_NEW. The parent has already completed, so there is no automatic
+        // re-evaluation: an operator re-triggers branch scheduling once the key provider is
+        // reachable again, or once this node is upgraded.
         log.errorf(
-            e,
-            "Unexpected exception evaluating workflow condition %s for job %s: %s",
+            deferrable,
+            "Workflow condition %s for parent %s cannot be decided yet (%s); branch scheduling"
+                + " deferred and all branches preserved. Re-trigger scheduling after key"
+                + " availability or node upgrade.",
             condition.getId(),
             parentJob.getId(),
-            e.getMessage());
-        throw failWorkflowCondition(parentJob, e);
+            deferrable.getClass().getSimpleName());
+        throw deferrable;
+      } catch (RuntimeException permanentFailure) {
+        // evaluate() lets only a permanent WorkflowConditionConfigurationException escape here
+        // (every
+        // other evaluation error is already turned into a non-match inside it). The predicate can
+        // never be evaluated, so this branch is left unscheduled; cancelUnscheduledBranches below
+        // then cancels it durably -- a visible, committed outcome instead of a silent stall.
+        // Sibling
+        // branches and the linear chain still proceed.
+        log.errorf(
+            permanentFailure,
+            "Workflow condition %s for parent %s is permanently unevaluable; canceling its branch.",
+            condition.getId(),
+            parentJob.getId());
+        continue;
+      }
+      if (matched && scheduleChildJob(condition, parentJob, childJobs)) {
+        scheduledCondition = condition;
+        log.infof(
+            "Scheduled workflow branch job %s after condition evaluation (type: %s, priority: %s)",
+            condition.getChildJobId(),
+            condition.getConditionType(),
+            condition.getConditionPriority());
+        break;
       }
     }
 
@@ -253,55 +254,6 @@ public class WorkflowScheduler extends ChainScheduler {
       return false;
     }
     return super.scheduleNext(parentJob, conditionalChildIds);
-  }
-
-  private IllegalStateException failWorkflowCondition(JobEntity parentJob, Exception cause) {
-    String error = "Workflow condition evaluation failed: " + cause.getMessage();
-
-    if (!jobBatchStatusStore.tryPickUpJob(
-        parentJob.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-      return new IllegalStateException(
-          "Workflow condition evaluation failed, and parent "
-              + parentJob.getId()
-              + " could not be claimed for terminal failure recovery",
-          cause);
-    }
-
-    boolean marked =
-        jobTerminalStore.markJobFailedTerminal(parentJob.getId(), error, parentJob.getAttempts());
-    if (!marked) {
-      resetWorkflowFailurePickup(parentJob.getId(), cause);
-      return new IllegalStateException(
-          "Workflow condition evaluation failed, and parent "
-              + parentJob.getId()
-              + " could not be marked failed",
-          cause);
-    }
-
-    parentJob.setStatus(JobStatus.FAILED);
-    parentJob.setLastError(error);
-    cancelChain(parentJob);
-    return new IllegalStateException(error, cause);
-  }
-
-  private void resetWorkflowFailurePickup(UUID parentId, Exception cause) {
-    try {
-      if (jobBatchStatusStore.resetRunningJob(
-          parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-        return;
-      }
-    } catch (RuntimeException resetFailure) {
-      resetFailure.addSuppressed(cause);
-      throw resetFailure;
-    }
-
-    IllegalStateException failure =
-        new IllegalStateException(
-            "Workflow parent "
-                + parentId
-                + " synthetic pickup could not be reset after terminal transition failure");
-    failure.addSuppressed(cause);
-    throw failure;
   }
 
   private void cancelUnscheduledBranches(
