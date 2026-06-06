@@ -135,27 +135,31 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
   }
 
   @Test
-  void terminalTransition_clearsLiveStatusFromCounts() {
-    String bk = uniqueBusinessKey();
-    JobEntity job = persist(jobWithBusinessKey(bk));
-
-    long pendingBefore = analyticsStore().countJobsByStatus(JobStatus.PENDING);
-    long succeededBefore = analyticsStore().countJobsByStatus(JobStatus.SUCCEEDED);
+  void terminalTransition_clearsLiveQueueCount() {
+    // The dual-write invariant — no live-queue row survives a terminal transition — is asserted
+    // through the mandatory core countPendingJobs(), not the optional analytics capability, so a
+    // core-only store still exercises it. The SUCCEEDED-side status count is covered by the
+    // analytics contract.
+    long pendingBefore = store().countPendingJobs();
+    JobEntity job = persist(newPendingJob());
+    assertEquals(
+        pendingBefore + 1,
+        store().countPendingJobs(),
+        "a freshly persisted PENDING job must join the live-queue count");
 
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobSucceededMinimal(job.getId(), Instant.now(), Instant.now(), 0L, 0L);
-
-    long pendingAfter = analyticsStore().countJobsByStatus(JobStatus.PENDING);
-    long succeededAfter = analyticsStore().countJobsByStatus(JobStatus.SUCCEEDED);
+    assertTrue(
+        store().markJobSucceededMinimal(job.getId(), Instant.now(), Instant.now(), 0L, 0L),
+        "markJobSucceededMinimal must report the RUNNING -> SUCCEEDED transition");
+    assertEquals(
+        JobStatus.SUCCEEDED,
+        store().getJobStatus(job.getId()),
+        "the job must actually reach terminal SUCCEEDED, not merely leave PENDING");
 
     assertEquals(
-        pendingBefore - 1,
-        pendingAfter,
-        "PENDING count should decrease by one after terminal SUCCEEDED");
-    assertEquals(
-        succeededBefore + 1,
-        succeededAfter,
-        "SUCCEEDED count should increase by one after terminal SUCCEEDED");
+        pendingBefore,
+        store().countPendingJobs(),
+        "after a terminal SUCCEEDED the live-queue count returns to baseline — no hot row survives");
   }
 
   @Test
