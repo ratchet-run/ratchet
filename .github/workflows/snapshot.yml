@@ -1,0 +1,41 @@
+name: Snapshot
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  snapshot-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: temurin
+          cache: maven
+          # setup-java materializes ~/.m2/settings.xml with a <server> entry whose id
+          # matches the github profile's <distributionManagement><repository><id>.
+          # Without it the upload to maven.pkg.github.com fails with 401 Unauthorized.
+          server-id: github
+          server-username: GITHUB_ACTOR
+          server-password: GITHUB_TOKEN
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      - name: Publish snapshot to GitHub Packages
+        # No verify gate here, unlike release.yml: every push to main already ran the
+        # full CI matrix through the "CI required" branch protection, and re-running
+        # the 15-cell Arquillian matrix per push would roughly double CI cost. The six
+        # test/dev modules set maven.deploy.skip=true, so only library artifacts upload.
+        run: mvn -B -ntp -Dstyle.color=always deploy -P github,sign -DskipTests -Dspotbugs.skip=true
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}

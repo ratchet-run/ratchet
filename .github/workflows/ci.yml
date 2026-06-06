@@ -6,6 +6,8 @@ on:
   pull_request:
     branches: [main]
   merge_group:
+  # Lets release.yml and snapshot.yml reuse the full matrix as their verify gate.
+  workflow_call:
 
 # Ryuk, the Testcontainers resource reaper, is unnecessary on ephemeral GitHub runners — the VM is
 # thrown away after each job, so anything it would reap dies with it. Its image pull is also an
