@@ -16,42 +16,38 @@
 package run.ratchet.tck.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
-import run.ratchet.tck.util.ConcurrentTestRunner;
+import run.ratchet.api.JobPriority;
 
 /**
- * Base contract for {@link run.ratchet.api.JobBuilder#withBusinessKey(String) withBusinessKey}
- * semantics.
+ * Base contract for {@link run.ratchet.api.JobBuilder#withIdempotencyKey(String)
+ * withIdempotencyKey} semantics.
  *
- * <p>The Ratchet API javadoc on {@code withBusinessKey} states only that the call "prevents
- * concurrent execution against the same entity" and that "multiple completed jobs may share the
- * same key; only active (PENDING/RUNNING) jobs are blocked." It deliberately does NOT lock the
- * rejection <em>mechanism</em>. A conformant implementation may either:
- *
- * <ul>
- *   <li>throw an exception from {@code submit()} (the reference implementation does this), or
- *   <li>return a handle whose {@code id()} points to the existing active job (idempotent merge,
- *       analogous to how {@code withIdempotencyKey} permanently merges).
- * </ul>
- *
- * <p>This contract therefore enforces only the <em>observable</em> property — a duplicate active
- * business key MUST NOT cause a second execution — and tolerates either rejection mechanism.
+ * <p>Unlike a business key, an idempotency key maps to exactly one job permanently: "once consumed
+ * this key is never reusable." This contract mandates the stronger of the two observable behaviors
+ * a permanent dedup could take — <b>merge, not reject</b>. A duplicate idempotency key MUST return
+ * the <em>original</em> job's {@link JobHandle} so the caller gets a usable handle back, MUST NOT
+ * start a second execution, and MUST hold even after the original job has reached a terminal state
+ * and even when the duplicate carries a different task or config. The complementary {@link
+ * AbstractBusinessKeyContract} pins the looser active-only {@code withBusinessKey} semantics and
+ * tolerates either a throw or a merge.
  */
 public abstract class AbstractIdempotencyContract {
 
-  private static String uniqueKey(String label) {
-    return label + '-' + UUID.randomUUID();
+  // Idempotency keys are capped at 36 characters (a UUID), so a bare UUID is the longest unique key
+  // available — a labelled prefix would overflow the limit.
+  private static String freshKey() {
+    return UUID.randomUUID().toString();
   }
 
   @AfterEach
@@ -61,154 +57,97 @@ public abstract class AbstractIdempotencyContract {
   }
 
   /**
-   * Sequential variant. Submit a long-running job with key K, await its STARTED event, then submit
-   * a second job with the same key. The second submission must either throw or return a handle
-   * pointing back to the first job's id — and it must not produce a second invocation.
+   * A duplicate idempotency key submitted while the first job is still active MUST return the
+   * original job's handle and MUST NOT cause a second execution.
    */
   @Test
-  void duplicateBusinessKeyWhileActive_isRejectedOrMerged() throws InterruptedException {
-    String businessKey = uniqueKey("active-dup");
+  void duplicateIdempotencyKeyWhileActive_returnsOriginalHandle() throws InterruptedException {
+    String key = freshKey();
     CountDownLatch firstStarted = TckJobs.beginBlocking();
 
     JobHandle first =
-        runtime()
-            .scheduler()
-            .enqueue(TckJobs::blockUntilReleased)
-            .withBusinessKey(businessKey)
-            .submit();
+        runtime().scheduler().enqueue(TckJobs::blockUntilReleased).withIdempotencyKey(key).submit();
     runtime().probe().track(first);
-
     assertTrue(
         firstStarted.await(defaultTimeout().toMillis(), TimeUnit.MILLISECONDS),
-        "First job must reach RUNNING before duplicate-submit attempt");
+        "First job must reach RUNNING before the duplicate submit");
 
-    AtomicReference<JobHandle> secondHandle = new AtomicReference<>();
-    AtomicReference<Throwable> secondError = new AtomicReference<>();
-    try {
-      JobHandle second =
-          runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey(businessKey).submit();
-      runtime().probe().track(second);
-      secondHandle.set(second);
-    } catch (RuntimeException ex) {
-      secondError.set(ex);
-    }
-
-    assertTrue(
-        secondError.get() != null || secondHandle.get() != null,
-        "Duplicate-active submit must either throw OR return a handle (idempotent merge)");
-
-    if (secondHandle.get() != null) {
-      assertEquals(
-          first.id(),
-          secondHandle.get().id(),
-          "Idempotent-merge implementations MUST return the existing job's id, not a new one");
-    }
+    JobHandle second =
+        runtime().scheduler().enqueue(TckJobs::noop).withIdempotencyKey(key).submit();
+    assertEquals(
+        first.id(),
+        second.id(),
+        "A duplicate idempotency key MUST return the original job's handle (merge), not a new id");
 
     TckJobs.release();
     assertTrue(
         runtime().probe().awaitCompleted(first, defaultTimeout()),
-        "First job must complete after release");
-
-    int firstInvocations = runtime().probe().invocationCount(first);
-    int secondInvocations =
-        secondHandle.get() == null ? 0 : runtime().probe().invocationCount(secondHandle.get());
-    assertEquals(
-        1,
-        firstInvocations + secondInvocations,
-        "Exactly one execution must occur across both submissions; observed first="
-            + firstInvocations
-            + ", second="
-            + secondInvocations);
+        "The original job must complete after release");
+    assertEquals(1, runtime().probe().invocationCount(first), "Only the original job may execute");
   }
 
   /**
-   * Concurrent variant. Two submitters race to claim the same business key. Exactly one execution
-   * must occur.
+   * The idempotency key is reserved permanently. After the first job reaches a terminal state, a
+   * re-submit with the same key MUST return the original handle, and a changed task or config on
+   * the duplicate MUST be ignored rather than executed.
    */
   @Test
-  void concurrentSubmitsWithSameBusinessKey_executeOnce() {
-    String businessKey = uniqueKey("concurrent-dup");
-    AtomicReference<JobHandle> handleA = new AtomicReference<>();
-    AtomicReference<JobHandle> handleB = new AtomicReference<>();
+  void idempotencyKeyReservedPermanentlyAfterCompletion() {
+    String key = freshKey();
 
-    List<Throwable> outcomes =
-        ConcurrentTestRunner.runAll(
-            defaultTimeout().plus(Duration.ofSeconds(2)),
-            () -> {
-              JobHandle h =
-                  runtime()
-                      .scheduler()
-                      .enqueue(TckJobs::noop)
-                      .withBusinessKey(businessKey)
-                      .submit();
-              handleA.set(h);
-              runtime().probe().track(h);
-            },
-            () -> {
-              JobHandle h =
-                  runtime()
-                      .scheduler()
-                      .enqueue(TckJobs::noop)
-                      .withBusinessKey(businessKey)
-                      .submit();
-              handleB.set(h);
-              runtime().probe().track(h);
-            });
-
-    long submitWinners = outcomes.stream().filter(t -> t == null).count();
-    assertTrue(
-        submitWinners >= 1,
-        "At least one of two concurrent submitters must succeed; outcomes=" + outcomes);
-
-    JobHandle survivor = handleA.get() != null ? handleA.get() : handleB.get();
-    assertNotNull(survivor, "Surviving handle must be observable");
-    Duration completionTimeout = defaultTimeout().plus(Duration.ofSeconds(10));
-    assertTrue(
-        runtime().probe().awaitCompleted(survivor, completionTimeout),
-        "Survivor handle must complete within timeout");
-
-    int invocationsOnA =
-        handleA.get() == null ? 0 : runtime().probe().invocationCount(handleA.get());
-    int invocationsOnB =
-        handleB.get() == null ? 0 : runtime().probe().invocationCount(handleB.get());
-    assertEquals(
-        1,
-        invocationsOnA + invocationsOnB,
-        "Exactly one execution across concurrent duplicate-business-key submitters; A="
-            + invocationsOnA
-            + ", B="
-            + invocationsOnB);
-  }
-
-  /**
-   * After the first job with key K reaches a terminal state, a fresh submission with the same key
-   * must succeed and execute independently.
-   */
-  @Test
-  void businessKeyAfterCompletion_canBeReused() {
-    String businessKey = uniqueKey("reuse-after-complete");
-
-    JobHandle first =
-        runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey(businessKey).submit();
+    JobHandle first = runtime().scheduler().enqueue(TckJobs::noop).withIdempotencyKey(key).submit();
     runtime().probe().track(first);
     assertTrue(
         runtime().probe().awaitCompleted(first, defaultTimeout()),
-        "First job must complete before reuse attempt");
+        "First job must complete before the re-submit");
 
+    // Re-submit with the same key but a different task and priority. The key is permanently
+    // reserved, so this must return the original (completed) job and the changed task must not run.
     JobHandle second =
-        runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey(businessKey).submit();
+        runtime()
+            .scheduler()
+            .enqueue(TckJobs::throwIntentional)
+            .withIdempotencyKey(key)
+            .withPriority(JobPriority.CRITICAL)
+            .submit();
     runtime().probe().track(second);
-    assertTrue(
-        runtime().probe().awaitCompleted(second, defaultTimeout()),
-        "Second job with reused business key (after completion) must run to completion");
 
-    assertEquals(1, runtime().probe().invocationCount(first), "First job invoked exactly once");
-    assertEquals(1, runtime().probe().invocationCount(second), "Second job invoked exactly once");
+    assertEquals(
+        first.id(),
+        second.id(),
+        "A completed job permanently reserves its key; re-submit must return the original handle");
+    assertFalse(
+        runtime().probe().awaitFailed(second, quietWindow()),
+        "The changed duplicate task (throwIntentional) must not execute");
+    assertEquals(
+        1, runtime().probe().invocationCount(first), "The original job executed exactly once");
+  }
+
+  /** Distinct idempotency keys are independent: both jobs run. */
+  @Test
+  void distinctIdempotencyKeys_executeIndependently() {
+    JobHandle a =
+        runtime().scheduler().enqueue(TckJobs::noop).withIdempotencyKey(freshKey()).submit();
+    JobHandle b =
+        runtime().scheduler().enqueue(TckJobs::noop).withIdempotencyKey(freshKey()).submit();
+    runtime().probe().track(a);
+    runtime().probe().track(b);
+
+    assertNotEquals(a.id(), b.id(), "Distinct idempotency keys must produce distinct jobs");
+    assertTrue(runtime().probe().awaitCompleted(a, defaultTimeout()), "Job a must complete");
+    assertTrue(runtime().probe().awaitCompleted(b, defaultTimeout()), "Job b must complete");
+    assertEquals(1, runtime().probe().invocationCount(a), "Job a invoked exactly once");
+    assertEquals(1, runtime().probe().invocationCount(b), "Job b invoked exactly once");
   }
 
   protected abstract RatchetTckRuntime runtime();
 
   protected Duration defaultTimeout() {
     return Duration.ofSeconds(5);
+  }
+
+  /** Negative-assertion window: long enough to catch an erroneous extra execution, short to run. */
+  protected Duration quietWindow() {
+    return Duration.ofMillis(750);
   }
 }

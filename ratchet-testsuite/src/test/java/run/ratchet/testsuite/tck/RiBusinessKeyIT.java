@@ -20,12 +20,12 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.extension.ExtendWith;
-import run.ratchet.tck.api.AbstractIdempotencyContract;
+import run.ratchet.tck.api.AbstractBusinessKeyContract;
 import run.ratchet.tck.api.RatchetTckRuntime;
 
-/** RI subclass of {@link AbstractIdempotencyContract}. */
+/** RI subclass of {@link AbstractBusinessKeyContract}. */
 @ExtendWith(ArquillianExtension.class)
-class RiIdempotencyIT extends AbstractIdempotencyContract {
+class RiBusinessKeyIT extends AbstractBusinessKeyContract {
 
   @Inject private RiRatchetTckRuntime runtime;
 
