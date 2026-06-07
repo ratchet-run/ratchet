@@ -39,6 +39,8 @@ import run.ratchet.store.util.RowValues;
 final class PostgresqlAuxiliaryOperations
     implements JobAuditStore, WorkflowConditionStore, DlqAlertStore, ResourcePermitStore {
 
+  private static final int PERMIT_CLEANUP_CHUNK_SIZE = 500;
+
   private final PostgresqlStoreContext ctx;
 
   PostgresqlAuxiliaryOperations(PostgresqlStoreContext ctx) {
@@ -368,18 +370,29 @@ final class PostgresqlAuxiliaryOperations
       return 0;
     }
     try {
-      String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
-      // language=PostgreSQL
-      String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
-      Query query = ctx.em().createNativeQuery(sql);
-      int parameter = 1;
-      for (String nodeId : staleNodeIds) {
-        query.setParameter(parameter++, nodeId);
+      int deleted = 0;
+      for (int start = 0; start < staleNodeIds.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
+        deleted +=
+            cleanupOrphanedPermitsChunk(
+                staleNodeIds.subList(
+                    start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, staleNodeIds.size())));
       }
-      return query.executeUpdate();
+      return deleted;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("cleanup orphaned permits", e);
     }
+  }
+
+  private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds) {
+    String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (String nodeId : staleNodeIds) {
+      query.setParameter(parameter++, nodeId);
+    }
+    return query.executeUpdate();
   }
 
   private void prepareCondition(WorkflowConditionEntity condition) {

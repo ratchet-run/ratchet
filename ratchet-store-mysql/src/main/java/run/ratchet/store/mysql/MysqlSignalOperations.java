@@ -84,7 +84,7 @@ final class MysqlSignalOperations implements SignalStore {
         job.setJobType(row[4] != null ? JobExecutionType.valueOf((String) row[4]) : null);
         job.setPriority(
             row[5] != null
-                ? JobPriority.values()[((Number) row[5]).intValue()]
+                ? MysqlJobRowMapper.safeJobPriority(((Number) row[5]).intValue())
                 : JobPriority.NORMAL);
         job.setMaxRetries(row[6] != null ? ((Number) row[6]).intValue() : 0);
         job.setBusinessKey((String) row[7]);

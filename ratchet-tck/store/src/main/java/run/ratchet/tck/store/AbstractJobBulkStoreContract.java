@@ -20,8 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,6 +54,37 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
 
     var found = store().findByIds(List.of(job1.getId(), job2.getId(), job3.getId()));
     assertEquals(3, found.size(), "bulkInsert should persist all 3 jobs");
+  }
+
+  @Test
+  void findByIds_returnsEveryRowPastTheChunkBoundary() {
+    // The SQL stores read IN-lists in 500-id chunks; 501 ids forces a second, partial
+    // chunk. This catches a store that builds one unbounded IN-list (large batch
+    // recovery then exceeds the database's bind-parameter cap) and a chunk loop that
+    // drops the trailing partial chunk.
+    List<JobEntity> jobs = new ArrayList<>(501);
+    for (int i = 0; i < 501; i++) {
+      var job = newPendingJob();
+      job.setId(UuidV7Factory.create());
+      jobs.add(job);
+    }
+    store().bulkInsert(jobs);
+
+    List<UUID> ids = new ArrayList<>(jobs.size() + 1);
+    for (JobEntity job : jobs) {
+      ids.add(job.getId());
+    }
+    ids.add(UuidV7Factory.create()); // an unknown id is skipped, not an error
+
+    var found = store().findByIds(ids);
+
+    Set<UUID> expected = jobs.stream().map(JobEntity::getId).collect(Collectors.toSet());
+    Set<UUID> actual = found.stream().map(JobEntity::getId).collect(Collectors.toSet());
+    assertEquals(
+        expected,
+        actual,
+        "findByIds must return exactly the persisted ids past the chunk boundary");
+    assertEquals(501, found.size(), "findByIds must not duplicate rows across chunks");
   }
 
   @Test
