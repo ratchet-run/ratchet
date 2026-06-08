@@ -190,8 +190,9 @@ public interface JobSchedulerService {
    * transaction commits, so a rollback suppresses the event and a listener cannot roll the source
    * transaction back. (When no transaction is active, dispatch is immediate.) Any listener that
    * does heavyweight work (I/O, network calls, cross-system notifications) MUST offload to its own
-   * thread pool. For CDI observers of the same events, prefer {@code @ObservesAsync} when the
-   * observer does not need to run on the publishing thread.
+   * thread pool. CDI observers of these events are delivered on this same synchronous, after-commit
+   * path, so the same rule applies to them; an {@code @ObservesAsync} observer is never notified.
+   * See the {@code run.ratchet.api.event} package documentation for the full observation contract.
    *
    * <p>Event types delivered:
    *
@@ -204,7 +205,7 @@ public interface JobSchedulerService {
    *       ChainFailedEvent}, {@code WorkflowBranchTriggeredEvent}
    *   <li><b>Signals:</b> {@code JobSignalWaitingEvent}, {@code JobSignaledEvent}, {@code
    *       JobsBulkSignaledEvent}, {@code JobSignalTimedOutEvent}
-   *   <li><b>Observability:</b> {@code JobDlqEvent}
+   *   <li><b>Observability:</b> {@code JobDlqEvent}, {@code JobCallbackFailedEvent}
    * </ul>
    *
    * <p><b>Transaction attribute:</b> {@code NOT_SUPPORTED}. Listener registration is an in-memory
