@@ -15,8 +15,10 @@
  */
 package run.ratchet.ri.core.internal;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -246,5 +248,64 @@ class ExecutionObserverTest {
     TracingCollector.ExecutionScope scope = observer.startExecutionScope(job(48L));
 
     assertSame(TracingCollector.NoOpExecutionScope.INSTANCE, scope);
+  }
+
+  @Test
+  void recordJobStart_swallowsMetricsCollectorException() {
+    JobEntity job = job(42L);
+    doThrow(new RuntimeException("collector down"))
+        .when(metricsCollector)
+        .jobStarted(job.getId(), job.getPublicJobType(), job.getPriority());
+
+    assertDoesNotThrow(() -> observer.recordJobStart(job));
+  }
+
+  @Test
+  void recordJobSuccess_swallowsMetricsCollectorException() {
+    JobEntity job = job(42L);
+    doThrow(new RuntimeException("collector down"))
+        .when(metricsCollector)
+        .jobCompleted(job.getId(), job.getPublicJobType(), 5L);
+
+    assertDoesNotThrow(() -> observer.recordJobSuccess(job, 5L));
+  }
+
+  @Test
+  void startExecutionScope_returnsNoOpWhenTracerThrows() {
+    when(tracingCollector.jobExecutionStarted(
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any()))
+        .thenThrow(new RuntimeException("tracer down"));
+
+    assertSame(
+        TracingCollector.NoOpExecutionScope.INSTANCE, observer.startExecutionScope(job(42L)));
+  }
+
+  @Test
+  void startExecutionScope_returnedScopeSwallowsTracerExceptions() {
+    TracingCollector.ExecutionScope throwingScope = mock(TracingCollector.ExecutionScope.class);
+    doThrow(new RuntimeException("span boom"))
+        .when(throwingScope)
+        .success(ArgumentMatchers.anyLong());
+    doThrow(new RuntimeException("span boom"))
+        .when(throwingScope)
+        .failure(ArgumentMatchers.any(), ArgumentMatchers.anyInt());
+    doThrow(new RuntimeException("span boom")).when(throwingScope).close();
+    when(tracingCollector.jobExecutionStarted(
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any()))
+        .thenReturn(throwingScope);
+
+    TracingCollector.ExecutionScope scope = observer.startExecutionScope(job(42L));
+
+    assertDoesNotThrow(() -> scope.success(5L));
+    assertDoesNotThrow(() -> scope.failure(new RuntimeException("x"), 1));
+    assertDoesNotThrow(scope::close);
   }
 }

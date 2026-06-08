@@ -53,6 +53,7 @@ import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
@@ -223,27 +224,40 @@ class JobTaskTest {
   }
 
   @Test
-  void call_clearsBoundContextWhenStartupObservabilityThrows() {
-    // JobContext/MDC are bound before the per-execution try/finally that clears them. A throw from
-    // the startup observability calls must not leave this job's identity on the pooled worker.
+  @SuppressWarnings("unchecked")
+  void call_failsJobWhenExecutionHistoryStartWriteFails() throws Exception {
+    // The execution-history write (startExecution) is durable state, not a metric. When it fails
+    // before the payload runs, the job must fail through normal handling — not escape to the
+    // worker thread and strand the claimed job in RUNNING until orphan recovery.
     JobMdcContext.clear();
     JobEntity job = createTestJob();
+    job.setMaxRetries(3);
     jobTask.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
-    doThrow(new RuntimeException("metrics collector down"))
-        .when(observabilityFacade)
-        .recordJobStart(any(JobEntity.class));
+    RuntimeException auditError = new RuntimeException("audit store down");
+    when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
+        .thenThrow(auditError);
+    when(validationFacade.shouldNotRetry(auditError)).thenReturn(false);
+    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
+    when(retryPolicy.shouldRetry(1, auditError)).thenReturn(false);
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
 
-    // The startup failure propagates: the payload never ran, so orphan recovery retries the job.
-    Assertions.assertThrows(RuntimeException.class, () -> jobTask.call());
+    jobTask.call();
 
+    // The payload never ran, and the job was failed cleanly through the terminal DLQ path.
+    verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
+    verify(lifecycleFacade).moveToDlq(eq(job), eq(auditError));
+    // No JobStartedEvent is published when the job fails before it begins executing.
+    verify(observabilityFacade, never()).publishEvent(any(JobStartedEvent.class));
     Assertions.assertNull(
         MDC.get(JobMdcContext.MDC_JOB_ID),
-        "MDC job id must be cleared after a startup failure, not leaked to the next job");
+        "MDC job id must be cleared after an execution-history write failure");
     Assertions.assertThrows(
         IllegalStateException.class,
         JobContext::current,
-        "JobContext must be unbound after a startup failure, not leaked to the next job");
+        "JobContext must be unbound after an execution-history write failure");
   }
 
   @Test
