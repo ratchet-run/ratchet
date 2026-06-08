@@ -27,9 +27,11 @@ import org.jboss.logging.Logger;
  * Synchronous event publisher for internal RI use. Fires events to both programmatic listeners
  * (registered via {@link #addListener}) and CDI observers (via {@link Event#fire}).
  *
- * <p>Listener and CDI observer failures are logged and suppressed so one broken observer does not
- * stop later observers. Callers must not rely on {@link #publish(Object)} to roll back their
- * transaction when an observer fails.
+ * <p>A programmatic listener that throws is logged and suppressed so the remaining listeners still
+ * run. A CDI observer exception is logged and suppressed too, but only after CDI's synchronous
+ * {@link Event#fire} has already aborted the remaining observers for that event. Either way,
+ * callers must not rely on {@link #publish(Object)} to roll back their transaction when an observer
+ * fails.
  */
 @ApplicationScoped
 public class InternalEventPublisher {

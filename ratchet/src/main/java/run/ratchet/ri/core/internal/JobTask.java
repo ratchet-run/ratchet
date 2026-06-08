@@ -314,8 +314,19 @@ public class JobTask implements Callable<Void> {
       observabilityFacade.recordJobStart(jobEntity);
 
       int attemptNumber = jobEntity.getAttempts() + 1;
-      currentExecution =
-          observabilityFacade.startExecution(jobId, attemptNumber, nodeIdProvider.getNodeId());
+      try {
+        currentExecution = observabilityFacade.startExecution(jobId, attemptNumber, nodeId);
+      } catch (Throwable executionRecordError) {
+        // The execution-history write is durable state, not a metric. When it fails before the
+        // payload runs, fail the job through normal failure handling so it reaches a terminal
+        // state (or a policy-driven retry) instead of stranding in RUNNING until orphan recovery.
+        log.errorf(
+            executionRecordError,
+            "Job %s execution-history start write failed; failing the job",
+            jobId);
+        handleFailureSafely(executionRecordError);
+        return null;
+      }
 
       Instant start = effective().instant();
       observabilityFacade.publishEvent(

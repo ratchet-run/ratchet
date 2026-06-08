@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import org.jboss.logging.Logger;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
@@ -34,6 +35,8 @@ import run.ratchet.store.spi.JobAuditStore;
  * @see JobTask
  */
 public class ExecutionObserver {
+
+  private static final Logger log = Logger.getLogger(ExecutionObserver.class);
 
   private final MetricsCollector metricsCollector;
   private final TracingCollector tracingCollector;
@@ -67,31 +70,45 @@ public class ExecutionObserver {
   }
 
   public void recordJobStart(JobEntity job) {
-    metricsCollector.jobStarted(job.getId(), job.getPublicJobType(), job.getPriority());
+    recordQuietly(
+        "jobStarted",
+        () -> metricsCollector.jobStarted(job.getId(), job.getPublicJobType(), job.getPriority()));
   }
 
   public void recordJobSuccess(JobEntity job, long executionTimeMs) {
-    metricsCollector.jobCompleted(job.getId(), job.getPublicJobType(), executionTimeMs);
+    recordQuietly(
+        "jobCompleted",
+        () -> metricsCollector.jobCompleted(job.getId(), job.getPublicJobType(), executionTimeMs));
   }
 
   public void recordJobFailure(JobEntity job, Throwable ex, int attempt) {
-    metricsCollector.jobFailed(job.getId(), job.getPublicJobType(), ex, attempt);
+    recordQuietly(
+        "jobFailed",
+        () -> metricsCollector.jobFailed(job.getId(), job.getPublicJobType(), ex, attempt));
   }
 
   public void recordCallbackFailure(JobEntity job, Throwable ex, int attempt) {
-    metricsCollector.callbackFailed(job.getId(), job.getPublicJobType(), ex, attempt);
+    recordQuietly(
+        "callbackFailed",
+        () -> metricsCollector.callbackFailed(job.getId(), job.getPublicJobType(), ex, attempt));
   }
 
   public void recordSuccessFinalizationRetry(JobEntity job) {
-    metricsCollector.successFinalizationRetried(job.getId(), job.getPublicJobType());
+    recordQuietly(
+        "successFinalizationRetried",
+        () -> metricsCollector.successFinalizationRetried(job.getId(), job.getPublicJobType()));
   }
 
   public void recordSuccessFinalizationMinimal(JobEntity job) {
-    metricsCollector.successFinalizationMinimal(job.getId(), job.getPublicJobType());
+    recordQuietly(
+        "successFinalizationMinimal",
+        () -> metricsCollector.successFinalizationMinimal(job.getId(), job.getPublicJobType()));
   }
 
   public void recordSuccessFinalizationStuck(JobEntity job) {
-    metricsCollector.successFinalizationStuck(job.getId(), job.getPublicJobType());
+    recordQuietly(
+        "successFinalizationStuck",
+        () -> metricsCollector.successFinalizationStuck(job.getId(), job.getPublicJobType()));
   }
 
   public void recordJobCancellation(JobEntity job) {
@@ -99,7 +116,21 @@ public class ExecutionObserver {
   }
 
   public void recordEnvelopeVersionSkew(UUID jobId, int version, int maxSupportedVersion) {
-    metricsCollector.encryptionEnvelopeVersionSkew(jobId, version, maxSupportedVersion);
+    recordQuietly(
+        "encryptionEnvelopeVersionSkew",
+        () -> metricsCollector.encryptionEnvelopeVersionSkew(jobId, version, maxSupportedVersion));
+  }
+
+  /**
+   * Runs a metrics callback, swallowing and logging any failure. The {@link MetricsCollector} SPI
+   * is integrator-supplied observability; a throwing collector must never change a job's outcome.
+   */
+  private void recordQuietly(String metric, Runnable action) {
+    try {
+      action.run();
+    } catch (Throwable t) {
+      log.warnf(t, "MetricsCollector.%s threw; metrics for this event are dropped", metric);
+    }
   }
 
   public void publishEvent(Object event) {
@@ -144,13 +175,26 @@ public class ExecutionObserver {
     if (tracingCollector == null) {
       return TracingCollector.NoOpExecutionScope.INSTANCE;
     }
-    Map<String, String> parentContext = job.getTraceContext();
-    return tracingCollector.jobExecutionStarted(
-        job.getId(),
-        job.getPublicJobType(),
-        job.getPriority(),
-        parentContext != null ? parentContext : Map.of(),
-        signalTraceAttributes(job));
+    try {
+      Map<String, String> parentContext = job.getTraceContext();
+      TracingCollector.ExecutionScope scope =
+          tracingCollector.jobExecutionStarted(
+              job.getId(),
+              job.getPublicJobType(),
+              job.getPriority(),
+              parentContext != null ? parentContext : Map.of(),
+              signalTraceAttributes(job));
+      return scope == null
+          ? TracingCollector.NoOpExecutionScope.INSTANCE
+          : new GuardedExecutionScope(scope);
+    } catch (Throwable t) {
+      log.warnf(
+          t,
+          "TracingCollector failed to start an execution scope for job %s; tracing is disabled for"
+              + " this attempt",
+          job.getId());
+      return TracingCollector.NoOpExecutionScope.INSTANCE;
+    }
   }
 
   private Map<String, String> signalTraceAttributes(JobEntity job) {
@@ -170,5 +214,45 @@ public class ExecutionObserver {
       attributes.put("ratchet.signal.wait_ms", Long.toString(Math.max(0L, waitMs)));
     }
     return Map.copyOf(attributes);
+  }
+
+  /**
+   * Wraps a {@link TracingCollector.ExecutionScope} so an exception from the integrator's tracer
+   * cannot escape onto the job hot path. Tracing is observability: a throwing scope must never
+   * change a job's outcome.
+   */
+  private static final class GuardedExecutionScope implements TracingCollector.ExecutionScope {
+    private final TracingCollector.ExecutionScope delegate;
+
+    GuardedExecutionScope(TracingCollector.ExecutionScope delegate) {
+      this.delegate = delegate;
+    }
+
+    @Override
+    public void success(long executionTimeMs) {
+      try {
+        delegate.success(executionTimeMs);
+      } catch (Throwable t) {
+        log.warnf(t, "TracingCollector scope.success threw; continuing");
+      }
+    }
+
+    @Override
+    public void failure(Throwable cause, int attempt) {
+      try {
+        delegate.failure(cause, attempt);
+      } catch (Throwable t) {
+        log.warnf(t, "TracingCollector scope.failure threw; continuing");
+      }
+    }
+
+    @Override
+    public void close() {
+      try {
+        delegate.close();
+      } catch (Throwable t) {
+        log.warnf(t, "TracingCollector scope.close threw; continuing");
+      }
+    }
   }
 }
