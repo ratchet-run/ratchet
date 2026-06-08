@@ -315,8 +315,7 @@ public class JobTask implements Callable<Void> {
 
       int attemptNumber = jobEntity.getAttempts() + 1;
       try {
-        currentExecution =
-            observabilityFacade.startExecution(jobId, attemptNumber, nodeIdProvider.getNodeId());
+        currentExecution = observabilityFacade.startExecution(jobId, attemptNumber, nodeId);
       } catch (Throwable executionRecordError) {
         // The execution-history write is durable state, not a metric. When it fails before the
         // payload runs, fail the job through normal failure handling so it reaches a terminal
