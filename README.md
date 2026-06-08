@@ -4,11 +4,6 @@
 
 ---
 
-> [!TIP]
-> **Working on multi-tenant SaaS or AI on AWS?** I do one-week, fixed-price code audits. [audits.putney.io →](https://audits.putney.io)
-
----
-
 Ratchet gives Jakarta EE 10/11 applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience — all without pulling in heavyweight frameworks.
 
 ---
