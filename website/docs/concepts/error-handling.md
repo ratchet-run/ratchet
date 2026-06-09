@@ -10,16 +10,16 @@ When a job throws an exception, Ratchet's error handling pipeline determines whe
 
 ## Error Handling Pipeline
 
-<div className="docs-diagram docs-decision-grid" role="img" aria-label="Error handling decision tree: increment attempts, check DoNotRetry, consult RetryPolicy, compare attempt count, then either route to DLQ or schedule a retry.">
+<div className="docs-diagram docs-decision-grid" role="img" aria-label="Error handling decision tree: check DoNotRetry, increment attempts on the retryable path, consult RetryPolicy, compare attempt count, then either route to DLQ or schedule a retry.">
   <div className="docs-diagram-card docs-diagram-card--danger">
     <strong>Job throws exception</strong>
-    <small>The engine increments the attempt counter before making retry/DLQ decisions.</small>
+    <small>The engine runs the `@DoNotRetry` check first, then increments the attempt counter only on the retryable path.</small>
   </div>
 
   <div className="docs-decision-row">
     <div className="docs-diagram-card">
       <strong>`@DoNotRetry` on exception?</strong>
-      <small>Checked first across the exception class hierarchy.</small>
+      <small>Checked first on the thrown exception and each exception in its cause chain.</small>
     </div>
     <div className="docs-diagram-card docs-diagram-card--danger">
       <strong>Yes</strong>
@@ -66,7 +66,7 @@ When a job throws an exception, Ratchet's error handling pipeline determines whe
 
 The engine makes three checks in order:
 
-1. **`@DoNotRetry` annotation** -- If the exception class (or any class in its hierarchy) is annotated with `@DoNotRetry`, the job skips all retry logic and moves directly to the DLQ. This is checked first, before consulting the RetryPolicy.
+1. **`@DoNotRetry` annotation** -- If the thrown exception class, or any exception in its cause chain, is annotated with `@DoNotRetry`, the job skips all retry logic and moves directly to the DLQ without incrementing the attempt counter. This is checked first, before incrementing the attempt counter or consulting the RetryPolicy. The annotation is matched on the concrete exception class; it is not inherited by subclasses.
 
 2. **`RetryPolicy.shouldRetry(attempt, cause)`** -- The SPI is consulted with the current attempt number and the exception. The default `DefaultRetryPolicy` always returns `true` (passthrough), deferring to the attempt counter. Custom implementations can reject retries based on exception type, attempt count, or external conditions.
 
@@ -119,8 +119,8 @@ The default `DefaultErrorSanitizer`:
 throw new RuntimeException(
     "Connection failed: jdbc:mysql://admin:s3cret@db.internal:3306/prod");
 
-// What gets stored in last_error:
-"RuntimeException: Connection failed: jdbc:mysql://[REDACTED]@db.internal:3306/prod"
+// What gets stored in last_error (the whole JDBC URL is replaced):
+"java.lang.RuntimeException: Connection failed: ***REDACTED***"
 ```
 
 To customize, provide your own `ErrorSanitizer` implementation:

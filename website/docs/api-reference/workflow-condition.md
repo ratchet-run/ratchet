@@ -86,7 +86,7 @@ scheduler.enqueue(() -> processPayment())
 public static <T> WorkflowCondition custom(SerializablePredicate<JobResult<T>> predicate)
 ```
 
-Creates a custom condition evaluated against the full [`JobResult`](./job-result). This is the most flexible option, giving access to success status, return value, execution time, error details, and metadata.
+Creates a custom condition evaluated against the full [`JobResult`](./job-result). The predicate has access to success status, return value, execution time, error details, and metadata.
 
 **Type Parameters:**
 - `T` -- the type of the job's return value.

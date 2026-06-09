@@ -6,22 +6,22 @@ description: Frequently asked questions about Ratchet job scheduling, deployment
 
 # Frequently Asked Questions
 
-## Can I Use Ratchet Without CDI?
+## Can I use Ratchet without CDI?
 
 Ratchet is designed as a CDI-first library. The reference implementation (`ratchet`) uses CDI for dependency injection, bean resolution, and event publishing. However, the architecture separates concerns through SPI interfaces:
 
-- `BeanResolver` -- abstracts how job target beans are obtained
-- `ExecutorProvider` -- abstracts thread pool management
-- `ClassPolicy`, `RetryPolicy`, `ResilienceStrategy` -- all are pluggable interfaces
+- `BeanResolver`: abstracts how job target beans are obtained
+- `ExecutorProvider`: abstracts thread pool management
+- `ClassPolicy`, `RetryPolicy`, `ResilienceStrategy`: all are pluggable interfaces
 
-In theory, you could wire these manually without CDI, but you would need to:
+You could wire these manually without CDI, but you would need to:
 1. Construct all beans and their dependency graphs yourself
 2. Provide a `BeanResolver` implementation that resolves beans without CDI
 3. Replace the CDI event bridge with your own event dispatch
 
 This is not a supported configuration. If you need a non-CDI scheduler, consider whether Ratchet is the right fit. The library is purpose-built for Jakarta EE environments with CDI.
 
-## What Databases Are Supported?
+## What databases are supported?
 
 Ratchet ships with three store modules:
 
@@ -31,11 +31,11 @@ Ratchet ships with three store modules:
 | `ratchet-store-postgresql` | PostgreSQL | 14+ |
 | `ratchet-store-mongodb` | MongoDB | 6.0+ |
 
-The SQL modules provide DDL scripts (`src/main/resources/ddl/`) as plain SQL files -- you apply them however you manage your schema (Flyway, Liquibase, manual scripts, etc.). The MongoDB module initializes its collections and indexes at startup.
+The SQL modules provide DDL scripts (`src/main/resources/ddl/`) as plain SQL files. Apply them however you manage your schema (Flyway, Liquibase, manual scripts, etc.). The MongoDB module initializes its collections and indexes at startup.
 
 **Adding a new database:** Implement the composed `JobStore` SPI and provide the corresponding schema/bootstrap logic for your backend. The `ratchet-tck-store` submodule contains contract tests that validate any store implementation against the expected behavior — passing them earns the "Ratchet Store Compatible" label.
 
-## How Does Retry Work?
+## How does retry work?
 
 When a job fails, Ratchet follows this decision path:
 
@@ -71,15 +71,15 @@ scheduler.retryJob(failedJobId);
 
 This sets the job status to PENDING, clears the error, resets attempts to 0, and sets `scheduled_time` to now.
 
-## Can Jobs Be Distributed Across Nodes?
+## Can jobs be distributed across nodes?
 
-Yes. Ratchet is designed for multi-node deployment. Each node runs its own poller that atomically claims jobs from the shared database using optimistic locking (`claimNextBatchOptimized`). This ensures:
+Yes. Ratchet supports multi-node deployment. Each node runs its own poller that atomically claims jobs from the shared database using optimistic locking (`claimNextBatchOptimized`). This ensures:
 
 - **No duplicate execution:** A job is claimed by exactly one node via an atomic compare-and-swap on the `status` and `picked_by` columns.
-- **Automatic failover:** If a node crashes, the `OrphanRecoveryTimer` on surviving nodes detects stale heartbeats and resets orphaned RUNNING jobs back to PENDING.
+- **Automatic failover:** If a node crashes, the `OrphanRecoveryTimer` on surviving nodes detects stale heartbeats and resets orphaned RUNNING jobs to PENDING.
 - **Node identity:** Each node registers in `scheduler_node` with a unique ID and periodic heartbeat (default every 10 seconds).
 
-Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrain which jobs a node claims by providing a `NodeTagAffinityProvider` (default `DefaultNodeTagAffinityProvider`, consumed by the poller). For fully custom routing or cross-node wakeups, implement the `ClusterCoordinator` SPI.
+Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrain which jobs a node claims by providing a `NodeTagAffinityProvider` (the default is `DefaultNodeTagAffinityProvider`, consumed by the poller). For fully custom routing or cross-node wakeups, implement the `ClusterCoordinator` SPI.
 
 **Key multi-node settings:**
 
@@ -89,7 +89,7 @@ Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrai
 | `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | Time before a silent node's jobs are recovered |
 | `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_MINUTES` | `5` | How often to scan for orphaned jobs |
 
-## What Happens If the Server Crashes Mid-Job?
+## What happens if the server crashes mid-job?
 
 When a node crashes while jobs are RUNNING:
 
@@ -103,13 +103,13 @@ When a node crashes while jobs are RUNNING:
 
 5. **The stale node entry is deleted.** The `scheduler_node` row for the crashed node is removed.
 
-**Important:** The recovered job starts from scratch -- it does not resume from where it left off. If your job performs work that is not idempotent, you should design it to check for partial completion before proceeding.
+**Important:** The recovered job starts from scratch and does not resume from where it left off. If your job performs work that is not idempotent, design it to check for partial completion before proceeding.
 
 **Worst-case recovery time:** `orphan_scan_interval + orphan_grace_seconds`. With defaults, this is 5 minutes + 60 seconds = ~6 minutes.
 
-## How Do I Migrate from Quartz?
+## How do I migrate from Quartz?
 
-Ratchet and Quartz have fundamentally different architectures. Quartz uses trigger-based scheduling with XML or programmatic job definitions. Ratchet uses lambda serialization and a pull-based poller.
+Ratchet and Quartz have different architectures. Quartz uses trigger-based scheduling with XML or programmatic job definitions. Ratchet uses lambda serialization and a pull-based poller.
 
 **Key differences to address:**
 
@@ -132,7 +132,7 @@ Ratchet and Quartz have fundamentally different architectures. Quartz uses trigg
 4. Replace Quartz tables with Ratchet DDL (the schemas are incompatible)
 5. Configure your `ClassPolicy` to allow your application packages
 
-## How Do I Migrate from jBeret?
+## How do I migrate from jBeret?
 
 jBeret implements the JSR 352 (Java Batch) specification with XML-based job definitions. Ratchet takes a code-first approach.
 
@@ -146,26 +146,26 @@ jBeret implements the JSR 352 (Java Batch) specification with XML-based job defi
 
 **Note:** jBeret and Ratchet solve overlapping but different problems. jBeret focuses on ETL-style chunk processing with reader/processor/writer pipelines. Ratchet focuses on task scheduling with retry, circuit breaking, and workflow orchestration. For pure ETL workloads, jBeret may still be the better fit.
 
-## What Is the Overhead of the Circuit Breaker?
+## What is the overhead of the circuit breaker?
 
-The built-in circuit breaker is lightweight by design:
+The built-in circuit breaker adds minimal overhead:
 
-- **CLOSED state (normal operation):** One lock acquisition per call to update the sliding window ring buffer. This is a `ReentrantLock` held for microseconds -- negligible compared to any real job execution.
-- **OPEN state:** A single `System.currentTimeMillis()` comparison. No lock needed for the fast path.
+- **CLOSED state (normal operation):** One lock acquisition per call to update the sliding window ring buffer. This is a `ReentrantLock` held for microseconds, negligible against any real job execution cost.
+- **OPEN state:** A single `System.currentTimeMillis()` comparison, with no lock on the fast path.
 - **Memory:** One `int[]` array per circuit breaker instance (size = window size, default 100). Each unique service name gets its own instance.
 
-The circuit breaker is resolved per job by inspecting the `@CircuitBreakerProtected` annotation on the target method or class. Service names are cached after first resolution, so reflection only happens once.
+The circuit breaker is resolved per job by inspecting the `@CircuitBreakerProtected` annotation on the target method or class. Service names are cached after first resolution, so reflection runs only once.
 
-**Disabling it:** If you do not need circuit breaking, set `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false))`. This replaces the circuit breaker with a passthrough that adds zero overhead.
+**Disabling it:** To skip circuit breaking entirely, set `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false))`. This replaces the circuit breaker with a passthrough that adds zero overhead.
 
-## Can I Use Virtual Threads?
+## Can I use virtual threads?
 
 Yes, on a Jakarta EE 11 container. Virtual-thread support has two parts:
 
 1. **Where jobs run.** Ratchet runs each job on the `ManagedExecutorService` resolved from `ratchet.worker.job-executor-jndi` (default `java:comp/DefaultManagedExecutorService`). Point that at a virtual-thread-backed managed executor and jobs run on virtual threads — with the container's context propagation (CDI, transaction, security) intact, which a hand-rolled `Thread.ofVirtual()` executor would lose.
 2. **Backpressure accounting.** `execution.virtualCounterAccounting(true)` swaps the semaphore-based concurrency limits for `AtomicInteger` counters, since virtual threads are cheap and a fixed pool no longer bounds concurrency. Each job type keeps a configurable limit (default 1000) to prevent unbounded growth.
 
-Ratchet stays a single, EE-version-agnostic library and does not ship its own executor definition (resource-definition scanning of library jars is container-specific, so a bundled one would not bind portably). Instead, declare one in your own application on EE 11 (Jakarta Concurrency 3.1) and point Ratchet at it:
+Ratchet does not ship its own executor definition (resource-definition scanning of library jars is container-specific, so a bundled definition would not bind portably). Declare one in your application on EE 11 (Jakarta Concurrency 3.1) and point Ratchet at it:
 
 ```java
 @ManagedExecutorDefinition(name = "java:app/concurrent/MyVirtualExecutor", virtual = true)
@@ -197,9 +197,9 @@ RatchetOptions.builder()
 - Jakarta EE 10 (Jakarta Concurrency 3.0) has no standard `virtual = true` attribute on `@ManagedExecutorDefinition`, so an application cannot portably declare a virtual-thread executor. `virtualCounterAccounting(true)` still switches the backpressure model, but jobs run on virtual threads only if you point the JNDI name at an executor the container itself configures as virtual through a vendor-specific mechanism.
 - Your jobs must not hold long `synchronized` blocks or call native methods that pin the carrier thread — prefer `ReentrantLock`.
 
-**When to use virtual threads:** They are most beneficial when your jobs spend the majority of their time waiting on I/O (database queries, HTTP calls, file operations). For CPU-bound workloads, platform threads with appropriate pool sizes are usually sufficient.
+**When to use virtual threads:** They are most useful when jobs spend most of their time waiting on I/O (database queries, HTTP calls, file operations). For CPU-bound workloads, platform threads with appropriate pool sizes are usually sufficient.
 
-## How Does Job Priority Work?
+## How does job priority work?
 
 Ratchet supports five priority levels:
 
@@ -215,7 +215,7 @@ The poller claims jobs ordered by effective priority descending, then due time. 
 
 With the default 15-minute interval, a long-waiting low-priority job can overtake newer high-priority work. This boost is computed during claim ordering; it does not rewrite the stored priority. Set `RatchetOptions.builder().store(s -> s.priorityBoostIntervalMinutes(0))` to disable boosting.
 
-## How Are Job Results Stored?
+## How are job results stored?
 
 When a job method returns a non-null value, Ratchet serializes it to JSON and stores it:
 
@@ -230,7 +230,7 @@ WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654';
 
 If serialization fails (e.g., the return type is not JSON-serializable), a warning is logged but the job still counts as succeeded. The result is best-effort metadata, not a critical path.
 
-## What Is the Maximum Payload Size?
+## What is the maximum payload size?
 
 The default maximum payload size is 100 KB, controlled by `RatchetOptions.builder().payload(p -> p.maxPayloadKb(...))`. The payload includes the serialized lambda descriptor (target class, method name, method descriptor, arguments).
 
@@ -244,7 +244,7 @@ scheduler.enqueue(() -> importService.processFile(fileId));
 scheduler.enqueue(() -> importService.processData(hugeByteArray));
 ```
 
-## How Does Job Archiving Work?
+## How does job archiving work?
 
 Completed jobs are automatically archived based on retention settings:
 

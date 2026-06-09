@@ -32,25 +32,28 @@ flyway migrate
 
 ```sql
 SHOW TABLES LIKE 'scheduler_%';
+SHOW TABLES LIKE 'ratchet_%';
 ```
 
 You should see:
 - `ratchet_schema_version`
-- `scheduler_job`
-- `scheduler_job_queue`
-- `scheduler_business_key_reservation`
-- `scheduler_job_tag`
-- `scheduler_job_execution`
-- `scheduler_job_log`
-- `scheduler_job_archive`
 - `scheduler_batch`
 - `scheduler_batch_metrics`
-- `scheduler_node`
+- `scheduler_business_key_reservation`
+- `scheduler_dlq_alerts`
+- `scheduler_job`
+- `scheduler_job_archive`
+- `scheduler_job_execution`
+- `scheduler_job_log`
+- `scheduler_job_queue`
+- `scheduler_job_tag`
 - `scheduler_lock`
+- `scheduler_node`
+- `scheduler_recurring_job`
+- `scheduler_recurring_job_archive`
 - `scheduler_resource_limit`
 - `scheduler_resource_permit`
 - `scheduler_workflow_condition`
-- `scheduler_dlq_alerts`
 
 ## Configuration
 
@@ -76,18 +79,19 @@ Configure your data source for MySQL:
   <class>run.ratchet.store.entity.BatchEntity</class>
   <exclude-unlisted-classes>true</exclude-unlisted-classes>
   <properties>
-    <property name="hibernate.dialect" value="org.hibernate.dialect.MySQL8Dialect" />
+    <property name="hibernate.dialect" value="org.hibernate.dialect.MySQLDialect" />
     <property name="hibernate.connection.isolation" value="2" />
   </properties>
 </persistence-unit>
 ```
 
-The `mapping-file` line is required for production MySQL persistence units.
-MySQL stores UUIDv7 IDs as `BINARY(16)`, and the mapping file applies the
-store-local `UuidByteArrayConverter` so EclipseLink, OpenJPA, and other
-non-Hibernate providers bind UUID fields as 16 bytes. Hibernate's built-in UUID
-handler already uses standard-byte-order `BINARY(16)`, so the converter is
-idempotent there. PostgreSQL does not use this mapping file.
+The `mapping-file` line is required for non-Hibernate providers (EclipseLink,
+OpenJPA, etc.). MySQL stores UUIDv7 IDs as `BINARY(16)`, and the mapping file
+applies the store-local `UuidByteArrayConverter` so those providers bind UUID
+fields as 16 bytes. Hibernate maps UUID to `BINARY(16)` natively on MySQL, and
+Hibernate 6+ rejects an `AttributeConverter` on an `@Id` attribute — omit the
+`<mapping-file>` line entirely when using Hibernate. PostgreSQL does not use
+this mapping file.
 
 The MySQL store does not require a fixed persistence-unit name. By default it uses the deployment's
 unnamed `@PersistenceContext`. If your application has multiple persistence units, provide a CDI
@@ -187,7 +191,7 @@ INDEX idx_rec_claim (is_paused, next_fire)
 
 ### InnoDB Buffer Pool
 
-For better performance, size the InnoDB buffer pool to 70-80% of available RAM:
+Size the InnoDB buffer pool to 70-80% of available RAM:
 
 ```ini
 [mysqld]

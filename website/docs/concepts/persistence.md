@@ -130,7 +130,7 @@ claim path can populate lightweight claim DTOs from one hot table.
 | Column | Type | Purpose |
 |--------|------|---------|
 | `job_id` | `BINARY(16)`/`uuid` (UUIDv7) | Primary key, time-ordered |
-| `scheduler_job.job_type` | `VARCHAR(16)` | Internal execution type (SINGLE, BATCH_CHILD, etc.) |
+| `scheduler_job.job_type` | `ENUM`/`TEXT` | Internal execution type (SINGLE, BATCH_CHILD, etc.) |
 | `scheduler_job.priority` | `INT` | Priority ordinal (0=LOWEST to 4=CRITICAL) |
 | `scheduler_job.payload` | JSON | Serialized job definition (target, method, args) |
 | `scheduler_job.params` | JSON | Key-value parameters accessible via `JobContext` |
@@ -140,8 +140,8 @@ claim path can populate lightweight claim DTOs from one hot table.
 | `superseded_by` | `BINARY(16)`/`uuid` | FK to replacement job |
 | `caller_principal` | `VARCHAR(255)` | Captured Jakarta Security caller principal, if available |
 | `resource_name` | `VARCHAR(100)` | Resource pool for permit acquisition |
-| `terminal_status` / `terminal_error` | `VARCHAR` / `TEXT` | Cold survivor fields set at terminal transition |
-| `scheduler_job_queue.status` | `VARCHAR(16)` | Live lifecycle state (PENDING, RUNNING, PAUSED, WAITING) |
+| `terminal_status` / `terminal_error` | `ENUM`/`TEXT` / `TEXT` | Cold survivor fields set at terminal transition |
+| `scheduler_job_queue.status` | `ENUM`/`TEXT` | Live lifecycle state (PENDING, RUNNING, PAUSED, WAITING) |
 | `scheduler_job_queue.scheduled_time` | `TIMESTAMP` | When the job becomes eligible for polling |
 | `scheduler_job_queue.attempts` | `INT` | Current attempt count while live |
 | `scheduler_job_queue.picked_by` / `picked_at` | `VARCHAR(64)` / `TIMESTAMP` | Node claim ownership and claim time |
@@ -239,7 +239,7 @@ UUID id = UuidV7Factory.create();
 
 ## JobStore SPI
 
-The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by additionally implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, and MongoDB stores advertise every capability.
+The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by also implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, and MongoDB stores advertise every capability.
 
 ```java
 public interface JobStore
@@ -318,7 +318,7 @@ Each SQL store module provides a dialect-specific implementation:
 - **MySQL:** Parses for "Duplicate entry" in the error message
 - **PostgreSQL:** Checks SQL state codes (23505 for unique violation, plus deadlock/serialization and connection-failure states)
 
-This is used primarily for idempotency key enforcement -- when a duplicate key is detected, the submission is silently rejected rather than throwing an error to the caller.
+This is used primarily for idempotency key enforcement: when a duplicate key is detected, the submission is silently rejected rather than throwing an error to the caller.
 
 ## DDL Schema
 

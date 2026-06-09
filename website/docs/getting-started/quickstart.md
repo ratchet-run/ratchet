@@ -6,7 +6,7 @@ description: Schedule your first background job with Ratchet in under 5 minutes
 
 # Quick Start
 
-This guide gets you from zero to a running background job in the shortest path possible. We'll inject `JobSchedulerService`, enqueue a job, and verify it runs. No retries, no callbacks, no configuration -- just the fire-and-forget pattern.
+This guide gets you from zero to a running background job in the shortest path possible. Inject `JobSchedulerService`, enqueue a job, and verify it runs. No retries, no callbacks, no configuration -- just the fire-and-forget pattern.
 
 ## Prerequisites
 
@@ -92,9 +92,9 @@ public class AppClassPolicy implements ClassPolicy {
 }
 ```
 
-Ratchet fails fast at startup if you leave the default allowlist empty. The `RatchetOptions.security().allowEmptyClassPolicy(true)` escape hatch is only for demos and tests.
+Ratchet fails fast at startup if you leave the default allowlist empty. The `RatchetOptions.builder().security(s -> s.allowEmptyClassPolicy(true)).build()` escape hatch is only for demos and tests.
 
-## Step 1: Create a CDI Bean
+## Step 1: Create a CDI bean
 
 Create a simple `@ApplicationScoped` bean that injects `JobSchedulerService`:
 
@@ -130,9 +130,9 @@ public class OrderService {
 }
 ```
 
-That's the entire integration. Let's break down what happens when `placeOrder` is called.
+That's the entire integration. Here's what happens when `placeOrder` is called.
 
-## Step 2: Understand the Flow
+## Step 2: Understand the flow
 
 When you call `scheduler.enqueueNow(() -> processOrder(orderId))`, Ratchet:
 
@@ -144,9 +144,9 @@ When you call `scheduler.enqueueNow(() -> processOrder(orderId))`, Ratchet:
 
 The key insight: **the job survives server restarts**. Because the payload is persisted to your database, if the server crashes between step 2 and step 5, the job will be picked up after the server comes back.
 
-## Step 3: Verify It Runs
+## Step 3: Verify it runs
 
-### Check the Logs
+### Check the logs
 
 When the application starts, you should see:
 
@@ -164,7 +164,7 @@ INFO [com.example.app.OrderService] Order 42 enqueued for background processing
 INFO [com.example.app.OrderService] Processing order 42 in background...
 ```
 
-### Check the Database
+### Check the database
 
 You can also verify by querying the tables directly. While a job is live, its
 status sits on `scheduler_job_queue`:
@@ -188,7 +188,7 @@ LIMIT 5;
 
 A completed job will show `terminal_status` `SUCCEEDED` with populated timing columns.
 
-## The Fire-and-Forget Pattern
+## The fire-and-forget pattern
 
 The `enqueueNow` method is the simplest entry point. It takes a `SerializableCheckedRunnable` -- a lambda or method reference that can throw checked exceptions -- and returns a `JobHandle`:
 
@@ -221,7 +221,7 @@ scheduler.enqueueNow(() -> processOrder(orderId));
 Ratchet persists the target method metadata and captured argument values extracted by `JobInvocationResolver`. Pass IDs and simple serializable values, not large object graphs. A job that needs a complex object should accept an ID and look up the object from the database during execution. Job return values are stored separately through `ResultPersistenceStrategy`.
 :::
 
-## Delayed Execution
+## Delayed execution
 
 If you want to schedule a job for later instead of immediately, use `schedule`:
 
@@ -235,7 +235,7 @@ scheduler.schedule(Duration.ofMinutes(30), () -> sendReminder(orderId))
 
 Note the difference: `schedule` returns a `JobBuilder` (not a `JobHandle`) so you can configure the job further before calling `.submit()`. The `enqueueNow` shorthand skips the builder and submits immediately.
 
-## Adding an Event Observer
+## Adding an event observer
 
 Even in this minimal setup, you can observe job events using CDI's `@Observes`:
 
@@ -265,7 +265,7 @@ public class JobMonitor {
 
 These observers fire for **all** jobs, not just the ones you enqueued from `OrderService`. This is intentional -- it gives you a single place to add logging, alerting, or metrics for your entire job pipeline.
 
-## Common Issues
+## Common issues
 
 ### "No bean found for JobSchedulerService"
 
@@ -277,13 +277,13 @@ You need a store module (`ratchet-store-postgresql`, `ratchet-store-mysql`, or `
 
 ### Startup fails with `ClassPolicy allowedPackages is empty`
 
-Ratchet refuses to boot until you provide a `ClassPolicy` override. Install the `@Alternative @Priority(APPLICATION)` bean shown above, or use `RatchetOptions.security().allowEmptyClassPolicy(true)` only in demos and tests.
+Ratchet refuses to boot until you provide a `ClassPolicy` override. Install the `@Alternative @Priority(APPLICATION)` bean shown above, or pass `s -> s.allowEmptyClassPolicy(true)` to the `security(...)` method on the `RatchetOptions` builder only in demos and tests.
 
 ### Jobs are enqueued but never execute
 
 Check that `RatchetLifecycle` logged `Ratchet started` and that `Poller` logged `Poller initialized (...)`. If you don't see those messages, the lifecycle bean isn't being activated. This can happen if CDI bean discovery is misconfigured, if your application didn't produce a `RatchetOptions` bean (deployment fails with `UnsatisfiedResolutionException`), or if the `ratchet` module isn't deployed.
 
-## What's Next
+## What's next
 
 This quick start covered the simplest possible pattern: fire-and-forget. In practice, you'll want retries, backoff, callbacks, parameters, and monitoring. The next guide walks through all of these:
 

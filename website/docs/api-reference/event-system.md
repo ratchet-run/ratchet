@@ -6,7 +6,7 @@ description: Complete reference for job lifecycle events, batch events, chain ev
 
 # Event System Reference
 
-Observing and reacting to job lifecycle events. Ratchet publishes events at every significant state transition, enabling monitoring, alerting, and custom integrations.
+Observing and reacting to job lifecycle events. Ratchet publishes events at every state transition. Use them for monitoring, alerting, and custom integrations.
 
 ## Listening to Events
 

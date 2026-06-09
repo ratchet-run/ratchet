@@ -6,7 +6,7 @@ description: Complete job state machine with transitions, guards, and edge cases
 
 # Job Lifecycle
 
-Every job in Ratchet follows a well-defined state machine from creation to terminal state. Understanding these states and transitions is essential for building reliable job workflows.
+Every job in Ratchet follows a defined state machine from creation to terminal state. The states and transitions below determine how jobs are claimed, retried, paused, and archived.
 
 ## State Machine
 
@@ -121,7 +121,7 @@ The job is temporarily suspended and invisible to the Poller. The `paused_from_s
 
 ### WAITING
 
-The job is blocked until an external signal is delivered. WAITING jobs are not visible to the Poller. Signal delivery transitions the job to PENDING and stores the payload for `JobContext.signalPayload()`.
+The job is blocked until an external signal is delivered. WAITING jobs are not visible to the Poller. Signal delivery transitions the job to PENDING and stores the payload, which the running job reads via `JobContext.signalPayload(Class)`.
 
 - **Visible to Poller:** No
 - **Transitions to:** PENDING via `deliverSignal()`, FAILED on signal timeout, CANCELED via `cancelJob()`
@@ -167,7 +167,7 @@ FOR UPDATE SKIP LOCKED
 LIMIT :batchSize
 ```
 
-`age_boost` is computed from the configured priority-boost interval, so old low-priority work can outrank newer high-priority work. `SKIP LOCKED` is critical -- it allows multiple nodes to poll concurrently without blocking each other. Each node claims a non-overlapping set of jobs. The claimed jobs are atomically updated:
+`age_boost` is computed from the configured priority-boost interval, so old low-priority work can outrank newer high-priority work. `SKIP LOCKED` lets multiple nodes poll concurrently without blocking each other. Each node claims a non-overlapping set of jobs. The claimed jobs are atomically updated:
 
 - `status` = RUNNING
 - `picked_by` = node ID
@@ -256,7 +256,7 @@ For chain steps, cancellation cascades to all downstream dependents using depth-
 
 ## Optimistic Locking
 
-The `JobEntity` uses JPA `@Version` for optimistic locking. When two nodes attempt to modify the same job concurrently, one will get an `OptimisticLockException`. Combined with `SKIP LOCKED` during claiming, this ensures exactly-once execution semantics:
+The `JobEntity` uses JPA `@Version` for optimistic locking. When two nodes attempt to modify the same job concurrently, one will get an `OptimisticLockException`. Combined with `SKIP LOCKED` during claiming, this prevents two nodes from running the same job at the same time:
 
 - `SKIP LOCKED` prevents two nodes from claiming the same job
 - `@Version` prevents stale updates if a race occurs during status transitions

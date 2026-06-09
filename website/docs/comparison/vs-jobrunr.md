@@ -85,7 +85,7 @@ The primitives that make this work today:
 
 - A **query layer SPI** (already shipped) that exposes job search, detail lookup, execution history, dependency trees, batch children, recurring masters, and queue health as typed contracts. Building a dashboard on top of this is the intended path.
 - A **Micrometer adapter** for plugging metrics into Grafana, Datadog, Prometheus, or anything else that speaks Micrometer.
-- A **CDI event system** for streaming lifecycle changes (`JobFailedEvent`, `JobSucceededEvent`, etc.) into any downstream system.
+- A **CDI event system** for streaming lifecycle changes (`JobCompletedEvent`, `JobFailedEvent`, etc.) into any downstream system.
 
 An optional admin/control panel module may ship post-1.0 as a separate project, never as part of core. If you'd rather use external tools and skip the dashboard entirely, that's the supported path. If you'd rather have a packaged UI, JobRunr is honestly the better tool today and probably will remain so until someone (us or a community contributor) builds out the separate Ratchet dashboard module.
 

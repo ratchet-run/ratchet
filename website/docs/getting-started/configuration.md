@@ -12,7 +12,7 @@ Ratchet is designed to run in Jakarta EE without static global configuration. CD
 Your application **must** produce exactly one `@ApplicationScoped RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts — this is the intended kill-switch for deployments that pull `ratchet` onto the classpath without wanting it active. There is no automatic fallback chain.
 :::
 
-## How Ratchet Bootstraps
+## How Ratchet bootstraps
 
 Two CDI beans drive startup:
 
@@ -116,7 +116,7 @@ Only produce one unqualified `RatchetOptions` bean per application. Multiple unq
 
 Keep the producer method `@ApplicationScoped` so configuration sources are read once at bootstrap rather than on every injection.
 
-## Store Resources
+## Store resources
 
 Store resources stay container-native. Ratchet does not expect static connection configuration.
 
@@ -169,7 +169,7 @@ stay correct on any provider:
 This requirement applies to the application's own datasource configuration; Ratchet ships only the
 DDL, not a datasource.
 
-## Option Reference
+## Option reference
 
 ### Polling
 
@@ -201,7 +201,7 @@ DDL, not a datasource.
 | `virtualThreadLimit(String, int)` | unset | Backpressure limit for virtual-thread execution |
 | `rateLimitPerMinute(String, int)` | unset | Per-execution-type rate limit |
 
-### Node and Store
+### Node and store
 
 | Builder method | Default | Description |
 |---|---:|---|
@@ -213,7 +213,7 @@ DDL, not a datasource.
 | `store.isolationCheckMode(FAIL)` | `FAIL` | SQL isolation validation behavior |
 | `store.priorityBoostIntervalMinutes(15)` | `15` | Age-based priority boost interval; `0` disables boosting |
 
-### Retention and Payloads
+### Retention and payloads
 
 | Builder method | Default | Description |
 |---|---:|---|
@@ -230,7 +230,7 @@ DDL, not a datasource.
 | `payload.maxPayloadKb(int)` | `100` | Serialized job payload cap |
 | `payload.maxResultBytes(long)` | `65536` | Persisted result cap; `0` disables truncation |
 
-### Recurring, Timeouts, and Circuit Breakers
+### Recurring, timeouts, and circuit breakers
 
 | Builder method | Default | Description |
 |---|---:|---|
@@ -244,7 +244,7 @@ DDL, not a datasource.
 | `circuitBreaker.enabled(boolean)` | `true` | Master switch for built-in circuit breakers |
 | `circuitBreaker.profile(profile, builder)` | profile defaults | Per-profile thresholds |
 
-## Source Chain
+## Source chain
 
 When you call `RatchetOptionsFactory.fromEnvironment(...)` from inside your producer, the factory reads from this chain in order of precedence (highest first):
 
@@ -283,7 +283,7 @@ public class PlatformRatchetConfigSource implements RatchetConfigSource {
 
 The env lookup recognizes canonical `ratchet.*` property names and `RATCHET_*` environment variable names.
 
-## SPI Overrides
+## SPI overrides
 
 Override SPIs with CDI alternatives:
 
@@ -333,7 +333,7 @@ RatchetOptions.builder()
 
 In that mode the default policy still rejects every target class. Install a real `ClassPolicy` before running jobs.
 
-## What's Next
+## What's next
 
 - **Batch processing** -- Build parallel batch jobs with progress tracking and streaming pipelines
 - **Recurring jobs** -- Use `@Recurring` annotations and programmatic cron scheduling

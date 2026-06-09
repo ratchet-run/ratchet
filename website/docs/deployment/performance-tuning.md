@@ -8,11 +8,11 @@ description: Tuning Ratchet's polling intervals, thread pools, batch sizes, time
 
 Ratchet's performance depends on the interplay between polling frequency, thread pool sizing, batch sizes, database tuning, and the nature of your jobs. This guide covers how to tune each parameter for your workload.
 
-## Polling Configuration
+## Polling configuration
 
 The polling engine periodically queries the database for jobs that are due for execution. The two key parameters are the poll interval and the batch size.
 
-### Poll Interval
+### Poll interval
 
 ```bash
 RATCHET_POLLER_MIN_DELAY_MS=2000
@@ -30,7 +30,7 @@ Ratchet uses adaptive polling, so the minimum and maximum delay matter more than
 
 Lowering the minimum below 1 second is not recommended — the overhead of frequent queries usually outweighs the latency benefit.
 
-### Batch Size
+### Batch size
 
 ```bash
 RATCHET_POLLER_BATCH_SIZE=100
@@ -46,14 +46,14 @@ How many jobs to fetch in a single poll. Larger batches reduce the number of que
 | 500 | Fewer queries | Higher | High-throughput with many pending jobs |
 | 1000+ | Minimal | Significant | Bulk processing, batch workloads |
 
-### Adaptive Polling
+### Adaptive polling
 
 Adaptive polling is enabled by default. The polling engine automatically adjusts its interval based on queue depth:
 - **Queue has jobs**: Poll at the configured interval or faster
 - **Queue is empty**: Gradually back off to reduce unnecessary queries
 - **New work notification**: Immediately poll when a `ClusterCoordinator` signals new work
 
-Adaptive polling is particularly effective in environments with variable load — it provides low latency during busy periods and reduces database overhead during idle periods.
+Adaptive polling works well in environments with variable load: it provides low latency during busy periods and reduces database overhead during idle periods.
 
 The deep idle thresholds control how aggressively the engine backs off:
 
@@ -68,9 +68,9 @@ RATCHET_POLLER_DEEP_IDLE_DELAY_MS=30000
 RATCHET_POLLER_MAX_DELAY_MS=10000
 ```
 
-## Thread Pool Sizing
+## Thread pool sizing
 
-### Executor Threads
+### Executor threads
 
 ```bash
 RATCHET_THREAD_POOL_SIZE_SINGLE=16
@@ -93,14 +93,14 @@ RATCHET_THREAD_POOL_SIZE_BATCH_CHILD=64
 
 **For mixed workloads**, start with 2x CPU cores and adjust based on monitoring.
 
-### Virtual Threads (Java 21+)
+### Virtual threads (Java 21+)
 
 ```bash
 RATCHET_WORKER_DEFAULT_THREADING_MODE=virtual
 RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI=java:app/concurrent/MyVirtualExecutor
 ```
 
-Virtual threads (Project Loom) eliminate the need to carefully size thread pools for I/O-bound workloads. With the default threading mode set to virtual and a virtual-backed managed executor wired in, Ratchet routes jobs to the virtual pool, and the JVM efficiently multiplexes them across platform threads.
+Virtual threads (Project Loom) eliminate the need to size thread pools for I/O-bound workloads. With the default threading mode set to virtual and a virtual-backed managed executor wired in, Ratchet routes jobs to the virtual pool, and the JVM multiplexes them across platform threads.
 
 Benefits:
 - No thread pool sizing needed — virtual threads are cheap to create
@@ -112,7 +112,7 @@ Considerations:
 - CPU-bound jobs do not benefit (still limited by platform thread count)
 - `synchronized` blocks can pin virtual threads — prefer `ReentrantLock` in job code
 
-### Custom ExecutorProvider
+### Custom `ExecutorProvider`
 
 For full control over the thread pool, implement the `ExecutorProvider` SPI:
 
@@ -138,11 +138,11 @@ public class CustomExecutorProvider implements ExecutorProvider {
 }
 ```
 
-## Permit-Based Backpressure
+## Permit-based backpressure
 
 Ratchet supports resource-level concurrency control through the `scheduler_resource_limit` and `scheduler_resource_permit` tables. This limits how many jobs using a specific resource can execute simultaneously.
 
-### Configure Resource Limits
+### Configure resource limits
 
 ```sql
 INSERT INTO scheduler_resource_limit (resource_name, max_concurrent, retry_delay_ms, description)
@@ -152,7 +152,7 @@ INSERT INTO scheduler_resource_limit (resource_name, max_concurrent, retry_delay
 VALUES ('report-generator', 2, 10000, 'Memory-intensive report generation');
 ```
 
-### Assign Resources to Jobs
+### Assign resources to jobs
 
 ```java
 scheduler.enqueue(() -> callExternalApi())
@@ -162,7 +162,7 @@ scheduler.enqueue(() -> callExternalApi())
 
 When all permits for a resource are in use, new jobs requesting that resource wait until a permit is released. The `retry_delay_ms` controls how long a job waits before re-checking for an available permit.
 
-### Monitoring Permits
+### Monitoring permits
 
 ```sql
 -- Active permits per resource
@@ -181,9 +181,9 @@ LEFT JOIN scheduler_resource_permit rp ON rl.resource_name = rp.resource_name
 GROUP BY rl.resource_name, rl.max_concurrent;
 ```
 
-## Timeout Configuration
+## Timeout configuration
 
-### Job Timeout
+### Job timeout
 
 ```java
 scheduler.enqueue(() -> longRunningTask())
@@ -203,9 +203,9 @@ Recommended timeouts by job type:
 | Report generation | 30 - 120 minutes |
 | Batch parents | Sum of child timeouts + overhead |
 
-## Database Optimization
+## Database optimization
 
-### PostgreSQL Tuning
+### PostgreSQL tuning
 
 **Shared buffers** — Set to 25% of available RAM:
 ```sql
@@ -238,7 +238,7 @@ max_client_conn = 1000
 default_pool_size = 25
 ```
 
-### MySQL Tuning
+### MySQL tuning
 
 **InnoDB buffer pool** — Set to 70-80% of available RAM:
 ```ini
@@ -259,7 +259,7 @@ innodb_log_file_size = 1G
 transaction_isolation = READ-COMMITTED
 ```
 
-### Index Verification
+### Index verification
 
 Verify that the polling query uses indexes:
 
@@ -299,7 +299,7 @@ ANALYZE scheduler_job_queue;
 ANALYZE TABLE scheduler_job_queue;
 ```
 
-## Job Retention and Archiving
+## Job retention and archiving
 
 Unbounded table growth degrades polling performance. Configure retention to keep the active job table small:
 
@@ -313,7 +313,7 @@ RATCHET_DLQ_PURGE_DAYS=90
 
 The `scheduler_job_archive` table stores historical data for completed and failed jobs. It has its own indexes for reporting queries, separate from the active job table's performance-critical indexes.
 
-### Manual Cleanup
+### Manual cleanup
 
 ```sql
 -- PostgreSQL: archive old completed jobs. Terminated jobs are cold rows on
@@ -331,9 +331,9 @@ WHERE terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
   AND terminated_at < NOW() - INTERVAL '30 days';
 ```
 
-## Monitoring Performance
+## Monitoring performance
 
-### Key Metrics to Watch
+### Key metrics to watch
 
 | Metric | What It Tells You | Action If High |
 |--------|------------------|----------------|
@@ -343,7 +343,7 @@ WHERE terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
 | DLQ growth rate | Rising failure rate | Check error logs, fix root cause |
 | Thread pool utilization | Threads saturated | Increase threads or enable virtual threads |
 
-### Micrometer Integration
+### Micrometer integration
 
 Wire the `MetricsCollector` SPI to Micrometer for dashboarding:
 
@@ -383,7 +383,7 @@ public class MicrometerCollector implements MetricsCollector {
 }
 ```
 
-### Useful Dashboard Queries
+### Useful dashboard queries
 
 ```sql
 -- Average poll time (should be < 50ms)
@@ -409,7 +409,7 @@ WHERE status = 'PENDING'
   AND scheduled_time <= NOW();
 ```
 
-## Tuning Checklist
+## Tuning checklist
 
 1. **Start with defaults** — Ratchet's defaults work well for most workloads
 2. **Measure first** — Enable metrics before changing anything
@@ -419,7 +419,7 @@ WHERE status = 'PENDING'
 6. **Configure retention** — Keep the active job table small for fast polling
 7. **Scale horizontally** — Add nodes before over-tuning a single instance
 
-## See Also
+## See also
 
 - [Configuration](/deployment/configuration) — Full configuration reference
 - [Monitoring & Observability](/deployment/monitoring) — Metrics and alerting

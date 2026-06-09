@@ -93,11 +93,11 @@ jBeret persists job state through its own JPA model into a configured `DataSourc
 
 Ratchet persists through its pluggable `JobStore` SPI. The default schema is your problem to apply (DDL ships as plain SQL), or you opt in to `SchemaMigrationLifecycleHook` for auto-apply. The stores supported out of the box are MySQL, PostgreSQL, and MongoDB. jBeret is SQL-only.
 
-If you have a Mongo-based stack, jBeret is not the answer. Period.
+If you have a Mongo-based stack, jBeret is not the answer.
 
 ## Workflows
 
-jBeret supports step flow within a job (sequential steps, conditional `<next on="...">` transitions, decision elements, splits and flows for parallel execution). The orchestration model is powerful for multi-step batch jobs. But it is all expressed in XML, and the unit of expression is "step within a job," not "another job submitted from this job."
+jBeret supports step flow within a job (sequential steps, conditional `<next on="...">` transitions, decision elements, splits and flows for parallel execution). The orchestration model is expressive for multi-step batch jobs. But it is all expressed in XML, and the unit of expression is "step within a job," not "another job submitted from this job."
 
 Ratchet expresses workflows as separate persisted jobs chained at submission time:
 
@@ -127,7 +127,7 @@ What jBeret does *not* hold over Ratchet (despite the assumption that "Jakarta B
 - **Cron and delay scheduling.** Jakarta Batch has no native concept of "fire this job at 2am every night." You bolt on a timer EJB or `@Schedule`.
 - **Multi-store including MongoDB.** Jakarta Batch is SQL-only.
 - **Built-in resilience.** Circuit breaker, retry policies with an SPI, dead letter queue, signal-waiting jobs, worker tag affinity. None of these are part of Jakarta Batch.
-- **Operator-level crash recovery.** This is the one that comes up most in production. If jBeret's JobOperator crashes or its JVM dies mid-job, in-flight jobs are stranded in `STARTED` status in the database with no running coordinator. The spec has no automatic recovery mechanism, your application code has to notice the stranded jobs and call `JobOperator.restart()` for each one, and a JVM restart is often the only way to clear the executor pool. Ratchet's design treats the store as the single source of truth: workers claim jobs with a stale-timeout, an `OrphanRecoveryTimer` runs continuously and returns claimed-but-abandoned jobs to `PENDING` automatically, and a worker restart picks the work up from where the previous worker left it without any application-side intervention. This isn't a small difference. It's the kind of thing that determines whether a JVM crash is "annoying" or "outage."
+- **Operator-level crash recovery.** If jBeret's JobOperator crashes or its JVM dies mid-job, in-flight jobs are stranded in `STARTED` status in the database with no running coordinator. The spec has no automatic recovery mechanism, your application code has to notice the stranded jobs and call `JobOperator.restart()` for each one, and a JVM restart is often the only way to clear the executor pool. Ratchet's design treats the store as the single source of truth: workers claim jobs with a stale-timeout, an `OrphanRecoveryTimer` runs continuously and returns claimed-but-abandoned jobs to `PENDING` automatically, and a worker restart picks the work up from where the previous worker left it without any application-side intervention. The difference determines whether a JVM crash is "annoying" or "outage."
 - **Caller-principal capture.** Ratchet captures `SecurityContext.getCallerPrincipal()` at submission and exposes a `JobAuthorizationPolicy` SPI. Jakarta Batch has no equivalent.
 
 ## When to use which
@@ -136,4 +136,4 @@ Use jBeret if your team is committed to the Jakarta Batch spec, or if your job m
 
 Use Ratchet for the rest of background work in a Jakarta EE app: recurring jobs, queued work, workflow chains, scheduled tasks. The spec was not designed for this case, and it shows when you try.
 
-They can coexist in the same app. We have seen teams use Jakarta Batch for nightly data warehouse loads and Ratchet for everything else. There is no conflict.
+They can coexist in the same app: Jakarta Batch for nightly data warehouse loads and Ratchet for everything else. There is no conflict.

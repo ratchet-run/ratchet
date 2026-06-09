@@ -3,7 +3,7 @@ const docs = [
   {
     title: 'Install Ratchet',
     href: '/getting-started/installation',
-    description: 'Import the BOM, choose a store, apply schema, and produce runtime options.',
+    description: 'Import the BOM, choose a store, apply the schema, and configure runtime options.',
     event: 'installation',
   },
   {

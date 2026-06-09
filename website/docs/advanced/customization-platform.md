@@ -25,7 +25,7 @@ public class AppExecutionTuningProvider implements ExecutionTuningProvider {
 
 No string-based implementation class names are loaded by Ratchet. This keeps the customization model portable across Jakarta runtimes and testable with normal CDI tooling.
 
-## Extension Points
+## Extension points
 
 | SPI | Default | Use it to customize |
 |-----|---------|---------------------|
@@ -50,13 +50,13 @@ No string-based implementation class names are loaded by Ratchet. This keeps the
 
 `LambdaAnalyzer` remains in the API, but the scheduler's primary payload path is `JobInvocationResolver`. Return values are handled by `ResultPersistenceStrategy`.
 
-## Configuration Model
+## Configuration model
 
 Applications must produce an `@ApplicationScoped RatchetOptions` bean — Ratchet refuses to start otherwise. See [Configuration](/getting-started/configuration) for the canonical patterns.
 
 `RatchetConfigSource` is an advanced overlay: produce it only when your platform already owns raw configuration and you want a producer that calls `RatchetOptionsFactory.fromEnvironment(yourSource)` to fold that platform on top of the ambient `RATCHET_*` / MicroProfile Config chain.
 
-## Deeper Customization
+## Deeper customization
 
 Use these hooks when changing scheduler behavior rather than just tuning values:
 

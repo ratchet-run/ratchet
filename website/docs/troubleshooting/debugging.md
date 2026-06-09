@@ -4,13 +4,13 @@ title: Debugging Guide
 description: How to debug Ratchet jobs using event listeners, database queries, CDI observers, and optional per-job logging.
 ---
 
-# Debugging Guide
+# Debugging guide
 
 This guide covers practical techniques for understanding what your Ratchet jobs are doing at runtime, from event tracing to database-level inspection. `JobContext.logger()` exists on every job and is backed by JBoss Logging by default; database persistence of those log lines is optional.
 
 ## Using JobContext.logger()
 
-Every job has access to a `JobContext` that provides a job-scoped logger. The default logger writes to the runtime logging backend and publishes `JobLogLine` events. If your application observes and persists those events, the entries can be stored in `scheduler_job_log`, giving you a structured execution trace tied to each job ID.
+Every job has access to a `JobContext` that provides a job-scoped logger. The default logger writes to the runtime logging backend and publishes `JobLogLine` events. If your application observes and persists those events, the entries can be stored in `scheduler_job_log`, producing a structured execution trace tied to each job ID.
 
 ```java
 @ApplicationScoped
@@ -36,7 +36,7 @@ public class DataImportService {
 }
 ```
 
-### Querying Job Logs
+### Querying job logs
 
 If your application persists `JobLogLine` events, you can retrieve them after a job runs:
 
@@ -64,7 +64,7 @@ WHERE jl.level = 'ERROR'
 ORDER BY jl.ts DESC;
 ```
 
-### Using Job Parameters for Debug Context
+### Using job parameters for debug context
 
 Attach parameters at submission time to carry context through to execution:
 
@@ -89,7 +89,7 @@ LEFT JOIN scheduler_job_queue q ON q.job_id = j.job_id
 WHERE j.params::jsonb ->> 'source' = 'quarterly-report';
 ```
 
-## Event Listeners for Tracing Job Lifecycle
+## Event listeners for tracing job lifecycle
 
 For real-time debugging, register an event listener that logs all lifecycle transitions:
 
@@ -149,7 +149,7 @@ public class LifecycleTracer {
 }
 ```
 
-## CDI @Observes for Event Monitoring
+## CDI @Observes for event monitoring
 
 CDI observers provide type-safe event handling. Use specific event types to narrow what you observe:
 
@@ -191,9 +191,9 @@ public class SchedulerMonitor {
 }
 ```
 
-## Database Queries to Inspect Job State
+## Database queries to inspect job state
 
-### Find a Specific Job
+### Find a specific job
 
 ```sql
 -- Full job details by ID.
@@ -214,7 +214,7 @@ LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
 WHERE c.job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654';
 ```
 
-### Find Failed Jobs by Error Pattern
+### Find failed jobs by error pattern
 
 ```sql
 -- Find jobs that failed with a specific exception type.
@@ -232,7 +232,7 @@ ORDER BY terminated_at DESC
 LIMIT 20;
 ```
 
-### View Execution History for a Job
+### View execution history for a job
 
 Each job execution attempt is recorded in `scheduler_job_execution`:
 
@@ -245,7 +245,7 @@ WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654'
 ORDER BY attempt ASC;
 ```
 
-### Monitor Job Throughput
+### Monitor job throughput
 
 ```sql
 -- Jobs completed per hour over the last 24 hours
@@ -260,7 +260,7 @@ GROUP BY hour
 ORDER BY hour DESC;
 ```
 
-### Check Node Health
+### Check node health
 
 ```sql
 -- See which nodes are active and when they last checked in
@@ -272,7 +272,7 @@ ORDER BY heartbeat_ts DESC;
 
 A `seconds_since_heartbeat` greater than the orphan grace period (default 60s) indicates a dead or unresponsive node. The `OrphanRecoveryTimer` will recover jobs from stale nodes automatically.
 
-### Inspect Batch Progress
+### Inspect batch progress
 
 ```sql
 -- Batch completion status. The parent's live status is on scheduler_job_queue;
@@ -289,7 +289,7 @@ WHERE q.status IN ('PENDING', 'RUNNING')
 ORDER BY b.batch_id DESC;
 ```
 
-### Find Orphaned Jobs
+### Find orphaned jobs
 
 ```sql
 -- Jobs stuck in RUNNING on nodes that have gone stale. RUNNING is live state, so
@@ -305,9 +305,9 @@ WHERE q.status = 'RUNNING'
 ORDER BY q.picked_at ASC;
 ```
 
-## Enabling Debug Logging
+## Enabling debug logging
 
-### By Component
+### By component
 
 Set fine-grained log levels to focus on the subsystem you are debugging:
 
@@ -325,7 +325,7 @@ Set fine-grained log levels to focus on the subsystem you are debugging:
 | Recurring job scheduling | `run.ratchet.ri.core.RecurringScheduler` |
 | Batch orchestration | `run.ratchet.ri.core.BatchService` |
 
-### Full Debug Mode
+### Full debug mode
 
 To enable debug logging for all of Ratchet (generates significant output):
 
@@ -344,9 +344,9 @@ asadmin set-log-levels run.ratchet=FINE
 <logging traceSpecification="run.ratchet.*=fine"/>
 ```
 
-### Reading the Log Output
+### Reading the log output
 
-Ratchet logs follow a consistent pattern. Here is what a healthy job execution looks like:
+Ratchet logs follow a consistent pattern. A healthy job execution looks like:
 
 ```
 INFO  JobTask - Job 12345 starting execution [type=SINGLE, priority=NORMAL, attempt=1/4, payload=MyService.processData]
@@ -369,7 +369,7 @@ SEVERE JobTask - Job 12345 failed with java.net.ConnectException: Connection ref
 SEVERE JobTask - Job 12345 moved to DLQ after 4 attempts
 ```
 
-## Debugging Checklist
+## Debugging checklist
 
 When a job is not behaving as expected, work through this checklist:
 

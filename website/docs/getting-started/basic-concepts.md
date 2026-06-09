@@ -6,11 +6,11 @@ description: Core Ratchet terminology — jobs, schedules, stores, builders, con
 
 # Basic Concepts
 
-Before diving into the API, it helps to understand the core building blocks. Ratchet has a small set of concepts that compose together to handle everything from one-off background tasks to multi-step workflows.
+Understanding the core building blocks helps before reading the API. Ratchet has a small set of concepts that compose to cover everything from one-off background tasks to multi-step workflows.
 
 ## Jobs
 
-A **job** is a unit of work that Ratchet persists and executes. At its simplest, a job is a serialized lambda — a method reference that gets stored in the database and invoked later by a worker thread.
+A **job** is a unit of work that Ratchet persists and executes. A job is a serialized lambda — a method reference stored in the database and invoked later by a worker thread.
 
 ```java
 // This lambda IS the job
@@ -61,7 +61,7 @@ Recurring jobs use Quartz-compatible cron expressions. The schedule is evaluated
 
 ## Builders
 
-Ratchet uses the **fluent builder** pattern to configure jobs before submission. Every `enqueue`, `schedule`, and `recurring` call returns a builder:
+Ratchet uses the **fluent builder** pattern to configure jobs before submission. Every `enqueue`, `schedule`, and `scheduleRecurring` call returns a builder:
 
 ```java
 scheduler.enqueue(() -> processInvoice(invoiceId))
@@ -126,7 +126,7 @@ Results drive [workflow branching](../concepts/workflows.md) — downstream jobs
 
 ## Stores
 
-A **store** is the persistence backend that holds jobs, execution history, locks, and node registrations. Ratchet separates the store into fine-grained SPI interfaces:
+A **store** is the persistence backend that holds jobs, execution history, locks, and node registrations. Ratchet separates the store into discrete SPI interfaces:
 
 | Store SPI | Responsibility |
 |-----------|---------------|
@@ -209,7 +209,7 @@ scheduler.addEventListener(event -> {
 
 See the [Event System](../api-reference/event-system.md) for all event types.
 
-## What's Next
+## What's next
 
 Now that you know the vocabulary, the best way to learn is to build something:
 

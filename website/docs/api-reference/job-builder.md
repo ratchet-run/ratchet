@@ -147,7 +147,7 @@ JobBuilder withResource(String resourceName)
 
 Specifies a shared resource that this job requires. The job will acquire a permit from the resource pool before execution. If no permits are available, the job is rescheduled with a delay.
 
-This enables limiting concurrent access to shared resources regardless of job type (e.g., limiting concurrent API calls to a payment gateway to 5 total).
+This limits concurrent access to shared resources regardless of job type (e.g., capping concurrent API calls to a payment gateway at 5 total).
 
 **Parameters:**
 - `resourceName` -- the name of the resource to acquire. If null or blank, no resource limiting is applied.
@@ -286,7 +286,7 @@ public void continueOrder(UUID orderId) {
 JobBuilder withEncryptedPayload()
 ```
 
-Opts this job in to payload encryption at rest. Its protected surfaces, the job payload and result, are encrypted before they are stored, while routing and bookkeeping columns stay in cleartext so the job is still claimable and queryable. This is the per-job equivalent of the deployment-wide switch on [`RatchetOptions`](./job-options).
+Opts this job in to payload encryption at rest. Its protected surfaces, the job payload and result, are encrypted before they are stored, while routing and bookkeeping columns stay in cleartext so the job is still claimable and queryable. This is the per-job equivalent of the deployment-wide switch on `RatchetOptions`, described in the [Payload Encryption](../advanced/payload-encryption) guide.
 
 Encryption takes effect only when the deployment has a `PayloadEncryption` engine and a `KeyProvider` installed. Without them, an opted-in job fails when it is submitted rather than persisting data it was asked to protect. Enabling encryption globally with nothing installed is a startup-time failure instead.
 

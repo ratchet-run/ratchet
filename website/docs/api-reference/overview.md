@@ -98,13 +98,13 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`ClusterCoordinator`](./spi-interfaces#clustercoordinator) | Distributed wakeup notifications |
 | [`StartupCoordinator`](./spi-interfaces#startupcoordinator) | Store-backed startup leases for destructive initialization tasks |
 | [`NodeIdentityProvider`](./spi-interfaces#nodeidentityprovider) | Identify nodes in a cluster |
-| `RatchetOptions` | Required `@ApplicationScoped` CDI-produced runtime options — applications must produce one or the scheduler refuses to start |
+| `RatchetOptions` | Required `@ApplicationScoped` CDI-produced runtime options; applications must produce one or the scheduler refuses to start |
 
 ## How to Read This Reference
 
 ### Entry Point
 
-Start with [`JobSchedulerService`](./job-scheduler-service) -- it is the write-side interface you inject for scheduling and lifecycle operations. Every scheduling operation begins here:
+Start with [`JobSchedulerService`](./job-scheduler-service). It is the write-side interface you inject for scheduling and lifecycle operations. Every scheduling operation begins here:
 
 ```java
 @Inject

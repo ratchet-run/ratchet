@@ -26,6 +26,7 @@ Ensure CDI auto-discovery is enabled or register in `beans.xml`.
 Controls retry and backoff decisions. The default RI implementation (`DefaultRetryPolicy`) is a passthrough that defers to the job's configured `BackoffPolicy` and `maxRetries`.
 
 ```java
+@Incubating
 public interface RetryPolicy {
     boolean shouldRetry(int attempt, Throwable cause);
     Duration getDelay(int attempt);
@@ -265,6 +266,7 @@ public class PiiSanitizer implements ErrorSanitizer {
 Keyed authenticated-encryption (AEAD) engine that protects sensitive job data at rest. The engine owns its nonce and returns an opaque body carrying everything decryption needs except the key and the additional authenticated data. `algorithmId()` is recorded in each value's envelope so the matching engine is selected at read time. Reference AES-256-GCM and XChaCha20-Poly1305 engines ship in `ratchet-encryption`.
 
 ```java
+@Incubating
 public interface PayloadEncryption {
     String algorithmId();
     byte[] encrypt(byte[] plaintext, EncryptionContext ctx);
@@ -276,9 +278,10 @@ See the [Payload Encryption](/advanced/payload-encryption) guide for setup and t
 
 ## KeyProvider
 
-Owns key storage, the active write key, lookup by id, and the rotation lifecycle. This is the seam a deployment replaces to back encryption with a static key, an environment variable, a JCA `KeyStore`, or an external key service such as AWS KMS, GCP KMS, or HashiCorp Vault. `currentKey()` answers "which key do I write with now?", and `keyById()` resolves a recorded key id; a provider must keep old keys resolvable until every row written under them has been rewritten or deleted. `SecretKeyProvider` in `ratchet-encryption` is a ready-made static-key implementation, and `WrappedKeyProvider` is the variant for KMS-wrapped data keys.
+Owns key storage, the active write key, lookup by id, and the rotation lifecycle. This is the seam a deployment replaces to back encryption with a static key, an environment variable, a JCA `KeyStore`, or an external key service such as AWS KMS, GCP KMS, or HashiCorp Vault. `currentKey()` answers "which key do I write with now?", and `keyById()` resolves a recorded key id; a provider must keep old keys resolvable until every row written under them has been rewritten or deleted. `SecretKeyProvider` in `ratchet-encryption` is a ready-made static-key implementation, and `WrappedKeyProvider` (in `run.ratchet.spi`) is a `KeyProvider` sub-interface, the seam an external key service implements for KMS-wrapped data keys.
 
 ```java
+@Incubating
 public interface KeyProvider {
     EncryptionKey currentKey();
     EncryptionKey keyById(String keyId);
@@ -294,6 +297,7 @@ The framework-computed context passed to every `encrypt` and `decrypt` call. It 
 Custom callback-to-job invocation resolution. The default RI uses ASM to derive a persisted target class, method, method descriptor, static flag, and argument list from serializable callbacks.
 
 ```java
+@Incubating
 public interface JobInvocationResolver {
     JobInvocation resolve(Serializable callback);
     JobInvocation resolve(Serializable callback, List<Object> runtimeArguments);
@@ -305,6 +309,7 @@ public interface JobInvocationResolver {
 Serializes job return values before storing them on the job row.
 
 ```java
+@Incubating
 public interface ResultPersistenceStrategy {
     SerializedJobResult serialize(UUID jobId, Object result);
 }
@@ -315,6 +320,7 @@ public interface ResultPersistenceStrategy {
 Typed runtime configuration facade used internally by `RatchetOptionsFactory` to resolve keys against a chain of `RatchetConfigSource` instances. Most applications never interact with this directly; they either build `RatchetOptions` programmatically or call `RatchetOptionsFactory.fromEnvironment()` from their producer (see [Configuration](/getting-started/configuration)).
 
 ```java
+@Incubating
 public interface RatchetConfig {
     <T> T get(RatchetConfigKey<T> key);
     Optional<String> raw(RatchetConfigKey<?> key);
@@ -326,6 +332,7 @@ public interface RatchetConfig {
 Raw configuration source read by `RatchetOptionsFactory.fromEnvironment(RatchetConfigSource...)`. Pass instances as varargs from your `RatchetOptions` producer to overlay a platform-specific source ahead of the ambient MicroProfile Config / environment variable chain.
 
 ```java
+@Incubating
 public interface RatchetConfigSource {
     Optional<String> get(String propertyName, String environmentVariable);
 }
@@ -336,6 +343,7 @@ public interface RatchetConfigSource {
 Controls per-execution-type concurrency and virtual-thread backpressure limits.
 
 ```java
+@Incubating
 public interface ExecutionTuningProvider {
     RatchetOptions.ThreadingMode defaultThreadingMode();
     int maxConcurrency(String executionTypeName, int defaultValue);
@@ -348,6 +356,7 @@ public interface ExecutionTuningProvider {
 Creates the stateful adaptive polling delay strategy used by the RI poller.
 
 ```java
+@Incubating
 public interface PollingStrategyProvider {
     PollingDelayStrategy create(PollingConfig config);
 }
@@ -358,6 +367,7 @@ public interface PollingStrategyProvider {
 Creates the job-scoped `JobLogger` bound into `JobContext` for each execution.
 
 ```java
+@Incubating
 public interface JobLoggerFactory {
     JobLogger create(JobLoggerContext context);
 }
@@ -368,6 +378,7 @@ public interface JobLoggerFactory {
 Supplies enablement and per-profile settings for the built-in circuit breaker.
 
 ```java
+@Incubating
 public interface CircuitBreakerConfigProvider {
     boolean isEnabled();
     CircuitBreakerConfig configFor(CircuitBreakerProfile profile);
@@ -379,6 +390,7 @@ public interface CircuitBreakerConfigProvider {
 Optional CDI hook around scheduler startup and shutdown.
 
 ```java
+@Incubating
 public interface SchedulerLifecycleHook {
     default void beforeStart() {}
     default void afterStart() {}
@@ -762,6 +774,7 @@ public class KubernetesNodeProvider implements NodeIdentityProvider {
 Restricts which jobs a worker node will claim, by tag. The provider returns a `NodeTagFilter` that the poller compiles into an `EXISTS` / `NOT EXISTS` guard on the claim query, so a node picks up only work whose tags match its affinity. The default applies no filter, and every node claims any job. This is the seam for pinning GPU, licensed, or tenant-specific work to the nodes that can run it.
 
 ```java
+@Incubating
 public interface NodeTagAffinityProvider {
     NodeTagFilter tagFilter();
 }

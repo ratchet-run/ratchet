@@ -35,7 +35,7 @@ Serves the built `dist/` locally for a final sanity check before deploying.
 ## Project layout
 
 - `docs/` — source content
-  - `*.md` — pages, grouped by section (getting-started, concepts, api-reference, deployment, advanced, troubleshooting, comparison, conformance)
+  - `*.md` — pages, grouped by section (getting-started, concepts, api-reference, deployment, advanced, troubleshooting, comparison, conformance, adr)
   - `index.md` — landing page (uses VitePress's `layout: home` plus custom slots)
   - `.vitepress/config.ts` — site title, nav, sidebar, theme config, edit-on-GitHub link
   - `.vitepress/theme/` — custom theme: brand CSS, hero slots, footer, 3-state appearance toggle, Umami click tracking, Vue port of `ComparisonMatrix`
