@@ -38,6 +38,11 @@ jobs:
         id: filter
         if: github.event_name == 'pull_request'
         with:
+          # 'every' makes a file count as code only when it matches ALL rules
+          # (not md, not adoc, not under website, not LICENSE). The default
+          # 'some' quantifier lets the base '**' match every file, so the '!'
+          # rules never subtract and docs-only PRs run the full matrix.
+          predicate-quantifier: 'every'
           filters: |
             code:
               - '**'
