@@ -77,9 +77,10 @@ scheduler.enqueue(() -> billingService.charge(cardToken))
     .submit();
 ```
 
-Either way, an engine and a key provider must be installed. An opted-in job whose
-deployment has neither fails the node at startup rather than persist data it was asked to
-protect. See [Failure behavior](#failure-behavior) below.
+Either way, an engine and a key provider must be installed. A per-job opt-in whose
+deployment has neither fails when the job is submitted rather than persisting data it was
+asked to protect; enabling the global switch with nothing installed fails at startup
+instead. See [Failure behavior](#failure-behavior) below.
 
 ## What is protected, and what is not
 

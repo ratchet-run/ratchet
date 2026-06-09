@@ -288,7 +288,7 @@ JobBuilder withEncryptedPayload()
 
 Opts this job in to payload encryption at rest. Its protected surfaces, the job payload and result, are encrypted before they are stored, while routing and bookkeeping columns stay in cleartext so the job is still claimable and queryable. This is the per-job equivalent of the deployment-wide switch on [`RatchetOptions`](./job-options).
 
-Encryption takes effect only when the deployment has a `PayloadEncryption` engine and a `KeyProvider` installed. Without them, an opted-in job fails the node at startup rather than persist data it was asked to protect.
+Encryption takes effect only when the deployment has a `PayloadEncryption` engine and a `KeyProvider` installed. Without them, an opted-in job fails when it is submitted rather than persisting data it was asked to protect. Enabling encryption globally with nothing installed is a startup-time failure instead.
 
 ```java
 scheduler.enqueue(() -> billingService.charge(cardToken))

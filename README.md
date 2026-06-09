@@ -288,7 +288,7 @@ scheduler.enqueue(() -> chargeCard(cardToken))
     .submit();
 ```
 
-Encryption covers the protected surfaces, the job payload and its result, while routing and bookkeeping columns (target class, business key, timing) stay queryable. An opted-in job fails the node at startup if no engine and key are installed, so it never silently persists data it was told to protect. To back keys with a KMS instead of the environment, supply your own `KeyProvider` and `PayloadEncryption` beans. The Payload encryption guide on the docs site covers that path, key rotation, and exactly what is and isn't protected.
+Encryption covers the protected surfaces, the job payload and its result, while routing and bookkeeping columns (target class, business key, timing) stay queryable. If a job asks for encryption but no engine and key are installed, it fails when it is submitted rather than silently persisting unprotected data. Enabling the global switch with nothing installed fails the node at startup instead. To back keys with a KMS instead of the environment, supply your own `KeyProvider` and `PayloadEncryption` beans. The Payload encryption guide on the docs site covers that path, key rotation, and exactly what is and isn't protected.
 
 ### Event Observation
 

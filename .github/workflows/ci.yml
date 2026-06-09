@@ -27,6 +27,9 @@ jobs:
   # output is empty, which the downstream `!= 'false'` guards read as "run".
   changes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
