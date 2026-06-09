@@ -33,6 +33,12 @@ export default defineConfig({
   title: 'Ratchet',
   description: 'The background job scheduler Jakarta EE has been missing.',
 
+  // Architecture Decision Records stay in the repo for contributors (readable on
+  // GitHub under website/docs/adr/) but are not part of the published user-facing
+  // site. The payload-encryption decision is covered for users by the Payload
+  // Encryption guide under Advanced.
+  srcExclude: ['adr/**'],
+
   head: [
     ['link', { rel: 'icon', href: '/img/favicon.ico' }],
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/img/favicon.svg' }],
@@ -116,6 +122,7 @@ export default defineConfig({
             { text: 'Circuit Breakers', link: '/advanced/circuit-breakers' },
             { text: 'Custom Retry Policies', link: '/advanced/custom-retry-policies' },
             { text: 'Custom Serialization', link: '/advanced/custom-serialization' },
+            { text: 'Payload Encryption', link: '/advanced/payload-encryption' },
             { text: 'Custom Logging', link: '/advanced/custom-logging' },
             { text: 'Metrics Collection', link: '/advanced/metrics-collection' },
           ],
@@ -225,18 +232,6 @@ export default defineConfig({
                 { text: 'GlassFish + PostgreSQL', link: '/conformance/jakarta/glassfish-managed-postgresql' },
                 { text: 'GlassFish + MongoDB', link: '/conformance/jakarta/glassfish-managed-mongodb' },
               ],
-            },
-          ],
-        },
-      ],
-      '/adr/': [
-        {
-          text: 'Architecture Decision Records',
-          items: [
-            { text: 'Overview', link: '/adr/' },
-            {
-              text: '0001 — Payload encryption threat model',
-              link: '/adr/0001-payload-encryption-threat-model',
             },
           ],
         },

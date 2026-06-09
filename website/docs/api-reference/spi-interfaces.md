@@ -260,6 +260,35 @@ public class PiiSanitizer implements ErrorSanitizer {
 }
 ```
 
+## PayloadEncryption
+
+Keyed authenticated-encryption (AEAD) engine that protects sensitive job data at rest. The engine owns its nonce and returns an opaque body carrying everything decryption needs except the key and the additional authenticated data. `algorithmId()` is recorded in each value's envelope so the matching engine is selected at read time. Reference AES-256-GCM and XChaCha20-Poly1305 engines ship in `ratchet-encryption`.
+
+```java
+public interface PayloadEncryption {
+    String algorithmId();
+    byte[] encrypt(byte[] plaintext, EncryptionContext ctx);
+    byte[] decrypt(byte[] ciphertext, EncryptionContext ctx);
+}
+```
+
+See the [Payload Encryption](/advanced/payload-encryption) guide for setup and the protected-surface boundary.
+
+## KeyProvider
+
+Owns key storage, the active write key, lookup by id, and the rotation lifecycle. This is the seam a deployment replaces to back encryption with a static key, an environment variable, a JCA `KeyStore`, or an external key service such as AWS KMS, GCP KMS, or HashiCorp Vault. `currentKey()` answers "which key do I write with now?", and `keyById()` resolves a recorded key id; a provider must keep old keys resolvable until every row written under them has been rewritten or deleted. `SecretKeyProvider` in `ratchet-encryption` is a ready-made static-key implementation, and `WrappedKeyProvider` is the variant for KMS-wrapped data keys.
+
+```java
+public interface KeyProvider {
+    EncryptionKey currentKey();
+    EncryptionKey keyById(String keyId);
+}
+```
+
+## EncryptionContext
+
+The framework-computed context passed to every `encrypt` and `decrypt` call. It identifies the surface being protected (which job, which column) so the engine can bind the ciphertext to it as additional authenticated data, which is what stops a value from being moved between rows or fields. Applications never construct it; Ratchet hands it to the engine.
+
 ## JobInvocationResolver
 
 Custom callback-to-job invocation resolution. The default RI uses ASM to derive a persisted target class, method, method descriptor, static flag, and argument list from serializable callbacks.
@@ -727,6 +756,18 @@ public class KubernetesNodeProvider implements NodeIdentityProvider {
     }
 }
 ```
+
+## NodeTagAffinityProvider
+
+Restricts which jobs a worker node will claim, by tag. The provider returns a `NodeTagFilter` that the poller compiles into an `EXISTS` / `NOT EXISTS` guard on the claim query, so a node picks up only work whose tags match its affinity. The default applies no filter, and every node claims any job. This is the seam for pinning GPU, licensed, or tenant-specific work to the nodes that can run it.
+
+```java
+public interface NodeTagAffinityProvider {
+    NodeTagFilter tagFilter();
+}
+```
+
+See [Multi-Cell Deployment](/deployment/multi-cell) for a worked example.
 
 ## LambdaAnalyzer
 
