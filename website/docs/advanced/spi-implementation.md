@@ -286,7 +286,7 @@ See [Custom Logging](./custom-logging.md) for detailed guidance.
 **Default:** `PackagePrefixClassPolicy` (empty allowlist by default -- must be configured)
 **Annotation:** `@Incubating`
 
-Controls which classes can be loaded and executed as job targets. A critical security component.
+Controls which classes can be loaded and executed as job targets. It gates which classes the engine will deserialize and run.
 
 ```java
 @Incubating
@@ -558,7 +558,7 @@ public interface JobLoggerFactory {
 
 **Module:** `ratchet-api`
 **Package:** `run.ratchet.spi`
-**Default:** `DefaultErrorSanitizer` (strips JDBC URLs, credentials, emails, truncates to 500 chars)
+**Default:** `DefaultErrorSanitizer` (strips JDBC URLs, credentials, emails, truncates to 2000 chars)
 **Annotation:** `@Incubating`
 
 Sanitizes exception messages before they are persisted to the job store or published in events.
@@ -773,7 +773,7 @@ public class CustomDocumentJobStore implements JobStore {
 
 ### Validating with the TCK
 
-The published store SPI Technology Compatibility Kit (TCK) provides abstract test contracts for the core surface and for each optional capability. A capability contract is conditional: it runs against a store that advertises the capability and is reported `N/A` against one that does not, so a core-only store stays conformant. To validate your custom store, extend the TCK contracts and provide a `JobStoreContractFixture`:
+The published store SPI Technology Compatibility Kit (TCK) provides abstract test contracts for the core surface and for each optional capability. A capability contract is conditional: it runs against a store that advertises the capability and is reported `N/A` against one that does not, so a core-only store stays conformant. Each contract base implements `JobStoreContractFixture`, so to validate your custom store you extend the contract and supply the fixture methods (`store()`, `newPendingJob()`, `newBatchParentJob()`, `cleanupStore()`):
 
 ```java
 import run.ratchet.tck.store.JobStoreContractFixture;
@@ -798,7 +798,7 @@ public class MongoStoreFixture implements JobStoreContractFixture {
     @Override
     public JobEntity newPendingJob() {
         JobEntity job = new JobEntity();
-        job.setTag("test-" + UUID.randomUUID());
+        job.setTags(List.of("test-" + UUID.randomUUID()));
         job.setStatus(JobStatus.PENDING);
         // ... set required fields
         return job;
@@ -807,7 +807,7 @@ public class MongoStoreFixture implements JobStoreContractFixture {
     @Override
     public JobEntity newBatchParentJob() {
         JobEntity job = newPendingJob();
-        job.setExecutionType(JobExecutionType.BATCH_PARENT);
+        job.setJobType(JobExecutionType.BATCH_PARENT);
         return job;
     }
 
@@ -817,15 +817,12 @@ public class MongoStoreFixture implements JobStoreContractFixture {
     }
 }
 
-// 2. Extend TCK contracts
+// 2. Extend TCK contracts. AbstractJobCrudStoreContract implements
+// JobStoreContractFixture, so the test class supplies the fixture methods directly,
+// delegating to the helper above.
 class MongoJobCrudStoreTest extends AbstractJobCrudStoreContract {
 
-    private MongoStoreFixture fixture;
-
-    @BeforeEach
-    void setup() {
-        fixture = new MongoStoreFixture(testDatabase);
-    }
+    private final MongoStoreFixture fixture = new MongoStoreFixture(testDatabase);
 
     @AfterEach
     void cleanup() {
@@ -833,8 +830,23 @@ class MongoJobCrudStoreTest extends AbstractJobCrudStoreContract {
     }
 
     @Override
-    protected JobStoreContractFixture fixture() {
-        return fixture;
+    public JobStore store() {
+        return fixture.store();
+    }
+
+    @Override
+    public JobEntity newPendingJob() {
+        return fixture.newPendingJob();
+    }
+
+    @Override
+    public JobEntity newBatchParentJob() {
+        return fixture.newBatchParentJob();
+    }
+
+    @Override
+    public void cleanupStore() {
+        fixture.cleanupStore();
     }
 }
 ```
@@ -920,7 +932,7 @@ public class MySpi implements SomeRatchetSpi {
 | `SchedulerLifecycleHook` | No default hook | Optional `@ApplicationScoped` alternative | application |
 | `RetryPolicy` | `DefaultRetryPolicy` | `@ApplicationScoped` | ratchet |
 | `ResilienceStrategy` | `DefaultResilienceStrategy` | Produced by `RatchetProducer` | ratchet |
-| `MetricsCollector` | `NoOpMetricsCollector` | `@ApplicationScoped` | ratchet |
+| `MetricsCollector` | `NoOpMetricsCollector` | `@ApplicationScoped` | ratchet-api |
 | `JobLoggerFactory` | `DefaultJobLoggerFactory` | `@ApplicationScoped` | ratchet |
 | `StartupCoordinator` | `StoreBackedStartupCoordinator` | `@ApplicationScoped` | ratchet |
 | `ClassPolicy` | `PackagePrefixClassPolicy` | Produced by `RatchetProducer` | ratchet |

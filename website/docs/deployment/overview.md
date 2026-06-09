@@ -8,7 +8,7 @@ description: What you need to deploy Ratchet — application server, database, m
 
 Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11. It deploys as a set of JAR modules inside your application, running on Jakarta EE runtimes with the services used by the reference implementation.
 
-## What You Need
+## What you need
 
 | Component | Requirement | Notes |
 |-----------|-------------|-------|
@@ -18,7 +18,7 @@ Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11. It deploys 
 | **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ | One store module per database |
 | **Build Tool** | Maven 3.8+ | BOM import for version management |
 
-## Ratchet Modules
+## Ratchet modules
 
 A typical deployment includes three Ratchet JARs:
 
@@ -50,9 +50,9 @@ All versions are managed through the `ratchet-bom`:
 </dependencyManagement>
 ```
 
-## Deployment Scenarios
+## Deployment scenarios
 
-### Single-Node
+### Single-node
 
 The simplest deployment: one application instance connected to one database. No clustering configuration needed. Ratchet's polling engine runs inside the application server and executes jobs using its managed thread pool.
 
@@ -61,7 +61,7 @@ This is suitable for:
 - Low-throughput workloads (< 1,000 jobs/hour)
 - Applications where high availability is not critical
 
-### Multi-Node (Clustered)
+### Multi-node (clustered)
 
 Multiple application instances share the same database. Ratchet uses database-level claiming (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL, atomic document updates on MongoDB) to ensure each job is claimed by exactly one node.
 
@@ -75,7 +75,7 @@ Ratchet runs in Docker or Kubernetes without any special configuration beyond wh
 
 See [Docker Deployment](/deployment/docker) and [Kubernetes Deployment](/deployment/kubernetes).
 
-## Database Schema
+## Database schema
 
 Ratchet ships SQL DDL as plain files — no Flyway or Liquibase dependency is required. The schema files are bundled inside each SQL store module JAR at `ddl/`:
 
@@ -85,7 +85,7 @@ Ratchet ships SQL DDL as plain files — no Flyway or Liquibase dependency is re
 
 For SQL stores, apply the schema using whatever mechanism your team prefers: CLI tools, migration frameworks, or application startup scripts. MongoDB bootstraps collections and indexes automatically. See [Database Setup](/deployment/database-setup) for step-by-step instructions.
 
-### Core Tables and Collections
+### Core tables and collections
 
 The SQL schema creates these primary tables. MongoDB uses analogous collections created by the store module.
 
@@ -128,7 +128,7 @@ Key configuration areas:
 
 See [Configuration](/deployment/configuration) for the full reference.
 
-## Monitoring and Observability
+## Monitoring and observability
 
 Ratchet provides multiple monitoring integration points:
 
@@ -139,7 +139,7 @@ Ratchet provides multiple monitoring integration points:
 
 See [Monitoring & Observability](/deployment/monitoring) for integration guides.
 
-## Deployment Checklist
+## Deployment checklist
 
 Before going to production:
 
@@ -152,7 +152,7 @@ Before going to production:
 7. **Configure wakeups if needed** — If running multiple nodes and you want faster cross-node responsiveness, implement `ClusterCoordinator`
 8. **Test failover** — Verify jobs recover when a node goes down
 
-## Next Steps
+## Next steps
 
 - [Installation & Setup](/deployment/installation) — Step-by-step getting started
 - [Database Setup](/deployment/database-setup) — Schema application for all stores

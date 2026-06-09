@@ -15,7 +15,7 @@ Immutable configuration record for job execution behavior and policies. `JobOpti
 **Package:** `run.ratchet.api`
 **Type:** `record JobOptions(JobPriority priority, int maxRetries, BackoffPolicy backoffPolicy, Duration backoffParam, int timeoutSec)`
 
-### Record Components
+### Record components
 
 | Component | Type | Default | Description |
 |---|---|---|---|
@@ -87,7 +87,7 @@ Returns a new `JobOptions` with the specified execution timeout.
 JobOptions opts = JobOptions.defaults().withTimeout(Duration.ofMinutes(10));
 ```
 
-### Example: Recurring Job Options
+### Example: recurring job options
 
 ```java
 scheduler.scheduleRecurring(
@@ -180,7 +180,7 @@ Constant delay between each retry attempt. Suitable for rate-limited services.
 
 ### EXPONENTIAL
 
-Delays grow exponentially (doubling) with each attempt. Ideal for reducing load on stressed systems. The delay is capped at a reasonable maximum (24 hours).
+Delays grow exponentially (doubling) with each attempt. Reduces load on stressed systems. The delay is capped at a maximum (24 hours).
 
 **Example with `backoffParam = 1 second`:**
 
@@ -224,7 +224,7 @@ scheduler.addEventListener(event -> {
 });
 ```
 
-## See Also
+## See also
 
 - [JobBuilder Reference](./job-builder)
 - [Annotations Reference](./annotations)

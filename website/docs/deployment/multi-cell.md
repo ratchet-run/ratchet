@@ -19,7 +19,7 @@ cell registry, and no shared coordination layer. Your application decides
 which cell a submission belongs to and talks to that cell's
 `JobSchedulerService`.
 
-## Cell vs. Cluster
+## Cell vs. cluster
 
 These are different axes and they compose. A cluster scales one store
 horizontally; a cell adds another store.
@@ -35,7 +35,7 @@ horizontally; a cell adds another store.
 A single cell is almost always itself a cluster: multiple nodes sharing that
 cell's store. "Multi-cell" describes the relationship *between* stores.
 
-## When You Actually Need Cells
+## When you actually need cells
 
 Reach for cells only when a shared-store cluster cannot give you what you
 need. Most deployments never do.
@@ -46,7 +46,7 @@ need. Most deployments never do.
 - You want different node groups to handle different work. Worker tag
   affinity routes jobs to eligible nodes *within one store* — tag a job with
   `withTags(...)` and constrain a node's claims with a
-  [`NodeTagAffinityProvider`](/advanced/spi-implementation). No second store
+  [`NodeTagAffinityProvider`](/api-reference/spi-interfaces#nodetagaffinityprovider). No second store
   is required for workload routing.
 - Tenants can coexist in one schema with application-level scoping.
 
@@ -67,7 +67,7 @@ Worker tag affinity and cells answer different questions. Tag affinity asks
 lives in at all*. Use affinity first; reach for cells when a single store is
 the wrong unit of isolation or throughput.
 
-## Pattern 1: Cell per Tenant
+## Pattern 1: Cell per tenant
 
 Each tenant gets its own cell — its own schema, and usually its own
 connection pool.
@@ -92,7 +92,7 @@ Below a few dozen tenants this is usually worth it for the isolation; far
 beyond that, a shared schema with application-level tenant scoping is the
 more practical choice unless regulation forces separation.
 
-## Pattern 2: Cell per Workload Domain
+## Pattern 2: Cell per workload domain
 
 Each cell owns a class of work whose throughput and latency profile differs
 from the others.
@@ -117,7 +117,7 @@ This is the throughput-and-isolation pattern. When one shared store would
 mix a heavy, commit-bound workload with a light, latency-sensitive one,
 separate cells keep their commit pipelines apart.
 
-## Cross-Cell Non-Guarantees
+## Cross-cell non-guarantees
 
 Cells are independent stores. Every Ratchet guarantee that is scoped to a
 store stops at the cell boundary. Read these before adopting the model.
@@ -142,7 +142,7 @@ The application owns anything that must span cells. If you need a workflow
 to cross a boundary, model it with an explicit cross-cell handoff in your own
 code, not with a Ratchet chain.
 
-## Routing Submissions
+## Routing submissions
 
 Because there is no cross-cell layer, routing is the application's
 responsibility: choose the cell, then submit to that cell's
@@ -155,7 +155,7 @@ the key is the tenant ID; for cell-per-domain it is the workload class. A job
 submitted to the wrong cell is not an error Ratchet can detect — it will run
 in that cell against that cell's data.
 
-## Sizing Reference
+## Sizing reference
 
 Pick the smallest model that satisfies your strongest requirement. Isolation
 and throughput pull toward cells; everything else favors a single store.
@@ -177,10 +177,10 @@ sized like any single deployment: see [Cluster
 Configuration](/deployment/cluster-configuration) for per-cell node, pool,
 and polling tuning.
 
-## See Also
+## See also
 
 - [Deployment Overview](/deployment/overview) — application server, database, and module requirements
 - [Clustering](/deployment/clustering) — scaling one store across nodes with `SKIP LOCKED`
 - [Cluster Configuration](/deployment/cluster-configuration) — per-cell node, pool, and polling tuning
 - [Performance Tuning](/deployment/performance-tuning) — the single-store commit-throughput ceiling
-- [SPI Implementation](/advanced/spi-implementation) — `NodeTagAffinityProvider` for in-store workload routing
+- [SPI Reference: `NodeTagAffinityProvider`](/api-reference/spi-interfaces#nodetagaffinityprovider) — in-store workload routing

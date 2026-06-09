@@ -3,13 +3,13 @@
 - **Status:** Proposed
 - **Date:** 2026-06-04
 - **Supersedes:** the incubating `PayloadCipher` string-transform seam (uncommitted)
-- **Roadmap:** "Payload encryption for sensitive job parameters" — this ADR is the
-  prerequisite that roadmap item names ("Do not implement before: an ADR documenting
-  the threat model … and which surfaces are actually protected vs out of scope").
+- **Scope:** payload encryption for sensitive job parameters. This ADR is the
+  prerequisite the feature is gated on: an ADR documenting the threat model and which
+  surfaces are actually protected versus out of scope, written before any implementation.
 
 ## Why this ADR exists first
 
-The roadmap blocks implementation on a threat model because the word "encrypted"
+The feature blocks implementation on a threat model because the word "encrypted"
 carries a promise. If we ship a feature called payload encryption without first
 writing down what it does and does not defend against, operators will assume more
 protection than the design gives them. A compliance reviewer who reads "encrypted at
@@ -234,7 +234,8 @@ of whether the SPI was drawn correctly.
 
 > **Implementation status (updated 2026-06-05).** The reference stack now ships. The
 > deterministic-nonce AES-256-GCM engine (`AesGcmPayloadEncryption`) and a rotation-capable
-> `SecretKeyProvider` live in `ratchet-store-core`; `EncryptionInstaller` instantiates and
+> `SecretKeyProvider` live in the `ratchet-encryption` module (see the round 5 note below for the
+> move out of `ratchet-store-core`); `EncryptionInstaller` instantiates and
 > installs them from environment configuration (`RATCHET_ENCRYPTION_KEYS` /
 > `RATCHET_ENCRYPTION_CURRENT_KEY`) when no application-provided `PayloadEncryption`/`KeyProvider`
 > beans are present — an application that brings its own takes precedence. The envelope-encryption
@@ -551,7 +552,7 @@ genuinely different algorithms.
 
 ## References
 
-- ROADMAP, "Payload encryption for sensitive job parameters."
+- Feature scope: payload encryption for sensitive job parameters.
 - Incubating spike on branch `payload-cipher-spi`: `PayloadCipher`, `PayloadEncryptor`,
   `PayloadCipherHolder`, the store TCK `AbstractPayloadCipherStoreContract`, and the
   row-mapper wiring it validated.

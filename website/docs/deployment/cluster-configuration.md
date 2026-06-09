@@ -8,7 +8,7 @@ description: Running Ratchet across multiple nodes — ClusterCoordinator, NodeI
 
 Ratchet supports multi-node deployments where multiple application instances share the same database. This guide covers how to configure clustering for safe job claiming, recurring job deduplication, and node coordination.
 
-## How Clustering Works
+## How clustering works
 
 In a clustered Ratchet deployment:
 
@@ -18,7 +18,7 @@ In a clustered Ratchet deployment:
 
 3. **Node identity is tracked** — Each node registers itself in the `scheduler_node` table with a heartbeat. This enables distributed locking and stale-node detection.
 
-## Enabling Cluster Mode
+## Enabling cluster mode
 
 There is no separate `ratchet.cluster.enabled` switch. A deployment becomes clustered when multiple Ratchet nodes share the same store and you provide the coordination pieces you need. In practice that means:
 
@@ -28,7 +28,7 @@ There is no separate `ratchet.cluster.enabled` switch. A deployment becomes clus
 - Store-backed startup leases for destructive initialization work
 - Cross-node wakeup notifications (if a `ClusterCoordinator` is provided)
 
-## Node Identity
+## Node identity
 
 Each node in the cluster needs a unique, stable identifier. Implement the `NodeIdentityProvider` SPI:
 
@@ -45,7 +45,7 @@ public class KubernetesNodeProvider implements NodeIdentityProvider {
 }
 ```
 
-The default implementation uses the JVM hostname. Override it when:
+The default implementation uses `hostname-PID-<8-char-UUID>`. Override it when:
 - Running in Kubernetes (use the pod name from `metadata.name`)
 - Running in Docker Compose (use the `HOSTNAME` environment variable)
 - Running multiple instances on the same host (use a unique port or instance ID)
@@ -79,7 +79,7 @@ public interface ClusterCoordinator extends AutoCloseable {
 }
 ```
 
-### Database-Only Coordination
+### Database-only coordination
 
 If you do not provide a `ClusterCoordinator`, Ratchet still coordinates one-shot claims, recurring scheduler execution, and destructive startup cleanup through the store. Each node simply polls independently, so wakeups are slower.
 
@@ -101,9 +101,9 @@ public interface StartupCoordinator {
 
 The default `StoreBackedStartupCoordinator` uses `scheduler_lock`, so no extra cluster configuration is required for recurring-annotation orphan cleanup.
 
-### Redis-Based Coordinator
+### Redis-based coordinator
 
-A Redis-based implementation provides low-latency cross-node notifications:
+A Redis-based implementation for low-latency cross-node notifications:
 
 ```java
 @ApplicationScoped
@@ -139,7 +139,7 @@ public class RedisClusterCoordinator implements ClusterCoordinator {
 }
 ```
 
-### JMS/Messaging-Based Coordinator
+### JMS/messaging-based coordinator
 
 For environments that already have a message broker, use the first-party
 [`ratchet-coordinator-jms`](/deployment/cluster-coordinators) module rather than
@@ -147,7 +147,7 @@ building this by hand. If you need a transport it does not cover, implement
 `ClusterCoordinator` over a shared topic and invoke the registered listeners
 from the container-managed consumer when a wakeup signal arrives.
 
-## Distributed Locking
+## Distributed locking
 
 Ratchet uses the `scheduler_lock` table for distributed coordination:
 
@@ -164,19 +164,21 @@ CREATE TABLE IF NOT EXISTS scheduler_lock (
 
 Locks are acquired with an expiration time. If a node crashes, its locks expire and another node can acquire them. This prevents deadlocks from node failures.
 
-### How Recurring Job Deduplication Works
+### How recurring job deduplication works
 
-1. When a recurring job's `next_fire` time arrives, every node detects it during polling
-2. Each node attempts to acquire a distributed lock for that job's cron expression
-3. Only the node that successfully acquires the lock schedules the next instance
-4. The lock expires after a configurable duration, allowing another node to take over if the leader fails
+Ratchet uses a cluster-wide singleton lease named `recurringScheduler` to ensure exactly one node runs the recurring scheduler at a time:
 
-## Node Heartbeats
+1. On each poll cycle, each node tries to acquire the `recurringScheduler` singleton lease from `scheduler_lock`
+2. Only the node that holds the lease scans `scheduler_recurring_job` for due `next_fire` rows and spawns child jobs
+3. Nodes that fail to acquire the lease skip the cycle and retry on the next poll interval
+4. The lease renews every two minutes while held; if the lease-holding node crashes, the lease expires and another node acquires it on its next cycle
+
+## Node heartbeats
 
 Each node maintains a heartbeat in the `scheduler_node` table:
 
 ```sql
--- Registered automatically when cluster mode is enabled
+-- Populated automatically by the scheduler's heartbeat on each node
 SELECT * FROM scheduler_node;
 
 -- Example output:
@@ -191,9 +193,9 @@ Heartbeats are used to:
 - Determine cluster size for scaling decisions
 - Identify which node is executing which jobs (via `picked_by`)
 
-### Stale Node Detection
+### Stale node detection
 
-A node is considered stale when its heartbeat exceeds the configured threshold. Stale nodes' running jobs will eventually time out and become eligible for retry by other nodes.
+A node is stale when its heartbeat exceeds the configured threshold. Jobs that node was running will time out and become eligible for retry by other nodes.
 
 ```sql
 -- Find stale nodes (no heartbeat in 60 seconds)
@@ -202,9 +204,9 @@ FROM scheduler_node
 WHERE heartbeat_ts < NOW() - INTERVAL '60 seconds';
 ```
 
-## Kubernetes-Specific Configuration
+## Kubernetes-specific configuration
 
-### StatefulSet with Cluster Mode
+### StatefulSet with cluster mode
 
 ```yaml
 apiVersion: apps/v1
@@ -234,7 +236,7 @@ spec:
 
 Pod names (`ratchet-scheduler-0`, `ratchet-scheduler-1`, `ratchet-scheduler-2`) are used as stable node identifiers.
 
-### Scaling Considerations
+### Scaling considerations
 
 - **Scaling up**: New nodes start polling and claiming jobs immediately. No manual intervention needed.
 - **Scaling down**: Ensure graceful shutdown to let running jobs complete. Set `terminationGracePeriodSeconds` to allow in-flight jobs to finish.
@@ -252,9 +254,9 @@ spec:
       app: ratchet-scheduler
 ```
 
-## Failure Modes
+## Failure modes
 
-### Node Failure
+### Node failure
 
 If a node crashes while executing jobs:
 1. The node's heartbeat stops updating in `scheduler_node`
@@ -263,20 +265,20 @@ If a node crashes while executing jobs:
 4. If retries are configured, failed jobs become `PENDING` and are claimed by surviving nodes
 5. Distributed locks held by the dead node expire, allowing other nodes to acquire them
 
-### Network Partition
+### Network partition
 
 In a network split:
-- Each partition continues executing one-shot jobs independently (safe, since the database prevents double-claiming)
-- Recurring job scheduling may temporarily duplicate if the partition separates a node from the database
-- After the partition heals, the system self-corrects — lock expiration and idempotency keys prevent lasting inconsistency
+- Each partition continues executing one-shot jobs independently (safe, because the database prevents double-claiming)
+- Recurring job scheduling may temporarily pause for partitions separated from the database, since the singleton lease cannot be renewed
+- After the partition heals, the system self-corrects: lease expiration and idempotency keys prevent lasting inconsistency
 
-### Split-Brain Prevention
+### Split-brain prevention
 
-Ratchet relies on the database as the single source of truth. All coordination goes through the database (or through `ClusterCoordinator` for notifications only). This means split-brain is limited to the notification layer — the database always arbitrates who executes what.
+Ratchet uses the database as the single source of truth. All coordination goes through the database (or through `ClusterCoordinator` for notifications only). Split-brain is limited to the notification layer; the database always arbitrates who executes what.
 
-## Monitoring Cluster Health
+## Monitoring cluster health
 
-### Active Nodes
+### Active nodes
 
 ```sql
 SELECT node_id, heartbeat_ts, started_at
@@ -285,7 +287,7 @@ WHERE heartbeat_ts > NOW() - INTERVAL '30 seconds'
 ORDER BY started_at;
 ```
 
-### Jobs Per Node
+### Jobs per node
 
 ```sql
 -- picked_by / RUNNING are live state on scheduler_job_queue.
@@ -295,7 +297,7 @@ WHERE status = 'RUNNING'
 GROUP BY picked_by;
 ```
 
-### Lock Status
+### Lock status
 
 ```sql
 SELECT lock_name, owner_node, locked_at, expires_at
@@ -304,7 +306,7 @@ WHERE expires_at > NOW()
 ORDER BY locked_at;
 ```
 
-## See Also
+## See also
 
 - [Deployment Overview](/deployment/overview) — General deployment guidance
 - [Kubernetes Deployment](/deployment/kubernetes) — StatefulSet and pod configuration

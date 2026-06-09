@@ -8,11 +8,11 @@ description: Solutions for frequently encountered problems with Ratchet job sche
 
 This page covers the most frequently encountered issues when running Ratchet, along with their root causes and solutions.
 
-## Jobs Not Executing
+## Jobs not executing
 
 **Symptom:** Jobs are submitted successfully (you get a `JobHandle` back) but never run.
 
-### Check 1: Is the Poller Running?
+### Check 1: Is the poller running?
 
 The poller is the heartbeat of Ratchet. If it is not running, no jobs will be claimed for execution.
 
@@ -32,7 +32,7 @@ If you do not see it, the `RatchetLifecycle` CDI bean may not be initializing. E
 </beans>
 ```
 
-### Check 2: Are Jobs Stuck in PENDING?
+### Check 2: Are jobs stuck in PENDING?
 
 ```sql
 -- Live queue state lives on scheduler_job_queue (the row is deleted at the terminal
@@ -78,15 +78,15 @@ public class AppClassPolicy implements ClassPolicy {
 
 If you explicitly set `RatchetOptions.security().allowEmptyClassPolicy(true)`, the application will start but the default policy still rejects every job target. In that opt-out mode, "jobs never run" is expected until you install a real `ClassPolicy`.
 
-### Check 4: Is the Database Accessible?
+### Check 4: Is the database accessible?
 
 Verify the datasource is working by checking for connection errors in your server logs. A misconfigured JTA datasource will cause the poller's `claimNextBatchOptimized` call to fail silently.
 
-## Serialization Errors
+## Serialization errors
 
 **Symptom:** `ClassNotFoundException`, `NoSuchMethodException`, or `IllegalStateException` when jobs try to execute.
 
-### Lambda Must Be a Method Reference
+### Lambda must be a method reference
 
 Ratchet uses ASM bytecode analysis to serialize lambda expressions. This means the lambda you pass to `enqueue()` must be a **single method reference**, not an inline lambda with complex logic:
 
@@ -107,7 +107,7 @@ If you see `IllegalStateException` during serialization, ensure:
 2. The method is `public`
 3. Any captured arguments implement `java.io.Serializable`
 
-### Target Class Not Found at Execution Time
+### Target class not found at execution time
 
 ```
 SEVERE: Job 12345 target class not found: com.myapp.jobs.OldService
@@ -120,7 +120,7 @@ This happens when:
 
 **Solution:** For redeployment scenarios, either drain the queue before redeploying or ensure class names remain stable across versions.
 
-### Method Not Found or Not Public
+### Method not found or not public
 
 ```
 SEVERE: Job 12345 target method not found: processData with descriptor (Ljava/lang/String;)V
@@ -133,7 +133,7 @@ Method processData in class com.myapp.MyService is private
     — only public methods can be scheduled as jobs. Change the method visibility to public.
 ```
 
-## ClassPolicy Rejecting Deserialization
+## ClassPolicy rejecting deserialization
 
 **Symptom:** Jobs fail immediately with a `SecurityException` mentioning "not allowed for job execution."
 
@@ -162,7 +162,7 @@ ORDER BY target_class;
 Do not add broad prefixes like `java.` or `javax.` to your allowed packages. The ClassPolicy exists to prevent remote code execution attacks where an attacker could invoke `Runtime.getRuntime().exec()` through a crafted job payload.
 :::
 
-## Duplicate Recurring Jobs
+## Duplicate recurring jobs
 
 **Symptom:** The same recurring job runs multiple times per scheduled interval.
 
@@ -210,7 +210,7 @@ scheduler.scheduleRecurring("0 */5 * * * ?", ZoneId.of("UTC"), myService::cleanu
     .submit();
 ```
 
-## Circuit Breaker Stuck Open
+## Circuit breaker stuck open
 
 **Symptom:** Jobs for a specific service keep getting rescheduled with the message "Circuit breaker OPEN for service: X"
 
@@ -246,11 +246,11 @@ The circuit breaker transitions:
 | `circuitBreaker.profile(EXTERNAL_API).failureRateThreshold` | `60` | Failure rate for external service profiles |
 | `RATCHET_CB_EXTERNAL_API_WAIT_MS` | `60000` | Wait duration for external service profiles |
 
-## Database Constraint Violations
+## Database constraint violations
 
 **Symptom:** `ConstraintViolationException` or duplicate key errors in the logs.
 
-### Idempotency Key Violation
+### Idempotency key violation
 
 ```
 ERROR: duplicate key value violates unique constraint "uk_idempotency_key"
@@ -260,7 +260,7 @@ Each job gets a unique idempotency key (UUID). On submission Ratchet first looks
 
 If you see persistent failures, check if your code is double-submitting in a retry loop, or reusing the same explicit idempotency key across concurrent submissions.
 
-### Active Business Key Violation
+### Active business key violation
 
 ```
 ERROR: duplicate key value violates unique constraint "pk_scheduler_business_key_reservation"
@@ -280,7 +280,7 @@ WHERE q.business_key = 'your-business-key'
   AND q.status IN ('PENDING', 'RUNNING', 'PAUSED');
 ```
 
-## Timeout Behavior
+## Timeout behavior
 
 **Symptom:** Jobs are killed after a period of time with "Hard timeout exceeded."
 
@@ -304,7 +304,7 @@ SEVERE: Job 12345 exceeded timeout of 1800s. Cancelling execution. Elapsed: 30m 
 
 **After timeout:** If the job has retries remaining, it is rescheduled for another attempt. If retries are exhausted, it moves to the DLQ.
 
-## Thread Pool Exhaustion
+## Thread pool exhaustion
 
 **Symptom:** Jobs stay in PENDING even though the poller is running and claiming jobs.
 
@@ -358,11 +358,11 @@ If the running count equals the pool size for a type, the pool is saturated.
    LIMIT 10;
    ```
 
-## CDI Wiring Problems
+## CDI wiring problems
 
 **Symptom:** `UnsatisfiedResolutionException` or `AmbiguousResolutionException` at deployment time.
 
-### Missing SPI Implementations
+### Missing SPI implementations
 
 Ratchet requires several SPI beans to be present in the CDI container. If you see unsatisfied dependency errors, check that you have:
 
@@ -370,7 +370,7 @@ Ratchet requires several SPI beans to be present in the CDI container. If you se
 2. An `ExecutorProvider` bean (Ratchet provides `DefaultExecutorProvider`)
 3. A `MetricsCollector` bean (Ratchet provides `NoOpMetricsCollector`)
 
-### Bean Resolution Failures During Execution
+### Bean resolution failures during execution
 
 ```
 SEVERE: Failed to resolve bean for instance method processData in class com.myapp.MyService

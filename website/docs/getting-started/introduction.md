@@ -21,7 +21,7 @@ public void onNewOrder(Order order) {
 }
 ```
 
-That's it. One injection, one method call. The job is persisted to your database, picked up by a poller, executed with retry semantics, and monitored through a rich event system. No XML configuration, no external processes, no message broker required.
+That's it. One injection, one method call. The job is persisted to your database, picked up by a poller, executed with retry semantics, and monitored through an event system. No XML configuration, no external processes, no message broker required.
 
 ## Why Ratchet?
 
@@ -48,7 +48,7 @@ Ratchet was designed from the ground up for the common case: **schedule a method
 | **Schema as DDL** | SQL stores ship plain DDL files. No Flyway dependency, no migration lock-in. MongoDB initializes collections and indexes at startup. |
 | **Workflow primitives** | Chain jobs, branch on results, and compose multi-step workflows without an external orchestrator. |
 
-## Feature Overview
+## Feature overview
 
 ### Scheduling
 
@@ -67,7 +67,7 @@ scheduler.schedule(Duration.ofMinutes(30), () -> sendReminder(orderId))
 public void cleanupExpiredSessions() { /* ... */ }
 ```
 
-### Workflows and Job Chaining
+### Workflows and job chaining
 
 Build multi-step workflows with conditional branching. Each step is a separate persisted job, so failures in step 3 don't lose the results of steps 1 and 2.
 
@@ -89,7 +89,7 @@ scheduler.enqueue(() -> callPaymentGateway(paymentId))
     .submit();
 ```
 
-### Batch Processing
+### Batch processing
 
 Process collections in parallel with progress tracking, or stream large datasets through a chunked pipeline without loading everything into memory.
 
@@ -110,7 +110,7 @@ public void onJobFailed(@Observes JobFailedEvent event) {
 }
 ```
 
-### Job Control
+### Job control
 
 Manage jobs at runtime: pause, resume, cancel, and manually retry failed jobs. Every operation is CAS-based for safe concurrent access.
 
@@ -143,7 +143,7 @@ Ratchet's internals are composed of focused SPI interfaces. The reference implem
 | `StartupCoordinator` | Store-backed startup leases for destructive initialization tasks |
 | `ExecutorProvider` | Virtual threads or custom thread pools |
 
-## Target Audience
+## Target audience
 
 Ratchet is built for **Jakarta EE developers** building applications on servers like WildFly, Open Liberty, Payara, GlassFish 8, or any Jakarta EE 10/11-compatible runtime. You should be comfortable with:
 
@@ -162,11 +162,11 @@ If you're building a microservice on Spring Boot or Quarkus and not targeting a 
 | **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8) |
 | **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ |
 
-## Project Status
+## Project status
 
 Ratchet is currently at version **0.1.0-SNAPSHOT**. The core API is stabilizing, but interfaces marked with `@Incubating` (such as `CircuitBreakerProtected` and `CircuitBreakerProfile`) may change in future releases. Feedback and contributions are welcome.
 
-## What's Next
+## What's next
 
 - [Installation](./installation.md) -- Add Ratchet to your Maven project
 - [Quick Start](./quickstart.md) -- Run your first job in under 5 minutes

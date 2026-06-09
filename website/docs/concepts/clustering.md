@@ -6,7 +6,7 @@ description: ClusterCoordinator SPI, database-backed coordination, node identity
 
 # Clustering
 
-Ratchet is designed to run on multiple nodes without additional coordination infrastructure. The database serves as the shared state, `SKIP LOCKED` ensures safe concurrent job claiming, and `scheduler_lock` provides singleton execution for recurring scans. For enhanced responsiveness, the `ClusterCoordinator` SPI enables cross-node wakeup notifications.
+Ratchet is designed to run on multiple nodes without additional coordination infrastructure. The database is the shared state, `SKIP LOCKED` ensures safe concurrent job claiming, and `scheduler_lock` provides singleton execution for recurring scans. For lower wakeup latency, the `ClusterCoordinator` SPI adds cross-node wakeup notifications.
 
 ## Multi-Node Architecture
 
@@ -218,7 +218,7 @@ If a node crashes without gracefully shutting down, its jobs remain in RUNNING s
 3. Clears the `picked_by` and `picked_at` fields
 4. The jobs become eligible for polling by any healthy node
 
-This ensures jobs are never permanently lost due to node failures. The recovery interval and stale threshold are configurable.
+Orphaned jobs are recovered rather than lost when a node fails. The recovery interval and stale threshold are configurable.
 
 ## Distributed Locking
 

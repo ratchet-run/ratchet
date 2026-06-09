@@ -8,7 +8,7 @@ description: Add Ratchet to your Maven project with the BOM, choose your store m
 
 Ratchet is distributed as a set of Maven modules. You pick the modules you need, import the BOM for version alignment, and apply the database schema. This page walks through each step.
 
-## Maven BOM Setup
+## Maven BOM setup
 
 The Bill of Materials (BOM) ensures all Ratchet modules use the same version. Import it in your `<dependencyManagement>` section:
 
@@ -45,11 +45,11 @@ With the BOM imported, you can declare Ratchet dependencies without specifying v
 </dependencies>
 ```
 
-## Module Overview
+## Module overview
 
-Ratchet is split into focused modules so you only pull in what you need. Here's what each module does and when you need it.
+Ratchet is split into focused modules so you only pull in what you need.
 
-### Required Modules
+### Required modules
 
 | Module | Purpose | You need it when... |
 |--------|---------|---------------------|
@@ -57,7 +57,7 @@ Ratchet is split into focused modules so you only pull in what you need. Here's 
 | `ratchet` | Reference implementation: poller, execution engine, CDI producers, retry logic, circuit breaker, lambda serialization | Always (unless you're writing your own implementation of the API). |
 | `ratchet-store-core` | Shared persistence abstractions: entity classes and the composed `JobStore` SPI | Always. Pulled in transitively by any store module. |
 
-### Store Modules (Pick One)
+### Store modules
 
 You need exactly one store module matching your database:
 
@@ -67,7 +67,7 @@ You need exactly one store module matching your database:
 | `ratchet-store-mysql` | MySQL 8+ | Uses JSON columns and `SELECT ... FOR UPDATE SKIP LOCKED` |
 | `ratchet-store-mongodb` | MongoDB 6+ | Document-based store with TTL indexes |
 
-### Optional Modules
+### Optional modules
 
 | Module | Purpose | You need it when... |
 |--------|---------|---------------------|
@@ -76,9 +76,9 @@ You need exactly one store module matching your database:
 | `ratchet-tck-api` | Public-API conformance contracts (submit / cancel / retry / idempotency / workflow / delayed scheduling). Container-free, pure-JVM JUnit. | You're validating a custom `JobSchedulerService` for "Ratchet API Compatible". |
 | `ratchet-tck-jakarta` | Jakarta-EE conformance contracts (CDI injection, CDI events, JTA enqueue) driven by Arquillian. | You're validating a runtime for "Ratchet Jakarta Runtime Compatible". |
 
-## Choosing Your Modules
+## Choosing your modules
 
-### Minimal Setup
+### Minimal setup
 
 For most applications, you need three dependencies: the API, the reference implementation, and your store:
 
@@ -108,7 +108,7 @@ For most applications, you need three dependencies: the API, the reference imple
 Ratchet separates the API from the implementation so that modules in your application that only *submit* jobs can depend on `ratchet-api` alone, without pulling in the execution engine. This is useful in multi-module projects where a shared library needs to enqueue jobs but doesn't run the scheduler.
 :::
 
-### With Metrics
+### With metrics
 
 Add `ratchet-micrometer` to export scheduler metrics (job counts, execution times, retry rates, circuit breaker state) to your monitoring stack:
 
@@ -134,7 +134,7 @@ Add `ratchet-micrometer` to export scheduler metrics (job counts, execution time
 </dependencies>
 ```
 
-### API-Only (Shared Library)
+### API-only (shared library)
 
 If you have a shared library that needs to define job signatures but doesn't run the scheduler itself:
 
@@ -149,9 +149,9 @@ If you have a shared library that needs to define job signatures but doesn't run
 
 This gives you access to `JobSchedulerService`, `@Recurring`, `JobBuilder`, and all event types -- enough to write code that submits and observes jobs. The deployment that actually runs the scheduler adds `ratchet` and a store module.
 
-## Transitive Dependencies
+## Transitive dependencies
 
-Ratchet keeps its dependency footprint small. Here's what each module brings in:
+Ratchet keeps its dependency footprint small:
 
 | Module | Key Dependencies |
 |--------|-----------------|
@@ -164,7 +164,7 @@ Ratchet keeps its dependency footprint small. Here's what each module brings in:
 
 Jakarta EE APIs are declared with `provided` scope, since your Jakarta EE 10/11 application server supplies them at runtime.
 
-## Database Schema Setup
+## Database schema setup
 
 SQL stores ship DDL as plain SQL files -- no Flyway dependency, no migration framework lock-in. You apply the schema using whatever mechanism your project already uses for DDL management. MongoDB collections and indexes are initialized by `ratchet-store-mongodb` at startup.
 
@@ -175,7 +175,7 @@ ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ```
 
-### Applying the Schema
+### Applying the schema
 
 **Command line:**
 
@@ -203,7 +203,7 @@ Reference the DDL file as a `sqlFile` changeset in your changelog.
 This is a deliberate design decision. Other schedulers (like Quartz) bundle their own migration framework, which creates conflicts when your application already manages schema migrations with Flyway or Liquibase. By shipping raw DDL, Ratchet integrates with whatever migration strategy you've already chosen -- or none at all, if you apply schema changes manually.
 :::
 
-### Store-Specific UUID Wiring
+### Store-specific UUID wiring
 
 Ratchet job IDs are UUIDv7 values. PostgreSQL stores them as native `uuid`.
 MySQL stores them as `BINARY(16)` and production persistence units must include
@@ -218,7 +218,7 @@ non-Hibernate JPA providers. PostgreSQL does not use this mapping file.
 MongoDB clients must use `UuidRepresentation.STANDARD`; prefer
 `MongoClientFactory.create(...)` when creating the client.
 
-## Jakarta EE Server Compatibility
+## Jakarta EE server compatibility
 
 Ratchet targets Jakarta EE 10/11 runtimes with the services used by the reference implementation. The
 default runtime requirements are:
@@ -232,7 +232,7 @@ Servers known to work:
 
 | Server | Version | Notes |
 |--------|---------|-------|
-| WildFly | Jakarta EE 10 line; CI-managed tests currently use 39.0.1.Final | Primary managed test target |
+| WildFly | Jakarta EE 10 line; CI-managed tests currently use 39.0.1.Final | Primary managed test target; an EE 11 line (WildFly 40.x) is also CI-verified |
 | Open Liberty | Jakarta EE 10 `webProfile-10.0`; CI-managed tests currently use 26.0.0.2 | Requires CDI, Persistence, and managed executor support |
 | Payara | Payara 6 line; CI-managed tests currently use 6.2025.11 | Jakarta EE 10 runtime |
 | GlassFish | GlassFish 8 / Omnifish line | Jakarta EE 11 verification profile; currently tracked with a known upstream workaround |
@@ -242,7 +242,7 @@ Plain Web Profile or standalone CDI environments can opt into
 `ExecutorProvider`. That fallback owns unmanaged executors and is intended for tests, demos, and
 non-container deployments.
 
-## What's Next
+## What's next
 
 With your dependencies in place and the schema applied, you're ready to write your first job:
 

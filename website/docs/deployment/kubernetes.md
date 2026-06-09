@@ -8,7 +8,7 @@ description: Deploying Ratchet on Kubernetes with Deployments, StatefulSets, Con
 
 Ratchet runs on Kubernetes as a standard Jakarta EE 10/11 application. This guide covers single-replica Deployments, clustered StatefulSets, ConfigMaps for configuration, and health probe setup.
 
-## Single-Node Deployment
+## Single-node deployment
 
 For non-clustered workloads, a standard Deployment is sufficient:
 
@@ -246,11 +246,11 @@ stringData:
 
 In production, use an external secret manager (AWS Secrets Manager, HashiCorp Vault, etc.) with an operator like External Secrets to sync credentials into Kubernetes Secrets.
 
-## Health Probes
+## Health probes
 
 Ratchet applications should expose MicroProfile Health endpoints. WildFly and other Jakarta EE runtimes serve these automatically when the `microprofile-health` subsystem is enabled.
 
-### Startup Probe
+### Startup probe
 
 The startup probe prevents the readiness and liveness probes from running until the application has fully initialized. Jakarta EE applications can take 30-60 seconds to start, especially when connecting to databases and initializing CDI contexts.
 
@@ -264,7 +264,7 @@ startupProbe:
   failureThreshold: 30    # 10 + (5 * 30) = up to 160 seconds to start
 ```
 
-### Readiness Probe
+### Readiness probe
 
 The readiness probe controls whether the pod receives traffic. It should verify that the Ratchet polling engine is running and the database is reachable:
 
@@ -277,7 +277,7 @@ readinessProbe:
   failureThreshold: 3
 ```
 
-### Liveness Probe
+### Liveness probe
 
 The liveness probe restarts the pod if it becomes unresponsive. Use a longer interval and higher failure threshold to avoid unnecessary restarts during garbage collection pauses or temporary database hiccups:
 
@@ -290,7 +290,7 @@ livenessProbe:
   failureThreshold: 5
 ```
 
-### Custom Health Check
+### Custom health check
 
 Implement a Ratchet-specific health check:
 
@@ -319,7 +319,7 @@ public class RatchetReadinessCheck implements HealthCheck {
 
 ## Database on Kubernetes
 
-### Managed Database Service (Recommended)
+### Managed database service (recommended)
 
 For production, use a managed database service (RDS, Cloud SQL, Azure Database) rather than running the database in Kubernetes. Point the `DB_URL` to the managed instance:
 
@@ -391,7 +391,7 @@ data:
     -- or mount from a volume containing the DDL file
 ```
 
-## Schema Initialization
+## Schema initialization
 
 Apply the Ratchet schema as a Kubernetes Job that runs before the application starts:
 
@@ -432,7 +432,7 @@ spec:
   backoffLimit: 5
 ```
 
-## Resource Recommendations
+## Resource recommendations
 
 Sizing guidelines based on workload:
 
@@ -443,7 +443,7 @@ Sizing guidelines based on workload:
 | Heavy (1,000-10,000 jobs/hr) | 3 | 1 | 1Gi | 3s |
 | Extreme (> 10,000 jobs/hr) | 5+ | 2 | 2Gi | 1s |
 
-## Pod Disruption Budget
+## Pod disruption budget
 
 Prevent Kubernetes from evicting too many Ratchet pods during node maintenance:
 
@@ -459,7 +459,7 @@ spec:
       app: ratchet-scheduler
 ```
 
-## See Also
+## See also
 
 - [Docker Deployment](/deployment/docker) — Building container images
 - [Cluster Configuration](/deployment/cluster-configuration) — ClusterCoordinator and node identity

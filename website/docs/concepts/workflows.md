@@ -8,7 +8,7 @@ description: Job chaining, conditional branching, and WorkflowCondition types
 
 Ratchet workflows let you define multi-step job pipelines with conditional branching. Simple chains execute steps sequentially. Workflows add conditional logic -- different paths execute based on the outcome of a previous job.
 
-## Chains: Sequential Execution
+## Chains: sequential execution
 
 The simplest workflow is a chain. Steps execute one after another, each waiting for the previous step to complete:
 
@@ -20,7 +20,7 @@ scheduler.enqueue(() -> validateOrder(orderId))
     .submit();
 ```
 
-### How Chains Work
+### How chains work
 
 When you call `.then()`, the engine creates multiple jobs linked by `depends_on`:
 
@@ -47,7 +47,7 @@ When you call `.then()`, the engine creates multiple jobs linked by `depends_on`
 
 All chain steps are persisted at submission time. Steps 2-N use a sentinel `scheduled_time` of `9999-12-31T23:59:59Z`, making them invisible to the Poller. When step 1 succeeds, the `ChainScheduler` sets step 2's `scheduled_time = now`, releasing it for polling. This pattern continues until the chain completes.
 
-### Chain Failure
+### Chain failure
 
 If any step fails permanently (exhausts retries or hits `@DoNotRetry`), all downstream steps are canceled. The `ChainScheduler.cancelChain()` uses depth-first traversal to recursively cancel all dependents:
 
@@ -60,7 +60,7 @@ If any step fails permanently (exhausts retries or hits `@DoNotRetry`), all down
 
 This prevents executing steps that depend on data from a step that never completed.
 
-## Conditional Branching
+## Conditional branching
 
 Workflows extend chains with conditions. Instead of always executing the next step, the engine evaluates predicates against the job's result:
 
@@ -82,7 +82,7 @@ scheduler.enqueue(() -> analyzeData(dataId))
 | `whenResult(function, task)` | RESULT_VALUE | Execute based on return value |
 | `branch(condition, task, desc)` | Any | Full control with description |
 
-### Success/Failure Branching
+### Success/failure branching
 
 The simplest conditional pattern:
 
@@ -95,7 +95,7 @@ scheduler.enqueue(() -> paymentService.charge(invoiceId))
 
 Both `thenOnSuccess` and `thenOnFailure` create `WorkflowBranch` objects with `WorkflowCondition.success()` and `WorkflowCondition.failure()` respectively.
 
-### Result-Based Branching
+### Result-based branching
 
 Branch based on the actual return value of a job:
 
@@ -126,7 +126,7 @@ scheduler.enqueue(() -> scoringService.calculateScore(applicantId))
 
 The `whenResult` method creates a `RESULT_VALUE` condition. The method reference receives the job's return value (not the full `JobResult`) and must resolve to a single public method call.
 
-### Custom Conditions on JobResult
+### Custom conditions on JobResult
 
 For more complex conditions that need access to execution metadata:
 
@@ -165,7 +165,7 @@ The predicate receives the full `JobResult<T>` object with:
 | `getStartTime()` / `getEndTime()` | Timing data |
 | `getMetadata(key)` | Custom key-value pairs |
 
-### Priority-Based Evaluation
+### Priority-based evaluation
 
 When multiple conditions might match, priority controls evaluation order:
 
@@ -187,13 +187,13 @@ scheduler.enqueue(() -> classifyDocument(docId))
     .submit();
 ```
 
-Lower priority values are evaluated first. Branches with the same priority execute in definition order. Multiple branches can fire from a single parent -- this is fan-out, not exclusive routing.
+Lower priority values are evaluated first. Branches with the same priority are evaluated in definition order. The first matching branch fires; all remaining branch jobs are canceled. This is exclusive routing, not fan-out.
 
-## WorkflowCondition Types
+## WorkflowCondition types
 
 The `WorkflowCondition` record supports these condition types:
 
-### Job-Level Conditions
+### Job-level conditions
 
 | Type | Factory Method | Expression | Description |
 |------|---------------|------------|-------------|
@@ -202,7 +202,7 @@ The `WorkflowCondition` record supports these condition types:
 | `CUSTOM` | `WorkflowCondition.custom(predicate)` | `SerializablePredicate<JobResult<T>>` | Custom predicate on full JobResult |
 | `RESULT_VALUE` | `WorkflowCondition.result(function)` | `SerializableFunction<T, Boolean>` | Predicate on return value only |
 
-### Batch-Level Conditions
+### Batch-level conditions
 
 | Type | Factory Method | Expression | Description |
 |------|---------------|------------|-------------|
@@ -212,7 +212,7 @@ The `WorkflowCondition` record supports these condition types:
 | `BATCH_FAILURE_COUNT` | `WorkflowCondition.failureCount(5)` | `Integer` | Failure count within limit |
 | `BATCH_CUSTOM` | `WorkflowCondition.batchCustom(pred)` | `SerializablePredicate<BatchContext>` | Custom predicate on BatchContext |
 
-### Using Conditions Directly
+### Using conditions directly
 
 For full control, use the `branch()` method with a `WorkflowCondition`:
 
@@ -236,7 +236,7 @@ scheduler.enqueue(() -> processBatch(batchId))
     .submit();
 ```
 
-## Batch Workflows
+## Batch workflows
 
 Batch-level conditions are used on `BatchBuilder` and `StreamingBatchBuilder`:
 
@@ -275,19 +275,19 @@ scheduler.enqueueBatch("Migration")
     .submit();
 ```
 
-## Workflow Evaluation
+## Workflow evaluation
 
 When a job completes, the `WorkflowScheduler`:
 
 1. Loads all `WorkflowConditionEntity` rows linked to the job
 2. Sorts conditions by priority (lower first)
 3. Evaluates each condition against the job's result or batch context
-4. For each matching condition, creates a new WORKFLOW_BRANCH job
+4. For the first matching condition, releases the pre-created WORKFLOW_BRANCH job (sets its `scheduled_time = now`) and cancels all other branch jobs
 5. If no conditions match and the job has chain dependents, falls back to linear chain scheduling
 
 The `WorkflowConditionEvaluator` handles the actual evaluation by loading the stored predicate payload and invoking it with the appropriate context (`JobResult`, return value, or `BatchContext`).
 
-### Serialization of Conditions
+### Serialization of conditions
 
 All condition expressions must be `Serializable` because Ratchet analyzes them at submission time and stores a portable `JobPayload` descriptor in the `WorkflowConditionEntity`. The expression must reduce to one public method call:
 
@@ -305,7 +305,7 @@ The predicate is stored as JSON describing the target class, method, signature, 
 
 This is why the API uses `SerializablePredicate` and `SerializableFunction` rather than plain Java functional interfaces. Put comparison logic, compound boolean expressions, and null checks inside a public helper method or CDI bean method, then pass that method reference or a single-call lambda.
 
-## Combining Chains and Workflows
+## Combining chains and workflows
 
 You can mix linear chains with conditional branches:
 
@@ -324,9 +324,9 @@ In this case:
 - `step3OnFailure` executes if `step2` fails permanently (workflow branch)
 - If `step1` fails, both `step2` and all branches are canceled
 
-## Workflow Patterns
+## Workflow patterns
 
-### Error Recovery Pipeline
+### Error recovery pipeline
 
 ```java
 public final class ImportWorkflowConditions {
@@ -344,21 +344,21 @@ scheduler.enqueue(() -> importService.importData(source))
     .submit();
 ```
 
-### Fan-Out
+### Sequential on success
 
-Multiple branches fire from one parent:
+Branch conditions use exclusive routing: only the first matching branch fires. To run multiple jobs after a parent succeeds, chain them with `.then()` rather than multiple `.thenOnSuccess()` calls:
 
 ```java
 scheduler.enqueue(() -> orderService.process(orderId))
-    .thenOnSuccess(() -> inventoryService.reserve(orderId))
-    .thenOnSuccess(() -> billingService.invoice(orderId))
-    .thenOnSuccess(() -> notificationService.confirm(orderId))
+    .then(() -> inventoryService.reserve(orderId))
+    .then(() -> billingService.invoice(orderId))
+    .then(() -> notificationService.confirm(orderId))
     .submit();
 ```
 
-All three success branches will fire when the parent succeeds.
+Each step waits for the previous one to complete before running.
 
-### Threshold-Based Escalation
+### Threshold-based escalation
 
 ```java
 scheduler.enqueueBatch("SLA Check")

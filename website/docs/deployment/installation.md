@@ -4,8 +4,6 @@ title: Installation & Setup
 
 # Installation & Setup
 
-Getting Ratchet running in your application.
-
 ## Prerequisites
 
 - **Java**: 17 or later
@@ -190,7 +188,7 @@ Check your database:
 SELECT COUNT(*) FROM scheduler_job;
 ```
 
-## Next Steps
+## Next steps
 
 - [Getting Started](/getting-started/introduction)
 - [Configuration](/deployment/configuration)

@@ -35,9 +35,9 @@ public interface JobLogger {
 }
 ```
 
-Each job execution receives its own `JobLogger` instance, bound to that job's ID. This ensures log isolation -- messages from concurrent jobs do not interleave or lose context.
+Each job execution receives its own `JobLogger` instance, bound to that job's ID. This isolates log output: messages from concurrent jobs do not interleave or lose context.
 
-## Reference Pattern: JBoss Logging Implementation
+## Reference pattern: JBoss Logging implementation
 
 The default `JBossLoggingJobLogger` bridges job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and publishes each log line as an internal `JobLogLine` event. The event is delivered to programmatic listeners and CDI observers; database persistence is not automatic unless your application observes the event and calls `JobAuditStore.appendLog(...)` or installs an equivalent integration.
 
@@ -96,10 +96,10 @@ public class JBossLoggingJobLogger implements JobLogger {
 
 If you wire a logger like this, the dual routing means:
 
-1. **Backend log output** -- Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`. The actual backend depends on what JBoss Logging detects at startup: JBoss LogManager on WildFly, Logback when `ch.qos.logback.classic.Logger` is on the classpath, Log4j 2 when its API is present, and JDK `java.util.logging` as the final fallback.
-2. **Event publishing** -- Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which delivers them to registered programmatic listeners and CDI observers. Persist them to `JobAuditStore` only if your application wants database-backed job traces.
+1. **Backend log output**: Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`. The actual backend depends on what JBoss Logging detects at startup: JBoss LogManager on WildFly, Logback when `ch.qos.logback.classic.Logger` is on the classpath, Log4j 2 when its API is present, and JDK `java.util.logging` as the final fallback.
+2. **Event publishing**: Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which delivers them to registered programmatic listeners and CDI observers. Persist them to `JobAuditStore` only if your application wants database-backed job traces.
 
-### Level Mapping
+### Level mapping
 
 | JobLogger Method | JBoss Logging Level | Backend Mapping |
 |------------------|---------------------|-----------------|
@@ -109,7 +109,7 @@ If you wire a logger like this, the dual routing means:
 | `error()` | `ERROR` | ERROR / SEVERE under JUL |
 | `trace()` | `TRACE` | TRACE / FINEST under JUL |
 
-## Using JobLogger in Job Tasks
+## Using JobLogger in job tasks
 
 The default per-job logger is available through `JobContext.current()` inside the running job:
 
@@ -136,9 +136,9 @@ scheduler.enqueue(() -> {
     .submit();
 ```
 
-## Implementing a Custom JobLogger
+## Implementing a custom JobLogger
 
-### SLF4J Integration
+### SLF4J integration
 
 Replace JUL with SLF4J for applications using Logback, Log4j2, or other SLF4J-compatible backends:
 
@@ -207,7 +207,7 @@ This produces structured log output:
 14:23:45.234 [ratchet-worker-3] DEBUG ratchet.job job=42 - Found 15 pending orders
 ```
 
-### Structured JSON Logger
+### Structured JSON logger
 
 For log aggregation systems (ELK, Datadog Logs, CloudWatch Logs) that consume JSON:
 
@@ -261,7 +261,7 @@ public class JsonJobLogger implements JobLogger {
         JsonObjectBuilder builder = Json.createObjectBuilder()
             .add("timestamp", Instant.now().toString())
             .add("level", level)
-            .add("jobId", jobId)
+            .add("jobId", jobId.toString())
             .add("jobType", jobType)
             .add("node", nodeName)
             .add("message", message);
@@ -271,7 +271,7 @@ public class JsonJobLogger implements JobLogger {
 }
 ```
 
-### Database-Only Logger
+### Database-only logger
 
 If you only need log persistence without console output:
 
@@ -327,11 +327,11 @@ public class SilentJobLogger implements JobLogger {
 }
 ```
 
-## Wiring a Custom JobLogger
+## Wiring a custom JobLogger
 
-The `JobLogger` is not a global CDI bean -- each job execution gets its own instance from `JobLoggerFactory`. To plug in a custom logger, provide an `@Alternative @Priority(APPLICATION)` implementation of `JobLoggerFactory` that creates your logger for each `JobLoggerContext`.
+The `JobLogger` is not a global CDI bean. Each job execution gets its own instance from `JobLoggerFactory`. To plug in a custom logger, provide an `@Alternative @Priority(APPLICATION)` implementation of `JobLoggerFactory` that creates your logger for each `JobLoggerContext`.
 
-### Routing Backend Output
+### Routing backend output
 
 Ratchet's framework code logs through JBoss Logging, which auto-detects the runtime backend:
 
@@ -342,32 +342,33 @@ Ratchet's framework code logs through JBoss Logging, which auto-detects the runt
 | Spring Boot / Logback | Logback (via SLF4J detection) |
 | Standalone JDK | JDK `java.util.logging` (fallback) |
 
-No bridge or extra dependency is required for the framework's own logs. To render the MDC keys (`jobId`, `node`, `jobCreator`) in your output, add `%X{jobId} %X{node} %X{jobCreator}` to your formatter pattern (e.g. in `standalone.xml`, `quarkus.log.console.format`, or `logback.xml`).
+No bridge or extra dependency is required for the framework's own logs. To render the MDC keys (`jobId`, `node`, `jobCreator`, `jobType`) in your output, add `%X{jobId} %X{node} %X{jobCreator} %X{jobType}` to your formatter pattern (e.g. in `standalone.xml`, `quarkus.log.console.format`, or `logback.xml`).
 
-### MDC Keys and Cross-Facade Behavior
+### MDC keys and cross-facade behavior
 
-Ratchet writes three MDC keys via `org.jboss.logging.MDC` during job execution:
+Ratchet writes four MDC keys via `org.jboss.logging.MDC` during job execution:
 
 | Key | Value | Source |
 |---|---|---|
 | `jobId` | The UUIDv7 job ID | Always populated for every job execution |
 | `node` | The cluster node identifier | Populated when a node identity is configured |
 | `jobCreator` | The Jakarta Security `CallerPrincipal` captured at enqueue | Populated when a caller principal was present |
+| `jobType` | The job type | Populated when a job type is present |
 
-These names are part of the public observability surface. Adding new keys is non-breaking; renaming or removing one of these three is a breaking change.
+These names are part of the public observability surface. Adding new keys is non-breaking; renaming or removing one of these four is a breaking change.
 
 **Whether application MDC entries unify with Ratchet's depends on the backend:**
 
-- **Logback backend** -- Application code calling `org.slf4j.MDC.put(...)` and Ratchet calling `org.jboss.logging.MDC.put(...)` write to the *same* thread-local map. Both sets of keys appear together in `%X{...}` output and JSON encoders. This is the recommended configuration for unified MDC.
-- **JBoss LogManager backend (WildFly)** -- Both APIs delegate to the LogManager's MDC. Keys unify in container log patterns.
-- **Log4j 2 backend** -- JBoss Logging delegates to Log4j 2's `ThreadContext`. Application code using `org.slf4j.MDC` (via `log4j-slf4j2-impl`) shares the same context map.
-- **JDK `java.util.logging` fallback** -- JBoss Logging stores keys in its own per-thread map; stock JUL formatters do not render them. If application code uses `org.slf4j.MDC` via the `slf4j-jdk14` binding, the two MDC maps are *separate* and do not unify. For unified MDC in non-EE deployments, place Logback on the classpath instead of relying on the JUL fallback.
+- **Logback backend**: Application code calling `org.slf4j.MDC.put(...)` and Ratchet calling `org.jboss.logging.MDC.put(...)` write to the *same* thread-local map. Both sets of keys appear together in `%X{...}` output and JSON encoders. This is the recommended configuration for unified MDC.
+- **JBoss LogManager backend (WildFly)**: Both APIs delegate to the LogManager's MDC. Keys unify in container log patterns.
+- **Log4j 2 backend**: JBoss Logging delegates to Log4j 2's `ThreadContext`. Application code using `org.slf4j.MDC` (via `log4j-slf4j2-impl`) shares the same context map.
+- **JDK `java.util.logging` fallback**: JBoss Logging stores keys in its own per-thread map; stock JUL formatters do not render them. If application code uses `org.slf4j.MDC` via the `slf4j-jdk14` binding, the two MDC maps are *separate* and do not unify. For unified MDC in non-EE deployments, place Logback on the classpath instead of relying on the JUL fallback.
 
 To override auto-detection, set `-Dorg.jboss.logging.provider=slf4j` (or `jboss`, `log4j2`, `jdk`) on the JVM command line.
 
 A worked example showing the SLF4J + Logback + JBoss Logging triangle is in [`examples/logging/`](https://github.com/ratchet-run/ratchet/tree/main/examples/logging) at the repository root.
 
-## Log Persistence
+## Log persistence
 
 If your application observes `JobLogLine` events and persists them through the `JobAuditStore` SPI, you get a queryable `scheduler_job_log` table or collection:
 
@@ -382,7 +383,7 @@ ORDER BY ts DESC;
 
 When log persistence is wired, the `LogPurgeTimer` in the RI cleans up old log entries based on the configured retention period, preventing unbounded log table growth.
 
-## Best Practices
+## Best practices
 
 **Use appropriate log levels.** Reserve `error()` for actual failures that need investigation. Use `warn()` for recoverable problems. Use `info()` for significant milestones (job started, completed, key steps). Use `debug()` and `trace()` for diagnostic detail that is normally not visible.
 

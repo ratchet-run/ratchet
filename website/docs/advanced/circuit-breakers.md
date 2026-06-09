@@ -8,7 +8,7 @@ description: Built-in circuit breaker pattern for protecting job execution again
 
 Ratchet includes a built-in circuit breaker implementation that protects job execution against cascading failures. The circuit breaker monitors failure rates across a sliding window of recent calls and automatically halts execution when a service becomes unreliable, giving it time to recover.
 
-No external dependencies like Resilience4j are required -- the circuit breaker ships with the reference implementation and integrates directly with CDI.
+No external dependencies like Resilience4j are required. The circuit breaker ships with the reference implementation and integrates directly with CDI.
 
 ## How Circuit Breakers Work
 
@@ -38,7 +38,7 @@ CLOSED                    OPEN
 
 ## Using @CircuitBreakerProtected
 
-The simplest way to apply circuit breaker protection is the `@CircuitBreakerProtected` annotation. It works as a CDI interceptor binding -- place it on a method or class, and the `CircuitBreakerInterceptor` wraps each invocation in circuit breaker logic.
+The simplest way to apply circuit breaker protection is the `@CircuitBreakerProtected` annotation. It works as a CDI interceptor binding. Place it on a method or class, and the `CircuitBreakerInterceptor` wraps each invocation in circuit breaker logic.
 
 ### Method-Level Protection
 
@@ -84,7 +84,7 @@ Method-level annotations take precedence over class-level annotations, allowing 
 
 | Attribute | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `service` | `String` | `""` (auto-derived) | Service name for the circuit breaker. If empty, defaults to `ClassName.methodName`. Must come from a bounded vocabulary -- do not use dynamic values like tenant IDs. |
+| `service` | `String` | `""` (auto-derived) | Service name for the circuit breaker. If empty, defaults to `ClassName.methodName`. Must come from a bounded vocabulary; do not use dynamic values like tenant IDs. |
 | `profile` | `CircuitBreakerProfile` | `DEFAULT` | Pre-configured circuit breaker profile controlling thresholds and timing. |
 
 ### Service Name Best Practices

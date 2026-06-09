@@ -8,7 +8,7 @@ description: Micrometer metrics, event-based monitoring, health checks, and aler
 
 Ratchet provides two monitoring channels: **Micrometer metrics** for quantitative dashboards and alerts, and the **event system** for real-time programmatic observation.
 
-## Micrometer Integration
+## Micrometer integration
 
 ### Setup
 
@@ -22,11 +22,13 @@ Add the Micrometer module:
 </dependency>
 ```
 
-Ensure a `MeterRegistry` is available as a CDI bean. If you're running on a framework like Quarkus or Spring Boot (via CDI bridge), this is typically provided automatically. Otherwise, produce one:
+`ratchet-micrometer` ships a default `SimpleMeterRegistry`, so a registry is always present. To send metrics to a real backend such as Prometheus, override the default with an `@Alternative` producer:
 
 ```java
 @Produces
-@ApplicationScoped
+@Alternative
+@Priority(2000)
+@Singleton // @Singleton avoids a Weld proxy on the abstract MeterRegistry (WELD-001435)
 public MeterRegistry meterRegistry() {
     return new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
 }
@@ -34,18 +36,18 @@ public MeterRegistry meterRegistry() {
 
 The `MicrometerMetricsCollector` is annotated `@Alternative @Priority(1000)`, so it automatically overrides the default `NoOpMetricsCollector` when the module is on the classpath.
 
-### Published Metrics
+### Published metrics
 
 | Metric | Type | Tags | Description |
 |--------|------|------|-------------|
 | `ratchet.jobs.started` | Counter | `type`, `priority` | Jobs that began execution |
 | `ratchet.jobs.completed` | Counter | `type` | Jobs that finished successfully |
 | `ratchet.jobs.failed` | Counter | `type`, `family` | Jobs that failed (exception-family classification as tag) |
-| `ratchet.jobs.duration` | Timer | `type` | Execution time in milliseconds |
+| `ratchet.jobs.duration` | Timer | `type` | Execution time per job |
 
 The `type` tag corresponds to `JobType` (`SINGLE`, `RECURRING`, `BATCH`, `CHAIN`, `WORKFLOW`, `SYSTEM`). The `priority` tag corresponds to `JobPriority` (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`). The `family` tag corresponds to `ExceptionFamily` — a coarse classification of the failure cause rather than the raw exception class name.
 
-### Grafana Dashboard Queries
+### Grafana dashboard queries
 
 **Job throughput (Prometheus):**
 ```promql
@@ -68,7 +70,7 @@ histogram_quantile(0.95, rate(ratchet_jobs_duration_seconds_bucket[5m]))
 topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 ```
 
-### Custom MetricsCollector
+### Custom `MetricsCollector`
 
 If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. The SPI declares several callbacks beyond the three core job-lifecycle hooks (`jobStarted`, `jobCompleted`, `jobFailed`) — including `successFinalizationRetried`/`successFinalizationMinimal`/`successFinalizationStuck`, `claimTransientFailure`, `jobsClaimed`, `gateRejected`, and `localWakeup`, plus default no-op hooks for cluster wakeup, callback failures, signal events, store operations, and poller circuit-breaker state. The simplest approach is to extend `NoOpMetricsCollector` and override only the callbacks you emit:
 
@@ -89,11 +91,11 @@ public class MyMetricsCollector extends NoOpMetricsCollector {
 
 Register your implementation as a CDI alternative with a higher priority than 1000 to override the Micrometer collector.
 
-## Event-Based Monitoring
+## Event-based monitoring
 
 The event system provides fine-grained lifecycle notifications. Unlike metrics (which are aggregated counters/timers), events carry full context about individual job executions.
 
-### CDI Observers
+### CDI observers
 
 ```java
 @ApplicationScoped
@@ -125,7 +127,7 @@ public class JobMonitor {
 }
 ```
 
-### Programmatic Listeners
+### Programmatic listeners
 
 For dynamic registration (useful in frameworks or libraries that can't use CDI observers):
 
@@ -140,7 +142,7 @@ scheduler.addEventListener(event -> {
 
 For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI (or the Micrometer module) rather than the event system — events carry per-job context, not cycle-level summaries.
 
-### Event Types
+### Event types
 
 | Event | When fired |
 |-------|-----------|
@@ -154,11 +156,11 @@ For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI 
 | `ChainStartedEvent` | A chained job was triggered by its parent |
 | `WorkflowBranchTriggeredEvent` | A conditional branch was activated |
 
-## Health Checks
+## Health checks
 
-### Node Heartbeat Check
+### Node heartbeat check
 
-Query the `scheduler_node` table to verify all expected nodes are alive:
+Query the `scheduler_node` table to verify all expected nodes are alive (MySQL syntax):
 
 ```sql
 SELECT node_id, heartbeat_ts,
@@ -183,7 +185,7 @@ public class RatchetHealthCheck {
 }
 ```
 
-### Queue Depth Check
+### Queue depth check
 
 Monitor the number of pending jobs to detect backlog:
 
@@ -197,7 +199,7 @@ GROUP BY priority;
 
 Alert if `CRITICAL` or `HIGH` jobs have been pending for more than a few seconds.
 
-### DLQ Check
+### DLQ check
 
 Jobs in the dead-letter queue need human attention:
 
@@ -207,7 +209,7 @@ SELECT COUNT(*) FROM scheduler_dlq_alerts;
 
 Wire this into your alerting system — a non-zero DLQ count means something failed permanently.
 
-## Alerting Recommendations
+## Alerting recommendations
 
 | Condition | Severity | Action |
 |-----------|----------|--------|
@@ -218,7 +220,7 @@ Wire this into your alerting system — a non-zero DLQ count means something fai
 | Pending CRITICAL jobs > 30s | **Critical** | Cluster may be overloaded |
 | Pending queue depth growing | **Warning** | Scale up nodes or increase thread pool |
 
-## See Also
+## See also
 
 - [Event System](../api-reference/event-system.md) — Complete event type reference
 - [Metrics Collection](../advanced/metrics-collection.md) — Advanced custom metrics patterns

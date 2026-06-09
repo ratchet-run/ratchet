@@ -108,7 +108,7 @@ try {
     paymentGateway.charge(request);
 } catch (InvalidPaymentException e) {
     // Even wrapped, the @DoNotRetry annotation is detected
-    throw new JobExecutionException("Payment failed", e);
+    throw new RuntimeException("Payment failed", e);
 }
 ```
 
@@ -120,8 +120,10 @@ The `DoNotRetryPolicy` also recognizes certain well-known exception types as per
 - `java.lang.NullPointerException`
 - `java.lang.SecurityException`
 - `jakarta.security.enterprise.AuthenticationException`
+- `run.ratchet.api.exception.PayloadDecryptionException`
+- `run.ratchet.api.exception.KeyNotFoundException`
 
-These represent validation or authorization failures that cannot succeed on retry.
+These are validation, authorization, or unrecoverable decryption failures that cannot succeed on retry.
 
 ## Implementing Custom Retry Policies
 
@@ -308,55 +310,6 @@ class ExceptionAwareRetryPolicyTest {
         }
         // With jitter, we should see more than one distinct value
         assertTrue(delays.size() > 1);
-    }
-}
-```
-
-### Integration Testing
-
-Verify that your policy integrates correctly with the scheduler by running it in a CDI test environment:
-
-```java
-@ExtendWith(WeldJunit5Extension.class)
-@AddExtensions(RatchetExtension.class)
-class CustomRetryPolicyIT {
-
-    @Inject
-    JobSchedulerService scheduler;
-
-    @Test
-    void shouldApplyCustomRetryPolicy() {
-        AtomicInteger attempts = new AtomicInteger(0);
-
-        JobHandle handle = scheduler.enqueue(() -> {
-                attempts.incrementAndGet();
-                throw new IOException("Transient failure");
-            })
-            .withMaxRetries(3)
-            .submit();
-
-        // Wait for retries to complete
-        awaitJobTerminal(handle);
-
-        // With ExceptionAwareRetryPolicy, IOException is transient -> should retry
-        assertTrue(attempts.get() > 1);
-    }
-
-    @Test
-    void shouldNotRetryPermanentFailure() {
-        AtomicInteger attempts = new AtomicInteger(0);
-
-        JobHandle handle = scheduler.enqueue(() -> {
-                attempts.incrementAndGet();
-                throw new InvalidPaymentException("Bad card");
-            })
-            .withMaxRetries(3)
-            .submit();
-
-        awaitJobTerminal(handle);
-
-        // @DoNotRetry prevents retry regardless of maxRetries
-        assertEquals(1, attempts.get());
     }
 }
 ```

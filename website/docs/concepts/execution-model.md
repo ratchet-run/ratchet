@@ -251,7 +251,7 @@ These caches are cleared on application shutdown via `JobTask.clearCaches()` to 
 
 ### Heartbeat
 
-The `DynamicHeartbeatCalculator` adjusts the heartbeat interval based on system load. Heartbeats update the node's `heartbeat_ts` value in the `scheduler_node` table, enabling orphan recovery to detect crashed nodes.
+The `DynamicHeartbeatCalculator` adjusts the heartbeat interval based on system load. Heartbeats update the node's `heartbeat_ts` value in the `scheduler_node` table, so orphan recovery can detect crashed nodes.
 
 ## Related
 

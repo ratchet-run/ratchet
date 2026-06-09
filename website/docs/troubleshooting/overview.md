@@ -6,7 +6,7 @@ description: How to diagnose issues with Ratchet, configure logging, and use the
 
 # Troubleshooting Overview
 
-When something goes wrong with your Ratchet jobs, there are several layers of observability available to help you pinpoint the issue. This guide covers the diagnostic tools at your disposal and how to use them effectively.
+When something goes wrong with your Ratchet jobs, there are several layers of observability available to help you pinpoint the issue. This guide covers the diagnostic tools at your disposal and how to use them.
 
 ## Diagnostic Approach
 
@@ -112,7 +112,7 @@ public class JobDiagnosticObserver {
 
 ## Logging Configuration
 
-Ratchet logs through JBoss Logging (most Jakarta EE runtimes route this to their own logging subsystem; it falls back to `java.util.logging` if no other backend is present) under the package `run.ratchet`. Most Jakarta EE runtimes bridge it to their logging subsystem.
+Ratchet logs through JBoss Logging (most Jakarta EE runtimes route this to their own logging subsystem; it falls back to `java.util.logging` if no other backend is present) under the package `run.ratchet`.
 
 ### WildFly / JBoss EAP
 
