@@ -37,7 +37,7 @@ public class AppSchedulerConfig {
 }
 ```
 
-This object is immutable and container-scoped. It avoids static runtime configuration, survives redeploys cleanly, and lets multiple applications in the same server use different settings. See [Configuration](/getting-started/configuration) for the env-driven alternative.
+This object is immutable and container-scoped. It avoids static runtime configuration, survives redeploys, and lets multiple applications in the same server use different settings. See [Configuration](/getting-started/configuration) for the env-driven alternative.
 
 ## Store Resources
 

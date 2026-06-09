@@ -72,7 +72,7 @@ The formula is: `delay = baseMs * 2^(attempt - 1)`
 |---------|-------|
 | 10 | ~8.5 minutes |
 | 15 | ~4.5 hours |
-| 20 | ~12 days (capped to 24h) |
+| 20 | ~6 days (capped to 24h) |
 | 21+ | 24 hours (cap) |
 
 ## Configuring Backoff
@@ -193,18 +193,18 @@ public class SmartRetryPolicy implements RetryPolicy {
 The `BackoffPolicyHandler` is a stateless utility that computes delays:
 
 ```java
-public static long computeDelay(BackoffPolicy policy, int baseMs, int attempts) {
+static long computeDelay(BackoffPolicy policy, int baseMs, int attempts) {
     return switch (policy) {
         case NONE -> 0L;
         case FIXED -> baseMs;
         case EXPONENTIAL -> {
-            int cappedExponent = Math.min(attempts - 1, 20);
+            int cappedExponent = Math.min(attempts - 1, MAX_EXPONENT);
             long multiplier = 1L << cappedExponent;
             long exponentialDelay =
-                (multiplier > 0 && baseMs <= MAX_DELAY / multiplier)
+                (multiplier > 0 && baseMs <= MAX_EXPONENTIAL_DELAY_MS / multiplier)
                     ? baseMs * multiplier
-                    : MAX_DELAY;
-            yield Math.min(exponentialDelay, MAX_DELAY);  // 24h cap
+                    : MAX_EXPONENTIAL_DELAY_MS;
+            yield Math.min(exponentialDelay, MAX_EXPONENTIAL_DELAY_MS);  // 24h cap
         }
     };
 }
@@ -238,7 +238,7 @@ jobStore.scheduleJobRetry(job.getId(), errorMessage, newScheduledTime, attempt);
 
 The `@DoNotRetry` annotation is checked **before** the `RetryPolicy` SPI. If the exception class is annotated with `@DoNotRetry`, the job moves directly to the DLQ regardless of retry configuration or policy:
 
-<div className="docs-diagram docs-decision-grid" role="img" aria-label="Retry decision order: DoNotRetry first, RetryPolicy second, maxRetries third, then calculate delay and reschedule.">
+<div className="docs-diagram docs-decision-grid" role="img" aria-label="Retry decision order: DoNotRetry first, maxRetries second, RetryPolicy third, then calculate delay and reschedule.">
   <div className="docs-decision-row">
     <div className="docs-diagram-card">
       <strong>1. `@DoNotRetry`?</strong>
@@ -250,13 +250,13 @@ The `@DoNotRetry` annotation is checked **before** the `RetryPolicy` SPI. If the
     </div>
     <div className="docs-diagram-card docs-diagram-card--active">
       <strong>No</strong>
-      <small>Consult retry policy.</small>
+      <small>Check the job budget.</small>
     </div>
   </div>
   <div className="docs-decision-row">
     <div className="docs-diagram-card">
-      <strong>2. `RetryPolicy.shouldRetry()`?</strong>
-      <small>Custom global retry rules can stop the retry.</small>
+      <strong>2. `attempt <= maxRetries`?</strong>
+      <small>Per-job configuration is checked first.</small>
     </div>
     <div className="docs-diagram-card docs-diagram-card--danger">
       <strong>No</strong>
@@ -264,13 +264,13 @@ The `@DoNotRetry` annotation is checked **before** the `RetryPolicy` SPI. If the
     </div>
     <div className="docs-diagram-card docs-diagram-card--active">
       <strong>Yes</strong>
-      <small>Check the job budget.</small>
+      <small>Consult retry policy.</small>
     </div>
   </div>
   <div className="docs-decision-row">
     <div className="docs-diagram-card">
-      <strong>3. `attempt <= maxRetries`?</strong>
-      <small>Per-job configuration is the last gate.</small>
+      <strong>3. `RetryPolicy.shouldRetry()`?</strong>
+      <small>Custom global rules can stop the retry early.</small>
     </div>
     <div className="docs-diagram-card docs-diagram-card--danger">
       <strong>No</strong>

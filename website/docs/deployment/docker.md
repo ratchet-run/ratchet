@@ -4,11 +4,11 @@ title: Docker Deployment
 description: Running Ratchet applications in Docker with WildFly or Payara, including Docker Compose examples.
 ---
 
-# Docker Deployment
+# Docker deployment
 
 Ratchet runs on Jakarta EE 10/11 runtimes. This guide shows how to containerize a Ratchet application using WildFly or Payara as the runtime, with Docker Compose for local development.
 
-## Base Image Selection
+## Base image selection
 
 Choose a base image that provides the Jakarta EE services Ratchet's default RI runtime uses: CDI, JPA, Interceptors, and Jakarta Concurrency.
 
@@ -154,7 +154,7 @@ create-jdbc-connection-pool --datasourceclassname=org.postgresql.ds.PGSimpleData
 create-jdbc-resource --connectionpoolid=RatchetPool java:/RatchetDS
 ```
 
-## Environment Variables
+## Environment variables
 
 Configure Ratchet via environment variables in your container:
 
@@ -276,7 +276,7 @@ volumes:
   mysqldata:
 ```
 
-### Multi-Node Cluster
+### Multi-node cluster
 
 For testing clustered deployments locally:
 
@@ -331,9 +331,9 @@ volumes:
 
 There is no `RATCHET_CLUSTER_ENABLED` switch. Sharing the same store across multiple Ratchet nodes makes the deployment multi-node automatically. One-shot job claiming, recurring-scheduler singleton execution, and destructive startup cleanup are already coordinated through the store. Add a real `ClusterCoordinator` only if you want cross-node wakeups.
 
-## Volume Configuration
+## Volume configuration
 
-### Schema Files
+### Schema files
 
 Mount your DDL files into the database container's init directory:
 
@@ -348,7 +348,7 @@ These run automatically on first container creation. For subsequent schema updat
 docker exec -i my-postgres psql -U ratchet -d ratchet < schema/postgresql-schema.sql
 ```
 
-### Persistent Storage
+### Persistent storage
 
 Always use named volumes for database data to survive container restarts:
 
@@ -358,7 +358,7 @@ volumes:
     driver: local
 ```
 
-## Health Checks
+## Health checks
 
 Add a health check endpoint to your application and configure Docker to use it:
 
@@ -369,7 +369,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 WildFly exposes MicroProfile Health at `/health/ready` and `/health/live` when the `microprofile-health` subsystem is enabled.
 
-## Building the Image
+## Building the image
 
 ```bash
 # Build the application
@@ -388,7 +388,7 @@ docker compose logs -f app
 docker compose exec postgres psql -U ratchet -c "\dt scheduler_*"
 ```
 
-## See Also
+## See also
 
 - [Kubernetes Deployment](/deployment/kubernetes) — Orchestrated container deployments
 - [Database Setup](/deployment/database-setup) — Schema application details

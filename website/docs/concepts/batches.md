@@ -236,9 +236,11 @@ scheduler.<Record>streamingBatch("ETL Pipeline")
 
 ## Batch Recovery
 
-If the application crashes during batch processing, some children may be in RUNNING state with no node to complete them. The `BatchRecoveryTimer` periodically checks for orphaned batch children and resets them to PENDING.
+Two timers keep batches moving after a crash. The general crash-recovery scan resets orphaned batch children: any child stuck in RUNNING on a node whose heartbeat has gone stale is reset to PENDING and re-executed.
 
-The parent job is never "stuck" -- it tracks progress based on child status counts, so when orphaned children are recovered and re-executed, progress naturally catches up.
+The `BatchRecoveryTimer` handles a different failure mode. A batch can finish all of its children, yet the parent's completion flag is never set because the marking transaction was lost to a crash, network partition, or rollback. The timer scans every 15 minutes for these stuck-but-complete batches, sets the completion flag, and fires the parent's completion handlers and any conditional branches.
+
+The parent job is never "stuck" indefinitely: it tracks progress based on child status counts, so when orphaned children are recovered and re-executed, progress catches up, and the recovery timer closes out batches whose completion was never recorded.
 
 ## Related
 

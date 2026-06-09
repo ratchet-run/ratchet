@@ -6,7 +6,7 @@ description: Collecting job execution metrics with the MetricsCollector SPI and 
 
 # Metrics Collection
 
-Ratchet provides a `MetricsCollector` SPI that receives callbacks during the job execution lifecycle. The reference implementation ships with a no-op default, a ready-to-use Micrometer adapter module (`ratchet-micrometer`), and a straightforward path for building custom integrations.
+Ratchet provides a `MetricsCollector` SPI that receives callbacks during the job execution lifecycle. The reference implementation ships with a no-op default and a Micrometer adapter module (`ratchet-micrometer`), and you can implement the SPI directly for custom integrations.
 
 ## MetricsCollector SPI
 
@@ -82,11 +82,11 @@ public class NoOpMetricsCollector implements MetricsCollector {
 }
 ```
 
-This ensures Ratchet works out of the box without requiring a metrics dependency.
+Ratchet runs without a metrics dependency on the classpath.
 
 ## Micrometer Integration
 
-The `ratchet-micrometer` module provides a drop-in Micrometer adapter that publishes job metrics to any Micrometer-supported backend (Prometheus, Datadog, CloudWatch, New Relic, etc.).
+The `ratchet-micrometer` module provides a Micrometer adapter that publishes job metrics to any Micrometer-supported backend (Prometheus, Datadog, CloudWatch, New Relic, etc.).
 
 ### Adding the Dependency
 
@@ -98,7 +98,7 @@ The `ratchet-micrometer` module provides a drop-in Micrometer adapter that publi
 </dependency>
 ```
 
-The module uses `@Alternative @Priority(1000)` on the `MicrometerMetricsCollector` bean, which automatically overrides the default `NoOpMetricsCollector` when present on the classpath. The module also provides a fallback `SimpleMeterRegistry`, so it works out of the box. Produce your own `MeterRegistry` when you want a real backend such as Prometheus or Datadog.
+The module uses `@Alternative @Priority(1000)` on the `MicrometerMetricsCollector` bean, which automatically overrides the default `NoOpMetricsCollector` when present on the classpath. The module also provides a fallback `SimpleMeterRegistry`, so the adapter works without further configuration. Produce your own `MeterRegistry` when you want a real backend such as Prometheus or Datadog.
 
 ### Providing a MeterRegistry
 
@@ -109,14 +109,19 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.prometheus.PrometheusConfig;
 import io.micrometer.prometheus.PrometheusMeterRegistry;
 
+import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Alternative;
 import jakarta.enterprise.inject.Produces;
+import jakarta.inject.Singleton;
 
 @ApplicationScoped
 public class MetricsProducer {
 
     @Produces
-    @ApplicationScoped
+    @Alternative
+    @Priority(2000)
+    @Singleton // @Singleton avoids a Weld proxy on the abstract MeterRegistry (WELD-001435)
     public MeterRegistry meterRegistry() {
         return new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
     }
@@ -287,21 +292,21 @@ public class LoggingMetricsCollector implements MetricsCollector {
     @Override
     public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
         log.info(String.format(
-            "metric=job.started job_id=%d type=%s priority=%s",
+            "metric=job.started job_id=%s type=%s priority=%s",
             jobId, type, priority));
     }
 
     @Override
     public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
         log.info(String.format(
-            "metric=job.completed job_id=%d type=%s duration_ms=%d",
+            "metric=job.completed job_id=%s type=%s duration_ms=%d",
             jobId, type, executionTimeMs));
     }
 
     @Override
     public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         log.warning(String.format(
-            "metric=job.failed job_id=%d type=%s exception=%s attempt=%d",
+            "metric=job.failed job_id=%s type=%s exception=%s attempt=%d",
             jobId, type, cause.getClass().getSimpleName(), attempt));
     }
 }

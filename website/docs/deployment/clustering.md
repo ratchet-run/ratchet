@@ -56,7 +56,9 @@ When a node's poller fires, it runs a `SELECT ... FOR UPDATE SKIP LOCKED` query:
 SELECT job_id FROM scheduler_job_queue
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
-ORDER BY (priority + age_boost) DESC, scheduled_time ASC
+ORDER BY (priority + FLOOR(GREATEST(0, overdue_minutes) / :boostInterval)) DESC,
+         scheduled_time ASC,
+         job_id ASC
 FOR UPDATE SKIP LOCKED
 LIMIT :batchSize;
 ```
@@ -85,7 +87,7 @@ Recurring master jobs have their own claim method:
 claimDueRecurring(int limit, String nodeId)
 ```
 
-This selects recurring jobs whose `next_fire_time` has arrived, claims them, and the engine creates a child instance for each execution cycle.
+This selects recurring jobs whose `next_fire` has arrived, claims them, and the engine creates a child instance for each execution cycle.
 
 ## Node Identity and Heartbeats
 

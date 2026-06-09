@@ -251,7 +251,7 @@ Do **not** use it for transient failures that might succeed on retry (network ti
 Marks APIs that are experimental and may change in future versions without following the normal deprecation cycle.
 
 **Package:** `run.ratchet.api`
-**Target:** Any element type
+**Target:** Type, Method, Field, Package
 **Retention:** Runtime
 
 ```java

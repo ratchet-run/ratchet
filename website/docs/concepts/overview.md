@@ -99,7 +99,7 @@ Ratchet is organized into modules following the Jakarta EE API / RI / TCK patter
   <section className="module-section module-section-runtime" role="listitem">
     <div className="module-section-header">
       <span className="fit-kicker">Runtime</span>
-      <strong>Engine and store implementations used in production</strong>
+      <strong>Engine and store implementations deployed at runtime</strong>
     </div>
     <div className="module-chip-grid">
       <div className="module-chip">
@@ -304,7 +304,7 @@ Ratchet separates API contracts from implementation through Service Provider Int
 | `MetricsCollector` | Observability hooks | No-op |
 | `ClusterCoordinator` | Cross-node wakeups | No-op (single-node) |
 
-SPIs marked `@Incubating` may change before 1.0:
+Every SPI listed here is marked `@Incubating` and may change before 1.0. The following are the most likely to change:
 
 | SPI | Purpose | Default |
 |-----|---------|---------|

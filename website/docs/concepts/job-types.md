@@ -8,7 +8,7 @@ description: "SINGLE, RECURRING, BATCH, CHAIN, WORKFLOW, and SYSTEM job types"
 
 Ratchet classifies jobs into **public types** (what users see) and **internal execution types** (what the engine uses). The public `JobType` enum describes the scheduling pattern. The internal `JobExecutionType` enum describes the execution role within that pattern.
 
-## Public Job Types
+## Public job types
 
 The `JobType` enum appears in events, SPIs, and monitoring. It represents the user-visible category:
 
@@ -21,7 +21,7 @@ The `JobType` enum appears in events, SPIs, and monitoring. It represents the us
 | `WORKFLOW` | Conditional branching based on job results | `thenOnSuccess()`, `when()`, `branch()` |
 | `SYSTEM` | Framework-managed internal work | Engine only (not user-creatable) |
 
-## Internal Execution Types
+## Internal execution types
 
 The `JobExecutionType` enum adds granularity the engine needs for routing:
 
@@ -38,7 +38,7 @@ The `JobExecutionType` enum adds granularity the engine needs for routing:
 
 This separation lets external observers see clean semantic categories while the engine routes jobs to the correct handler based on their execution role.
 
-## SINGLE Jobs
+## SINGLE jobs
 
 The most common type. A SINGLE job executes exactly once at its scheduled time. It supports all standard features: retries, timeouts, priorities, tags, callbacks, and idempotency keys.
 
@@ -56,11 +56,11 @@ scheduler.schedule(Duration.ofMinutes(30), () -> reminderService.send(userId))
 
 After a SINGLE job completes (succeeds or permanently fails), it is eligible for archival. It does not reschedule itself.
 
-## RECURRING Jobs
+## RECURRING jobs
 
 Recurring jobs execute on a cron schedule. Each execution spawns a new job instance, so the recurring "master" persists indefinitely while its individual runs follow the normal lifecycle.
 
-### Annotation-Based
+### Annotation-based
 
 The simplest way to create recurring jobs:
 
@@ -103,7 +103,7 @@ scheduler.scheduleRecurring(
     .submit();
 ```
 
-### How Recurring Execution Works
+### How recurring execution works
 
 1. The recurring master job stores the cron expression and timezone
 2. `RecurringScheduler` calculates the next fire time from the cron expression
@@ -127,7 +127,7 @@ The `@Recurring` annotation supports these properties:
 | `enabled` | `true` | Whether the recurring job is registered at startup |
 | `tags` | `{}` | Tags for filtering |
 
-## BATCH Jobs
+## BATCH jobs
 
 Batch jobs process a collection of items in parallel. Internally, a BATCH_PARENT job is created to track overall progress, and individual BATCH_CHILD jobs are created for each item.
 
@@ -144,7 +144,7 @@ The parent job doesn't execute work itself -- it monitors child job completion. 
 
 See [Batches](./batches.md) for details on `BatchBuilder`, `StreamingBatchBuilder`, and chunk processing.
 
-## CHAIN Jobs
+## CHAIN jobs
 
 Chains execute tasks sequentially. Each step depends on the previous step's completion. Internally, each step is a `CHAIN_STEP` job linked by the `depends_on` column.
 
@@ -156,7 +156,7 @@ scheduler.enqueue(() -> validateData())
     .submit();
 ```
 
-### How Chains Work Internally
+### How chains work internally
 
 1. All steps are persisted at submission time
 2. Steps 2-N are created with `scheduled_time = 9999-12-31T23:59:59Z` (a sentinel value that makes them invisible to the Poller)
@@ -165,7 +165,7 @@ scheduler.enqueue(() -> validateData())
 
 **Failure cascading:** If any step fails permanently (exhausts retries), all downstream steps are canceled recursively using depth-first traversal.
 
-## WORKFLOW Jobs
+## WORKFLOW jobs
 
 Workflows extend chains with conditional branching. Instead of always executing the next step, the engine evaluates `WorkflowCondition` predicates against the job's result to decide which branches fire.
 
@@ -189,11 +189,11 @@ Multiple branches can fire from a single parent -- unlike chains (which are line
 
 See [Workflows](./workflows.md) for the full condition type catalog and branching patterns.
 
-## SYSTEM Jobs
+## SYSTEM jobs
 
 System jobs are framework-managed and not directly creatable through the public API. Currently, the `DLQ_ALERT` execution type is the only system job, used internally for dead letter queue alert tracking.
 
-## Type Routing in the Engine
+## Type routing in the engine
 
 When a job completes, the `PostExecutionHandler` routes the next action based on the job's execution type:
 
@@ -205,7 +205,7 @@ When a job completes, the `PostExecutionHandler` routes the next action based on
 | WORKFLOW_BRANCH | Evaluate conditions, schedule matches | Evaluate conditions (FAILURE branches may fire) |
 | RECURRING | Calculate next fire time | Calculate next fire time (retry if configured) |
 
-This routing is the reason the internal `JobExecutionType` exists -- the engine needs to know not just "this is a BATCH job" but "this is a BATCH_CHILD job" to route correctly.
+This routing is the reason the internal `JobExecutionType` exists. The engine needs to know more than "this is a BATCH job"; it needs "this is a BATCH_CHILD job" to route correctly.
 
 ## Related
 

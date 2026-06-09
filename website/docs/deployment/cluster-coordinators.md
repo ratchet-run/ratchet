@@ -99,9 +99,7 @@ transports at once.
 
 Every coordinator reads a configuration record and falls back to its
 `defaults()` when you provide no override. To pin or change settings, produce the
-record as a CDI bean. Each config is a record with a `defaults()` factory;
-produce `defaults()` to lock in the standard settings, or construct the record
-directly to override a field:
+record as a CDI bean:
 
 ```java
 @ApplicationScoped
@@ -285,7 +283,7 @@ The JMS coordinator is the exception: a `cellId` there is operator hygiene only.
 True JMS isolation requires provisioning separate physical topics with distinct
 JNDI bindings per cell.
 
-## See Also
+## See also
 
 - [Clustering](/deployment/clustering) — claim-based execution, heartbeats, and
   where wakeup notifications fit

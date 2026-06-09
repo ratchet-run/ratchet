@@ -41,6 +41,8 @@ operation is idempotent and safe to run on every boot.
 | Collection | Purpose |
 |-----------|---------|
 | `scheduler_job` | Main job store — status, payload, scheduling, priority |
+| `scheduler_recurring_job` | Recurring job master records (cron/interval definitions) |
+| `scheduler_recurring_job_archive` | Archived recurring job definitions |
 | `scheduler_batch` | Batch parent records and progress state |
 | `scheduler_batch_metrics` | Batch-level runtime metrics |
 | `scheduler_job_execution` | Execution history — start/end times, node, outcome |

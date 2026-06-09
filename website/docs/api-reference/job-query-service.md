@@ -17,7 +17,7 @@ JobQueryService jobs;
 **Type:** Interface
 **Stability:** `@Incubating`
 
-## When to Use It
+## When to use it
 
 Use `JobQueryService` when you need:
 
@@ -145,7 +145,7 @@ JobPage<JobSummary> getRecurringMasters()
 JobPage<JobSummary> getRecurringMasters(int limit, int offset)
 ```
 
-Returns active recurring master records. Recurring masters store the cron definition and spawn child jobs for each firing.
+Returns active recurring master records. Recurring masters store the recurring schedule (cron expression or fixed interval) and spawn child jobs for each firing.
 
 ## Pagination
 
@@ -187,7 +187,7 @@ public JobFilter filterForPrincipal(JobFilter filter, String principal) {
 
 Use `filter.toBuilder()` when adding authorization constraints so you do not discard the caller's original filters.
 
-## See Also
+## See also
 
 - [JobSchedulerService Reference](./job-scheduler-service)
 - [JobBuilder Reference](./job-builder)

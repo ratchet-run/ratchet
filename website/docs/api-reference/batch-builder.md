@@ -165,16 +165,16 @@ scheduler.enqueueBatch("Email Campaign")
 BatchBuilder thenWhenFailureCount(int maxFailures, SerializableCheckedRunnable next)
 ```
 
-Schedules a job when the number of failures reaches the specified threshold.
+Schedules a job when the number of failures stays at or below the specified threshold (failures less than or equal to `maxFailures`).
 
 **Parameters:**
-- `maxFailures` -- the failure count that triggers the action.
-- `next` -- the task to execute when the failure count is reached.
+- `maxFailures` -- the maximum number of failures (inclusive) for which the action still fires.
+- `next` -- the task to execute when the failure count is within the threshold.
 
 ```java
 scheduler.enqueueBatch("Import Data")
     .forEach(rows, row -> importRow(row))
-    .thenWhenFailureCount(10, () -> alertService.tooManyImportFailures())
+    .thenWhenFailureCount(10, () -> alertService.importWithinFailureBudget())
     .submit();
 ```
 
@@ -272,7 +272,7 @@ scheduler.<Long>streamingBatch("Migrate Users")
 StreamingBatchBuilder<T> withChunkSize(int size)
 ```
 
-Sets the number of items per database insert chunk. Default is 500. Tune this based on your database's bulk insert performance.
+Sets the number of items per database insert chunk. Default is 100. Tune this based on your database's bulk insert performance.
 
 **Parameters:**
 - `size` -- items per chunk. Must be positive.

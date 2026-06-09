@@ -455,7 +455,7 @@ scheduler.retryJob(jobId);
 
 ## RecurringJobBuilder
 
-Returned by `scheduleRecurring()`, provides three configuration methods:
+Returned by `scheduleRecurring()`. The configuration methods documented below set options, tags, and the business key:
 
 ### withOptions
 
@@ -479,7 +479,7 @@ Associates tags with the job for filtering and categorization.
 RecurringJobBuilder withBusinessKey(String key)
 ```
 
-Sets the business key for active-unique identity. While the job is active (PENDING, RUNNING, PAUSED, WAITING), no other job may share the same business key.
+Sets the business key for active-unique identity. While the job is active (PENDING, RUNNING, PAUSED), no other job may share the same business key.
 
 ### submit
 

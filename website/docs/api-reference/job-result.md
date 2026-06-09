@@ -6,7 +6,7 @@ description: Complete reference for JobResult, capturing job execution outcomes 
 
 # JobResult Reference
 
-Comprehensive result object capturing all aspects of a job execution. `JobResult<T>` encapsulates success/failure status, return values, error details, timing information, and custom metadata. It is the primary input for workflow condition evaluation.
+Result object that captures the outcome of a job execution. `JobResult<T>` holds success/failure status, return values, error details, timing information, and custom metadata. It is the primary input for workflow condition evaluation.
 
 **Package:** `run.ratchet.api`
 **Type:** `class JobResult<T> implements Serializable`

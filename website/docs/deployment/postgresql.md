@@ -12,7 +12,7 @@ Ratchet on PostgreSQL 14+.
 - UTF-8 encoding
 - psql CLI tool
 
-## Schema Setup
+## Schema setup
 
 ### Apply DDL
 
@@ -27,7 +27,7 @@ cp postgresql-schema.sql src/main/resources/db/migration/V1__ratchet_schema.sql
 flyway migrate
 ```
 
-### Verify Installation
+### Verify installation
 
 ```sql
 \dt scheduler_*
@@ -50,6 +50,8 @@ You should see:
 - `scheduler_resource_permit`
 - `scheduler_workflow_condition`
 - `scheduler_dlq_alerts`
+- `scheduler_recurring_job`
+- `scheduler_recurring_job_archive`
 
 ## Configuration
 
@@ -112,31 +114,32 @@ public class RatchetPuProvider implements RatchetEntityManagerProvider {
     valid-connection-checker-class-name=org.jboss.jca.adapters.jdbc.extensions.postgres.PostgreSQLValidConnectionChecker)
 ```
 
-### Connection String
+### Connection string
 
 ```
 jdbc:postgresql://localhost:5432/ratchet
 ```
 
-## Advanced Features
+## Advanced features
 
-### SKIP LOCKED (Optimistic Claiming)
+### SKIP LOCKED (optimistic claiming)
 
 Ratchet uses PostgreSQL's `SKIP LOCKED` clause for lock-free job claiming:
 
 ```sql
 SELECT * FROM scheduler_job_queue
 WHERE status = 'PENDING'
-  AND scheduled_time <= NOW()
-ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
-         scheduled_time ASC
-LIMIT 10
+  AND scheduled_time <= statement_timestamp()
+ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / ?) DESC,
+         scheduled_time ASC,
+         job_id ASC
+LIMIT ?
 FOR UPDATE SKIP LOCKED;
 ```
 
-This allows multiple Ratchet nodes to safely claim different jobs simultaneously without blocking each other.
+Multiple Ratchet nodes can claim different jobs simultaneously without blocking each other.
 
-### Active Business-Key Uniqueness
+### Active business-key uniqueness
 
 Active-key uniqueness is enforced by a dedicated `scheduler_business_key_reservation` table, not by an index on `scheduler_job`. The reservation table holds one row per active business key, with `business_key` as its primary key:
 
@@ -144,8 +147,8 @@ Active-key uniqueness is enforced by a dedicated `scheduler_business_key_reserva
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 (
     business_key TEXT NOT NULL,
-    owner_table  TEXT NOT NULL,
     owner_job_id uuid NOT NULL,
+    owner_table  TEXT NOT NULL,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
     CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
 );
@@ -153,16 +156,16 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 
 A duplicate active business key fails against `pk_scheduler_business_key_reservation`. The `business_key` column on `scheduler_job` is observability-only and carries a plain (non-unique) `idx_job_business_key` index.
 
-### Generated Columns
+### Generated columns
 
-Target class and method name are extracted from the JSON payload as generated columns for indexing:
+Target class and method name are extracted from the JSONB payload as generated columns for indexing:
 
 ```sql
-target_class TEXT GENERATED ALWAYS AS (payload::jsonb ->> 'target') STORED
-method_name  TEXT GENERATED ALWAYS AS (payload::jsonb ->> 'method') STORED
+target_class TEXT GENERATED ALWAYS AS (payload ->> 'target') STORED
+method_name  TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED
 ```
 
-### CHECK Constraints
+### CHECK constraints
 
 PostgreSQL uses `CHECK` constraints for data validation instead of MySQL's `ENUM` types. Live status is tracked on `scheduler_job_queue` (`chk_queue_status`), while `scheduler_job` records only the terminal status (`chk_terminal_status`):
 
@@ -176,9 +179,9 @@ CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4)
 CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING'))
 ```
 
-## Performance Tuning
+## Performance tuning
 
-### Connection Pooling
+### Connection pooling
 
 Use PgBouncer in transaction mode for efficient connection pooling:
 
@@ -189,7 +192,7 @@ max_client_conn = 1000
 default_pool_size = 25
 ```
 
-### Shared Buffers
+### Shared buffers
 
 Set to 25% of available RAM:
 
@@ -199,7 +202,7 @@ ALTER SYSTEM SET shared_buffers = '4GB';
 
 Restart PostgreSQL after changing.
 
-### Work Memory
+### Work memory
 
 Increase for complex queries:
 
@@ -208,7 +211,7 @@ ALTER SYSTEM SET work_mem = '256MB';
 SELECT pg_reload_conf();
 ```
 
-### Effective Cache Size
+### Effective cache size
 
 Help the planner estimate cache hit rates (set to 75% of available RAM):
 
@@ -217,7 +220,7 @@ ALTER SYSTEM SET effective_cache_size = '12GB';
 SELECT pg_reload_conf();
 ```
 
-### Autovacuum Tuning
+### Autovacuum tuning
 
 Ratchet performs frequent updates and deletes on the hot `scheduler_job_queue` table. Tune autovacuum to keep up:
 
@@ -230,7 +233,7 @@ ALTER TABLE scheduler_job_queue SET (
 
 ## Monitoring
 
-### Monitor Job Queue
+### Monitor job queue
 
 ```sql
 -- Live statuses (PENDING/RUNNING) are on scheduler_job_queue; FAILED is terminal and
@@ -248,7 +251,7 @@ FROM (
 ) all_jobs;
 ```
 
-### Query Performance
+### Query performance
 
 Enable `pg_stat_statements` and find slow queries:
 
@@ -260,7 +263,7 @@ ORDER BY mean_exec_time DESC
 LIMIT 10;
 ```
 
-### Index Usage
+### Index usage
 
 Verify indexes are being used:
 
@@ -272,7 +275,7 @@ WHERE indexname LIKE 'idx_%'
 ORDER BY idx_scan ASC;
 ```
 
-### Active Nodes
+### Active nodes
 
 ```sql
 SELECT node_id, heartbeat_ts, started_at
@@ -283,7 +286,7 @@ ORDER BY started_at;
 
 ## Maintenance
 
-### Vacuum & Analyze
+### Vacuum and analyze
 
 Regular maintenance is important for tables with frequent updates:
 
@@ -302,7 +305,7 @@ REINDEX TABLE scheduler_job_execution;
 REINDEX TABLE scheduler_job_archive;
 ```
 
-### Monitor Table Bloat
+### Monitor table bloat
 
 ```sql
 SELECT
@@ -316,15 +319,15 @@ WHERE relname LIKE 'scheduler_%'
 ORDER BY n_dead_tup DESC;
 ```
 
-## Backup & Recovery
+## Backup and recovery
 
-### Logical Backup
+### Logical backup
 
 ```bash
 pg_dump -Fc -v ratchet > ratchet-backup.dump
 ```
 
-### Point-in-Time Recovery
+### Point-in-time recovery
 
 ```bash
 pg_basebackup -D /backup -Ft -z
@@ -336,9 +339,9 @@ pg_basebackup -D /backup -Ft -z
 pg_restore -d ratchet ratchet-backup.dump
 ```
 
-## High Availability
+## High availability
 
-### Streaming Replication
+### Streaming replication
 
 For HA, use PostgreSQL streaming replication:
 
@@ -353,7 +356,7 @@ SELECT pg_reload_conf();
 
 Use Patroni or pg_auto_failover for automatic failover. Ratchet reconnects automatically when the connection pool detects a new primary.
 
-## See Also
+## See also
 
 - [MySQL Deployment](/deployment/mysql)
 - [Database Setup](/deployment/database-setup)
