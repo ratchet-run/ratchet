@@ -4,7 +4,7 @@
 
 ---
 
-Ratchet gives Jakarta EE 10/11 applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience — all without pulling in heavyweight frameworks.
+Ratchet gives Jakarta EE 10/11 applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience, all without pulling in heavyweight frameworks.
 
 ---
 
@@ -14,12 +14,16 @@ Ratchet gives Jakarta EE 10/11 applications a clean, annotation-driven API for b
 |----------|-------------|
 | **Scheduling** | Immediate, delayed, cron-based recurring jobs |
 | **Workflows** | Job chaining, conditional branching, success/failure callbacks |
+| **Signals** | Jobs that wait on a named external signal (an approval gate, a webhook) and resume via `deliverSignal`, targeted or broadcast, with a timeout |
 | **Batching** | In-memory batch builder and streaming batch for large datasets |
 | **Resilience** | Configurable retries with backoff (fixed/exponential), built-in circuit breaker, dead letter queue |
-| **Persistence** | Pluggable store SPI — MySQL, PostgreSQL, and MongoDB out of the box |
-| **Observability** | Rich event system (CDI + programmatic), Micrometer metrics adapter |
+| **Persistence** | Pluggable store SPI: MySQL, PostgreSQL, and MongoDB out of the box |
+| **Security** | Payload encryption at rest with a pluggable `KeyProvider` (AES-256-GCM or XChaCha20-Poly1305) and a deserialization allowlist |
+| **Observability** | Rich event system (CDI + programmatic), Micrometer metrics adapter, and a read-only `JobQueryService` for job search, history, and queue health |
 | **Concurrency** | Permit-based backpressure, adaptive polling, resource limiting |
-| **CDI Integration** | Zero-ceremony wiring — inject `JobSchedulerService` and go |
+| **Routing** | Per-job thread-mode targeting (`virtual()` / `platform()`) and worker-node tag affinity |
+| **Clustering** | Database-backed multi-node claiming, plus optional push wakeups over PostgreSQL `LISTEN`/`NOTIFY`, JMS, Infinispan, or Hazelcast |
+| **CDI Integration** | Zero-ceremony wiring: inject `JobSchedulerService` and go |
 
 ## Showcase App
 
@@ -100,7 +104,7 @@ For demos and tests only, you can bypass the fail-fast startup check with `Ratch
 
 ### 3. Apply or Initialize the Schema
 
-SQL stores ship DDL as plain SQL files — no Flyway dependency, no migration lock-in. Apply the schema however your project manages DDL:
+SQL stores ship DDL as plain SQL files, with no Flyway dependency or migration lock-in. Apply the schema however your project manages DDL:
 
 ```bash
 # PostgreSQL
@@ -142,7 +146,7 @@ public class OrderService {
 ```
 
 > Job IDs are UUIDv7 values (`java.util.UUID`). The factory generates
-> time-ordered IDs without operational coordination — no node-ID knob
+> time-ordered IDs without operational coordination, so no node-ID knob
 > is required.
 
 ## Usage Guide
@@ -225,9 +229,30 @@ scheduler.<Invoice>streamingBatch("import-invoices")
     .start();
 ```
 
+### Waiting on External Signals
+
+Park a job until something outside the scheduler lets it continue, like an operator approval or an inbound webhook. The job holds in `WAITING` until its signal arrives or the timeout fires:
+
+```java
+// The shipment waits for an operator to approve the order, for up to 24 hours.
+scheduler.enqueue(() -> shipOrder(orderId))
+    .awaitSignal("order:" + orderId + ":approved", Duration.ofHours(24))
+    .submit();
+```
+
+Deliver it from a REST endpoint, an admin action, or another job. Target one waiting job by id, or broadcast to every job parked on the key, carrying an approval or rejection:
+
+```java
+scheduler.deliverSignal(
+    "order:" + orderId + ":approved",
+    SignalDecision.approved(approverId));
+```
+
+The resumed job reads whatever the signal carried via `JobContext.signalPayload(...)`.
+
 ### Circuit Breaker Protection
 
-Protect external service calls with the built-in circuit breaker — no Resilience4j required:
+Protect external service calls with the built-in circuit breaker, which needs no Resilience4j:
 
 ```java
 @CircuitBreakerProtected(
@@ -238,6 +263,32 @@ public PaymentResult processPayment(PaymentRequest request) {
     return gateway.charge(request);
 }
 ```
+
+### Encrypting Sensitive Payloads
+
+Encrypt job parameters at rest with authenticated encryption. Add the `ratchet-encryption` module, supply key material through the environment, and switch encryption on. With keys configured, the bundled AES-256-GCM engine and key provider are wired up for you:
+
+```bash
+# Comma-separated keyId:base64Key entries; the current key is the write key.
+export RATCHET_ENCRYPTION_KEYS="2026-06:$(openssl rand -base64 32)"
+```
+
+```java
+// Encrypt every job's payload and result across the deployment...
+RatchetOptions.builder()
+    .encryption(e -> e.enabled(true))
+    .build();
+```
+
+Or leave the global switch off and opt in per job:
+
+```java
+scheduler.enqueue(() -> chargeCard(cardToken))
+    .withEncryptedPayload()
+    .submit();
+```
+
+Encryption covers the protected surfaces, the job payload and its result, while routing and bookkeeping columns (target class, business key, timing) stay queryable. If a job asks for encryption but no engine and key are installed, it fails when it is submitted rather than silently persisting unprotected data. Enabling the global switch with nothing installed fails the node at startup instead. To back keys with a KMS instead of the environment, supply your own `KeyProvider` and `PayloadEncryption` beans. The Payload encryption guide on the docs site covers that path, key rotation, and exactly what is and isn't protected.
 
 ### Event Observation
 
@@ -322,8 +373,8 @@ flowchart TD
 | Module | Purpose | Dependencies |
 |--------|---------|-------------|
 | `ratchet-api` | Public API, annotations, events, SPI interfaces | Jakarta CDI / Interceptors APIs (provided) |
-| `ratchet` | Core engine — polling, execution, retry, circuit breaker, CDI wiring | ratchet-api, ratchet-store-core, ASM, cron-utils, JBoss Logging; Jakarta EE APIs provided by the runtime |
-| `ratchet-store-core` | Persistence abstractions — entities and composed `JobStore` SPI | ratchet-api, Jakarta Persistence / JSON APIs |
+| `ratchet` | Core engine: polling, execution, retry, circuit breaker, CDI wiring | ratchet-api, ratchet-store-core, ASM, cron-utils, JBoss Logging; Jakarta EE APIs provided by the runtime |
+| `ratchet-store-core` | Persistence abstractions: entities and composed `JobStore` SPI | ratchet-api, Jakarta Persistence / JSON APIs |
 | `ratchet-store-mysql` | MySQL store implementation with optimized DDL | ratchet-store-core |
 | `ratchet-store-postgresql` | PostgreSQL store with partial indexes and JSONB | ratchet-store-core |
 | `ratchet-store-mongodb` | MongoDB document store implementation | ratchet-store-core |
@@ -332,14 +383,15 @@ flowchart TD
 | `ratchet-coordinator-jms` | JMS-topic-backed cross-node wakeups for deployments that already run a JMS broker | ratchet-coordinator-common, Jakarta Messaging API (provided) |
 | `ratchet-coordinator-infinispan` | Infinispan-clustered-cache wakeup notifications for WildFly / Quarkus deployments | ratchet-coordinator-common, Infinispan API (provided) |
 | `ratchet-coordinator-hazelcast` | Hazelcast topic-backed wakeup notifications for Hazelcast clusters | ratchet-coordinator-common, Hazelcast client (provided) |
+| `ratchet-encryption` | Reference payload-encryption engines (AES-256-GCM, XChaCha20-Poly1305) and a `SecretKeyProvider` | ratchet-api |
 | `ratchet-micrometer` | Micrometer metrics adapter | ratchet-api, Micrometer |
 | `ratchet-otel` | OpenTelemetry-based `TracingCollector` implementation (incubating; not yet in the BOM) | ratchet-api, OpenTelemetry API |
 | `ratchet-showcase` | Runnable order-fulfillment dashboard demonstrating workflows, signals, retries, resource limits, and Micrometer metrics | ratchet, store modules, ratchet-micrometer, Jakarta EE Web APIs |
 | `ratchet-tck` | Aggregator (pom-packaging) for the four TCK submodules below | — |
 | `ratchet-tck-util` | JUnit-only helpers shared across TCK modules | JUnit 5 |
-| `ratchet-tck-store` | Store SPI conformance — CRUD, claiming, status transitions, archiving, batches, locks | ratchet-store-core, ratchet-tck-util, JUnit 5 |
-| `ratchet-tck-api` | Public-API conformance — submit / cancel / retry / idempotency / workflow / delayed scheduling. Container-free, pure-JVM JUnit | ratchet-api, ratchet-tck-util, JUnit 5 |
-| `ratchet-tck-jakarta` | Jakarta-EE conformance — CDI injection, CDI events, JTA enqueue (Arquillian-driven) | ratchet-tck-api, Jakarta CDI / Transaction API, Arquillian |
+| `ratchet-tck-store` | Store SPI conformance: CRUD, claiming, status transitions, archiving, batches, locks | ratchet-store-core, ratchet-tck-util, JUnit 5 |
+| `ratchet-tck-api` | Public-API conformance: submit / cancel / retry / idempotency / workflow / delayed scheduling. Container-free, pure-JVM JUnit | ratchet-api, ratchet-tck-util, JUnit 5 |
+| `ratchet-tck-jakarta` | Jakarta-EE conformance: CDI injection, CDI events, JTA enqueue (Arquillian-driven) | ratchet-tck-api, Jakarta CDI / Transaction API, Arquillian |
 | `ratchet-bom` | Bill of Materials for version alignment | — |
 
 ### SPI Extension Points
@@ -350,9 +402,11 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 |---------------|---------|---------|
 | `RetryPolicy` | Custom retry/no-retry decisions | Defers to `maxRetries` |
 | `ResilienceStrategy` | Circuit breaker behavior | Built-in 3-state machine |
-| `ClassPolicy` | Security — which classes can be deserialized | `PackagePrefixClassPolicy` with an empty allowlist; startup fails fast until you provide an override |
-| `JobAuthorizationPolicy` | Authorization — gate create/cancel/pause/resume/retry/deliver-signal and read access (incubating) | `PermitAllJobAuthorizationPolicy` (permit all) |
+| `ClassPolicy` | Security: which classes can be deserialized | `PackagePrefixClassPolicy` with an empty allowlist; startup fails fast until you provide an override |
+| `JobAuthorizationPolicy` | Authorization: gate create/cancel/pause/resume/retry/deliver-signal and read access (incubating) | `PermitAllJobAuthorizationPolicy` (permit all) |
 | `ErrorSanitizer` | Scrub sensitive data from error messages | `DefaultErrorSanitizer` |
+| `PayloadEncryption` | Authenticated-encryption engine for payloads at rest | Reference AES-256-GCM / XChaCha20-Poly1305 in `ratchet-encryption`; inactive until a `KeyProvider` is installed |
+| `KeyProvider` | Encryption key storage, active-key selection, and rotation | None; required when encryption is enabled. `SecretKeyProvider` ships in `ratchet-encryption` |
 | `RatchetOptions` | Required runtime options bean; deployment fails without a CDI producer | Application-provided via `@Produces`; use `RatchetOptionsFactory.fromEnvironment()` for env-driven configuration |
 | `RatchetConfigSource` | Platform config overlay passed to `RatchetOptionsFactory.fromEnvironment(...)` | Optional |
 | `ExecutionTuningProvider` | Per-execution-type concurrency and virtual-thread limits | Config-backed defaults |
@@ -369,6 +423,7 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `ExecutorProvider` | Thread pool / virtual thread configuration | Jakarta Concurrency managed executors |
 | `RatchetEntityManagerProvider` | SQL store `EntityManager` binding | Unnamed `@PersistenceContext` |
 | `NodeIdentityProvider` | Node identification in clusters | Hostname-based |
+| `NodeTagAffinityProvider` | Restrict which jobs a worker node claims, by tag | No filter; every node claims any job |
 | `JobLogger` | Per-job job-scoped logging facade | Created per execution by `JobLoggerFactory` |
 
 ### Custom Store Implementation
@@ -396,10 +451,10 @@ public class MyCustomStoreTest extends AbstractJobCrudStoreContract {
 
 Ratchet uses tiered conformance. Each TCK submodule earns a distinct compatibility label:
 
-- **Ratchet Store Compatible** — passes `ratchet-tck-store` against a custom `JobStore` (CRUD, claiming, status transitions, archiving, execution tracking, batches, locks).
-- **Ratchet API Compatible** — passes `ratchet-tck-api` against a custom `JobSchedulerService` implementation. Pure-JVM JUnit, no container required. Covers submit / cancel / retry / idempotency / simple workflow; delayed-scheduling contracts skip when no `TestClock` is provided.
-- **Ratchet Jakarta Runtime Compatible** — passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE 10/11 container, typically via Arquillian.
-- **Ratchet RI Verified** — the project's reference-implementation tests pass on a named runtime / database matrix. This is implementation-specific and lives in `ratchet-testsuite`.
+- **Ratchet Store Compatible.** Passes `ratchet-tck-store` against a custom `JobStore` (CRUD, claiming, status transitions, archiving, execution tracking, batches, locks).
+- **Ratchet API Compatible.** Passes `ratchet-tck-api` against a custom `JobSchedulerService` implementation. Pure-JVM JUnit, no container required. Covers submit / cancel / retry / idempotency / simple workflow; delayed-scheduling contracts skip when no `TestClock` is provided.
+- **Ratchet Jakarta Runtime Compatible.** Passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE 10/11 container, typically via Arquillian.
+- **Ratchet RI Verified.** The project's reference-implementation tests pass on a named runtime / database matrix. This is implementation-specific and lives in `ratchet-testsuite`.
 
 ## Production Checklist
 
@@ -419,7 +474,7 @@ Before deploying Ratchet to a production-shaped environment, work through this c
   ```
   A hardcoded denylist (`Runtime`, `ProcessBuilder`, `javax.script`, reflection, JDK internals) blocks well-known RCE gadgets regardless of allowlist content. To opt out of the fail-fast guard for demos and tests, set `RatchetOptions.security().allowEmptyClassPolicy(true)`.
 
-- [ ] **Apply or initialize the schema.** SQL stores ship DDL as plain SQL files — no Flyway lock-in. Apply once per database before starting any node. See `ratchet-store-{mysql,postgresql}/src/main/resources/ddl/`. MongoDB collections and indexes are initialized by `ratchet-store-mongodb` at startup.
+- [ ] **Apply or initialize the schema.** SQL stores ship DDL as plain SQL files, with no Flyway lock-in. Apply once per database before starting any node. See `ratchet-store-{mysql,postgresql}/src/main/resources/ddl/`. MongoDB collections and indexes are initialized by `ratchet-store-mongodb` at startup.
 
 - [ ] **Use the store-specific UUID wiring.** PostgreSQL stores UUIDv7 IDs as native `uuid`. MySQL stores them as `BINARY(16)` and production persistence units must include `META-INF/orm-mysql.xml` from `ratchet-store-mysql` so non-Hibernate JPA providers route UUID fields through the store-local converter. MongoDB clients must use `UuidRepresentation.STANDARD`; prefer `MongoClientFactory.create(...)` or configure the supplied client explicitly.
 
@@ -478,7 +533,7 @@ mvn spotless:apply
 
 ## Project Status
 
-Ratchet is currently in **0.1.0-SNAPSHOT** — the API is stabilizing but interfaces marked `@Incubating` may change. Feedback and contributions are welcome.
+Ratchet is currently in **0.1.0-SNAPSHOT**. The API is stabilizing, but interfaces marked `@Incubating` may change. Feedback and contributions are welcome.
 
 ## Community
 

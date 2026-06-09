@@ -214,6 +214,36 @@ scheduler.enqueue(() -> urgentService.handle(alert))
     .submit();
 ```
 
+### virtual
+
+```java
+JobBuilder virtual()
+```
+
+Routes the job to the virtual-thread executor pool (`ExecutorTargets.VIRTUAL`). Mutually exclusive with [`platform()`](#platform); the last call wins. If you call neither, the job runs on the deployment's default threading mode.
+
+A target selects a pool, not a guarantee about thread type: the container decides what backs each pool. If no virtual executor is configured, a virtual-targeted job falls back to the platform pool, recorded with a metric and a one-time warning. Because a node only claims work it has a pool for, execution targets also shape which jobs a node picks up.
+
+```java
+scheduler.enqueue(() -> externalApi.fetchAll(batchId))
+    .virtual()
+    .submit();
+```
+
+### platform
+
+```java
+JobBuilder platform()
+```
+
+Routes the job to the platform-thread executor pool (`ExecutorTargets.PLATFORM`), which is always present. Mutually exclusive with [`virtual()`](#virtual); the last call wins.
+
+```java
+scheduler.enqueue(() -> reportService.render(reportId))
+    .platform()
+    .submit();
+```
+
 ### awaitSignal
 
 ```java
@@ -249,6 +279,24 @@ public void continueOrder(UUID orderId) {
     fulfillment.start(orderId);
 }
 ```
+
+### withEncryptedPayload
+
+```java
+JobBuilder withEncryptedPayload()
+```
+
+Opts this job in to payload encryption at rest. Its protected surfaces, the job payload and result, are encrypted before they are stored, while routing and bookkeeping columns stay in cleartext so the job is still claimable and queryable. This is the per-job equivalent of the deployment-wide switch on [`RatchetOptions`](./job-options).
+
+Encryption takes effect only when the deployment has a `PayloadEncryption` engine and a `KeyProvider` installed. Without them, an opted-in job fails when it is submitted rather than persisting data it was asked to protect. Enabling encryption globally with nothing installed is a startup-time failure instead.
+
+```java
+scheduler.enqueue(() -> billingService.charge(cardToken))
+    .withEncryptedPayload()
+    .submit();
+```
+
+See the [Payload Encryption](../advanced/payload-encryption) guide for setup, engine choice, and key rotation.
 
 ## Callback Methods
 

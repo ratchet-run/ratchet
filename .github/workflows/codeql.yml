@@ -13,8 +13,37 @@ permissions:
   contents: read
 
 jobs:
+  # See ci.yml for the rationale: code == 'false' marks a docs-only pull request.
+  # Only pull_request events are eligible; pushes, the merge queue, and the weekly
+  # schedule always run the full scan.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!**/*.adoc'
+              - '!website/**'
+              - '!LICENSE'
+
   analyze:
     name: Analyze (Java)
+    # "Analyze (Java)" is a required status check, so the job must always run and
+    # report — skipping it at the job level would leave the context unreported and
+    # hard-block docs-only PRs. Instead the job runs and the expensive steps are
+    # individually guarded, so a docs-only change reports success in seconds.
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -24,24 +53,33 @@ jobs:
       contents: read
 
     steps:
+      - name: Skip notice (docs-only change)
+        if: needs.changes.outputs.code == 'false'
+        run: echo "Docs-only pull request — skipping CodeQL analysis."
+
       - uses: actions/checkout@v6
+        if: needs.changes.outputs.code != 'false'
 
       - uses: actions/setup-java@v5
+        if: needs.changes.outputs.code != 'false'
         with:
           java-version: '25'
           distribution: 'temurin'
           cache: 'maven'
 
       - name: Initialize CodeQL
+        if: needs.changes.outputs.code != 'false'
         uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
           queries: security-extended,security-and-quality
 
       - name: Build with Maven
+        if: needs.changes.outputs.code != 'false'
         run: mvn -B -ntp clean compile -DskipTests
 
       - name: Perform CodeQL Analysis
+        if: needs.changes.outputs.code != 'false'
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:java-kotlin"

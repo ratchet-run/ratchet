@@ -17,6 +17,35 @@ env:
   TESTCONTAINERS_RYUK_DISABLED: "true"
 
 jobs:
+  # Detects whether a pull request touches anything other than documentation, so
+  # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
+  # docs-only PRs. Only pull_request events are eligible — pushes to main, the
+  # merge queue, and release builds (workflow_call) always run the full pipeline,
+  # so main is never merged without full validation. The leading '**' is the base
+  # set; the '!' rules subtract documentation from it, so code == 'true' only when
+  # a non-doc file changed. On non-PR events the filter step is skipped and the
+  # output is empty, which the downstream `!= 'false'` guards read as "run".
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            code:
+              - '**'
+              - '!**/*.md'
+              - '!**/*.adoc'
+              - '!website/**'
+              - '!LICENSE'
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -68,6 +97,8 @@ jobs:
         run: mvn -B -ntp -DskipTests clean test-compile spotbugs:check
 
   ee11-verify:
+    needs: changes
+    if: ${{ needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -86,7 +117,8 @@ jobs:
         run: mvn -P jakarta-ee11-verify clean test -B
 
   integration-test:
-    needs: build
+    needs: [build, changes]
+    if: ${{ needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -141,7 +173,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [build, spotbugs, ee11-verify, integration-test]
+    needs: [changes, build, spotbugs, ee11-verify, integration-test]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
