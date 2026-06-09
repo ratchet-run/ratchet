@@ -6,6 +6,23 @@
 
 Ratchet gives Jakarta EE 10/11 applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience, all without pulling in heavyweight frameworks.
 
+Inject one service, submit a method call, and let Ratchet persist, claim, execute, retry, and observe the work:
+
+```java
+@ApplicationScoped
+public class OrderService {
+
+    @Inject JobSchedulerService scheduler;
+
+    public void placeOrder(Order order) {
+        // Persisted, claimed, executed on a worker, retried on failure.
+        scheduler.enqueueNow(() -> processOrder(order.getId()));
+    }
+
+    void processOrder(UUID orderId) { /* your business logic */ }
+}
+```
+
 ---
 
 ## Features
@@ -118,31 +135,13 @@ For MongoDB, `ratchet-store-mongodb` creates the required collections and indexe
 
 ### 4. Schedule Your First Job
 
-Inject `JobSchedulerService` into any CDI bean and start scheduling:
+The opening example shows fire-and-forget scheduling with `enqueueNow`. To delay a job or tune its options, use the builder form:
 
 ```java
-@ApplicationScoped
-public class OrderService {
-
-    @Inject
-    JobSchedulerService scheduler;
-
-    public void placeOrder(Order order) {
-        // Fire-and-forget
-        scheduler.enqueueNow(() -> processOrder(order.getId()));
-
-        // Delayed execution
-        scheduler.schedule(Duration.ofMinutes(30), () -> sendReminder(order.getId()))
-            .withPriority(JobPriority.LOW)
-            .submit();
-    }
-
-    public void processOrder(UUID orderId) {
-        // Your business logic here
-    }
-
-    public void sendReminder(UUID orderId) { /* ... */ }
-}
+// Run 30 minutes from now, at low priority
+scheduler.schedule(Duration.ofMinutes(30), () -> sendReminder(order.getId()))
+    .withPriority(JobPriority.LOW)
+    .submit();
 ```
 
 > Job IDs are UUIDv7 values (`java.util.UUID`). The factory generates
