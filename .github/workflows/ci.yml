@@ -19,12 +19,15 @@ env:
 jobs:
   # Detects whether a pull request touches anything other than documentation, so
   # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
-  # docs-only PRs. Only pull_request events are eligible — pushes to main, the
-  # merge queue, and release builds (workflow_call) always run the full pipeline,
-  # so main is never merged without full validation. The leading '**' is the base
-  # set; the '!' rules subtract documentation from it, so code == 'true' only when
-  # a non-doc file changed. On non-PR events the filter step is skipped and the
-  # output is empty, which the downstream `!= 'false'` guards read as "run".
+  # docs-only PRs. Only pull_request events are eligible for that docs skip;
+  # pushes to main and release builds (workflow_call) always run the full
+  # pipeline. The merge queue (merge_group) runs a reduced pipeline — build and
+  # spotbugs only — because the heavy lanes already ran on the PR and run again
+  # on the post-merge push to main (see the integration-test / ee11-verify
+  # guards). The leading '**' is the base set; the '!' rules subtract docs from
+  # it, so code == 'true' only when a non-doc file changed. On non-PR events the
+  # filter step is skipped and the output is empty, which the downstream
+  # `!= 'false'` guards read as "run".
   changes:
     runs-on: ubuntu-latest
     permissions:
@@ -103,7 +106,10 @@ jobs:
 
   ee11-verify:
     needs: changes
-    if: ${{ needs.changes.outputs.code != 'false' }}
+    # Skipped in the merge queue (merge_group): the full pre-merge validation
+    # already ran on the PR, and the post-merge push to main runs it again. The
+    # queue only needs the fast build + spotbugs smoke to merge.
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -123,7 +129,10 @@ jobs:
 
   integration-test:
     needs: [build, changes]
-    if: ${{ needs.changes.outputs.code != 'false' }}
+    # Skipped in the merge queue (merge_group) — see ee11-verify above. The PR
+    # run and the post-merge push to main both run the full matrix, so the queue
+    # stays fast without leaving main unvalidated.
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
