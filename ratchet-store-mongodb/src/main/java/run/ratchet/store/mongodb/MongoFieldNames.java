@@ -82,6 +82,7 @@ final class MongoFieldNames {
   static final String ARCHIVED_AT = "archived_at";
   static final String ORIGINAL_JOB_ID = "original_job_id";
   static final String ORIGINAL_CREATED_AT = "original_created_at";
+  static final String ORIGINAL_SCHEDULED_TIME = "original_scheduled_time";
   static final String COMPLETION_TIME = "completion_time";
   static final String METHOD_NAME = "method_name";
   static final String SUPERSEDED_BY = "superseded_by";
