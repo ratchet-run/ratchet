@@ -67,5 +67,12 @@ public enum ProtectedSurface {
    * and the parent job id, which is in scope at both the write site and the evaluation site, so a
    * predicate lifted to another parent fails the authentication tag.
    */
-  WORKFLOW_CONDITION_PREDICATE
+  WORKFLOW_CONDITION_PREDICATE,
+
+  /**
+   * A per-namespace extension-state blob ({@code scheduler_job_extension_state.state}). AAD binds
+   * the surface, the owning job id, and the namespace, so a blob lifted to another job — or to
+   * another namespace on the same job — fails the authentication tag.
+   */
+  EXTENSION_STATE
 }

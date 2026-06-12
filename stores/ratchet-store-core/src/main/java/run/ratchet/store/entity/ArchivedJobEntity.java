@@ -158,6 +158,12 @@ public class ArchivedJobEntity implements UuidV7EntityListener.UuidV7Assignable 
   @Column(name = "tags", length = 512)
   private String tags;
 
+  @Column(name = "properties", columnDefinition = "TEXT")
+  private String properties;
+
+  @Column(name = "extension_state", columnDefinition = "TEXT")
+  private String extensionState;
+
   public UUID getId() {
     return id;
   }
@@ -411,6 +417,22 @@ public class ArchivedJobEntity implements UuidV7EntityListener.UuidV7Assignable 
 
   public void setTags(String tags) {
     this.tags = tags;
+  }
+
+  public String getProperties() {
+    return properties;
+  }
+
+  public void setProperties(String properties) {
+    this.properties = properties;
+  }
+
+  public String getExtensionState() {
+    return extensionState;
+  }
+
+  public void setExtensionState(String extensionState) {
+    this.extensionState = extensionState;
   }
 
   @Override

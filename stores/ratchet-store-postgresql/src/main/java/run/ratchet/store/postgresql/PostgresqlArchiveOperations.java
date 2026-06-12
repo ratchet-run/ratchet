@@ -20,6 +20,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,6 +35,7 @@ import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ArchiveParameterBinder;
 import run.ratchet.store.util.ArchiveQuerySupport;
 import run.ratchet.store.util.ArchiveRowMapper;
+import run.ratchet.store.util.ExtensionArchiveJson;
 import run.ratchet.store.util.RowValues;
 
 final class PostgresqlArchiveOperations implements ArchiveStore {
@@ -79,6 +81,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
       JobEntity hydrated = reads.hydrateForArchive(job);
       ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
       prepareArchive(archive);
+      populateExtensionData(archive, hydrated.getId());
       Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
       ArchiveParameterBinder.bind(query, archive, 1, id -> id);
       query.executeUpdate();
@@ -114,6 +117,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
         }
         ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
         prepareArchive(archive);
+        populateExtensionData(archive, hydrated.getId());
         archives.add(archive);
       }
 
@@ -214,5 +218,49 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("purge archived jobs", e);
     }
+  }
+
+  private void populateExtensionData(ArchivedJobEntity archive, UUID jobId) {
+    // language=PostgreSQL
+    String propertySql =
+        """
+        SELECT property_key, value
+        FROM scheduler_job_properties
+        WHERE job_id = ?
+        """;
+    @SuppressWarnings("unchecked")
+    List<Object[]> propertyRows =
+        ctx.em().createNativeQuery(propertySql).setParameter(1, jobId).getResultList();
+    Map<String, String> properties = new LinkedHashMap<>();
+    for (Object[] row : propertyRows) {
+      String value = RowValues.stringOrNull(row[1]);
+      if (value != null) {
+        properties.put((String) row[0], value);
+      }
+    }
+    archive.setProperties(ExtensionArchiveJson.propertiesJson(properties));
+
+    // language=PostgreSQL
+    String stateSql =
+        """
+        SELECT namespace, state, encrypted_state, encryption_key_id, version, updated_at
+        FROM scheduler_job_extension_state
+        WHERE job_id = ?
+        """;
+    @SuppressWarnings("unchecked")
+    List<Object[]> stateRows =
+        ctx.em().createNativeQuery(stateSql).setParameter(1, jobId).getResultList();
+    List<ExtensionArchiveJson.StateRow> states = new ArrayList<>(stateRows.size());
+    for (Object[] row : stateRows) {
+      states.add(
+          new ExtensionArchiveJson.StateRow(
+              (String) row[0],
+              RowValues.stringOrNull(row[1]),
+              RowValues.booleanOrFalse(row[2]),
+              RowValues.stringOrNull(row[3]),
+              ((Number) row[4]).intValue(),
+              RowValues.instantOrNull(row[5])));
+    }
+    archive.setExtensionState(ExtensionArchiveJson.extensionStateJson(states));
   }
 }

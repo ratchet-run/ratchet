@@ -28,6 +28,7 @@ import static com.mongodb.client.model.Sorts.descending;
 import static run.ratchet.store.mongodb.MongoFieldNames.ARCHIVED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TARGET_CLASS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
@@ -38,7 +39,9 @@ import com.mongodb.client.result.DeleteResult;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.bson.Document;
@@ -48,6 +51,7 @@ import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.util.ExtensionArchiveJson;
 
 /**
  * Archive operations over {@code scheduler_job_archive}. Terminal-state jobs matching the retention
@@ -77,6 +81,7 @@ final class MongoArchiveOperations implements ArchiveStore {
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
     archive.setId(UuidV7Factory.create());
+    populateExtensionData(archive, job.getId());
     Document doc = DocumentMapper.toDocument(archive);
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
@@ -93,6 +98,7 @@ final class MongoArchiveOperations implements ArchiveStore {
               throw new RatchetTransientStoreException(
                   "Archive raced a status change on job " + job.getId() + "; rolling back");
             }
+            deleteExtensionData(session, List.of(job.getId()));
             return Boolean.TRUE;
           });
     } catch (RuntimeException e) {
@@ -131,6 +137,7 @@ final class MongoArchiveOperations implements ArchiveStore {
                         + deleted.getDeletedCount()
                         + "; rolling back");
               }
+              deleteExtensionData(session, ids);
             }
             return archived;
           });
@@ -148,6 +155,7 @@ final class MongoArchiveOperations implements ArchiveStore {
     for (JobEntity job : jobList) {
       ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
       archive.setId(UuidV7Factory.create());
+      populateExtensionData(archive, job.getId());
       docs.add(DocumentMapper.toDocument(archive));
     }
     ctx.archives().insertMany(session, docs);
@@ -248,5 +256,44 @@ final class MongoArchiveOperations implements ArchiveStore {
       a.setTags(String.join(",", job.getTags()));
     }
     return a;
+  }
+
+  /**
+   * Copies the job's extension properties and extension-state docs onto the archive entity as the
+   * denormalized JSON the archive row carries (state blobs stay as stored — ciphertext when
+   * encrypted at rest).
+   */
+  private void populateExtensionData(ArchivedJobEntity archive, UUID jobId) {
+    Map<String, String> properties = new LinkedHashMap<>();
+    for (Document doc :
+        ctx.jobProperties().find(eq(JOB_ID, jobId)).sort(new Document("property_key", 1))) {
+      String value = doc.getString("value");
+      if (value != null) {
+        properties.put(doc.getString("property_key"), value);
+      }
+    }
+    archive.setProperties(ExtensionArchiveJson.propertiesJson(properties));
+
+    List<ExtensionArchiveJson.StateRow> states = new ArrayList<>();
+    for (Document doc : ctx.jobExtensionState().find(eq(JOB_ID, jobId))) {
+      states.add(
+          new ExtensionArchiveJson.StateRow(
+              doc.getString("namespace"),
+              doc.getString("state"),
+              doc.getBoolean("encrypted_state", false),
+              doc.getString("encryption_key_id"),
+              doc.getInteger("version", 0),
+              DocumentMapper.toInstant(doc.getDate("updated_at"))));
+    }
+    archive.setExtensionState(ExtensionArchiveJson.extensionStateJson(states));
+  }
+
+  /**
+   * Removes the hot extension docs for archived jobs in the archive session — the Mongo equivalent
+   * of the SQL FK CASCADE that fires when the hot job row is deleted after archiving.
+   */
+  private void deleteExtensionData(ClientSession session, List<UUID> jobIds) {
+    ctx.jobProperties().deleteMany(session, in(JOB_ID, jobIds));
+    ctx.jobExtensionState().deleteMany(session, in(JOB_ID, jobIds));
   }
 }

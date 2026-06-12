@@ -39,15 +39,16 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  * PostgreSQL {@code STORED} expressions are introspection-asymmetric and not part of the
  * conformance contract.
  *
- * <p>Three columns are intentionally omitted because their physical types diverge across stores
- * with no single satisfying {@link LogicalType}: {@code scheduler_batch.progress_hook} (MySQL JSON
- * vs PG TEXT), {@code scheduler_job_log.mdc} (MySQL JSON vs PG TEXT), and {@code
- * scheduler_job_archive.job_result} (MySQL JSON vs PG TEXT). The conformance contract verifies
- * presence and conformance, not exclusivity — omitting these does not weaken the contract.
+ * <p>Five columns are intentionally omitted because their physical types diverge across stores with
+ * no single satisfying {@link LogicalType}: {@code scheduler_batch.progress_hook} (MySQL JSON vs PG
+ * TEXT), {@code scheduler_job_log.mdc} (MySQL JSON vs PG TEXT), and {@code
+ * scheduler_job_archive.job_result} / {@code .properties} / {@code .extension_state} (MySQL JSON vs
+ * PG TEXT). The conformance contract verifies presence and conformance, not exclusivity — omitting
+ * these does not weaken the contract.
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 10;
+  public static final int CURRENT_VERSION = 11;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -69,7 +70,9 @@ public final class RatchetSchemaCatalog {
               schedulerJobArchive(),
               schedulerWorkflowCondition(),
               schedulerDlqAlerts(),
-              schedulerResourcePermit()),
+              schedulerResourcePermit(),
+              schedulerJobProperties(),
+              schedulerJobExtensionState()),
           v005Drops());
 
   private RatchetSchemaCatalog() {}
@@ -383,7 +386,8 @@ public final class RatchetSchemaCatalog {
         .column(required("archived_at", TIMESTAMP_TZ))
         .column(nullable("archived_by", TEXT))
         .column(nullable("archive_reason", TEXT))
-        // job_result intentionally omitted: MySQL JSON vs PG TEXT type asymmetry.
+        // job_result, properties, and extension_state intentionally omitted: MySQL JSON vs PG
+        // TEXT type asymmetry.
         .column(nullable("result_type", TEXT))
         .column(nullable("final_error", TEXT))
         .column(nullable("payload_summary", TEXT))
@@ -466,6 +470,44 @@ public final class RatchetSchemaCatalog {
                 OnDeleteAction.CASCADE))
         .index(Index.of("idx_resource_permit_resource", "resource_name"))
         .index(Index.of("idx_resource_permit_job", "job_id"))
+        .build();
+  }
+
+  private static Table schedulerJobProperties() {
+    return Table.builder("scheduler_job_properties")
+        .column(required("job_id", UUID))
+        .column(required("property_key", TEXT))
+        .column(nullable("value", TEXT))
+        .primaryKey("job_id", "property_key")
+        .foreignKey(
+            new ForeignKey(
+                "fk_job_properties_job",
+                "job_id",
+                "scheduler_job",
+                "job_id",
+                OnDeleteAction.CASCADE))
+        .index(Index.of("idx_property_kv", "property_key", "value"))
+        .build();
+  }
+
+  private static Table schedulerJobExtensionState() {
+    return Table.builder("scheduler_job_extension_state")
+        .column(required("job_id", UUID))
+        .column(required("namespace", TEXT))
+        .column(required("state", TEXT))
+        .column(required("encrypted_state", BOOLEAN))
+        .column(nullable("encryption_key_id", TEXT))
+        .column(required("version", INT32))
+        .column(required("updated_at", TIMESTAMP_TZ))
+        .primaryKey("job_id", "namespace")
+        .foreignKey(
+            new ForeignKey(
+                "fk_job_extension_state_job",
+                "job_id",
+                "scheduler_job",
+                "job_id",
+                OnDeleteAction.CASCADE))
+        .index(Index.of("idx_extension_state_key_id", "encryption_key_id"))
         .build();
   }
 

@@ -25,7 +25,7 @@ import run.ratchet.store.entity.ArchivedJobEntity;
 /**
  * Shared archive-insert column list and positional parameter binder for the SQL stores.
  *
- * <p>The column list, the value placeholders, and the 31-parameter binding order are identical
+ * <p>The column list, the value placeholders, and the 33-parameter binding order are identical
  * across dialects; only the four UUID columns differ in encoding (MySQL stores {@code BINARY(16)},
  * PostgreSQL stores native {@code uuid}). Callers pass an {@code idEncoder} that maps a {@link
  * UUID} to its stored form.
@@ -40,16 +40,16 @@ public final class ArchiveParameterBinder {
       original_created_at, first_execution_time, completion_time,
       total_execution_time_ms, queue_wait_ms, archived_at, archived_by, archive_reason,
       job_result, result_type, final_error, payload_summary, depended_on, superseded_by,
-      tags
+      tags, properties, extension_state
       """;
 
   public static final String ARCHIVE_VALUE_PLACEHOLDERS =
-      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
   private ArchiveParameterBinder() {}
 
   /**
-   * Binds the 31 archive columns in schema order onto {@code query}, starting at positional index
+   * Binds the 33 archive columns in schema order onto {@code query}, starting at positional index
    * {@code parameter}. The four UUID columns ({@code archive_id}, {@code original_job_id}, {@code
    * depended_on}, {@code superseded_by}) are passed through {@code idEncoder}.
    *
@@ -88,6 +88,8 @@ public final class ArchiveParameterBinder {
     query.setParameter(parameter++, idEncoder.apply(archive.getDependedOn()));
     query.setParameter(parameter++, idEncoder.apply(archive.getSupersededBy()));
     query.setParameter(parameter++, archive.getTags());
+    query.setParameter(parameter++, archive.getProperties());
+    query.setParameter(parameter++, archive.getExtensionState());
     return parameter;
   }
 
