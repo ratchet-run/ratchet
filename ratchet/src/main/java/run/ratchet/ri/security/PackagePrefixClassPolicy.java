@@ -28,6 +28,10 @@ import run.ratchet.spi.ClassPolicy;
  * those containing leading/trailing whitespace, and single top-level segments such as {@code
  * "com."} or {@code "java."} that would match nearly the whole classpath and defeat the allowlist.
  *
+ * <p>Result-type deserialization has a separate, narrower allowlist (see {@link
+ * #isAllowedForResultType(String)}); a class being allowed for invocation does NOT make it
+ * instantiable from a stored {@code result_type} column.
+ *
  * <p>Configured allowlist prefixes are normalized to end with {@code .} so matches line up on
  * package boundaries: configuring {@code "com.foo"} matches {@code com.foo.Bar} but NOT {@code
  * com.foobar.Gadget}. This mirrors the {@link #DENIED_PREFIXES} invariant.
@@ -100,21 +104,43 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
   private static final Set<String> DEFAULT_ALLOWED_PACKAGES = Set.of();
 
   private final Set<String> allowedPackages;
+  private final Set<String> allowedResultTypePackages;
 
   public PackagePrefixClassPolicy() {
     this(DEFAULT_ALLOWED_PACKAGES);
   }
 
   /**
-   * Creates a new PackagePrefixClassPolicy with specified allowed packages.
+   * Creates a new PackagePrefixClassPolicy with specified invocation allowed packages and an empty
+   * result-type allowlist (result deserialization falls back to JSON-native parsing).
    *
-   * @param allowedPackages the set of package prefixes to allow
-   * @throws IllegalArgumentException if any prefix is null, blank, shorter than 3 characters, or
-   *     otherwise trivially unsafe (e.g. {@code ""} or {@code " "})
+   * @param allowedPackages the set of package prefixes to allow for job/predicate targets
+   * @throws IllegalArgumentException if any prefix is null, blank, shorter than 3 characters, a
+   *     single top-level segment, or otherwise trivially unsafe (e.g. {@code ""} or {@code " "})
    */
   public PackagePrefixClassPolicy(Set<String> allowedPackages) {
+    this(allowedPackages, DEFAULT_ALLOWED_PACKAGES);
+  }
+
+  /**
+   * Creates a new PackagePrefixClassPolicy with separate allowlists for invocation targets and for
+   * result-type deserialization. The result-type allowlist is intentionally distinct and narrower:
+   * a class being invocation-allowed does NOT make it instantiable from a stored {@code
+   * result_type} column. Leave {@code allowedResultTypePackages} empty to keep result
+   * deserialization on the JSON-native fallback.
+   *
+   * @param allowedPackages the set of package prefixes to allow for job/predicate targets
+   * @param allowedResultTypePackages the set of package prefixes to allow for result-type
+   *     deserialization
+   * @throws IllegalArgumentException if any prefix is null, blank, shorter than 3 characters, a
+   *     single top-level segment, or otherwise trivially unsafe (e.g. {@code ""} or {@code " "})
+   */
+  public PackagePrefixClassPolicy(
+      Set<String> allowedPackages, Set<String> allowedResultTypePackages) {
     validatePrefixes(allowedPackages);
+    validatePrefixes(allowedResultTypePackages);
     this.allowedPackages = normalize(allowedPackages);
+    this.allowedResultTypePackages = normalize(allowedResultTypePackages);
   }
 
   private static Set<String> normalize(Set<String> prefixes) {
@@ -175,12 +201,31 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
     return allowedPackages;
   }
 
+  public Set<String> getAllowedResultTypePackages() {
+    return allowedResultTypePackages;
+  }
+
   /**
    * Returns true only if {@code className} passes the hardcoded denylist and matches at least one
    * configured allowlist prefix.
    */
   @Override
   public boolean isAllowed(String className) {
+    return matches(className, allowedPackages);
+  }
+
+  /**
+   * Returns true only if {@code className} passes the hardcoded denylist and matches at least one
+   * prefix in the separate, narrower result-type allowlist. The invocation allowlist is NOT
+   * consulted here, so an invocation-allowed class is not instantiable from a stored result type
+   * unless it was also opted in for result deserialization.
+   */
+  @Override
+  public boolean isAllowedForResultType(String className) {
+    return matches(className, allowedResultTypePackages);
+  }
+
+  private boolean matches(String className, Set<String> allowlist) {
     if (className == null || className.isEmpty()) {
       return false;
     }
@@ -199,14 +244,13 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
       }
     }
 
-    for (String allowedPackage : allowedPackages) {
+    for (String allowedPackage : allowlist) {
       if (className.startsWith(allowedPackage)) {
         return true;
       }
     }
 
-    log.warnf(
-        "Class %s is not in allowed packages: %s", loggableClassName(className), allowedPackages);
+    log.warnf("Class %s is not in allowed packages: %s", loggableClassName(className), allowlist);
     return false;
   }
 

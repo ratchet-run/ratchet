@@ -225,6 +225,31 @@ class PackagePrefixClassPolicyTest {
   }
 
   @Test
+  void resultType_deniedByDefaultEvenWhenInvocationAllowed() {
+    // A class allowed for invocation is NOT instantiable from a stored result type unless it was
+    // also opted in to the separate, narrower result-type allowlist.
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("com.example."));
+    assertTrue(policy.isAllowed("com.example.MyJob"));
+    assertFalse(policy.isAllowedForResultType("com.example.MyJob"));
+  }
+
+  @Test
+  void resultType_allowedWhenOptedIn() {
+    PackagePrefixClassPolicy policy =
+        new PackagePrefixClassPolicy(Set.of("com.example."), Set.of("com.example.dto."));
+    assertTrue(policy.isAllowedForResultType("com.example.dto.OrderResult"));
+    // The invocation allowlist still does not grant result-type instantiation outside the dto pkg.
+    assertFalse(policy.isAllowedForResultType("com.example.MyJob"));
+  }
+
+  @Test
+  void resultType_respectsDenylist() {
+    PackagePrefixClassPolicy policy =
+        new PackagePrefixClassPolicy(Set.of("com.example."), Set.of("java.lang."));
+    assertFalse(policy.isAllowedForResultType("java.lang.Runtime"));
+  }
+
+  @Test
   void allowlist_prefixNormalizationIdempotent() {
     // Explicit trailing dot and absent trailing dot must produce the same policy.
     PackagePrefixClassPolicy withDot = new PackagePrefixClassPolicy(Set.of("com.example."));
