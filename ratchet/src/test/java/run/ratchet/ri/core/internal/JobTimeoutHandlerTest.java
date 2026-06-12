@@ -54,6 +54,7 @@ import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
+import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -357,6 +358,31 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void scanSignalTimeoutsSkippedWhenSingletonLeaseNotHeld() {
+    SingletonLeaseService leaseService = org.mockito.Mockito.mock(SingletonLeaseService.class);
+    when(leaseService.tryAcquire(anyString(), any(Duration.class))).thenReturn(Optional.empty());
+    JobTimeoutHandler leasedHandler = newLeasedHandler(leaseService);
+
+    leasedHandler.scanSignalTimeouts();
+
+    verify(signalStore, never()).findTimedOutSignalJobs(any(Instant.class), anyInt());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+  }
+
+  @Test
+  void scanSignalTimeoutsRunsWhenSingletonLeaseGranted() {
+    SingletonLeaseService leaseService = org.mockito.Mockito.mock(SingletonLeaseService.class);
+    when(leaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(Optional.of(new SingletonLease(null, "signalTimeoutScan", "node-1")));
+    JobTimeoutHandler leasedHandler = newLeasedHandler(leaseService);
+    when(signalStore.findTimedOutSignalJobs(any(Instant.class), anyInt())).thenReturn(List.of());
+
+    leasedHandler.scanSignalTimeouts();
+
+    verify(signalStore).findTimedOutSignalJobs(any(Instant.class), anyInt());
+  }
+
+  @Test
   void scanSignalTimeoutsIsolatesPerJobFailuresAndProcessesRemainingJobs() {
     JobTimeoutHandler scanHandler =
         newHandler(
@@ -538,5 +564,23 @@ class JobTimeoutHandlerTest {
         metricsCollector,
         signalTimeoutBatchSize,
         txRegistry);
+  }
+
+  private JobTimeoutHandler newLeasedHandler(SingletonLeaseService singletonLeaseService) {
+    return new JobTimeoutHandler(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        80,
+        60L,
+        Clock.systemUTC(),
+        null,
+        null,
+        signalStore,
+        metricsCollector,
+        JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+        null,
+        singletonLeaseService);
   }
 }
