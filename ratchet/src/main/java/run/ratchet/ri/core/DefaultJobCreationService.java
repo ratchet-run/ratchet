@@ -44,6 +44,7 @@ import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.event.JobSignalWaitingEvent;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -360,7 +361,29 @@ class DefaultJobCreationService
     }
     checkCreateAuthorization(job);
 
-    JobEntity saved = jobCrudStore.create(job);
+    JobEntity saved;
+    try {
+      saved = jobCrudStore.create(job);
+    } catch (DuplicateIdempotencyKeyException e) {
+      // A concurrent submission with the same idempotency key won the race to insert. Converge on
+      // the documented idempotent result: re-resolve and return the existing job rather than
+      // letting the constraint violation escape.
+      JobEntity existing =
+          jobCrudStore
+              .findByIdempotencyKey(idempotencyKey)
+              .orElseThrow(
+                  () ->
+                      new IllegalStateException(
+                          "Idempotency key '"
+                              + idempotencyKey
+                              + "' collided on insert but no job resolves by that key",
+                          e));
+      UUID existingId = existing.getId();
+      log.debugf(
+          "Idempotency key '%s' raced on insert, returning existing job %s",
+          idempotencyKey, existingId);
+      return () -> existingId;
+    }
     UUID jobId = saved.getId();
 
     if (isSignalWaiting && eventPublisher != null) {

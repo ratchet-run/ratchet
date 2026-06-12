@@ -70,6 +70,7 @@ import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
@@ -127,6 +128,9 @@ final class MongoJobCrudOperations {
     try {
       ctx.jobs().insertOne(DocumentMapper.toDocument(job));
     } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
+        throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
+      }
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException(
             "Active business key in use for job " + job.getId(), e);

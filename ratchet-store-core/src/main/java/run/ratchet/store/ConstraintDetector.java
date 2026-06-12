@@ -76,6 +76,27 @@ public interface ConstraintDetector {
   }
 
   /**
+   * Returns true if the exception was raised by a unique-constraint violation on a job's
+   * idempotency key.
+   *
+   * <p>All stores name this constraint with an {@code idempotency} token: the SQL stores use {@code
+   * uk_idempotency_key} and the Mongo store uses {@code idx_job_idempotency_key}. The
+   * vendor-specific detectors still provide duplicate-key and constraint-name parsing because those
+   * signals differ by database, but this composed idempotency-key check is shared.
+   *
+   * @param e exception thrown by the JDBC / JPA layer; never {@code null}
+   * @return {@code true} when the exception encodes a duplicate-key violation whose constraint name
+   *     targets a job idempotency key, {@code false} otherwise
+   */
+  default boolean isDuplicateIdempotencyKey(Exception e) {
+    if (!isDuplicateKey(e)) {
+      return false;
+    }
+    String name = constraintName(e);
+    return name != null && name.contains("idempotency");
+  }
+
+  /**
    * Reports whether the exception was raised by a deadlock detected by the database engine.
    *
    * @param e exception thrown by the JDBC / JPA layer; never {@code null}
