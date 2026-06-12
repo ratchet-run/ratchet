@@ -283,6 +283,12 @@ class MongoJobStoreImpl implements MongoJobStore {
     return crud.getQueueWaitTimePercentile(percentile);
   }
 
+  // Test seam: installs a hook the claim pipeline runs between candidate selection and the claim
+  // write, used to reproduce a concurrent reschedule landing inside that window.
+  void setBeforeClaimWriteHook(Runnable hook) {
+    claims.setBeforeClaimWriteHook(hook);
+  }
+
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     return claims.claimNextBatch(limit, nodeId, tagFilter);

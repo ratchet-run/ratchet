@@ -69,19 +69,28 @@ final class MongoJobClaimOperations {
 
   private final MongoStoreContext ctx;
 
+  // Fires once between candidate selection and the claim write. Production wiring leaves it a
+  // no-op;
+  // tests install a mutation here to exercise the claim guard against a concurrent reschedule.
+  private Runnable beforeClaimWriteHook = () -> {};
+
   MongoJobClaimOperations(MongoStoreContext ctx) {
     this.ctx = ctx;
   }
 
+  void setBeforeClaimWriteHook(Runnable hook) {
+    this.beforeClaimWriteHook = hook == null ? () -> {} : hook;
+  }
+
   List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
-    List<UUID> candidateIds =
+    Candidates candidates =
         findCandidatesByBoostedPriority(
             MongoStoreContext.EXECUTABLE_JOB_TYPES,
             SCHEDULED_TIME,
             limit,
             tagFilter,
             ExecutionTargetFilter.any());
-    return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
+    return claimByIds(candidates, nodeId, DocumentMapper::toJobEntity);
   }
 
   List<JobClaimDto> claimNextBatchOptimized(
@@ -93,21 +102,30 @@ final class MongoJobClaimOperations {
     if (limit <= 0 || !StatusClassifier.isPollerExecutable(jobType)) {
       return List.of();
     }
-    List<UUID> candidateIds =
+    Candidates candidates =
         findCandidatesByBoostedPriority(
             List.of(jobType.name()), SCHEDULED_TIME, limit, tagFilter, executionTargetFilter);
-    return claimByIds(candidateIds, nodeId, DocumentMapper::toJobClaimDto);
+    return claimByIds(candidates, nodeId, DocumentMapper::toJobClaimDto);
   }
 
+  /**
+   * Candidate plan output: the ordered candidate ids plus the exact predicate that selected them.
+   * MongoDB has no {@code FOR UPDATE SKIP LOCKED}, so the candidate aggregation and the claim write
+   * are not one locked operation. Re-asserting {@code guard} on each claim update closes that
+   * window — a job whose {@code scheduled_time} was pushed into the future, or whose tags/execution
+   * target moved it out of this filter, no longer matches and stays unclaimed.
+   */
+  private record Candidates(List<UUID> ids, Bson guard) {}
+
   /** Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). */
-  private List<UUID> findCandidatesByBoostedPriority(
+  private Candidates findCandidatesByBoostedPriority(
       List<String> jobTypes,
       String timeColumn,
       int limit,
       NodeTagFilter tagFilter,
       ExecutionTargetFilter executionTargetFilter) {
     if (limit <= 0 || jobTypes.isEmpty()) {
-      return List.of();
+      return new Candidates(List.of(), null);
     }
     String operation = NEXT_FIRE.equals(timeColumn) ? "claim_recurring_lookup" : "claim_lookup";
 
@@ -161,9 +179,14 @@ final class MongoJobClaimOperations {
               ids.add(cursor.next().get(ID, UUID.class));
             }
           }
-          return ids;
+          // The guard re-asserts every candidate condition (status, time<=now, exec-target, tags)
+          // with the same now used for selection, so the claim write can re-check the full
+          // predicate
+          // rather than status alone.
+          Bson guard = conditions.size() == 1 ? conditions.get(0) : and(conditions);
+          return new Candidates(ids, guard);
         },
-        ids -> ids.isEmpty() ? "empty" : "hit");
+        candidates -> candidates.ids().isEmpty() ? "empty" : "hit");
   }
 
   private Bson executionTargetCondition(ExecutionTargetFilter filter) {
@@ -235,10 +258,15 @@ final class MongoJobClaimOperations {
    * recovery has already taken responsibility for them, so dropping is safer than potentially
    * double-executing.
    */
-  private <T> List<T> claimByIds(List<UUID> ids, String nodeId, Function<Document, T> mapper) {
+  private <T> List<T> claimByIds(
+      Candidates candidates, String nodeId, Function<Document, T> mapper) {
+    List<UUID> ids = candidates.ids();
     if (ids.isEmpty()) {
       return List.of();
     }
+    Bson guard = candidates.guard();
+
+    beforeClaimWriteHook.run();
 
     return ctx.timedStoreOperation(
         "claim_mark_running_batch",
@@ -246,9 +274,13 @@ final class MongoJobClaimOperations {
           Date nowDate = DocumentMapper.toDate(Instant.now());
           List<UpdateOneModel<Document>> ops = new ArrayList<>(ids.size());
           for (UUID id : ids) {
+            // Re-assert the candidate predicate (not just status) under each id: with no SKIP
+            // LOCKED
+            // a concurrent reschedule or tag move between selection and this write must invalidate
+            // the claim instead of promoting a job that no longer qualifies.
             ops.add(
                 new UpdateOneModel<>(
-                    and(eq(ID, id), eq(STATUS, "PENDING")),
+                    guard == null ? and(eq(ID, id), eq(STATUS, "PENDING")) : and(eq(ID, id), guard),
                     combine(
                         set(STATUS, "RUNNING"),
                         set(PICKED_BY, nodeId),
