@@ -17,9 +17,13 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.json.Json;
+import jakarta.json.JsonObject;
+import java.io.StringReader;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +34,9 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.spi.JobExtensionStore.ExtensionState;
+import run.ratchet.store.util.EncryptionEnvelope;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 import run.ratchet.tck.store.AbstractPayloadEncryptionStoreContract.RecordingEngine;
 import run.ratchet.tck.store.AbstractPayloadEncryptionStoreContract.SingleKeyProvider;
 
@@ -254,6 +261,65 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     assertTrue(
         archived.getExtensionState() != null && archived.getExtensionState().contains(NAMESPACE),
         "archive row must carry the job's extension state as JSON");
+  }
+
+  /**
+   * The archive copy preserves encrypted extension state as stored: the archive JSON carries the
+   * ciphertext verbatim (never the plaintext, never a re-encryption), keeps the {@code
+   * encrypted_state} / {@code encryption_key_id} metadata, and the ciphertext stays decryptable
+   * against the original job id and namespace — the AAD binding {@link
+   * EncryptionTarget#extensionState} established on the hot row. The decrypt target is rebuilt from
+   * the archive row alone ({@code original_job_id} + the entry's namespace) to prove the row is
+   * self-sufficient.
+   */
+  @Test
+  void archiveJob_preservesEncryptedExtensionStateAsDecryptableCiphertext() {
+    var job = persist(newPendingJob());
+    RecordingEngine engine = new RecordingEngine();
+    EncryptionHolder.install(
+        List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), true);
+    extensionStore().initState(job.getId(), NAMESPACE, "{\"secret\":\"s3cr3t\"}");
+    store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
+    var completed = store().findById(job.getId()).orElseThrow();
+    int encryptCallsBeforeArchive = engine.encryptedPlaintexts.size();
+    int decryptCallsBeforeArchive = engine.decryptCount.get();
+
+    var archived = archiveStore().archiveJob(completed, "tck", "tck-node");
+
+    // Verbatim copy: archiving must move the ciphertext without routing it through the engine.
+    assertEquals(
+        encryptCallsBeforeArchive,
+        engine.encryptedPlaintexts.size(),
+        "archive copy must not re-encrypt the extension state");
+    assertEquals(
+        decryptCallsBeforeArchive,
+        engine.decryptCount.get(),
+        "archive copy must not decrypt the extension state");
+
+    String json = archived.getExtensionState();
+    assertNotNull(json, "archive row must carry the job's extension state as JSON");
+    assertFalse(json.contains("s3cr3t"), "archive copy must stay ciphertext, never leak plaintext");
+
+    JsonObject entry = Json.createReader(new StringReader(json)).readArray().getJsonObject(0);
+    assertEquals(NAMESPACE, entry.getString("namespace"));
+    assertTrue(entry.getBoolean("encrypted_state"), "archive entry must keep the encrypted flag");
+    assertTrue(
+        EncryptionEnvelope.isFramed(entry.getString("state")),
+        "the copied state must be an envelope-framed ciphertext, not plaintext");
+    assertEquals(
+        "tck-key-1",
+        entry.getString("encryption_key_id"),
+        "archive entry must keep the key id for key-rotation accounting");
+
+    String decrypted =
+        PayloadEncryptor.decryptValue(
+            entry.getString("state"),
+            EncryptionTarget.extensionState(
+                archived.getOriginalJobId(), entry.getString("namespace")));
+    assertEquals("{\"secret\":\"s3cr3t\"}", decrypted);
   }
 
   @Test
