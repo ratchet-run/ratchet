@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -79,7 +80,9 @@ class RetryBufferManagerTest {
 
   @BeforeEach
   void setUp() {
-    manager = new RetryBufferManager(deadLetterService, jobBatchStatusStore, nodeIdentityProvider);
+    JobStateManager jobStateManager =
+        new JobStateManager(jobBatchStatusStore, nodeIdentityProvider);
+    manager = new RetryBufferManager(deadLetterService, jobStateManager);
   }
 
   @Test
@@ -88,11 +91,13 @@ class RetryBufferManagerTest {
   }
 
   @Test
-  void transactionBoundary_onlyAppliesToPersistentFlush() throws Exception {
+  void flushOnShutdown_hasNoEnclosingTransaction() throws Exception {
     assertNull(RetryBufferManager.class.getAnnotation(Transactional.class));
 
+    // Each claim is reset in its own transaction via JobStateManager. A method-level
+    // @Transactional here would let one failed reset roll back every successful one.
     Method flushOnShutdown = RetryBufferManager.class.getMethod("flushOnShutdown");
-    assertNotNull(flushOnShutdown.getAnnotation(Transactional.class));
+    assertNull(flushOnShutdown.getAnnotation(Transactional.class));
   }
 
   @Test
@@ -366,7 +371,7 @@ class RetryBufferManagerTest {
   }
 
   @Test
-  void flushOnShutdown_resetExceptionRequeuesClaimAndSignalsFailure() {
+  void flushOnShutdown_oneResetFailureDoesNotUndoSuccessfulResets() {
     manager.offer(standardJob(1L));
     manager.offer(standardJob(2L));
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
@@ -375,15 +380,20 @@ class RetryBufferManagerTest {
         .resetRunningJob(new UUID(0L, 1L), "node-1");
     when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 2L), "node-1")).thenReturn(true);
 
-    IllegalStateException failure =
-        assertThrows(IllegalStateException.class, manager::flushOnShutdown);
+    // A single per-claim failure must not throw; throwing after a partial flush would discard
+    // the claims already reset back to PENDING.
+    assertDoesNotThrow(manager::flushOnShutdown);
 
     verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
     verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 2L), "node-1");
-    assertTrue(failure.getMessage().contains("Failed to flush 1 buffered job"));
+
+    // Only the failed claim is requeued; the successful reset stays flushed.
     assertEquals(1, manager.totalSize());
     assertTrue(
         manager.getBuffer(JobExecutionType.SINGLE).stream()
             .anyMatch(claim -> new UUID(0L, 1L).equals(claim.jobId())));
+    assertFalse(
+        manager.getBuffer(JobExecutionType.SINGLE).stream()
+            .anyMatch(claim -> new UUID(0L, 2L).equals(claim.jobId())));
   }
 }

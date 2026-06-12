@@ -21,7 +21,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -34,6 +37,7 @@ import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
+import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -48,6 +52,8 @@ import run.ratchet.store.spi.SignalStore;
 public class JobTimeoutHandler {
 
   static final int DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE = 500;
+  private static final String SIGNAL_TIMEOUT_LEASE_NAME = "signalTimeoutScan";
+  private static final Duration SIGNAL_TIMEOUT_LEASE_TTL = Duration.ofMinutes(2);
   private static final Logger log = Logger.getLogger(JobTimeoutHandler.class);
   private final JobCrudStore jobCrudStore;
   private final JobRetryStore jobRetryStore;
@@ -62,6 +68,16 @@ public class JobTimeoutHandler {
   private final Clock clock;
   private final int signalTimeoutBatchSize;
   private final TransactionSynchronizationRegistry txRegistry;
+  private final SingletonLeaseService singletonLeaseService;
+
+  /**
+   * Job ids the hard-timeout watchdog has cancelled and is about to retry/finalize itself. The
+   * watchdog records the id before it interrupts the worker, so when the interrupt lands in {@link
+   * JobTask#handleFailure} the worker can see the timeout is watchdog-owned and skip its own
+   * attempt increment. Without this, both the watchdog and the interrupted worker increment while
+   * the row is still RUNNING and a single timeout burns two attempts.
+   */
+  private final Set<UUID> watchdogCancelledJobIds = ConcurrentHashMap.newKeySet();
 
   protected JobTimeoutHandler() {
     this.jobCrudStore = null;
@@ -77,6 +93,7 @@ public class JobTimeoutHandler {
     this.clock = null;
     this.signalTimeoutBatchSize = 0;
     this.txRegistry = null;
+    this.singletonLeaseService = null;
   }
 
   public JobTimeoutHandler(
@@ -105,6 +122,7 @@ public class JobTimeoutHandler {
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
+        null,
         null);
   }
 
@@ -122,6 +140,38 @@ public class JobTimeoutHandler {
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
       TransactionSynchronizationRegistry txRegistry) {
+    this(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        eventPublisher,
+        chainScheduler,
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        txRegistry,
+        null);
+  }
+
+  public JobTimeoutHandler(
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      ChainScheduler chainScheduler,
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      TransactionSynchronizationRegistry txRegistry,
+      SingletonLeaseService singletonLeaseService) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -135,6 +185,7 @@ public class JobTimeoutHandler {
     this.metricsCollector = metricsCollector;
     this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
     this.txRegistry = txRegistry;
+    this.singletonLeaseService = singletonLeaseService;
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -183,11 +234,33 @@ public class JobTimeoutHandler {
    * Scans for WAITING jobs whose signal timeout has elapsed and fails them. Should be called
    * periodically (e.g., from the poller tick). No-op if no {@code SignalStore} was wired at
    * construction time.
+   *
+   * <p>The scan runs under a cluster-wide singleton lease, the same coordination the orphan, batch,
+   * and dead-letter recoveries use. Every node ticks the poller, so without the lease two nodes
+   * scanning the same window both fail and re-increment the same WAITING job, which can also write
+   * back a stale lower attempt count. When no {@code LockStore} is present the lease degrades to
+   * single-node semantics (always granted), so a core-only store still scans.
    */
   public void scanSignalTimeouts() {
     if (signalStore == null) {
       return;
     }
+    if (singletonLeaseService == null) {
+      scanSignalTimeoutsWithLease();
+      return;
+    }
+    Optional<SingletonLease> lease =
+        singletonLeaseService.tryAcquire(SIGNAL_TIMEOUT_LEASE_NAME, SIGNAL_TIMEOUT_LEASE_TTL);
+    if (lease.isEmpty()) {
+      log.debug("Signal timeout scan skipped - singleton lease held by another node");
+      return;
+    }
+    try (SingletonLease ignored = lease.get()) {
+      scanSignalTimeoutsWithLease();
+    }
+  }
+
+  private void scanSignalTimeoutsWithLease() {
     Instant now = effective().instant();
     List<JobEntity> timedOut = signalStore.findTimedOutSignalJobs(now, signalTimeoutBatchSize);
     for (JobEntity job : timedOut) {
@@ -420,6 +493,11 @@ public class JobTimeoutHandler {
         "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
         jobId, timeoutSec, formatDuration(elapsed));
 
+    // Claim ownership of the retry/finalize for this timeout BEFORE interrupting the worker, so the
+    // interrupt that lands in JobTask.handleFailure already sees the marker and defers to us. The
+    // marker is cleared in processHardTimeout's finally once this path is done with it.
+    watchdogCancelledJobIds.add(jobId);
+
     future.cancel(true);
 
     try {
@@ -427,7 +505,19 @@ public class JobTimeoutHandler {
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
       throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);
+    } finally {
+      watchdogCancelledJobIds.remove(jobId);
     }
+  }
+
+  /**
+   * Reports whether the hard-timeout watchdog has claimed this job's timeout retry/finalize. When
+   * the interrupted worker sees {@code true} it must skip its own attempt increment and let the
+   * watchdog own the transition — otherwise one timeout consumes two attempts. A genuine,
+   * non-watchdog interrupt is absent from the set and still counts as a normal failed attempt.
+   */
+  boolean isWatchdogCancelled(UUID jobId) {
+    return watchdogCancelledJobIds.contains(jobId);
   }
 
   /**

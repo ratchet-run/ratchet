@@ -20,10 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.mongodb.MongoWriteException;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 
@@ -40,7 +40,7 @@ class IdempotencyIT extends BaseDocumentStoreIT {
     JobEntity job2 = newPendingJob();
     job2.setIdempotencyKey(key);
 
-    assertThrows(MongoWriteException.class, () -> store().save(job2));
+    assertThrows(DuplicateIdempotencyKeyException.class, () -> store().save(job2));
   }
 
   @Test

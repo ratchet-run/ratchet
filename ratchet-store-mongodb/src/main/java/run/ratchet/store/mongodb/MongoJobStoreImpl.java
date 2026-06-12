@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.bson.BsonBinaryWriter;
 import org.bson.codecs.Codec;
 import org.bson.codecs.EncoderContext;
@@ -283,6 +284,12 @@ class MongoJobStoreImpl implements MongoJobStore {
     return crud.getQueueWaitTimePercentile(percentile);
   }
 
+  // Test seam: installs a hook the claim pipeline runs between candidate selection and the claim
+  // write, used to reproduce a concurrent reschedule landing inside that window.
+  void setBeforeClaimWriteHook(Runnable hook) {
+    claims.setBeforeClaimWriteHook(hook);
+  }
+
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     return claims.claimNextBatch(limit, nodeId, tagFilter);
@@ -496,6 +503,12 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public boolean updateBatchTotalItems(UUID batchId, int totalItems) {
     return batches.updateBatchTotalItems(batchId, totalItems);
+  }
+
+  // Test seam: pins the lock clock to a fixed instant so two renewals can compute the same
+  // millisecond expiry, exercising renewLock's matched-vs-modified semantics.
+  void setLockClock(Supplier<Instant> clock) {
+    nodeLocks.setLockClock(clock);
   }
 
   @Override

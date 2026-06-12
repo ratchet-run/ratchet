@@ -87,6 +87,23 @@ class JobOptionsTest {
   }
 
   @Test
+  void withTimeout_rejectsSubSecondPositiveDuration() {
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> JobOptions.defaults().withTimeout(Duration.ofMillis(500)));
+
+    assertTrue(ex.getMessage().contains("at least 1 second"));
+  }
+
+  @Test
+  void withTimeout_acceptsOneSecond() {
+    JobOptions opts = JobOptions.defaults().withTimeout(Duration.ofSeconds(1));
+
+    assertEquals(1, opts.timeoutSec());
+  }
+
+  @Test
   void withTimeout_rejectsNegativeDuration() {
     assertThrows(
         IllegalArgumentException.class,

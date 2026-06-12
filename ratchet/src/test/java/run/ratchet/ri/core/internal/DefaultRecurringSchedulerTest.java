@@ -91,7 +91,7 @@ class DefaultRecurringSchedulerTest {
   }
 
   @Test
-  void run_failedLeaseRenewalReleasesLeaseAndStopsScheduling() {
+  void run_failedLeaseRenewalReleasesLeaseButKeepsPolling() {
     var executorProvider = mock(ExecutorProvider.class);
     var executor = mock(ScheduledExecutorService.class);
     var scheduledScan = mock(ScheduledFuture.class);
@@ -109,8 +109,10 @@ class DefaultRecurringSchedulerTest {
 
     var lockStore = mock(LockStore.class);
     var lease = new SingletonLease(lockStore, "recurringScheduler", "node-1");
+    // A transient lock-store blip on the renewal — the next cycle would re-acquire cleanly.
     when(lockStore.renewLock("recurringScheduler", Duration.ofMinutes(5), "node-1"))
-        .thenReturn(false);
+        .thenThrow(new RuntimeException("transient lock-store blip"))
+        .thenReturn(true);
     var singletonLeaseService = mock(SingletonLeaseService.class);
     when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofMinutes(5)))
         .thenReturn(Optional.of(lease));
@@ -128,7 +130,7 @@ class DefaultRecurringSchedulerTest {
     DefaultRecurringScheduler scheduler =
         new DefaultRecurringScheduler(
             executorProvider,
-            mock(run.ratchet.store.spi.RecurringJobStore.class),
+            mock(RecurringJobStore.class),
             singletonLeaseService,
             nodeIdentityProvider,
             recurringJobExecutor,
@@ -139,15 +141,60 @@ class DefaultRecurringSchedulerTest {
 
     scheduler.run();
 
+    // The current lease is released and the renewal task cancelled, but the poll loop keeps going:
+    // a transient renewal failure must not permanently stop recurring scheduling on the node.
     verify(lockStore).unlock("recurringScheduler", "node-1");
-    verify(scheduledScan).cancel(false);
     verify(renewalTask).cancel(false);
     verify(pollerScheduler, never()).wakeup();
-    verify(executor, never()).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+    verify(executor).schedule(any(Runnable.class), eq(1000L), eq(TimeUnit.MILLISECONDS));
   }
 
-  private static DefaultRecurringScheduler scheduler(
-      run.ratchet.store.spi.RecurringJobStore recurringJobStore) {
+  @Test
+  void kick_duringInFlightScanCoalescesIntoSingleChain() {
+    var executorProvider = mock(ExecutorProvider.class);
+    var executor = mock(ScheduledExecutorService.class);
+    var scheduledScan = mock(ScheduledFuture.class);
+    when(executorProvider.getScheduledExecutor()).thenReturn(executor);
+    when(executor.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+        .thenReturn(scheduledScan);
+
+    var singletonLeaseService = mock(SingletonLeaseService.class);
+    when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofMinutes(5)))
+        .thenReturn(Optional.empty());
+    var nodeIdentityProvider = mock(NodeIdentityProvider.class);
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    var recurringJobExecutor = mock(RecurringJobExecutor.class);
+    var pollerScheduler = mock(PollerScheduler.class);
+
+    DefaultRecurringScheduler scheduler =
+        new DefaultRecurringScheduler(
+            executorProvider,
+            mock(RecurringJobStore.class),
+            singletonLeaseService,
+            nodeIdentityProvider,
+            recurringJobExecutor,
+            pollerScheduler,
+            Clock.fixed(NOW, ZoneOffset.UTC));
+
+    // A kick arriving while a cycle is in flight must coalesce, not spawn a second poll chain.
+    when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofMinutes(5)))
+        .thenAnswer(
+            invocation -> {
+              scheduler.kick();
+              return Optional.empty();
+            });
+
+    scheduler.init();
+    clearInvocations(executor);
+
+    scheduler.run();
+
+    // Exactly one reschedule from the finishing cycle — the in-flight kick was coalesced, not a
+    // second self-perpetuating chain.
+    verify(executor).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+  }
+
+  private static DefaultRecurringScheduler scheduler(RecurringJobStore recurringJobStore) {
     DefaultRecurringScheduler scheduler =
         new DefaultRecurringScheduler(
             mock(ExecutorProvider.class),

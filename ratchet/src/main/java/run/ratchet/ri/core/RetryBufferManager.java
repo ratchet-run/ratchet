@@ -17,7 +17,6 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -34,12 +33,10 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.internal.DeadLetterService;
-import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionTargetFilter;
-import run.ratchet.store.spi.JobBatchStatusStore;
 
 /**
  * Priority-ordered retry buffers for claimed jobs awaiting executor capacity. Separate bounded
@@ -55,8 +52,7 @@ class RetryBufferManager {
   private static final Logger log = Logger.getLogger(RetryBufferManager.class);
 
   private final DeadLetterService deadLetterService;
-  private final JobBatchStatusStore jobBatchStatusStore;
-  private final NodeIdentityProvider nodeIdentityProvider;
+  private final JobStateManager jobStateManager;
 
   private final Map<JobExecutionType, Queue<BufferedClaim>> retryBuffers =
       new EnumMap<>(JobExecutionType.class);
@@ -66,18 +62,13 @@ class RetryBufferManager {
 
   protected RetryBufferManager() {
     this.deadLetterService = null;
-    this.jobBatchStatusStore = null;
-    this.nodeIdentityProvider = null;
+    this.jobStateManager = null;
   }
 
   @Inject
-  public RetryBufferManager(
-      DeadLetterService deadLetterService,
-      JobBatchStatusStore jobBatchStatusStore,
-      NodeIdentityProvider nodeIdentityProvider) {
+  public RetryBufferManager(DeadLetterService deadLetterService, JobStateManager jobStateManager) {
     this.deadLetterService = deadLetterService;
-    this.jobBatchStatusStore = jobBatchStatusStore;
-    this.nodeIdentityProvider = nodeIdentityProvider;
+    this.jobStateManager = jobStateManager;
 
     Comparator<BufferedClaim> jobComparator =
         Comparator.comparing(
@@ -219,14 +210,21 @@ class RetryBufferManager {
   }
 
   /**
-   * Runs in a transaction because shutdown flush repairs persistent claims for jobs held only in
-   * memory by this node.
+   * Flushes every buffered claim back to PENDING so jobs this node holds only in memory can be
+   * picked up elsewhere after shutdown.
+   *
+   * <p>Each claim is reset in its own transaction by delegating to {@link
+   * JobStateManager#resetJobToPending(java.util.UUID)} (transaction attribute REQUIRED, invoked
+   * across a bean boundary so a new transaction begins per claim). This method is deliberately not
+   * {@code @Transactional}: a single enclosing transaction would let one failed reset mark the
+   * whole batch rollback-only and silently undo every claim already flushed.
+   *
+   * <p>Failed resets are requeued and counted. The method never throws after a partial flush, since
+   * doing so would discard claims it already moved back to PENDING.
    */
-  @Transactional
   public void flushOnShutdown() {
     int flushed = 0;
-    List<BufferedClaim> failed = new ArrayList<>();
-    String nodeId = nodeIdentityProvider.getNodeId();
+    int failedCount = 0;
     for (Map.Entry<JobExecutionType, Queue<BufferedClaim>> entry : retryBuffers.entrySet()) {
       Queue<BufferedClaim> buffer = entry.getValue();
       ReentrantLock lock = bufferLocks.get(entry.getKey());
@@ -236,7 +234,7 @@ class RetryBufferManager {
         BufferedClaim buffered;
         while ((buffered = buffer.poll()) != null) {
           try {
-            if (jobBatchStatusStore.resetRunningJob(buffered.jobId(), nodeId)) {
+            if (jobStateManager.resetJobToPending(buffered.jobId())) {
               flushed++;
             }
           } catch (Exception e) {
@@ -245,7 +243,7 @@ class RetryBufferManager {
           }
         }
         buffer.addAll(failedForType);
-        failed.addAll(failedForType);
+        failedCount += failedForType.size();
       } finally {
         lock.unlock();
       }
@@ -253,9 +251,11 @@ class RetryBufferManager {
     if (flushed > 0) {
       log.infof("RetryBufferManager shutdown: flushed %s buffered job(s) back to PENDING", flushed);
     }
-    if (!failed.isEmpty()) {
-      throw new IllegalStateException(
-          "Failed to flush " + failed.size() + " buffered job(s) during shutdown");
+    if (failedCount > 0) {
+      log.warnf(
+          "RetryBufferManager shutdown: %s buffered job(s) could not be reset and will rely on"
+              + " orphan recovery",
+          failedCount);
     }
   }
 

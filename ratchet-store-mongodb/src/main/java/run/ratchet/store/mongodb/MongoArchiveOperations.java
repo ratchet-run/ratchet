@@ -43,6 +43,7 @@ import java.util.Objects;
 import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
@@ -81,7 +82,17 @@ final class MongoArchiveOperations implements ArchiveStore {
       session.withTransaction(
           () -> {
             ctx.archives().insertOne(session, doc);
-            ctx.jobs().deleteOne(session, eq(ID, job.getId()));
+            // Only delete a job that is still terminal: a concurrent reset to PENDING must not be
+            // archived away. If nothing was deleted, the snapshot is stale, so roll back.
+            DeleteResult deleted =
+                ctx.jobs()
+                    .deleteOne(
+                        session,
+                        and(eq(ID, job.getId()), in(STATUS, MongoStoreContext.TERMINAL_STATUSES)));
+            if (deleted.getDeletedCount() == 0) {
+              throw new RatchetTransientStoreException(
+                  "Archive raced a status change on job " + job.getId() + "; rolling back");
+            }
             return Boolean.TRUE;
           });
     } catch (RuntimeException e) {
@@ -101,7 +112,25 @@ final class MongoArchiveOperations implements ArchiveStore {
             int archived = archiveJobsBatch(session, jobList, reason, archivedBy);
             if (archived > 0) {
               List<UUID> ids = jobList.stream().limit(archived).map(JobEntity::getId).toList();
-              ctx.jobs().deleteMany(session, in(ID, ids));
+              // Guard the delete on terminal status: a job reset to PENDING (e.g. a dashboard
+              // retry)
+              // between findJobsForArchiving and this transaction must not be deleted, or the retry
+              // silently vanishes. Deleting fewer rows than we archived means a snapshot went
+              // stale,
+              // so roll the whole batch back and let the next retention pass re-pick the survivors.
+              DeleteResult deleted =
+                  ctx.jobs()
+                      .deleteMany(
+                          session,
+                          and(in(ID, ids), in(STATUS, MongoStoreContext.TERMINAL_STATUSES)));
+              if (deleted.getDeletedCount() != archived) {
+                throw new RatchetTransientStoreException(
+                    "Archive batch raced a status change: archived "
+                        + archived
+                        + " but deleted "
+                        + deleted.getDeletedCount()
+                        + "; rolling back");
+              }
             }
             return archived;
           });

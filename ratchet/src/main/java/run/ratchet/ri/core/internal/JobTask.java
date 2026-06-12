@@ -120,6 +120,7 @@ public class JobTask implements Callable<Void> {
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final JobAuthorizationPolicy authorizationPolicy;
   private final PayloadSerializer payloadSerializer;
+  private final JobTimeoutHandler timeoutHandler;
   private final Clock clock;
   private JobEntity job;
   private JobClaimDto claim;
@@ -149,6 +150,7 @@ public class JobTask implements Callable<Void> {
     this.resultPersistenceStrategy = null;
     this.authorizationPolicy = null;
     this.payloadSerializer = null;
+    this.timeoutHandler = null;
     this.clock = null;
   }
 
@@ -169,6 +171,7 @@ public class JobTask implements Callable<Void> {
       ResultPersistenceStrategy resultPersistenceStrategy,
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
+      JobTimeoutHandler timeoutHandler,
       Clock clock) {
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
@@ -185,6 +188,7 @@ public class JobTask implements Callable<Void> {
     this.resultPersistenceStrategy = resultPersistenceStrategy;
     this.authorizationPolicy = authorizationPolicy;
     this.payloadSerializer = payloadSerializer;
+    this.timeoutHandler = timeoutHandler;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
   }
 
@@ -539,7 +543,11 @@ public class JobTask implements Callable<Void> {
             + " claim for an upgraded peer. Upgrade this node to drain these rows.",
         jobId, ex.version(), ex.maxSupportedVersion());
     Instant newScheduledTime = effective().instant().plus(UPGRADE_PENDING_BACKOFF);
-    int attempts = claim != null ? claim.attempts() : 0;
+    // A claim-initialized task carries the attempt count on the claim; an entity-initialized one
+    // (buffered-entity resubmission, claim == null) carries it on the job. Reading only the claim
+    // would zero a non-zero persisted count on the entity path, contrary to the preserve-attempts
+    // contract this method documents.
+    int attempts = claim != null ? claim.attempts() : (job != null ? job.getAttempts() : 0);
     try {
       jobStore.scheduleJobRetry(jobId, ex.getMessage(), newScheduledTime, attempts);
     } catch (Throwable t) {
@@ -760,6 +768,17 @@ public class JobTask implements Callable<Void> {
     log.errorf(
         ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
 
+    // The hard-timeout watchdog interrupted this worker and already owns the retry/finalize for the
+    // timeout (including the attempt increment). Defer to it so a single timeout does not burn two
+    // attempts. A non-watchdog interrupt is not marked and falls through to count as normal.
+    if (isWatchdogOwnedInterrupt(ex)) {
+      log.infof(
+          "Job %s interrupted by hard-timeout watchdog — deferring retry to the watchdog",
+          job.getId());
+      logIfTimeout(ex);
+      return;
+    }
+
     // Non-retryable: skip retry count increment
     if (validationFacade.shouldNotRetry(ex)) {
       observabilityFacade.recordJobFailure(job, ex, job.getAttempts());
@@ -930,6 +949,22 @@ public class JobTask implements Callable<Void> {
       log.warnf("Job %s finalization retry interrupted", job.getId());
       return false;
     }
+  }
+
+  /**
+   * True when this failure is the worker noticing the hard-timeout watchdog's interrupt and the
+   * watchdog has claimed the job's timeout retry/finalize. Both conditions are required: the
+   * interrupt narrows it to a cancel-driven failure, and the watchdog marker confirms this node's
+   * own watchdog (not, say, a shutdown interrupt) owns the attempt. The marker is set before the
+   * worker is interrupted, so it is already visible here.
+   */
+  private boolean isWatchdogOwnedInterrupt(Throwable ex) {
+    if (timeoutHandler == null) {
+      return false;
+    }
+    boolean interrupted =
+        ex instanceof InterruptedException || ex.getCause() instanceof InterruptedException;
+    return interrupted && timeoutHandler.isWatchdogCancelled(job.getId());
   }
 
   // Matches JobTimeoutException, TimeoutException, and InterruptedException at top level and

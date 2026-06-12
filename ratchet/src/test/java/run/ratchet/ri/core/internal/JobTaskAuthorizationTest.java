@@ -113,6 +113,7 @@ class JobTaskAuthorizationTest {
             resultPersistenceStrategy,
             authorizationPolicy,
             null,
+            null,
             Clock.systemUTC());
   }
 
@@ -256,6 +257,7 @@ class JobTaskAuthorizationTest {
             new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
             serializer,
+            null,
             Clock.systemUTC());
 
     JobEntity job = createBaseJob();

@@ -15,6 +15,10 @@
  */
 package run.ratchet.store.postgresql;
 
+import jakarta.persistence.Query;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 // Reset + cancel-by-tag operations against the executable scheduler_job table. Recurring-master
@@ -66,59 +70,85 @@ final class PostgresqlJobRecurringAndResetOperations {
   }
 
   int cancelJobsByTag(String tag) {
+    return ctx.timedStoreOperation(
+        "cancel_jobs_by_tag",
+        () -> doCancelJobsByTag(tag),
+        cancelled -> cancelled > 0 ? "updated" : "miss");
+  }
+
+  private int doCancelJobsByTag(String tag) {
+    // Lock the candidate hot rows first, inside the method transaction, before touching the cold
+    // row. PostgreSQL's UPDATE ... FROM does NOT lock the FROM-referenced rows, so a cold UPDATE
+    // alone leaves the queue row free for a concurrent poller to claim into RUNNING between the
+    // cancel and the hot DELETE — the DELETE (which only matches PENDING/PAUSED/WAITING) would then
+    // skip the now-RUNNING row, stranding it forever while the reservation is still freed. Holding
+    // FOR UPDATE on each queue row makes the claim path's FOR UPDATE SKIP LOCKED step past it, so a
+    // claim cannot interleave. Mirrors the single-job cancel gate in
+    // PostgresqlJobTerminalOperations.
     // language=PostgreSQL
-    String coldSql =
+    String lockSql =
         """
-        UPDATE scheduler_job j
-        SET terminal_status = 'CANCELED',
-            terminated_at = statement_timestamp()
-        FROM scheduler_job_tag t, scheduler_job_queue q
-        WHERE t.job_id = j.job_id
-          AND q.job_id = j.job_id
-          AND t.tag = ?
+        SELECT q.job_id
+        FROM scheduler_job_queue q
+        JOIN scheduler_job j ON j.job_id = q.job_id
+        JOIN scheduler_job_tag t ON t.job_id = q.job_id
+        WHERE t.tag = ?
           AND j.job_type <> 'RECURRING'
           AND j.terminal_status IS NULL
           AND q.status IN ('PENDING','PAUSED','WAITING')
+        FOR UPDATE OF q
         """;
-    int cancelled =
-        ctx.timedStoreOperation(
-            "cancel_jobs_by_tag",
-            () -> ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate(),
-            updated -> updated > 0 ? "updated" : "miss");
-    if (cancelled == 0) {
+    @SuppressWarnings("unchecked")
+    List<Object> lockedRows =
+        ctx.em().createNativeQuery(lockSql).setParameter(1, tag).getResultList();
+    if (lockedRows.isEmpty()) {
       return 0;
     }
+    List<UUID> ids = new ArrayList<>(lockedRows.size());
+    for (Object row : lockedRows) {
+      ids.add((UUID) row);
+    }
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+
     // language=PostgreSQL
-    String hotSql =
+    String coldSql =
         """
-        DELETE FROM scheduler_job_queue q
-        USING scheduler_job j, scheduler_job_tag t
-        WHERE q.job_id = j.job_id
-          AND t.job_id = j.job_id
-          AND t.tag = ?
-          AND j.job_type <> 'RECURRING'
-          AND j.terminal_status = 'CANCELED'
-          AND q.status IN ('PENDING','PAUSED','WAITING')
-        """;
-    ctx.timedStoreOperation(
-        "cancel_jobs_by_tag_hot",
-        () -> ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate(),
-        updated -> updated > 0 ? "updated" : "miss");
+        UPDATE scheduler_job
+        SET terminal_status = 'CANCELED',
+            terminated_at = statement_timestamp()
+        WHERE job_id IN (%s)
+          AND terminal_status IS NULL
+        """
+            .formatted(placeholders);
+    int cancelled = bindIds(coldSql, ids).executeUpdate();
+
+    // language=PostgreSQL
+    String hotSql = "DELETE FROM scheduler_job_queue WHERE job_id IN (%s)".formatted(placeholders);
+    int hotDeleted = bindIds(hotSql, ids).executeUpdate();
+    if (hotDeleted != cancelled) {
+      throw new IllegalStateException(
+          "cancel-by-tag canceled "
+              + cancelled
+              + " cold rows but removed "
+              + hotDeleted
+              + " hot rows for tag "
+              + tag);
+    }
+
     // language=PostgreSQL
     String reservationsSql =
-        """
-        DELETE FROM scheduler_business_key_reservation r
-        USING scheduler_job j, scheduler_job_tag t
-        WHERE r.owner_job_id = j.job_id
-          AND t.job_id = j.job_id
-          AND t.tag = ?
-          AND j.job_type <> 'RECURRING'
-          AND j.terminal_status = 'CANCELED'
-        """;
-    ctx.timedStoreOperation(
-        "cancel_jobs_by_tag_reservations",
-        () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
-        updated -> updated > 0 ? "updated" : "miss");
+        "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN (%s)"
+            .formatted(placeholders);
+    bindIds(reservationsSql, ids).executeUpdate();
     return cancelled;
+  }
+
+  private Query bindIds(String sql, List<UUID> ids) {
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) {
+      query.setParameter(parameter++, id);
+    }
+    return query;
   }
 }

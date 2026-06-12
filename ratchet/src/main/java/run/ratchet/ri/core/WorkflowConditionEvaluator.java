@@ -358,6 +358,16 @@ public class WorkflowConditionEvaluator {
     throw new NoSuchMethodException(payload.method() + " not found in " + cls.getName());
   }
 
+  /**
+   * Deserializes a persisted job result for workflow-condition evaluation.
+   *
+   * <p>The stored {@code result_type} class name is attacker-controllable given write access to the
+   * result columns, so it is gated by {@link ClassPolicy#isAllowedForResultType(String)} — a
+   * control strictly narrower than the invocation allowlist used for predicate targets. A result
+   * type that is not explicitly allowed for result deserialization is NOT instantiated; the stored
+   * JSON is parsed into its native representation (numbers, strings, maps, lists) instead, which is
+   * still enough for value comparisons while denying class instantiation by default.
+   */
   private Object parseJobResult(String jobResultJson, String resultType, UUID jobId) {
     if (jobResultJson == null) {
       return null;
@@ -367,19 +377,14 @@ public class WorkflowConditionEvaluator {
         PayloadEncryptor.decryptJsonColumn(
             jobResultJson, EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId));
     try {
-      if (resultType != null) {
-        if (classPolicy != null && !classPolicy.isAllowed(resultType)) {
-          throw new SecurityException(
-              "Class " + resultType + " is not allowed by ClassPolicy for result deserialization.");
-        }
+      if (resultType != null
+          && classPolicy != null
+          && classPolicy.isAllowedForResultType(resultType)) {
         Class<?> clazz =
             Class.forName(resultType, false, Thread.currentThread().getContextClassLoader());
         return payloadSerializer.deserialize(jobResultJson, clazz);
-      } else {
-        return payloadSerializer.deserialize(jobResultJson, Object.class);
       }
-    } catch (SecurityException e) {
-      throw e;
+      return payloadSerializer.deserialize(jobResultJson, Object.class);
     } catch (Exception e) {
       log.warnf(e, "Job result JSON parse error: %s", e.getMessage());
       return jobResultJson;

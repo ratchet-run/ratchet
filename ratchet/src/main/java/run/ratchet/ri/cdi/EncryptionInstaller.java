@@ -23,6 +23,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.List;
 import java.util.Optional;
+import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.EncryptionConfigurationException;
 import run.ratchet.ri.cdi.ReferenceEncryptionFactory.ReferenceEncryption;
@@ -61,6 +62,8 @@ import run.ratchet.store.util.EncryptionIntegrity;
  */
 @ApplicationScoped
 public class EncryptionInstaller {
+
+  private static final Logger log = Logger.getLogger(EncryptionInstaller.class);
 
   private final Instance<PayloadEncryption> engines;
   private final Instance<KeyProvider> keyProvider;
@@ -187,12 +190,41 @@ public class EncryptionInstaller {
    */
   private long resolveNodeEntropy() {
     if (nodeIdProvider == null) {
+      warnNoNodeEntropy(null);
       return 0L;
     }
+    long entropy;
     try {
-      return ReferenceEncryptionFactory.nodeEntropy(nodeIdProvider.getNodeId());
+      entropy = ReferenceEncryptionFactory.nodeEntropy(nodeIdProvider.getNodeId());
     } catch (RuntimeException e) {
+      warnNoNodeEntropy(e);
       return 0L;
+    }
+    if (entropy == 0L) {
+      // A blank/empty node id hashes to 0 (ReferenceEncryptionFactory.nodeEntropy), so the engine
+      // gets no per-node component even though resolution did not throw.
+      warnNoNodeEntropy(null);
+    }
+    return entropy;
+  }
+
+  /**
+   * Warns that the reference engine starts with no per-node entropy. Without it, two nodes that
+   * share a key and were cloned from the same image draw a less-distinct nonce epoch, weakening the
+   * nonce-clone protection. Encryption still works; this is a posture warning, not a startup abort.
+   */
+  private void warnNoNodeEntropy(RuntimeException cause) {
+    if (cause != null) {
+      log.warnf(
+          cause,
+          "Node identity could not be resolved for the reference encryption engine; starting with"
+              + " no per-node nonce entropy (reduced nonce-clone protection). Ensure a"
+              + " NodeIdentityProvider yields a stable, non-empty node id.");
+    } else {
+      log.warn(
+          "Node identity is unavailable for the reference encryption engine; starting with no"
+              + " per-node nonce entropy (reduced nonce-clone protection). Ensure a"
+              + " NodeIdentityProvider yields a stable, non-empty node id.");
     }
   }
 

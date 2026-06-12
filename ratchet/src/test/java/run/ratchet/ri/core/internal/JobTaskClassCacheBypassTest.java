@@ -128,6 +128,7 @@ class JobTaskClassCacheBypassTest {
         new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
         null,
         serializer,
+        null,
         Clock.systemUTC());
   }
 }

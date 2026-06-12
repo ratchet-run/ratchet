@@ -254,7 +254,7 @@ final class MongoJobQueryOperations {
   private static String archiveSortField(JobQuerySortField field) {
     return switch (field) {
       case CREATED_AT -> MongoFieldNames.ORIGINAL_CREATED_AT;
-      case SCHEDULED_TIME -> MongoFieldNames.SCHEDULED_TIME;
+      case SCHEDULED_TIME -> MongoFieldNames.ORIGINAL_SCHEDULED_TIME;
       case UPDATED_AT -> MongoFieldNames.ARCHIVED_AT;
       case PRIORITY -> MongoFieldNames.PRIORITY;
       case STATUS -> MongoFieldNames.FINAL_STATUS;
@@ -438,8 +438,8 @@ final class MongoJobQueryOperations {
     appendParentJobId(filter, conditions);
     appendInstantGte(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdAfter(), conditions);
     appendInstantLt(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdBefore(), conditions);
-    appendInstantGte(MongoFieldNames.SCHEDULED_TIME, filter.scheduledAfter(), conditions);
-    appendInstantLt(MongoFieldNames.SCHEDULED_TIME, filter.scheduledBefore(), conditions);
+    appendInstantGte(MongoFieldNames.ORIGINAL_SCHEDULED_TIME, filter.scheduledAfter(), conditions);
+    appendInstantLt(MongoFieldNames.ORIGINAL_SCHEDULED_TIME, filter.scheduledBefore(), conditions);
     appendInstantGte(MongoFieldNames.ARCHIVED_AT, filter.updatedAfter(), conditions);
     appendCursorCondition(filter, conditions, true);
 

@@ -16,6 +16,7 @@
 package run.ratchet.store.mongodb;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -815,7 +816,17 @@ public final class DocumentMapper {
   }
 
   static Date toDate(Instant instant) {
-    return instant == null ? null : Date.from(instant);
+    return instant == null ? null : Date.from(truncateToMillis(instant));
+  }
+
+  /**
+   * Truncates to millisecond precision, matching what a BSON {@code Date} can store. Persisting an
+   * Instant with sub-millisecond nanos and reading it back otherwise returns an earlier value,
+   * which would let a claim fire up to a millisecond early. Callers persisting an entity should
+   * truncate the entity's own Instant fields with this so the in-memory object matches storage.
+   */
+  static Instant truncateToMillis(Instant instant) {
+    return instant == null ? null : instant.truncatedTo(ChronoUnit.MILLIS);
   }
 
   static Instant toInstant(Date date) {

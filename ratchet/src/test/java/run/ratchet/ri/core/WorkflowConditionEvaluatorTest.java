@@ -478,6 +478,88 @@ class WorkflowConditionEvaluatorTest {
             parent));
   }
 
+  /**
+   * Result type that is invocation-allowed but must NOT be instantiated from {@code result_type}.
+   */
+  public static final class ForbiddenResult {
+    public String value;
+
+    public boolean matches() {
+      return true;
+    }
+  }
+
+  @Test
+  void resultValue_invocationAllowedButNotResultRegistered_isNotInstantiated() {
+    // The class is on the invocation allowlist (isAllowed -> true) but NOT on the narrower
+    // result-type allowlist (isAllowedForResultType -> false). The stored result_type must not be
+    // instantiated; the engine falls back to JSON-native parsing instead.
+    ClassPolicy invocationOnly =
+        new ClassPolicy() {
+          @Override
+          public boolean isAllowed(String className) {
+            return true;
+          }
+          // isAllowedForResultType defaults to false (deny).
+        };
+    WorkflowConditionEvaluator restrictedEvaluator =
+        new WorkflowConditionEvaluator(batchStore, beanResolver, invocationOnly, payloadSerializer);
+
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    parent.setJobResult("{\"value\":\"x\"}");
+    parent.setResultType(ForbiddenResult.class.getName());
+    // Predicate asserts the value it receives is NOT a ForbiddenResult instance — it is the
+    // JSON-native map produced by the fallback.
+    String expression =
+        serializeCondition(
+            (SerializablePredicate<Object>) WorkflowConditionEvaluatorTest::notForbidden);
+
+    assertTrue(
+        restrictedEvaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.RESULT_VALUE, expression),
+            parent));
+  }
+
+  public static boolean notForbidden(Object value) {
+    return !(value instanceof ForbiddenResult);
+  }
+
+  @Test
+  void resultValue_resultTypeRegistered_isInstantiated() {
+    // When the result type is opted in to the narrower result-type allowlist, it IS instantiated.
+    ClassPolicy allowResultType =
+        new ClassPolicy() {
+          @Override
+          public boolean isAllowed(String className) {
+            return true;
+          }
+
+          @Override
+          public boolean isAllowedForResultType(String className) {
+            return ForbiddenResult.class.getName().equals(className);
+          }
+        };
+    WorkflowConditionEvaluator restrictedEvaluator =
+        new WorkflowConditionEvaluator(
+            batchStore, beanResolver, allowResultType, payloadSerializer);
+
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    parent.setJobResult("{\"value\":\"x\"}");
+    parent.setResultType(ForbiddenResult.class.getName());
+    String expression =
+        serializeCondition(
+            (SerializablePredicate<Object>) WorkflowConditionEvaluatorTest::isForbidden);
+
+    assertTrue(
+        restrictedEvaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.RESULT_VALUE, expression),
+            parent));
+  }
+
+  public static boolean isForbidden(Object value) {
+    return value instanceof ForbiddenResult;
+  }
+
   @Test
   void resultValue_classPolicyDenied_returnsFalse() {
     ClassPolicy denyAll = className -> false;

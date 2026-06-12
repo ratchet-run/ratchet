@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ProtectedSurface;
@@ -187,6 +188,9 @@ final class PostgresqlJobWriteOperations {
         tags.insertTags(job.getId(), job.getTags());
       }
     } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
+        throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
+      }
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException(
             "Active business key in use for job " + job.getId(), e);

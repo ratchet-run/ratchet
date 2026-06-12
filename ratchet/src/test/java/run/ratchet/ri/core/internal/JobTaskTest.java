@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -34,6 +35,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -151,6 +153,7 @@ class JobTaskTest {
                 null,
                 null,
                 null,
+                null,
                 null));
   }
 
@@ -194,6 +197,7 @@ class JobTaskTest {
             new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
             serializer,
+            null,
             Clock.systemUTC());
   }
 
@@ -417,6 +421,117 @@ class JobTaskTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  void hardTimeoutAndInterruptedWorker_consumeExactlyOneAttempt() throws Exception {
+    // A hard timeout interrupts the worker. The watchdog (processHardTimeout) and the interrupted
+    // worker (handleFailure) both run while the row is still RUNNING. Without coordination both
+    // increment the attempt and one timeout burns two attempts, dead-lettering at half maxRetries.
+    JobEntity job = createTestJob();
+    job.setMaxRetries(3);
+
+    AtomicInteger attempts = new AtomicInteger(0);
+    // Mirror the store: incrementRetryAttempt only matches a RUNNING/WAITING row. The watchdog's
+    // reschedule moves the row off RUNNING, so a later increment returns -1.
+    AtomicInteger running = new AtomicInteger(1);
+    when(jobStore.incrementRetryAttempt(JOB_UUID))
+        .thenAnswer(inv -> running.get() == 1 ? attempts.incrementAndGet() : -1);
+    when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
+
+    JobTimeoutHandler timeoutHandler =
+        new JobTimeoutHandler(
+            jobStore,
+            jobStore,
+            jobStore,
+            lifecycleFacade,
+            80,
+            60L,
+            FIXED_CLOCK,
+            null,
+            null,
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+
+    JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
+    initJobTaskWithDefaultStubs(task, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+
+    InterruptedException interrupt = new InterruptedException("cancelled by hard timeout");
+    when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(interrupt);
+    // The deferring worker never reaches shouldNotRetry, so keep this lenient.
+    lenient().when(validationFacade.shouldNotRetry(interrupt)).thenReturn(false);
+
+    // Reproduce the both-increment-before-either-CAS window: the worker's handleFailure runs while
+    // the watchdog still holds the marker and the row is still RUNNING — i.e. exactly when the
+    // watchdog is mid-reschedule. scheduleJobRetry runs the worker first, THEN flips the row off
+    // RUNNING, just as the real CAS would. With the fix the worker defers (no second increment).
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), any(), any(), anyInt()))
+        .thenAnswer(
+            inv -> {
+              task.call();
+              running.set(0);
+              return true;
+            });
+
+    java.util.concurrent.FutureTask<Void> future =
+        new java.util.concurrent.FutureTask<>(() -> null);
+    java.lang.reflect.Method handleHard =
+        JobTimeoutHandler.class.getDeclaredMethod(
+            "handleHardTimeoutById",
+            UUID.class,
+            java.util.concurrent.Future.class,
+            Instant.class,
+            long.class);
+    handleHard.setAccessible(true);
+    handleHard.invoke(timeoutHandler, JOB_UUID, future, FIXED_NOW, 30L);
+
+    Assertions.assertEquals(
+        1, attempts.get(), "a single hard timeout must consume exactly one attempt");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void normalInterruptedWorker_stillCountsOneAttempt() throws Exception {
+    // A genuine, non-watchdog interrupt (no timeout marker) must still count as a failed attempt.
+    JobEntity job = createTestJob();
+    job.setMaxRetries(3);
+
+    JobTimeoutHandler timeoutHandler =
+        new JobTimeoutHandler(
+            jobStore,
+            jobStore,
+            jobStore,
+            lifecycleFacade,
+            80,
+            60L,
+            FIXED_CLOCK,
+            null,
+            null,
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+
+    JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
+    initJobTaskWithDefaultStubs(task, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+
+    InterruptedException interrupt = new InterruptedException("not a timeout");
+    when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(interrupt);
+    when(validationFacade.shouldNotRetry(interrupt)).thenReturn(false);
+    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
+    when(retryPolicy.shouldRetry(1, interrupt)).thenReturn(false);
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    task.call();
+
+    verify(jobStore, times(1)).incrementRetryAttempt(JOB_UUID);
+  }
+
+  @Test
   void call_hydrationDecryptPoison_movesToDlqWithoutRetry() {
     // A claimed RUNNING job whose payload fails to decrypt during hydration is poison: the
     // ciphertext cannot be recovered by re-running. It must be dead-lettered, not swallowed and
@@ -460,6 +575,25 @@ class JobTaskTest {
     verify(jobStore, never())
         .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
     verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
+  }
+
+  @Test
+  void requeueForUpgrade_entityInitPath_preservesPersistedAttempts() throws Exception {
+    // A task initialized via the entity path (buffered-entity resubmission) has claim == null but
+    // job != null. requeueForUpgrade must release the job with its persisted attempt count, not 0 —
+    // an upgrade requeue is not a failed attempt and must never reset the count.
+    JobEntity job = createTestJob();
+    job.setAttempts(2);
+    jobTask.init(job);
+    when(jobStore.scheduleJobRetry(any(UUID.class), any(), any(), anyInt())).thenReturn(true);
+
+    java.lang.reflect.Method requeue =
+        JobTask.class.getDeclaredMethod(
+            "requeueForUpgrade", UUID.class, UnsupportedEnvelopeVersionException.class);
+    requeue.setAccessible(true);
+    requeue.invoke(jobTask, JOB_UUID, new UnsupportedEnvelopeVersionException(2, 1));
+
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(2));
   }
 
   @Test
@@ -873,6 +1007,7 @@ class JobTaskTest {
             resultPersistenceStrategy,
             null,
             signalSerializer,
+            null,
             Clock.systemUTC());
     JobEntity job = createTestJob();
     job.setPayload(
@@ -926,6 +1061,7 @@ class JobTaskTest {
             resultPersistenceStrategy,
             null,
             signalSerializer,
+            null,
             Clock.systemUTC());
     JobEntity job = createTestJob();
     job.setPayload(
@@ -1031,6 +1167,29 @@ class JobTaskTest {
         .thenReturn(TracingCollector.NoOpExecutionScope.INSTANCE);
   }
 
+  private JobTask newJobTaskWithTimeoutHandler(JobTimeoutHandler timeoutHandler) {
+    ResultPersistenceStrategy resultPersistenceStrategy =
+        (jobId, result) -> SerializedJobResult.empty();
+    return new JobTask(
+        jobStore,
+        resourcePermitService,
+        lifecycleFacade,
+        nodeIdProvider,
+        observabilityFacade,
+        validationFacade,
+        beanResolver,
+        retryPolicy,
+        resilienceStrategy,
+        errorSanitizer,
+        classPolicy,
+        context -> noopLogger(),
+        resultPersistenceStrategy,
+        null,
+        null,
+        timeoutHandler,
+        FIXED_CLOCK);
+  }
+
   private JobTask newJobTaskWithClock(Clock taskClock) {
     ResultPersistenceStrategy resultPersistenceStrategy =
         (jobId, result) -> SerializedJobResult.empty();
@@ -1048,6 +1207,7 @@ class JobTaskTest {
         classPolicy,
         context -> noopLogger(),
         resultPersistenceStrategy,
+        null,
         null,
         null,
         taskClock);

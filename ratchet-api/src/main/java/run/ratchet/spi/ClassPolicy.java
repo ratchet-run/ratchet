@@ -33,4 +33,26 @@ public interface ClassPolicy {
    * @return {@code true} to allow the class, {@code false} to deny it
    */
   boolean isAllowed(String className);
+
+  /**
+   * Returns whether a class name may be instantiated when deserializing a persisted job result (the
+   * {@code result_type} column) so a workflow condition can inspect the typed value.
+   *
+   * <p>This is deliberately separate from {@link #isAllowed(String)}. The invocation allowlist
+   * gates classes that own a matching predicate method; result deserialization has no such
+   * constraint, so any invocation-allowed class with a JSON-constructable shape could otherwise be
+   * instantiated with attacker-supplied field values given write access to the result columns.
+   * Implementations MUST therefore treat this as a strictly narrower control and default to deny.
+   *
+   * <p>When a result type is denied, the engine falls back to parsing the stored JSON into its
+   * native representation (numbers, strings, maps, lists) rather than instantiating the named
+   * class.
+   *
+   * @param className fully qualified binary class name; {@code null} or blank input must be denied
+   * @return {@code true} to allow instantiating the class for result deserialization, {@code false}
+   *     to deny it (the default)
+   */
+  default boolean isAllowedForResultType(String className) {
+    return false;
+  }
 }

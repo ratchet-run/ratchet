@@ -316,6 +316,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
         resultPersistenceStrategy,
         authorizationPolicy,
         payloadSerializer,
+        timeoutHandler,
         effective());
   }
 

@@ -125,6 +125,25 @@ class EncryptionEnvelopeTest {
   }
 
   @Test
+  void decode_highVersion_isUpgradePendingNotPoison() {
+    // A version byte in the upper half of the space (0xC8 = 200) must read unsigned. A signed read
+    // would sign-extend it to a negative int and route it to the corrupt-frame (poison) branch
+    // instead of upgrade-pending.
+    String highVersion =
+        EncryptionEnvelope.MARKER
+            + java.util.Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(new byte[] {(byte) 0xC8});
+
+    UnsupportedEnvelopeVersionException ex =
+        assertThrows(
+            UnsupportedEnvelopeVersionException.class,
+            () -> EncryptionEnvelope.decode(highVersion));
+    assertEquals(200, ex.version());
+    assertEquals(EncryptionEnvelope.MAX_READABLE_VERSION, ex.maxSupportedVersion());
+  }
+
+  @Test
   void decode_invalidVersionZero_isPoison() {
     // A zero/negative version byte is not a future version — it is a corrupt frame.
     String zeroVersion =

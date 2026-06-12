@@ -34,21 +34,29 @@ import run.ratchet.spi.PayloadEncryption;
  * probabilistic.
  *
  * <p><b>Deterministic nonce (NIST SP 800-38D §8.2.1).</b> The 96-bit nonce is a 64-bit per-instance
- * <em>epoch</em> concatenated with a 32-bit monotonic <em>counter</em>. The epoch is drawn from
- * {@link SecureRandom} when the engine is constructed; the counter increments per encryption and a
- * fresh epoch is drawn when it would overflow (after 2^32 encryptions). Because each engine
- * instance holds a distinct epoch and the counter never repeats within one, an (epoch, counter)
- * pair — and therefore a nonce — is never reused under one key. The whole nonce is produced under a
- * single lock so the epoch read, counter increment, and overflow redraw are one atomic step; a
- * non-atomic construction could pair a stale epoch with a reset counter and reuse a nonce, which is
- * catastrophic for GCM.
+ * <em>epoch</em> concatenated with a 32-bit monotonic <em>counter</em>. The epoch is drawn lazily
+ * on the first {@link #encrypt}; the counter increments per encryption and a fresh epoch is drawn
+ * when it would overflow (after 2^32 encryptions). Because each engine instance holds a distinct
+ * epoch and the counter never repeats within one, an (epoch, counter) pair — and therefore a nonce
+ * — is never reused under one key. The whole nonce is produced under a single lock so the epoch
+ * draw, counter increment, and overflow redraw are one atomic step; a non-atomic construction could
+ * pair a stale epoch with a reset counter and reuse a nonce, which is catastrophic for GCM.
  *
- * <p><b>Process/clone uniqueness.</b> Two engines (two nodes) that share a key must not share an
- * epoch. The 64-bit random epoch makes an accidental collision between independently seeded
- * processes negligible, but a checkpoint/restore or forked JVM can inherit its parent's {@link
- * SecureRandom} state and redraw an identical epoch. To stay safe under cloning, the deployment
- * mixes per-node entropy into the epoch via {@link #AesGcmPayloadEncryption(SecureRandom, long)}:
- * as long as the node identity differs, the epoch differs even when the RNG state is shared.
+ * <p><b>Process/clone uniqueness — and its limits.</b> Two engines (two nodes) that share a key
+ * must not share an epoch. Each drawn epoch mixes three sources: {@link SecureRandom}, the optional
+ * per-node entropy passed to {@link #AesGcmPayloadEncryption(SecureRandom, long)}, and {@link
+ * System#nanoTime()} captured at the moment of the draw. The nanoTime fold is the one component a
+ * snapshot/restore cannot reproduce: because the epoch is drawn lazily on the first encrypt rather
+ * than at construction, two processes resumed from the same checkpoint — sharing both {@link
+ * SecureRandom} state and node identity — still draw different epochs the first time each encrypts.
+ *
+ * <p>This is a mitigation, not a guarantee. A checkpoint/restore of a <em>live</em> engine — one
+ * that has already drawn its epoch and advanced its counter — clones the in-flight nonce state
+ * verbatim, and both clones then continue the same (epoch, counter) stream under the same key. That
+ * is unrecoverable nonce reuse and the operator must avoid snapshotting a running engine, or call
+ * {@link #reseed()} on each restored process before it encrypts. For deployments that cannot make
+ * that guarantee, {@link XChaCha20Poly1305PayloadEncryption} draws a fresh random 192-bit nonce per
+ * write and carries no cross-call nonce state to clone.
  *
  * <p><b>Thread-safety.</b> {@link Cipher} is not thread-safe, so a fresh instance is created per
  * call; only the small nonce-state critical section is synchronized. Safe for concurrent use by
@@ -67,6 +75,7 @@ public final class AesGcmPayloadEncryption implements PayloadEncryption {
   private final SecureRandom random;
   private final long nodeEntropy;
 
+  private boolean epochDrawn;
   private long epoch;
   private long counter;
 
@@ -89,8 +98,18 @@ public final class AesGcmPayloadEncryption implements PayloadEncryption {
   public AesGcmPayloadEncryption(SecureRandom random, long nodeEntropy) {
     this.random = random;
     this.nodeEntropy = nodeEntropy;
-    this.epoch = random.nextLong() ^ nodeEntropy;
+    this.epochDrawn = false;
     this.counter = 0L;
+  }
+
+  /**
+   * Forces a fresh epoch on the next nonce, discarding the current (epoch, counter) state. Call
+   * this on a process restored from a checkpoint, before it encrypts, so a restored engine cannot
+   * resume the parent's nonce stream under the same key.
+   */
+  public synchronized void reseed() {
+    epochDrawn = false;
+    counter = 0L;
   }
 
   @Override
@@ -133,19 +152,29 @@ public final class AesGcmPayloadEncryption implements PayloadEncryption {
   }
 
   /**
-   * Produces the next 96-bit nonce under a single lock so the epoch read, counter increment, and
-   * overflow redraw are atomic. A fresh epoch is drawn before the counter would exceed 32 bits, so
-   * no (epoch, counter) pair ever repeats.
+   * Produces the next 96-bit nonce under a single lock so the epoch draw, counter increment, and
+   * overflow redraw are atomic. The epoch is drawn on first use and again before the counter would
+   * exceed 32 bits, so no (epoch, counter) pair ever repeats within one engine.
    */
   private synchronized byte[] nextNonce() {
-    if (counter > COUNTER_MAX) {
-      epoch = random.nextLong() ^ nodeEntropy;
+    if (!epochDrawn || counter > COUNTER_MAX) {
+      epoch = drawEpoch();
+      epochDrawn = true;
       counter = 0L;
     }
     long currentEpoch = epoch;
     int currentCounter = (int) counter;
     counter++;
     return ByteBuffer.allocate(NONCE_LENGTH).putLong(currentEpoch).putInt(currentCounter).array();
+  }
+
+  /**
+   * Draws a fresh epoch by folding the RNG, the per-node entropy, and {@link System#nanoTime()}.
+   * nanoTime is the component a checkpoint/restore cannot reproduce, so two processes resumed from
+   * the same snapshot draw different epochs on their first encrypt.
+   */
+  private long drawEpoch() {
+    return random.nextLong() ^ nodeEntropy ^ System.nanoTime();
   }
 
   private static SecretKey material(EncryptionContext ctx) {
