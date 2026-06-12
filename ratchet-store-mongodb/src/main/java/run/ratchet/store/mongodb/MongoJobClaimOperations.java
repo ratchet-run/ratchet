@@ -165,13 +165,10 @@ final class MongoJobClaimOperations {
           Bson batchLimit = new Document("$limit", limit);
 
           var query =
-              ctx.jobs().aggregate(List.of(match, project, sort, batchLimit)).allowDiskUse(true);
-
-          if (NEXT_FIRE.equals(timeColumn)) {
-            query.hintString(MongoIndexHints.JOB_CLAIM_RECURRING);
-          } else {
-            query.hintString(MongoIndexHints.JOB_CLAIM_EXEC);
-          }
+              ctx.jobs()
+                  .aggregate(List.of(match, project, sort, batchLimit))
+                  .allowDiskUse(true)
+                  .hintString(MongoIndexHints.JOB_CLAIM_EXEC);
 
           List<UUID> ids = new ArrayList<>(limit);
           try (MongoCursor<Document> cursor = query.cursor()) {

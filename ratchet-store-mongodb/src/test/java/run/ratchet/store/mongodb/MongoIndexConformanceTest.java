@@ -35,8 +35,12 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.time.Duration;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.AfterEach;
@@ -79,6 +83,31 @@ class MongoIndexConformanceTest {
   void tearDown() {
     database.drop();
     client.close();
+  }
+
+  @Test
+  void everyHintNamesAnIndexThatGetsCreated() throws IllegalAccessException {
+    Set<String> created = allCreatedIndexNames();
+    for (Field field : MongoIndexHints.class.getDeclaredFields()) {
+      if (field.getType() != String.class || !Modifier.isStatic(field.getModifiers())) {
+        continue;
+      }
+      field.setAccessible(true);
+      String hintName = (String) field.get(null);
+      assertTrue(
+          created.contains(hintName),
+          "MongoIndexHints." + field.getName() + " (" + hintName + ") names no created index");
+    }
+  }
+
+  private Set<String> allCreatedIndexNames() {
+    Set<String> names = new HashSet<>();
+    for (String collection : database.listCollectionNames()) {
+      for (Document idx : database.getCollection(collection).listIndexes()) {
+        names.add(idx.getString("name"));
+      }
+    }
+    return names;
   }
 
   @Test
