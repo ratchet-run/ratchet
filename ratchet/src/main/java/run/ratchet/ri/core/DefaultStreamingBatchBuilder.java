@@ -153,6 +153,11 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
     }
   }
 
+  /** Adds an explicit conditional branch (used by the invocation-mode subtype). */
+  void addBranch(WorkflowBranch branch) {
+    workflowBranches.add(branch);
+  }
+
   void validateReady() {
     if (stream == null) {
       throw new IllegalStateException("Stream must be set via fromStream() before calling start()");

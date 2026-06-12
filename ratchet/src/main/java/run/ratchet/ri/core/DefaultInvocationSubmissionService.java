@@ -17,11 +17,13 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.io.Serializable;
 import java.time.Duration;
 import java.util.Objects;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.InvocationBatchBuilder;
 import run.ratchet.spi.InvocationJobBuilder;
+import run.ratchet.spi.InvocationStreamingBatchBuilder;
 import run.ratchet.spi.InvocationSubmissionService;
 import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobInvocationResolver;
@@ -70,6 +72,13 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
     Objects.requireNonNull(name, "name must not be null");
     return new DefaultInvocationBatchBuilder(
         new DefaultBatchBuilder(name, jobCreationService, jobInvocationResolver));
+  }
+
+  @Override
+  public <T extends Serializable> InvocationStreamingBatchBuilder<T> invocationStreamingBatch(
+      String name) {
+    Objects.requireNonNull(name, "name must not be null");
+    return new DefaultInvocationStreamingBatchBuilder<>(name, jobCreationService);
   }
 
   @Override

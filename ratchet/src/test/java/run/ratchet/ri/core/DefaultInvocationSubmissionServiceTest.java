@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,6 +38,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.event.BatchChunkFailureEvent;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
@@ -98,6 +101,11 @@ class DefaultInvocationSubmissionServiceTest {
   }
 
   private DefaultJobCreationService newCreationService(ClassPolicy classPolicy) {
+    return newCreationService(classPolicy, null);
+  }
+
+  private DefaultJobCreationService newCreationService(
+      ClassPolicy classPolicy, InternalEventPublisher eventPublisher) {
     return new DefaultJobCreationService(
         jobBatchStatusStore,
         jobTerminalStore,
@@ -115,7 +123,7 @@ class DefaultInvocationSubmissionServiceTest {
         null,
         null,
         classPolicy,
-        null,
+        eventPublisher,
         null,
         Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC));
   }
@@ -228,6 +236,61 @@ class DefaultInvocationSubmissionServiceTest {
     assertThrows(
         SecurityException.class,
         () -> gatedService.enqueueInvocation(sendInvoiceInvocation()).submit());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void invocationStreamingBatch_persistsChildrenInChunksFromTheFactory() {
+    service
+        .invocationStreamingBatch("stream")
+        .fromStream(Stream.of("inv_1", "inv_2", "inv_3"))
+        .withChunkSize(2)
+        .process(
+            id ->
+                new JobInvocation(
+                    TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+        .start();
+
+    ArgumentCaptor<List<JobEntity>> captor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore, org.mockito.Mockito.times(2)).bulkInsert(captor.capture());
+    List<List<JobEntity>> chunks = captor.getAllValues();
+    assertEquals(2, chunks.get(0).size());
+    assertEquals(1, chunks.get(1).size());
+    assertEquals(List.of("inv_1"), chunks.get(0).get(0).getPayload().args());
+    assertEquals(List.of("inv_3"), chunks.get(1).get(0).getPayload().args());
+  }
+
+  @Test
+  void chunkFailure_emitsBestEffortEventAndPropagates() {
+    List<Object> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+    InternalEventPublisher publisher = new InternalEventPublisher() {};
+    publisher.addListener(events::add);
+    DefaultInvocationSubmissionService failing =
+        new DefaultInvocationSubmissionService(
+            newCreationService(null, publisher), new DefaultJobInvocationResolver());
+    org.mockito.Mockito.doThrow(new RuntimeException("boom")).when(jobBulkStore).bulkInsert(any());
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            failing
+                .invocationStreamingBatch("stream")
+                .fromStream(Stream.of("inv_1"))
+                .process(
+                    id ->
+                        new JobInvocation(
+                            TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+                .start());
+
+    BatchChunkFailureEvent event =
+        events.stream()
+            .filter(BatchChunkFailureEvent.class::isInstance)
+            .map(BatchChunkFailureEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(0, event.getChunkIndex());
+    assertEquals(1, event.getChunkSize());
+    assertEquals("boom", event.getFailureReason());
   }
 
   private static JobEntity persist(org.mockito.invocation.InvocationOnMock invocation) {

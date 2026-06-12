@@ -15,6 +15,7 @@
  */
 package run.ratchet.spi;
 
+import java.io.Serializable;
 import java.time.Duration;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.WorkflowCondition;
@@ -61,6 +62,14 @@ public interface InvocationSubmissionService {
    * @return batch builder; never {@code null}
    */
   InvocationBatchBuilder enqueueInvocationBatch(String name);
+
+  /**
+   * Starts a builder for a streaming batch whose per-item children come from an invocation factory.
+   *
+   * @param name batch name for diagnostics; never {@code null}
+   * @return streaming batch builder; never {@code null}
+   */
+  <T extends Serializable> InvocationStreamingBatchBuilder<T> invocationStreamingBatch(String name);
 
   /**
    * Wraps a pre-resolved invocation as a {@code CUSTOM} workflow condition.
