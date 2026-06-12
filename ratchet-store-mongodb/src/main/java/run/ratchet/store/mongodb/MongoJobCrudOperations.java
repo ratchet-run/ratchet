@@ -97,6 +97,22 @@ final class MongoJobCrudOperations {
     this.ctx = ctx;
   }
 
+  /**
+   * Truncates the entity's Instant fields to millisecond precision before persisting. A BSON Date
+   * stores milliseconds, so without this the in-memory entity keeps sub-millisecond nanos that the
+   * document does not, and a later findById returns a different Instant than was written.
+   */
+  private static void truncateInstantsToMillis(JobEntity job) {
+    job.setScheduledTime(DocumentMapper.truncateToMillis(job.getScheduledTime()));
+    job.setPickedAt(DocumentMapper.truncateToMillis(job.getPickedAt()));
+    job.setCreatedAt(DocumentMapper.truncateToMillis(job.getCreatedAt()));
+    job.setUpdatedAt(DocumentMapper.truncateToMillis(job.getUpdatedAt()));
+    job.setExecutionStartTime(DocumentMapper.truncateToMillis(job.getExecutionStartTime()));
+    job.setExecutionEndTime(DocumentMapper.truncateToMillis(job.getExecutionEndTime()));
+    job.setSignalTimeout(DocumentMapper.truncateToMillis(job.getSignalTimeout()));
+    job.setSignalDeliveredAt(DocumentMapper.truncateToMillis(job.getSignalDeliveredAt()));
+  }
+
   JobEntity create(JobEntity job) {
     if (job.getId() == null) {
       job.setId(UuidV7Factory.create());
@@ -107,6 +123,7 @@ final class MongoJobCrudOperations {
     if (job.getVersion() == null) {
       job.setVersion(0);
     }
+    truncateInstantsToMillis(job);
     try {
       ctx.jobs().insertOne(DocumentMapper.toDocument(job));
     } catch (RuntimeException e) {
@@ -131,6 +148,7 @@ final class MongoJobCrudOperations {
     // reflects reality (prevents phantom version on reuse after catch).
     Integer expectedVersion = job.getVersion() != null ? job.getVersion() : 0;
     job.setVersion(expectedVersion + 1);
+    truncateInstantsToMillis(job);
     Document doc = DocumentMapper.toDocument(job);
     UpdateResult result;
     try {
@@ -482,6 +500,7 @@ final class MongoJobCrudOperations {
       if (job.getVersion() == null) {
         job.setVersion(0);
       }
+      truncateInstantsToMillis(job);
       docs.add(DocumentMapper.toDocument(job));
     }
     try {
