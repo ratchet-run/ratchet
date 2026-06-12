@@ -62,6 +62,9 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
   private volatile Config config = new Config(1000, 60000, 20);
   private volatile long currentDelayMs;
 
+  private boolean cycleRunning;
+  private boolean wakeupPending;
+
   @SuppressWarnings("java:S3077")
   private volatile Future<?> handle;
 
@@ -157,11 +160,12 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
       if (!started.get()) {
         return;
       }
-      Future<?> current = handle;
-      if (current != null) {
-        current.cancel(false);
-        handle = null;
+      if (cycleRunning) {
+        wakeupPending = true;
+        log.debug("RecurringScheduler kick coalesced into running scan");
+        return;
       }
+      cancelCurrentScheduleLocked();
       scheduleNextLocked(config.minPollMs());
     }
     log.debug("RecurringScheduler kicked — immediate scan scheduled");
@@ -171,70 +175,95 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
   public void stop() {
     started.set(false);
     synchronized (scheduleLock) {
-      if (handle != null) {
-        handle.cancel(false);
-      }
-      handle = null;
+      wakeupPending = false;
+      cancelCurrentScheduleLocked();
     }
   }
 
   void run() {
-    if (!started.get()) {
-      return;
+    synchronized (scheduleLock) {
+      if (!started.get()) {
+        return;
+      }
+      if (cycleRunning) {
+        wakeupPending = true;
+        return;
+      }
+      cycleRunning = true;
+      handle = null;
     }
 
+    long nextDelay = config.minPollMs();
+    boolean reschedule = true;
     ScheduledFuture<?> renewalTask = null;
     Optional<SingletonLease> lease = Optional.empty();
     try {
       lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
-      if (lease.isEmpty()) {
-        scheduleNext(config.minPollMs());
-        return;
+      if (lease.isPresent()) {
+        SingletonLease acquiredLease = lease.get();
+        AtomicBoolean leaseValid = new AtomicBoolean(true);
+        renewalTask =
+            executor.scheduleWithFixedDelay(
+                () -> renewLease(acquiredLease, leaseValid), 2, 2, TimeUnit.MINUTES);
+
+        int processedCount =
+            recurringJobExecutor.process(config.batchLimit(), nodeIdentityProvider.getNodeId());
+
+        if (!leaseValid.get()) {
+          reschedule = false;
+        } else {
+          if (processedCount > 0) {
+            pollerScheduler.wakeup();
+          }
+          nextDelay = calculateNextDelay(processedCount);
+        }
       }
-
-      SingletonLease acquiredLease = lease.get();
-      AtomicBoolean leaseValid = new AtomicBoolean(true);
-      renewalTask =
-          executor.scheduleWithFixedDelay(
-              () -> renewLease(acquiredLease, leaseValid), 2, 2, TimeUnit.MINUTES);
-
-      int processedCount =
-          recurringJobExecutor.process(config.batchLimit(), nodeIdentityProvider.getNodeId());
-
-      if (!leaseValid.get()) {
-        return;
-      }
-
-      if (processedCount > 0) {
-        pollerScheduler.wakeup();
-      }
-
-      long nextDelay = calculateNextDelay(processedCount);
-      scheduleNext(nextDelay);
     } catch (Exception ex) {
       if (!started.get()) {
-        return;
-      }
-      // CDI context gone (e.g. Arquillian undeploy) — stop permanently, next deploy starts fresh
-      if (SchedulerUtils.isCdiContextGone(ex)) {
+        reschedule = false;
+      } else if (SchedulerUtils.isCdiContextGone(ex)) {
+        // CDI context gone (e.g. Arquillian undeploy) — stop permanently, next deploy starts fresh
         started.set(false);
+        reschedule = false;
         log.info("RecurringScheduler detected inactive CDI context — stopping permanently");
-        return;
-      }
-      log.error("RecurringScheduler failed", ex);
-      try {
-        scheduleNext(config.minPollMs());
-      } catch (Exception e) {
-        log.debug("Cannot reschedule recurring scan — scheduler will restart on next deploy", e);
+      } else {
+        log.error("RecurringScheduler failed", ex);
+        nextDelay = config.minPollMs();
       }
     } catch (Error error) {
       log.error("RecurringScheduler failed with unrecoverable error", error);
+      cancelRenewal(renewalTask);
+      lease.ifPresent(SingletonLease::close);
+      finishCycle(0, false);
       throw error;
     } finally {
-      if (renewalTask != null && !renewalTask.isCancelled()) {
-        renewalTask.cancel(false);
-      }
+      cancelRenewal(renewalTask);
       lease.ifPresent(SingletonLease::close);
+    }
+
+    finishCycle(nextDelay, reschedule);
+  }
+
+  private void cancelRenewal(ScheduledFuture<?> renewalTask) {
+    if (renewalTask != null && !renewalTask.isCancelled()) {
+      renewalTask.cancel(false);
+    }
+  }
+
+  private void finishCycle(long nextDelayMs, boolean reschedule) {
+    synchronized (scheduleLock) {
+      cycleRunning = false;
+      if (!reschedule || !started.get()) {
+        wakeupPending = false;
+        return;
+      }
+      long delayMs = wakeupPending ? config.minPollMs() : nextDelayMs;
+      wakeupPending = false;
+      try {
+        scheduleNextLocked(delayMs);
+      } catch (Exception e) {
+        log.debug("Cannot reschedule recurring scan — scheduler will restart on next deploy", e);
+      }
     }
   }
 
@@ -293,6 +322,14 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
     }
     currentDelayMs = delayMs;
     handle = executor.schedule(this::run, delayMs, TimeUnit.MILLISECONDS);
+  }
+
+  private void cancelCurrentScheduleLocked() {
+    Future<?> currentHandle = handle;
+    if (currentHandle != null && !currentHandle.isDone()) {
+      currentHandle.cancel(false);
+    }
+    handle = null;
   }
 
   private record Config(long minPollMs, long maxPollMs, int batchLimit) {}
