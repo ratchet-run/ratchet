@@ -231,6 +231,8 @@ log.info("Batch submitted with ID {}", handle.id());
 
 Obtained from [`JobSchedulerService.streamingBatch()`](./job-scheduler-service#streamingbatch). Designed for large datasets where items are read from a `Stream` and inserted in configurable chunks.
 
+Framework extensions that build invocations directly (rather than serializing lambdas) have mirrored builders — `InvocationBatchBuilder` and `InvocationStreamingBatchBuilder<T>` — on the [`InvocationSubmissionService`](./spi-interfaces#invocationsubmissionservice) SPI.
+
 ### fromStream
 
 ```java

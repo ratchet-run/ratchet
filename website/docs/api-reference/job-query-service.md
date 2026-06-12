@@ -58,6 +58,17 @@ for (JobSummary job : page.items()) {
 
 `JobFilter` fields are optional. A `null` field means "do not constrain this dimension." Vararg filters such as `statuses()` and `types()` ignore empty argument lists, so a UI can safely pass zero selected statuses to mean "all statuses."
 
+When the store advertises the `JobExtensionStore` capability, jobs can also be filtered by their indexed extension properties:
+
+```java
+JobFilter filter = JobFilter.builder()
+    .propertyEquals("ratchet-blocks.block_name", "invoice.send")
+    .propertyIn("ratchet-blocks.block_version", Set.of("1", "2"))
+    .build();
+```
+
+`propertyEquals(key, value)` requires an exact key/value match; `propertyIn(key, values)` requires the key to hold one of the given values. Constraints on different keys combine with AND; a repeated call for the same key replaces the earlier constraint.
+
 ### getJobDetail
 
 ```java

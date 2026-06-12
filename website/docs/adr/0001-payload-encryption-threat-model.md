@@ -84,6 +84,11 @@ silently regress their confidentiality.
 | `ON_FAILURE_PAYLOAD` | `on_failure_payload` | surface ∥ job id |
 | `SIGNAL_PAYLOAD` | `signal_payload` | surface only |
 | `WORKFLOW_CONDITION_PREDICATE` | serialized predicate in `condition_expression` | surface only |
+| `EXTENSION_STATE` | `scheduler_job_extension_state.state` | surface ∥ job id ∥ namespace |
+
+`EXTENSION_STATE` joined the set on 2026-06-11 with the `JobExtensionStore` capability; see
+the amendment of that date for its AAD binding and why it follows the global switch rather
+than per-job opt-in.
 
 ### 3. A per-surface AAD policy, computed by the framework
 
@@ -380,7 +385,9 @@ flag). Broadcast signal delivery cannot read a per-job flag because one cipherte
 rows, so it encrypts whenever an engine is configured rather than gating on the global switch
 alone; over-encrypting a non-opted row is harmless because reads are marker-driven. Recurring
 masters carry their own opt-in flag (`scheduler_recurring_job.encrypted_payload`): the stored
-payload templates are encrypted at rest and every fired child inherits the flag.
+payload templates are encrypted at rest and every fired child inherits the flag. (The
+`EXTENSION_STATE` surface, added 2026-06-11, is outside this per-job set — see that amendment
+for why it follows the global switch only.)
 
 ## Hardening (2026-06-04, post-review)
 
@@ -540,6 +547,29 @@ Both engines pass the same `AbstractPayloadEncryptionEngineContract`, and a regi
 test installs both, makes each the write engine in turn, and confirms a value written by one still
 decrypts after the other takes over writes — read dispatch by algorithm id, working across two
 genuinely different algorithms.
+
+## Amended 2026-06-11: `EXTENSION_STATE` joins the protected set
+
+The `JobExtensionStore` capability (blocks core prereq) adds a mutable, per-namespace
+extension-state blob in `scheduler_job_extension_state`. The blob can carry workflow
+bookkeeping that embeds user data, so it joins the protected-surface enum as
+`EXTENSION_STATE` rather than staying cleartext by default.
+
+- **AAD binding: surface ∥ job id ∥ namespace** (length-prefixed, via
+  `EncryptionTarget.extensionState(jobId, namespace)`). Binding the namespace as well as
+  the job id prevents a ciphertext from being relocated between two namespaces on the
+  same job — two extensions sharing a job must not be able to replay each other's state.
+- **Global switch only, no per-job opt-in.** The per-job `withEncryptedPayload()` flag
+  expresses the *submitter's* choice about the job's own payload surfaces. Extension
+  state is written later, by extension code (the blocks engine), through an SPI whose
+  write sites hold only `(jobId, namespace)` — honoring the per-job flag would add a job
+  row lookup to every CAS write, and the submitter's choice does not govern data the
+  extension owns. A deployment that wants extension state encrypted turns on the global
+  switch; the closed six-surface per-job set above is unchanged.
+- **Archive copy stays ciphertext.** Archiving copies the state rows as stored onto the
+  archive row's denormalized JSON, with the `encrypted_state` / `encryption_key_id`
+  metadata riding along; the AAD remains reconstructable from `original_job_id` and the
+  namespace recorded in each entry.
 
 ## Still open (do not block this ADR)
 

@@ -289,6 +289,7 @@ public interface JobStore
 | `JobAnalyticsStore` | Aggregate counts, rate statistics, and percentile metrics |
 | `JobAuditStore` | Execution history recording and structured job log storage |
 | `DlqAlertStore` | DLQ alert audit trail and deduplication |
+| `JobExtensionStore` | Indexed job properties (`scheduler_job_properties`) and mutable per-namespace extension state with optimistic CAS (`scheduler_job_extension_state`), used by framework extensions; archiving copies both onto the archive row as denormalized JSON |
 
 ### Why a Core-Plus-Capabilities Split?
 
