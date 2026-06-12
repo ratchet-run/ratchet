@@ -21,7 +21,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -62,6 +64,15 @@ public class JobTimeoutHandler {
   private final Clock clock;
   private final int signalTimeoutBatchSize;
   private final TransactionSynchronizationRegistry txRegistry;
+
+  /**
+   * Job ids the hard-timeout watchdog has cancelled and is about to retry/finalize itself. The
+   * watchdog records the id before it interrupts the worker, so when the interrupt lands in {@link
+   * JobTask#handleFailure} the worker can see the timeout is watchdog-owned and skip its own
+   * attempt increment. Without this, both the watchdog and the interrupted worker increment while
+   * the row is still RUNNING and a single timeout burns two attempts.
+   */
+  private final Set<UUID> watchdogCancelledJobIds = ConcurrentHashMap.newKeySet();
 
   protected JobTimeoutHandler() {
     this.jobCrudStore = null;
@@ -420,6 +431,11 @@ public class JobTimeoutHandler {
         "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
         jobId, timeoutSec, formatDuration(elapsed));
 
+    // Claim ownership of the retry/finalize for this timeout BEFORE interrupting the worker, so the
+    // interrupt that lands in JobTask.handleFailure already sees the marker and defers to us. The
+    // marker is cleared in processHardTimeout's finally once this path is done with it.
+    watchdogCancelledJobIds.add(jobId);
+
     future.cancel(true);
 
     try {
@@ -427,7 +443,19 @@ public class JobTimeoutHandler {
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
       throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);
+    } finally {
+      watchdogCancelledJobIds.remove(jobId);
     }
+  }
+
+  /**
+   * Reports whether the hard-timeout watchdog has claimed this job's timeout retry/finalize. When
+   * the interrupted worker sees {@code true} it must skip its own attempt increment and let the
+   * watchdog own the transition — otherwise one timeout consumes two attempts. A genuine,
+   * non-watchdog interrupt is absent from the set and still counts as a normal failed attempt.
+   */
+  boolean isWatchdogCancelled(UUID jobId) {
+    return watchdogCancelledJobIds.contains(jobId);
   }
 
   /**
