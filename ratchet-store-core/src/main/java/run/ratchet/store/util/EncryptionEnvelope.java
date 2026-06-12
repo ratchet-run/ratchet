@@ -177,11 +177,13 @@ public final class EncryptionEnvelope {
     ByteBuffer buf = ByteBuffer.wrap(full);
     int version;
     try {
-      version = buf.get();
+      // Read unsigned: a version byte >= 0x80 must not sign-extend to a negative int, or the upper
+      // half of the version space would be misread as a corrupt frame instead of upgrade-pending.
+      version = buf.get() & 0xFF;
     } catch (BufferUnderflowException e) {
       throw new PayloadDecryptionException("Corrupt or truncated encryption envelope", e);
     }
-    if (version <= 0) {
+    if (version == 0) {
       throw new PayloadDecryptionException(
           "Corrupt encryption envelope: invalid version " + version);
     }
