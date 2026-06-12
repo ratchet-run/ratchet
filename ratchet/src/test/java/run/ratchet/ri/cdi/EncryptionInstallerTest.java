@@ -18,11 +18,17 @@ package run.ratchet.ri.cdi;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.inject.Instance;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -149,6 +155,80 @@ class EncryptionInstallerTest {
 
     assertEquals("AES-256-GCM", EncryptionHolder.writeEngine().algorithmId());
     assertFalse(EncryptionHolder.isGloballyEnabled());
+  }
+
+  @Test
+  void nodeIdThrows_installsAnyway_andWarnsAboutReducedProtection() {
+    System.setProperty(ReferenceEncryptionFactory.KEYS_PROPERTY, "k1:" + base64Key());
+    when(nodeIdProvider.getNodeId()).thenThrow(new IllegalStateException("no node id yet"));
+    EncryptionInstaller installer = installer(options(null), false /* providerResolvable */);
+
+    CapturingHandler handler = attachHandler();
+    try {
+      installer.onStartup(new Object());
+    } finally {
+      detachHandler(handler);
+    }
+
+    // Encryption still installs (no startup abort) but the degraded posture is now visible.
+    assertEquals("AES-256-GCM", EncryptionHolder.writeEngine().algorithmId());
+    assertTrue(
+        handler.warnedAboutEntropy(), "expected a WARN about reduced nonce-clone protection");
+  }
+
+  @Test
+  void blankNodeId_installsAnyway_andWarnsAboutReducedProtection() {
+    System.setProperty(ReferenceEncryptionFactory.KEYS_PROPERTY, "k1:" + base64Key());
+    when(nodeIdProvider.getNodeId()).thenReturn("");
+    EncryptionInstaller installer = installer(options(null), false /* providerResolvable */);
+
+    CapturingHandler handler = attachHandler();
+    try {
+      installer.onStartup(new Object());
+    } finally {
+      detachHandler(handler);
+    }
+
+    assertEquals("AES-256-GCM", EncryptionHolder.writeEngine().algorithmId());
+    assertTrue(
+        handler.warnedAboutEntropy(), "expected a WARN about reduced nonce-clone protection");
+  }
+
+  private static CapturingHandler attachHandler() {
+    Logger logger = Logger.getLogger(EncryptionInstaller.class.getName());
+    logger.setLevel(Level.ALL);
+    CapturingHandler handler = new CapturingHandler();
+    logger.addHandler(handler);
+    return handler;
+  }
+
+  private static void detachHandler(CapturingHandler handler) {
+    Logger.getLogger(EncryptionInstaller.class.getName()).removeHandler(handler);
+  }
+
+  /** Collects WARN records so a test can assert the degraded-entropy warning was emitted. */
+  private static final class CapturingHandler extends Handler {
+    private final CopyOnWriteArrayList<LogRecord> records = new CopyOnWriteArrayList<>();
+
+    @Override
+    public void publish(LogRecord record) {
+      records.add(record);
+    }
+
+    @Override
+    public void flush() {}
+
+    @Override
+    public void close() {}
+
+    boolean warnedAboutEntropy() {
+      return records.stream()
+          .anyMatch(
+              r ->
+                  r.getLevel().intValue() >= Level.WARNING.intValue()
+                      && r.getMessage() != null
+                      && r.getMessage().contains("per-node nonce entropy"));
+    }
   }
 
   @Test
