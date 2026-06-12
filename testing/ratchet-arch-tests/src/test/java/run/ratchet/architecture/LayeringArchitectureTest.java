@@ -55,6 +55,7 @@ public class LayeringArchitectureTest {
   private static final String STORE_MONGODB = "run.ratchet.store.mongodb..";
   private static final String RI = "run.ratchet.ri..";
   private static final String COORDINATOR = "run.ratchet.coordinator..";
+  private static final String BLOCKS = "run.ratchet.blocks..";
 
   /**
    * Defends against total importer shrinkage. Asserts the importer found classes from every module
@@ -99,6 +100,28 @@ public class LayeringArchitectureTest {
     long count = imported.stream().filter(c -> c.getPackageName().startsWith(packageName)).count();
     assertTrue(count > 0, "expected at least one class in " + packageName + ", found 0");
   }
+
+  // --- Core must never depend on the optional blocks extension ---
+
+  /**
+   * {@code run.ratchet.blocks..} is the optional low-code extension layered ON TOP of the core:
+   * blocks depends on the API and SPI seams ({@code InvocationSubmissionService}, {@code
+   * JobExtensionStore}, {@code PreExecutionArgResolver}), never the reverse. A single core-side
+   * reference into the blocks package would make the optional module mandatory. The rule's subject
+   * packages are non-empty today, so it cannot pass vacuously even while the blocks module itself
+   * does not exist yet.
+   */
+  @ArchTest
+  static final ArchRule coreDoesNotDependOnBlocksExtension =
+      noClasses()
+          .that()
+          .resideInAnyPackage(API, SPI, STORE_CORE, RI, COORDINATOR)
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage(BLOCKS)
+          .because(
+              "ratchet-blocks is an optional extension; the core must never depend on it"
+                  + " (dependency direction: blocks -> api, never the reverse)");
 
   // --- API + store-core must not depend on the reference implementation ---
 
