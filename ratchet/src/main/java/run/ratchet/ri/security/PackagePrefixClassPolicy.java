@@ -24,8 +24,9 @@ import run.ratchet.spi.ClassPolicy;
 /**
  * Allowlist-based {@link ClassPolicy} that permits job target classes only if their fully-qualified
  * name starts with a configured package prefix. A hardcoded denylist of RCE gadgets is checked
- * first, regardless of the allowlist. Constructor rejects prefixes shorter than 3 characters or
- * containing leading/trailing whitespace.
+ * first, regardless of the allowlist. The constructor rejects prefixes shorter than 3 characters,
+ * those containing leading/trailing whitespace, and single top-level segments such as {@code
+ * "com."} or {@code "java."} that would match nearly the whole classpath and defeat the allowlist.
  *
  * <p>Configured allowlist prefixes are normalized to end with {@code .} so matches line up on
  * package boundaries: configuring {@code "com.foo"} matches {@code com.foo.Bar} but NOT {@code
@@ -70,13 +71,23 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
       List.of(
           "java.lang.reflect.",
           "java.lang.invoke.",
+          "java.lang.Runtime",
+          "java.lang.ProcessBuilder",
+          "java.lang.ProcessImpl",
+          "java.lang.System",
           "javax.script.",
+          "javax.naming.",
           "jdk.",
           "sun.",
           "com.sun.",
           "jdk.internal.",
+          "groovy.lang.",
+          "bsh.",
           "org.codehaus.groovy.runtime.",
           "org.apache.commons.collections.functors.",
+          "org.apache.commons.collections4.functors.",
+          "org.apache.commons.beanutils.",
+          "org.yaml.snakeyaml.",
           "org.apache.xalan.",
           "org.springframework.context.support.");
 
@@ -137,7 +148,27 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
         throw new IllegalArgumentException(
             "Allowed package prefix must be at least 3 characters: '" + prefix + "'");
       }
+      if (isSingleTopLevelSegment(prefix)) {
+        throw new IllegalArgumentException(
+            "Allowed package prefix is too broad — a single top-level segment such as 'com.' or"
+                + " 'org.' would allow nearly every class on the classpath: '"
+                + prefix
+                + "'. Configure at least a two-segment prefix (e.g. 'com.example.').");
+      }
     }
+  }
+
+  /**
+   * Returns true when {@code prefix} names only a single top-level package segment, with or without
+   * a trailing dot (e.g. {@code "com"}, {@code "com."}, {@code "org."}, {@code "java."}). Such a
+   * prefix matches almost the entire classpath and defeats the allowlist, so it is rejected. A
+   * two-segment prefix such as {@code "com.example."} is fine because it contains a dot before the
+   * trailing one.
+   */
+  private static boolean isSingleTopLevelSegment(String prefix) {
+    String withoutTrailingDot =
+        prefix.endsWith(".") ? prefix.substring(0, prefix.length() - 1) : prefix;
+    return withoutTrailingDot.indexOf('.') < 0;
   }
 
   public Set<String> getAllowedPackages() {

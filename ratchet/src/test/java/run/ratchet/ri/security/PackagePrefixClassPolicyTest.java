@@ -77,52 +77,109 @@ class PackagePrefixClassPolicyTest {
 
   @Test
   void denylist_rejectsRuntimeEvenWithBroadJavaAllowlist() {
-    // Regression for the "Set.of('java')" misconfiguration attack scenario.
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
+    // Regression for the broad-allowlist misconfiguration attack scenario.
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java.lang."));
     assertFalse(
         policy.isAllowed("java.lang.Runtime"),
-        "java.lang.Runtime must be blocked by hardcoded denylist even with 'java.' in allowlist");
+        "java.lang.Runtime must be blocked by hardcoded denylist even with 'java.lang.' allowed");
   }
 
   @Test
   void denylist_rejectsProcessBuilder() {
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java.lang."));
     assertFalse(policy.isAllowed("java.lang.ProcessBuilder"));
   }
 
   @Test
+  void denylist_rejectsSystem() {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java.lang."));
+    assertFalse(policy.isAllowed("java.lang.System"));
+  }
+
+  @Test
   void denylist_rejectsObjectInputStream() {
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java.io."));
     assertFalse(policy.isAllowed("java.io.ObjectInputStream"));
   }
 
   @Test
   void denylist_rejectsReflectionEntries() {
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java.lang."));
     assertFalse(policy.isAllowed("java.lang.reflect.Method"));
     assertFalse(policy.isAllowed("java.lang.invoke.MethodHandles"));
   }
 
   @Test
   void denylist_rejectsScriptEngine() {
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("javax."));
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("javax.script."));
     assertFalse(policy.isAllowed("javax.script.ScriptEngineManager"));
   }
 
   @Test
+  void denylist_rejectsNamingFactories() {
+    // javax.naming. is now denied as a PREFIX, not just the exact InitialContext, so LDAP/RMI
+    // reference factories and the SPI package are blocked too.
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("javax.naming."));
+    assertFalse(policy.isAllowed("javax.naming.spi.ObjectFactory"));
+    assertFalse(policy.isAllowed("javax.naming.ldap.LdapContext"));
+    assertFalse(policy.isAllowed("javax.naming.InitialContext"));
+  }
+
+  @Test
   void denylist_rejectsJdkInternals() {
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("jdk."));
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("jdk.internal."));
     assertFalse(policy.isAllowed("jdk.internal.misc.Unsafe"));
-    assertFalse(policy.isAllowed("sun.misc.Unsafe"));
+    PackagePrefixClassPolicy sunPolicy = new PackagePrefixClassPolicy(Set.of("sun.misc."));
+    assertFalse(sunPolicy.isAllowed("sun.misc.Unsafe"));
   }
 
   @Test
   void denylist_rejectsDeserializationGadgets() {
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("org."));
-    assertFalse(policy.isAllowed("org.apache.commons.collections.functors.InvokerTransformer"));
-    assertFalse(policy.isAllowed("org.codehaus.groovy.runtime.MethodClosure"));
+    PackagePrefixClassPolicy commons = new PackagePrefixClassPolicy(Set.of("org.apache.commons."));
+    assertFalse(commons.isAllowed("org.apache.commons.collections.functors.InvokerTransformer"));
+    assertFalse(commons.isAllowed("org.apache.commons.collections4.functors.InvokerTransformer"));
+    assertFalse(commons.isAllowed("org.apache.commons.beanutils.BeanComparator"));
+
+    PackagePrefixClassPolicy groovy = new PackagePrefixClassPolicy(Set.of("groovy.lang."));
+    assertFalse(groovy.isAllowed("groovy.lang.GroovyShell"));
+
+    PackagePrefixClassPolicy codehaus =
+        new PackagePrefixClassPolicy(Set.of("org.codehaus.groovy."));
+    assertFalse(codehaus.isAllowed("org.codehaus.groovy.runtime.MethodClosure"));
+
+    PackagePrefixClassPolicy snake = new PackagePrefixClassPolicy(Set.of("org.yaml."));
+    assertFalse(snake.isAllowed("org.yaml.snakeyaml.Yaml"));
+
+    PackagePrefixClassPolicy bsh = new PackagePrefixClassPolicy(Set.of("bsh.x."));
+    assertFalse(bsh.isAllowed("bsh.Interpreter"));
+
+    PackagePrefixClassPolicy spring = new PackagePrefixClassPolicy(Set.of("org.springframework."));
     assertFalse(
-        policy.isAllowed("org.springframework.context.support.FileSystemXmlApplicationContext"));
+        spring.isAllowed("org.springframework.context.support.FileSystemXmlApplicationContext"));
+  }
+
+  @Test
+  void constructor_rejectsSingleTopLevelSegmentPrefix() {
+    // A single top-level segment like "com." or "java." matches nearly the whole classpath and
+    // would defeat the allowlist, so it must be rejected at construction.
+    assertThrows(
+        IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("com.")));
+    assertThrows(
+        IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("org.")));
+    assertThrows(
+        IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("java.")));
+    assertThrows(
+        IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("javax.")));
+    assertThrows(
+        IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("jakarta.")));
+    // Without the trailing dot too.
+    assertThrows(IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("net")));
+  }
+
+  @Test
+  void constructor_acceptsTwoSegmentPrefix() {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("com.example."));
+    assertTrue(policy.isAllowed("com.example.MyJob"));
   }
 
   @Test
@@ -138,10 +195,10 @@ class PackagePrefixClassPolicyTest {
   }
 
   @Test
-  void constructor_acceptsThreeCharMinimumPrefix() {
-    // 3 chars is the minimum, though this should still feel wrong in practice.
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("foo"));
-    assertTrue(policy.isAllowed("foo.bar.Baz"));
+  void constructor_acceptsShortTwoSegmentPrefix() {
+    // A short but two-segment prefix is fine; only single top-level segments are rejected.
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("a.b."));
+    assertTrue(policy.isAllowed("a.b.Baz"));
   }
 
   @Test
