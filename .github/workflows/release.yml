@@ -5,6 +5,11 @@ permissions:
   packages: write
   statuses: write
   checks: write
+  # The release gate calls ci.yml, whose `changes` job requests `pull-requests: read`.
+  # A reusable workflow can't be granted more than its caller holds, so without this
+  # the call is rejected at parse time ("requesting 'pull-requests: read', but is only
+  # allowed 'pull-requests: none'").
+  pull-requests: read
 
 on:
   workflow_dispatch:
