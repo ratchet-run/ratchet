@@ -39,4 +39,18 @@ public interface PayloadMaskingPolicy {
    *     otherwise
    */
   boolean isSensitiveField(String fieldName);
+
+  /**
+   * Context-aware variant consulted by masking surfaces that know which job a field belongs to. The
+   * default delegates to the name-only check, so existing policies keep working unchanged; a policy
+   * that needs per-job decisions (the same field name secret in one job, public in another)
+   * overrides this and reads the job's identity from {@link MaskingContext#jobProperties()}.
+   *
+   * @param fieldName the field or parameter name as it appears in the payload; never {@code null}
+   * @param context the owning job's masking context; never {@code null}
+   * @return {@code true} if the field's value should be masked, {@code false} otherwise
+   */
+  default boolean isSensitiveField(String fieldName, MaskingContext context) {
+    return isSensitiveField(fieldName);
+  }
 }
