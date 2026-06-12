@@ -54,6 +54,7 @@ import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
@@ -781,8 +782,13 @@ class DefaultJobCreationService
     condition.setConditionPriority(branch.condition().priority());
     if (branch.condition().expression() != null) {
       Serializable expr = branch.condition().expression();
-      if (expr instanceof SerializablePredicate<?> || expr instanceof SerializableFunction<?, ?>) {
-        JobPayload p = JobPayloadFactory.fromLambda(expr);
+      if (expr instanceof SerializablePredicate<?>
+          || expr instanceof SerializableFunction<?, ?>
+          || expr instanceof JobInvocation) {
+        JobPayload p =
+            expr instanceof JobInvocation invocation
+                ? JobPayloadFactory.fromInvocation(invocation)
+                : JobPayloadFactory.fromLambda(expr);
         // The predicate belongs to the parent job, binds the parent id, and follows the parent's
         // encryption opt-in: an opted-in workflow encrypts its predicate even when the global
         // switch is off.
@@ -799,6 +805,14 @@ class DefaultJobCreationService
   }
 
   private JobPayload payload(Serializable callback) {
+    // Pre-resolved invocations (from InvocationSubmissionService facades) skip lambda resolution;
+    // they still run through the same validation and class-policy gate below.
+    if (callback instanceof InvocationAdapter adapter) {
+      return validate(JobPayloadFactory.fromInvocation(adapter.invocation()));
+    }
+    if (callback instanceof JobInvocation invocation) {
+      return validate(JobPayloadFactory.fromInvocation(invocation));
+    }
     return validate(JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback)));
   }
 

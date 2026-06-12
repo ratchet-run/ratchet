@@ -15,11 +15,18 @@
  */
 package run.ratchet.spi;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.util.List;
 import run.ratchet.api.Incubating;
 
 /**
  * Serializable description of the target method Ratchet should invoke for a job.
+ *
+ * <p>{@code Serializable} satisfies type bounds such as {@code WorkflowCondition.expression}; the
+ * framework never JDK-serializes an invocation. Persistence converts it to JSON via the payload
+ * factory, so arguments must be JSON-representable (enforced by payload validation at creation),
+ * not {@code Serializable}.
  *
  * @param targetClass fully qualified target class name
  * @param methodName target method name
@@ -33,7 +40,10 @@ public record JobInvocation(
     String methodName,
     String methodDescriptor,
     boolean staticMethod,
-    List<Object> arguments) {
+    List<Object> arguments)
+    implements Serializable {
+
+  @Serial private static final long serialVersionUID = 1L;
 
   public JobInvocation {
     arguments = arguments == null ? List.of() : List.copyOf(arguments);
