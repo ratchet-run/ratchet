@@ -31,8 +31,18 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Skip if triggered by a failed CI run
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    # Only build/deploy for trusted runs. A workflow_run completion fires for
+    # fork-PR CI runs too, and we publish the downloaded conformance-report
+    # markdown straight to GitHub Pages. Without these guards a fork's PR code
+    # could inject arbitrary content into the project's Pages origin. So for a
+    # workflow_run trigger we require: a successful CI run, that came from a
+    # push (not a pull_request), and from this same repo (not a fork).
+    if: >-
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event != 'pull_request' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
     steps:
       - uses: actions/checkout@v6
 
