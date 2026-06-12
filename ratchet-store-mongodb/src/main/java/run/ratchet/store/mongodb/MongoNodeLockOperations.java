@@ -46,6 +46,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.bson.Document;
 import org.jboss.logging.Logger;
 import run.ratchet.store.entity.NodeEntity;
@@ -67,8 +68,16 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
 
   private final MongoStoreContext ctx;
 
+  // Source of the lock clock. Production reads the database server time; tests pin it to a fixed
+  // instant to reproduce two renewals computing the same millisecond expiry.
+  private Supplier<Instant> lockClock = this::getDatabaseTime;
+
   MongoNodeLockOperations(MongoStoreContext ctx) {
     this.ctx = ctx;
+  }
+
+  void setLockClock(Supplier<Instant> clock) {
+    this.lockClock = clock == null ? this::getDatabaseTime : clock;
   }
 
   @Override
@@ -76,7 +85,7 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     requirePositiveDuration(ttl, "ttl");
     Objects.requireNonNull(nodeId, "nodeId");
-    Instant nowInstant = getDatabaseTime();
+    Instant nowInstant = lockClock.get();
     Date now = DocumentMapper.toDate(nowInstant);
     Date expiresAt = DocumentMapper.toDate(nowInstant.plus(ttl));
 
@@ -112,11 +121,15 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     requirePositiveDuration(extension, "extension");
     Objects.requireNonNull(nodeId, "nodeId");
-    Date newExpiry = DocumentMapper.toDate(getDatabaseTime().plus(extension));
+    Date newExpiry = DocumentMapper.toDate(lockClock.get().plus(extension));
     UpdateResult result =
         ctx.locks()
             .updateOne(and(eq(ID, name), eq(OWNER_NODE, nodeId)), set(EXPIRES_AT, newExpiry));
-    return result.getModifiedCount() > 0;
+    // Match, not modify: with millisecond-precision expiry two renewals in the same millisecond
+    // compute the same expires_at, so the second matches the owned lock but changes nothing. A
+    // matched row means the caller still owns a renewable lock; the owner filter keeps an unowned
+    // lock returning false.
+    return result.getMatchedCount() > 0;
   }
 
   @Override
