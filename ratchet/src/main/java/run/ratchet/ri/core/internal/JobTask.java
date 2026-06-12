@@ -1238,11 +1238,11 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  @SuppressWarnings("java:S112")
   /**
    * Consults the optional {@link PreExecutionArgResolver}: only the returned invocation's arguments
    * are honored — the dispatch target the security gate validated cannot change.
    */
+  @SuppressWarnings("java:S112")
   private JobPayload resolveArguments(JobPayload payload, UUID jobId) {
     if (argResolver == null) {
       return payload;

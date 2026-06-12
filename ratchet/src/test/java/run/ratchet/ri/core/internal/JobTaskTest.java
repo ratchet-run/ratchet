@@ -72,11 +72,13 @@ import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.EncryptionContext;
 import run.ratchet.spi.EncryptionKey;
 import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadEncryption;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.PreExecutionArgResolver;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
@@ -1134,9 +1136,9 @@ class JobTaskTest {
     JsonbTestPayloadSerializer serializer = new JsonbTestPayloadSerializer();
     // The resolver patches the argument AND tries to redirect the target; only the arguments are
     // honored — the dispatch target stays pinned to the payload the security gate validated.
-    run.ratchet.spi.PreExecutionArgResolver resolver =
+    PreExecutionArgResolver resolver =
         (jobId, invocation) ->
-            new run.ratchet.spi.JobInvocation(
+            new JobInvocation(
                 "com.example.Evil",
                 "evil",
                 invocation.methodDescriptor(),

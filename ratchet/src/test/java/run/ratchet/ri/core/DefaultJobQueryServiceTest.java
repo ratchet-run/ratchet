@@ -58,6 +58,8 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.MaskingContext;
+import run.ratchet.spi.PayloadMaskingPolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -66,7 +68,9 @@ import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.util.PayloadMaskingPolicyHolder;
 
 @ExtendWith(MockitoExtension.class)
 class DefaultJobQueryServiceTest {
@@ -512,27 +516,26 @@ class DefaultJobQueryServiceTest {
     when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
         .thenReturn(Collections.emptyList());
 
-    run.ratchet.store.spi.JobExtensionStore extensionStore =
-        org.mockito.Mockito.mock(run.ratchet.store.spi.JobExtensionStore.class);
+    JobExtensionStore extensionStore = Mockito.mock(JobExtensionStore.class);
     when(extensionStore.getPropertiesByPrefix(jobId, ""))
         .thenReturn(Map.of("ratchet-blocks.block_name", "invoice.send"));
 
     // A per-block policy: "channel" is secret only on invoice.send jobs, identified through the
     // job properties carried by the masking context. Name-only matching would never redact it.
-    run.ratchet.spi.PayloadMaskingPolicy perBlockPolicy =
-        new run.ratchet.spi.PayloadMaskingPolicy() {
+    PayloadMaskingPolicy perBlockPolicy =
+        new PayloadMaskingPolicy() {
           @Override
           public boolean isSensitiveField(String fieldName) {
             return false;
           }
 
           @Override
-          public boolean isSensitiveField(String fieldName, run.ratchet.spi.MaskingContext ctx) {
+          public boolean isSensitiveField(String fieldName, MaskingContext ctx) {
             return "channel".equals(fieldName)
                 && "invoice.send".equals(ctx.jobProperties().get("ratchet-blocks.block_name"));
           }
         };
-    run.ratchet.store.util.PayloadMaskingPolicyHolder.set(perBlockPolicy);
+    PayloadMaskingPolicyHolder.set(perBlockPolicy);
     try {
       DefaultJobQueryService masking =
           new DefaultJobQueryService(
@@ -555,7 +558,7 @@ class DefaultJobQueryServiceTest {
           "context-aware policy must see the job's properties and redact per block");
       assertEquals("db", params.get("host"), "non-sensitive key must survive unchanged");
     } finally {
-      run.ratchet.store.util.PayloadMaskingPolicyHolder.set(null);
+      PayloadMaskingPolicyHolder.set(null);
     }
   }
 
