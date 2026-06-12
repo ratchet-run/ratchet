@@ -32,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -141,6 +142,28 @@ final class MongoJobQueryOperations {
       return;
     }
     conditions.add(eq(MongoFieldNames.DEPENDS_ON, parentJobId));
+  }
+
+  /**
+   * Compiles property filters against the separate {@code scheduler_job_properties} collection: one
+   * pre-query per key resolving the matching job ids, then an {@code _id IN} condition per key, so
+   * multiple keys intersect (AND semantics) on the main query.
+   */
+  private void appendPropertyConditions(JobFilter filter, List<Bson> conditions) {
+    Map<String, Set<String>> propertyFilters = filter.propertyFilters();
+    if (propertyFilters == null || propertyFilters.isEmpty()) {
+      return;
+    }
+    for (Map.Entry<String, Set<String>> entry : propertyFilters.entrySet()) {
+      List<UUID> matching =
+          ctx.jobProperties()
+              .distinct(
+                  "job_id",
+                  and(eq("property_key", entry.getKey()), in("value", entry.getValue())),
+                  UUID.class)
+              .into(new ArrayList<>());
+      conditions.add(in(MongoFieldNames.ID, matching));
+    }
   }
 
   private static void appendTagCondition(JobFilter filter, List<Bson> conditions) {
@@ -412,6 +435,7 @@ final class MongoJobQueryOperations {
         MongoFieldNames.TRACE_CONTEXT + ".traceparent", filter.traceCorrelationId(), conditions);
     appendParentJobId(filter, conditions);
     appendTagCondition(filter, conditions);
+    appendPropertyConditions(filter, conditions);
     appendInstantGte(MongoFieldNames.CREATED_AT, filter.createdAfter(), conditions);
     appendInstantLt(MongoFieldNames.CREATED_AT, filter.createdBefore(), conditions);
     appendInstantGte(MongoFieldNames.SCHEDULED_TIME, filter.scheduledAfter(), conditions);
