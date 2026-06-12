@@ -578,6 +578,25 @@ class JobTaskTest {
   }
 
   @Test
+  void requeueForUpgrade_entityInitPath_preservesPersistedAttempts() throws Exception {
+    // A task initialized via the entity path (buffered-entity resubmission) has claim == null but
+    // job != null. requeueForUpgrade must release the job with its persisted attempt count, not 0 —
+    // an upgrade requeue is not a failed attempt and must never reset the count.
+    JobEntity job = createTestJob();
+    job.setAttempts(2);
+    jobTask.init(job);
+    when(jobStore.scheduleJobRetry(any(UUID.class), any(), any(), anyInt())).thenReturn(true);
+
+    java.lang.reflect.Method requeue =
+        JobTask.class.getDeclaredMethod(
+            "requeueForUpgrade", UUID.class, UnsupportedEnvelopeVersionException.class);
+    requeue.setAccessible(true);
+    requeue.invoke(jobTask, JOB_UUID, new UnsupportedEnvelopeVersionException(2, 1));
+
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), any(), any(), eq(2));
+  }
+
+  @Test
   void call_signalDecryptTransientKeyOutage_retriesInsteadOfDlq() {
     // A transient key-provider outage during signal-payload decrypt must stay retryable, not be
     // flattened into a non-retryable IllegalArgumentException that dead-letters a recoverable job.

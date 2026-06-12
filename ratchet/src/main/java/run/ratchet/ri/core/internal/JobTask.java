@@ -543,7 +543,11 @@ public class JobTask implements Callable<Void> {
             + " claim for an upgraded peer. Upgrade this node to drain these rows.",
         jobId, ex.version(), ex.maxSupportedVersion());
     Instant newScheduledTime = effective().instant().plus(UPGRADE_PENDING_BACKOFF);
-    int attempts = claim != null ? claim.attempts() : 0;
+    // A claim-initialized task carries the attempt count on the claim; an entity-initialized one
+    // (buffered-entity resubmission, claim == null) carries it on the job. Reading only the claim
+    // would zero a non-zero persisted count on the entity path, contrary to the preserve-attempts
+    // contract this method documents.
+    int attempts = claim != null ? claim.attempts() : (job != null ? job.getAttempts() : 0);
     try {
       jobStore.scheduleJobRetry(jobId, ex.getMessage(), newScheduledTime, attempts);
     } catch (Throwable t) {
