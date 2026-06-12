@@ -1119,6 +1119,73 @@ class JobTaskTest {
     verify(lifecycleFacade).moveToDlq(eq(job), any(PayloadDecryptionException.class));
   }
 
+  private static final java.util.concurrent.atomic.AtomicReference<String> OBSERVED_ARG =
+      new java.util.concurrent.atomic.AtomicReference<>();
+
+  public static String captureArg(String value) {
+    OBSERVED_ARG.set(value);
+    return "done";
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_consultsArgResolverAndDispatchesPatchedArguments() throws Exception {
+    OBSERVED_ARG.set(null);
+    JsonbTestPayloadSerializer serializer = new JsonbTestPayloadSerializer();
+    // The resolver patches the argument AND tries to redirect the target; only the arguments are
+    // honored — the dispatch target stays pinned to the payload the security gate validated.
+    run.ratchet.spi.PreExecutionArgResolver resolver =
+        (jobId, invocation) ->
+            new run.ratchet.spi.JobInvocation(
+                "com.example.Evil",
+                "evil",
+                invocation.methodDescriptor(),
+                true,
+                List.of("patched"));
+    JobTask resolving =
+        new JobTask(
+            jobStore,
+            resourcePermitService,
+            lifecycleFacade,
+            nodeIdProvider,
+            observabilityFacade,
+            validationFacade,
+            beanResolver,
+            retryPolicy,
+            resilienceStrategy,
+            errorSanitizer,
+            classPolicy,
+            context -> new JBossLoggingJobLogger(context.jobId(), null),
+            new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
+            null,
+            serializer,
+            null,
+            Clock.systemUTC(),
+            resolver);
+
+    JobEntity job = createTestJob();
+    job.setPayload(
+        new JobPayload(
+            JobTaskTest.class.getName(),
+            "captureArg",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            true,
+            List.of("original")));
+    initJobTaskWithDefaultStubs(resolving, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    resolving.call();
+
+    Assertions.assertEquals(
+        "patched", OBSERVED_ARG.get(), "the resolver-patched argument must be dispatched");
+  }
+
   private JobEntity createTestJob() {
     JobEntity job = new JobEntity();
     job.setId(JOB_UUID);
