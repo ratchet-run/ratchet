@@ -91,7 +91,7 @@ class DefaultRecurringSchedulerTest {
   }
 
   @Test
-  void run_failedLeaseRenewalReleasesLeaseAndStopsScheduling() {
+  void run_failedLeaseRenewalReleasesLeaseButKeepsPolling() {
     var executorProvider = mock(ExecutorProvider.class);
     var executor = mock(ScheduledExecutorService.class);
     var scheduledScan = mock(ScheduledFuture.class);
@@ -109,8 +109,10 @@ class DefaultRecurringSchedulerTest {
 
     var lockStore = mock(LockStore.class);
     var lease = new SingletonLease(lockStore, "recurringScheduler", "node-1");
+    // A transient lock-store blip on the renewal — the next cycle would re-acquire cleanly.
     when(lockStore.renewLock("recurringScheduler", Duration.ofMinutes(5), "node-1"))
-        .thenReturn(false);
+        .thenThrow(new RuntimeException("transient lock-store blip"))
+        .thenReturn(true);
     var singletonLeaseService = mock(SingletonLeaseService.class);
     when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofMinutes(5)))
         .thenReturn(Optional.of(lease));
@@ -139,10 +141,12 @@ class DefaultRecurringSchedulerTest {
 
     scheduler.run();
 
+    // The current lease is released and the renewal task cancelled, but the poll loop keeps going:
+    // a transient renewal failure must not permanently stop recurring scheduling on the node.
     verify(lockStore).unlock("recurringScheduler", "node-1");
     verify(renewalTask).cancel(false);
     verify(pollerScheduler, never()).wakeup();
-    verify(executor, never()).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+    verify(executor).schedule(any(Runnable.class), eq(1000L), eq(TimeUnit.MILLISECONDS));
   }
 
   @Test

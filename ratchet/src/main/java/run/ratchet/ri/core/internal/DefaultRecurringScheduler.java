@@ -210,7 +210,9 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
             recurringJobExecutor.process(config.batchLimit(), nodeIdentityProvider.getNodeId());
 
         if (!leaseValid.get()) {
-          reschedule = false;
+          // A renewal failed mid-scan (e.g. a transient lock-store error): abandon this lease but
+          // keep polling so the next cycle re-acquires the lease rather than halting the node.
+          nextDelay = config.minPollMs();
         } else {
           if (processedCount > 0) {
             pollerScheduler.wakeup();
@@ -301,12 +303,10 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
       if (!lease.renew(LEASE_TTL)) {
         log.warnf("RecurringScheduler could not renew singleton lease %s", lease.name());
         leaseValid.set(false);
-        stop();
       }
     } catch (Exception e) {
       log.warnf(e, "RecurringScheduler lease renewal failed for %s", lease.name());
       leaseValid.set(false);
-      stop();
     }
   }
 
