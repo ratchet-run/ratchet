@@ -7,7 +7,7 @@
     <parent>
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <version>0.1.1-SNAPSHOT</version>
     </parent>
 
     <artifactId>ratchet-tck</artifactId>
