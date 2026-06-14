@@ -884,7 +884,11 @@
               <publishingServerId>central</publishingServerId>
               <autoPublish>false</autoPublish>
               <waitUntil>validated</waitUntil>
-              <deploymentName>${project.artifactId}:${project.version}</deploymentName>
+              <!-- Literal artifact id, not ${project.artifactId}: the aggregated upload runs
+                   in the last reactor module's deploy phase, so ${project.artifactId} would
+                   label the whole bundle after whichever module sorts last (e.g.
+                   ratchet-arch-tests) even though that module's jar is excluded. -->
+              <deploymentName>run.ratchet:ratchet:${project.version}</deploymentName>
               <!-- Test/dev infrastructure stays out of the Central bundle. Central artifacts
                    are immutable, so a stray deploy of these could never be undone. Each of
                    these modules also sets maven.deploy.skip=true, which guards the plain
