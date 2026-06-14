@@ -6,7 +6,7 @@
 
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-parent</artifactId>
-  <version>0.1.1-SNAPSHOT</version>
+  <version>0.1.1</version>
   <packaging>pom</packaging>
 
   <name>Ratchet</name>
@@ -73,7 +73,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <!-- Reproducible builds: two builds of the same tag produce identical jar hashes.
          maven-release-plugin refreshes this on each release:prepare. -->
-    <project.build.outputTimestamp>2026-06-14T15:01:47Z</project.build.outputTimestamp>
+    <project.build.outputTimestamp>2026-06-14T15:51:01Z</project.build.outputTimestamp>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.release>17</maven.compiler.release>
