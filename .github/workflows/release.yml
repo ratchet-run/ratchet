@@ -35,7 +35,10 @@ jobs:
           set -euo pipefail
           # The root pom <version> must be -SNAPSHOT (release:prepare rewrites it to
           # the release version and then bumps to the next development iteration).
-          POM_VERSION=$(grep -oE '<version>[^<]+</version>' pom.xml | head -1 | sed 's|<[^>]*>||g')
+          # grep -m1 stops after the first match so it never writes into a closed
+          # pipe; a previous `grep ... | head -1` died with SIGPIPE (broken pipe,
+          # exit 2) under `set -o pipefail` before the version was ever checked.
+          POM_VERSION=$(grep -m1 -oE '<version>[^<]+</version>' pom.xml | sed 's|<[^>]*>||g')
           if [[ ! "$POM_VERSION" =~ -SNAPSHOT$ ]]; then
             echo "::error::pom.xml <version> must end in -SNAPSHOT before release:prepare; got: $POM_VERSION"
             exit 1
