@@ -21,6 +21,7 @@
     <maven.deploy.skip>true</maven.deploy.skip>
     <showcase.server>unconfigured</showcase.server>
     <showcase.db>postgresql</showcase.db>
+    <showcase.db.embedded>true</showcase.db.embedded>
     <showcase.context.path>/</showcase.context.path>
     <showcase.datasource.jndi>java:jboss/datasources/RatchetDS</showcase.datasource.jndi>
     <showcase.http.port>8080</showcase.http.port>
@@ -134,6 +135,7 @@
                 <SHOWCASE_WAR>${project.build.directory}/${project.build.finalName}.war</SHOWCASE_WAR>
                 <SHOWCASE_SERVER>${showcase.server}</SHOWCASE_SERVER>
                 <SHOWCASE_DB>${showcase.db}</SHOWCASE_DB>
+                <SHOWCASE_DB_EMBEDDED>${showcase.db.embedded}</SHOWCASE_DB_EMBEDDED>
                 <SHOWCASE_CONTEXT_PATH>${showcase.context.path}</SHOWCASE_CONTEXT_PATH>
                 <SHOWCASE_DATASOURCE_JNDI>${showcase.datasource.jndi}</SHOWCASE_DATASOURCE_JNDI>
                 <SHOWCASE_HTTP_PORT>${showcase.http.port}</SHOWCASE_HTTP_PORT>

@@ -29,6 +29,18 @@ export RATCHET_RECURRING_STARTUP_GRACE_SECONDS="${RATCHET_RECURRING_STARTUP_GRAC
 export RATCHET_NODE_ID="${RATCHET_NODE_ID:-showcase-${server}-${db}-$$}"
 export TZ="${TZ:-UTC}"
 
+# An explicitly supplied connection target means "use my external database" and
+# turns off the embedded container, whatever SHOWCASE_DB_EMBEDDED says. We record
+# that before applying defaults below, so the unset case can be served by a
+# container we start ourselves.
+embedded_db="${SHOWCASE_DB_EMBEDDED:-true}"
+external_db_configured=false
+case "$db" in
+  postgresql) [[ -n "${POSTGRES_HOST:-}" ]] && external_db_configured=true ;;
+  mysql) [[ -n "${MYSQL_HOST:-}" ]] && external_db_configured=true ;;
+  mongodb) [[ -n "${MONGO_URI:-}" ]] && external_db_configured=true ;;
+esac
+
 postgres_host="${POSTGRES_HOST:-localhost}"
 postgres_port="${POSTGRES_PORT:-5432}"
 postgres_db="${POSTGRES_DB:-ratchet}"
@@ -46,6 +58,113 @@ export MONGO_DATABASE="${MONGO_DATABASE:-ratchet}"
 
 jdbc_dir="$build_dir/showcase-jdbc"
 ds_jndi="${SHOWCASE_DATASOURCE_JNDI:-java:jboss/datasources/RatchetDS}"
+
+# --- Embedded database container -------------------------------------------
+# When no external database is configured, the launcher starts a throwaway
+# container so the whole demo is one Maven command with Docker as the only
+# prerequisite. The container publishes on a random loopback port (so a local
+# Postgres/MySQL/Mongo on the standard port doesn't collide) and is removed on
+# exit. Set SHOWCASE_DB_EMBEDDED=false, or point POSTGRES_HOST/MYSQL_HOST/
+# MONGO_URI at your own database, to opt out.
+db_container_id=""
+
+docker_available() {
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
+}
+
+cleanup_db_container() {
+  if [[ -n "$db_container_id" ]]; then
+    docker rm -f "$db_container_id" >/dev/null 2>&1 || true
+    db_container_id=""
+  fi
+}
+
+# Maps a container's internal port to the host port Docker assigned it.
+published_port() {
+  docker port "$db_container_id" "$1/tcp" 2>/dev/null | head -n 1 | awk -F: '{print $NF}'
+}
+
+wait_for_db_ready() {
+  local probe=("$@")
+  local deadline=$((SECONDS + 60))
+  until docker exec "$db_container_id" "${probe[@]}" >/dev/null 2>&1; do
+    if ! docker ps -q --no-trunc | grep -q "$db_container_id"; then
+      echo "Embedded database container exited before becoming ready." >&2
+      docker logs "$db_container_id" 2>&1 | tail -n 20 >&2 || true
+      exit 1
+    fi
+    if ((SECONDS >= deadline)); then
+      echo "Embedded database did not become ready within 60s." >&2
+      exit 1
+    fi
+    sleep 1
+  done
+}
+
+start_embedded_db() {
+  if ! docker_available; then
+    echo "Docker is required to start the embedded showcase database, but the Docker daemon is not reachable." >&2
+    echo "Start Docker and retry, set SHOWCASE_DB_EMBEDDED=false, or point POSTGRES_HOST/MYSQL_HOST/MONGO_URI at an external database." >&2
+    exit 1
+  fi
+
+  local name="ratchet-showcase-db-$$"
+  echo "Starting embedded $db database (Docker)..."
+  case "$db" in
+    postgresql)
+      db_container_id="$(docker run -d --rm --name "$name" \
+        -e POSTGRES_USER="$postgres_user" \
+        -e POSTGRES_PASSWORD="$postgres_password" \
+        -e POSTGRES_DB="$postgres_db" \
+        -p 127.0.0.1::5432 postgres:16)"
+      wait_for_db_ready pg_isready -U "$postgres_user" -d "$postgres_db"
+      postgres_host="127.0.0.1"
+      postgres_port="$(published_port 5432)"
+      ;;
+    mysql)
+      db_container_id="$(docker run -d --rm --name "$name" \
+        -e MYSQL_ROOT_PASSWORD="root" \
+        -e MYSQL_DATABASE="$mysql_db" \
+        -e MYSQL_USER="$mysql_user" \
+        -e MYSQL_PASSWORD="$mysql_password" \
+        -p 127.0.0.1::3306 mysql:8)"
+      # Probe over TCP as the application user, not `mysqladmin ping`: mysql:8
+      # runs a socket-only temp server during init that answers ping before the
+      # real server, user, and database exist, which would let migration race in
+      # and fail with "Access denied".
+      wait_for_db_ready mysql -h127.0.0.1 -u"$mysql_user" -p"$mysql_password" "$mysql_db" -e "SELECT 1"
+      mysql_host="127.0.0.1"
+      mysql_port="$(published_port 3306)"
+      ;;
+    mongodb)
+      db_container_id="$(docker run -d --rm --name "$name" \
+        -p 127.0.0.1::27017 mongo:7)"
+      wait_for_db_ready mongosh --quiet --eval "db.adminCommand({ping:1})"
+      export MONGO_URI="mongodb://127.0.0.1:$(published_port 27017)"
+      ;;
+    *)
+      echo "Embedded database is not supported for SHOWCASE_DB=$db." >&2
+      exit 1
+      ;;
+  esac
+  echo "Embedded $db ready (container ${db_container_id:0:12})."
+}
+
+maybe_start_embedded_db() {
+  if [[ "$external_db_configured" == "true" ]]; then
+    return
+  fi
+  if [[ "$embedded_db" != "true" ]]; then
+    return
+  fi
+  # Arm cleanup before starting, so a Ctrl-C during the readiness wait still
+  # removes the container. cleanup_db_container is a no-op until the run
+  # succeeds and sets db_container_id.
+  trap cleanup_db_container EXIT
+  trap 'cleanup_db_container; exit 130' INT
+  trap 'cleanup_db_container; exit 143' TERM
+  start_embedded_db
+}
 
 java_major() {
   local java_bin="${JAVA_HOME:+$JAVA_HOME/bin/java}"
@@ -261,6 +380,7 @@ cleanup_wildfly() {
   if [[ -n "$wildfly_cleanup_home" && -n "$wildfly_cleanup_management_port" && -n "$wildfly_cleanup_server_pid" ]]; then
     shutdown_wildfly "$wildfly_cleanup_home" "$wildfly_cleanup_management_port" "$wildfly_cleanup_server_pid"
   fi
+  cleanup_db_container
 }
 
 cleanup_wildfly_int() {
@@ -437,7 +557,11 @@ EOF
   wait_for_showcase_http "$port" "$context"
   local status=0
   wait "$server_pid" || status=$?
-  trap - EXIT INT TERM
+  # Drop the WildFly-specific handlers but keep an EXIT trap so an embedded
+  # database container is still removed when the script finishes. The nulled
+  # cleanup vars below make cleanup_wildfly a no-op for the (now stopped) server.
+  trap cleanup_wildfly EXIT
+  trap - INT TERM
   wildfly_cleanup_home=""
   wildfly_cleanup_management_port=""
   wildfly_cleanup_server_pid=""
@@ -474,7 +598,7 @@ run_glassfish_family() {
     cp "$jdbc_dir"/*.jar "$home/glassfish/domains/domain1/lib/"
   fi
   "$home/bin/asadmin" --port "$admin_port" start-domain domain1
-  trap '"$home/bin/asadmin" --port "$admin_port" stop-domain domain1 >/dev/null 2>&1 || true' EXIT
+  trap '"$home/bin/asadmin" --port "$admin_port" stop-domain domain1 >/dev/null 2>&1 || true; cleanup_db_container' EXIT
   "$home/bin/asadmin" --port "$admin_port" undeploy ratchet-showcase >/dev/null 2>&1 || true
   if [[ "$db" != "mongodb" ]]; then
     "$home/bin/asadmin" --port "$admin_port" delete-jdbc-resource "$ds_jndi" >/dev/null 2>&1 || true
@@ -536,8 +660,12 @@ EOF
 EOF
   } > "$config/server.xml"
   echo "Ratchet Showcase: http://localhost:$http_port$context"
-  exec "$home/bin/server" run "$server_name"
+  # Run in the foreground (not exec) so the script's EXIT/INT/TERM traps still
+  # fire and remove an embedded database container when the server stops.
+  "$home/bin/server" run "$server_name"
 }
+
+maybe_start_embedded_db
 
 case "$server" in
   wildfly)

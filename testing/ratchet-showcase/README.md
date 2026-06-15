@@ -16,16 +16,19 @@ Generated output under `target/` and `.flattened-pom.xml` is ignored and should 
 
 ## Run Locally
 
-The launcher expects an already-running database. Defaults are:
+The only prerequisite is Docker. By default the launcher starts a throwaway
+database container, runs the demo against it, and removes it on exit.
 
-- PostgreSQL: `localhost:5432`, database/user/password `ratchet`
-- MySQL: `localhost:3306`, database/user/password `ratchet`
-- MongoDB: `mongodb://localhost:27017`, database `ratchet`
-
-Example WildFly/PostgreSQL run:
+Build the reactor once so the sibling artifacts are in your local repository:
 
 ```bash
-POSTGRES_PORT=5432 \
+mvn install -DskipTests
+```
+
+Then launch the showcase with a single command — it packages the WAR and runs
+the server, starting (and later removing) its own database:
+
+```bash
 mvn -pl :ratchet-showcase \
   -P wildfly-managed,postgresql \
   -DskipTests \
@@ -33,10 +36,40 @@ mvn -pl :ratchet-showcase \
   -Dshowcase.context.path=/app \
   -Dwildfly.management.port=19993 \
   -Dwildfly.https.port=18446 \
-  exec:exec@run-showcase
+  package exec:exec@run-showcase
 ```
 
-Open `http://127.0.0.1:4176/app/`.
+Open `http://127.0.0.1:4176/app/`. Stop with Ctrl-C; the server and the
+database container both shut down.
+
+> Don't add `-am` to the run command: `exec:exec@run-showcase` would then also
+> fire on the parent reactor module, which has no executable configured, and the
+> build fails. Use `mvn install` (above) to refresh siblings instead.
+
+The embedded container publishes on a random loopback port, so a Postgres,
+MySQL, or Mongo already running on the standard port won't collide.
+
+### Using your own database
+
+Set `-Dshowcase.db.embedded=false` (or `SHOWCASE_DB_EMBEDDED=false`) and point
+the launcher at an existing database. Supplying a connection target also
+disables the embedded container on its own. Connection defaults:
+
+- PostgreSQL: `POSTGRES_HOST=localhost`, `POSTGRES_PORT=5432`, database/user/password `ratchet`
+- MySQL: `MYSQL_HOST=localhost`, `MYSQL_PORT=3306`, database/user/password `ratchet`
+- MongoDB: `MONGO_URI=mongodb://localhost:27017`, database `ratchet`
+
+```bash
+POSTGRES_HOST=db.internal POSTGRES_PORT=5432 \
+mvn -pl :ratchet-showcase \
+  -P wildfly-managed,postgresql \
+  -DskipTests -Dshowcase.http.port=4176 -Dshowcase.context.path=/app \
+  -Dwildfly.management.port=19993 -Dwildfly.https.port=18446 \
+  package exec:exec@run-showcase
+```
+
+If the script is hard-killed (SIGKILL) the cleanup trap can't run; remove any
+stray container with `docker rm -f $(docker ps -q --filter name=ratchet-showcase-db-)`.
 
 The WAR can be packaged for these managed server profiles:
 
