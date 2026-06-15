@@ -81,7 +81,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: tck-conformance-reports
-          path: ratchet-store-*/target/tck-conformance-report.md
+          path: stores/ratchet-store-*/target/tck-conformance-report.md
       - name: Format check
         run: mvn spotless:check -B
 

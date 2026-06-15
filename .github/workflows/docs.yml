@@ -92,9 +92,12 @@ jobs:
           for entry in "mysql:MySQL" "postgresql:PostgreSQL" "mongodb:MongoDB"; do
             store="${entry%%:*}"
             label="${entry##*:}"
-            src="tck-reports/store/ratchet-store-${store}/target/tck-conformance-report.md"
+            # The upload glob strips a common path prefix, so the store dir may
+            # land directly under tck-reports/store or one level deeper; locate
+            # the report by name rather than assuming the intermediate path.
+            src="$(find tck-reports/store -type f -path "*ratchet-store-${store}/target/tck-conformance-report.md" 2>/dev/null | head -1)"
             dst="website/docs/conformance/${store}.md"
-            if [ -f "$src" ]; then
+            if [ -n "$src" ] && [ -f "$src" ]; then
               printf -- '---\nid: %s\ntitle: %s Store Conformance\nsidebar_label: %s Store\n---\n\n' \
                 "$store" "$label" "$label" | cat - "$src" > "$dst"
             fi

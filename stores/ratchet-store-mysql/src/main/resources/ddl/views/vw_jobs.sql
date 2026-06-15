@@ -9,7 +9,7 @@
 --
 -- These views are operator-only — Ratchet itself never reads from them. Apply
 -- once, after the base schema, with:
---   mysql -u <user> -p ratchet < ratchet-store-mysql/src/main/resources/ddl/views/vw_jobs.sql
+--   mysql -u <user> -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/views/vw_jobs.sql
 
 CREATE OR REPLACE VIEW vw_jobs AS
 SELECT

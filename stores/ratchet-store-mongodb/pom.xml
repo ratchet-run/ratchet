@@ -8,11 +8,12 @@
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-parent</artifactId>
         <version>0.1.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>ratchet-store-postgresql</artifactId>
-    <name>Ratchet :: Store PostgreSQL</name>
-    <description>PostgreSQL store implementation for Ratchet</description>
+    <artifactId>ratchet-store-mongodb</artifactId>
+    <name>Ratchet :: Store MongoDB</name>
+    <description>MongoDB store implementation for Ratchet</description>
 
     <dependencies>
         <dependency>
@@ -55,18 +56,12 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>jakarta.transaction</groupId>
-            <artifactId>jakarta.transaction-api</artifactId>
-            <scope>provided</scope>
+            <groupId>org.mongodb</groupId>
+            <artifactId>mongodb-driver-sync</artifactId>
         </dependency>
         <dependency>
             <groupId>org.jboss.logging</groupId>
             <artifactId>jboss-logging</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -75,23 +70,8 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers-postgresql</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers-junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.hibernate.orm</groupId>
-            <artifactId>hibernate-core</artifactId>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -101,37 +81,19 @@
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>2.0.13</version>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-mongodb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <!--
-              Same qualified-export fix as ratchet-store-mysql. See that module's pom.xml for
-              the full explanation.
-            -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>default-testCompile</id>
-                        <goals>
-                            <goal>testCompile</goal>
-                        </goals>
-                        <configuration>
-                            <compilerArgs>
-                                <arg>--add-exports</arg>
-                                <arg>run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</arg>
-                            </compilerArgs>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -139,15 +101,11 @@
                     <systemPropertyVariables>
                         <ratchet.tck.store.name>${project.artifactId}</ratchet.tck.store.name>
                     </systemPropertyVariables>
-                    <argLine>--add-exports run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <configuration>
-                    <argLine>--add-exports run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</argLine>
-                </configuration>
                 <executions>
                     <execution>
                         <goals>

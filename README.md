@@ -125,10 +125,10 @@ SQL stores ship DDL as plain SQL files, with no Flyway dependency or migration l
 
 ```bash
 # PostgreSQL
-psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+psql -d mydb -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 
 # MySQL
-mysql mydb < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+mysql mydb < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ```
 
 For MongoDB, `ratchet-store-mongodb` creates the required collections and indexes at startup.

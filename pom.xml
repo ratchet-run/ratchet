@@ -46,11 +46,11 @@
   <modules>
     <module>ratchet-api</module>
     <module>ratchet</module>
-    <module>ratchet-store-core</module>
     <module>ratchet-encryption</module>
-    <module>ratchet-store-mysql</module>
-    <module>ratchet-store-postgresql</module>
-    <module>ratchet-store-mongodb</module>
+    <module>stores/ratchet-store-core</module>
+    <module>stores/ratchet-store-mysql</module>
+    <module>stores/ratchet-store-postgresql</module>
+    <module>stores/ratchet-store-mongodb</module>
     <module>coordinators/ratchet-coordinator-common</module>
     <module>coordinators/ratchet-coordinator-postgresql</module>
     <module>coordinators/ratchet-coordinator-jms</module>
@@ -774,7 +774,7 @@
                   <footer>Ratchet ${project.version}</footer>
                   <overview>${basedir}/src/main/javadoc/overview.html</overview>
                   <sourcepath>
-                    ${basedir}/ratchet-api/src/main/java:${basedir}/ratchet/src/main/java:${basedir}/ratchet-store-core/src/main/java:${basedir}/ratchet-bom/src/main/java
+                    ${basedir}/ratchet-api/src/main/java:${basedir}/ratchet/src/main/java:${basedir}/stores/ratchet-store-core/src/main/java:${basedir}/ratchet-bom/src/main/java
                   </sourcepath>
                   <excludePackageNames>*.internal:*.impl:*.util</excludePackageNames>
                   <sourceFileExcludes>

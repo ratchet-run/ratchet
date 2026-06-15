@@ -18,10 +18,10 @@ This guide covers problems that surface during deployment and operations. For ge
 
 ```bash
 # PostgreSQL
-psql -U ratchet -d myapp -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+psql -U ratchet -d myapp -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 
 # MySQL
-mysql -u ratchet -p myapp < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+mysql -u ratchet -p myapp < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 
 # MongoDB — collections and indexes are initialized automatically at store startup
 ```

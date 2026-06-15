@@ -8,10 +8,10 @@ exclude:
   - name: AutoCloseableResource
     paths:
       # EntityManager is injected and container-managed by Jakarta Persistence.
-      - ratchet-store-mysql/src/main/java
-      - ratchet-store-postgresql/src/main/java
+      - stores/ratchet-store-mysql/src/main/java
+      - stores/ratchet-store-postgresql/src/main/java
       - testing/ratchet-testsuite/src/main/java/run/ratchet/testsuite/app
-      - ratchet-store-core/src/main/java/run/ratchet/store/converter
+      - stores/ratchet-store-core/src/main/java/run/ratchet/store/converter
       # ExecutorService is used as a test resource
       - testing/ratchet-tck/util/src/main/java/run/ratchet/tck/util/ConcurrentTestRunner.java
       # Jsonb is held as an application-scoped serializer and closed in @PreDestroy.
@@ -31,18 +31,18 @@ exclude:
       - ratchet/src/main/java/run/ratchet/ri/core
       - ratchet/src/main/java/run/ratchet/ri/resilience
       - ratchet/src/main/java/run/ratchet/ri/security
-      - ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobStoreImpl.java
-      - ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobStoreImpl.java
+      - stores/ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobStoreImpl.java
+      - stores/ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobStoreImpl.java
 
   - name: SqlSourceToSinkFlow
     paths:
       # SQL text here is assembled from bundled migrations, fixed dialect templates, or enum-backed
       # query-builder fragments; runtime values are still bound through parameters.
-      - ratchet-store-core/src/main/java/run/ratchet/store/migration/SchemaMigrator.java
-      - ratchet-store-core/src/main/java/run/ratchet/store/util/IsolationCheck.java
-      - ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobQueryOperations.java
-      - ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobQueryOperations.java
-      - ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlStoreContext.java
+      - stores/ratchet-store-core/src/main/java/run/ratchet/store/migration/SchemaMigrator.java
+      - stores/ratchet-store-core/src/main/java/run/ratchet/store/util/IsolationCheck.java
+      - stores/ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobQueryOperations.java
+      - stores/ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobQueryOperations.java
+      - stores/ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlStoreContext.java
       - testing/ratchet-tck/store/src/main/java/run/ratchet/tck/store/JpaContainerFixture.java
 
   - name: BusyWait

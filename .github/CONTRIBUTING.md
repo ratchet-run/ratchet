@@ -23,9 +23,11 @@ Ratchet currently expects:
 
 - `ratchet-api`: public API and SPI contracts
 - `ratchet`: reference implementation
-- `ratchet-store-*`: store implementations
-- `ratchet-testsuite`: managed integration tests
-- `ratchet-tck`: reusable Store / API / Jakarta conformance contract tests
+- `ratchet-encryption`: payload encryption engines
+- `stores/`: store implementations — `ratchet-store-core` plus the MySQL, PostgreSQL, and MongoDB stores
+- `coordinators/`: cluster coordinator implementations (PostgreSQL, JMS, Infinispan, Hazelcast)
+- `observability/`: Micrometer and OpenTelemetry adapters
+- `testing/`: the TCK, managed integration tests, JPMS consumer test, load test harness, coverage aggregation, architecture tests, and showcase
 - `website/`: Docusaurus docs site
 
 ## Local Validation

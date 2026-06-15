@@ -136,14 +136,18 @@ jobs:
           mkdir -p release-assets
           missing=0
           # Every Central-published jar artifact, listed as <dir>:<artifactId>.
-          # Coordinators live under coordinators/, the observability jars under
-          # observability/, and ratchet-tck's five sub-modules under
-          # testing/ratchet-tck/. ratchet-bom and the ratchet-tck aggregator are
-          # pom-packaging (no jar). The test/dev modules are never published.
+          # Stores live under stores/, coordinators under coordinators/, the
+          # observability jars under observability/, and ratchet-tck's five
+          # sub-modules under testing/ratchet-tck/. ratchet-bom and the
+          # ratchet-tck aggregator are pom-packaging (no jar). The test/dev
+          # modules are never published.
           JAR_PATHS=""
-          for m in ratchet-api ratchet ratchet-store-core ratchet-encryption \
-                   ratchet-store-mysql ratchet-store-postgresql ratchet-store-mongodb; do
+          for m in ratchet-api ratchet ratchet-encryption; do
             JAR_PATHS="$JAR_PATHS ${m}:${m}"
+          done
+          for m in ratchet-store-core ratchet-store-mysql \
+                   ratchet-store-postgresql ratchet-store-mongodb; do
+            JAR_PATHS="$JAR_PATHS stores/${m}:${m}"
           done
           for m in ratchet-coordinator-common ratchet-coordinator-postgresql \
                    ratchet-coordinator-jms ratchet-coordinator-infinispan \

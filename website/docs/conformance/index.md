@@ -47,7 +47,7 @@ on `main`.
 
 **Store tier:**
 ```bash
-mvn test -pl :ratchet-store-mysql -am      # generates ratchet-store-mysql/target/tck-conformance-report.md
+mvn test -pl :ratchet-store-mysql -am      # generates stores/ratchet-store-mysql/target/tck-conformance-report.md
 mvn test -pl :ratchet-store-postgresql -am
 mvn test -pl :ratchet-store-mongodb -am
 ```

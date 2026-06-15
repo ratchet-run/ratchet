@@ -34,9 +34,9 @@ import run.ratchet.store.id.UuidV7Factory;
  * @apiNote <b>Internal.</b> This is a test-fixture utility consumed only by the SQL store modules'
  *     own dialect-specific {@code *ExplainPlanCaptureIT} tests, not part of any conformance
  *     contract. It is published as public solely so cross-module test sources (e.g. {@code
- *     ratchet-store-mysql/src/test}, {@code ratchet-store-postgresql/src/test}) can use it.
- *     External consumers MUST NOT depend on it; the API and seeded-data shape may change between
- *     releases without notice.
+ *     stores/ratchet-store-mysql/src/test}, {@code stores/ratchet-store-postgresql/src/test}) can
+ *     use it. External consumers MUST NOT depend on it; the API and seeded-data shape may change
+ *     between releases without notice.
  */
 public final class ExplainPlanTestSupport {
 

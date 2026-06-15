@@ -27,7 +27,7 @@ The views call `BIN_TO_UUID(col)` (no swap flag). The store writes UUIDs in stan
 Apply the views once after schema load:
 
 ```bash
-mysql -u <user> -p ratchet < ratchet-store-mysql/src/main/resources/ddl/views/vw_jobs.sql
+mysql -u <user> -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/views/vw_jobs.sql
 ```
 
 Tools that handle binary IDs correctly (Hibernate, DataGrip's UUID-aware viewer, JDBC `getObject(..., UUID.class)`) can query the underlying tables directly.
