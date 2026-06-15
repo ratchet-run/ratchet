@@ -2,11 +2,7 @@
 
 **Portable, CDI-based job scheduler for Jakarta EE 10/11.**
 
----
-
-Ratchet gives Jakarta EE 10/11 applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience, all without pulling in heavyweight frameworks.
-
-Inject one service, submit a method call, and let Ratchet persist, claim, execute, retry, and observe the work:
+Inject one service, submit a method call, and let Ratchet persist, claim, execute, retry, and observe the work — no heavyweight framework, no proprietary runtime.
 
 ```java
 @ApplicationScoped
@@ -23,42 +19,43 @@ public class OrderService {
 }
 ```
 
+**[Full documentation → ratchet.run](https://ratchet.run/)**
+
 ---
 
-## Features
+## Why Ratchet
 
-| Category | Capabilities |
-|----------|-------------|
-| **Scheduling** | Immediate, delayed, cron-based recurring jobs |
-| **Workflows** | Job chaining, conditional branching, success/failure callbacks |
-| **Signals** | Jobs that wait on a named external signal (an approval gate, a webhook) and resume via `deliverSignal`, targeted or broadcast, with a timeout |
-| **Batching** | In-memory batch builder and streaming batch for large datasets |
-| **Resilience** | Configurable retries with backoff (fixed/exponential), built-in circuit breaker, dead letter queue |
-| **Persistence** | Pluggable store SPI: MySQL, PostgreSQL, and MongoDB out of the box |
-| **Security** | Payload encryption at rest with a pluggable `KeyProvider` (AES-256-GCM or XChaCha20-Poly1305) and a deserialization allowlist |
-| **Observability** | Rich event system (CDI + programmatic), Micrometer metrics adapter, and a read-only `JobQueryService` for job search, history, and queue health |
-| **Concurrency** | Permit-based backpressure, adaptive polling, resource limiting |
-| **Routing** | Per-job thread-mode targeting (`virtual()` / `platform()`) and worker-node tag affinity |
-| **Clustering** | Database-backed multi-node claiming, plus optional push wakeups over PostgreSQL `LISTEN`/`NOTIFY`, JMS, Infinispan, or Hazelcast |
-| **CDI Integration** | Zero-ceremony wiring: inject `JobSchedulerService` and go |
+- **Zero-ceremony CDI.** `@Inject JobSchedulerService` and go. No XML, no scheduler boilerplate, no separate daemon.
+- **Real workflows, not just timers.** Chaining, conditional branching on results, batches, and jobs that park on an external signal until an approval or webhook resumes them.
+- **Resilience built in.** Retries with backoff, a circuit breaker, and a dead-letter queue — no Resilience4j, no Flyway, no extra runtime deps.
+- **Stores you can prove.** MySQL, PostgreSQL, and MongoDB ship out of the box, each verified by a reusable store TCK. Bring your own and run the same conformance suite.
+- **Customizable to the core** — see below.
+- **Portable.** Plain Jakarta EE 10/11. Runs on WildFly, Open Liberty, Payara, GlassFish, and friends.
 
-## Showcase App
+[Full feature tour →](https://ratchet.run/getting-started/introduction)
 
-Ratchet includes `ratchet-showcase`, a runnable Jakarta EE WAR with an order-fulfillment dashboard that demonstrates live workflow chains, conditional fraud-review signals, retries, resource limits, queue health, job details, and Prometheus metrics.
+## Built to be customized
 
-With PostgreSQL running locally, start the WildFly showcase at `/app/`:
+Almost every moving part of Ratchet is an SPI you can swap with a single CDI `@Alternative` bean — no forking, no config files. Override one interface and the engine picks it up at deploy time:
 
-```bash
-POSTGRES_PORT=5432 mvn -pl :ratchet-showcase -P wildfly-managed,postgresql -DskipTests -Dshowcase.http.port=4176 -Dshowcase.context.path=/app -Dwildfly.management.port=19993 -Dwildfly.https.port=18446 exec:exec@run-showcase
+```java
+@Alternative
+@Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION)
+@ApplicationScoped
+public class PaymentRetryPolicy implements RetryPolicy {
+    @Override
+    public boolean shouldRetry(int attempt, Throwable cause) {
+        // Stop early on a hard decline; otherwise let maxRetries decide.
+        return !(cause instanceof PaymentDeclinedException);
+    }
+}
 ```
 
-Then open `http://127.0.0.1:4176/app/`. See [`testing/ratchet-showcase/README.md`](./testing/ratchet-showcase/README.md) for Payara, Open Liberty, GlassFish, MySQL, and MongoDB variants.
+Swap the retry logic, circuit-breaker behavior, polling cadence, thread/executor strategy, payload encryption, key provider, metrics sink, per-job logging, node identity, cluster wakeups, the deserialization allowlist, and more — over **two dozen extension points** in all, each with a sensible default you only replace when you need to.
+
+[SPI extension guide →](https://ratchet.run/advanced/spi-implementation) · [Full SPI reference →](https://ratchet.run/api-reference/spi-interfaces)
 
 ## Quick Start
-
-### 1. Add Dependencies
-
-Import the BOM and pick your store:
 
 ```xml
 <dependencyManagement>
@@ -74,474 +71,99 @@ Import the BOM and pick your store:
 </dependencyManagement>
 
 <dependencies>
-  <!-- Core API -->
-  <dependency>
-    <groupId>run.ratchet</groupId>
-    <artifactId>ratchet-api</artifactId>
-  </dependency>
-
-  <!-- Reference implementation -->
-  <dependency>
-    <groupId>run.ratchet</groupId>
-    <artifactId>ratchet</artifactId>
-  </dependency>
-
-  <!-- Pick your store -->
-  <dependency>
-    <groupId>run.ratchet</groupId>
-    <artifactId>ratchet-store-postgresql</artifactId>
-  </dependency>
-
-  <!-- Optional: Micrometer metrics -->
-  <dependency>
-    <groupId>run.ratchet</groupId>
-    <artifactId>ratchet-micrometer</artifactId>
-  </dependency>
+  <dependency><groupId>run.ratchet</groupId><artifactId>ratchet-api</artifactId></dependency>
+  <dependency><groupId>run.ratchet</groupId><artifactId>ratchet</artifactId></dependency>
+  <!-- Pick your store: ratchet-store-{postgresql,mysql,mongodb} -->
+  <dependency><groupId>run.ratchet</groupId><artifactId>ratchet-store-postgresql</artifactId></dependency>
 </dependencies>
 ```
 
-### 2. Install a `ClassPolicy`
+Then three things before your first job runs:
 
-Ratchet refuses to start until you provide a deserialization allowlist for job payloads. Add a CDI alternative that permits your application's packages:
+1. **Provide a `ClassPolicy`.** Ratchet refuses to start without a deserialization allowlist for job payloads — a security default, not a hurdle. A one-line `@Alternative` bean naming your packages does it.
+2. **Apply the schema.** SQL stores ship plain DDL (`ddl/*-schema.sql`) — apply it however you manage migrations. MongoDB initializes itself.
+3. **Schedule a job.** `scheduler.enqueueNow(() -> work())`, or use the builder for delays, priority, and options.
 
-```java
-@Alternative
-@Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION)
-@ApplicationScoped
-public class AppClassPolicy implements ClassPolicy {
+The [Quick Start guide](https://ratchet.run/getting-started/quickstart) walks through all three with copy-paste snippets.
 
-    @Override
-    public boolean isAllowed(String className) {
-        return className.startsWith("com.example.");
-    }
-}
-```
-
-For demos and tests only, you can bypass the fail-fast startup check with `RatchetOptions.builder().security(s -> s.allowEmptyClassPolicy(true))`, but the default policy still rejects every job target.
-
-### 3. Apply or Initialize the Schema
-
-SQL stores ship DDL as plain SQL files, with no Flyway dependency or migration lock-in. Apply the schema however your project manages DDL:
-
-```bash
-# PostgreSQL
-psql -d mydb -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
-
-# MySQL
-mysql mydb < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
-```
-
-For MongoDB, `ratchet-store-mongodb` creates the required collections and indexes at startup.
-
-### 4. Schedule Your First Job
-
-The opening example shows fire-and-forget scheduling with `enqueueNow`. To delay a job or tune its options, use the builder form:
+## A taste of the API
 
 ```java
-// Run 30 minutes from now, at low priority
-scheduler.schedule(Duration.ofMinutes(30), () -> sendReminder(order.getId()))
-    .withPriority(JobPriority.LOW)
-    .submit();
-```
-
-> Job IDs are UUIDv7 values (`java.util.UUID`). The factory generates
-> time-ordered IDs without operational coordination, so no node-ID knob
-> is required.
-
-## Usage Guide
-
-### Job Chaining and Workflows
-
-Build multi-step workflows with conditional branching:
-
-```java
-scheduler.enqueue(() -> validatePayment(orderId))
-    .thenOnSuccess(() -> fulfillOrder(orderId))
-    .thenOnFailure(() -> notifyPaymentFailure(orderId))
-    .withMaxRetries(3)
-    .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
-    .submit();
-```
-
-Advanced workflows can branch on the result of previous steps:
-
-```java
-scheduler.enqueue(() -> riskService.assessRisk(applicationId))
-    .whenResult(RiskConditions::isLowRisk, () -> autoApprove(applicationId))
+// Multi-step workflow with conditional branching
+scheduler.enqueue(() -> riskService.assess(applicationId))
+    .whenResult(RiskConditions::isLowRisk,  () -> autoApprove(applicationId))
     .whenResult(RiskConditions::isHighRisk, () -> manualReview(applicationId))
-    .thenOnFailure(() -> escalateToManager(applicationId))
-    .submit();
-```
-
-### Recurring Jobs
-
-Use the `@Recurring` annotation for declarative cron scheduling:
-
-```java
-@ApplicationScoped
-public class MaintenanceService {
-
-    @Recurring(cron = "0 0 2 * * ?", name = "Nightly Cleanup")
-    public void performCleanup() {
-        // Runs at 2 AM daily (UTC)
-    }
-
-    @Recurring(
-        cron = "0 */15 * * * ?",
-        zone = "America/New_York",
-        priority = 8,
-        maxRetries = 5,
-        backoffPolicy = BackoffPolicy.EXPONENTIAL,
-        tags = {"health", "monitoring"}
-    )
-    public void healthCheck(JobContext context) {
-        context.logger().info("Running health check");
-    }
-}
-```
-
-Or schedule programmatically:
-
-```java
-scheduler.scheduleRecurring(
-    "0 */5 * * * ?",
-    ZoneId.of("UTC"),
-    () -> syncExternalData()
-).withTags(List.of("sync")).submit();
-```
-
-### Batch Processing
-
-Process collections in parallel with progress tracking:
-
-```java
-// In-memory batch
-scheduler.enqueueBatch("process-invoices")
-    .forEach(List.of(invoice1, invoice2, invoice3), inv -> processInvoice(inv))
+    .thenOnFailure(() -> escalate(applicationId))
     .submit();
 
-// Streaming batch for large datasets
-scheduler.<Invoice>streamingBatch("import-invoices")
-    .fromStream(invoiceStream)
-    .process(invoice -> importInvoice(invoice))
-    .withChunkSize(100)
-    .start();
-```
+// Declarative cron scheduling
+@Recurring(cron = "0 0 2 * * ?", name = "Nightly Cleanup")
+public void performCleanup() { /* runs at 2 AM UTC */ }
 
-### Waiting on External Signals
-
-Park a job until something outside the scheduler lets it continue, like an operator approval or an inbound webhook. The job holds in `WAITING` until its signal arrives or the timeout fires:
-
-```java
-// The shipment waits for an operator to approve the order, for up to 24 hours.
+// Park a job until an external signal arrives (or it times out)
 scheduler.enqueue(() -> shipOrder(orderId))
     .awaitSignal("order:" + orderId + ":approved", Duration.ofHours(24))
     .submit();
 ```
 
-Deliver it from a REST endpoint, an admin action, or another job. Target one waiting job by id, or broadcast to every job parked on the key, carrying an approval or rejection:
+More — batches, callbacks, encrypted payloads, event observation, job control:
+[Workflows](https://ratchet.run/concepts/workflows) · [Recurring jobs](https://ratchet.run/concepts/scheduling) · [Signals](https://ratchet.run/concepts/job-lifecycle) · [Batches](https://ratchet.run/concepts/batches) · [Circuit breakers](https://ratchet.run/advanced/circuit-breakers) · [Payload encryption](https://ratchet.run/advanced/payload-encryption) · [API reference](https://ratchet.run/api-reference/overview)
 
-```java
-scheduler.deliverSignal(
-    "order:" + orderId + ":approved",
-    SignalDecision.approved(approverId));
-```
+## Showcase App
 
-The resumed job reads whatever the signal carried via `JobContext.signalPayload(...)`.
-
-### Circuit Breaker Protection
-
-Protect external service calls with the built-in circuit breaker, which needs no Resilience4j:
-
-```java
-@CircuitBreakerProtected(
-    service = "payment-gateway",
-    profile = CircuitBreakerProfile.EXTERNAL_API
-)
-public PaymentResult processPayment(PaymentRequest request) {
-    return gateway.charge(request);
-}
-```
-
-### Encrypting Sensitive Payloads
-
-Encrypt job parameters at rest with authenticated encryption. Add the `ratchet-encryption` module, supply key material through the environment, and switch encryption on. With keys configured, the bundled AES-256-GCM engine and key provider are wired up for you:
-
-```bash
-# Comma-separated keyId:base64Key entries; the current key is the write key.
-export RATCHET_ENCRYPTION_KEYS="2026-06:$(openssl rand -base64 32)"
-```
-
-```java
-// Encrypt every job's payload and result across the deployment...
-RatchetOptions.builder()
-    .encryption(e -> e.enabled(true))
-    .build();
-```
-
-Or leave the global switch off and opt in per job:
-
-```java
-scheduler.enqueue(() -> chargeCard(cardToken))
-    .withEncryptedPayload()
-    .submit();
-```
-
-Encryption covers the protected surfaces, the job payload and its result, while routing and bookkeeping columns (target class, business key, timing) stay queryable. If a job asks for encryption but no engine and key are installed, it fails when it is submitted rather than silently persisting unprotected data. Enabling the global switch with nothing installed fails the node at startup instead. To back keys with a KMS instead of the environment, supply your own `KeyProvider` and `PayloadEncryption` beans. The Payload encryption guide on the docs site covers that path, key rotation, and exactly what is and isn't protected.
-
-### Event Observation
-
-Monitor job lifecycle via CDI observers or programmatic listeners:
-
-```java
-// CDI observer
-public void onJobFailed(@Observes JobFailedEvent event) {
-    log.error("Job " + event.getJobId() + " failed: " + event.getErrorMessage());
-    alerting.notify(event);
-}
-
-// Programmatic listener
-scheduler.addEventListener(event -> {
-    if (event instanceof PerformanceMetricsEvent metrics) {
-        dashboard.update(metrics);
-    }
-});
-```
-
-### Job Control
-
-Manage running jobs at runtime:
-
-```java
-JobHandle handle = scheduler.enqueue(() -> longRunningTask())
-    .withTimeout(Duration.ofMinutes(30))
-    .withIdempotencyKey("import-2024-q4")
-    .withBusinessKey("quarterly-import")
-    .withTags("import", "finance")
-    .submit();
-
-UUID jobId = handle.id();
-
-scheduler.pauseJob(jobId);    // Pause a pending or failed job
-scheduler.resumeJob(jobId);   // Resume a paused job
-scheduler.cancelJob(jobId);   // Cancel a job
-scheduler.retryJob(jobId);    // Retry a failed job (resets to PENDING)
-```
-
-### Callbacks
-
-Attach success and failure handlers:
-
-```java
-scheduler.enqueue(() -> generateReport(reportId))
-    .onSuccess(ctx -> notifyUser(ctx.param("email"), "Report ready"))
-    .onFailure((ctx, error) -> log.error("Report " + reportId + " failed", error))
-    .withParam("email", user.getEmail())
-    .submit();
-```
+`ratchet-showcase` is a runnable Jakarta EE WAR with an order-fulfillment dashboard demonstrating live workflow chains, conditional fraud-review signals, retries, resource limits, queue health, and Prometheus metrics. See [`testing/ratchet-showcase/README.md`](./testing/ratchet-showcase/README.md) to run it on WildFly, Payara, Open Liberty, or GlassFish against PostgreSQL, MySQL, or MongoDB.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
   app["Your Application"]
-  inject["@Inject JobSchedulerService"]
-  recurring["@Recurring methods"]
+  api["ratchet-api<br/>JobSchedulerService, JobBuilder, events, annotations, SPI"]
+  ri["ratchet<br/>Poller, JobTask, CircuitBreaker, RetryEngine, RecurringScheduler, CDI wiring"]
+  store["ratchet-store-core<br/>Entities + composed JobStore SPI"]
+  mysql["ratchet-store-mysql"]
+  postgres["ratchet-store-postgresql"]
+  mongo["ratchet-store-mongodb"]
 
-  api["ratchet-api<br/>JobSchedulerService, JobBuilder, events,<br/>annotations, SPI interfaces"]
-  ri["ratchet<br/>DefaultJobSchedulerService, Poller, JobTask,<br/>CircuitBreaker, RetryEngine, RecurringScheduler, CDI wiring"]
-  store["ratchet-store-core<br/>Entities and composed store SPI -> JobStore"]
-
-  mysql["ratchet-store-mysql<br/>MySQL"]
-  postgres["ratchet-store-postgresql<br/>PostgreSQL"]
-  mongo["ratchet-store-mongodb<br/>MongoDB"]
-
-  app --> inject
-  app --> recurring
-  inject --> api
-  recurring --> api
-  api --> ri
-  ri --> store
-  store --> mysql
-  store --> postgres
-  store --> mongo
+  app --> api --> ri --> store
+  store --> mysql & postgres & mongo
 ```
 
-### Module Overview
+Pluggable stores, optional cluster coordinators (PostgreSQL `LISTEN`/`NOTIFY`, JMS, Infinispan, Hazelcast), and reference encryption/metrics modules round out the reactor. [Module overview & deployment topology →](https://ratchet.run/deployment/overview)
 
-| Module | Purpose | Dependencies |
-|--------|---------|-------------|
-| `ratchet-api` | Public API, annotations, events, SPI interfaces | Jakarta CDI / Interceptors APIs (provided) |
-| `ratchet` | Core engine: polling, execution, retry, circuit breaker, CDI wiring | ratchet-api, ratchet-store-core, ASM, cron-utils, JBoss Logging; Jakarta EE APIs provided by the runtime |
-| `ratchet-store-core` | Persistence abstractions: entities and composed `JobStore` SPI | ratchet-api, Jakarta Persistence / JSON APIs |
-| `ratchet-store-mysql` | MySQL store implementation with optimized DDL | ratchet-store-core |
-| `ratchet-store-postgresql` | PostgreSQL store with partial indexes and JSONB | ratchet-store-core |
-| `ratchet-store-mongodb` | MongoDB document store implementation | ratchet-store-core |
-| `ratchet-coordinator-common` | Shared abstractions for pluggable `ClusterCoordinator` implementations | ratchet-api |
-| `ratchet-coordinator-postgresql` | PostgreSQL `LISTEN`/`NOTIFY`-backed cross-node wakeups for low-latency CRITICAL/immediate jobs | ratchet-coordinator-common, PostgreSQL JDBC driver |
-| `ratchet-coordinator-jms` | JMS-topic-backed cross-node wakeups for deployments that already run a JMS broker | ratchet-coordinator-common, Jakarta Messaging API (provided) |
-| `ratchet-coordinator-infinispan` | Infinispan-clustered-cache wakeup notifications for WildFly / Quarkus deployments | ratchet-coordinator-common, Infinispan API (provided) |
-| `ratchet-coordinator-hazelcast` | Hazelcast topic-backed wakeup notifications for Hazelcast clusters | ratchet-coordinator-common, Hazelcast client (provided) |
-| `ratchet-encryption` | Reference payload-encryption engines (AES-256-GCM, XChaCha20-Poly1305) and a `SecretKeyProvider` | ratchet-api |
-| `ratchet-micrometer` | Micrometer metrics adapter | ratchet-api, Micrometer |
-| `ratchet-otel` | OpenTelemetry-based `TracingCollector` implementation (incubating; not yet in the BOM) | ratchet-api, OpenTelemetry API |
-| `ratchet-showcase` | Runnable order-fulfillment dashboard demonstrating workflows, signals, retries, resource limits, and Micrometer metrics | ratchet, store modules, ratchet-micrometer, Jakarta EE Web APIs |
-| `ratchet-tck` | Aggregator (pom-packaging) for the four TCK submodules below | — |
-| `ratchet-tck-util` | JUnit-only helpers shared across TCK modules | JUnit 5 |
-| `ratchet-tck-store` | Store SPI conformance: CRUD, claiming, status transitions, archiving, batches, locks | ratchet-store-core, ratchet-tck-util, JUnit 5 |
-| `ratchet-tck-api` | Public-API conformance: submit / cancel / retry / idempotency / workflow / delayed scheduling. Container-free, pure-JVM JUnit | ratchet-api, ratchet-tck-util, JUnit 5 |
-| `ratchet-tck-jakarta` | Jakarta-EE conformance: CDI injection, CDI events, JTA enqueue (Arquillian-driven) | ratchet-tck-api, Jakarta CDI / Transaction API, Arquillian |
-| `ratchet-bom` | Bill of Materials for version alignment | — |
+## Documentation
 
-### SPI Extension Points
-
-Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLICATION)` bean for any of these interfaces:
-
-| SPI Interface | Purpose | Default |
-|---------------|---------|---------|
-| `RetryPolicy` | Custom retry/no-retry decisions | Defers to `maxRetries` |
-| `ResilienceStrategy` | Circuit breaker behavior | Built-in 3-state machine |
-| `ClassPolicy` | Security: which classes can be deserialized | `PackagePrefixClassPolicy` with an empty allowlist; startup fails fast until you provide an override |
-| `JobAuthorizationPolicy` | Authorization: gate create/cancel/pause/resume/retry/deliver-signal and read access (incubating) | `PermitAllJobAuthorizationPolicy` (permit all) |
-| `ErrorSanitizer` | Scrub sensitive data from error messages | `DefaultErrorSanitizer` |
-| `PayloadEncryption` | Authenticated-encryption engine for payloads at rest | Reference AES-256-GCM / XChaCha20-Poly1305 in `ratchet-encryption`; inactive until a `KeyProvider` is installed |
-| `KeyProvider` | Encryption key storage, active-key selection, and rotation | None; required when encryption is enabled. `SecretKeyProvider` ships in `ratchet-encryption` |
-| `RatchetOptions` | Required runtime options bean; deployment fails without a CDI producer | Application-provided via `@Produces`; use `RatchetOptionsFactory.fromEnvironment()` for env-driven configuration |
-| `RatchetConfigSource` | Platform config overlay passed to `RatchetOptionsFactory.fromEnvironment(...)` | Optional |
-| `ExecutionTuningProvider` | Per-execution-type concurrency and virtual-thread limits | Config-backed defaults |
-| `PollingStrategyProvider` | Poll cadence and adaptive backoff | Built-in adaptive strategy |
-| `JobInvocationResolver` | Method reference extraction from submitted callbacks | ASM bytecode analysis |
-| `ResultPersistenceStrategy` | Job return-value serialization | JSON metadata with a size cap |
-| `JobLoggerFactory` | Per-job job-scoped logging | JBoss Logging-backed logger |
-| `CircuitBreakerConfigProvider` | Built-in breaker enablement and thresholds | Config-backed profile settings |
-| `SchedulerLifecycleHook` | Scheduler startup/shutdown hooks | No hooks |
-| `ClusterCoordinator` | Distributed wakeup notifications | `NoOpClusterCoordinator`; pluggable PostgreSQL / JMS / Infinispan / Hazelcast implementations ship in the BOM under `ratchet-coordinator-*` |
-| `StartupCoordinator` | Destructive startup work gated by store-backed leases | `StoreBackedStartupCoordinator` |
-| `MetricsCollector` | Metrics sink (counters, gauges, timers) | No-op |
-| `BeanResolver` | Bean instantiation strategy | CDI `Instance<T>` |
-| `ExecutorProvider` | Thread pool / virtual thread configuration | Jakarta Concurrency managed executors |
-| `RatchetEntityManagerProvider` | SQL store `EntityManager` binding | Unnamed `@PersistenceContext` |
-| `NodeIdentityProvider` | Node identification in clusters | Hostname-based |
-| `NodeTagAffinityProvider` | Restrict which jobs a worker node claims, by tag | No filter; every node claims any job |
-| `JobLogger` | Per-job job-scoped logging facade | Created per execution by `JobLoggerFactory` |
-
-### Custom Store Implementation
-
-Implement the `JobStore` interface and validate your implementation using the TCK:
-
-```java
-// In your test module
-public class MyCustomStoreTest extends AbstractJobCrudStoreContract {
-    @Override
-    public JobStore store() {
-        return new MyCustomStore(dataSource);
-    }
-
-    @Override
-    public JobEntity newPendingJob() { /* create a PENDING JobEntity */ }
-
-    @Override
-    public JobEntity newBatchParentJob() { /* create a batch parent JobEntity */ }
-
-    @Override
-    public void cleanupStore() { /* clear test data */ }
-}
-```
-
-Ratchet uses tiered conformance. Each TCK submodule earns a distinct compatibility label:
-
-- **Ratchet Store Compatible.** Passes `ratchet-tck-store` against a custom `JobStore` (CRUD, claiming, status transitions, archiving, execution tracking, batches, locks).
-- **Ratchet API Compatible.** Passes `ratchet-tck-api` against a custom `JobSchedulerService` implementation. Pure-JVM JUnit, no container required. Covers submit / cancel / retry / idempotency / simple workflow; delayed-scheduling contracts skip when no `TestClock` is provided.
-- **Ratchet Jakarta Runtime Compatible.** Passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE 10/11 container, typically via Arquillian.
-- **Ratchet RI Verified.** The project's reference-implementation tests pass on a named runtime / database matrix. This is implementation-specific and lives in `ratchet-testsuite`.
-
-## Production Checklist
-
-Before deploying Ratchet to a production-shaped environment, work through this checklist. Each item is a footgun that has bitten someone, somewhere.
-
-### Required
-
-- [ ] **Configure `ClassPolicy`.** Out of the box, Ratchet ships a deny-all `PackagePrefixClassPolicy()`. The CDI producer **refuses to start** with an empty allowlist (`jakarta.enterprise.inject.spi.DeploymentException`). Provide your own `@Alternative @Priority` bean naming the package prefixes your application uses for job targets:
-  ```java
-  @Produces
-  @Alternative
-  @Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION)
-  @ApplicationScoped
-  public ClassPolicy myClassPolicy() {
-    return new PackagePrefixClassPolicy(Set.of("com.acme.jobs."));
-  }
-  ```
-  A hardcoded denylist (`Runtime`, `ProcessBuilder`, `javax.script`, reflection, JDK internals) blocks well-known RCE gadgets regardless of allowlist content. To opt out of the fail-fast guard for demos and tests, set `RatchetOptions.security().allowEmptyClassPolicy(true)`.
-
-- [ ] **Apply or initialize the schema.** SQL stores ship DDL as plain SQL files, with no Flyway lock-in. Apply once per database before starting any node. See `ratchet-store-{mysql,postgresql}/src/main/resources/ddl/`. MongoDB collections and indexes are initialized by `ratchet-store-mongodb` at startup.
-
-- [ ] **Use the store-specific UUID wiring.** PostgreSQL stores UUIDv7 IDs as native `uuid`. MySQL stores them as `BINARY(16)` and production persistence units must include `META-INF/orm-mysql.xml` from `ratchet-store-mysql` so non-Hibernate JPA providers route UUID fields through the store-local converter. MongoDB clients must use `UuidRepresentation.STANDARD`; prefer `MongoClientFactory.create(...)` or configure the supplied client explicitly.
-
-- [ ] **Verify `READ COMMITTED` isolation.** Ratchet's claim/poll path assumes statement-level snapshotting. The default on most servers is correct; verify with `SELECT @@tx_isolation` (MySQL) or `SHOW default_transaction_isolation` (Postgres).
-
-### Multi-node deployments
-
-- [ ] **Decide whether you need cross-node wakeups.** Multi-node job claiming and recurring-scheduler singleton execution are already database-backed. Add a real `ClusterCoordinator` only if you want low-latency wakeups across nodes for CRITICAL or immediate jobs.
-
-- [ ] **Keep the startup cleanup lease conservative if you override `StartupCoordinator`.** The default `StoreBackedStartupCoordinator` uses a store-backed lease so only one node performs destructive recurring-annotation cleanup during startup.
-
-### Operational
-
-- [ ] **Configure a `MeterRegistry`.** Add `ratchet-micrometer` to your classpath for drop-in metrics; Ratchet provides a `SimpleMeterRegistry` by default. For production, override with a real backend (Prometheus, Datadog, OpenTelemetry):
-  ```java
-  @Produces
-  @Alternative
-  @Priority(2000)
-  @ApplicationScoped
-  public MeterRegistry prometheusRegistry() {
-    return new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
-  }
-  ```
-
-- [ ] **Plan `scheduler_job_log` retention if you wire job-log persistence.** The default logger writes through JBoss Logging and publishes `JobLogLine` events, but database persistence of those events is an application integration choice. If you persist them, combine purging with your database's native partitioning strategy for high-volume installs.
-
-- [ ] **Cap job result size if your jobs return large objects.** Default cap is 64KB (`ratchet.jobs.max-result-bytes`); larger results are truncated to a marker JSON noting the original size. Tune via `-D` or store large results out-of-band in object storage.
-
-### Known limitations (0.1.0-alpha)
-
-- **Per-job log persistence is not automatic.** `JobContext.logger()` is backed by JBoss Logging by default and publishes `JobLogLine` events. Persist those events only if your application wants database-backed per-job traces.
-- **`@Incubating` SPIs may evolve.** Method names, parameters, and semantics on any interface marked `@Incubating` are subject to change between alpha releases.
+| Start here | Go deeper |
+|------------|-----------|
+| [Introduction](https://ratchet.run/getting-started/introduction) | [Core concepts](https://ratchet.run/concepts/overview) |
+| [Quick Start](https://ratchet.run/getting-started/quickstart) | [SPI & customization](https://ratchet.run/advanced/spi-implementation) |
+| [Installation](https://ratchet.run/getting-started/installation) | [Deployment & clustering](https://ratchet.run/deployment/overview) |
+| [API reference](https://ratchet.run/api-reference/overview) | [Troubleshooting](https://ratchet.run/troubleshooting/overview) |
 
 ## Requirements
 
-- **Java**: 17+
-- **Jakarta EE**: 10/11 (CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1)
-- **Runtime**: Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8, etc.); plain CDI/test deployments can opt into `StandaloneExecutorProvider`
-- **Database**: MySQL 8+, PostgreSQL 14+, or MongoDB 6+
+- **Java** 17+
+- **Jakarta EE** 10/11 (CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Concurrency 3.0/3.1)
+- **Runtime** Jakarta EE 10/11 server with managed executors (WildFly, Open Liberty, Payara, GlassFish 8, …); plain CDI/test deployments can opt into `StandaloneExecutorProvider`
+- **Database** MySQL 8+, PostgreSQL 14+, or MongoDB 6+
 
 ## Building from Source
 
 ```bash
-# Compile
-mvn clean compile
-
-# Run unit tests
-mvn clean test
-
-# Run unit + integration tests (requires Docker for Testcontainers)
-mvn clean verify
-
-# Auto-format code (Google Java Format)
-mvn spotless:apply
+mvn clean compile        # compile all modules
+mvn clean test           # unit tests
+mvn clean verify         # unit + integration tests (requires Docker for Testcontainers)
+mvn spotless:apply       # auto-format (Google Java Format)
 ```
 
 ## Project Status
 
-Ratchet is currently in **0.1.0-SNAPSHOT**. The API is stabilizing, but interfaces marked `@Incubating` may change. Feedback and contributions are welcome.
+Ratchet is in **0.1.0-SNAPSHOT**. The API is stabilizing; interfaces marked `@Incubating` may change between alpha releases. Feedback and contributions are welcome.
 
 ## Community
 
-- [Contributing guide](./.github/CONTRIBUTING.md)
-- [Support](./.github/SUPPORT.md)
-- [Security policy](./.github/SECURITY.md)
-- [Code of conduct](./.github/CODE_OF_CONDUCT.md)
-- [Issues](https://github.com/ratchet-run/ratchet/issues)
-- [Discussions](https://github.com/ratchet-run/ratchet/discussions)
+- [Contributing guide](./.github/CONTRIBUTING.md) · [Support](./.github/SUPPORT.md) · [Security policy](./.github/SECURITY.md) · [Code of conduct](./.github/CODE_OF_CONDUCT.md)
+- [Issues](https://github.com/ratchet-run/ratchet/issues) · [Discussions](https://github.com/ratchet-run/ratchet/discussions)
 
 ## License
 
