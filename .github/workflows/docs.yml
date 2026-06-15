@@ -131,7 +131,7 @@ jobs:
             db_label="${DB_LABELS[$database]:-$database}"
             combo="${server}-${database}"
             for tier in api jakarta; do
-              src="${dir}ratchet-testsuite/target/tck-${tier}-conformance-report.md"
+              src="${dir}testing/ratchet-testsuite/target/tck-${tier}-conformance-report.md"
               dst="website/docs/conformance/${tier}/${combo}.md"
               if [ -f "$src" ]; then
                 printf -- '---\nid: %s\ntitle: "%s / %s"\nsidebar_label: "%s / %s"\n---\n\n' \

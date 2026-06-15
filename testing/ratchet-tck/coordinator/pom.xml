@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-parent</artifactId>
+        <version>0.1.1-SNAPSHOT</version>
+        <relativePath>../../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>ratchet-tck-coordinator</artifactId>
+    <name>Ratchet :: TCK :: Coordinator</name>
+    <description>ClusterCoordinator-SPI conformance contracts for Ratchet coordinator implementations</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>run.ratchet</groupId>
+            <artifactId>ratchet-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>run.ratchet</groupId>
+            <artifactId>ratchet-tck-util</artifactId>
+        </dependency>
+        <!-- ratchet-api declares `requires transitive jakarta.cdi` (driven by @CircuitBreakerProtected),
+             so the module graph needs the CDI API present to resolve. Provided scope: this tier never
+             touches CDI types itself. -->
+        <dependency>
+            <groupId>jakarta.enterprise</groupId>
+            <artifactId>jakarta.enterprise.cdi-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <version>${junit.platform.version}</version>
+            <scope>compile</scope>
+        </dependency>
+    </dependencies>
+</project>

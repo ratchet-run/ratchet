@@ -160,19 +160,19 @@ jobs:
       - name: Integration tests (${{ matrix.server }} / ${{ matrix.database }})
         # spotbugs.skip: the SpotBugs gate is bound to verify but runs once in the
         # dedicated spotbugs job — skip it here so it isn't re-analyzed per matrix cell.
-        run: mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -pl ratchet-testsuite,ratchet-coverage -am
+        run: mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -pl :ratchet-testsuite,:ratchet-coverage -am
       - name: Upload coverage report
         if: matrix.server == 'wildfly-managed' && matrix.database == 'mysql'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-report
-          path: ratchet-coverage/target/site/jacoco-aggregate/
+          path: testing/ratchet-coverage/target/site/jacoco-aggregate/
       - name: Upload TCK conformance reports
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: tck-conformance-reports-${{ matrix.server }}-${{ matrix.database }}
-          path: ratchet-testsuite/target/tck-*-conformance-report.md
+          path: testing/ratchet-testsuite/target/tck-*-conformance-report.md
 
   # Eclipse Dash vets every dependency's license against the Eclipse Foundation
   # approved-license list. It is SPDX-aware — it resolves dual licenses and the

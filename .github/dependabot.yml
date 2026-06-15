@@ -28,23 +28,23 @@ updates:
       - /ratchet-store-mysql
       - /ratchet-store-postgresql
       - /ratchet-store-mongodb
-      - /ratchet-coordinator-common
-      - /ratchet-coordinator-postgresql
-      - /ratchet-coordinator-jms
-      - /ratchet-coordinator-infinispan
-      - /ratchet-coordinator-hazelcast
-      - /ratchet-tck
-      - /ratchet-tck/util
-      - /ratchet-tck/store
-      - /ratchet-tck/api
-      - /ratchet-tck/jakarta
-      - /ratchet-testsuite
-      - /ratchet-testsuite-jpms
-      - /ratchet-loadtest
-      - /ratchet-micrometer
-      - /ratchet-otel
+      - /coordinators/ratchet-coordinator-common
+      - /coordinators/ratchet-coordinator-postgresql
+      - /coordinators/ratchet-coordinator-jms
+      - /coordinators/ratchet-coordinator-infinispan
+      - /coordinators/ratchet-coordinator-hazelcast
+      - /testing/ratchet-tck
+      - /testing/ratchet-tck/util
+      - /testing/ratchet-tck/store
+      - /testing/ratchet-tck/api
+      - /testing/ratchet-tck/jakarta
+      - /testing/ratchet-testsuite
+      - /testing/ratchet-testsuite-jpms
+      - /testing/ratchet-loadtest
+      - /observability/ratchet-micrometer
+      - /observability/ratchet-otel
       - /ratchet-bom
-      - /ratchet-coverage
+      - /testing/ratchet-coverage
     schedule:
       interval: daily
     open-pull-requests-limit: 20

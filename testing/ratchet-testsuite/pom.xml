@@ -1,0 +1,1210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--suppress MavenModelInspection -->
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-parent</artifactId>
+    <version>0.1.1-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>ratchet-testsuite</artifactId>
+  <packaging>war</packaging>
+  <name>Ratchet :: Test Suite</name>
+  <description>Integration test suite for Ratchet</description>
+
+  <properties>
+    <!-- Test/dev infrastructure: never published. Guards plain mvn deploy; Central is additionally gated by excludeArtifacts in the central profile. -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+    <skipITs>true</skipITs>
+    <jacoco.it.argLine></jacoco.it.argLine>
+    <openliberty.server.config.dir>${project.build.directory}/openliberty/wlp/usr/servers/defaultServer</openliberty.server.config.dir>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-core</artifactId>
+    </dependency>
+
+    <!-- mongodb: needed for TestMongoProducer -->
+    <dependency>
+      <groupId>org.mongodb</groupId>
+      <artifactId>mongodb-driver-sync</artifactId>
+    </dependency>
+    <!--
+      MongoClientFactory is the supported construction path that enforces
+      UuidRepresentation.STANDARD. Declared scope=provided so TestMongoProducer
+      compiles regardless of active DB profile, but ratchet-store-mongodb does
+      NOT land in the test war's WEB-INF/lib under non-mongodb profiles —
+      otherwise both MongoJobStoreImpl and MysqlJobStoreImpl ship together and
+      Weld trips WELD-001409 on every JobCrudStore injection (Payara/strict;
+      WildFly happens to tolerate it). The mongodb profile re-declares the
+      dependency at default scope so it ships with the war when active.
+    -->
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-mongodb</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>jakarta.platform</groupId>
+      <artifactId>jakarta.jakartaee-web-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- needed at compile time for MdcCapturingJob -->
+    <dependency>
+      <groupId>org.jboss.logging</groupId>
+      <artifactId>jboss-logging</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-jakarta</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-micrometer</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-otel</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.arquillian.junit5</groupId>
+      <artifactId>arquillian-junit5-container</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.jboss.shrinkwrap.resolver</groupId>
+      <artifactId>shrinkwrap-resolver-depchain</artifactId>
+      <type>pom</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.awaitility</groupId>
+      <artifactId>awaitility</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.cronutils</groupId>
+      <artifactId>cron-utils</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mysql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mongodb</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <testResources>
+      <testResource>
+        <directory>src/test/resources</directory>
+        <filtering>true</filtering>
+      </testResource>
+    </testResources>
+    <pluginManagement>
+      <plugins>
+        <!--
+          EE 11-only test source root (VirtualThreadExecutionIT). Added only when an
+          EE 11 server profile (wildfly-ee11-managed / glassfish-managed) switches this
+          plugin on. EE 10 server profiles never compile it, so the virtual-thread IT
+          is not "skipped" there — it simply isn't part of those builds.
+        -->
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>${build-helper-maven-plugin.version}</version>
+          <executions>
+            <execution>
+              <id>add-ee11-test-source</id>
+              <phase>generate-test-sources</phase>
+              <goals>
+                <goal>add-test-source</goal>
+              </goals>
+              <configuration>
+                <sources>
+                  <source>${project.basedir}/src/test/java-ee11</source>
+                </sources>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-war-plugin</artifactId>
+        <configuration>
+          <failOnMissingWebXml>false</failOnMissingWebXml>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent-integration</id>
+            <phase>initialize</phase>
+            <goals>
+              <goal>prepare-agent-integration</goal>
+            </goals>
+            <configuration>
+              <propertyName>jacoco.it.argLine</propertyName>
+              <destFile>${project.build.directory}/jacoco-it.exec</destFile>
+              <includes>
+                <include>run.ratchet.*</include>
+              </includes>
+            </configuration>
+          </execution>
+          <execution>
+            <id>report-integration</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report-integration</goal>
+            </goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-it.exec</dataFile>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <skipITs>${skipITs}</skipITs>
+          <excludedGroups>performance</excludedGroups>
+          <environmentVariables>
+            <DOCKER_HOST>${env.DOCKER_HOST}</DOCKER_HOST>
+            <TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>${env.TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE}</TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>
+            <!--
+              Pin the test JVM and the Arquillian-spawned app-server JVMs (which inherit this
+              process environment) to UTC. The store's zone-less DATETIME/TIMESTAMP columns are
+              written via JDBC Timestamps and claimed against the database's server-side NOW(3);
+              when the JVM zone differs from the (UTC) database container, EclipseLink-based
+              servers (Payara/GlassFish) skew next_fire/scheduled_time and stall claims. CI already
+              runs in UTC, so this only aligns developer machines whose JVM zone is non-UTC.
+            -->
+            <TZ>UTC</TZ>
+          </environmentVariables>
+          <systemPropertyVariables>
+            <ratchet.test.db.type>${ratchet.test.db.type}</ratchet.test.db.type>
+            <arquillian.launch>${arquillian.launch}</arquillian.launch>
+            <testsuite.profile>${testsuite.profile}</testsuite.profile>
+            <openliberty.server.config.dir>${openliberty.server.config.dir}</openliberty.server.config.dir>
+            <ratchet.tck.runtime.name>${testsuite.profile}/${ratchet.test.db.type}</ratchet.tck.runtime.name>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>wildfly-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>wildfly-managed</testsuite.profile>
+        <arquillian.launch>wildfly-managed</arquillian.launch>
+        <wildfly.home>${project.build.directory}/wildfly-${wildfly.version}</wildfly.home>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.wildfly.arquillian</groupId>
+          <artifactId>wildfly-arquillian-container-managed</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-wildfly</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.wildfly</groupId>
+                      <artifactId>wildfly-dist</artifactId>
+                      <version>${wildfly.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+              <execution>
+                <id>copy-mysql-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>com.mysql</groupId>
+                      <artifactId>mysql-connector-j</artifactId>
+                      <version>${mysql-connector.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/com/mysql/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+              <execution>
+                <id>copy-postgresql-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.postgresql</groupId>
+                      <artifactId>postgresql</artifactId>
+                      <version>${postgresql-driver.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/org/postgresql/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>install-wildfly-jdbc-modules</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <echo file="${wildfly.home}/modules/com/mysql/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="com.mysql"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="mysql-connector-j-${mysql-connector.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.naming"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.security.sasl"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="java.xml"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <echo file="${wildfly.home}/modules/org/postgresql/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="org.postgresql"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="postgresql-${postgresql-driver.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <chmod file="${wildfly.home}/bin/jboss-cli.sh" perm="755"/>
+                    <exec executable="${wildfly.home}/bin/jboss-cli.sh" failonerror="true">
+                      <arg value="--file=${project.basedir}/src/test/resources/wildfly-setup.cli"/>
+                    </exec>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
+      WildFly 40 on Jakarta EE 11 / JDK 25. Mirrors wildfly-managed but pins the
+      EE 11 distribution and adds the EE 11 test source root (VirtualThreadExecutionIT).
+      The parent same-id profile supplies the JDK 25 enforcer; this profile sets the
+      EE 11 umbrella (Concurrency 3.1) via jakarta.ee.version below. The test deployment
+      declares its own virtual-thread executor (VirtualThreadTestExecutor); Ratchet ships
+      none.
+    -->
+    <profile>
+      <id>wildfly-ee11-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>wildfly-ee11-managed</testsuite.profile>
+        <arquillian.launch>wildfly-ee11-managed</arquillian.launch>
+        <wildfly.version>40.0.0.Final</wildfly.version>
+        <wildfly.home>${project.build.directory}/wildfly-${wildfly.version}</wildfly.home>
+        <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
+        <jakarta.ee.version>11.0.0</jakarta.ee.version>
+        <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
+        <maven.compiler.release>21</maven.compiler.release>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.wildfly.arquillian</groupId>
+          <artifactId>wildfly-arquillian-container-managed</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-wildfly</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.wildfly</groupId>
+                      <artifactId>wildfly-dist</artifactId>
+                      <version>${wildfly.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+              <execution>
+                <id>copy-mysql-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>com.mysql</groupId>
+                      <artifactId>mysql-connector-j</artifactId>
+                      <version>${mysql-connector.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/com/mysql/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+              <execution>
+                <id>copy-postgresql-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.postgresql</groupId>
+                      <artifactId>postgresql</artifactId>
+                      <version>${postgresql-driver.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/org/postgresql/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>install-wildfly-jdbc-modules</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <echo file="${wildfly.home}/modules/com/mysql/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="com.mysql"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="mysql-connector-j-${mysql-connector.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.naming"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.security.sasl"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="java.xml"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <echo file="${wildfly.home}/modules/org/postgresql/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="org.postgresql"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="postgresql-${postgresql-driver.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <chmod file="${wildfly.home}/bin/jboss-cli.sh" perm="755"/>
+                    <exec executable="${wildfly.home}/bin/jboss-cli.sh" failonerror="true">
+                      <arg value="--file=${project.basedir}/src/test/resources/wildfly-setup.cli"/>
+                    </exec>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>payara-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>payara-managed</testsuite.profile>
+        <arquillian.launch>payara-managed</arquillian.launch>
+        <payara.home>${project.build.directory}/payara6</payara.home>
+        <payara.http.port>18080</payara.http.port>
+        <payara.https.port>18181</payara.https.port>
+        <payara.admin.port>14848</payara.admin.port>
+        <payara.iiop.port>13700</payara.iiop.port>
+        <payara.iiop.ssl.port>13820</payara.iiop.ssl.port>
+        <payara.iiop.mutualauth.port>13920</payara.iiop.mutualauth.port>
+        <payara.jmx.port>18686</payara.jmx.port>
+        <payara.osgi.shell.port>16666</payara.osgi.shell.port>
+        <payara.hazelcast.das.port>14900</payara.hazelcast.das.port>
+        <payara.hazelcast.start.port>15900</payara.hazelcast.start.port>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>fish.payara.arquillian</groupId>
+          <artifactId>arquillian-payara-server-managed</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-payara</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>fish.payara.distributions</groupId>
+                      <artifactId>payara</artifactId>
+                      <version>${payara.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>prepare-payara-scripts</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <chmod file="${payara.home}/bin/asadmin" perm="755"/>
+                    <!--
+                      Payara 6's domain.xml writes attributes in an order
+                      that the original element-specific patterns (which
+                      hardcoded protocol-before-port, lazy-init-before-id,
+                      etc.) did not match, leaving the listeners on their
+                      defaults. Mirror the GlassFish-style flexible regex
+                      ([^&gt;]* between element name, port, and the
+                      identifying attribute) so attribute order does not
+                      matter.
+                    -->
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;network-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;http-listener-1&quot;)"
+                                   replace="\1${payara.http.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;network-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;http-listener-2&quot;)"
+                                   replace="\1${payara.https.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;network-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;admin-listener&quot;)"
+                                   replace="\1${payara.admin.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;orb-listener-1&quot;)"
+                                   replace="\1${payara.iiop.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;SSL&quot;)"
+                                   replace="\1${payara.iiop.ssl.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;SSL_MUTUALAUTH&quot;)"
+                                   replace="\1${payara.iiop.mutualauth.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;jmx-connector[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;system&quot;)"
+                                   replace="\1${payara.jmx.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;jvm-options&gt;-Dosgi\.shell\.telnet\.port=)[^&lt;]+(&lt;/jvm-options&gt;)"
+                                   replace="\1${payara.osgi.shell.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile)=[^&lt;]*&lt;/jvm-options&gt;"
+                                   replace=""
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(\s*)&lt;/java-config&gt;"
+                                   replace="\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
+                                   flags="g"
+                                   byline="true"/>
+                    <!--
+                      Hazelcast tags in Payara 6's domain.xml already ship
+                      with attributes (and the HZ_LISTENER_PORT entry uses
+                      a self-closing form), so the literal &lt;replace&gt;
+                      tokens never matched. Rewrite the port attributes
+                      directly and toggle clustering off on the empty
+                      hazelcast-config-specific-configuration element.
+                    -->
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;hazelcast-runtime-configuration[^&gt;]* start-port=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${payara.hazelcast.start.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;hazelcast-runtime-configuration[^&gt;]* das-port=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${payara.hazelcast.das.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replace
+                        file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                        token="&lt;hazelcast-config-specific-configuration&gt;&lt;/hazelcast-config-specific-configuration&gt;"
+                        value="&lt;hazelcast-config-specific-configuration enabled=&quot;false&quot; clustering-enabled=&quot;false&quot;&gt;&lt;/hazelcast-config-specific-configuration&gt;"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;HZ_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;\s*/?&gt;)"
+                                   replace="\1${payara.hazelcast.start.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <!--
+        Eclipse GlassFish 8 (Jakarta EE 11 reference implementation).
+        Requires JDK 21+ at runtime — enforced via maven-enforcer-plugin.
+        Pulls the Web Profile distribution (~70 MB) which already contains
+        every Jakarta API ratchet uses (CDI 4.1, JPA 3.2, Servlet 6.1,
+        Concurrency 3.1, Security 4.0, Bean Validation 3.1).
+      -->
+      <id>glassfish-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>glassfish-managed</testsuite.profile>
+        <arquillian.launch>glassfish-managed</arquillian.launch>
+        <!--
+          omnifish's connector expects glassFishHome to be the top-level
+          install dir (containing both bin/asadmin and the glassfish/
+          subtree), not the nested glassfish/ subdir.
+        -->
+        <glassfish.home>${project.build.directory}/glassfish8/glassfish8</glassfish.home>
+        <glassfish.http.port>19080</glassfish.http.port>
+        <glassfish.https.port>19181</glassfish.https.port>
+        <glassfish.admin.port>15848</glassfish.admin.port>
+        <glassfish.iiop.port>14700</glassfish.iiop.port>
+        <glassfish.iiop.ssl.port>14820</glassfish.iiop.ssl.port>
+        <glassfish.iiop.mutualauth.port>14920</glassfish.iiop.mutualauth.port>
+        <glassfish.jmx.port>19686</glassfish.jmx.port>
+        <glassfish.osgi.shell.port>17666</glassfish.osgi.shell.port>
+        <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
+        <jakarta.ee.version>11.0.0</jakarta.ee.version>
+        <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
+        <maven.compiler.release>21</maven.compiler.release>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>ee.omnifish.arquillian</groupId>
+          <artifactId>arquillian-glassfish-server-managed</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <!-- GlassFish 8 is the EE 11 RI: compile and run the EE 11 virtual-thread IT here too. -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>3.5.0</version>
+            <executions>
+              <execution>
+                <id>enforce-jdk21-for-glassfish8</id>
+                <phase>validate</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireJavaVersion>
+                      <version>[21,)</version>
+                      <message>
+                        Eclipse GlassFish 8 requires JDK 21 or higher at runtime.
+                        Re-run with JDK 21+ on PATH (or via JAVA_HOME).
+                      </message>
+                    </requireJavaVersion>
+                  </rules>
+                  <fail>true</fail>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-glassfish</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.glassfish.main.distributions</groupId>
+                      <artifactId>web</artifactId>
+                      <version>${glassfish.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}/glassfish8</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>prepare-glassfish-scripts</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <chmod file="${glassfish.home}/bin/asadmin" perm="755"/>
+                    <chmod file="${glassfish.home}/glassfish/lib/nadmin" perm="755"/>
+                    <!--
+                      Defensively stop any leftover domain from a previous
+                      aborted run. Arquillian managed mode rejects connecting
+                      to an already-running server, and a stale process from
+                      a prior abort would otherwise fail every IT.
+                    -->
+                    <exec executable="${glassfish.home}/bin/asadmin" failonerror="false">
+                      <arg value="--port"/>
+                      <arg value="${glassfish.admin.port}"/>
+                      <arg value="stop-domain"/>
+                      <arg value="domain1"/>
+                    </exec>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;network-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;admin-listener&quot;)"
+                                   replace="\1${glassfish.admin.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]*port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;orb-listener-1&quot;)"
+                                   replace="\1${glassfish.iiop.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]*port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;SSL&quot;)"
+                                   replace="\1${glassfish.iiop.ssl.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]*port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;SSL_MUTUALAUTH&quot;)"
+                                   replace="\1${glassfish.iiop.mutualauth.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;jmx-connector[^&gt;]*port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;system&quot;)"
+                                   replace="\1${glassfish.jmx.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;ASADMIN_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.admin.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;HTTP_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.http.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;HTTP_SSL_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.https.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;IIOP_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.iiop.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;IIOP_SSL_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.iiop.ssl.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;IIOP_SSL_MUTUALAUTH_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.iiop.mutualauth.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;JMX_SYSTEM_CONNECTOR_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.jmx.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;OSGI_SHELL_TELNET_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.osgi.shell.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;jvm-options&gt;-Dosgi\.shell\.telnet\.port=)[^&lt;]+(&lt;/jvm-options&gt;)"
+                                   replace="\1${glassfish.osgi.shell.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <!--
+                      Inject ratchet.test.db.type and testsuite.profile as
+                      jvm-options directly into domain.xml. Tests use
+                      @EnabledIfSystemProperty to gate JPA-only assertions,
+                      and JUnit Jupiter evaluates that annotation inside the
+                      deployed WAR, so the failsafe-side
+                      systemPropertyVariables block alone isn't enough — the
+                      GlassFish JVM also needs them.
+
+                      The connector's own systemProperties config is broken:
+                      it emits a single `<jvm-options>` with all keys joined
+                      by a space, regardless of the input delimiter. We
+                      bypass it by editing domain.xml directly.
+
+                      Scrub matching lines first so reruns don't accumulate.
+                      Then inject fresh entries before each `</java-config>`
+                      block (server-config and default-config both get them;
+                      harmless duplication).
+                    -->
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile)=[^&lt;]*&lt;/jvm-options&gt;"
+                                   replace=""
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(\s*)&lt;/java-config&gt;"
+                                   replace="\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
+                                   flags="g"
+                                   byline="true"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>openliberty-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>openliberty-managed</testsuite.profile>
+        <arquillian.launch>openliberty-managed</arquillian.launch>
+        <openliberty.home>${project.build.directory}/openliberty/wlp</openliberty.home>
+        <openliberty.server.name>defaultServer</openliberty.server.name>
+        <openliberty.server.config.dir>${openliberty.home}/usr/servers/${openliberty.server.name}</openliberty.server.config.dir>
+        <openliberty.http.port>29080</openliberty.http.port>
+        <openliberty.https.port>29443</openliberty.https.port>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>io.openliberty.arquillian</groupId>
+          <artifactId>arquillian-liberty-managed-jakarta-junit5</artifactId>
+          <type>pom</type>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-openliberty</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>io.openliberty</groupId>
+                      <artifactId>openliberty-runtime</artifactId>
+                      <version>${openliberty.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}/openliberty</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>prepare-openliberty-server</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <mkdir dir="${openliberty.server.config.dir}/configDropins/defaults"/>
+                    <mkdir dir="${openliberty.server.config.dir}/jdbc"/>
+                    <delete file="${openliberty.server.config.dir}/configDropins/defaults/ratchet-datasource.xml" quiet="true"/>
+                    <echo file="${openliberty.server.config.dir}/server.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;server description="Ratchet Open Liberty Arquillian test server"&gt;
+  &lt;featureManager&gt;
+    &lt;feature&gt;webProfile-10.0&lt;/feature&gt;
+    &lt;feature&gt;localConnector-1.0&lt;/feature&gt;
+  &lt;/featureManager&gt;
+
+  &lt;httpEndpoint id="defaultHttpEndpoint"
+                host="localhost"
+                httpPort="${openliberty.http.port}"
+                httpsPort="${openliberty.https.port}"/&gt;
+
+  &lt;applicationMonitor updateTrigger="mbean"/&gt;
+&lt;/server&gt;</echo>
+                    <chmod file="${openliberty.home}/bin/server" perm="755"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>mysql</id>
+      <properties>
+        <ratchet.test.db.type>mysql</ratchet.test.db.type>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-mysql</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>com.mysql</groupId>
+          <artifactId>mysql-connector-j</artifactId>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.testcontainers</groupId>
+          <artifactId>testcontainers-mysql</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+
+    <profile>
+      <id>postgresql</id>
+      <properties>
+        <ratchet.test.db.type>postgresql</ratchet.test.db.type>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-postgresql</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>org.postgresql</groupId>
+          <artifactId>postgresql</artifactId>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.testcontainers</groupId>
+          <artifactId>testcontainers-postgresql</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+
+    <!-- MongoDB store + Testcontainers -->
+    <profile>
+      <id>mongodb</id>
+      <properties>
+        <ratchet.test.db.type>mongodb</ratchet.test.db.type>
+        <!-- dummy JDBC props: arquillian.xml needs them even for MongoDB -->
+        <ratchet.test.db.url>jdbc:h2:mem:unused</ratchet.test.db.url>
+        <ratchet.test.db.username>sa</ratchet.test.db.username>
+        <ratchet.test.db.password>sa</ratchet.test.db.password>
+        <ratchet.test.db.driver>org.h2.Driver</ratchet.test.db.driver>
+        <ratchet.test.db.driver.name>h2</ratchet.test.db.driver.name>
+      </properties>
+      <dependencies>
+        <!--
+          Override the default scope=provided so ratchet-store-mongodb ships
+          inside WEB-INF/lib under the mongodb profile only. Under mysql/postgresql
+          the provided declaration keeps MongoJobStoreImpl off the war classpath,
+          avoiding the Weld JobCrudStore ambiguity that breaks Payara CDI.
+        -->
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-mongodb</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>org.testcontainers</groupId>
+          <artifactId>testcontainers-mongodb</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+
+    <profile>
+      <id>performance</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <groups>performance</groups>
+              <excludedGroups combine.self="override"/>
+              <forkedProcessTimeoutInSeconds>900</forkedProcessTimeoutInSeconds>
+              <systemPropertyVariables>
+                <perf.warmup.count>${perf.warmup.count}</perf.warmup.count>
+                <perf.measured.count>${perf.measured.count}</perf.measured.count>
+                <perf.batch.sizes>${perf.batch.sizes}</perf.batch.sizes>
+                <perf.baseline.dir>${perf.baseline.dir}</perf.baseline.dir>
+                <perf.tolerance>${perf.tolerance}</perf.tolerance>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+      <properties>
+        <perf.warmup.count>50</perf.warmup.count>
+        <perf.measured.count>500</perf.measured.count>
+        <perf.batch.sizes>50,200,500</perf.batch.sizes>
+        <perf.baseline.dir>${project.basedir}/src/test/resources/perf-baselines</perf.baseline.dir>
+        <perf.tolerance>0.20</perf.tolerance>
+      </properties>
+    </profile>
+
+    <profile>
+      <id>jacoco-offline</id>
+      <properties>
+        <!-- offline: runtime loaded as WildFly module -->
+        <jacoco.it.argLine>-Djacoco-agent.destfile=${project.build.directory}/jacoco-it.exec -Djacoco-agent.append=true -Djacoco-agent.output=file</jacoco.it.argLine>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>prepare-agent-integration</id>
+                <phase>none</phase>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <systemPropertyVariables>
+                <jacoco.offline>true</jacoco.offline>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>copy-jacoco-runtime</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.jacoco</groupId>
+                      <artifactId>org.jacoco.agent</artifactId>
+                      <classifier>runtime</classifier>
+                      <version>${jacoco-maven-plugin.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/org/jacoco/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>install-jacoco-module</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <echo file="${wildfly.home}/modules/org/jacoco/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="org.jacoco"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="org.jacoco.agent-${jacoco-maven-plugin.version}-runtime.jar"/&gt;
+  &lt;/resources&gt;
+&lt;/module&gt;</echo>
+                    <chmod file="${wildfly.home}/bin/jboss-cli.sh" perm="755"/>
+                    <exec executable="${wildfly.home}/bin/jboss-cli.sh" failonerror="true">
+                      <arg value="--commands=embed-server,/subsystem=ee:list-add(name=global-modules, value={name=org.jacoco}),stop-embedded-server"/>
+                    </exec>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

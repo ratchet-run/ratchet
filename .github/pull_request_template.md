@@ -8,7 +8,7 @@ List the validation you actually ran.
 
 - [ ] `mvn clean test -B`
 - [ ] `mvn spotless:check -B`
-- [ ] `mvn verify -P wildfly-managed,postgresql -B -pl ratchet-testsuite,ratchet-coverage -am`
+- [ ] `mvn verify -P wildfly-managed,postgresql -B -pl :ratchet-testsuite,:ratchet-coverage -am`
 - [ ] `cd website && npm ci && npm run build`
 
 ## Docs
