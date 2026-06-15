@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-parent</artifactId>
+    <version>0.1.1-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>ratchet-testsuite-jpms</artifactId>
+  <name>Ratchet :: JPMS Consumer Test</name>
+  <description>JPMS consumer tests for Ratchet module descriptors</description>
+
+  <properties>
+    <!-- Test/dev infrastructure: never published. Guards plain mvn deploy; Central is additionally gated by excludeArtifacts in the central profile. -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-api</artifactId>
+    </dependency>
+
+    <!-- Required by the probe module so RI JPMS metadata is resolved during compilation. -->
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet</artifactId>
+    </dependency>
+
+    <!-- provided at runtime; needed for compilation -->
+    <dependency>
+      <groupId>jakarta.platform</groupId>
+      <artifactId>jakarta.jakartaee-web-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+      </plugin>
+      <!-- no tests to instrument -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <phase>none</phase>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>none</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

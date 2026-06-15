@@ -49,10 +49,10 @@ Ratchet includes `ratchet-showcase`, a runnable Jakarta EE WAR with an order-ful
 With PostgreSQL running locally, start the WildFly showcase at `/app/`:
 
 ```bash
-POSTGRES_PORT=5432 mvn -pl ratchet-showcase -P wildfly-managed,postgresql -DskipTests -Dshowcase.http.port=4176 -Dshowcase.context.path=/app -Dwildfly.management.port=19993 -Dwildfly.https.port=18446 exec:exec@run-showcase
+POSTGRES_PORT=5432 mvn -pl :ratchet-showcase -P wildfly-managed,postgresql -DskipTests -Dshowcase.http.port=4176 -Dshowcase.context.path=/app -Dwildfly.management.port=19993 -Dwildfly.https.port=18446 exec:exec@run-showcase
 ```
 
-Then open `http://127.0.0.1:4176/app/`. See [`ratchet-showcase/README.md`](./ratchet-showcase/README.md) for Payara, Open Liberty, GlassFish, MySQL, and MongoDB variants.
+Then open `http://127.0.0.1:4176/app/`. See [`testing/ratchet-showcase/README.md`](./testing/ratchet-showcase/README.md) for Payara, Open Liberty, GlassFish, MySQL, and MongoDB variants.
 
 ## Quick Start
 
@@ -125,10 +125,10 @@ SQL stores ship DDL as plain SQL files, with no Flyway dependency or migration l
 
 ```bash
 # PostgreSQL
-psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+psql -d mydb -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 
 # MySQL
-mysql mydb < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+mysql mydb < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ```
 
 For MongoDB, `ratchet-store-mongodb` creates the required collections and indexes at startup.
@@ -536,10 +536,10 @@ Ratchet is currently in **0.1.0-SNAPSHOT**. The API is stabilizing, but interfac
 
 ## Community
 
-- [Contributing guide](./CONTRIBUTING.md)
-- [Support](./SUPPORT.md)
-- [Security policy](./SECURITY.md)
-- [Code of conduct](./CODE_OF_CONDUCT.md)
+- [Contributing guide](./.github/CONTRIBUTING.md)
+- [Support](./.github/SUPPORT.md)
+- [Security policy](./.github/SECURITY.md)
+- [Code of conduct](./.github/CODE_OF_CONDUCT.md)
 - [Issues](https://github.com/ratchet-run/ratchet/issues)
 - [Discussions](https://github.com/ratchet-run/ratchet/discussions)
 

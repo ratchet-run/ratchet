@@ -329,8 +329,8 @@ Ratchet still does not run migrations automatically by default. Your application
 For SQL stores, if you do not already use a migration framework, `ratchet-store-core` also exposes `SchemaMigrator`, a small optional utility that discovers ordered `V*` scripts, serializes startup with a database advisory lock, validates checksums in `ratchet_schema_version`, and applies only pending scripts. Call it from a `SchedulerLifecycleHook.beforeStart` hook so migrations finish before the poller starts claiming jobs.
 
 ```
-ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
-ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 ```
 
 MongoDB does not ship SQL DDL. The `ratchet-store-mongodb` module creates the required collections and indexes at startup.

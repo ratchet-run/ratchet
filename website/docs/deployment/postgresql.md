@@ -17,7 +17,7 @@ Ratchet on PostgreSQL 14+.
 ### Apply DDL
 
 ```bash
-psql -U ratchet -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+psql -U ratchet -d mydb -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 ```
 
 Or copy into your migration tool:

@@ -53,7 +53,7 @@ If you haven't done steps 3 and 4 yet, here's the minimum `pom.xml` setup:
 And apply the schema:
 
 ```bash
-psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+psql -d mydb -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 ```
 
 And produce a `RatchetOptions` bean so the scheduler can start. The smallest viable producer reads `RATCHET_*` environment variables:

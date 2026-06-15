@@ -32,11 +32,11 @@ GRANT ALL ON SCHEMA public TO ratchet;
 
 ### Apply the Schema
 
-The DDL file is at `ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql` in the source, or `ddl/postgresql-schema.sql` inside the JAR.
+The DDL file is at `stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql` in the source, or `ddl/postgresql-schema.sql` inside the JAR.
 
 ```bash
 # From the source tree
-psql -U ratchet -d ratchet -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+psql -U ratchet -d ratchet -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 
 # Or extract from the JAR
 jar xf ratchet-store-postgresql-0.1.0-SNAPSHOT.jar ddl/postgresql-schema.sql
@@ -160,7 +160,7 @@ FLUSH PRIVILEGES;
 
 ```bash
 # From the source tree
-mysql -u ratchet -p ratchet < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+mysql -u ratchet -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 
 # Or extract from the JAR
 jar xf ratchet-store-mysql-0.1.0-SNAPSHOT.jar ddl/mysql-schema.sql

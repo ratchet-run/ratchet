@@ -18,7 +18,7 @@ Ratchet on MySQL 8+.
 ### Apply DDL
 
 ```bash
-mysql -u ratchet -p ratchet < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+mysql -u ratchet -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ```
 
 Or copy into your migration tool:

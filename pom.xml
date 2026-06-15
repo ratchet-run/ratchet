@@ -46,26 +46,26 @@
   <modules>
     <module>ratchet-api</module>
     <module>ratchet</module>
-    <module>ratchet-store-core</module>
     <module>ratchet-encryption</module>
-    <module>ratchet-store-mysql</module>
-    <module>ratchet-store-postgresql</module>
-    <module>ratchet-store-mongodb</module>
-    <module>ratchet-coordinator-common</module>
-    <module>ratchet-coordinator-postgresql</module>
-    <module>ratchet-coordinator-jms</module>
-    <module>ratchet-coordinator-infinispan</module>
-    <module>ratchet-coordinator-hazelcast</module>
-    <module>ratchet-tck</module>
-    <module>ratchet-testsuite</module>
-    <module>ratchet-testsuite-jpms</module>
-    <module>ratchet-loadtest</module>
-    <module>ratchet-showcase</module>
-    <module>ratchet-micrometer</module>
-    <module>ratchet-otel</module>
+    <module>stores/ratchet-store-core</module>
+    <module>stores/ratchet-store-mysql</module>
+    <module>stores/ratchet-store-postgresql</module>
+    <module>stores/ratchet-store-mongodb</module>
+    <module>coordinators/ratchet-coordinator-common</module>
+    <module>coordinators/ratchet-coordinator-postgresql</module>
+    <module>coordinators/ratchet-coordinator-jms</module>
+    <module>coordinators/ratchet-coordinator-infinispan</module>
+    <module>coordinators/ratchet-coordinator-hazelcast</module>
+    <module>observability/ratchet-micrometer</module>
+    <module>observability/ratchet-otel</module>
     <module>ratchet-bom</module>
-    <module>ratchet-coverage</module>
-    <module>ratchet-arch-tests</module>
+    <module>testing/ratchet-tck</module>
+    <module>testing/ratchet-testsuite</module>
+    <module>testing/ratchet-testsuite-jpms</module>
+    <module>testing/ratchet-loadtest</module>
+    <module>testing/ratchet-showcase</module>
+    <module>testing/ratchet-coverage</module>
+    <module>testing/ratchet-arch-tests</module>
   </modules>
 
   <properties>
@@ -774,7 +774,7 @@
                   <footer>Ratchet ${project.version}</footer>
                   <overview>${basedir}/src/main/javadoc/overview.html</overview>
                   <sourcepath>
-                    ${basedir}/ratchet-api/src/main/java:${basedir}/ratchet/src/main/java:${basedir}/ratchet-store-core/src/main/java:${basedir}/ratchet-bom/src/main/java
+                    ${basedir}/ratchet-api/src/main/java:${basedir}/ratchet/src/main/java:${basedir}/stores/ratchet-store-core/src/main/java:${basedir}/ratchet-bom/src/main/java
                   </sourcepath>
                   <excludePackageNames>*.internal:*.impl:*.util</excludePackageNames>
                   <sourceFileExcludes>

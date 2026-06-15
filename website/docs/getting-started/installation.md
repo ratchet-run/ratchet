@@ -171,8 +171,8 @@ SQL stores ship DDL as plain SQL files -- no Flyway dependency, no migration fra
 The SQL files are located in each SQL store module's resources:
 
 ```
-ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
-ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ```
 
 ### Applying the schema
@@ -181,10 +181,10 @@ ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 
 ```bash
 # PostgreSQL
-psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+psql -d mydb -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 
 # MySQL
-mysql mydb < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+mysql mydb < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ```
 
 **Flyway (if you already use it):**

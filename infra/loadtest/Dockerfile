@@ -7,7 +7,7 @@ ARG STORE=postgresql
 ARG EXTRA_PROFILES=
 WORKDIR /workspace
 COPY . .
-RUN mvn -pl ratchet-loadtest -am -P${STORE}${EXTRA_PROFILES:+,${EXTRA_PROFILES}} -DskipTests package \
+RUN mvn -pl :ratchet-loadtest -am -P${STORE}${EXTRA_PROFILES:+,${EXTRA_PROFILES}} -DskipTests package \
     && mkdir -p /drivers \
     && find /root/.m2/repository/org/postgresql/postgresql -name 'postgresql-*.jar' \
          ! -name '*-sources.jar' ! -name '*-javadoc.jar' -exec cp {} /drivers/postgresql.jar \; \
@@ -29,7 +29,7 @@ RUN mkdir -p \
 COPY --from=build /drivers/postgresql.jar /opt/jboss/ratchet/drivers/postgresql.jar
 COPY --from=build /drivers/mysql.jar /opt/jboss/ratchet/drivers/mysql.jar
 COPY infra/loadtest/wildfly/${STORE}.cli /opt/jboss/ratchet/store.cli
-COPY --from=build /workspace/ratchet-loadtest/target/ratchet-loadtest-0.1.0-SNAPSHOT.war /opt/jboss/wildfly/standalone/deployments/ROOT.war
+COPY --from=build /workspace/testing/ratchet-loadtest/target/ratchet-loadtest-0.1.0-SNAPSHOT.war /opt/jboss/wildfly/standalone/deployments/ROOT.war
 RUN chown -R jboss:root /opt/jboss/ratchet /opt/jboss/wildfly/standalone \
     && chmod -R ug+rwX /opt/jboss/ratchet /opt/jboss/wildfly/standalone \
     && /opt/jboss/wildfly/bin/jboss-cli.sh --file=/opt/jboss/ratchet/store.cli \

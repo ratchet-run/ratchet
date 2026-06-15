@@ -67,7 +67,7 @@ SQL stores ship DDL as plain SQL files. No Flyway dependency required.
 ### PostgreSQL
 
 ```bash
-# From ratchet-store-postgresql/src/main/resources/ddl/
+# From stores/ratchet-store-postgresql/src/main/resources/ddl/
 psql -U ratchet -d mydb -f postgresql-schema.sql
 ```
 
