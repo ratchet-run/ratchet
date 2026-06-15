@@ -216,6 +216,8 @@ MySQL defaults to `REPEATABLE READ`, which acquires gap locks on `SELECT ... FOR
 - **JDBC URL parameter**: `?sessionVariables=transaction_isolation='READ-COMMITTED'`
 - **persistence.xml**: `<property name="hibernate.connection.isolation" value="2"/>`
 - **WildFly `-ds.xml`**: `<transaction-isolation>TRANSACTION_READ_COMMITTED</transaction-isolation>`
+
+Verify the effective level on a live connection with `SELECT @@transaction_isolation;` (MySQL) or `SHOW default_transaction_isolation;` (PostgreSQL, which already defaults to `READ COMMITTED`).
 :::
 
 ### MySQL-Specific Notes
