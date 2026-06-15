@@ -71,10 +71,19 @@ Swap the retry logic, circuit-breaker behavior, polling cadence, thread/executor
 </dependencyManagement>
 
 <dependencies>
-  <dependency><groupId>run.ratchet</groupId><artifactId>ratchet-api</artifactId></dependency>
-  <dependency><groupId>run.ratchet</groupId><artifactId>ratchet</artifactId></dependency>
+  <dependency>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-api</artifactId>
+  </dependency>
+  <dependency>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet</artifactId>
+  </dependency>
   <!-- Pick your store: ratchet-store-{postgresql,mysql,mongodb} -->
-  <dependency><groupId>run.ratchet</groupId><artifactId>ratchet-store-postgresql</artifactId></dependency>
+  <dependency>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-store-postgresql</artifactId>
+  </dependency>
 </dependencies>
 ```
 
