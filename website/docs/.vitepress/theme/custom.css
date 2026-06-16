@@ -1258,3 +1258,18 @@ html { color-scheme: light; }
     border-radius: 8px;
   }
 }
+
+/* Wide layout for the conformance section (applied by path via
+   transformPageData in config.ts, not per-file frontmatter). These pages are
+   table-heavy — the conformance tiers, the store reports, and the 15-cell
+   server x database matrices — and the default ~688px content cap squeezes
+   them. `aside: false` already drops the outline; here we let the content
+   fill the reclaimed width. */
+.wide-tables .VPDoc .content-container {
+  max-width: 1104px;
+}
+
+.wide-tables .VPDoc .vp-doc table {
+  display: table;
+  width: 100%;
+}
