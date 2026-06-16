@@ -10,64 +10,64 @@ Every job in Ratchet follows a defined state machine from creation to terminal s
 
 ## State Machine
 
-<div className="docs-diagram" role="img" aria-label="Ratchet job state machine: PENDING jobs can run, pause, cancel, or retry; RUNNING jobs succeed, fail, or cancel; WAITING jobs unblock to PENDING when a signal arrives or fail on timeout.">
-  <div className="docs-diagram-row docs-diagram-row--tight">
-    <div className="docs-diagram-state docs-diagram-state--primary">
+<div class="docs-diagram" role="img" aria-label="Ratchet job state machine: PENDING jobs can run, pause, cancel, or retry; RUNNING jobs succeed, fail, or cancel; WAITING jobs unblock to PENDING when a signal arrives or fail on timeout.">
+  <div class="docs-diagram-row docs-diagram-row--tight">
+    <div class="docs-diagram-state docs-diagram-state--primary">
       <strong>PENDING</strong>
       <small>Queued and eligible when `scheduled_time <= now`.</small>
     </div>
-    <div className="docs-diagram-state docs-diagram-state--active">
+    <div class="docs-diagram-state docs-diagram-state--active">
       <strong>RUNNING</strong>
       <small>Claimed by one node and executing on a worker.</small>
     </div>
-    <div className="docs-diagram-state docs-diagram-state--warning">
+    <div class="docs-diagram-state docs-diagram-state--warning">
       <strong>WAITING</strong>
       <small>Blocked for an external signal; hidden from polling.</small>
     </div>
-    <div className="docs-diagram-state docs-diagram-state--muted">
+    <div class="docs-diagram-state docs-diagram-state--muted">
       <strong>PAUSED</strong>
       <small>Temporarily hidden; resumes to the stored previous state.</small>
     </div>
-    <div className="docs-diagram-state docs-diagram-state--success">
+    <div class="docs-diagram-state docs-diagram-state--success">
       <strong>SUCCEEDED</strong>
       <small>Terminal success; eligible for archival after retention.</small>
     </div>
-    <div className="docs-diagram-state docs-diagram-state--danger">
+    <div class="docs-diagram-state docs-diagram-state--danger">
       <strong>FAILED</strong>
       <small>Terminal when retries are exhausted; otherwise retried.</small>
     </div>
-    <div className="docs-diagram-state docs-diagram-state--danger">
+    <div class="docs-diagram-state docs-diagram-state--danger">
       <strong>CANCELED</strong>
       <small>Terminal cancellation from queued, running, paused, or waiting work.</small>
     </div>
   </div>
 
-  <div className="docs-diagram-connector">
+  <div class="docs-diagram-connector">
     <span>Main transitions</span>
   </div>
 
-  <div className="docs-diagram-row">
-    <div className="docs-diagram-card">
+  <div class="docs-diagram-row">
+    <div class="docs-diagram-card">
       <strong>PENDING -> RUNNING</strong>
       <small>Poller claims the row atomically with `SKIP LOCKED`.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>RUNNING -> SUCCEEDED</strong>
       <small>The task completes and result handling succeeds.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>RUNNING -> FAILED</strong>
       <small>The task throws, times out, or exhausts retry handling.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>FAILED -> PENDING</strong>
       <small>Automatic retry with backoff, or manual `retryJob()` reset.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>PENDING -> PAUSED</strong>
       <small>`pauseJob()` records `paused_from_status` for accurate resume.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>WAITING -> PENDING</strong>
       <small>`deliverSignal()` unblocks the job and attaches the signal payload.</small>
     </div>

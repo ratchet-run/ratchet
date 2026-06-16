@@ -10,25 +10,25 @@ This page explains how Ratchet moves a job from "sitting in the database" to "ru
 
 ## Execution Pipeline
 
-<div className="docs-diagram" role="img" aria-label="Ratchet execution pipeline from the hot queue table through the Poller, coordinator, worker task, and post-processing.">
-  <div className="docs-diagram-flow">
-    <div className="docs-diagram-card docs-diagram-card--store">
+<div class="docs-diagram" role="img" aria-label="Ratchet execution pipeline from the hot queue table through the Poller, coordinator, worker task, and post-processing.">
+  <div class="docs-diagram-flow">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>Hot Queue</strong>
       <small>`scheduler_job_queue` stores live PENDING/RUNNING/PAUSED/WAITING state.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--primary">
+    <div class="docs-diagram-card docs-diagram-card--primary">
       <strong>Poller</strong>
       <small>Claims due PENDING rows with `FOR UPDATE SKIP LOCKED`.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>JobExecutionCoordinator</strong>
       <small>Dispatches lightweight claim DTOs to the configured executor.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>JobTask</strong>
       <small>Loads the full job, validates policy, executes, and records the outcome.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--muted">
+    <div class="docs-diagram-card docs-diagram-card--muted">
       <strong>Post-processing</strong>
       <small>Triggers chains, workflow branches, batch updates, events, and archival paths.</small>
     </div>
@@ -122,52 +122,52 @@ For efficiency, the Poller passes lightweight `JobClaimDto` objects (containing 
 
 ### Execution Steps
 
-<div className="docs-diagram docs-step-list" role="list" aria-label="JobTask execution steps">
-  <div className="docs-diagram-step" role="listitem">
+<div class="docs-diagram docs-step-list" role="list" aria-label="JobTask execution steps">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Setup MDC context</strong>
     <small>Adds job ID and node ID so logs can be correlated.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Load `JobEntity`</strong>
     <small>Loads the full entity lazily from the lightweight `JobClaimDto`.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Bind `JobContext`</strong>
     <small>Attaches logger, params, and any delivered signal payload to the worker thread.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Check cancellation</strong>
     <small>Re-reads status and exits cleanly if the job was canceled after claim.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Check circuit breaker</strong>
     <small>Asks `ResilienceStrategy` whether the target service is available.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Acquire resource permit</strong>
     <small>Reschedules without consuming a retry if the configured resource is saturated.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Validate class policy</strong>
     <small>Applies `ClassPolicy` before resolving the target invocation.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Resolve bean and method</strong>
     <small>Uses CDI lookup and reflection from the persisted payload.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Execute target</strong>
     <small>Runs through `ResilienceStrategy`, including circuit-breaker wrapping.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Handle result</strong>
     <small>Routes success to `handleSuccess()` or failure to `handleFailure()`.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Release resource permit</strong>
     <small>Frees capacity for other queued work.</small>
   </div>
-  <div className="docs-diagram-step" role="listitem">
+  <div class="docs-diagram-step" role="listitem">
     <strong>Clear MDC and context</strong>
     <small>Removes thread-local state before the worker returns to the pool.</small>
   </div>

@@ -8,9 +8,12 @@
     "start": "vitepress dev docs",
     "build": "vitepress build docs",
     "preview": "vitepress preview docs",
-    "serve": "vitepress preview docs"
+    "serve": "vitepress preview docs",
+    "a11y": "node a11y/scan.mjs"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "playwright": "^1.61.0",
     "shiki": "^4.2.0",
     "vitepress": "^1.6.0"
   },

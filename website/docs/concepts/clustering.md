@@ -10,36 +10,36 @@ Ratchet is designed to run on multiple nodes without additional coordination inf
 
 ## Multi-Node Architecture
 
-<div className="docs-diagram" role="img" aria-label="Ratchet multi-node architecture: each application node runs its own poller and workers, and all nodes coordinate through the shared store using SKIP LOCKED, node heartbeats, and scheduler locks.">
-  <div className="docs-diagram-row">
-    <div className="docs-diagram-card docs-diagram-card--active">
+<div class="docs-diagram" role="img" aria-label="Ratchet multi-node architecture: each application node runs its own poller and workers, and all nodes coordinate through the shared store using SKIP LOCKED, node heartbeats, and scheduler locks.">
+  <div class="docs-diagram-row">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>Node A</strong>
       <small>Poller + workers claim their own jobs.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>Node B</strong>
       <small>Runs independently; no master node.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>Node C</strong>
       <small>Uses the same store-backed coordination rules.</small>
     </div>
   </div>
 
-  <div className="docs-diagram-connector">
+  <div class="docs-diagram-connector">
     <span>`SELECT ... FOR UPDATE SKIP LOCKED` gives each node a disjoint claim set</span>
   </div>
 
-  <div className="docs-diagram-row">
-    <div className="docs-diagram-card docs-diagram-card--store">
+  <div class="docs-diagram-row">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>scheduler_job_queue</strong>
       <small>Hot PENDING/RUNNING/PAUSED/WAITING state and claim ownership.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--store">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>scheduler_node</strong>
       <small>Node registration and heartbeat timestamps.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--store">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>scheduler_lock</strong>
       <small>Leases for singleton recurring scans and startup cleanup.</small>
     </div>

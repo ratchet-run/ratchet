@@ -1,5 +1,38 @@
 import { defineConfig, type HeadConfig } from 'vitepress'
+import { bundledThemes } from 'shiki'
 import { heroCodePlugin } from './heroCodePlugin'
+
+// A handful of syntax-highlighting tokens in the stock github-light and dracula
+// themes fall just under the WCAG AA 4.5:1 contrast floor against VitePress's
+// code-block backgrounds. Rather than swap the whole theme, the specific
+// offending colours are remapped to darker (light) / lighter (dark) variants
+// that clear AA while staying visually close. The accessibility CI scan
+// (website/a11y) is what flagged these; if a future token regresses it will
+// fail there too.
+async function contrastSafeTheme(name: string, remap: Record<string, string>) {
+  const loaded = await bundledThemes[name]()
+  const theme = JSON.parse(JSON.stringify(loaded.default))
+  const lower: Record<string, string> = {}
+  for (const [from, to] of Object.entries(remap)) lower[from.toLowerCase()] = to
+  const fix = (c?: string) => (c && lower[c.toLowerCase()]) || c
+  if (theme.fg) theme.fg = fix(theme.fg)
+  for (const entry of theme.settings ?? theme.tokenColors ?? []) {
+    if (entry.settings?.foreground) entry.settings.foreground = fix(entry.settings.foreground)
+  }
+  return theme
+}
+
+const [githubLightAA, draculaAA] = await Promise.all([
+  contrastSafeTheme('github-light', {
+    '#d73a49': '#b31d28', // keyword / tag — 4.23 -> 6.2
+    '#22863a': '#176f2c', // string — 4.28 -> 5.8
+    '#6a737d': '#586069', // comment — 4.45 -> 5.9
+    '#e36209': '#a04100', // number / constant — 3.23 -> 6.0
+  }),
+  contrastSafeTheme('dracula', {
+    '#6272a4': '#8a97cf', // comment — 3.83 -> 6.4
+  }),
+])
 
 const umamiHost = process.env.UMAMI_HOST
 const umamiSiteId = process.env.UMAMI_SITE_ID
@@ -281,8 +314,8 @@ export default defineConfig({
 
   markdown: {
     theme: {
-      light: 'github-light',
-      dark: 'dracula',
+      light: githubLightAA,
+      dark: draculaAA,
     },
   },
 
