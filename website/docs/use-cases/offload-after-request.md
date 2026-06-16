@@ -78,7 +78,7 @@ The lambdas are method references on this CDI bean. Ratchet serializes only the 
 
 The reason this is safe and a thread pool is not comes down to one line in the API contract: `submit()` runs with the Jakarta transaction attribute `REQUIRED`. It persists the job inside whatever transaction is already open — here, the one `@Transactional` started on `placeOrder`.
 
-So the order row and the three job rows are a single commit. Two outcomes, no third:
+So the order row and the three job rows are a single commit, with only two ways it can land:
 
 - The transaction commits. The order is saved **and** all three jobs are guaranteed to run.
 - Something rolls back — a constraint violation, a thrown exception, a crash mid-method. The order is not saved **and** no jobs exist. Nothing was half-done.
@@ -102,7 +102,7 @@ Key the job on something stable from the request — an order id, a payment inte
 
 ## What happens when the work fails
 
-A worker runs the job, not the request thread, so failure has somewhere to go that is not the customer's screen. `reserveInventory` above gets five attempts with exponential backoff. If the inventory service is briefly down, the retries ride it out. If it stays down past the retry budget, the job lands in the dead-letter queue with its final error attached, where you can inspect it and replay it. It does not vanish, and it does not take the order down with it.
+A worker runs the job, not the request thread, so failure has somewhere to go that is not the customer's screen. `reserveInventory` above gets five attempts with exponential backoff. If the inventory service is briefly down, the retries ride it out. If it stays down past the retry budget, the job lands in the dead-letter queue with its final error attached, ready to inspect and replay. The order was committed and answered long before any of this, so a stuck side effect stays a side effect.
 
 ## Honest scope
 

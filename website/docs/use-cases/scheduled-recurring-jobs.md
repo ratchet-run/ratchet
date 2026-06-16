@@ -106,15 +106,13 @@ The delay is computed once, at submission: the job is persisted now and stays in
 
 ## Honest scope
 
-A few things worth saying plainly:
-
 - Cron is **Quartz syntax** (6–7 fields with `?` and `L`/`W` support), not the 5-field Unix crontab. `0 0 2 * * ?` is daily at 2 AM, and the leading field is seconds.
 - Schedules default to **UTC**. Set `zone` per job when a schedule has to track a wall clock through DST.
 - A recurring job is regular, not real-time. Fire times are honored at the resolution of the poll cycle, so a 15-minute schedule is reliable; a "run at exactly 14:30:00.000" guarantee is not what this is.
 
 ## Why run it through Ratchet
 
-You could keep Quartz, or a `@Scheduled` bean, or a crontab. The argument for folding the schedule into Ratchet is the same one it makes everywhere else: the run is durable because it was written to your database before it happened, and it is cluster-safe because one row can only be claimed once. The scheduler is not a separate service with its own tables and its own failure modes. It is the job engine you already run, plus a cron string.
+You could keep Quartz, or a `@Scheduled` bean, or a crontab. Folding the schedule into Ratchet instead buys you the two things those make you build by hand: the run is durable because it was written to your database before it fired, and it is cluster-safe because one row can only be claimed once. The scheduler stops being a separate service with its own tables and its own failure modes. It is the job engine you already run, with a cron string on top.
 
 ## Next steps
 
