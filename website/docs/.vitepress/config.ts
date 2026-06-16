@@ -128,6 +128,7 @@ export default defineConfig({
           items: [
             { text: 'Offload Work After a Request', link: '/use-cases/offload-after-request' },
             { text: 'Scheduled & Recurring Jobs', link: '/use-cases/scheduled-recurring-jobs' },
+            { text: 'Resilient Third-Party Integrations', link: '/use-cases/resilient-integrations' },
             { text: 'Durable LLM & Agent Workflows', link: '/use-cases/durable-llm-workflows' },
           ],
         },

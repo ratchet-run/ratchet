@@ -105,6 +105,7 @@ VERIFIED_TIP_FILES=(
   "website/docs/use-cases/durable-llm-workflows.md"
   "website/docs/use-cases/scheduled-recurring-jobs.md"
   "website/docs/use-cases/offload-after-request.md"
+  "website/docs/use-cases/resilient-integrations.md"
 )
 for f in "${VERIFIED_TIP_FILES[@]}"; do
   apply "$f" "verified-tip" \
