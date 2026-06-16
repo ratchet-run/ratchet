@@ -42,7 +42,7 @@ All versions are managed through the `ratchet-bom`:
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.1.1-SNAPSHOT</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
