@@ -10,36 +10,36 @@ Ratchet can run on multiple nodes against the same store. Ordinary job claiming 
 
 ## Architecture
 
-<div className="docs-diagram" role="img" aria-label="Ratchet multi-node deployment: every node runs a local poller and worker pool, and all nodes coordinate through the shared store using SKIP LOCKED, node heartbeats, and scheduler locks.">
-  <div className="docs-diagram-row">
-    <div className="docs-diagram-card docs-diagram-card--active">
+<div class="docs-diagram" role="img" aria-label="Ratchet multi-node deployment: every node runs a local poller and worker pool, and all nodes coordinate through the shared store using SKIP LOCKED, node heartbeats, and scheduler locks.">
+  <div class="docs-diagram-row">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>Node A</strong>
       <small>Local poller and worker pool.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>Node B</strong>
       <small>Claims a different subset of work.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>Node C</strong>
       <small>No master/coordinator node required.</small>
     </div>
   </div>
 
-  <div className="docs-diagram-connector">
+  <div class="docs-diagram-connector">
     <span>`SKIP LOCKED` prevents duplicate claims while keeping nodes non-blocking</span>
   </div>
 
-  <div className="docs-diagram-row">
-    <div className="docs-diagram-card docs-diagram-card--store">
+  <div class="docs-diagram-row">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>scheduler_job_queue</strong>
       <small>Live claim state for pending, running, paused, and waiting jobs.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--store">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>scheduler_node</strong>
       <small>Heartbeats and failure detection.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--store">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>scheduler_lock</strong>
       <small>Store-backed leases for singleton maintenance paths.</small>
     </div>

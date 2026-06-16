@@ -12,25 +12,25 @@ Ratchet provides two batch processing APIs: `BatchBuilder` for in-memory collect
 
 A batch consists of a **parent job** (BATCH_PARENT) and many **child jobs** (BATCH_CHILD). The parent tracks overall progress but performs no work itself. Each child executes independently and in parallel, following the normal job lifecycle with its own retry and failure handling.
 
-<div className="docs-diagram" role="img" aria-label="Batch execution flow: submit creates a parent job, the parent creates child jobs, children execute independently, then parent evaluates success or failure callbacks.">
-  <div className="docs-diagram-flow">
-    <div className="docs-diagram-card docs-diagram-card--primary">
+<div class="docs-diagram" role="img" aria-label="Batch execution flow: submit creates a parent job, the parent creates child jobs, children execute independently, then parent evaluates success or failure callbacks.">
+  <div class="docs-diagram-flow">
+    <div class="docs-diagram-card docs-diagram-card--primary">
       <strong>`BatchBuilder.submit()`</strong>
       <small>Persists the batch parent and child job definitions.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--muted">
+    <div class="docs-diagram-card docs-diagram-card--muted">
       <strong>BATCH_PARENT</strong>
       <small>Tracks progress and owns callbacks, but performs no user work.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>N child jobs</strong>
       <small>Each child is a normal job with independent retry and failure handling.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--store">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>Progress aggregation</strong>
       <small>Child completions update batch metrics and parent progress.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--success">
+    <div class="docs-diagram-card docs-diagram-card--success">
       <strong>Batch callbacks</strong>
       <small>`onBatchSuccess` runs if all pass; `onBatchFailure` runs if any fail.</small>
     </div>

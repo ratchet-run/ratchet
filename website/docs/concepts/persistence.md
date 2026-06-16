@@ -18,13 +18,13 @@ state. MongoDB maps the same logical model to collections. Supporting entities
 handle batches, executions, workflow conditions, locks, nodes, structured logs,
 resource limits, DLQ alerts, and archived jobs.
 
-<div className="docs-diagram persistence-model-diagram" role="img" aria-label="Ratchet persistence model with scheduler_job as cold metadata, scheduler_job_queue as hot live state, and supporting tables for tags, executions, batches, workflow conditions, locks, nodes, logs, resources, alerts, and archive rows.">
-  <div className="docs-diagram-table docs-diagram-card--primary">
-    <div className="docs-diagram-table-header">
+<div class="docs-diagram persistence-model-diagram" role="img" aria-label="Ratchet persistence model with scheduler_job as cold metadata, scheduler_job_queue as hot live state, and supporting tables for tags, executions, batches, workflow conditions, locks, nodes, logs, resources, alerts, and archive rows.">
+  <div class="docs-diagram-table docs-diagram-card--primary">
+    <div class="docs-diagram-table-header">
       <strong>scheduler_job</strong>
       <small>Cold metadata, immutable job shape, and terminal survivor fields.</small>
     </div>
-    <div className="docs-diagram-fields">
+    <div class="docs-diagram-fields">
       <span>job_id UUIDv7 PK</span>
       <span>priority + job_type</span>
       <span>payload + params</span>
@@ -40,16 +40,16 @@ resource limits, DLQ alerts, and archived jobs.
     </div>
   </div>
 
-  <div className="docs-diagram-connector">
+  <div class="docs-diagram-connector">
     <span>1:0/1 while live</span>
   </div>
 
-  <div className="docs-diagram-table docs-diagram-card--active">
-    <div className="docs-diagram-table-header">
+  <div class="docs-diagram-table docs-diagram-card--active">
+    <div class="docs-diagram-table-header">
       <strong>scheduler_job_queue</strong>
       <small>Hot claim/poll state. SQL claim, pickup, retry, pause, resume, and signal operations target this table.</small>
     </div>
-    <div className="docs-diagram-fields">
+    <div class="docs-diagram-fields">
       <span>job_id PK/FK</span>
       <span>status: PENDING, RUNNING, PAUSED, WAITING</span>
       <span>scheduled_time</span>
@@ -65,56 +65,56 @@ resource limits, DLQ alerts, and archived jobs.
     </div>
   </div>
 
-  <div className="docs-diagram-connector">
+  <div class="docs-diagram-connector">
     <span>Supporting tables</span>
   </div>
 
-  <div className="docs-diagram-row docs-diagram-row--tight">
-    <div className="docs-diagram-card">
+  <div class="docs-diagram-row docs-diagram-row--tight">
+    <div class="docs-diagram-card">
       <strong>scheduler_job_tag</strong>
       <small>Tags per job for search and affinity filters.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_job_execution</strong>
       <small>Execution attempts and history.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_batch</strong>
       <small>Batch parent metadata.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_batch_metrics</strong>
       <small>Batch progress counters.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_workflow_condition</strong>
       <small>Workflow branch predicates and conditions.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_lock</strong>
       <small>Store-backed leases for singleton operations.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_node</strong>
       <small>Node registration and heartbeats.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_job_log</strong>
       <small>Structured job logs.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_resource_limit / permit</strong>
       <small>Resource capacity and active permits.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_dlq_alerts</strong>
       <small>DLQ alert audit and deduplication.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_job_archive</strong>
       <small>Archived terminal jobs.</small>
     </div>
-    <div className="docs-diagram-card">
+    <div class="docs-diagram-card">
       <strong>scheduler_business_key_reservation</strong>
       <small>Active business-key uniqueness.</small>
     </div>
@@ -178,26 +178,26 @@ Ratchet uses **RFC 9562 §5.7 UUIDv7** for primary keys. UUIDs are 128-bit value
 
 ### Layout
 
-<div className="docs-diagram" role="img" aria-label="UUIDv7 layout: 48 bits timestamp, 4 bits version, 12 bits rand_a, 2 bits variant, and 62 bits rand_b.">
-  <span className="fit-kicker">128-bit UUIDv7 layout</span>
-  <div className="uuid-strip">
-    <div className="uuid-segment docs-diagram-card--primary">
+<div class="docs-diagram" role="img" aria-label="UUIDv7 layout: 48 bits timestamp, 4 bits version, 12 bits rand_a, 2 bits variant, and 62 bits rand_b.">
+  <span class="fit-kicker">128-bit UUIDv7 layout</span>
+  <div class="uuid-strip">
+    <div class="uuid-segment docs-diagram-card--primary">
       <strong>unix_ts_ms</strong>
       <small>48 bits</small>
     </div>
-    <div className="uuid-segment">
+    <div class="uuid-segment">
       <strong>ver</strong>
       <small>4 bits</small>
     </div>
-    <div className="uuid-segment docs-diagram-card--active">
+    <div class="uuid-segment docs-diagram-card--active">
       <strong>rand_a</strong>
       <small>12 bits</small>
     </div>
-    <div className="uuid-segment">
+    <div class="uuid-segment">
       <strong>var</strong>
       <small>2 bits</small>
     </div>
-    <div className="uuid-segment docs-diagram-card--store">
+    <div class="uuid-segment docs-diagram-card--store">
       <strong>rand_b</strong>
       <small>62 bits</small>
     </div>

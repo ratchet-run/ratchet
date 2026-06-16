@@ -230,21 +230,21 @@ The old job is marked as superseded (`superseded_by` column points to the new jo
 
 The engine doesn't poll at a fixed interval. The `PollingStrategy` dynamically adjusts the polling delay based on job availability patterns:
 
-<div className="docs-diagram" role="img" aria-label="Adaptive polling modes: wakeup signal enters burst mode, idle polls settle into normal mode, and sustained idleness enters deep idle until another wakeup signal.">
-  <div className="docs-diagram-flow">
-    <div className="docs-diagram-card docs-diagram-card--primary">
+<div class="docs-diagram" role="img" aria-label="Adaptive polling modes: wakeup signal enters burst mode, idle polls settle into normal mode, and sustained idleness enters deep idle until another wakeup signal.">
+  <div class="docs-diagram-flow">
+    <div class="docs-diagram-card docs-diagram-card--primary">
       <strong>Wakeup signal</strong>
       <small>Local submission or `ClusterCoordinator.notifyNewWork()` tells the poller to check immediately.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>Burst mode</strong>
       <small>500ms delay, aggressive polling, exits after idle threshold.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--muted">
+    <div class="docs-diagram-card docs-diagram-card--muted">
       <strong>Normal mode</strong>
       <small>2-30 second adaptive delay based on rolling job counts and load.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--store">
+    <div class="docs-diagram-card docs-diagram-card--store">
       <strong>Deep idle</strong>
       <small>60 second delay after 5+ idle minutes; exits immediately on wakeup.</small>
     </div>

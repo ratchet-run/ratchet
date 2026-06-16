@@ -24,21 +24,21 @@ scheduler.enqueue(() -> validateOrder(orderId))
 
 When you call `.then()`, the engine creates multiple jobs linked by `depends_on`:
 
-<div className="docs-diagram" role="img" aria-label="Chain dependency flow: all steps are persisted immediately, but downstream steps stay hidden until the prior step succeeds.">
-  <div className="docs-diagram-flow">
-    <div className="docs-diagram-card docs-diagram-card--primary">
+<div class="docs-diagram" role="img" aria-label="Chain dependency flow: all steps are persisted immediately, but downstream steps stay hidden until the prior step succeeds.">
+  <div class="docs-diagram-flow">
+    <div class="docs-diagram-card docs-diagram-card--primary">
       <strong>`validateOrder`</strong>
       <small>`scheduled_time = now`; visible to the Poller first.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--muted">
+    <div class="docs-diagram-card docs-diagram-card--muted">
       <strong>`chargePayment`</strong>
       <small>`depends_on = validateOrder`; hidden with the sentinel scheduled time.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--muted">
+    <div class="docs-diagram-card docs-diagram-card--muted">
       <strong>`fulfillOrder`</strong>
       <small>`depends_on = chargePayment`; released only after payment succeeds.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--muted">
+    <div class="docs-diagram-card docs-diagram-card--muted">
       <strong>`sendConfirmation`</strong>
       <small>Final dependent step in the chain.</small>
     </div>

@@ -238,45 +238,45 @@ jobStore.scheduleJobRetry(job.getId(), errorMessage, newScheduledTime, attempt);
 
 The `@DoNotRetry` annotation is checked **before** the `RetryPolicy` SPI. If the exception class is annotated with `@DoNotRetry`, the job moves directly to the DLQ regardless of retry configuration or policy:
 
-<div className="docs-diagram docs-decision-grid" role="img" aria-label="Retry decision order: DoNotRetry first, maxRetries second, RetryPolicy third, then calculate delay and reschedule.">
-  <div className="docs-decision-row">
-    <div className="docs-diagram-card">
+<div class="docs-diagram docs-decision-grid" role="img" aria-label="Retry decision order: DoNotRetry first, maxRetries second, RetryPolicy third, then calculate delay and reschedule.">
+  <div class="docs-decision-row">
+    <div class="docs-diagram-card">
       <strong>1. `@DoNotRetry`?</strong>
       <small>Annotation wins over all retry settings.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--danger">
+    <div class="docs-diagram-card docs-diagram-card--danger">
       <strong>Yes</strong>
       <small>DLQ immediately.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>No</strong>
       <small>Check the job budget.</small>
     </div>
   </div>
-  <div className="docs-decision-row">
-    <div className="docs-diagram-card">
+  <div class="docs-decision-row">
+    <div class="docs-diagram-card">
       <strong>2. `attempt <= maxRetries`?</strong>
       <small>Per-job configuration is checked first.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--danger">
+    <div class="docs-diagram-card docs-diagram-card--danger">
       <strong>No</strong>
       <small>Move to DLQ.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--active">
+    <div class="docs-diagram-card docs-diagram-card--active">
       <strong>Yes</strong>
       <small>Consult retry policy.</small>
     </div>
   </div>
-  <div className="docs-decision-row">
-    <div className="docs-diagram-card">
+  <div class="docs-decision-row">
+    <div class="docs-diagram-card">
       <strong>3. `RetryPolicy.shouldRetry()`?</strong>
       <small>Custom global rules can stop the retry early.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--danger">
+    <div class="docs-diagram-card docs-diagram-card--danger">
       <strong>No</strong>
       <small>Move to DLQ.</small>
     </div>
-    <div className="docs-diagram-card docs-diagram-card--success">
+    <div class="docs-diagram-card docs-diagram-card--success">
       <strong>Yes</strong>
       <small>Calculate delay and reschedule.</small>
     </div>
