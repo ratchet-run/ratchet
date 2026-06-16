@@ -13,7 +13,7 @@ body:
     id: version
     attributes:
       label: Ratchet version or commit SHA
-      placeholder: 0.1.0-SNAPSHOT or a commit SHA
+      placeholder: 0.1.1-SNAPSHOT or a commit SHA
     validations:
       required: true
   - type: input

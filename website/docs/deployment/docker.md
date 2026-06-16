@@ -229,7 +229,7 @@ To extract the DDL from the Ratchet JAR:
 
 ```bash
 # Extract from the store module JAR
-jar xf ratchet-store-postgresql-0.1.0-SNAPSHOT.jar ddl/postgresql-schema.sql
+jar xf ratchet-store-postgresql-0.1.1-SNAPSHOT.jar ddl/postgresql-schema.sql
 cp ddl/postgresql-schema.sql schema/
 ```
 
