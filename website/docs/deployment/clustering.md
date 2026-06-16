@@ -1,7 +1,7 @@
 ---
 sidebar_position: 8
 title: Clustering
-description: Running Ratchet across multiple nodes — claim-based execution, node heartbeats, wakeup coordination, and failure detection
+description: Running Ratchet across multiple nodes: claim-based execution, node heartbeats, wakeup coordination, and failure detection
 ---
 
 # Clustering
@@ -46,7 +46,7 @@ Ratchet can run on multiple nodes against the same store. Ordinary job claiming 
   </div>
 </div>
 
-Every node runs its own poller and workers. For ordinary job claiming, no node is special — the database is the single source of truth.
+Every node runs its own poller and workers. For ordinary job claiming, no node is special: the database is the single source of truth.
 
 ## How Job Claiming Works
 
@@ -66,7 +66,7 @@ LIMIT :batchSize;
 - **`FOR UPDATE`** locks the selected rows
 - **`SKIP LOCKED`** skips rows already locked by another node's in-flight claim
 
-This means each node gets a disjoint set of jobs — no duplicate execution, no distributed lock manager, no coordination protocol. The database handles it.
+This means each node gets a disjoint set of jobs with no duplicate execution and no distributed lock manager needed. The database handles it.
 
 ### Optimized Claiming
 
@@ -116,7 +116,7 @@ List<NodeEntity> dead = nodeStore.findInactiveNodesSince(
 nodeStore.deleteInactiveNodesSince(cutoff);
 ```
 
-Jobs that were claimed by a dead node (status `RUNNING`, `picked_by` set to the dead node) can be reclaimed after the timeout expires — the poller will pick them up on the next cycle.
+Jobs that were claimed by a dead node (status `RUNNING`, `picked_by` set to the dead node) can be reclaimed after the timeout expires. The poller will pick them up on the next cycle.
 
 ### Clock Skew
 
@@ -157,9 +157,9 @@ Out of the box, Ratchet uses `NoOpClusterCoordinator`. That is fine for any depl
 
 ### First-party coordinator modules
 
-To enable push-based wakeups, add one of the first-party coordinator modules — PostgreSQL `LISTEN`/`NOTIFY`, JMS, Hazelcast, or Infinispan/JGroups. They are opt-in by dependency (no `beans.xml` change) and share a common delivery, self-suppression, failure, and metrics contract. See [Cluster Coordinators](/deployment/cluster-coordinators) for setup, configuration, delivery guarantees, and the polling fallback floor.
+To enable push-based wakeups, add one of the first-party coordinator modules: PostgreSQL `LISTEN`/`NOTIFY`, JMS, Hazelcast, or Infinispan/JGroups. They are opt-in by dependency (no `beans.xml` change) and share a common delivery, self-suppression, failure, and metrics contract. See [Cluster Coordinators](/deployment/cluster-coordinators) for setup, configuration, delivery guarantees, and the polling fallback floor.
 
-To build your own transport instead, implement the `ClusterCoordinator` SPI — see [Clustering concepts](/concepts/clustering).
+To build your own transport instead, implement the `ClusterCoordinator` SPI. See [Clustering concepts](/concepts/clustering).
 
 ## Priority Boosting
 
@@ -176,7 +176,7 @@ The `scheduler_lock` table provides advisory locks for operations that must be c
 | `lock_name` | Unique lock identifier |
 | `owner_node` | Node that holds the lock |
 | `locked_at` | When the lock was acquired |
-| `expires_at` | TTL — lock auto-expires for crash safety |
+| `expires_at` | TTL; lock auto-expires for crash safety |
 
 For MongoDB, the lock collection uses a TTL index on `expires_at`, so expired locks are garbage-collected automatically.
 
@@ -191,8 +191,8 @@ For MongoDB, the lock collection uses a TTL index on `expires_at`, so expired lo
 
 The key tradeoff: shorter poll intervals mean lower latency but more database load. `ClusterCoordinator` lets you keep a longer default interval while still responding immediately to urgent work.
 
-## See Also
+## See also
 
-- [Cluster Configuration](./cluster-configuration.md) — Tuning poll intervals, thread pools, and batch sizes
-- [Performance Tuning](./performance-tuning.md) — Database indexing and query optimization
-- [Concepts: Clustering](../concepts/clustering.md) — Architectural deep-dive into the clustering model
+- [Cluster Configuration](./cluster-configuration.md) -- Tuning poll intervals, thread pools, and batch sizes
+- [Performance Tuning](./performance-tuning.md) -- Database indexing and query optimization
+- [Concepts: Clustering](../concepts/clustering.md) -- Architectural deep-dive into the clustering model

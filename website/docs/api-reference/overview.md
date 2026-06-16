@@ -10,7 +10,7 @@ Ratchet's public API is organized into two packages: `run.ratchet.api` for the u
 
 ## Package Structure
 
-### `run.ratchet.api` — User-Facing API
+### `run.ratchet.api`: User-Facing API
 
 Classes and interfaces you use directly when scheduling jobs, building workflows, and observing events.
 
@@ -39,7 +39,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`JobType`](./job-options#jobtype) | Enum | Job categories: SINGLE, RECURRING, BATCH, CHAIN, WORKFLOW, SYSTEM |
 | [`CircuitBreakerProfile`](./annotations#circuitbreakerprotected) | Enum | Pre-configured circuit breaker profiles: DEFAULT, FAST, CRITICAL, EXTERNAL_API, CLAIM_PATH |
 
-### `run.ratchet.api` — Annotations
+### `run.ratchet.api`: Annotations
 
 | Annotation | Target | Purpose |
 |---|---|---|
@@ -48,7 +48,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`@DoNotRetry`](./annotations#donotretry) | Type | Marks exception classes that should never be retried |
 | [`@Incubating`](./annotations#incubating) | Any | Marks experimental APIs that may change without deprecation |
 
-### `run.ratchet.api` — Functional Interfaces
+### `run.ratchet.api`: Functional Interfaces
 
 | Interface | Signature | Purpose |
 |---|---|---|
@@ -59,7 +59,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`SerializablePredicate<T>`](./functional-interfaces#serializablepredicatet) | `boolean test(T t)` | Custom workflow conditions |
 | [`SerializableCheckedConsumer<T>`](./functional-interfaces#serializablecheckedconsumert) | `void accept(T t) throws Exception` | Streaming batch item processing |
 
-### `run.ratchet.api.event` — Event Types
+### `run.ratchet.api.event`: Event Types
 
 | Event | Fires When |
 |---|---|
@@ -81,7 +81,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`ChainFailedEvent`](./event-system#chainevent-types) | Workflow chain fails |
 | [`WorkflowBranchTriggeredEvent`](./event-system#workflowbranchtriggeredevent) | A workflow condition matches |
 
-### `run.ratchet.spi` — Extension Points
+### `run.ratchet.spi`: Extension Points
 
 | Interface | Purpose |
 |---|---|

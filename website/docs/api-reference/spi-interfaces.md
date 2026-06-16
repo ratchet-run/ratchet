@@ -8,7 +8,7 @@ description: Extension points for customizing Ratchet behavior including retry, 
 
 Extension points for customizing Ratchet behavior. All SPI interfaces live in the `run.ratchet.spi` package. To provide a custom implementation, create a CDI bean annotated with `@Alternative @Priority(APPLICATION)`.
 
-## Registering an SPI Implementation
+## Registering an SPI implementation
 
 ```java
 @Alternative
@@ -278,7 +278,7 @@ See the [Payload Encryption](/advanced/payload-encryption) guide for setup and t
 
 ## KeyProvider
 
-Owns key storage, the active write key, lookup by id, and the rotation lifecycle. This is the seam a deployment replaces to back encryption with a static key, an environment variable, a JCA `KeyStore`, or an external key service such as AWS KMS, GCP KMS, or HashiCorp Vault. `currentKey()` answers "which key do I write with now?", and `keyById()` resolves a recorded key id; a provider must keep old keys resolvable until every row written under them has been rewritten or deleted. `SecretKeyProvider` in `ratchet-encryption` is a ready-made static-key implementation, and `WrappedKeyProvider` (in `run.ratchet.spi`) is a `KeyProvider` sub-interface, the seam an external key service implements for KMS-wrapped data keys.
+Owns key storage, the active write key, lookup by id, and the rotation lifecycle. Replace this seam to back encryption with a static key, an environment variable, a JCA `KeyStore`, or an external service such as AWS KMS, GCP KMS, or HashiCorp Vault. `currentKey()` answers "which key do I write with now?"; `keyById()` resolves a recorded key id. A provider must keep old keys resolvable until every row written under them has been rewritten or deleted. `SecretKeyProvider` in `ratchet-encryption` is a ready-made static-key implementation. `WrappedKeyProvider` (in `run.ratchet.spi`) is a sub-interface for KMS-wrapped data keys.
 
 ```java
 @Incubating
@@ -839,7 +839,7 @@ public class AsmLambdaAnalyzer implements LambdaAnalyzer {
 }
 ```
 
-## See Also
+## See also
 
 - [Annotations Reference](./annotations)
 - [Event System](./event-system)

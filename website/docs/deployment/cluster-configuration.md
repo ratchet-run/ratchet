@@ -1,7 +1,7 @@
 ---
 sidebar_position: 5
 title: Cluster Configuration
-description: Running Ratchet across multiple nodes — ClusterCoordinator, NodeIdentityProvider, recurring job deduplication, and distributed locking.
+description: Running Ratchet across multiple nodes: ClusterCoordinator, NodeIdentityProvider, recurring job deduplication, and distributed locking.
 ---
 
 # Cluster Configuration
@@ -12,11 +12,11 @@ Ratchet supports multi-node deployments where multiple application instances sha
 
 In a clustered Ratchet deployment:
 
-1. **Job claiming is safe by default** — The database handles concurrency via row-level locking (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL, InnoDB row locks on MySQL, atomic updates on MongoDB). No additional configuration is needed for one-shot jobs.
+1. **Job claiming is safe by default.** The database handles concurrency via row-level locking (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL, InnoDB row locks on MySQL, atomic updates on MongoDB). No additional configuration is needed for one-shot jobs.
 
-2. **Recurring execution and startup coordination are separate concerns** — runtime recurring execution uses `scheduler_lock` so only one node advances the recurring scheduler at a time, and destructive startup cleanup is gated by the built-in `StartupCoordinator`, which also uses store-backed leases.
+2. **Recurring execution and startup coordination are separate concerns.** Runtime recurring execution uses `scheduler_lock` so only one node advances the recurring scheduler at a time, and destructive startup cleanup is gated by the built-in `StartupCoordinator`, which also uses store-backed leases.
 
-3. **Node identity is tracked** — Each node registers itself in the `scheduler_node` table with a heartbeat. This enables distributed locking and stale-node detection.
+3. **Node identity is tracked.** Each node registers itself in the `scheduler_node` table with a heartbeat. This enables distributed locking and stale-node detection.
 
 ## Enabling cluster mode
 
@@ -85,7 +85,7 @@ If you do not provide a `ClusterCoordinator`, Ratchet still coordinates one-shot
 
 ### First-party coordinator modules
 
-You usually do not implement this SPI yourself. Ratchet ships four coordinator modules — PostgreSQL `LISTEN`/`NOTIFY`, JMS, Hazelcast, and Infinispan — that you enable by adding a dependency, with no `beans.xml` change. See [Cluster Coordinators](/deployment/cluster-coordinators) for setup, configuration, delivery guarantees, failure behavior, and metrics. The examples below show how to build a custom transport when none of the shipped modules fit.
+You usually do not implement this SPI yourself. Ratchet ships four coordinator modules (PostgreSQL `LISTEN`/`NOTIFY`, JMS, Hazelcast, and Infinispan) that you enable by adding a dependency, with no `beans.xml` change. See [Cluster Coordinators](/deployment/cluster-coordinators) for setup, configuration, delivery guarantees, failure behavior, and metrics. The examples below show how to build a custom transport when none of the shipped modules fit.
 
 ## StartupCoordinator
 
@@ -308,8 +308,8 @@ ORDER BY locked_at;
 
 ## See also
 
-- [Deployment Overview](/deployment/overview) — General deployment guidance
-- [Kubernetes Deployment](/deployment/kubernetes) — StatefulSet and pod configuration
-- [Performance Tuning](/deployment/performance-tuning) — Tuning polling and thread pools
-- [Clustering & Distributed Execution](/deployment/clustering) — Conceptual overview of clustering
-- [Monitoring & Observability](/deployment/monitoring) — Metrics and health checks
+- [Deployment Overview](/deployment/overview) -- General deployment guidance
+- [Kubernetes Deployment](/deployment/kubernetes) -- StatefulSet and pod configuration
+- [Performance Tuning](/deployment/performance-tuning) -- Tuning polling and thread pools
+- [Clustering & Distributed Execution](/deployment/clustering) -- Conceptual overview of clustering
+- [Monitoring & Observability](/deployment/monitoring) -- Metrics and health checks

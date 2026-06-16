@@ -1,14 +1,14 @@
 ---
 sidebar_position: 4
 title: Database Setup
-description: Setting up MySQL, PostgreSQL, or MongoDB for Ratchet — schema application, DataSource configuration, and connection pooling.
+description: Setting up MySQL, PostgreSQL, or MongoDB for Ratchet: schema application, DataSource configuration, and connection pooling.
 ---
 
 # Database Setup
 
 Ratchet requires a database to persist jobs, execution history, and scheduling metadata. This guide covers setup for all three supported stores.
 
-SQL stores ship DDL as plain SQL files bundled inside each SQL store module JAR. There is no Flyway or Liquibase dependency — you apply the schema using whatever mechanism your team prefers, **or** opt in to Ratchet's built-in startup migrator (see [Auto-migration](#auto-migration) below). MongoDB initializes collections and indexes at startup unconditionally — its named indexes are referenced by claim queries, so initialization is correctness-critical, not optional.
+SQL stores ship DDL as plain SQL files bundled inside each SQL store module JAR. There is no Flyway or Liquibase dependency: apply the schema using whatever mechanism your team prefers, **or** opt in to Ratchet's built-in startup migrator (see [Auto-migration](#auto-migration) below). MongoDB initializes collections and indexes at startup unconditionally; its named indexes are referenced by claim queries, so initialization is correctness-critical, not optional.
 
 ## PostgreSQL
 
@@ -246,7 +246,7 @@ db.createUser({
 
 ### Initialize Collections and Indexes
 
-MongoDB does not require a DDL file — the store module creates collections and indexes automatically on startup. However, you can pre-create the same collections and indexes for faster initial startup:
+MongoDB does not require a DDL file; the store module creates collections and indexes automatically on startup. You can pre-create the same collections and indexes for faster initial startup:
 
 ```javascript
 // mongosh
@@ -351,7 +351,7 @@ max_connections = 200
 
 ## Schema Upgrades
 
-Ratchet uses `CREATE TABLE IF NOT EXISTS` in its DDL on both MySQL and PostgreSQL. On PostgreSQL it also uses `CREATE INDEX IF NOT EXISTS`; on MySQL indexes are declared inline within `CREATE TABLE IF NOT EXISTS` (MySQL has no partial indexes), so MySQL re-run safety relies on `CREATE TABLE IF NOT EXISTS` across the 18 tables. This means you can safely re-run the schema file against an existing database — it will create any missing tables or indexes without modifying existing ones.
+Ratchet uses `CREATE TABLE IF NOT EXISTS` in its DDL on both MySQL and PostgreSQL. On PostgreSQL it also uses `CREATE INDEX IF NOT EXISTS`; on MySQL indexes are declared inline within `CREATE TABLE IF NOT EXISTS` (MySQL has no partial indexes), so MySQL re-run safety relies on `CREATE TABLE IF NOT EXISTS` across the 18 tables. This means you can safely re-run the schema file against an existing database, and it will create any missing tables or indexes without modifying existing ones.
 
 For schema changes between Ratchet versions:
 
@@ -378,7 +378,7 @@ Or via configuration:
 ratchet.schema.auto-migrate=true
 ```
 
-When enabled, `SchemaMigrationLifecycleHook` runs during scheduler startup (before the poller is initialized), acquires an advisory lock (`GET_LOCK` on MySQL, `pg_advisory_lock` on PostgreSQL), records each applied script in `ratchet_schema_version`, and verifies SHA-256 checksums on subsequent runs. Concurrent startups converge — exactly one node applies migrations while the others wait on the lock.
+When enabled, `SchemaMigrationLifecycleHook` runs during scheduler startup (before the poller is initialized), acquires an advisory lock (`GET_LOCK` on MySQL, `pg_advisory_lock` on PostgreSQL), records each applied script in `ratchet_schema_version`, and verifies SHA-256 checksums on subsequent runs. Concurrent startups converge: exactly one node applies migrations while the others wait on the lock.
 
 ### DataSource binding
 
@@ -413,15 +413,15 @@ The dialect is auto-detected from `DatabaseMetaData.getDatabaseProductName()`. L
 
 ### Enabling auto-migrate on a database that already has the schema
 
-The bundled migrations are idempotent (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`), so `auto-migrate=true` is safe to enable against a database whose `scheduler_*` tables already exist — for example, one provisioned directly from the consolidated `*-schema.sql`. On the first run the migrator re-applies each script as a no-op and records it in `ratchet_schema_version`; every subsequent run skips by checksum. If you would rather manage the schema entirely through external tooling, keep `auto-migrate=false`.
+The bundled migrations are idempotent (`CREATE TABLE IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`), so `auto-migrate=true` is safe to enable against a database whose `scheduler_*` tables already exist (for example, one provisioned directly from the consolidated `*-schema.sql`). On the first run the migrator re-applies each script as a no-op and records it in `ratchet_schema_version`; every subsequent run skips by checksum. If you would rather manage the schema entirely through external tooling, keep `auto-migrate=false`.
 
 ### `CREATE INDEX CONCURRENTLY`
 
-PostgreSQL rejects `CREATE INDEX CONCURRENTLY` inside a transaction block, and the auto-migrator wraps each script in a JDBC transaction. The bundled migrations therefore use plain `CREATE INDEX`. Operators who need to avoid the brief table lock during a large-table reindex can apply the migration script manually with `CONCURRENTLY` before flipping `auto-migrate=true` — `ratchet_schema_version` records the version regardless of how the DDL ran.
+PostgreSQL rejects `CREATE INDEX CONCURRENTLY` inside a transaction block, and the auto-migrator wraps each script in a JDBC transaction. The bundled migrations therefore use plain `CREATE INDEX`. Operators who need to avoid the brief table lock during a large-table reindex can apply the migration script manually with `CONCURRENTLY` before flipping `auto-migrate=true`; `ratchet_schema_version` records the version regardless of how the DDL ran.
 
 ### MongoDB
 
-MongoDB does not participate in `auto-migrate` — its collections and named indexes are created unconditionally during store startup. The `auto-migrate` flag is JDBC-only by contract.
+MongoDB does not participate in `auto-migrate`; its collections and named indexes are created unconditionally during store startup. The `auto-migrate` flag is JDBC-only by contract.
 
 ## Backup Strategy
 
@@ -459,7 +459,7 @@ For all databases, schedule regular backups and test restoration periodically. I
 
 ## See Also
 
-- [PostgreSQL Deployment](/deployment/postgresql) — PostgreSQL-specific tuning and monitoring
-- [MySQL Deployment](/deployment/mysql) — MySQL-specific tuning and monitoring
-- [Configuration](/deployment/configuration) — Full configuration reference
-- [Deployment Overview](/deployment/overview) — General deployment guidance
+- [PostgreSQL Deployment](/deployment/postgresql) -- PostgreSQL-specific tuning and monitoring
+- [MySQL Deployment](/deployment/mysql) -- MySQL-specific tuning and monitoring
+- [Configuration](/deployment/configuration) -- Full configuration reference
+- [Deployment Overview](/deployment/overview) -- General deployment guidance

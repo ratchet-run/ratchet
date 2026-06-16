@@ -16,7 +16,7 @@ JobSchedulerService scheduler;
 **Package:** `run.ratchet.api`
 **Type:** Interface
 
-## Scheduling Methods
+## Scheduling methods
 
 ### enqueue
 
@@ -114,7 +114,7 @@ scheduler.scheduleRecurring(
     .submit();
 ```
 
-## Batch Methods
+## Batch methods
 
 ### enqueueBatch
 
@@ -167,7 +167,7 @@ scheduler.<Long>streamingBatch("Migrate Users")
     .start();
 ```
 
-## Job Replacement
+## Job replacement
 
 ### replace
 
@@ -195,7 +195,7 @@ JobHandle replacement = scheduler.replace(
     JobOptions.defaults().withPriority(JobPriority.HIGH));
 ```
 
-## Job Control Methods
+## Job control methods
 
 ### cancelJob
 
@@ -292,7 +292,7 @@ if (retried) {
 }
 ```
 
-## Signal Delivery Methods
+## Signal delivery methods
 
 Signal-waiting jobs are created through [`JobBuilder.awaitSignal()`](./job-builder#awaitsignal). They remain in `WAITING` status until a matching signal is delivered, or until their signal timeout fails the job.
 
@@ -345,7 +345,7 @@ if (decision != null && decision.isRejected()) {
 }
 ```
 
-## Recurring Job Management
+## Recurring job management
 
 ### cancelRecurringJobsByTag
 
@@ -387,7 +387,7 @@ scheduler.scheduleRecurring("0 0 10 * * ?", ZoneId.of("UTC"),
     .submit();
 ```
 
-## Event Listener Management
+## Event listener management
 
 ### addEventListener
 
@@ -489,7 +489,7 @@ JobHandle submit()
 
 Finalizes configuration and submits the recurring job to the scheduler.
 
-## See Also
+## See also
 
 - [JobBuilder Reference](./job-builder)
 - [BatchBuilder Reference](./batch-builder)

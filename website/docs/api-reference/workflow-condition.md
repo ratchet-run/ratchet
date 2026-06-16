@@ -361,7 +361,7 @@ List<WorkflowBranch> branches = builder.workflowBranches();
 
 ## Predicate Serialization Contract
 
-Custom predicates (`CUSTOM`, `BATCH_CUSTOM`, `RESULT_VALUE`) are stored in the database as `JobPayload` JSON — the same Class/Method/Args format used for job task lambdas. The predicate is analyzed at **scheduling time** using ASM bytecode inspection and must resolve to a **single public method call**.
+Custom predicates (`CUSTOM`, `BATCH_CUSTOM`, `RESULT_VALUE`) are stored in the database as `JobPayload` JSON, using the same Class/Method/Args format as job task lambdas. The predicate is analyzed at **scheduling time** using ASM bytecode inspection and must resolve to a **single public method call**.
 
 ### Supported shapes
 

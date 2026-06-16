@@ -39,7 +39,7 @@ scheduler.enqueue(() -> analyzeData())
     .submit();
 ```
 
-## Factory Methods
+## Factory methods
 
 ### success
 
@@ -116,7 +116,7 @@ JobResult<String> result = JobResult.of(
     Map.of("recordsProcessed", 500));
 ```
 
-## Status Methods
+## Status methods
 
 ### isSuccess
 
@@ -174,7 +174,7 @@ if (result.hasError()) {
 }
 ```
 
-## Value Access
+## Value access
 
 ### getValue
 
@@ -221,7 +221,7 @@ if (cause instanceof TimeoutException) {
 }
 ```
 
-## Timing Methods
+## Timing methods
 
 ### getStartTime
 
@@ -275,7 +275,7 @@ long duration = result.getExecutionTimeMsOrZero();
 metrics.record("job.duration", duration);
 ```
 
-## Metadata Methods
+## Metadata methods
 
 ### getMetadata (map)
 
@@ -327,11 +327,11 @@ String status = result.getMetadata("status", "unknown");
 Double rate = result.getMetadata("successRate", 1.0);
 ```
 
-## Using in Workflow Conditions
+## Using in workflow conditions
 
 `JobResult` is the primary input for workflow branching decisions:
 
-### Success/Failure Branching
+### Success/failure branching
 
 ```java
 scheduler.enqueue(() -> processPayment(orderId))
@@ -340,7 +340,7 @@ scheduler.enqueue(() -> processPayment(orderId))
     .submit();
 ```
 
-### Value-Based Branching
+### Value-based branching
 
 ```java
 public final class StockConditions {
@@ -359,7 +359,7 @@ scheduler.enqueue(() -> inventoryService.checkStock(itemId))
     .submit();
 ```
 
-### Complex Condition Branching
+### Complex condition branching
 
 ```java
 public final class AnalysisConditions {
@@ -386,7 +386,7 @@ scheduler.enqueue(() -> analyzeData())
 
 `JobResult` implements `Serializable`. During serialization, non-serializable `Throwable` instances in the `exception` field are automatically converted to a safe `RuntimeException` that preserves the original class name, message, and stack trace. This is transparent -- in-memory access via `getException()` returns the original `Throwable`.
 
-## See Also
+## See also
 
 - [WorkflowCondition Reference](./workflow-condition)
 - [JobBuilder Workflow Methods](./job-builder#workflow-methods)

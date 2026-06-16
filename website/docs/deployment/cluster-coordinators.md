@@ -1,7 +1,7 @@
 ---
 sidebar_position: 9
 title: Cluster Coordinators
-description: First-party push-based cross-node wakeup modules — delivery guarantees, configuration, failure behavior, metrics, and the polling fallback floor
+description: First-party push-based cross-node wakeup modules: delivery guarantees, configuration, failure behavior, metrics, and the polling fallback floor
 ---
 
 # Cluster Coordinators
@@ -15,8 +15,8 @@ Coordinators are a **latency optimization, never a correctness mechanism**.
 Claim correctness always comes from the store (`FOR UPDATE SKIP LOCKED` on SQL,
 the equivalent guarded find-and-modify on MongoDB). A coordinator only shortens
 the gap between "work submitted on node A" and "node B notices." If you can
-tolerate poll-interval latency for cross-node wakeups, you do not need one — see
-[When you need a coordinator](#when-you-need-a-coordinator).
+tolerate poll-interval latency for cross-node wakeups, you do not need one (see
+[When you need a coordinator](#when-you-need-a-coordinator)).
 
 ## When you need a coordinator
 
@@ -44,7 +44,7 @@ quickly). Normal and low-priority jobs wait for the next poll regardless.
 
 | Module | Transport | Best fit |
 | --- | --- | --- |
-| `ratchet-coordinator-postgresql` | PostgreSQL `LISTEN`/`NOTIFY` | A PostgreSQL-backed deployment — no extra infrastructure |
+| `ratchet-coordinator-postgresql` | PostgreSQL `LISTEN`/`NOTIFY` | A PostgreSQL-backed deployment (no extra infrastructure) |
 | `ratchet-coordinator-jms` | Jakarta Messaging topic | You already run a broker (ActiveMQ Artemis, IBM MQ, …) or want an EE-native transport |
 | `ratchet-coordinator-hazelcast` | Hazelcast `ITopic` | Payara (bundles Hazelcast), or any deployment already using Hazelcast |
 | `ratchet-coordinator-infinispan` | Infinispan / JGroups | WildFly, or a stack already running Infinispan + JGroups |
@@ -56,7 +56,7 @@ same delivery, self-suppression, failure, and metrics contracts described below.
 
 Pick the transport you already operate. If you have no preference, the
 PostgreSQL coordinator is the lowest-friction option for a PostgreSQL store: it
-needs no broker, no cache grid, and no extra ports — just the database you are
+needs no broker, no cache grid, and no extra ports: just the database you are
 already connected to.
 
 ## Enabling a coordinator
@@ -137,7 +137,7 @@ The publish path borrows short-lived connections from your configured
 | --- | --- | --- |
 | `connectionFactoryJndi` | `java:comp/DefaultJMSConnectionFactory` | Connection factory lookup name |
 | `topicJndi` | `java:comp/Ratchet/Wakeup` | Wakeup topic lookup name |
-| `cellId` | _(none)_ | Operator hygiene only — JMS cell isolation needs separate physical topics |
+| `cellId` | _(none)_ | Operator hygiene only; JMS cell isolation needs separate physical topics |
 | `brokerSideSelfFilter` | `true` | Add a JMS selector so the broker drops a node's own messages (receive-side filtering is always on regardless) |
 | `reconnectBackoffInitialMs` | `200` | Reconnect delay after the `ExceptionListener` fires; doubles per retry |
 | `reconnectBackoffMaxMs` | `30000` | Cap on the doubled reconnect delay |
@@ -186,7 +186,7 @@ execution-target label.
 
 The execution target is **informational only**. A receiving node wakes its
 poller unconditionally; the claim-side filter on each node then decides which
-pool actually drains. A wakeup never routes a job to a particular node — it only
+pool actually drains. A wakeup never routes a job to a particular node: it only
 prompts nodes to look.
 
 Publishing never blocks the scheduler and never throws into it. A transport
@@ -204,12 +204,12 @@ This is the guarantee that lets you treat coordinators as optional:
 
 Concretely, the scheduler behaves correctly in every degraded case:
 
-- **Push delivery fails** (broker down, channel error, connection lost) — the
-  hint is dropped; each node's adaptive poll loop still drains the queue at
+- **Push delivery fails** (broker down, channel error, connection lost): the
+  hint is dropped, and each node's adaptive poll loop still drains the queue at
   poll-interval latency.
-- **A node is not subscribed yet** (still starting, mid-reconnect) — it misses
+- **A node is not subscribed yet** (still starting, mid-reconnect): it misses
   hints during that window and falls back to polling until it re-subscribes.
-- **The coordinator is removed entirely** — the deployment reverts to the
+- **The coordinator is removed entirely**: the deployment reverts to the
   `NoOp` behavior with no correctness change, only higher wakeup latency.
 
 No coordinator implementation may break this contract. The `ClusterCoordinator`
@@ -239,7 +239,7 @@ depth.
   own cluster membership and reconnection; the coordinator does not.
 - **Back-pressure** is bounded. The listener dispatch pool has a fixed queue
   capacity and a discard-oldest policy, so a sustained wakeup storm drops the
-  oldest hints rather than exhausting memory — losing a hint only costs latency.
+  oldest hints rather than exhausting memory. Losing a hint only costs latency.
 - **Shutdown** is clean and idempotent. `close()` can be called twice safely,
   loop threads are interrupt-aware, and the coordinator waits up to
   `shutdownGraceMs` for threads and the dispatch pool to drain.
@@ -253,8 +253,8 @@ back to unmanaged threads.
 
 Coordinators emit two counters through the `MetricsCollector` SPI:
 
-- `clusterWakeupPublished(transport, outcome)` — one per publish attempt.
-- `clusterWakeupReceived(transport, outcome)` — one per inbound wakeup.
+- `clusterWakeupPublished(transport, outcome)` -- one per publish attempt.
+- `clusterWakeupReceived(transport, outcome)` -- one per inbound wakeup.
 
 The `transport` label is the coordinator kind: `postgresql`, `jms`,
 `infinispan`, or `hazelcast`. The `outcome` label is bounded:
@@ -264,8 +264,8 @@ The `transport` label is the coordinator kind: `postgresql`, `jms`,
 | Published | `success`, `failure` |
 | Received | `delivered`, `ignored_self`, `parse_failure`, `transport_failure`, `pre_registration_overflow`, `listener_failure` |
 
-Node identity, job ids, and workflow ids are deliberately **never** metric
-labels — they are unbounded and would blow up cardinality. Watch
+Node identity, job ids, and workflow ids are deliberately excluded from metric
+labels because they are unbounded and would blow up cardinality. Watch
 `ignored_self` to confirm self-suppression is working, and `transport_failure` /
 `failure` to spot a degraded transport (the scheduler keeps working through the
 polling floor while you investigate).
@@ -285,10 +285,10 @@ JNDI bindings per cell.
 
 ## See also
 
-- [Clustering](/deployment/clustering) — claim-based execution, heartbeats, and
+- [Clustering](/deployment/clustering) -- claim-based execution, heartbeats, and
   where wakeup notifications fit
-- [Cluster Configuration](/deployment/cluster-configuration) — node identity,
+- [Cluster Configuration](/deployment/cluster-configuration) -- node identity,
   distributed locks, and Kubernetes patterns
-- [Monitoring](/deployment/monitoring) — wiring up the `MetricsCollector`
-- [Clustering concepts](/concepts/clustering) — the `ClusterCoordinator` SPI and
+- [Monitoring](/deployment/monitoring) -- wiring up the `MetricsCollector`
+- [Clustering concepts](/concepts/clustering) -- the `ClusterCoordinator` SPI and
   how to implement a custom transport

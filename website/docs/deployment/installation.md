@@ -140,7 +140,7 @@ public class MyService {
 
 ## Step 5: Configuration (required)
 
-Produce a single `@ApplicationScoped RatchetOptions` bean — the scheduler refuses to start without it. The smallest viable producer reads `RATCHET_*` environment variables and MicroProfile Config:
+Produce a single `@ApplicationScoped RatchetOptions` bean; the scheduler refuses to start without it. The smallest viable producer reads `RATCHET_*` environment variables and MicroProfile Config:
 
 ```java
 @ApplicationScoped

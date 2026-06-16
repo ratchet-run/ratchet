@@ -16,7 +16,7 @@ Before starting, make sure you have:
 2. A database (PostgreSQL, MySQL, or MongoDB) accessible from your application
 3. Ratchet dependencies added to your `pom.xml` (see [Installation](./installation.md))
 4. The Ratchet schema applied to your database
-5. A `@Produces RatchetOptions` CDI bean — required; no automatic fallback
+5. A `@Produces RatchetOptions` CDI bean (required; no automatic fallback)
 6. A `ClassPolicy` CDI alternative that allows your application's packages
 
 If you haven't done steps 3 and 4 yet, here's the minimum `pom.xml` setup:

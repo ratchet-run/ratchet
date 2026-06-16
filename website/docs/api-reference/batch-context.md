@@ -26,7 +26,7 @@ public record BatchContext(
 )
 ```
 
-### Record Components
+### Record components
 
 | Component | Type | Description |
 |---|---|---|
@@ -35,7 +35,7 @@ public record BatchContext(
 | `completedItems` | `int` | Number of child jobs completed successfully |
 | `failedItems` | `int` | Number of child jobs that have failed |
 
-### Computed Methods
+### Computed methods
 
 #### isComplete
 
@@ -82,7 +82,7 @@ if (ctx.successRate() < 0.9) {
 }
 ```
 
-### Usage in Progress Hooks
+### Usage in progress hooks
 
 ```java
 scheduler.enqueueBatch("Process Orders")
@@ -102,7 +102,7 @@ scheduler.enqueueBatch("Process Orders")
     .submit();
 ```
 
-### Usage in Workflow Conditions
+### Usage in workflow conditions
 
 ```java
 public final class ImportBatchConditions {
@@ -145,7 +145,7 @@ public record StreamingBatchContext(
 )
 ```
 
-### Record Components
+### Record components
 
 | Component | Type | Description |
 |---|---|---|
@@ -203,7 +203,7 @@ scheduler.<Long>streamingBatch("Full Pipeline")
     .start();
 ```
 
-## See Also
+## See also
 
 - [BatchBuilder Reference](./batch-builder)
 - [WorkflowCondition Reference](./workflow-condition)

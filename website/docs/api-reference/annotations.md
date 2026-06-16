@@ -48,7 +48,7 @@ Marks a method for cron-scheduled recurring execution. Annotated methods are aut
 | `timeoutSeconds` | `long` | `3600` | No | Maximum execution time in seconds (default: 1 hour). |
 | `tags` | `String[]` | `{}` | No | Tags for filtering and categorization. |
 
-### Cron Expression Format
+### Cron expression format
 
 Uses Quartz cron format with 6-7 fields:
 
@@ -64,7 +64,7 @@ second minute hour day-of-month month day-of-week [year]
 | `0 0 0 1 * ?` | First day of every month at midnight |
 | `0 30 8 ? * MON-FRI` | Weekdays at 8:30 AM |
 
-### Method Requirements
+### Method requirements
 
 - Must be `public`
 - Must have **no parameters** or a single [`JobContext`](./job-context) parameter
@@ -265,7 +265,7 @@ public interface ResilienceStrategy {
 
 Currently `@Incubating` SPIs include the scheduler extension contracts in `run.ratchet.spi`, including `RatchetConfigSource`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `PollingStrategyProvider`, `JobLoggerFactory`, `ResilienceStrategy`, `ClassPolicy`, `ErrorSanitizer`, `ExecutorProvider`, `BeanResolver`, `MetricsCollector`, `JobLogger`, `ClusterCoordinator`, `StartupCoordinator`, and `NodeIdentityProvider`.
 
-## See Also
+## See also
 
 - [Job Options and Enums](./job-options)
 - [SPI Interfaces](./spi-interfaces)

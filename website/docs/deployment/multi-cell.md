@@ -1,7 +1,7 @@
 ---
 sidebar_position: 12
 title: Multi-Cell Deployment
-description: Running several independent Ratchet cells side by side — one store per cell — for tenant isolation or throughput beyond a single shared store.
+description: Running several independent Ratchet cells side by side (one store per cell) for tenant isolation or throughput beyond a single shared store.
 ---
 
 # Multi-Cell Deployment
@@ -10,7 +10,7 @@ A **cell** is one self-contained Ratchet deployment: its own application
 instances, its own datasource, and its own schema. Running several cells
 side by side gives you isolation or aggregate throughput that a single
 shared store cannot, and it needs no special code. Ratchet already scopes
-every uniqueness guarantee — job IDs, idempotency keys, business keys — to a
+every uniqueness guarantee (job IDs, idempotency keys, business keys) to a
 single store, so N stores are N independent schedulers that happen to run the
 same engine.
 
@@ -44,7 +44,7 @@ need. Most deployments never do.
 
 - One database can hold and serve your whole job population.
 - You want different node groups to handle different work. Worker tag
-  affinity routes jobs to eligible nodes *within one store* — tag a job with
+  affinity routes jobs to eligible nodes *within one store*: tag a job with
   `withTags(...)` and constrain a node's claims with a
   [`NodeTagAffinityProvider`](/api-reference/spi-interfaces#nodetagaffinityprovider). No second store
   is required for workload routing.
@@ -56,7 +56,7 @@ need. Most deployments never do.
   data, retention policy, and schema evolution are physically independent,
   and one tenant's load cannot starve another's claims.
 - **You have outgrown one store's write throughput.** A single store has a
-  commit-throughput ceiling — under sustained enqueue load the bottleneck is
+  commit-throughput ceiling. Under sustained enqueue load the bottleneck is
   transaction commit, not worker count, so adding nodes does not help past a
   point. Splitting the workload across cells multiplies the number of
   independent commit pipelines. See [Performance
@@ -69,7 +69,7 @@ the wrong unit of isolation or throughput.
 
 ## Pattern 1: Cell per tenant
 
-Each tenant gets its own cell — its own schema, and usually its own
+Each tenant gets its own cell: its own schema, and usually its own
 connection pool.
 
 ```
@@ -80,11 +80,11 @@ Tenant C  ->  Ratchet cell C  ->  schema_c
 
 Use it for:
 
-- **Compliance and data residency** — a tenant's jobs, payloads, and history
+- Compliance and data residency: a tenant's jobs, payloads, and history
   never share a table with another tenant's.
-- **A billing or quota boundary** — per-cell metrics attribute load directly
+- Billing or quota boundaries: per-cell metrics attribute load directly
   to a tenant.
-- **Independent schema evolution** — migrate or pause one tenant's cell
+- Independent schema evolution: migrate or pause one tenant's cell
   without touching the others.
 
 The cost is operational: more schemas to provision, migrate, and monitor.
@@ -105,12 +105,12 @@ User-facing notifications       ->  cell "notify"
 
 Use it for:
 
-- **Protecting latency-sensitive work from bulk work** — a reporting batch
+- Protecting latency-sensitive work from bulk work: a reporting batch
   that saturates its own store's commit pipeline cannot slow down
   notification jobs in a different cell.
-- **Tuning each store independently** — poll interval, batch size, retention,
+- Tuning each store independently: poll interval, batch size, retention,
   and pool sizing per domain.
-- **Independent scaling** — grow the reconciliation cell's node count without
+- Independent scaling: grow the reconciliation cell's node count without
   touching the reporting cell.
 
 This is the throughput-and-isolation pattern. When one shared store would
@@ -146,13 +146,13 @@ code, not with a Ratchet chain.
 
 Because there is no cross-cell layer, routing is the application's
 responsibility: choose the cell, then submit to that cell's
-`JobSchedulerService`. The job never moves between cells afterward — it is
+`JobSchedulerService`. The job never moves between cells afterward. It is
 claimed, executed, retried, and archived entirely within the cell it was
 created in.
 
 Keep the routing key stable and outside the job payload. For cell-per-tenant
 the key is the tenant ID; for cell-per-domain it is the workload class. A job
-submitted to the wrong cell is not an error Ratchet can detect — it will run
+submitted to the wrong cell is not an error Ratchet can detect. It will run
 in that cell against that cell's data.
 
 ## Sizing reference
@@ -170,7 +170,7 @@ and throughput pull toward cells; everything else favors a single store.
 
 Throughput planning starts with a single cell, because the ceiling is a
 property of one store. Establish what one cell sustains for your workload and
-hardware (the limiting factor is transaction commit, not worker count — see
+hardware (the limiting factor is transaction commit, not worker count; see
 [Performance Tuning](/deployment/performance-tuning)), then add cells when
 your aggregate target or isolation requirement exceeds it. Each cell is
 sized like any single deployment: see [Cluster
@@ -179,8 +179,8 @@ and polling tuning.
 
 ## See also
 
-- [Deployment Overview](/deployment/overview) — application server, database, and module requirements
-- [Clustering](/deployment/clustering) — scaling one store across nodes with `SKIP LOCKED`
-- [Cluster Configuration](/deployment/cluster-configuration) — per-cell node, pool, and polling tuning
-- [Performance Tuning](/deployment/performance-tuning) — the single-store commit-throughput ceiling
-- [SPI Reference: `NodeTagAffinityProvider`](/api-reference/spi-interfaces#nodetagaffinityprovider) — in-store workload routing
+- [Deployment Overview](/deployment/overview) -- Application server, database, and module requirements
+- [Clustering](/deployment/clustering) -- Scaling one store across nodes with `SKIP LOCKED`
+- [Cluster Configuration](/deployment/cluster-configuration) -- Per-cell node, pool, and polling tuning
+- [Performance Tuning](/deployment/performance-tuning) -- The single-store commit-throughput ceiling
+- [SPI Reference: `NodeTagAffinityProvider`](/api-reference/spi-interfaces#nodetagaffinityprovider) -- In-store workload routing

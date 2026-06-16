@@ -6,7 +6,7 @@ description: Tuning Ratchet's polling intervals, thread pools, batch sizes, time
 
 # Performance Tuning
 
-Ratchet's performance depends on the interplay between polling frequency, thread pool sizing, batch sizes, database tuning, and the nature of your jobs. This guide covers how to tune each parameter for your workload.
+Ratchet's performance depends on polling frequency, thread pool sizing, batch sizes, database tuning, and the nature of your jobs. This guide covers how to tune each parameter for your workload.
 
 ## Polling configuration
 
@@ -28,7 +28,7 @@ Ratchet uses adaptive polling, so the minimum and maximum delay matter more than
 | 3000ms | ~3 seconds | 20 | High-throughput production workloads |
 | 10000ms | ~10 seconds | 6 | Light workloads, reduce DB pressure |
 
-Lowering the minimum below 1 second is not recommended — the overhead of frequent queries usually outweighs the latency benefit.
+Lowering the minimum below 1 second is not recommended: the overhead of frequent queries usually outweighs the latency benefit.
 
 ### Batch size
 
@@ -103,14 +103,14 @@ RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI=java:app/concurrent/MyVirtualExecutor
 Virtual threads (Project Loom) eliminate the need to size thread pools for I/O-bound workloads. With the default threading mode set to virtual and a virtual-backed managed executor wired in, Ratchet routes jobs to the virtual pool, and the JVM multiplexes them across platform threads.
 
 Benefits:
-- No thread pool sizing needed — virtual threads are cheap to create
+- No thread pool sizing needed (virtual threads are cheap to create)
 - Blocking I/O no longer wastes platform threads
 - Scales to thousands of concurrent jobs without tuning
 
 Considerations:
 - Requires Java 21 or later
 - CPU-bound jobs do not benefit (still limited by platform thread count)
-- `synchronized` blocks can pin virtual threads — prefer `ReentrantLock` in job code
+- `synchronized` blocks can pin virtual threads; prefer `ReentrantLock` in job code
 
 ### Custom `ExecutorProvider`
 
@@ -207,22 +207,22 @@ Recommended timeouts by job type:
 
 ### PostgreSQL tuning
 
-**Shared buffers** — Set to 25% of available RAM:
+**Shared buffers:** set to 25% of available RAM:
 ```sql
 ALTER SYSTEM SET shared_buffers = '4GB';
 ```
 
-**Work memory** — Increase for complex queries:
+**Work memory:** increase for complex queries:
 ```sql
 ALTER SYSTEM SET work_mem = '256MB';
 ```
 
-**Effective cache size** — Set to 75% of available RAM:
+**Effective cache size:** set to 75% of available RAM:
 ```sql
 ALTER SYSTEM SET effective_cache_size = '12GB';
 ```
 
-**Autovacuum** — Ratchet performs frequent updates and deletes on the hot queue table. Tune autovacuum to keep up:
+**Autovacuum:** Ratchet performs frequent updates and deletes on the hot queue table. Tune autovacuum to keep up:
 ```sql
 ALTER TABLE scheduler_job_queue SET (
   autovacuum_vacuum_scale_factor = 0.05,  -- vacuum after 5% of rows change
@@ -230,7 +230,7 @@ ALTER TABLE scheduler_job_queue SET (
 );
 ```
 
-**Connection pooling** — Use PgBouncer in transaction mode:
+**Connection pooling:** use PgBouncer in transaction mode:
 ```ini
 [pgbouncer]
 pool_mode = transaction
@@ -240,20 +240,20 @@ default_pool_size = 25
 
 ### MySQL tuning
 
-**InnoDB buffer pool** — Set to 70-80% of available RAM:
+**InnoDB buffer pool:** set to 70-80% of available RAM:
 ```ini
 [mysqld]
 innodb_buffer_pool_size = 8G
 innodb_buffer_pool_instances = 8
 ```
 
-**Log file size** — Larger redo logs improve write performance:
+**Log file size:** larger redo logs improve write performance:
 ```ini
 [mysqld]
 innodb_log_file_size = 1G
 ```
 
-**Isolation level** — Required for Ratchet:
+**Isolation level:** required for Ratchet:
 ```ini
 [mysqld]
 transaction_isolation = READ-COMMITTED
@@ -289,7 +289,7 @@ LIMIT 100
 FOR UPDATE SKIP LOCKED;
 ```
 
-The query should use `idx_claim_executable` on `scheduler_job_queue` on both PostgreSQL and MySQL — it is the hot-path claim index. On PostgreSQL it is partial on `status = 'PENDING'`; on MySQL it is a plain index with `status` as the leading column (MySQL has no partial indexes). A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
+The query should use `idx_claim_executable` on `scheduler_job_queue` on both PostgreSQL and MySQL: it is the hot-path claim index. On PostgreSQL it is partial on `status = 'PENDING'`; on MySQL it is a plain index with `status` as the leading column (MySQL has no partial indexes). A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
 
 ```sql
 -- PostgreSQL
@@ -411,17 +411,17 @@ WHERE status = 'PENDING'
 
 ## Tuning checklist
 
-1. **Start with defaults** — Ratchet's defaults work well for most workloads
-2. **Measure first** — Enable metrics before changing anything
-3. **Tune one parameter at a time** — Change one setting, measure the impact, then move on
-4. **Watch the database** — Most performance issues are database-related (missing indexes, insufficient memory, too many connections)
-5. **Set timeouts** — Every job should have a timeout to prevent resource leaks
-6. **Configure retention** — Keep the active job table small for fast polling
-7. **Scale horizontally** — Add nodes before over-tuning a single instance
+1. **Start with defaults:** Ratchet's defaults work well for most workloads
+2. **Measure first:** enable metrics before changing anything
+3. **Tune one parameter at a time:** change one setting, measure the impact, then move on
+4. **Watch the database:** most performance issues are database-related (missing indexes, insufficient memory, too many connections)
+5. **Set timeouts:** every job should have a timeout to prevent resource leaks
+6. **Configure retention:** keep the active job table small for fast polling
+7. **Scale horizontally:** add nodes before over-tuning a single instance
 
 ## See also
 
-- [Configuration](/deployment/configuration) — Full configuration reference
-- [Monitoring & Observability](/deployment/monitoring) — Metrics and alerting
-- [Cluster Configuration](/deployment/cluster-configuration) — Multi-node tuning
-- [Troubleshooting](/deployment/troubleshooting) — Diagnosing performance issues
+- [Configuration](/deployment/configuration) -- Full configuration reference
+- [Monitoring & Observability](/deployment/monitoring) -- Metrics and alerting
+- [Cluster Configuration](/deployment/cluster-configuration) -- Multi-node tuning
+- [Troubleshooting](/deployment/troubleshooting) -- Diagnosing performance issues

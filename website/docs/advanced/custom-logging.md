@@ -39,7 +39,7 @@ Each job execution receives its own `JobLogger` instance, bound to that job's ID
 
 ## Reference pattern: JBoss Logging implementation
 
-The default `JBossLoggingJobLogger` bridges job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and publishes each log line as an internal `JobLogLine` event. The event is delivered to programmatic listeners and CDI observers; database persistence is not automatic unless your application observes the event and calls `JobAuditStore.appendLog(...)` or installs an equivalent integration.
+The default `JBossLoggingJobLogger` bridges job logs to JBoss Logging (which auto-detects the runtime backend: JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and publishes each log line as an internal `JobLogLine` event. The event is delivered to programmatic listeners and CDI observers; database persistence is not automatic unless your application observes the event and calls `JobAuditStore.appendLog(...)` or installs an equivalent integration.
 
 ```java
 public class JBossLoggingJobLogger implements JobLogger {
@@ -357,12 +357,12 @@ Ratchet writes four MDC keys via `org.jboss.logging.MDC` during job execution:
 
 These names are part of the public observability surface. Adding new keys is non-breaking; renaming or removing one of these four is a breaking change.
 
-**Whether application MDC entries unify with Ratchet's depends on the backend:**
+Whether application MDC entries unify with Ratchet's depends on the backend:
 
-- **Logback backend**: Application code calling `org.slf4j.MDC.put(...)` and Ratchet calling `org.jboss.logging.MDC.put(...)` write to the *same* thread-local map. Both sets of keys appear together in `%X{...}` output and JSON encoders. This is the recommended configuration for unified MDC.
-- **JBoss LogManager backend (WildFly)**: Both APIs delegate to the LogManager's MDC. Keys unify in container log patterns.
-- **Log4j 2 backend**: JBoss Logging delegates to Log4j 2's `ThreadContext`. Application code using `org.slf4j.MDC` (via `log4j-slf4j2-impl`) shares the same context map.
-- **JDK `java.util.logging` fallback**: JBoss Logging stores keys in its own per-thread map; stock JUL formatters do not render them. If application code uses `org.slf4j.MDC` via the `slf4j-jdk14` binding, the two MDC maps are *separate* and do not unify. For unified MDC in non-EE deployments, place Logback on the classpath instead of relying on the JUL fallback.
+- **Logback:** Application code calling `org.slf4j.MDC.put(...)` and Ratchet calling `org.jboss.logging.MDC.put(...)` write to the *same* thread-local map. Both sets of keys appear together in `%X{...}` output and JSON encoders. This is the recommended configuration for unified MDC.
+- **JBoss LogManager (WildFly):** Both APIs delegate to the LogManager's MDC. Keys unify in container log patterns.
+- **Log4j 2:** JBoss Logging delegates to Log4j 2's `ThreadContext`. Application code using `org.slf4j.MDC` (via `log4j-slf4j2-impl`) shares the same context map.
+- **JDK `java.util.logging` fallback:** JBoss Logging stores keys in its own per-thread map; stock JUL formatters do not render them. If application code uses `org.slf4j.MDC` via the `slf4j-jdk14` binding, the two MDC maps are *separate* and do not unify. For unified MDC in non-EE deployments, place Logback on the classpath instead of relying on the JUL fallback.
 
 To override auto-detection, set `-Dorg.jboss.logging.provider=slf4j` (or `jboss`, `log4j2`, `jdk`) on the JVM command line.
 

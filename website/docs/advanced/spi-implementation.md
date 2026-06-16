@@ -11,7 +11,7 @@ Ratchet is designed around a set of Service Provider Interfaces (SPIs) that deco
 This guide covers the CDI wiring pattern, the complete SPI inventory, and Ratchet conformance tiers.
 The TCK is split into four submodules: `ratchet-tck-store` (store SPI), `ratchet-tck-api`
 (public-API, container-free), `ratchet-tck-jakarta` (Jakarta-EE conformance via Arquillian), and
-`ratchet-tck-util` (shared JUnit helpers). Each earns a distinct compatibility label — see the
+`ratchet-tck-util` (shared JUnit helpers). Each earns a distinct compatibility label; see the
 [README's tiered-conformance section](https://github.com/ratchet-run/ratchet#custom-store-implementation)
 for the full matrix.
 
@@ -651,14 +651,14 @@ public interface JobStore
 }
 ```
 
-A store opts into an optional capability by additionally implementing its interface. Callers never assume a capability is present — they probe for it, and the engine disables the dependent feature when it is absent:
+A store opts into an optional capability by additionally implementing its interface. Callers never assume a capability is present; they probe for it, and the engine disables the dependent feature when it is absent:
 
 ```java
 jobStore.capability(SignalStore.class)
     .ifPresent(signals -> signals.deliverSignalByKey(key, payload));
 ```
 
-Ratchet ships MySQL, PostgreSQL, and MongoDB implementations, all of which advertise every capability. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore` — plus any optional capabilities your backend can support — and validate it against the TCK.
+Ratchet ships MySQL, PostgreSQL, and MongoDB implementations, all of which advertise every capability. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
 
 ### Core Store Interfaces (mandatory)
 

@@ -140,7 +140,7 @@ public class CustomErrorSanitizer implements ErrorSanitizer {
 
 ## Dead Letter Queue (DLQ)
 
-When a job permanently fails (exhausts retries, `@DoNotRetry`, or `RetryPolicy` rejects), it moves to the DLQ. The DLQ is not a separate table -- it's the set of jobs with `status = FAILED` and no remaining retries.
+When a job permanently fails (exhausts retries, `@DoNotRetry`, or `RetryPolicy` rejects), it moves to the DLQ. The DLQ is not a separate table; it's the set of jobs with `status = FAILED` and no remaining retries.
 
 ### What Happens on DLQ Entry
 
@@ -222,7 +222,7 @@ If the circuit breaker for `payment-gateway` is OPEN, jobs targeting `PaymentSer
 
 ## Timeout as Failure
 
-When a job exceeds its configured timeout, the worker thread is interrupted. The resulting `InterruptedException` flows through the normal failure pipeline -- `@DoNotRetry` check, `RetryPolicy` consultation, retry scheduling, or DLQ routing.
+When a job exceeds its configured timeout, the worker thread is interrupted. The resulting `InterruptedException` flows through the normal failure pipeline: `@DoNotRetry` check, `RetryPolicy` consultation, retry scheduling, or DLQ routing.
 
 ```java
 scheduler.enqueue(() -> longRunningService.process(data))

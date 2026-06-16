@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 title: Basic Concepts
-description: Core Ratchet terminology — jobs, schedules, stores, builders, contexts, and the CDI programming model
+description: Core Ratchet terminology: jobs, schedules, stores, builders, contexts, and the CDI programming model
 ---
 
 # Basic Concepts
@@ -10,7 +10,7 @@ Understanding the core building blocks helps before reading the API. Ratchet has
 
 ## Jobs
 
-A **job** is a unit of work that Ratchet persists and executes. A job is a serialized lambda — a method reference stored in the database and invoked later by a worker thread.
+A **job** is a unit of work that Ratchet persists and executes. Concretely, it is a serialized lambda: a method reference stored in the database and invoked later by a worker thread.
 
 ```java
 // This lambda IS the job
@@ -23,7 +23,7 @@ Every job has:
 |----------|-------------|
 | **ID** | Auto-assigned UUIDv7 identifier |
 | **Status** | Current lifecycle state (`PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELED`, `PAUSED`, `WAITING`) |
-| **Priority** | Execution ordering — `LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL` |
+| **Priority** | Execution ordering: `LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL` |
 | **Payload** | The serialized lambda or method reference |
 | **Parameters** | Key-value pairs available at execution time via `JobContext` |
 | **Tags** | Labels for grouping and bulk operations |
@@ -34,11 +34,11 @@ Jobs progress through a [lifecycle](../concepts/job-lifecycle.md) from creation 
 
 Ratchet supports several execution patterns:
 
-- **Single** — Execute once, right now or after a delay
-- **Recurring** — Execute on a cron schedule, creating child instances each time
-- **Batch parent** — Coordinate parallel execution of child jobs
-- **Batch child** — Individual items within a batch
-- **Chained** — Execute after another job completes (success, failure, or conditional)
+- **Single:** execute once, right now or after a delay
+- **Recurring:** execute on a cron schedule, creating child instances each time
+- **Batch parent:** coordinate parallel execution of child jobs
+- **Batch child:** individual items within a batch
+- **Chained:** execute after another job completes (success, failure, or conditional)
 
 See [Job Types](../concepts/job-types.md) for details on each pattern.
 
@@ -122,7 +122,7 @@ JobResult.success(invoiceTotal);
 JobResult.failure("Payment declined", exception);
 ```
 
-Results drive [workflow branching](../concepts/workflows.md) — downstream jobs can inspect the parent result and conditionally execute.
+Results drive [workflow branching](../concepts/workflows.md): downstream jobs can inspect the parent result and conditionally execute.
 
 ## Stores
 
@@ -213,6 +213,6 @@ See the [Event System](../api-reference/event-system.md) for all event types.
 
 Now that you know the vocabulary, the best way to learn is to build something:
 
-- **[Your First Job](./first-job.md)** — Build a complete job with retries, callbacks, and monitoring
-- **[Configuration](./configuration.md)** — Tune polling intervals, thread pools, and timeouts
-- **[Job Lifecycle](../concepts/job-lifecycle.md)** — Understand every state transition in detail
+- **[Your First Job](./first-job.md)** -- Build a complete job with retries, callbacks, and monitoring
+- **[Configuration](./configuration.md)** -- Tune polling intervals, thread pools, and timeouts
+- **[Job Lifecycle](../concepts/job-lifecycle.md)** -- Understand every state transition in detail
