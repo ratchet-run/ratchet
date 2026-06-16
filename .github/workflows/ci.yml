@@ -35,6 +35,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v6
       - uses: dorny/paths-filter@v4
@@ -44,7 +45,9 @@ jobs:
           # 'every' makes a file count as code only when it matches ALL rules
           # (not md, not adoc, not under website, not LICENSE). The default
           # 'some' quantifier lets the base '**' match every file, so the '!'
-          # rules never subtract and docs-only PRs run the full matrix.
+          # rules never subtract and docs-only PRs run the full matrix. The same
+          # 'every' quantifier is harmless for the single-pattern web filter: a
+          # changed file counts as web only when it lives under website/.
           predicate-quantifier: 'every'
           filters: |
             code:
@@ -53,6 +56,8 @@ jobs:
               - '!**/*.adoc'
               - '!website/**'
               - '!LICENSE'
+            web:
+              - 'website/**'
 
   build:
     runs-on: ubuntu-latest
@@ -250,6 +255,43 @@ jobs:
       - name: Copyleft dependency-license gate
         run: bash infra/ci/check-dependency-licenses.sh
 
+  # Builds the VitePress site and runs the axe-core accessibility scan against
+  # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
+  # on the web filter so it runs whenever anything under website/ changes —
+  # including docs-only edits the code filter would otherwise let skip the
+  # pipeline. Skipped in the merge queue (it ran on the PR). Generated Javadoc is
+  # not present in this clean-checkout build and is excluded from the scan
+  # anyway, so the site builds without it.
+  a11y:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.web != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - name: Install dependencies
+        working-directory: website
+        run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('website/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+      - name: Install Playwright Chromium
+        working-directory: website
+        run: npx playwright install --with-deps chromium
+      - name: Build site
+        working-directory: website
+        run: npm run build
+      - name: Accessibility scan (light + dark)
+        working-directory: website
+        run: npm run a11y
+
   # Single aggregating gate. Branch protection requires only this context (plus
   # CodeQL's "Analyze (Java)" and DCO), so the volatile set of CI jobs lives
   # here in the workflow instead of being re-enumerated in repo settings. Adding
@@ -263,7 +305,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [changes, build, spotbugs, ee11-verify, integration-test, dash-license-check, license-gate]
+    needs: [changes, build, spotbugs, ee11-verify, integration-test, dash-license-check, license-gate, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

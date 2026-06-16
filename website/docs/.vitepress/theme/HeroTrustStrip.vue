@@ -22,7 +22,7 @@ const facts = [
         <p class="eyebrow">Standards-based and conformance-tested</p>
         <p class="trust-runtimes">
           <span v-for="r in runtimes" :key="r" class="runtime-chip">{{ r }}</span>
-          <span class="trust-times">×</span>
+          <span class="trust-times" aria-hidden="true">×</span>
           <span v-for="d in databases" :key="d" class="runtime-chip db">{{ d }}</span>
         </p>
       </div>
@@ -101,7 +101,10 @@ const facts = [
 }
 
 .trust-times {
-  color: var(--vp-c-text-3);
+  /* text-2, not text-3: the muted text-3 measured ~2.5:1 on the soft strip
+     background, under the WCAG AA floor. aria-hidden in the template keeps this
+     decorative separator out of the screen-reader line. */
+  color: var(--vp-c-text-2);
   font-weight: 700;
   padding: 0 0.15rem;
 }

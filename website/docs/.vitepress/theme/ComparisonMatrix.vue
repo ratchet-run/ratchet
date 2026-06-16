@@ -161,7 +161,7 @@ const rows: Row[] = [
   {
     capability: 'Spring Boot starter',
     cells: [
-      { status: 'partial', label: 'Planned' },
+      { status: 'no', label: 'Unplanned' },
       { status: 'yes' },
       { status: 'yes' },
       { status: 'yes', label: 'Native' },
@@ -215,7 +215,12 @@ const statusLabel = (s: Status) => ({
 
 <template>
   <div class="cm-wrapper">
-    <div class="cm-scroll">
+    <div
+      class="cm-scroll"
+      tabindex="0"
+      role="region"
+      aria-label="Feature comparison across job schedulers (scroll horizontally)"
+    >
       <table class="cm-matrix">
         <thead>
           <tr>
@@ -302,11 +307,10 @@ const statusLabel = (s: Status) => ({
   padding: 0.65rem 0.5rem;
   border-radius: 6px;
   background: var(--vp-c-brand-1);
-  color: #1a1a1a;
   font-weight: 700;
+  /* Text colour is theme-keyed in custom.css (white on the light amber fill,
+     near-black on the dark gold fill) to avoid the scoped light/dark tie. */
 }
-
-:global(.dark) .cm-ratchet-header { color: #0d1117; }
 
 .cm-capability {
   text-align: left;
@@ -335,12 +339,15 @@ const statusLabel = (s: Status) => ({
   line-height: 1;
 }
 
+/* Labels and footnotes inherit the cell's status colour. They are small text,
+   so they sit fully opaque on it (any opacity drops them below AA) and the
+   status colours below are chosen to clear 4.5:1 against the blended cell
+   background in both themes. */
 .cm-label {
   display: block;
   font-size: 0.7rem;
   font-weight: 500;
   margin-top: 0.2rem;
-  opacity: 0.85;
 }
 
 .cm-fn {
@@ -349,18 +356,12 @@ const statusLabel = (s: Status) => ({
   right: 4px;
   font-size: 0.65rem;
   color: inherit;
-  opacity: 0.6;
 }
 
-.cm-yes { background: rgba(46, 160, 67, 0.16); color: #2da44e; }
-.cm-no { background: rgba(207, 34, 46, 0.14); color: #cf222e; }
-.cm-partial { background: rgba(191, 135, 0, 0.16); color: #bf8700; }
-.cm-na { background: rgba(110, 119, 129, 0.16); color: #6e7781; }
-
-:global(.dark) .cm-yes { background: rgba(63, 185, 80, 0.18); color: #3fb950; }
-:global(.dark) .cm-no { background: rgba(248, 81, 73, 0.16); color: #f85149; }
-:global(.dark) .cm-partial { background: rgba(210, 153, 34, 0.18); color: #d29922; }
-:global(.dark) .cm-na { background: rgba(139, 148, 158, 0.18); color: #8b949e; }
+/* Status colours (cells + legend swatches) live in custom.css, keyed on
+   html:not(.dark) / html.dark so light and dark are mutually exclusive. As
+   scoped rules the dark overrides tied with the light rules on specificity and
+   source order — not the theme — decided the winner. */
 
 .cm-legend {
   display: flex;

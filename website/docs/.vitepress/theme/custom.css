@@ -21,10 +21,14 @@ html { color-scheme: light; }
 /* ------------------------------------------------------------------ */
 
 :root {
-  --vp-c-brand-1: #b45309;
-  --vp-c-brand-2: #92400e;
-  --vp-c-brand-3: #78350f;
-  --vp-c-brand-soft: rgba(180, 83, 9, 0.14);
+  /* brand-1 is the primary accent: link text, inline code, and button fills.
+     At #b45309 it measured 4.4:1 on the soft inline-code background, just under
+     the WCAG AA 4.5:1 floor, so it is darkened to amber-800 (~6.2:1) and the
+     hover/active ramp is pushed down to keep the darkening visible on hover. */
+  --vp-c-brand-1: #92400e;
+  --vp-c-brand-2: #7c350a;
+  --vp-c-brand-3: #5e2c0a;
+  --vp-c-brand-soft: rgba(146, 64, 14, 0.14);
 
   --vp-button-brand-border: var(--vp-c-brand-1);
   --vp-button-brand-text: #ffffff;
@@ -353,7 +357,11 @@ html { color-scheme: light; }
   border-collapse: collapse;
 }
 
-.vp-doc table th {
+/* The ComparisonMatrix renders its own <table class="cm-matrix"> with bespoke
+   header styling, so the brand-filled markdown-table header treatment is scoped
+   away from it — otherwise the dark `#1f1306` header text lands on the matrix's
+   grey header cells and fails contrast. */
+.vp-doc table:not(.cm-matrix) th {
   background-color: var(--vp-c-brand-1);
   color: white;
   padding: 0.75rem;
@@ -362,8 +370,15 @@ html { color-scheme: light; }
 }
 
 /* In dark mode brand-1 becomes a bright amber — dark text reads better than white */
-.dark .vp-doc table th {
+.dark .vp-doc table:not(.cm-matrix) th {
   color: #1f1306;
+}
+
+/* Inline code in a brand-filled header inherits the header's text colour
+   instead of the brand colour, which would otherwise match the background. */
+.vp-doc table:not(.cm-matrix) th code {
+  color: inherit;
+  background: transparent;
 }
 
 .vp-doc table td {
@@ -373,6 +388,25 @@ html { color-scheme: light; }
   border-left: 0;
   border-right: 0;
 }
+
+/* ComparisonMatrix status colours. Defined globally and keyed on the theme
+   class so light and dark are mutually exclusive — kept in the scoped component
+   they tied with each other on specificity. Each colour clears WCAG AA (4.5:1)
+   against its blended cell tint; the same classes style the legend swatches. */
+html:not(.dark) .cm-yes { background: rgba(46, 160, 67, 0.16); color: #216e39; }
+html:not(.dark) .cm-no { background: rgba(207, 34, 46, 0.14); color: #a40e26; }
+html:not(.dark) .cm-partial { background: rgba(191, 135, 0, 0.16); color: #854d0e; }
+html:not(.dark) .cm-na { background: rgba(110, 119, 129, 0.16); color: #4b5563; }
+
+html.dark .cm-yes { background: rgba(63, 185, 80, 0.18); color: #3fb950; }
+html.dark .cm-no { background: rgba(248, 81, 73, 0.16); color: #ff7b72; }
+html.dark .cm-partial { background: rgba(210, 153, 34, 0.18); color: #d29922; }
+html.dark .cm-na { background: rgba(139, 148, 158, 0.18); color: #9da7b3; }
+
+/* The Ratchet header sits on the brand fill: white on the light amber,
+   near-black on the dark gold. Theme-keyed for the same reason as above. */
+html:not(.dark) .cm-ratchet-header { color: #ffffff; }
+html.dark .cm-ratchet-header { color: #0d1117; }
 
 .vp-doc table tr {
   background-color: transparent !important;
