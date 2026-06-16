@@ -4,6 +4,7 @@ import DefaultTheme from 'vitepress/theme'
 import HeroCode from './HeroCode.vue'
 import HeroInfoTop from './HeroInfoTop.vue'
 import HeroTrustStrip from './HeroTrustStrip.vue'
+import HomeUseCasesBand from './HomeUseCasesBand.vue'
 import HomeDocsBand from './HomeDocsBand.vue'
 import ComparisonMatrix from './ComparisonMatrix.vue'
 import SiteFooter from './SiteFooter.vue'
@@ -18,7 +19,7 @@ export default {
       'home-hero-info-before': () => h(HeroInfoTop),
       'home-hero-image': () => h(HeroCode),
       'home-hero-after': () => h(HeroTrustStrip),
-      'home-features-after': () => h(HomeDocsBand),
+      'home-features-after': () => [h(HomeUseCasesBand), h(HomeDocsBand)],
       'layout-bottom': () => h(SiteFooter),
       'nav-bar-content-after': () => h(AppearanceToggle),
     })
