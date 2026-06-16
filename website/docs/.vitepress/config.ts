@@ -126,6 +126,7 @@ export default defineConfig({
         {
           text: 'Use cases',
           items: [
+            { text: 'Scheduled & recurring jobs', link: '/use-cases/scheduled-recurring-jobs' },
             { text: 'Durable LLM & agent workflows', link: '/use-cases/durable-llm-workflows' },
           ],
         },
