@@ -28,6 +28,20 @@ const useCases = [
       'Run model calls and multi-step agents as persisted, retrying jobs. Bring your own model client.',
     event: 'durable-llm-workflows',
   },
+  {
+    title: 'Bulk & batch jobs',
+    href: '/use-cases/bulk-batch-jobs',
+    description:
+      'Fan thousands of items out as one tracked batch with aggregate progress, then branch on the result.',
+    event: 'bulk-batch-jobs',
+  },
+  {
+    title: 'Human-in-the-loop jobs',
+    href: '/use-cases/human-in-the-loop',
+    description:
+      'Park a job until a person approves it, then resume right where it left off. No thread held while it waits.',
+    event: 'human-in-the-loop',
+  },
 ]
 </script>
 
@@ -94,7 +108,7 @@ const useCases = [
 
 .usecase-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem;
 }
 
