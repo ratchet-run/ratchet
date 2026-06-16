@@ -1,6 +1,6 @@
 ---
 title: Scheduled & Recurring Jobs
-description: Cron and delayed jobs that survive restarts and never double-fire across a cluster, run inside the Jakarta EE server you already operate — no separate scheduler.
+description: Cron and delayed jobs that survive restarts and never double-fire across a cluster, run inside the Jakarta EE server you already operate, with no separate scheduler.
 ---
 
 # Scheduled & Recurring Jobs
@@ -12,7 +12,7 @@ The usual answer is Quartz, or a `@Scheduled` method, or a cron line on one box.
 Ratchet treats a scheduled run as what it already is: a job. It gets written to your database before it runs, claimed by exactly one node, retried on failure, and picked up again after a crash. The schedule is a row, not a thread on a single machine. If you already run Ratchet for background work, recurring work is the same engine with a cron string attached.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.1.1-SNAPSHOT`. It shows real API usage, not pseudocode — the running app needs a Jakarta EE server and a configured store.
+The Java on this page compiles against `ratchet-api` `0.1.1-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store.
 :::
 
 ## The declarative path: `@Recurring`
@@ -48,19 +48,19 @@ public class MaintenanceService {
 }
 ```
 
-The method has to be `public`, live on a CDI bean, and take either nothing or a single `JobContext`. The return value is ignored. The cron string is a Quartz expression — six or seven fields, `second minute hour day-of-month month day-of-week [year]` — and it is evaluated in the `zone` you name, which matters the two days a year that daylight saving moves the clock. Leave `zone` off and you get UTC.
+The method has to be `public`, live on a CDI bean, and take either nothing or a single `JobContext`. The return value is ignored. The cron string is a Quartz expression of six or seven fields (`second minute hour day-of-month month day-of-week [year]`), evaluated in the `zone` you name. That matters the two days a year that daylight saving moves the clock. Leave `zone` off and you get UTC.
 
 The second method shows the knobs you would otherwise wire up by hand: a priority, a retry budget, exponential backoff, and tags you can filter on later. They are annotation attributes, not a separate configuration file.
 
 ## Why it does not double-fire
 
-This is the part a single-node cron cannot give you. Each `@Recurring` method gets an identity — its `id`, which defaults to the fully qualified class and method name. Ratchet uses that identity as a **business key**, and business keys are unique among active jobs. So no matter how many nodes boot the same code, only one recurring master can exist for that method. The cron ticks once, on one node, and the resulting work is claimed by one worker.
+This is the part a single-node cron cannot give you. Each `@Recurring` method gets an identity: its `id`, which defaults to the fully qualified class and method name. Ratchet uses that identity as a **business key**, and business keys are unique among active jobs. So no matter how many nodes boot the same code, only one recurring master can exist for that method. The cron ticks once, on one node, and the resulting work is claimed by one worker.
 
 You get exactly-once registration from the same constraint that stops two business-key jobs from running at once. There is no second distributed lock to operate, and nothing extra to configure when you scale from one node to five.
 
 ## The programmatic path: `scheduleRecurring`
 
-Some schedules are not known until runtime — a per-tenant report whose cron a customer picks in a settings screen. Build those with the fluent API instead of an annotation.
+Some schedules are not known until runtime, like a per-tenant report whose cron a customer picks in a settings screen. Build those with the fluent API instead of an annotation.
 
 ```java
 import java.time.Duration;
@@ -92,7 +92,7 @@ public class ReportScheduler {
 }
 ```
 
-The `withBusinessKey` here is doing real work. It scopes the recurring master per tenant, so re-running this method for the same tenant does not stack up a second schedule. The lambda is a method reference on a CDI bean — Ratchet serializes only the arguments (`tenantId`) and resolves the bean from CDI when the job runs, so injected dependencies are live at execution time, not captured at submission.
+The `withBusinessKey` here is doing real work. It scopes the recurring master per tenant, so re-running this method for the same tenant does not stack up a second schedule. The lambda is a method reference on a CDI bean. Ratchet serializes only the arguments (`tenantId`) and resolves the bean from CDI when the job runs, so injected dependencies are live at execution time, not captured at submission.
 
 ## One-shot, deferred
 
@@ -116,8 +116,8 @@ You could keep Quartz, or a `@Scheduled` bean, or a crontab. Folding the schedul
 
 ## Next steps
 
-- [Scheduling](../concepts/scheduling.md) — every mode, cron grammar, and timezone behavior in depth
-- [Clustering](../concepts/clustering.md) — how one row gets claimed by exactly one node
-- [Retry strategies](../concepts/retry-strategies.md) — tune backoff and attempts per schedule
-- [Annotations](../api-reference/annotations.md) — the full `@Recurring` attribute reference
-- [Quickstart](../getting-started/quickstart.md) — get a first job running
+- [Scheduling](../concepts/scheduling.md) -- every mode, cron grammar, and timezone behavior in depth
+- [Clustering](../concepts/clustering.md) -- how one row gets claimed by exactly one node
+- [Retry strategies](../concepts/retry-strategies.md) -- tune backoff and attempts per schedule
+- [Annotations](../api-reference/annotations.md) -- the full `@Recurring` attribute reference
+- [Quickstart](../getting-started/quickstart.md) -- get a first job running

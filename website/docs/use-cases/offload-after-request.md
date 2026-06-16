@@ -1,18 +1,18 @@
 ---
 title: Offload Work After a Request
-description: Persist follow-up work in the same transaction as your business write, return the response immediately, and let Ratchet run the side effects on a worker — durably, with retries.
+description: Persist follow-up work in the same transaction as your business write, return the response immediately, and let Ratchet run the side effects on a worker, durably and with retries.
 ---
 
 # Offload Work After a Request
 
-A checkout request has one job: take the order and say yes. The receipt email, the inventory hold, the nudge to the warehouse — none of that has to finish before the customer sees a confirmation. Do it inline anyway and you have tied the success of the order to the mood of your SMTP provider. The email times out, the whole request 500s, and the customer is left wondering whether they just bought anything.
+A checkout request has one job: take the order and say yes. The receipt email, the inventory hold, the nudge to the warehouse: none of that has to finish before the customer sees a confirmation. Do it inline anyway and you have tied the success of the order to the mood of your SMTP provider. The email times out, the whole request 500s, and the customer is left wondering whether they just bought anything.
 
 The usual escape hatch is a thread pool, or a `@Async` method, or handing the work to a message broker. The thread pool loses everything in flight when the process restarts. The broker is a second system to run, and now you have the dual-write problem: you saved the order to your database and published a message to the broker, and there is a window where one happened and the other did not.
 
-Ratchet closes that window. You enqueue the follow-up work inside the same transaction that writes the order, so the job and the order row commit together. The request returns as soon as the row is durable. The work runs later, on a worker, with retries — and it cannot get lost, because it was written to the same database as the thing it follows up on.
+Ratchet closes that window. You enqueue the follow-up work inside the same transaction that writes the order, so the job and the order row commit together. The request returns as soon as the row is durable. The work runs later, on a worker, with retries, and it cannot get lost, because it was written to the same database as the thing it follows up on.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.1.1-SNAPSHOT`. It shows real API usage, not pseudocode — the running app needs a Jakarta EE server and a configured store.
+The Java on this page compiles against `ratchet-api` `0.1.1-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store.
 :::
 
 ## Enqueue inside the transaction, return now
@@ -76,18 +76,18 @@ The lambdas are method references on this CDI bean. Ratchet serializes only the 
 
 ## Why "before returning" is a real guarantee
 
-The reason this is safe and a thread pool is not comes down to one line in the API contract: `submit()` runs with the Jakarta transaction attribute `REQUIRED`. It persists the job inside whatever transaction is already open — here, the one `@Transactional` started on `placeOrder`.
+The reason this is safe and a thread pool is not comes down to one line in the API contract: `submit()` runs with the Jakarta transaction attribute `REQUIRED`. It persists the job inside whatever transaction is already open: here, the one `@Transactional` started on `placeOrder`.
 
 So the order row and the three job rows are a single commit, with only two ways it can land:
 
 - The transaction commits. The order is saved **and** all three jobs are guaranteed to run.
-- Something rolls back — a constraint violation, a thrown exception, a crash mid-method. The order is not saved **and** no jobs exist. Nothing was half-done.
+- Something rolls back: a constraint violation, a thrown exception, a crash mid-method. The order is not saved **and** no jobs exist. Nothing was half-done.
 
 There is no moment where the order persisted but the receipt job evaporated, and none where a job is queued for an order that was rolled back. That is the dual-write problem, and Ratchet sidesteps it by making the queue part of your database instead of a system beside it.
 
 ## Idempotency: the double-submit problem
 
-Users double-click. Load balancers retry. A flaky network makes the browser resend a POST that actually succeeded. Without a guard, each of those creates a second order — and a second receipt.
+Users double-click. Load balancers retry. A flaky network makes the browser resend a POST that actually succeeded. Without a guard, each of those creates a second order, and a second receipt.
 
 `withIdempotencyKey` is the guard. The key is unique forever, enforced by a database constraint. Submit a job with a key that already exists and the duplicate is silently dropped, not run again.
 
@@ -98,7 +98,7 @@ scheduler
     .submit();
 ```
 
-Key the job on something stable from the request — an order id, a payment intent id, a webhook delivery id. Now "send the receipt for order 8412" can be attempted any number of times and the email goes out once.
+Key the job on something stable from the request: an order id, a payment intent id, a webhook delivery id. Now "send the receipt for order 8412" can be attempted any number of times and the email goes out once.
 
 ## What happens when the work fails
 
@@ -106,7 +106,7 @@ A worker runs the job, not the request thread, so failure has somewhere to go th
 
 ## Honest scope
 
-- The work runs **after** the response, not during it. If the caller needs the result to answer the request — a computed total, a validation verdict — that is synchronous work and belongs inline, not in a job.
+- The work runs **after** the response, not during it. If the caller needs the result to answer the request, like a computed total or a validation verdict, that is synchronous work and belongs inline, not in a job.
 - The three jobs here are independent and run in whatever order workers pick them up. If step B must follow step A, chain them with `then` / `thenOnSuccess` or model it as a [workflow](../concepts/workflows.md); do not rely on submission order.
 - Jobs become eligible the instant the transaction commits, but they run on the next poll cycle, not the same millisecond. This is fast background work, not an inline call.
 
@@ -116,8 +116,8 @@ A thread pool is simpler until the process restarts and the in-flight work is go
 
 ## Next steps
 
-- [Job lifecycle](../concepts/job-lifecycle.md) — how a submitted job moves to running, succeeded, or dead-lettered
-- [Persistence](../concepts/persistence.md) — why the job and your data share one commit
-- [Retry strategies](../concepts/retry-strategies.md) — tune backoff and attempts per job
-- [JobBuilder](../api-reference/job-builder.md) — every option on the builder, including idempotency and tags
-- [Quickstart](../getting-started/quickstart.md) — get a first job running
+- [Job lifecycle](../concepts/job-lifecycle.md) -- how a submitted job moves to running, succeeded, or dead-lettered
+- [Persistence](../concepts/persistence.md) -- why the job and your data share one commit
+- [Retry strategies](../concepts/retry-strategies.md) -- tune backoff and attempts per job
+- [JobBuilder](../api-reference/job-builder.md) -- every option on the builder, including idempotency and tags
+- [Quickstart](../getting-started/quickstart.md) -- get a first job running

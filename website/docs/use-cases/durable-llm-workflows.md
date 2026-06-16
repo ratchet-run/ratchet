@@ -10,7 +10,7 @@ Calling a language model from a request thread is a trap. The call is slow, it f
 This is the problem durable execution solves, and it is what Ratchet already does for any other background work. Ratchet is not an AI framework and ships no model client. It is the layer underneath: it persists the call before it runs, retries it with backoff, trips a circuit breaker when the provider is down, and resumes a half-finished multi-step workflow after a crash. You bring the model client. On Jakarta EE the natural choice is [langchain4j-cdi](https://github.com/langchain4j/langchain4j-cdi), which exposes a [LangChain4j](https://docs.langchain4j.dev) AI service as an injectable CDI bean, the same programming model Ratchet uses.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.1.1-SNAPSHOT`, `langchain4j-cdi-portable-ext` `1.3.3`, and `langchain4j-bedrock` `1.0.0-beta5`. It is not a full runnable application — wiring it up needs a Jakarta EE server and AWS credentials — but the API usage is real, not illustrative pseudocode.
+The Java on this page compiles against `ratchet-api` `0.1.1-SNAPSHOT`, `langchain4j-cdi-portable-ext` `1.3.3`, and `langchain4j-bedrock` `1.0.0-beta5`. It is not a full runnable application (wiring it up needs a Jakarta EE server and AWS credentials), but the API usage is real, not illustrative pseudocode.
 :::
 
 ## What you wire together
@@ -35,7 +35,7 @@ The Java on this page compiles against `ratchet-api` `0.1.1-SNAPSHOT`, `langchai
   <version>1.3.3</version>
 </dependency>
 
-<!-- A model provider — Amazon Bedrock here; any LangChain4j provider works -->
+<!-- A model provider; Amazon Bedrock here, but any LangChain4j provider works -->
 <dependency>
   <groupId>dev.langchain4j</groupId>
   <artifactId>langchain4j-bedrock</artifactId>
@@ -45,7 +45,7 @@ The Java on this page compiles against `ratchet-api` `0.1.1-SNAPSHOT`, `langchai
 
 ## Define the AI service
 
-A LangChain4j AI service is a plain interface. The `@RegisterAIService` annotation makes langchain4j-cdi register it as a CDI bean you can inject anywhere — including inside a Ratchet job.
+A LangChain4j AI service is a plain interface. The `@RegisterAIService` annotation makes langchain4j-cdi register it as a CDI bean you can inject anywhere, including inside a Ratchet job.
 
 ```java
 import dev.langchain4j.cdi.spi.RegisterAIService;
@@ -86,7 +86,7 @@ public class ChatModelProducer {
 }
 ```
 
-`BedrockChatModel` uses the default AWS credential chain and region resolution, so the same code runs against any model on Bedrock by changing the `modelId`. If you would rather configure the model with properties than code, langchain4j-cdi can build it from MicroProfile Config instead — see the [langchain4j-cdi docs](https://github.com/langchain4j/langchain4j-cdi).
+`BedrockChatModel` uses the default AWS credential chain and region resolution, so the same code runs against any model on Bedrock by changing the `modelId`. If you would rather configure the model with properties than code, langchain4j-cdi can build it from MicroProfile Config instead. See the [langchain4j-cdi docs](https://github.com/langchain4j/langchain4j-cdi).
 
 ## Run the model call as a durable job
 
@@ -158,7 +158,7 @@ You could call the model inline, or stand up a separate durable-execution servic
 
 ## Next steps
 
-- [Retry strategies](../concepts/retry-strategies.md) — tune backoff and max attempts per job
-- [Workflows](../concepts/workflows.md) — chaining, branching, and signal-waiting in depth
-- [Circuit breakers](../advanced/circuit-breakers.md) — trip out a model provider that is down
-- [Quickstart](../getting-started/quickstart.md) — get a first job running
+- [Retry strategies](../concepts/retry-strategies.md) -- tune backoff and max attempts per job
+- [Workflows](../concepts/workflows.md) -- chaining, branching, and signal-waiting in depth
+- [Circuit breakers](../advanced/circuit-breakers.md) -- trip out a model provider that is down
+- [Quickstart](../getting-started/quickstart.md) -- get a first job running
