@@ -195,16 +195,65 @@ jobs:
       - name: Tag the release
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # The release-version poms live only on this tag, never on main. Branch
           # protection and the merge queue govern refs/heads/main, not refs/tags/*, so
-          # the tag push is allowed where a direct push of these commits to main is not.
+          # the tag is allowed where a direct push of these commits to main is not.
           # Deploy already succeeded above, so a tag here means the artifacts are out.
-          git commit -s -aqm "Release ${RELEASE_VERSION}"
-          git tag -a "${RELEASE_TAG}" -m "Release ${RELEASE_VERSION}"
-          git push origin "${RELEASE_TAG}"
+          #
+          # The tagged commit is made through the GitHub GraphQL createCommitOnBranch
+          # mutation so it is signed by GitHub and shows as Verified — no signing key to
+          # manage in CI. createCommitOnBranch only writes to a branch, so we land it on
+          # a short-lived branch, point the annotated tag at the resulting commit, then
+          # delete the branch.
+          OWNER_REPO="${GITHUB_REPOSITORY}"
+          MAIN_OID="$(git rev-parse HEAD)"   # checkout sits on main's head (fetch-depth 0)
+          TMP_BRANCH="release-tag/${RELEASE_TAG}"
+
+          # Sync the non-pom references to the release version before committing, so the
+          # tag carries docs that match its poms. versions:set already set the poms above.
+          scripts/sync-version.sh "${RELEASE_VERSION}"
+
+          # Commit body with a Signed-off-by trailer (committer identity comes from the
+          # token's account; resolve its name/email via the API).
+          ACTOR_NAME="$(gh api user --jq '.name // .login')"
+          ACTOR_LOGIN="$(gh api user --jq '.login')"
+          ACTOR_ID="$(gh api user --jq '.id')"
+          ACTOR_EMAIL="${ACTOR_ID}+${ACTOR_LOGIN}@users.noreply.github.com"
+          printf 'Signed-off-by: %s <%s>\n' "$ACTOR_NAME" "$ACTOR_EMAIL" > /tmp/release-body.txt
+
+          # Create the short-lived branch ref at main's head, then commit the
+          # release-version poms + synced docs onto it (Verified). Clear any leftover
+          # ref from a half-finished prior run first so a rerun does not 422.
+          gh api -X DELETE "repos/${OWNER_REPO}/git/refs/heads/${TMP_BRANCH}" 2>/dev/null || true
+          gh api "repos/${OWNER_REPO}/git/refs" \
+            -f ref="refs/heads/${TMP_BRANCH}" \
+            -f sha="${MAIN_OID}"
+          COMMIT_OID="$(scripts/gh-signed-commit.sh \
+            "${OWNER_REPO}" "${TMP_BRANCH}" "${MAIN_OID}" \
+            "Release ${RELEASE_VERSION}" /tmp/release-body.txt)"
+          echo "Release commit ${COMMIT_OID} created on ${TMP_BRANCH}"
+
+          # Annotated tag object pointing at the Verified release commit, then a tag ref.
+          TAG_OID="$(gh api "repos/${OWNER_REPO}/git/tags" \
+            -f tag="${RELEASE_TAG}" \
+            -f message="Release ${RELEASE_VERSION}" \
+            -f object="${COMMIT_OID}" \
+            -f type=commit \
+            --jq '.sha')"
+          gh api "repos/${OWNER_REPO}/git/refs" \
+            -f ref="refs/tags/${RELEASE_TAG}" \
+            -f sha="${TAG_OID}"
+
+          # The tag now captures the release commit; drop the short-lived branch.
+          gh api -X DELETE "repos/${OWNER_REPO}/git/refs/heads/${TMP_BRANCH}"
+
+          # Restore the working tree to main's state so later steps (release notes,
+          # the bump) start clean rather than on the release-version edits.
+          git checkout -- .
+
           echo "Released ${RELEASE_TAG} 🚀" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Create GitHub Release
         # Release notes come from the commit list (Haiku-categorized when an API key is
@@ -262,23 +311,63 @@ jobs:
       - name: Open next-development version bump PR
         run: |
           set -euo pipefail
+          OWNER_REPO="${GITHUB_REPOSITORY}"
           BRANCH="chore/bump-${NEXT_VERSION}"
-          git checkout -B "$BRANCH" origin/main
+          MAIN_OID="$(git rev-parse origin/main)"
+
+          # Bump the reactor poms and the non-pom references to the next -SNAPSHOT.
           mvn -B -ntp versions:set \
             -DnewVersion="${NEXT_VERSION}" -DprocessAllModules=true -DgenerateBackupPoms=false
-          git commit -s -aqm "Start ${NEXT_VERSION} development"
-          git push -f origin "$BRANCH"
-          if gh pr create --base main --head "$BRANCH" \
-               --title "Start ${NEXT_VERSION} development" \
-               --body "Automated reactor bump to ${NEXT_VERSION} after the ${RELEASE_TAG} release."; then
-            gh pr merge "$BRANCH" --auto --squash || true
+          scripts/sync-version.sh "${NEXT_VERSION}"
+
+          # Signed-off-by trailer with the token account's identity.
+          ACTOR_NAME="$(gh api user --jq '.name // .login')"
+          ACTOR_LOGIN="$(gh api user --jq '.login')"
+          ACTOR_ID="$(gh api user --jq '.id')"
+          ACTOR_EMAIL="${ACTOR_ID}+${ACTOR_LOGIN}@users.noreply.github.com"
+          printf 'Signed-off-by: %s <%s>\n' "$ACTOR_NAME" "$ACTOR_EMAIL" > /tmp/bump-body.txt
+
+          # Recreate the bump branch at main's current head. Deleting any stale ref first
+          # makes a rerun idempotent: a previous run that pushed the branch but failed to
+          # merge no longer dead-ends. (A 422 on delete just means it was absent.)
+          gh api -X DELETE "repos/${OWNER_REPO}/git/refs/heads/${BRANCH}" 2>/dev/null || true
+          gh api "repos/${OWNER_REPO}/git/refs" \
+            -f ref="refs/heads/${BRANCH}" \
+            -f sha="${MAIN_OID}"
+
+          # Commit the bump onto the branch through the GraphQL mutation so it is Verified
+          # and (unlike a GITHUB_TOKEN push) triggers the CI the merge queue waits on.
+          scripts/gh-signed-commit.sh \
+            "${OWNER_REPO}" "${BRANCH}" "${MAIN_OID}" \
+            "Start ${NEXT_VERSION} development" /tmp/bump-body.txt >/dev/null
+          echo "Pushed bump branch ${BRANCH}"
+
+          # Open the PR, or recover an existing open one. `gh pr create` errors when a PR
+          # for the branch already exists, so probe first and only create when none is open.
+          EXISTING_STATE="$(gh pr view "$BRANCH" --json state --jq '.state' 2>/dev/null || echo "")"
+          if [ "$EXISTING_STATE" = "OPEN" ]; then
+            echo "An open bump PR already exists for ${BRANCH}; enabling auto-merge."
           else
-            echo "::warning::Could not open the bump PR automatically; push of '$BRANCH' succeeded — open the PR by hand."
+            gh pr create --base main --head "$BRANCH" \
+              --title "Start ${NEXT_VERSION} development" \
+              --body "Automated reactor bump to ${NEXT_VERSION} after the ${RELEASE_TAG} release."
+          fi
+
+          # Enable auto-merge (squash). No `|| true`: a genuine failure here must surface.
+          # This step runs AFTER the release is published, so a failure to merge the bump
+          # does not retro-fail the release — the summary tells the operator what to finish
+          # by hand, but the step still exits non-zero so the failure is visible.
+          if gh pr merge "$BRANCH" --auto --squash; then
+            echo "Auto-merge enabled for the ${NEXT_VERSION} bump PR."
+          else
+            echo "::error::Bump PR for ${BRANCH} could not be set to auto-merge."
             {
               echo "### Manual step needed"
-              echo "The next-development bump branch \`$BRANCH\` was pushed, but the PR could not be opened automatically."
-              echo "Open a PR from \`$BRANCH\` into \`main\` to move the reactor to ${NEXT_VERSION}."
+              echo "The ${RELEASE_TAG} release is published. The next-development bump branch"
+              echo "\`$BRANCH\` exists with a Verified commit, but enabling auto-merge failed."
+              echo "Merge its PR by hand to move the reactor to ${NEXT_VERSION}."
             } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
           fi
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
