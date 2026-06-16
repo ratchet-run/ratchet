@@ -1,7 +1,7 @@
 ---
 sidebar_position: 3
 title: Basic Concepts
-description: Core Ratchet terminology: jobs, schedules, stores, builders, contexts, and the CDI programming model
+description: "Core Ratchet terminology: jobs, schedules, stores, builders, contexts, and the CDI programming model"
 ---
 
 # Basic Concepts

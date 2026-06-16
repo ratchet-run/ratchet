@@ -1,7 +1,7 @@
 ---
 sidebar_position: 9
 title: Cluster Coordinators
-description: First-party push-based cross-node wakeup modules: delivery guarantees, configuration, failure behavior, metrics, and the polling fallback floor
+description: "First-party push-based cross-node wakeup modules: delivery guarantees, configuration, failure behavior, metrics, and the polling fallback floor"
 ---
 
 # Cluster Coordinators

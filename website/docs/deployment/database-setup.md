@@ -1,7 +1,7 @@
 ---
 sidebar_position: 4
 title: Database Setup
-description: Setting up MySQL, PostgreSQL, or MongoDB for Ratchet: schema application, DataSource configuration, and connection pooling.
+description: "Setting up MySQL, PostgreSQL, or MongoDB for Ratchet: schema application, DataSource configuration, and connection pooling."
 ---
 
 # Database Setup

@@ -1,7 +1,7 @@
 ---
 sidebar_position: 8
 title: Clustering
-description: Running Ratchet across multiple nodes: claim-based execution, node heartbeats, wakeup coordination, and failure detection
+description: "Running Ratchet across multiple nodes: claim-based execution, node heartbeats, wakeup coordination, and failure detection"
 ---
 
 # Clustering

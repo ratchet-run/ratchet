@@ -1,7 +1,7 @@
 ---
 sidebar_position: 14
 title: Deployment Troubleshooting
-description: Diagnosing and fixing common deployment problems: schema issues, connection failures, clustering problems, and performance bottlenecks
+description: "Diagnosing and fixing common deployment problems: schema issues, connection failures, clustering problems, and performance bottlenecks"
 ---
 
 # Deployment Troubleshooting

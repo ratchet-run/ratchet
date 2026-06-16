@@ -1,7 +1,7 @@
 ---
 sidebar_position: 5
 title: Cluster Configuration
-description: Running Ratchet across multiple nodes: ClusterCoordinator, NodeIdentityProvider, recurring job deduplication, and distributed locking.
+description: "Running Ratchet across multiple nodes: ClusterCoordinator, NodeIdentityProvider, recurring job deduplication, and distributed locking."
 ---
 
 # Cluster Configuration

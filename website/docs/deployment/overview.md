@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 title: Deployment Overview
-description: What you need to deploy Ratchet: application server, database, modules, and configuration.
+description: "What you need to deploy Ratchet: application server, database, modules, and configuration."
 ---
 
 # Deployment Overview

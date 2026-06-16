@@ -1,7 +1,7 @@
 ---
 sidebar_position: 7
 title: MongoDB
-description: Setting up the MongoDB store: collections, indexes, configuration, and migration from SQL stores
+description: "Setting up the MongoDB store: collections, indexes, configuration, and migration from SQL stores"
 ---
 
 # MongoDB Deployment
