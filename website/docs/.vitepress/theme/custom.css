@@ -347,6 +347,18 @@ html { color-scheme: light; }
   }
 }
 
+/* The footer renders in VitePress's full-bleed `layout-bottom` slot, but on
+   docs pages the sidebar is `position: fixed` and runs the full viewport
+   height, so it overlays the left edge of the footer when you scroll to the
+   bottom. Reserve the sidebar gutter so the footer columns clear it, matching
+   how VitePress offsets `.VPContent.has-sidebar`. The home page has no sidebar,
+   so `:has(.VPSidebar)` leaves it full-bleed there. */
+@media (min-width: 960px) {
+  .Layout:has(.VPSidebar) .ratchet-site-footer {
+    padding-left: var(--vp-sidebar-width);
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Docs-page customisations — ported from src/css/custom.css            */
 /* ------------------------------------------------------------------ */
