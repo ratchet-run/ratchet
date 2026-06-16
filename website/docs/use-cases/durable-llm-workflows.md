@@ -1,9 +1,9 @@
 ---
-title: Durable LLM & agent workflows
+title: Durable LLM & Agent Workflows
 description: Run LLM calls and multi-step agent workflows as persisted, retrying Ratchet jobs in a Jakarta EE app, with langchain4j-cdi supplying the model client.
 ---
 
-# Durable LLM & agent workflows
+# Durable LLM & Agent Workflows
 
 Calling a language model from a request thread is a trap. The call is slow, it fails in ways ordinary code does not (a 429 from the provider, a socket timeout, a model that is briefly overloaded), and an agent rarely makes just one call: it retrieves context, calls the model, runs a tool, calls the model again. Do that inline and a single restart loses everything in flight, and a provider hiccup surfaces as a failed HTTP request to your user.
 

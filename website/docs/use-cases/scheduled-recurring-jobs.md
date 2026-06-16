@@ -1,9 +1,9 @@
 ---
-title: Scheduled & recurring jobs
+title: Scheduled & Recurring Jobs
 description: Cron and delayed jobs that survive restarts and never double-fire across a cluster, run inside the Jakarta EE server you already operate — no separate scheduler.
 ---
 
-# Scheduled & recurring jobs
+# Scheduled & Recurring Jobs
 
 Every application grows a list of things that have to happen on a clock. Purge expired sessions at 2 AM. Send the weekly digest on Monday morning. Retry the failed exports an hour later. Poll a partner's API every fifteen minutes during business hours.
 

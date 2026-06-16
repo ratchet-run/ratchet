@@ -113,7 +113,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Getting Started', link: '/getting-started/introduction' },
-      { text: 'Use cases', link: '/use-cases/durable-llm-workflows' },
+      { text: 'Use Cases', link: '/use-cases/durable-llm-workflows' },
       { text: 'Compare', link: '/comparison/overview' },
       { text: 'Concepts', link: '/concepts/overview' },
       { text: 'API Reference', link: '/api-reference/overview' },
@@ -124,10 +124,10 @@ export default defineConfig({
     sidebar: {
       '/use-cases/': [
         {
-          text: 'Use cases',
+          text: 'Use Cases',
           items: [
-            { text: 'Scheduled & recurring jobs', link: '/use-cases/scheduled-recurring-jobs' },
-            { text: 'Durable LLM & agent workflows', link: '/use-cases/durable-llm-workflows' },
+            { text: 'Scheduled & Recurring Jobs', link: '/use-cases/scheduled-recurring-jobs' },
+            { text: 'Durable LLM & Agent Workflows', link: '/use-cases/durable-llm-workflows' },
           ],
         },
       ],
