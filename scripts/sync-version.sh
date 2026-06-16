@@ -71,6 +71,8 @@ MAVEN_FILES=(
   "website/docs/deployment/overview.md"            # ratchet-bom
   "website/docs/deployment/mongodb.md"             # ratchet-store-mongodb
   "website/docs/deployment/monitoring.md"          # ratchet-micrometer
+  "website/docs/use-cases/durable-llm-workflows.md"   # ratchet + ratchet-store-postgresql
+  "website/docs/use-cases/scheduled-recurring-jobs.md" # (no deps today; future-proofed)
 )
 for f in "${MAVEN_FILES[@]}"; do
   apply "$f" "maven-version" \
@@ -95,6 +97,22 @@ apply "README.md" "prose-status" \
   's{(Ratchet is in \*\*)$ENV{VER_RE}(\*\*)}{$1$ENV{VERSION}$2}g'
 apply "website/docs/getting-started/introduction.md" "prose-status" \
   's{(Ratchet is currently at version \*\*)$ENV{VER_RE}(\*\*)}{$1$ENV{VERSION}$2}g'
+
+# 3b. Use-case "Verified" tip blocks: the inline prose `ratchet-api` `VER` claim.
+#     Anchored on the backtick-wrapped artifact name so other code-span numbers
+#     (langchain4j versions, Java 17) are untouched.
+VERIFIED_TIP_FILES=(
+  "website/docs/use-cases/durable-llm-workflows.md"
+  "website/docs/use-cases/scheduled-recurring-jobs.md"
+  "website/docs/use-cases/offload-after-request.md"
+  "website/docs/use-cases/resilient-integrations.md"
+  "website/docs/use-cases/bulk-batch-jobs.md"
+  "website/docs/use-cases/human-in-the-loop.md"
+)
+for f in "${VERIFIED_TIP_FILES[@]}"; do
+  apply "$f" "verified-tip" \
+    's{(`ratchet-api` `)$ENV{VER_RE}(`)}{$1$ENV{VERSION}$2}g'
+done
 
 # 4. Bug-report template placeholder. Anchored on the trailing " or a commit SHA".
 apply ".github/ISSUE_TEMPLATE/bug_report.yml" "issue-placeholder" \

@@ -11,7 +11,7 @@ Fluent builder API for creating and configuring individual jobs. `JobBuilder` is
 **Package:** `run.ratchet.api`
 **Type:** Interface
 
-## Basic Usage
+## Basic usage
 
 ```java
 JobHandle handle = scheduler.enqueue(() -> orderService.process(orderId))
@@ -26,7 +26,7 @@ JobHandle handle = scheduler.enqueue(() -> orderService.process(orderId))
     .submit();
 ```
 
-## Configuration Methods
+## Configuration methods
 
 ### withPriority
 
@@ -298,7 +298,7 @@ scheduler.enqueue(() -> billingService.charge(cardToken))
 
 See the [Payload Encryption](../advanced/payload-encryption) guide for setup, engine choice, and key rotation.
 
-## Callback Methods
+## Callback methods
 
 ### onSuccess
 
@@ -336,7 +336,7 @@ scheduler.enqueue(() -> riskyService.execute())
     .submit();
 ```
 
-## Workflow Methods
+## Workflow methods
 
 ### then
 
@@ -538,7 +538,7 @@ JobHandle handle = scheduler.enqueue(() -> processData())
 log.info("Submitted job {}", handle.id());
 ```
 
-## Accessor Methods
+## Accessor methods
 
 These methods allow reading the configured state of a builder. They are primarily used internally by the scheduler but are part of the public interface.
 
@@ -553,7 +553,7 @@ These methods allow reading the configured state of a builder. They are primaril
 | `isImmediate()` | `boolean` | Whether immediate wakeup is requested |
 | `onSuccess()` | `SerializableConsumer<JobContext>` | Success callback, or null |
 
-## Example: Complete Configuration
+## Example: complete configuration
 
 ```java
 JobHandle handle = scheduler.enqueue(() -> paymentService.charge(orderId, amount))
@@ -582,7 +582,7 @@ JobHandle handle = scheduler.enqueue(() -> paymentService.charge(orderId, amount
     .submit();
 ```
 
-## See Also
+## See also
 
 - [JobSchedulerService Reference](./job-scheduler-service)
 - [JobOptions Reference](./job-options)

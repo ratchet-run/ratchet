@@ -6,7 +6,7 @@ description: Micrometer metrics, event-based monitoring, health checks, and aler
 
 # Monitoring
 
-Ratchet provides two monitoring channels: **Micrometer metrics** for quantitative dashboards and alerts, and the **event system** for real-time programmatic observation.
+Ratchet provides two monitoring channels: Micrometer metrics for quantitative dashboards and alerts, and the event system for real-time programmatic observation.
 
 ## Micrometer integration
 
@@ -45,7 +45,7 @@ The `MicrometerMetricsCollector` is annotated `@Alternative @Priority(1000)`, so
 | `ratchet.jobs.failed` | Counter | `type`, `family` | Jobs that failed (exception-family classification as tag) |
 | `ratchet.jobs.duration` | Timer | `type` | Execution time per job |
 
-The `type` tag corresponds to `JobType` (`SINGLE`, `RECURRING`, `BATCH`, `CHAIN`, `WORKFLOW`, `SYSTEM`). The `priority` tag corresponds to `JobPriority` (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`). The `family` tag corresponds to `ExceptionFamily` — a coarse classification of the failure cause rather than the raw exception class name.
+The `type` tag corresponds to `JobType` (`SINGLE`, `RECURRING`, `BATCH`, `CHAIN`, `WORKFLOW`, `SYSTEM`). The `priority` tag corresponds to `JobPriority` (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`). The `family` tag corresponds to `ExceptionFamily`, a coarse classification of the failure cause rather than the raw exception class name.
 
 ### Grafana dashboard queries
 
@@ -72,7 +72,7 @@ topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 
 ### Custom `MetricsCollector`
 
-If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. The SPI declares several callbacks beyond the three core job-lifecycle hooks (`jobStarted`, `jobCompleted`, `jobFailed`) — including `successFinalizationRetried`/`successFinalizationMinimal`/`successFinalizationStuck`, `claimTransientFailure`, `jobsClaimed`, `gateRejected`, and `localWakeup`, plus default no-op hooks for cluster wakeup, callback failures, signal events, store operations, and poller circuit-breaker state. The simplest approach is to extend `NoOpMetricsCollector` and override only the callbacks you emit:
+If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Beyond the three core job-lifecycle hooks (`jobStarted`, `jobCompleted`, `jobFailed`), the SPI also declares `successFinalizationRetried`/`successFinalizationMinimal`/`successFinalizationStuck`, `claimTransientFailure`, `jobsClaimed`, `gateRejected`, and `localWakeup`, plus default no-op hooks for cluster wakeup, callback failures, signal events, store operations, and poller circuit-breaker state. The simplest approach is to extend `NoOpMetricsCollector` and override only the callbacks you need:
 
 ```java
 public class MyMetricsCollector extends NoOpMetricsCollector {
@@ -140,7 +140,7 @@ scheduler.addEventListener(event -> {
 });
 ```
 
-For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI (or the Micrometer module) rather than the event system — events carry per-job context, not cycle-level summaries.
+For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI (or the Micrometer module) rather than the event system. Events carry per-job context, not cycle-level summaries.
 
 ### Event types
 
@@ -207,7 +207,7 @@ Jobs in the dead-letter queue need human attention:
 SELECT COUNT(*) FROM scheduler_dlq_alerts;
 ```
 
-Wire this into your alerting system — a non-zero DLQ count means something failed permanently.
+Wire this into your alerting system. A non-zero DLQ count means something failed permanently.
 
 ## Alerting recommendations
 
@@ -216,12 +216,12 @@ Wire this into your alerting system — a non-zero DLQ count means something fai
 | DLQ count > 0 | **Critical** | Investigate and retry or archive |
 | Failure rate > 5% (5min window) | **Warning** | Check logs for systematic errors |
 | P95 duration > 2x normal | **Warning** | Check for resource contention or slow dependencies |
-| Node heartbeat stale > 2min | **Critical** | Node may be down — check process health |
+| Node heartbeat stale > 2min | **Critical** | Node may be down; check process health |
 | Pending CRITICAL jobs > 30s | **Critical** | Cluster may be overloaded |
 | Pending queue depth growing | **Warning** | Scale up nodes or increase thread pool |
 
 ## See also
 
-- [Event System](../api-reference/event-system.md) — Complete event type reference
-- [Metrics Collection](../advanced/metrics-collection.md) — Advanced custom metrics patterns
-- [Troubleshooting](./troubleshooting.md) — Diagnosing common deployment issues
+- [Event System](../api-reference/event-system.md) -- Complete event type reference
+- [Metrics Collection](../advanced/metrics-collection.md) -- Advanced custom metrics patterns
+- [Troubleshooting](./troubleshooting.md) -- Diagnosing common deployment issues

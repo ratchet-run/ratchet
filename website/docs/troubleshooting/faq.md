@@ -33,7 +33,7 @@ Ratchet ships with three store modules:
 
 The SQL modules provide DDL scripts (`src/main/resources/ddl/`) as plain SQL files. Apply them however you manage your schema (Flyway, Liquibase, manual scripts, etc.). The MongoDB module initializes its collections and indexes at startup.
 
-**Adding a new database:** Implement the composed `JobStore` SPI and provide the corresponding schema/bootstrap logic for your backend. The `ratchet-tck-store` submodule contains contract tests that validate any store implementation against the expected behavior — passing them earns the "Ratchet Store Compatible" label.
+**Adding a new database:** Implement the composed `JobStore` SPI and provide the corresponding schema/bootstrap logic for your backend. The `ratchet-tck-store` submodule contains contract tests that validate any store implementation against the expected behavior; passing them earns the "Ratchet Store Compatible" label.
 
 ## How does retry work?
 
@@ -81,7 +81,7 @@ Yes. Ratchet supports multi-node deployment. Each node runs its own poller that 
 
 Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrain which jobs a node claims by providing a `NodeTagAffinityProvider` (the default is `DefaultNodeTagAffinityProvider`, consumed by the poller). For fully custom routing or cross-node wakeups, implement the `ClusterCoordinator` SPI.
 
-**Key multi-node settings:**
+**Multi-node settings:**
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -111,7 +111,7 @@ When a node crashes while jobs are RUNNING:
 
 Ratchet and Quartz have different architectures. Quartz uses trigger-based scheduling with XML or programmatic job definitions. Ratchet uses lambda serialization and a pull-based poller.
 
-**Key differences to address:**
+**Differences to address:**
 
 | Quartz Concept | Ratchet Equivalent |
 |---|---|
@@ -162,7 +162,7 @@ The circuit breaker is resolved per job by inspecting the `@CircuitBreakerProtec
 
 Yes, on a Jakarta EE 11 container. Virtual-thread support has two parts:
 
-1. **Where jobs run.** Ratchet runs each job on the `ManagedExecutorService` resolved from `ratchet.worker.job-executor-jndi` (default `java:comp/DefaultManagedExecutorService`). Point that at a virtual-thread-backed managed executor and jobs run on virtual threads — with the container's context propagation (CDI, transaction, security) intact, which a hand-rolled `Thread.ofVirtual()` executor would lose.
+1. **Where jobs run.** Ratchet runs each job on the `ManagedExecutorService` resolved from `ratchet.worker.job-executor-jndi` (default `java:comp/DefaultManagedExecutorService`). Point that at a virtual-thread-backed managed executor and jobs run on virtual threads, with the container's context propagation (CDI, transaction, security) intact. A hand-rolled `Thread.ofVirtual()` executor would lose that context.
 2. **Backpressure accounting.** `execution.virtualCounterAccounting(true)` swaps the semaphore-based concurrency limits for `AtomicInteger` counters, since virtual threads are cheap and a fixed pool no longer bounds concurrency. Each job type keeps a configurable limit (default 1000) to prevent unbounded growth.
 
 Ratchet does not ship its own executor definition (resource-definition scanning of library jars is container-specific, so a bundled definition would not bind portably). Declare one in your application on EE 11 (Jakarta Concurrency 3.1) and point Ratchet at it:
@@ -193,9 +193,9 @@ RatchetOptions.builder()
 ```
 
 **Requirements:**
-- A Jakarta EE 11 container whose Jakarta Concurrency 3.1 implementation honors `virtual = true`, on Java 21+. Verified on Eclipse GlassFish 8 (the EE 11 reference implementation). Note: WildFly 40.0.0.Final accepts the definition and runs jobs on the configured executor, but does not yet create virtual threads for managed executors — jobs run on platform threads there until a later release implements it.
+- A Jakarta EE 11 container whose Jakarta Concurrency 3.1 implementation honors `virtual = true`, on Java 21+. Verified on Eclipse GlassFish 8 (the EE 11 reference implementation). Note: WildFly 40.0.0.Final accepts the definition and runs jobs on the configured executor, but does not yet create virtual threads for managed executors; jobs run on platform threads there until a later release implements it.
 - Jakarta EE 10 (Jakarta Concurrency 3.0) has no standard `virtual = true` attribute on `@ManagedExecutorDefinition`, so an application cannot portably declare a virtual-thread executor. `virtualCounterAccounting(true)` still switches the backpressure model, but jobs run on virtual threads only if you point the JNDI name at an executor the container itself configures as virtual through a vendor-specific mechanism.
-- Your jobs must not hold long `synchronized` blocks or call native methods that pin the carrier thread — prefer `ReentrantLock`.
+- Your jobs must not hold long `synchronized` blocks or call native methods that pin the carrier thread. Prefer `ReentrantLock`.
 
 **When to use virtual threads:** They are most useful when jobs spend most of their time waiting on I/O (database queries, HTTP calls, file operations). For CPU-bound workloads, platform threads with appropriate pool sizes are usually sufficient.
 

@@ -214,7 +214,7 @@ Ratchet uses **RFC 9562 §5.7 UUIDv7** for primary keys. UUIDs are 128-bit value
 
 ### Properties
 
-- **Time-ordered:** The 48-bit timestamp prefix preserves B-tree locality — inserts cluster at the right edge, range scans by time work directly.
+- **Time-ordered:** The 48-bit timestamp prefix preserves B-tree locality: inserts cluster at the right edge, and range scans by time work directly.
 - **Monotonic within a millisecond:** `rand_a` is used as a per-ms counter; on overflow inside a single ms, generation busy-spins via `Thread.onSpinWait` until the wall clock advances (RFC 9562 §6.2 wait-for-tick). The timestamp is never advanced past wall-clock time.
 - **Coordination-free:** 62 bits of randomness in `rand_b` make collisions vanishingly unlikely without inter-node coordination.
 - **128-bit `java.util.UUID`:** Standard Java type, no special storage adapter on PostgreSQL (native `uuid`). MySQL stores as `BINARY(16)` and uses the MySQL store's `META-INF/orm-mysql.xml` mapping plus `UuidByteArrayConverter` so non-Hibernate JPA providers bind UUID fields as 16 bytes. MongoDB stores BSON UUID subtype 4 (`UuidRepresentation.STANDARD`).

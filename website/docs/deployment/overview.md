@@ -1,7 +1,7 @@
 ---
 sidebar_position: 1
 title: Deployment Overview
-description: What you need to deploy Ratchet — application server, database, modules, and configuration.
+description: "What you need to deploy Ratchet: application server, database, modules, and configuration."
 ---
 
 # Deployment Overview
@@ -77,7 +77,7 @@ See [Docker Deployment](/deployment/docker) and [Kubernetes Deployment](/deploym
 
 ## Database schema
 
-Ratchet ships SQL DDL as plain files — no Flyway or Liquibase dependency is required. The schema files are bundled inside each SQL store module JAR at `ddl/`:
+Ratchet ships SQL DDL as plain files. No Flyway or Liquibase dependency is required. The schema files are bundled inside each SQL store module JAR at `ddl/`:
 
 - `ratchet-store-mysql` contains `ddl/mysql-schema.sql`
 - `ratchet-store-postgresql` contains `ddl/postgresql-schema.sql`
@@ -112,7 +112,7 @@ The SQL schema creates these primary tables. MongoDB uses analogous collections 
 
 ## Configuration
 
-Ratchet **requires** a CDI-produced `RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts — a first-class kill-switch for any deployment that includes `ratchet` without wanting it active.
+Ratchet **requires** a CDI-produced `RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts. This acts as a first-class kill-switch for any deployment that includes `ratchet` without wanting it active.
 
 The producer may build options programmatically or read `RATCHET_*` environment variables and MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()`. See [Configuration](/getting-started/configuration) for both patterns.
 
@@ -132,10 +132,10 @@ See [Configuration](/deployment/configuration) for the full reference.
 
 Ratchet provides multiple monitoring integration points:
 
-- **Event system** — CDI events for job lifecycle (started, completed, failed, DLQ)
-- **MetricsCollector SPI** — Plug in Micrometer or any custom metrics backend
-- **MicroProfile Health** — Implement health checks against the job store
-- **Store queries** — Direct SQL queries or MongoDB queries against Ratchet storage for dashboards
+- **Event system:** CDI events for job lifecycle (started, completed, failed, DLQ)
+- **MetricsCollector SPI:** plug in Micrometer or any custom metrics backend
+- **MicroProfile Health:** implement health checks against the job store
+- **Store queries:** direct SQL queries or MongoDB queries against Ratchet storage for dashboards
 
 See [Monitoring & Observability](/deployment/monitoring) for integration guides.
 
@@ -143,19 +143,19 @@ See [Monitoring & Observability](/deployment/monitoring) for integration guides.
 
 Before going to production:
 
-1. **Apply or initialize storage** — Run schema SQL for MySQL/PostgreSQL; let MongoDB initialize collections and indexes at startup
-2. **Configure the store resource** — JNDI-bound, JTA-managed `DataSource` for SQL stores, or a CDI-produced `MongoDatabase` for MongoDB
-3. **Set isolation level for SQL stores** — MySQL requires `READ COMMITTED` (not the default `REPEATABLE READ`)
-4. **Tune polling** — Adjust `polling.minDelayMs`, `polling.maxDelayMs`, and `polling.batchSize` for your workload
-5. **Set up retention** — Configure `maintenance.jobRetentionDays`, `maintenance.dlqPurgeDays`, and `maintenance.logRetentionDays` to prevent unbounded table growth
-6. **Enable metrics** — Wire `MetricsCollector` to your monitoring stack
-7. **Configure wakeups if needed** — If running multiple nodes and you want faster cross-node responsiveness, implement `ClusterCoordinator`
-8. **Test failover** — Verify jobs recover when a node goes down
+1. **Apply or initialize storage:** run schema SQL for MySQL/PostgreSQL; let MongoDB initialize collections and indexes at startup
+2. **Configure the store resource:** JNDI-bound, JTA-managed `DataSource` for SQL stores, or a CDI-produced `MongoDatabase` for MongoDB
+3. **Set isolation level for SQL stores:** MySQL requires `READ COMMITTED` (not the default `REPEATABLE READ`)
+4. **Tune polling:** adjust `polling.minDelayMs`, `polling.maxDelayMs`, and `polling.batchSize` for your workload
+5. **Set up retention:** configure `maintenance.jobRetentionDays`, `maintenance.dlqPurgeDays`, and `maintenance.logRetentionDays` to prevent unbounded table growth
+6. **Enable metrics:** wire `MetricsCollector` to your monitoring stack
+7. **Configure wakeups if needed:** if running multiple nodes and you want faster cross-node responsiveness, implement `ClusterCoordinator`
+8. **Test failover:** verify jobs recover when a node goes down
 
 ## Next steps
 
-- [Installation & Setup](/deployment/installation) — Step-by-step getting started
-- [Database Setup](/deployment/database-setup) — Schema application for all stores
-- [Configuration](/deployment/configuration) — Full configuration reference
-- [Docker Deployment](/deployment/docker) — Containerized deployments
-- [Kubernetes Deployment](/deployment/kubernetes) — Orchestrated deployments
+- [Installation & Setup](/deployment/installation) -- Step-by-step getting started
+- [Database Setup](/deployment/database-setup) -- Schema application for all stores
+- [Configuration](/deployment/configuration) -- Full configuration reference
+- [Docker Deployment](/deployment/docker) -- Containerized deployments
+- [Kubernetes Deployment](/deployment/kubernetes) -- Orchestrated deployments

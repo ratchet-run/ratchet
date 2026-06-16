@@ -25,7 +25,7 @@ void processOrder(long orderId) {
 }
 ```
 
-## Static Methods
+## Static methods
 
 ### current
 
@@ -127,7 +127,7 @@ try {
 }
 ```
 
-## Instance Methods
+## Instance methods
 
 ### jobId
 
@@ -240,7 +240,7 @@ For simple payloads delivered with `deliverSignal(jobId, payload)`, request the 
 String reviewer = JobContext.current().signalPayload(String.class);
 ```
 
-## Thread-Local Lifecycle
+## Thread-local lifecycle
 
 `JobContext` uses `ThreadLocal` storage. The lifecycle is:
 
@@ -254,7 +254,7 @@ Each thread has its own isolated context, preventing cross-contamination when mu
 `JobContext.current()` only works inside a Ratchet-managed job execution. Calling it from other threads, background tasks, or outside a job throws `IllegalStateException`.
 :::
 
-## Example: Multi-Step Job with Parameters
+## Example: multi-step job with parameters
 
 ```java
 @ApplicationScoped
@@ -296,7 +296,7 @@ scheduler.enqueue(() -> orderProcessor.processOrder(orderId))
     .submit();
 ```
 
-## Example: Unit Testing with JobContext
+## Example: unit testing with JobContext
 
 ```java
 @Test
@@ -316,7 +316,7 @@ void testJobUsesParameters() {
 }
 ```
 
-## See Also
+## See also
 
 - [JobBuilder Parameters](./job-builder#withparam)
 - [Signal-Waiting Jobs](./job-builder#awaitsignal)

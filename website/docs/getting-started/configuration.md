@@ -9,7 +9,7 @@ description: CDI producer setup, beans.xml requirements, and the required Ratche
 Ratchet is designed to run in Jakarta EE without static global configuration. CDI owns the runtime objects, Ratchet consumes one immutable `RatchetOptions` bean that your application produces, and store-specific resources remain normal CDI resources.
 
 :::important Required producer
-Your application **must** produce exactly one `@ApplicationScoped RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts — this is the intended kill-switch for deployments that pull `ratchet` onto the classpath without wanting it active. There is no automatic fallback chain.
+Your application **must** produce exactly one `@ApplicationScoped RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts. This is the intended kill-switch for deployments that pull `ratchet` onto the classpath without wanting it active. There is no automatic fallback chain.
 :::
 
 ## How Ratchet bootstraps
@@ -155,7 +155,7 @@ clock (`NOW(3)` / `CURRENT_TIMESTAMP`). If the JDBC connection writes those colu
 zone than the server evaluates the comparison in, due jobs are claimed late (or early) by the
 offset between the two zones.
 
-Most providers avoid this automatically — Hibernate, for example, negotiates `connectionTimeZone=UTC`
+Most providers avoid this automatically. Hibernate, for example, negotiates `connectionTimeZone=UTC`
 with MySQL Connector/J. Others (notably EclipseLink) bind `java.sql.Timestamp` values in the JVM's
 default zone, so a non-UTC application JVM against a UTC database silently skews claim timing. To
 stay correct on any provider:
@@ -253,7 +253,7 @@ When you call `RatchetOptionsFactory.fromEnvironment(...)` from inside your prod
 3. Environment variables (canonical `RATCHET_*` names)
 4. Built-in defaults
 
-This is not a runtime fallback — Ratchet only reads it when your producer explicitly asks it to. If you use Option B (programmatic) your producer skips the chain entirely.
+This is not a runtime fallback. Ratchet only reads it when your producer explicitly asks it to. If you use Option B (programmatic), your producer skips the chain entirely.
 
 To overlay a platform-specific config source on top of env + MP Config, pass it as a vararg:
 

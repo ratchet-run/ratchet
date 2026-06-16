@@ -1,7 +1,7 @@
 ---
 sidebar_position: 7
 title: MongoDB
-description: Setting up the MongoDB store — collections, indexes, configuration, and migration from SQL stores
+description: "Setting up the MongoDB store: collections, indexes, configuration, and migration from SQL stores"
 ---
 
 # MongoDB Deployment
@@ -28,7 +28,7 @@ availability.
 </dependency>
 ```
 
-This pulls in the MongoDB sync driver. No ODM (Morphia, Spring Data) is required — the store uses the driver directly.
+This pulls in the MongoDB sync driver. No ODM (Morphia, Spring Data) is required; the store uses the driver directly.
 
 ## Collection Setup
 
@@ -40,12 +40,12 @@ operation is idempotent and safe to run on every boot.
 
 | Collection | Purpose |
 |-----------|---------|
-| `scheduler_job` | Main job store — status, payload, scheduling, priority |
+| `scheduler_job` | Main job store: status, payload, scheduling, priority |
 | `scheduler_recurring_job` | Recurring job master records (cron/interval definitions) |
 | `scheduler_recurring_job_archive` | Archived recurring job definitions |
 | `scheduler_batch` | Batch parent records and progress state |
 | `scheduler_batch_metrics` | Batch-level runtime metrics |
-| `scheduler_job_execution` | Execution history — start/end times, node, outcome |
+| `scheduler_job_execution` | Execution history: start/end times, node, outcome |
 | `scheduler_job_log` | Optional per-job log storage if your application persists `JobLogLine` events |
 | `scheduler_job_archive` | Archived completed/failed jobs |
 | `scheduler_lock` | Distributed advisory locks with TTL |
@@ -65,8 +65,8 @@ The initializer creates these indexes for query performance:
 |-------|--------|-------|
 | `idx_job_claim_exec` | `status`, `job_type`, `priority` DESC, `scheduled_time`, `_id` | Executable claim candidate filtering |
 | `idx_job_poll_composite` | `status`, `priority` DESC, `scheduled_time` | General due-job lookup |
-| `idx_job_idempotency_key` | `idempotency_key` | **Unique** — global dedup |
-| `idx_job_active_business_key` | `business_key` | **Unique partial** — only for PENDING/RUNNING/PAUSED/WAITING |
+| `idx_job_idempotency_key` | `idempotency_key` | **Unique** (global dedup) |
+| `idx_job_active_business_key` | `business_key` | **Unique partial** (PENDING/RUNNING/PAUSED/WAITING only) |
 | `idx_job_tags` | `tags` | Multikey index for tag-based queries |
 | `idx_job_picked_by` | `picked_by` | Find jobs claimed by a specific node |
 
@@ -74,7 +74,7 @@ The initializer creates these indexes for query performance:
 
 | Index | Fields | Notes |
 |-------|--------|-------|
-| `idx_lock_ttl` | `expires_at` | **TTL index** — MongoDB auto-deletes expired locks |
+| `idx_lock_ttl` | `expires_at` | **TTL index** (MongoDB auto-deletes expired locks) |
 
 ### scheduler_job_execution
 
@@ -96,7 +96,7 @@ db.scheduler_job.findOneAndUpdate(
 )
 ```
 
-This provides the same guarantee — no two nodes claim the same job — through MongoDB's document-level write lock rather than row-level `SKIP LOCKED`.
+This gives the same guarantee (no two nodes claim the same job) through MongoDB's document-level write lock rather than row-level `SKIP LOCKED`.
 
 ### UUIDv7 Identifiers
 
@@ -104,7 +104,7 @@ Ratchet uses the same RFC 9562 §5.7 UUIDv7 identifiers on MongoDB as it does fo
 
 ### Tags
 
-In SQL stores, tags use a separate `scheduler_job_tag` join table. In MongoDB, tags are embedded as an array field on the job document with a multikey index — more natural for document storage and eliminates the join.
+In SQL stores, tags use a separate `scheduler_job_tag` join table. In MongoDB, tags are embedded as an array field on the job document with a multikey index, which is more natural for document storage and eliminates the join.
 
 ## Configuration
 
@@ -180,6 +180,6 @@ Key metrics to watch:
 
 ## See Also
 
-- [Database Setup](./database-setup.md) — General database preparation
-- [Clustering](./clustering.md) — Multi-node deployment patterns
-- [Performance Tuning](./performance-tuning.md) — Query optimization and index maintenance
+- [Database Setup](./database-setup.md) -- General database preparation
+- [Clustering](./clustering.md) -- Multi-node deployment patterns
+- [Performance Tuning](./performance-tuning.md) -- Query optimization and index maintenance

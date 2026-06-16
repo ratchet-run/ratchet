@@ -189,7 +189,7 @@ The `ResilienceStrategy` SPI is consulted to check if the target service is avai
 
 **6. Resource Permit**
 
-If the job specifies a `resourceName`, the `ResourcePermitService` attempts to acquire a permit. If the resource is at capacity, the job is rescheduled with a configurable delay. This is not a failure -- no retry is consumed.
+If the job specifies a `resourceName`, the `ResourcePermitService` attempts to acquire a permit. If the resource is at capacity, the job is rescheduled with a configurable delay. This is not a failure; no retry is consumed.
 
 **7. Security Validation**
 
@@ -224,7 +224,7 @@ The executor checks `wasJobCanceledDuringExecution()` both before starting work 
 
 ## Transactions and Database Connections
 
-`JobTask.call()` does **not** run inside a transaction. This is a deliberate design decision -- holding a database connection for the entire duration of a potentially long-running job would exhaust connection pools.
+`JobTask.call()` does **not** run inside a transaction. This is deliberate: holding a database connection open for the entire duration of a long-running job would exhaust connection pools.
 
 Instead, each database operation (status update, retry scheduling, success marking) is a separate short transaction. The `@Transactional` annotation is on the individual service methods (`PostExecutionHandler`, `DeadLetterService`, etc.), not on `JobTask` itself.
 

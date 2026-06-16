@@ -324,7 +324,7 @@ scheduler.<Long>streamingBatch("Process Stream")
     // ...
 ```
 
-### Workflow Methods
+### Workflow methods
 
 `StreamingBatchBuilder` supports the same workflow methods as `BatchBuilder`:
 
@@ -370,7 +370,7 @@ JobHandle handle = scheduler.<Long>streamingBatch("Full Migration")
 | Best for | Small-medium collections | Large datasets, database cursors |
 | Submit method | `submit()` | `start()` |
 
-## See Also
+## See also
 
 - [BatchContext Reference](./batch-context)
 - [WorkflowCondition Reference](./workflow-condition)

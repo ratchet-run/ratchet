@@ -86,7 +86,7 @@ public class MaintenanceService {
 }
 ```
 
-At startup, the `RecurringJobProcessor` CDI bean scans for `@Recurring` methods, validates them, and registers them with the scheduler. The annotation's `id` (or auto-generated fully-qualified method name) serves as the business key, ensuring exactly one active master per annotation.
+At startup, the `RecurringJobProcessor` CDI bean scans for `@Recurring` methods, validates them, and registers them with the scheduler. The annotation's `id` (or auto-generated fully-qualified method name) is the business key, ensuring exactly one active master per annotation.
 
 ### Programmatic API
 

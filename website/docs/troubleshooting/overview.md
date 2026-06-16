@@ -149,7 +149,7 @@ Add to `server.xml`:
 <logging traceSpecification="run.ratchet.*=fine"/>
 ```
 
-### Key Logger Categories
+### Logger categories
 
 | Logger | What It Logs |
 |---|---|
@@ -179,9 +179,9 @@ These MDC values are available in your log format patterns for correlation:
 
 ## Configuration Reference
 
-Ratchet requires a CDI-produced `RatchetOptions` bean — deployment fails with `UnsatisfiedResolutionException` otherwise. Applications may write a programmatic producer or read env vars + MicroProfile Config inside a producer via `RatchetOptionsFactory.fromEnvironment()`. See [Configuration](/getting-started/configuration).
+Ratchet requires a CDI-produced `RatchetOptions` bean. Deployment fails with `UnsatisfiedResolutionException` if one is not present. Applications may write a programmatic producer or read env vars + MicroProfile Config inside a producer via `RatchetOptionsFactory.fromEnvironment()`. See [Configuration](/getting-started/configuration).
 
-Key diagnostic-related settings:
+Diagnostic-related settings:
 
 | Option | Default | Purpose |
 |---|---|---|

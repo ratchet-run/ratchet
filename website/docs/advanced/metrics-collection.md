@@ -324,12 +324,20 @@ Use the metrics to set up alerts for common operational issues:
 | No jobs started in 15 minutes (when expected) | Critical: scheduler may be stalled |
 | `ratchet.jobs.failed` with a specific `family` tag spikes | Investigate the failing exception family |
 
-## Best Practices
+## Best practices
 
-**Use tags for dimensionality, not metric names.** Prefer `ratchet.jobs.started{type=SINGLE}` over `ratchet.single_jobs.started`. Tags enable flexible aggregation and filtering in dashboards.
+### Use tags, not metric names, for dimensionality
 
-**Keep exception tags bounded.** The Micrometer adapter classifies failures into the bounded `ExceptionFamily` enum (`TRANSIENT`, `TIMEOUT`, `VALIDATION`, `BUSINESS`, `UNKNOWN`) for the `family` tag, so its cardinality stays fixed. If a custom collector instead tags by the exception's class name and your application throws many dynamically-generated exception types, this could create high-cardinality metrics. Consider normalizing exception names in that case.
+Prefer `ratchet.jobs.started{type=SINGLE}` over `ratchet.single_jobs.started`. Tags allow flexible aggregation and filtering in dashboards without multiplying metric names.
 
-**Monitor attempt counts.** A spike in `attempt > 1` failures indicates that retries are being consumed. Pair this with retry policy metrics to understand whether jobs are eventually succeeding or exhausting retries.
+### Keep exception tags bounded
 
-**Set baselines before alerting.** Run Ratchet for a few days with metrics collection enabled to establish baseline throughput, failure rates, and execution times. Set alert thresholds relative to these baselines rather than using absolute values.
+The Micrometer adapter classifies failures into the `ExceptionFamily` enum (`TRANSIENT`, `TIMEOUT`, `VALIDATION`, `BUSINESS`, `UNKNOWN`) for the `family` tag, so cardinality stays fixed. A custom collector that tags by exception class name can produce high-cardinality metrics if your application throws many dynamically-generated exception types. Normalize exception names in that case.
+
+### Monitor attempt counts
+
+A spike in `attempt > 1` failures means retries are being consumed. Pair this with retry policy metrics to understand whether jobs are eventually succeeding or exhausting their retry budget.
+
+### Set baselines before alerting
+
+Run Ratchet for a few days with metrics collection enabled to establish baseline throughput, failure rates, and execution times. Set alert thresholds relative to those baselines rather than using fixed absolute values.

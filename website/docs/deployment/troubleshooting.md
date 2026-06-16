@@ -1,7 +1,7 @@
 ---
 sidebar_position: 14
 title: Deployment Troubleshooting
-description: Diagnosing and fixing common deployment problems — schema issues, connection failures, clustering problems, and performance bottlenecks
+description: "Diagnosing and fixing common deployment problems: schema issues, connection failures, clustering problems, and performance bottlenecks"
 ---
 
 # Deployment Troubleshooting
@@ -57,7 +57,7 @@ WHERE status = 'PENDING';
 
 **Symptom:** Column not found errors or constraint violations after upgrading Ratchet.
 
-**Fix:** Compare your applied schema against the latest DDL in the new version. Ratchet does not auto-migrate — you must diff and apply changes manually or through your migration tool.
+**Fix:** Compare your applied schema against the latest DDL in the new version. Ratchet does not auto-migrate, so you must diff and apply changes manually or through your migration tool.
 
 ## Connection Issues
 
@@ -114,9 +114,9 @@ mongosh --eval 'rs.initiate()'
 **Symptom:** The same job runs on two nodes simultaneously.
 
 **Possible causes:**
-1. **Missing `SKIP LOCKED` support** — You're on a database version that doesn't support it (MySQL < 8.0, PostgreSQL < 9.5)
-2. **Job timeout too short** — The job takes longer than its timeout, so the poller reclaims it while it's still running on another node
-3. **Clock skew** — Nodes have significantly different system clocks
+1. **Missing `SKIP LOCKED` support:** you're on a database version that doesn't support it (MySQL < 8.0, PostgreSQL < 9.5)
+2. **Job timeout too short:** the job takes longer than its timeout, so the poller reclaims it while it's still running on another node
+3. **Clock skew:** nodes have significantly different system clocks
 
 **Fix:**
 1. Upgrade to a supported database version
@@ -180,7 +180,7 @@ FOR UPDATE SKIP LOCKED LIMIT 10;
 
 **Fixes:**
 1. Ensure the composite index exists (see [Missing indexes](#missing-indexes))
-2. Reduce batch size — claiming fewer jobs per cycle reduces lock contention
+2. Reduce batch size: claiming fewer jobs per cycle reduces lock contention
 3. Archive completed jobs to keep the table lean
 
 ### Queue growing despite available capacity
@@ -188,9 +188,9 @@ FOR UPDATE SKIP LOCKED LIMIT 10;
 **Symptom:** Pending job count increases while worker threads are idle.
 
 **Possible causes:**
-1. **Scheduling mismatch** — Jobs have `scheduled_time` in the future
-2. **Resource permits** — Jobs require a resource permit that's exhausted
-3. **Paused jobs** — Jobs are in `PAUSED` status
+1. **Scheduling mismatch:** jobs have `scheduled_time` in the future
+2. **Resource permits:** jobs require a resource permit that's exhausted
+3. **Paused jobs:** jobs are in `PAUSED` status
 
 **Diagnosis:**
 ```sql
@@ -224,13 +224,13 @@ WHERE status = 'PENDING' AND scheduled_time > NOW();
 
 ### Multiple store implementations on classpath
 
-**Symptom:** `Ambiguous dependency for type JobStore` — CDI found two store beans.
+**Symptom:** `Ambiguous dependency for type JobStore`. CDI found two store beans.
 
 **Fix:** Include only one store module in your deployment. If you need both (e.g., for migration), mark one as `@Alternative` and don't enable it.
 
 ## See Also
 
-- [Troubleshooting Overview](../troubleshooting/overview.md) — General debugging techniques
-- [Common Issues](../troubleshooting/common-issues.md) — Frequently encountered problems
-- [Clustering](./clustering.md) — Multi-node architecture and failure modes
-- [Performance Tuning](./performance-tuning.md) — Optimizing for throughput
+- [Troubleshooting Overview](../troubleshooting/overview.md) -- General debugging techniques
+- [Common Issues](../troubleshooting/common-issues.md) -- Frequently encountered problems
+- [Clustering](./clustering.md) -- Multi-node architecture and failure modes
+- [Performance Tuning](./performance-tuning.md) -- Optimizing for throughput

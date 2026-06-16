@@ -8,9 +8,9 @@ description: Complete reference for job lifecycle events, batch events, chain ev
 
 Observing and reacting to job lifecycle events. Ratchet publishes events at every state transition. Use them for monitoring, alerting, and custom integrations.
 
-## Listening to Events
+## Listening to events
 
-### CDI Observers
+### CDI observers
 
 Use CDI `@Observes` for type-safe event handling:
 
@@ -34,7 +34,7 @@ public class JobMonitor {
 }
 ```
 
-### Programmatic Listeners
+### Programmatic listeners
 
 Register listeners via [`JobSchedulerService.addEventListener()`](./job-scheduler-service#addeventlistener):
 
@@ -49,7 +49,7 @@ scheduler.addEventListener(event -> {
 });
 ```
 
-## Event Base Class
+## Event base class
 
 All job lifecycle events extend `AbstractJobSchedulerEvent`:
 
@@ -73,7 +73,7 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
 | `getNodeId()` | `String` | Identifier of the cluster node that processed this job |
 | `getTimestamp()` | `Instant` | When this event was created |
 
-## Job Lifecycle Events
+## Job lifecycle events
 
 ### JobStartedEvent
 
@@ -283,7 +283,7 @@ public void onCallbackFailed(@Observes JobCallbackFailedEvent event) {
 }
 ```
 
-## Batch Events
+## Batch events
 
 ### BatchCompletingEvent
 
@@ -339,7 +339,7 @@ public void onBatchCompleted(@Observes BatchCompletedEvent event) {
 }
 ```
 
-## Chain Event Types {#chainevent-types}
+## Chain event types {#chainevent-types}
 
 ### ChainStartedEvent
 
@@ -383,7 +383,7 @@ public void onChainFailed(@Observes ChainFailedEvent event) {
 }
 ```
 
-## Workflow Events
+## Workflow events
 
 ### WorkflowBranchTriggeredEvent
 
@@ -403,7 +403,7 @@ public UUID getNextJobId()
 | `getBranchCondition()` | `String` | Description of the branch condition that matched |
 | `getNextJobId()` | `UUID` | Child job ID scheduled for the branch |
 
-## Signal Events
+## Signal events
 
 These events accompany the [signal-waiting job](./job-scheduler-service) lifecycle (`WAITING` status and `deliverSignal()`).
 
@@ -483,11 +483,11 @@ public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {
 | `getSignalKey()` | `String` | Signal key the job was waiting on |
 | `getSignalTimeout()` | `Duration` | Configured maximum wait duration that elapsed (never null) |
 
-## System Metrics
+## System metrics
 
 Ratchet does not publish aggregate system-metrics through the event listener API. For per-job metrics (start, completion, failure, retry timings), implement the [`MetricsCollector`](./spi-interfaces#metricscollector) SPI and wire it to your monitoring backend (Micrometer, StatsD, Prometheus, etc.).
 
-## Example: Comprehensive Monitoring
+## Example: comprehensive monitoring
 
 ```java
 @ApplicationScoped
@@ -532,7 +532,7 @@ public class SchedulerMonitoring {
 }
 ```
 
-## See Also
+## See also
 
 - [JobSchedulerService Event Methods](./job-scheduler-service#event-listener-management)
 - [Job Lifecycle](/concepts/job-lifecycle)

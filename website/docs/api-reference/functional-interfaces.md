@@ -10,7 +10,7 @@ Ratchet defines six serializable functional interfaces for job tasks, callbacks,
 
 **Package:** `run.ratchet.api`
 
-## Why Serializable?
+## Why serializable?
 
 Ratchet persists job definitions in a database. When you write:
 
@@ -39,7 +39,7 @@ public interface SerializableCheckedRunnable extends Serializable {
 
 **Used in:** `JobSchedulerService.enqueue()`, `schedule()`, `enqueueNow()`, `JobBuilder.then()`, all workflow branch tasks.
 
-### Correct Usage
+### Correct usage
 
 ```java
 // Method reference
@@ -55,7 +55,7 @@ scheduler.enqueue(() -> myService.process(userId)).submit();
 scheduler.enqueue(() -> reportService.generate(userId, reportType, startDate)).submit();
 ```
 
-### Incorrect Usage
+### Incorrect usage
 
 ```java
 // WRONG -- multi-statement lambda
@@ -71,7 +71,7 @@ scheduler.enqueue(() -> {
 }).submit();  // throws IllegalArgumentException
 ```
 
-### Workaround for Complex Logic
+### Workaround for complex logic
 
 Wrap multi-step logic in a single method on a CDI bean:
 
@@ -92,7 +92,7 @@ public class UserWorkflow {
 scheduler.enqueue(() -> userWorkflow.processAndNotify(userId)).submit();
 ```
 
-### Exception Handling
+### Exception handling
 
 Exceptions thrown from `run()` are caught by the executor and trigger:
 1. Retry attempts based on job configuration
@@ -330,7 +330,7 @@ scheduler.<Long>streamingBatch("Migrate Users")
 | Checked exceptions | No | Yes |
 | Primary use | Callbacks, progress hooks | Streaming batch processing |
 
-## See Also
+## See also
 
 - [JobBuilder Reference](./job-builder)
 - [BatchBuilder Reference](./batch-builder)

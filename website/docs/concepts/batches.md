@@ -163,7 +163,7 @@ scheduler.<User>streamingBatch("Process All Users")
 4. Streaming continues until the stream is exhausted
 5. Child jobs execute in parallel as they're created (no need to wait for streaming to finish)
 
-This means a million-row result set never needs to be held in memory -- it's processed in 100-item chunks.
+This means a million-row result set is never held in memory; it's processed in 100-item chunks.
 
 ### Streaming Progress
 

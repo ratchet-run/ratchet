@@ -7,7 +7,7 @@ sidebar_label: TCK Conformance
 # TCK Conformance
 
 Ratchet defines three conformance tiers. Each tier is independently verifiable by third-party
-implementors — a store author does not need to satisfy Jakarta Runtime contracts to claim Store
+implementors. A store author does not need to satisfy Jakarta Runtime contracts to claim Store
 compatibility.
 
 ## Conformance Tiers
@@ -40,8 +40,8 @@ Results are published for all 15 server × database combinations (WildFly, WildF
 Open Liberty, GlassFish × MySQL, PostgreSQL, MongoDB) and regenerated after each successful CI run
 on `main`.
 
-- [API Conformance Matrix](./api/) — Tier 2 results across all runtimes
-- [Jakarta Runtime Conformance Matrix](./jakarta/) — Tier 3 results across all runtimes
+- [API Conformance Matrix](./api/) -- Tier 2 results across all runtimes
+- [Jakarta Runtime Conformance Matrix](./jakarta/) -- Tier 3 results across all runtimes
 
 ## Running Conformance Tests Locally
 

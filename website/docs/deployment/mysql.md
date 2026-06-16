@@ -89,7 +89,7 @@ The `mapping-file` line is required for non-Hibernate providers (EclipseLink,
 OpenJPA, etc.). MySQL stores UUIDv7 IDs as `BINARY(16)`, and the mapping file
 applies the store-local `UuidByteArrayConverter` so those providers bind UUID
 fields as 16 bytes. Hibernate maps UUID to `BINARY(16)` natively on MySQL, and
-Hibernate 6+ rejects an `AttributeConverter` on an `@Id` attribute — omit the
+Hibernate 6+ rejects an `AttributeConverter` on an `@Id` attribute; omit the
 `<mapping-file>` line entirely when using Hibernate. PostgreSQL does not use
 this mapping file.
 
@@ -130,10 +130,10 @@ Or via WildFly CLI:
 :::caution MySQL Isolation Level
 MySQL defaults to `REPEATABLE READ`, which acquires gap locks on `SELECT ... FOR UPDATE` that block concurrent inserts into the same table. This causes lock wait timeouts under production job scheduling load. **Always** configure `READ COMMITTED` isolation via one of:
 
-- **WildFly DataSource**: `transaction-isolation=TRANSACTION_READ_COMMITTED`
-- **JDBC URL**: `?sessionVariables=transaction_isolation='READ-COMMITTED'`
-- **persistence.xml**: `<property name="hibernate.connection.isolation" value="2"/>`
-- **WildFly -ds.xml**: `<transaction-isolation>TRANSACTION_READ_COMMITTED</transaction-isolation>`
+- WildFly DataSource: `transaction-isolation=TRANSACTION_READ_COMMITTED`
+- JDBC URL: `?sessionVariables=transaction_isolation='READ-COMMITTED'`
+- persistence.xml: `<property name="hibernate.connection.isolation" value="2"/>`
+- WildFly -ds.xml: `<transaction-isolation>TRANSACTION_READ_COMMITTED</transaction-isolation>`
 
 Ratchet checks this at startup and fails by default when the active session is not
 `READ COMMITTED`. Use `RatchetOptions.builder().store(s -> s.isolationCheckMode(RatchetOptions.IsolationCheckMode.WARN))`
@@ -165,12 +165,12 @@ Ratchet does not expose MySQL-only tuning flags. Use the shared scheduler settin
 
 The MySQL schema uses several MySQL-specific features:
 
-- **ENUM types** for `status`, `job_type`, `backoff_policy`, and `level` columns
-- **BINARY(16) UUIDv7 identifiers** for every primary and foreign key that refers to a job, batch, execution, log, archive, resource permit, or workflow row
-- **JSON columns** for `payload`, `params`, `job_result`, and `mdc`
-- **GENERATED ALWAYS AS ... STORED** columns to extract `target_class` and `method_name` from payload JSON
-- **Reservation table** for active business-key uniqueness without keeping terminal rows hot
-- **Optional operator views** in `ddl/views/vw_jobs.sql` that expose binary UUIDs as hyphenated strings via `BIN_TO_UUID(col)` without MySQL's UUIDv1 swap flag
+- ENUM types for `status`, `job_type`, `backoff_policy`, and `level` columns
+- BINARY(16) UUIDv7 identifiers for every primary and foreign key that refers to a job, batch, execution, log, archive, resource permit, or workflow row
+- JSON columns for `payload`, `params`, `job_result`, and `mdc`
+- `GENERATED ALWAYS AS ... STORED` columns to extract `target_class` and `method_name` from payload JSON
+- A reservation table for active business-key uniqueness without keeping terminal rows hot
+- Optional operator views in `ddl/views/vw_jobs.sql` that expose binary UUIDs as hyphenated strings via `BIN_TO_UUID(col)` without MySQL's UUIDv1 swap flag
 
 ### Key Indexes
 

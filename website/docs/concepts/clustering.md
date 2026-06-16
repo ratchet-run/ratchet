@@ -46,7 +46,7 @@ Ratchet is designed to run on multiple nodes without additional coordination inf
   </div>
 </div>
 
-Each node runs its own Poller, claims its own subset of jobs, and executes them independently. No node is special -- there is no "master" or "coordinator" node. The database is the single source of truth.
+Each node runs its own Poller, claims its own subset of jobs, and executes them independently. No node is special: there is no "master" or "coordinator" node. The database is the single source of truth.
 
 ## How SKIP LOCKED Provides Cluster Safety
 
@@ -65,7 +65,7 @@ LIMIT 50;
 -- Node B gets a disjoint set of jobs
 ```
 
-SQL stores use `SKIP LOCKED`, and the MongoDB store uses atomic document updates. These are the foundation of Ratchet's multi-node execution -- no external coordination service is required for ordinary job claiming.
+SQL stores use `SKIP LOCKED`, and the MongoDB store uses atomic document updates. These are the foundation of Ratchet's multi-node execution; no external coordination service is required for ordinary job claiming.
 
 ## StartupCoordinator
 
@@ -105,7 +105,7 @@ public interface ClusterCoordinator extends AutoCloseable {
 
 ### Default: NoOpClusterCoordinator
 
-The default implementation does nothing -- wakeup notifications are only delivered locally. This is correct for single-node deployments and acceptable for multi-node deployments where sub-second latency isn't critical.
+The default implementation does nothing; wakeup notifications are only delivered locally. This is correct for single-node deployments and acceptable for multi-node deployments where sub-second latency isn't critical.
 
 With the no-op coordinator, jobs submitted on Node A will be picked up by Node B at the next natural poll cycle. The adaptive polling algorithm ensures this happens within seconds during active periods, or up to 60 seconds during deep idle.
 
@@ -153,7 +153,7 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator {
 }
 ```
 
-The SPI is intentionally minimal -- `notifyNewWork`, `registerWakeupListener`, and `close` -- so it can be implemented over any pub/sub mechanism.
+The SPI is intentionally minimal (`notifyNewWork`, `registerWakeupListener`, and `close`), so it can be implemented over any pub/sub mechanism.
 
 ## Node Identity
 
