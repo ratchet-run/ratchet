@@ -113,6 +113,7 @@ export default defineConfig({
 
     nav: [
       { text: 'Getting Started', link: '/getting-started/introduction' },
+      { text: 'Use cases', link: '/use-cases/durable-llm-workflows' },
       { text: 'Compare', link: '/comparison/overview' },
       { text: 'Concepts', link: '/concepts/overview' },
       { text: 'API Reference', link: '/api-reference/overview' },
@@ -121,6 +122,14 @@ export default defineConfig({
     ],
 
     sidebar: {
+      '/use-cases/': [
+        {
+          text: 'Use cases',
+          items: [
+            { text: 'Durable LLM & agent workflows', link: '/use-cases/durable-llm-workflows' },
+          ],
+        },
+      ],
       '/getting-started/': [
         {
           text: 'Getting Started',
