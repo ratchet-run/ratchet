@@ -19,7 +19,7 @@ export default {
     return h(DefaultTheme.Layout, null, {
       'home-hero-info-before': () => h(HeroInfoTop),
       'home-hero-image': () => h(HeroCode),
-      'home-hero-info-after': () => h(HeroCode, { class: 'hero-code-mobile' }),
+      'home-hero-info-after': () => h(HeroCode, { compact: true, class: 'hero-code-mobile' }),
       'home-hero-actions-after': () => h(HeroStarButton),
       'home-hero-after': () => h(HeroTrustStrip),
       'home-features-after': () => [h(HomeUseCasesBand), h(HomeDocsBand)],
