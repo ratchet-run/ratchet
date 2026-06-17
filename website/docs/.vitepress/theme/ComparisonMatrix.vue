@@ -283,14 +283,15 @@ const statusLabel = (s: Status) => ({
   min-width: 640px;
 }
 
-.cm-matrix th,
-.cm-matrix td { padding: 0; }
+/* No padding reset here: a `.cm-matrix td` reset outranks the per-cell classes
+   below and would flatten their padding to zero. The scoped cell classes
+   already out-specify VitePress's default table padding, so they can own it. */
 
 .cm-capability-header,
 .cm-product-header {
   text-align: center;
   font-weight: 600;
-  padding: 0.65rem 0.5rem;
+  padding: 0.75rem 0.5rem;
   background: var(--vp-c-default-soft);
   color: var(--vp-c-text-1);
   border-radius: 6px;
@@ -298,13 +299,13 @@ const statusLabel = (s: Status) => ({
 
 .cm-capability-header {
   text-align: left;
-  padding: 0.65rem 0.75rem;
+  padding: 0.75rem 0.75rem;
   white-space: nowrap;
 }
 
 .cm-ratchet-header {
   text-align: center;
-  padding: 0.65rem 0.5rem;
+  padding: 0.75rem 0.5rem;
   border-radius: 6px;
   background: var(--vp-c-brand-1);
   font-weight: 700;
@@ -315,7 +316,7 @@ const statusLabel = (s: Status) => ({
 .cm-capability {
   text-align: left;
   font-weight: 500;
-  padding: 0.75rem;
+  padding: 0.85rem 0.9rem;
   background: var(--vp-c-default-soft);
   color: var(--vp-c-text-1);
   border-radius: 6px;
@@ -325,7 +326,7 @@ const statusLabel = (s: Status) => ({
 .cm-cell {
   text-align: center;
   vertical-align: middle;
-  padding: 0.6rem 0.4rem;
+  padding: 0.85rem 0.7rem;
   border-radius: 6px;
   position: relative;
   font-weight: 600;
