@@ -1,9 +1,15 @@
 <script setup lang="ts">
 // The HTML is pre-rendered through Shiki by heroCodePlugin.ts at build time
-// (see docs/.vitepress/heroCodePlugin.ts). Importing the virtual module here
+// (see docs/.vitepress/heroCodePlugin.ts). Importing the virtual modules here
 // keeps Shiki out of the client bundle and gives the hero code its final
 // markup during SSR so there is no flash of empty content on hydration.
-import html from 'virtual:ratchet-hero-code'
+import full from 'virtual:ratchet-hero-code'
+import compact from 'virtual:ratchet-hero-code-mobile'
+
+// `compact` renders the shorter snippet used inline on phones, where the full
+// snippet's long lines would otherwise scroll sideways.
+const props = defineProps<{ compact?: boolean }>()
+const html = props.compact ? compact : full
 </script>
 
 <template>
@@ -61,8 +67,8 @@ html.dark .hero-code :deep(.shiki span) {
   }
   .hero-code :deep(.shiki) {
     padding: 1rem;
-    font-size: 0.78rem;
-    line-height: 1.55;
+    font-size: 0.85rem;
+    line-height: 1.6;
     border-radius: 10px;
     box-shadow: 0 12px 32px rgba(31, 41, 51, 0.14);
   }

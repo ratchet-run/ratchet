@@ -4,3 +4,8 @@ declare module 'virtual:ratchet-hero-code' {
   const html: string
   export default html
 }
+
+declare module 'virtual:ratchet-hero-code-mobile' {
+  const html: string
+  export default html
+}
