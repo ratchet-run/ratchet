@@ -368,6 +368,15 @@ html { color-scheme: light; }
   }
 }
 
+/* VitePress's aside outline ends in a `position: fixed` gradient ("curtain")
+   pinned to the viewport bottom to fade the TOC. It assumes the page background
+   continues below it, but our full-bleed dark footer does not, so when you
+   scroll to the bottom the pale curtain floats over the footer as a stray
+   shadow. The fade buys little, so drop it. */
+.aside-curtain {
+  display: none;
+}
+
 /* ------------------------------------------------------------------ */
 /* Docs-page customisations — ported from src/css/custom.css            */
 /* ------------------------------------------------------------------ */
@@ -1275,10 +1284,12 @@ html.dark .cm-ratchet-header { color: #0d1117; }
   }
 
   /* Lead with the product: the snippet sits right under the tagline, above
-     the CTAs, instead of below them. */
-  .hero-code-mobile {
+     the CTAs, instead of below them. The three-class selector outranks
+     HeroCode.vue's scoped `.hero-code { margin: 0 auto }`, which would
+     otherwise zero the top margin. */
+  .VPHero .main .hero-code-mobile {
     display: block;
-    margin: 1.5rem 0 0;
+    margin: 2.25rem 0 0;
   }
 
   /* Short tagline on phones; the full sentence is desktop-only. */

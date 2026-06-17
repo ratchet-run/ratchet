@@ -74,7 +74,10 @@ export default defineConfig({
   // under `.wide-tables`; dropping the outline reclaims the column the wide
   // server x database tables need.
   transformPageData(pageData) {
-    if (pageData.relativePath.startsWith('conformance/')) {
+    if (
+      pageData.relativePath.startsWith('conformance/') ||
+      pageData.relativePath.startsWith('comparison/')
+    ) {
       pageData.frontmatter.pageClass = 'wide-tables'
       pageData.frontmatter.aside = false
     }
