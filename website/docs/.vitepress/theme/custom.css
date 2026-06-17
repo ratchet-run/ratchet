@@ -216,6 +216,15 @@ html { color-scheme: light; }
   margin-top: 1.75rem !important;
 }
 
+/* Mobile-only hero pieces: the inline code snippet and the short tagline are
+   hidden on desktop and toggled on in the max-width:960px block below. */
+.hero-code-mobile {
+  display: none;
+}
+.tag-mobile {
+  display: none;
+}
+
 /* The "image" column is replaced by HeroCode.vue; suppress default bloom */
 .VPHero .image-bg,
 .VPHero .image-src {
@@ -1243,9 +1252,41 @@ html.dark .cm-ratchet-header { color: #0d1117; }
     justify-content: center;
   }
 
-  /* Hide the empty image column space on mobile */
+  /* Match the stacked CTAs: the GitHub button goes full width on mobile too. */
+  .hero-star {
+    width: 100%;
+  }
+  .hero-star-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* The code renders inline below the tagline on mobile (see .hero-code-mobile),
+     so the desktop image column stays hidden at this width. */
   .VPHero .image {
     display: none !important;
+  }
+
+  /* VitePress reserves a fixed 640px container height for the desktop image.
+     On mobile that turns into a tall band of dead space above the fold, so
+     let the hero collapse to its actual content height. */
+  .VPHero .container {
+    min-height: auto !important;
+  }
+
+  /* Lead with the product: the snippet sits right under the tagline, above
+     the CTAs, instead of below them. */
+  .hero-code-mobile {
+    display: block;
+    margin: 1.5rem 0 0;
+  }
+
+  /* Short tagline on phones; the full sentence is desktop-only. */
+  .tag-full {
+    display: none;
+  }
+  .tag-mobile {
+    display: inline;
   }
 }
 

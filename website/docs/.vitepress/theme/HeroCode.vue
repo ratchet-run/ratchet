@@ -53,7 +53,18 @@ html.dark .hero-code :deep(.shiki span) {
   color: var(--shiki-dark) !important;
 }
 
+/* Mobile is most of the traffic, so the snippet stays visible here instead of
+   being hidden. Shrink it to fit a phone and let long lines scroll. */
 @media (max-width: 640px) {
-  .hero-code { display: none; }
+  .hero-code {
+    max-width: 100%;
+  }
+  .hero-code :deep(.shiki) {
+    padding: 1rem;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(31, 41, 51, 0.14);
+  }
 }
 </style>
