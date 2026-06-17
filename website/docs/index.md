@@ -4,7 +4,7 @@ layout: home
 hero:
   name: "Ratchet"
   text: "Inject one service. Submit a method reference."
-  tagline: Persistent, retrying background jobs on plain Jakarta EE. No proprietary dependencies, no message broker, and they run unchanged on whichever application server you already use.
+  tagline: "<span class='tag-full'>Persistent, retrying background jobs on plain Jakarta EE. No proprietary dependencies, no message broker, and they run unchanged on whichever application server you already use.</span><span class='tag-mobile'>Persistent, retrying background jobs on plain Jakarta EE. No broker, no proprietary deps.</span>"
   actions:
     - theme: brand
       text: Get Started
