@@ -215,6 +215,7 @@ export default defineConfig({
             { text: 'Database Setup', link: '/deployment/database-setup' },
             { text: 'MySQL', link: '/deployment/mysql' },
             { text: 'PostgreSQL', link: '/deployment/postgresql' },
+            { text: 'Oracle', link: '/deployment/oracle' },
             { text: 'MongoDB', link: '/deployment/mongodb' },
             { text: 'Clustering', link: '/deployment/clustering' },
             { text: 'Cluster Coordinators', link: '/deployment/cluster-coordinators' },
