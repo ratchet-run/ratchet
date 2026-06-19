@@ -15,21 +15,23 @@
  */
 package run.ratchet.testsuite.infra;
 
+import java.time.Duration;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.mysql.MySQLContainer;
+import org.testcontainers.oracle.OracleContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * JUnit 5 extension that starts a shared Testcontainers SQL database before all tests.
  *
  * <p>The database type is determined by the {@code ratchet.test.db.type} system property. The
- * extension starts a container only for {@code mysql} or {@code postgresql}; other values leave the
- * extension inactive, and {@link #getConfig()} will fail until a SQL-backed run initializes it. The
- * container is started once and shared across all test classes via the JUnit {@link
- * ExtensionContext.Store} with GLOBAL namespace.
+ * extension starts a container only for {@code mysql}, {@code postgresql}, or {@code oracle}; other
+ * values leave the extension inactive, and {@link #getConfig()} will fail until a SQL-backed run
+ * initializes it. The container is started once and shared across all test classes via the JUnit
+ * {@link ExtensionContext.Store} with GLOBAL namespace.
  */
 public class JdbcContainerExtension
     implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {
@@ -66,6 +68,16 @@ public class JdbcContainerExtension
               .withUsername("ratchet")
               .withPassword("ratchet")
               .withInitScript("ddl/postgresql-schema.sql");
+      case "oracle" ->
+          new OracleContainer("gvenzl/oracle-free:slim-faststart")
+              .withDatabaseName("ratchet_test")
+              .withUsername("ratchet")
+              .withPassword("ratchet")
+              // Oracle's SGA needs far more than Docker's default 64 MB /dev/shm; without this the
+              // instance OOMs while opening the database (ORA-03113).
+              .withSharedMemorySize(2L * 1024 * 1024 * 1024)
+              .withStartupTimeout(Duration.ofMinutes(5))
+              .withInitScript("ddl/oracle-schema.sql");
       default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
     };
   }
@@ -73,7 +85,7 @@ public class JdbcContainerExtension
   @Override
   public void beforeAll(ExtensionContext context) {
     String dbType = System.getProperty("ratchet.test.db.type");
-    if (!"mysql".equals(dbType) && !"postgresql".equals(dbType)) {
+    if (!"mysql".equals(dbType) && !"postgresql".equals(dbType) && !"oracle".equals(dbType)) {
       return;
     }
 
@@ -147,6 +159,7 @@ public class JdbcContainerExtension
           switch (dbType) {
             case "mysql" -> "mysql";
             case "postgresql" -> "postgresql";
+            case "oracle" -> "oracle";
             default -> "h2";
           };
       System.setProperty("ratchet.test.db.driver.name", driverName);

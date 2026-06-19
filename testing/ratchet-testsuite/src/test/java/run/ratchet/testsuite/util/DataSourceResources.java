@@ -23,6 +23,7 @@ final class DataSourceResources {
     return switch (dbType) {
       case "mysql" -> "com.mysql.cj.jdbc.MysqlDataSource";
       case "postgresql" -> "org.postgresql.ds.PGSimpleDataSource";
+      case "oracle" -> "oracle.jdbc.datasource.OracleDataSource";
       default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
     };
   }
@@ -31,6 +32,7 @@ final class DataSourceResources {
     return switch (dbType) {
       case "mysql" -> "com.mysql:mysql-connector-j";
       case "postgresql" -> "org.postgresql:postgresql";
+      case "oracle" -> "com.oracle.database.jdbc:ojdbc11";
       default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
     };
   }

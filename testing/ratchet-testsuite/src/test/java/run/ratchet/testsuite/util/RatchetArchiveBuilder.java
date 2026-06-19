@@ -84,7 +84,7 @@ public class RatchetArchiveBuilder {
   }
 
   public RatchetArchiveBuilder addPersistenceXml(String dbType, String jtaDataSourceName) {
-    if (!dbType.equals("mysql") && !dbType.equals("postgresql")) {
+    if (!dbType.equals("mysql") && !dbType.equals("postgresql") && !dbType.equals("oracle")) {
       throw new IllegalArgumentException("Unsupported db type: " + dbType);
     }
     // MySQL stores UUIDs in BINARY(16). EclipseLink's default would send the 36-char hyphenated
@@ -94,10 +94,32 @@ public class RatchetArchiveBuilder {
     // AttributeConverter on an @Id attribute outright, so Hibernate-7 deployments must NOT
     // reference orm-mysql.xml — they need no mapping file at all. PostgreSQL stores UUID natively
     // and must NOT include the converter — it would re-encode native uuid as bytea.
+    //
+    // Oracle mirrors MySQL: RAW(16) UUIDs round-trip through UuidRawConverter via orm-oracle.xml on
+    // EclipseLink and Hibernate 6, while Hibernate 7 omits it (native UUID -> RAW(16)) and instead
+    // auto-quotes the LEVEL reserved word (orm-oracle.xml also carries that "level" column
+    // quoting).
     boolean hibernate7 = "wildfly-ee11-managed".equals(System.getProperty("arquillian.launch"));
-    String mappingFile =
-        dbType.equals("mysql") && !hibernate7
-            ? "<mapping-file>META-INF/orm-mysql.xml</mapping-file>"
+    String mappingFile;
+    if (dbType.equals("mysql") && !hibernate7) {
+      mappingFile = "<mapping-file>META-INF/orm-mysql.xml</mapping-file>";
+    } else if (dbType.equals("oracle") && !hibernate7) {
+      mappingFile = "<mapping-file>META-INF/orm-oracle.xml</mapping-file>";
+    } else {
+      mappingFile = "";
+    }
+    // Oracle-only Hibernate tuning (no-op under EclipseLink, which carries the Instant mapping via
+    // InstantAttributeConverter): map entity Instant to plain TIMESTAMP rather than Hibernate's
+    // default TIMESTAMP WITH TIME ZONE (ORA-18716 on the plain TIMESTAMP columns), and on
+    // Hibernate 7 — where orm-oracle.xml is omitted — auto-quote the LEVEL reserved word so
+    // scheduler_job_log agrees with the shipped DDL.
+    String dialectProps =
+        dbType.equals("oracle")
+            ? """
+                  <property name="hibernate.type.preferred_instant_jdbc_type" value="TIMESTAMP"/>
+                  <property name="hibernate.jdbc.time_zone" value="UTC"/>
+                  <property name="hibernate.auto_quote_keyword" value="true"/>
+            """
             : "";
     // No <provider> or hibernate.dialect pin — WildFly auto-discovers via ServiceLoader and the
     // JPA provider auto-detects the dialect from the JDBC URL exposed by RatchetDS. Remaining
@@ -135,11 +157,11 @@ public class RatchetArchiveBuilder {
               <property name="hibernate.hbm2ddl.auto" value="none"/>
               <property name="hibernate.show_sql" value="true"/>
               <property name="hibernate.connection.isolation" value="2"/>
-            </properties>
+        %s    </properties>
           </persistence-unit>
         </persistence>
         """
-            .formatted(jtaDataSourceName, mappingFile);
+            .formatted(jtaDataSourceName, mappingFile, dialectProps);
 
     archive.addAsResource(new StringAsset(persistenceXml), "META-INF/persistence.xml");
     return this;
@@ -175,7 +197,7 @@ public class RatchetArchiveBuilder {
 
     // Store-specific classes
     switch (dbType) {
-      case "mysql", "postgresql" -> {
+      case "mysql", "postgresql", "oracle" -> {
         DataSourceStrategy strategy = DataSourceStrategyFactory.create();
         archive.addClasses(
             JpaTestCleanupStrategy.class,

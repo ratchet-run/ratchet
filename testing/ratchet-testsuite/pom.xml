@@ -139,6 +139,16 @@
       <artifactId>testcontainers-postgresql</artifactId>
       <scope>test</scope>
     </dependency>
+    <!--
+      Base dependency (not gated behind the oracle profile) so JdbcContainerExtension, which
+      imports OracleContainer, compiles under every db profile. The oracle profile adds the store
+      and the JDBC driver.
+    -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-oracle-free</artifactId>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-mongodb</artifactId>
@@ -334,6 +344,23 @@
                   </artifactItems>
                 </configuration>
               </execution>
+              <execution>
+                <id>copy-oracle-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>com.oracle.database.jdbc</groupId>
+                      <artifactId>ojdbc11</artifactId>
+                      <version>${ojdbc.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/com/oracle/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
             </executions>
           </plugin>
           <plugin>
@@ -373,6 +400,22 @@
     &lt;module name="java.sql"/&gt;
     &lt;module name="java.logging"/&gt;
     &lt;module name="java.management"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <echo file="${wildfly.home}/modules/com/oracle/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="com.oracle"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="ojdbc11-${ojdbc.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.naming"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.security.sasl"/&gt;
+    &lt;module name="java.security.jgss"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="java.xml"/&gt;
     &lt;module name="jakarta.transaction.api"/&gt;
   &lt;/dependencies&gt;
 &lt;/module&gt;</echo>
@@ -480,6 +523,23 @@
                   </artifactItems>
                 </configuration>
               </execution>
+              <execution>
+                <id>copy-oracle-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>com.oracle.database.jdbc</groupId>
+                      <artifactId>ojdbc11</artifactId>
+                      <version>${ojdbc.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/com/oracle/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
             </executions>
           </plugin>
           <plugin>
@@ -519,6 +579,22 @@
     &lt;module name="java.sql"/&gt;
     &lt;module name="java.logging"/&gt;
     &lt;module name="java.management"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <echo file="${wildfly.home}/modules/com/oracle/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="com.oracle"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="ojdbc11-${ojdbc.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.naming"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.security.sasl"/&gt;
+    &lt;module name="java.security.jgss"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="java.xml"/&gt;
     &lt;module name="jakarta.transaction.api"/&gt;
   &lt;/dependencies&gt;
 &lt;/module&gt;</echo>
@@ -1057,6 +1133,33 @@
         <dependency>
           <groupId>org.testcontainers</groupId>
           <artifactId>testcontainers-postgresql</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+
+    <profile>
+      <id>oracle</id>
+      <properties>
+        <ratchet.test.db.type>oracle</ratchet.test.db.type>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-oracle</artifactId>
+        </dependency>
+        <!--
+          Oracle's JDBC driver is published under the Free Use Terms and Conditions (not an
+          OSI-approved license), so it stays test-scoped here and deployers supply their own ojdbc.
+        -->
+        <dependency>
+          <groupId>com.oracle.database.jdbc</groupId>
+          <artifactId>ojdbc11</artifactId>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.testcontainers</groupId>
+          <artifactId>testcontainers-oracle-free</artifactId>
           <scope>test</scope>
         </dependency>
       </dependencies>

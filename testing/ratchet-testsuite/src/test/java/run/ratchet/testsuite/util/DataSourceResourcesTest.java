@@ -36,19 +36,24 @@ class DataSourceResourcesTest {
     assertEquals(
         "org.postgresql.ds.PGSimpleDataSource",
         DataSourceResources.dataSourceClassName("postgresql"));
+    assertEquals(
+        "oracle.jdbc.datasource.OracleDataSource",
+        DataSourceResources.dataSourceClassName("oracle"));
   }
 
   @Test
   void driverCoordinatesMatchSupportedDatabases() {
     assertEquals("com.mysql:mysql-connector-j", DataSourceResources.driverCoordinates("mysql"));
     assertEquals("org.postgresql:postgresql", DataSourceResources.driverCoordinates("postgresql"));
+    assertEquals(
+        "com.oracle.database.jdbc:ojdbc11", DataSourceResources.driverCoordinates("oracle"));
   }
 
   @Test
   void unsupportedDatabaseTypeIsRejected() {
     assertThrows(
-        IllegalArgumentException.class, () -> DataSourceResources.dataSourceClassName("oracle"));
+        IllegalArgumentException.class, () -> DataSourceResources.dataSourceClassName("sqlserver"));
     assertThrows(
-        IllegalArgumentException.class, () -> DataSourceResources.driverCoordinates("oracle"));
+        IllegalArgumentException.class, () -> DataSourceResources.driverCoordinates("sqlserver"));
   }
 }

@@ -22,6 +22,15 @@ if (outcome != success) of /subsystem=datasources/jdbc-driver=postgresql:read-re
   )
 end-if
 
+# Add Oracle JDBC driver (skip if already exists)
+if (outcome != success) of /subsystem=datasources/jdbc-driver=oracle:read-resource
+  /subsystem=datasources/jdbc-driver=oracle:add( \
+    driver-name=oracle, \
+    driver-module-name=com.oracle, \
+    driver-class-name=oracle.jdbc.OracleDriver \
+  )
+end-if
+
 # Add the Ratchet test datasource (skip if already exists)
 if (outcome != success) of /subsystem=datasources/data-source=RatchetDS:read-resource
   data-source add \
