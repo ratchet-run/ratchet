@@ -41,6 +41,7 @@ module run.ratchet.store.core {
   exports run.ratchet.store.context to
       run.ratchet.store.mysql,
       run.ratchet.store.postgresql,
+      run.ratchet.store.oracle,
       run.ratchet.store.mongodb;
 
   opens run.ratchet.store.converter;

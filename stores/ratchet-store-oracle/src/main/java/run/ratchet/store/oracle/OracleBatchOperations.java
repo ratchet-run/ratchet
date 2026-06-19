@@ -1,0 +1,398 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.store.oracle;
+
+import jakarta.persistence.NoResultException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Function;
+import org.jboss.logging.Logger;
+import run.ratchet.store.converter.PayloadSerializerHolder;
+import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.BatchMetricsEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.util.BatchProgressRows;
+
+final class OracleBatchOperations implements BatchStore {
+
+  private static final Logger log = Logger.getLogger(OracleBatchOperations.class);
+
+  private final OracleStoreContext ctx;
+
+  OracleBatchOperations(OracleStoreContext ctx) {
+    this.ctx = ctx;
+  }
+
+  @Override
+  public BatchEntity saveBatch(BatchEntity batch) {
+    try {
+      // language=Oracle
+      String sql =
+          """
+          MERGE INTO scheduler_batch d
+          USING (SELECT ? AS batch_id, ? AS total_items, ? AS completed_items, ? AS failed_items,
+                        ? AS completion_processed, ? AS progress_hook FROM dual) s
+          ON (d.batch_id = s.batch_id)
+          WHEN MATCHED THEN UPDATE SET
+            d.total_items = s.total_items,
+            d.completed_items = s.completed_items,
+            d.failed_items = s.failed_items,
+            d.completion_processed = s.completion_processed,
+            d.progress_hook = s.progress_hook,
+            d.version = d.version + 1
+          WHEN NOT MATCHED THEN INSERT
+            (batch_id, total_items, completed_items, failed_items, completion_processed, progress_hook)
+            VALUES (s.batch_id, s.total_items, s.completed_items, s.failed_items,
+                    s.completion_processed, s.progress_hook)
+          """;
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, UuidRawConverter.toBytes(batch.getId()))
+          .setParameter(2, batch.getTotalItems())
+          .setParameter(3, batch.getCompletedItems())
+          .setParameter(4, batch.getFailedItems())
+          .setParameter(5, Boolean.TRUE.equals(batch.getCompletionProcessed()))
+          .setParameter(6, progressHookJson(batch.getProgressHook()))
+          .executeUpdate();
+      ctx.em().flush();
+      return findBatchById(batch.getId()).orElse(batch);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("save batch", e);
+    }
+  }
+
+  @Override
+  public Optional<BatchEntity> findBatchById(UUID batchId) {
+    BatchEntity batch = ctx.em().find(BatchEntity.class, batchId);
+    refreshIfManaged(batch);
+    return Optional.ofNullable(batch);
+  }
+
+  @Override
+  public List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
+    if (batchIds == null || batchIds.isEmpty()) {
+      return List.of();
+    }
+    String placeholders = String.join(", ", Collections.nCopies(batchIds.size(), "?"));
+    // language=Oracle
+    String sql =
+        """
+        SELECT batch_id, total_items, completed_items, failed_items,
+               completion_processed, version, progress_hook
+        FROM scheduler_batch
+        WHERE batch_id IN (%s)
+        """
+            .formatted(placeholders);
+    var query = ctx.em().createNativeQuery(sql);
+    for (int i = 0; i < batchIds.size(); i++) {
+      query.setParameter(i + 1, UuidRawConverter.toBytes(batchIds.get(i)));
+    }
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = query.getResultList();
+    List<BatchEntity> batches = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      batches.add(mapBatchRow(row));
+    }
+    return batches;
+  }
+
+  @Override
+  public BatchProgress incrementCompletedAtomic(UUID batchId) {
+    return incrementAtomic(batchId, BatchCounter.COMPLETED);
+  }
+
+  @Override
+  public BatchProgress incrementFailedAtomic(UUID batchId) {
+    return incrementAtomic(batchId, BatchCounter.FAILED);
+  }
+
+  private BatchProgress incrementAtomic(UUID batchId, BatchCounter counter) {
+    try {
+      // Oracle 8.0 does not support UPDATE ... RETURNING. Keep the row locked from the
+      // snapshot read through the counter update so the returned BatchProgress reflects
+      // the exact increment applied by this transaction.
+      // language=Oracle
+      String selectSql =
+          """
+          SELECT completed_items, failed_items, total_items, progress_hook
+          FROM scheduler_batch
+          WHERE batch_id = ?
+          FOR UPDATE
+          """;
+      Object[] locked =
+          (Object[])
+              ctx.em()
+                  .createNativeQuery(selectSql)
+                  .setParameter(1, UuidRawConverter.toBytes(batchId))
+                  .getSingleResult();
+
+      int newValue = counter.nextValue(locked);
+      // language=Oracle
+      String updateSql =
+          "UPDATE scheduler_batch SET " + counter.columnName + " = ? WHERE batch_id = ?";
+      ctx.em()
+          .createNativeQuery(updateSql)
+          .setParameter(1, newValue)
+          .setParameter(2, UuidRawConverter.toBytes(batchId))
+          .executeUpdate();
+
+      return counter.progressAfterIncrement(batchId, locked, this::parseProgressHook);
+    } catch (NoResultException e) {
+      throw new IllegalStateException("Batch not found: " + batchId, e);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("increment batch counter", e);
+    }
+  }
+
+  @Override
+  public boolean markBatchCompleteIfReady(UUID batchId) {
+    try {
+      // language=Oracle
+      String sql =
+          """
+          UPDATE scheduler_batch SET completion_processed = TRUE
+          WHERE batch_id = ? AND completion_processed = FALSE
+            AND (completed_items + failed_items) >= total_items
+          """;
+      int updated =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, UuidRawConverter.toBytes(batchId))
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("mark batch complete", e);
+    }
+  }
+
+  @Override
+  public List<UUID> findRecoverableBatchIds(int limit) {
+    try {
+      // language=Oracle
+      String sql =
+          """
+          SELECT batch_id FROM scheduler_batch
+          WHERE completion_processed = FALSE
+            AND (completed_items + failed_items) >= total_items
+          FETCH FIRST ? ROWS ONLY
+          """;
+      @SuppressWarnings("unchecked")
+      List<?> results = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+      return results.stream().map(OracleJobRowMapper::uuidOrNull).toList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find recoverable batch ids", e);
+    }
+  }
+
+  @Override
+  public boolean updateBatchTotalItems(UUID batchId, int totalItems) {
+    try {
+      // language=Oracle
+      String sql = "UPDATE scheduler_batch SET total_items = ? WHERE batch_id = ?";
+      int updated =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, totalItems)
+              .setParameter(2, UuidRawConverter.toBytes(batchId))
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("update batch total items", e);
+    }
+  }
+
+  @Override
+  public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
+    try {
+      if (ctx.em().find(BatchMetricsEntity.class, metrics.getBatchId()) == null) {
+        if (metrics.getBatchJob() == null) {
+          metrics.setBatchJob(ctx.em().getReference(JobEntity.class, metrics.getBatchId()));
+        }
+        ctx.em().persist(metrics);
+        return metrics;
+      }
+      return ctx.em().merge(metrics);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("save batch metrics", e);
+    }
+  }
+
+  @Override
+  public Optional<BatchMetricsEntity> findBatchMetrics(UUID batchId) {
+    return Optional.ofNullable(ctx.em().find(BatchMetricsEntity.class, batchId));
+  }
+
+  @Override
+  public void addChildExecutionTime(UUID batchId, long durationMs) {
+    try {
+      // language=Oracle
+      String sql =
+          """
+          UPDATE scheduler_batch_metrics
+          SET child_execution_ms = COALESCE(child_execution_ms, 0) + ?,
+              success_count = success_count + 1
+          WHERE batch_id = ?
+          """;
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, durationMs)
+          .setParameter(2, UuidRawConverter.toBytes(batchId))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("add child execution time", e);
+    }
+  }
+
+  @Override
+  public void finalizeBatchMetrics(UUID batchId) {
+    try {
+      // Oracle has no TIMESTAMPDIFF; compute elapsed milliseconds from the interval between
+      // started_at and the UTC now via EXTRACT over its day/hour/minute/second components.
+      String now = "CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)";
+      String durMs =
+          "TRUNC(EXTRACT(DAY FROM ("
+              + now
+              + " - started_at)) * 86400000"
+              + " + EXTRACT(HOUR FROM ("
+              + now
+              + " - started_at)) * 3600000"
+              + " + EXTRACT(MINUTE FROM ("
+              + now
+              + " - started_at)) * 60000"
+              + " + EXTRACT(SECOND FROM ("
+              + now
+              + " - started_at)) * 1000)";
+      // language=Oracle
+      String sql =
+          "UPDATE scheduler_batch_metrics"
+              + " SET completed_at = "
+              + now
+              + ", total_duration_ms = "
+              + durMs
+              + ", overhead_ms = COALESCE("
+              + durMs
+              + " - child_execution_ms, 0)"
+              + " WHERE batch_id = ? AND completed_at IS NULL";
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, UuidRawConverter.toBytes(batchId))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("finalize batch metrics", e);
+    }
+  }
+
+  @Override
+  public void updateBatchMetricsChildCount(UUID batchId, int childCount) {
+    try {
+      // language=Oracle
+      String sql = "UPDATE scheduler_batch_metrics SET child_count = ? WHERE batch_id = ?";
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, childCount)
+          .setParameter(2, UuidRawConverter.toBytes(batchId))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("update batch metrics child count", e);
+    }
+  }
+
+  private void refreshIfManaged(BatchEntity batch) {
+    if (batch != null && ctx.em().contains(batch)) {
+      ctx.em().refresh(batch);
+    }
+  }
+
+  private BatchEntity mapBatchRow(Object[] row) {
+    BatchEntity batch = new BatchEntity();
+    batch.setId(OracleJobRowMapper.uuidOrNull(row[0]));
+    batch.setTotalItems(((Number) row[1]).intValue());
+    batch.setCompletedItems(((Number) row[2]).intValue());
+    batch.setFailedItems(((Number) row[3]).intValue());
+    batch.setCompletionProcessed(asBoolean(row[4]));
+    batch.setVersion(row[5] == null ? null : ((Number) row[5]).intValue());
+    batch.setProgressHook(parseProgressHook(row[6]));
+    return batch;
+  }
+
+  private static boolean asBoolean(Object value) {
+    if (value instanceof Boolean bool) {
+      return bool;
+    }
+    return value != null && ((Number) value).intValue() != 0;
+  }
+
+  private String progressHookJson(JobPayload progressHook) {
+    return progressHook == null ? null : PayloadSerializerHolder.get().serialize(progressHook);
+  }
+
+  private JobPayload parseProgressHook(Object jsonValue) {
+    if (jsonValue == null) {
+      return null;
+    }
+    try {
+      return PayloadSerializerHolder.get().deserialize(jsonValue.toString(), JobPayload.class);
+    } catch (IllegalArgumentException e) {
+      log.warn("Failed to deserialize stored batch progress hook payload", e);
+      throw new IllegalArgumentException("JobPayload deserialization error", e);
+    }
+  }
+
+  private enum BatchCounter {
+    COMPLETED("completed_items") {
+      @Override
+      int nextValue(Object[] row) {
+        return BatchProgressRows.completedItems(row) + 1;
+      }
+
+      @Override
+      BatchProgress progressAfterIncrement(
+          UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser) {
+        return BatchProgressRows.afterCompletedIncrement(batchId, row, progressHookParser);
+      }
+    },
+    FAILED("failed_items") {
+      @Override
+      int nextValue(Object[] row) {
+        return BatchProgressRows.failedItems(row) + 1;
+      }
+
+      @Override
+      BatchProgress progressAfterIncrement(
+          UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser) {
+        return BatchProgressRows.afterFailedIncrement(batchId, row, progressHookParser);
+      }
+    };
+
+    private final String columnName;
+
+    BatchCounter(String columnName) {
+      this.columnName = columnName;
+    }
+
+    abstract int nextValue(Object[] row);
+
+    abstract BatchProgress progressAfterIncrement(
+        UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser);
+  }
+}

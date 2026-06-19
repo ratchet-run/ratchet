@@ -1,0 +1,50 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.store.oracle;
+
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobStore;
+import run.ratchet.tck.store.AbstractDualWriteInvariantContract;
+
+/**
+ * The critical contract — Oracle is the store with the actual hot/cold split, so this subclass is
+ * the primary consumer of the shared invariants. Expect some tests to fail on first run (plan Phase
+ * 2.1 Risk #1); each failure represents a real dual-write defect to fix, not a contract to relax.
+ */
+class OracleDualWriteInvariantContractTest extends AbstractDualWriteInvariantContract {
+
+  private final OracleTestFixture fixture = new OracleTestFixture();
+
+  @Override
+  public JobStore store() {
+    return fixture.store();
+  }
+
+  @Override
+  public JobEntity newPendingJob() {
+    return fixture.newPendingJob();
+  }
+
+  @Override
+  public JobEntity newBatchParentJob() {
+    return fixture.newBatchParentJob();
+  }
+
+  @Override
+  public void cleanupStore() {
+    fixture.cleanupStore();
+  }
+}

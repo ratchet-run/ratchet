@@ -1,0 +1,281 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.store.oracle;
+
+import jakarta.persistence.Query;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.spi.TagStore;
+
+final class OracleTagOperations implements TagStore {
+
+  private final OracleStoreContext ctx;
+
+  OracleTagOperations(OracleStoreContext ctx) {
+    this.ctx = ctx;
+  }
+
+  private static Map<String, Long> toStringCountMap(List<Object[]> rows) {
+    Map<String, Long> counts = new TreeMap<>();
+    for (Object[] row : rows) {
+      String key = (String) row[0];
+      if (key == null || key.isBlank()) {
+        continue;
+      }
+      counts.put(key, ((Number) row[1]).longValue());
+    }
+    return counts;
+  }
+
+  private static String toJsonFieldPath(String fieldName) {
+    String escapedFieldName = fieldName.replace("\\", "\\\\").replace("\"", "\\\"");
+    return "$.\"" + escapedFieldName + "\"";
+  }
+
+  @Override
+  public void insertTags(UUID jobId, List<String> tags) {
+    if (tags == null || tags.isEmpty()) {
+      return;
+    }
+    try {
+      // Oracle has no INSERT IGNORE; MERGE ... WHEN NOT MATCHED is the idempotent insert. The
+      // source
+      // tags are de-duplicated first so the MERGE source never matches one target row twice
+      // (ORA-30926), making duplicate tags within a single call a no-op.
+      List<String> distinctTags = tags.stream().distinct().toList();
+      // language=Oracle
+      String using =
+          distinctTags.stream()
+              .map(t -> "SELECT ? AS job_id, ? AS tag FROM dual")
+              .collect(Collectors.joining(" UNION ALL "));
+      String sql =
+          "MERGE INTO scheduler_job_tag d USING ("
+              + using
+              + ") s ON (d.job_id = s.job_id AND d.tag = s.tag)"
+              + " WHEN NOT MATCHED THEN INSERT (job_id, tag) VALUES (s.job_id, s.tag)";
+      byte[] jobIdBytes = UuidRawConverter.toBytes(jobId);
+      Query query = ctx.em().createNativeQuery(sql);
+      int param = 1;
+      for (String tag : distinctTags) {
+        query.setParameter(param++, jobIdBytes);
+        query.setParameter(param++, tag);
+      }
+      query.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("insert job tags", e);
+    }
+  }
+
+  @Override
+  public int deleteTagsByJobId(UUID jobId) {
+    try {
+      // language=Oracle
+      String sql = "DELETE FROM scheduler_job_tag WHERE job_id = ?";
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, UuidRawConverter.toBytes(jobId))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete job tags", e);
+    }
+  }
+
+  List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
+    try {
+      // ORDER BY job_id makes the "ordered" contract explicit in the query rather than relying on
+      // the (tag, job_id) index returning rows in id order, which a plan change could break.
+      // language=Oracle
+      String sql =
+          "SELECT job_id FROM scheduler_job_tag WHERE tag = ? ORDER BY job_id"
+              + " OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
+      List<?> rows =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, tag)
+              .setParameter(2, offset)
+              .setParameter(3, limit)
+              .getResultList();
+      return rows.stream().map(OracleJobRowMapper::uuidOrNull).collect(Collectors.toList());
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find job ids by tag", e);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+    try {
+      // language=Oracle
+      String sql =
+          """
+          SELECT s, SUM(c) FROM (
+            SELECT q.status AS s, COUNT(*) AS c FROM scheduler_job_queue q
+              JOIN scheduler_job_tag t ON t.job_id = q.job_id
+              WHERE t.tag = ? GROUP BY q.status
+            UNION ALL
+            SELECT c.terminal_status AS s, COUNT(*) AS c FROM scheduler_job c
+              JOIN scheduler_job_tag t ON t.job_id = c.job_id
+              WHERE t.tag = ? AND c.terminal_status IS NOT NULL
+              GROUP BY c.terminal_status
+          ) u GROUP BY s
+          """;
+      List<Object[]> rows =
+          ctx.em().createNativeQuery(sql).setParameter(1, tag).setParameter(2, tag).getResultList();
+      Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+      for (Object[] row : rows) {
+        counts.put(JobStatus.valueOf((String) row[0]), ((Number) row[1]).longValue());
+      }
+      return counts;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs by status for tag", e);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+    try {
+      // Oracle requires the JSON_VALUE path to be a literal, not a bind variable (ORA-40454), so
+      // the
+      // path is inlined as a SQL string literal. toJsonFieldPath already escapes the field name for
+      // JSON; single quotes are doubled here to keep the SQL literal safe. JSON_VALUE replaces
+      // MySQL's JSON_UNQUOTE(JSON_EXTRACT(...)), and because Oracle cannot GROUP BY a select-list
+      // alias, the extraction happens in an inline view that the grouping wraps.
+      String pathLiteral = "'" + toJsonFieldPath(paramKey).replace("'", "''") + "'";
+      // language=Oracle
+      String sql =
+          ("SELECT param_value, COUNT(*) FROM ("
+              + " SELECT JSON_VALUE(j.params, "
+              + pathLiteral
+              + ") AS param_value"
+              + " FROM scheduler_job j"
+              + " JOIN scheduler_job_tag t ON j.job_id = t.job_id"
+              + " WHERE t.tag = ?"
+              + " AND JSON_VALUE(j.params, "
+              + pathLiteral
+              + ") IS NOT NULL)"
+              + " GROUP BY param_value"
+              + " ORDER BY param_value");
+      List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, tag).getResultList();
+      return toStringCountMap(rows);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs by param for tag", e);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+    try {
+      // language=Oracle
+      String sql =
+          """
+          SELECT node, SUM(c) FROM (
+            SELECT q.picked_by AS node, COUNT(*) AS c
+              FROM scheduler_job_queue q
+              JOIN scheduler_job_tag t ON t.job_id = q.job_id
+              WHERE t.tag = ? AND q.picked_by IS NOT NULL
+              GROUP BY q.picked_by
+            UNION ALL
+            SELECT e.node_id AS node, COUNT(*) AS c
+              FROM scheduler_job c2
+              JOIN scheduler_job_tag t ON t.job_id = c2.job_id
+              JOIN scheduler_job_execution e ON e.job_id = c2.job_id
+              WHERE t.tag = ? AND c2.terminal_status IS NOT NULL
+                AND e.id = (SELECT e2.id FROM scheduler_job_execution e2
+                            WHERE e2.job_id = c2.job_id
+                            ORDER BY e2.attempt DESC, e2.started_at DESC, e2.id DESC
+                            FETCH FIRST 1 ROWS ONLY)
+                AND e.node_id IS NOT NULL
+              GROUP BY e.node_id
+          ) u GROUP BY node ORDER BY node
+          """;
+      List<Object[]> rows =
+          ctx.em().createNativeQuery(sql).setParameter(1, tag).setParameter(2, tag).getResultList();
+      return toStringCountMap(rows);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs by execution node for tag", e);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  void hydrateTagsSingle(JobEntity job) {
+    if (job == null || job.getId() == null) return;
+    try {
+      // language=Oracle
+      String sql = "SELECT tag FROM scheduler_job_tag WHERE job_id = ?";
+      List<String> tags =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, UuidRawConverter.toBytes(job.getId()))
+              .getResultList();
+      if (!tags.isEmpty()) {
+        job.setTags(tags);
+      }
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("hydrate job tags", e);
+    }
+  }
+
+  void hydrateTagsBatch(List<JobEntity> jobs) {
+    if (jobs.isEmpty()) return;
+    try {
+      List<UUID> ids = new ArrayList<>(jobs.size());
+      Map<UUID, JobEntity> byId = new HashMap<>();
+      for (JobEntity j : jobs) {
+        if (j.getId() != null) {
+          ids.add(j.getId());
+          byId.put(j.getId(), j);
+        }
+      }
+      if (ids.isEmpty()) return;
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      // language=Oracle
+      String sql =
+          "SELECT job_id, tag FROM scheduler_job_tag WHERE job_id IN ("
+              + placeholders
+              + ") ORDER BY job_id";
+      Query tagQuery = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (UUID id : ids) {
+        tagQuery.setParameter(parameter++, UuidRawConverter.toBytes(id));
+      }
+      @SuppressWarnings("unchecked")
+      List<Object[]> rows = tagQuery.getResultList();
+      for (Object[] row : rows) {
+        UUID jid = OracleJobRowMapper.uuidOrNull(row[0]);
+        String tag = (String) row[1];
+        JobEntity j = byId.get(jid);
+        if (j == null) continue;
+        List<String> tags = j.getTags();
+        if (tags == null) {
+          tags = new ArrayList<>();
+          j.setTags(tags);
+        }
+        tags.add(tag);
+      }
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("hydrate job tags batch", e);
+    }
+  }
+}

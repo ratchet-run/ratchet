@@ -1,0 +1,227 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.store.oracle;
+
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import org.jboss.logging.Logger;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.spi.SignalStore;
+import run.ratchet.store.util.RowValues;
+
+/**
+ * Oracle implementation of {@link SignalStore}.
+ *
+ * <p>All operations target {@code scheduler_job_queue} — the live-state table in the hot/cold split
+ * — because WAITING is a non-terminal status that lives there.
+ */
+final class OracleSignalOperations implements SignalStore {
+
+  private static final Logger log = Logger.getLogger(OracleSignalOperations.class);
+
+  private final OracleStoreContext ctx;
+
+  OracleSignalOperations(OracleStoreContext ctx) {
+    this.ctx = ctx;
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
+    try {
+      if (limit <= 0) {
+        throw new IllegalArgumentException("limit must be positive: " + limit);
+      }
+      // language=Oracle
+      String sql =
+          """
+          SELECT q.job_id, q.signal_key, q.signal_timeout, q.status,
+                 c.job_type, c.priority, c.max_retries, c.business_key,
+                 c.backoff_policy, c.backoff_param_ms,
+                 q.signal_payload, q.signal_payload_type, q.signal_outcome,
+                 q.signal_rejection_reason, q.signal_delivered_at,
+                 q.signal_delivered_by, q.signal_delivery_id
+          FROM scheduler_job_queue q
+          JOIN scheduler_job c ON c.job_id = q.job_id
+          WHERE q.status = 'WAITING'
+            AND q.signal_timeout IS NOT NULL
+            AND q.signal_timeout <= ?
+          ORDER BY q.signal_timeout ASC, q.job_id ASC
+          FETCH FIRST """
+              + " "
+              + limit
+              + " ROWS ONLY";
+      List<Object[]> rows =
+          ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(now)).getResultList();
+
+      List<JobEntity> result = new ArrayList<>(rows.size());
+      for (Object[] row : rows) {
+        JobEntity job = new JobEntity();
+        job.setId(UuidRawConverter.fromBytes((byte[]) row[0]));
+        job.setSignalKey((String) row[1]);
+        job.setSignalTimeout(RowValues.instantOrNull(row[2]));
+        job.setStatus(JobStatus.WAITING);
+        job.setJobType(row[4] != null ? JobExecutionType.valueOf((String) row[4]) : null);
+        job.setPriority(
+            row[5] != null
+                ? OracleJobRowMapper.safeJobPriority(((Number) row[5]).intValue())
+                : JobPriority.NORMAL);
+        job.setMaxRetries(row[6] != null ? ((Number) row[6]).intValue() : 0);
+        job.setBusinessKey((String) row[7]);
+        job.setBackoffPolicy(
+            row[8] != null ? BackoffPolicy.valueOf((String) row[8]) : BackoffPolicy.NONE);
+        job.setBackoffParamMs(row[9] != null ? ((Number) row[9]).intValue() : 0);
+        job.setSignalPayload((String) row[10]);
+        job.setSignalPayloadType((String) row[11]);
+        job.setSignalOutcome((String) row[12]);
+        job.setSignalRejectionReason((String) row[13]);
+        job.setSignalDeliveredAt(RowValues.instantOrNull(row[14]));
+        job.setSignalDeliveredBy((String) row[15]);
+        job.setSignalDeliveryId((String) row[16]);
+        result.add(job);
+      }
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find timed out signal jobs", e);
+    }
+  }
+
+  @Override
+  public int deliverSignalById(
+      UUID jobId,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    try {
+      int updated =
+          deliverSignal(
+              "job_id = ?",
+              UuidRawConverter.toBytes(jobId),
+              payload,
+              payloadType,
+              outcome,
+              rejectionReason,
+              deliveredBy,
+              deliveredAt,
+              deliveryId);
+      log.debugf("deliverSignalById(%s): %s row(s) updated", jobId, updated);
+      return updated;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("deliver signal by id", e);
+    }
+  }
+
+  @Override
+  public int deliverSignalByKey(
+      String signalKey,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    try {
+      int updated =
+          deliverSignal(
+              "signal_key = ?",
+              signalKey,
+              payload,
+              payloadType,
+              outcome,
+              rejectionReason,
+              deliveredBy,
+              deliveredAt,
+              deliveryId);
+      log.debugf("deliverSignalByKey('%s'): %s row(s) updated", signalKey, updated);
+      return updated;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("deliver signal by key", e);
+    }
+  }
+
+  private int deliverSignal(
+      String selectorPredicate,
+      Object selectorValue,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    // language=Oracle
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING',
+            signal_payload = ?,
+            signal_payload_type = ?,
+            signal_outcome = ?,
+            signal_rejection_reason = ?,
+            signal_delivered_at = ?,
+            signal_delivered_by = ?,
+            signal_delivery_id = ?,
+            updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        """
+            + "WHERE "
+            + selectorPredicate
+            + " AND status = 'WAITING'";
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, payload)
+        .setParameter(2, payloadType)
+        .setParameter(3, outcome)
+        .setParameter(4, rejectionReason)
+        .setParameter(5, deliveredAt != null ? Timestamp.from(deliveredAt) : null)
+        .setParameter(6, deliveredBy)
+        .setParameter(7, deliveryId)
+        .setParameter(8, selectorValue)
+        .executeUpdate();
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
+    try {
+      if (deliveryId == null || deliveryId.isBlank()) {
+        return List.of();
+      }
+      String sql =
+          "SELECT "
+              + OracleJobRowMapper.HYDRATION_SELECT
+              + " FROM scheduler_job c LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id"
+              + " WHERE q.signal_delivery_id = ?";
+      List<Object[]> rows =
+          ctx.em().createNativeQuery(sql).setParameter(1, deliveryId).getResultList();
+      return OracleJobRowMapper.hydrateRows(rows);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find jobs by signal delivery id", e);
+    }
+  }
+}

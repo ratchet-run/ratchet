@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Oracle-specific JPA mapping override. Forces UUID columns to round-trip via UuidRawConverter
+  so EclipseLink (and any non-Hibernate JPA provider) produces 16 raw bytes for BINARY(16) instead
+  of inserting the 36-character hyphenated form, which Oracle strict mode rejects with error 1406.
+
+  This file is for EclipseLink (and other non-Hibernate JPA providers) only. Do NOT reference it in
+  a Hibernate-backed deployment: Hibernate maps UUID to BINARY(16) natively on Oracle by default, and
+  Hibernate 7 rejects an AttributeConverter on an @Id attribute (org.hibernate.AnnotationException).
+  On Hibernate, omit this file entirely — no mapping file is needed.
+
+  Production users wiring ratchet-store-oracle into a non-Hibernate persistence-unit must reference
+  this file from their persistence.xml: <mapping-file>META-INF/orm-oracle.xml</mapping-file>.
+
+  Native queries bypass AttributeConverter per JPA spec; in-store native-SQL call sites convert
+  manually via UuidRawConverter.toBytes(uuid).
+
+  JPA 3.1 spec note: <convert> cannot be a child of <id>; use class-level <convert> with an
+  attribute-name attribute to apply a converter to id, basic, or relationship fields uniformly.
+-->
+<entity-mappings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xmlns="https://jakarta.ee/xml/ns/persistence/orm"
+                 xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence/orm
+                                     https://jakarta.ee/xml/ns/persistence/orm/orm_3_1.xsd"
+                 version="3.1">
+
+    <converter class="run.ratchet.store.oracle.converter.UuidRawConverter"/>
+
+    <entity class="run.ratchet.store.entity.JobEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="dependsOn"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="supersededBy"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ArchivedJobEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="originalJobId"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="dependedOn"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="supersededBy"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchMetricsEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="batchId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.DlqAlertEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobExecutionEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobLogEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="jobId"/>
+        <attributes>
+            <!-- LEVEL is an Oracle reserved word; map it to a delimited identifier so the JPA
+                 persist path emits "level" and agrees with ddl/oracle-schema.sql. -->
+            <basic name="level">
+                <column name="&quot;level&quot;" nullable="false" length="8"/>
+                <enumerated>STRING</enumerated>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ResourcePermitEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.WorkflowConditionEntity">
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="parentJobId"/>
+        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="childJobId"/>
+    </entity>
+
+</entity-mappings>
