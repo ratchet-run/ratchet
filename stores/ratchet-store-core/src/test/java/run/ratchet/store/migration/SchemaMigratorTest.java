@@ -278,6 +278,12 @@ class SchemaMigratorTest {
     Connection pgConn = mock(Connection.class);
     when(pgConn.getMetaData()).thenReturn(pgMeta);
     assertEquals("postgresql", SchemaMigrator.dialectFromMetadata(pgConn));
+
+    DatabaseMetaData oracleMeta = mock(DatabaseMetaData.class);
+    when(oracleMeta.getDatabaseProductName()).thenReturn("Oracle");
+    Connection oracleConn = mock(Connection.class);
+    when(oracleConn.getMetaData()).thenReturn(oracleMeta);
+    assertEquals("oracle", SchemaMigrator.dialectFromMetadata(oracleConn));
   }
 
   @Test

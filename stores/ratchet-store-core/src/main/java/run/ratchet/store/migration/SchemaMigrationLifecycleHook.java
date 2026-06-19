@@ -45,9 +45,10 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  *       (deployment fails fast). Application must produce a {@code DataSource} via
  *       {@code @Resource} or {@code @Produces}.
  *   <li>Enabled with no explicit dialect: probes {@code DatabaseMetaData#getDatabaseProductName}
- *       through {@link SchemaMigrator#dialectFromMetadata(Connection)} — only MySQL, MariaDB, and
- *       PostgreSQL are accepted; everything else (including CockroachDB) requires {@code
- *       RATCHET_SCHEMA_MIGRATION_DIALECT}.
+ *       through {@link SchemaMigrator#dialectFromMetadata(Connection)} — only MySQL, MariaDB,
+ *       PostgreSQL, and Oracle are accepted; everything else (including CockroachDB) requires
+ *       {@code RATCHET_SCHEMA_MIGRATION_DIALECT}. Oracle holds its migration lock on a second
+ *       pooled connection, so the DataSource pool maximum must be at least 2.
  * </ul>
  *
  * <p>Scope is JDBC-only by contract. MongoDB initializes its collections and indexes
