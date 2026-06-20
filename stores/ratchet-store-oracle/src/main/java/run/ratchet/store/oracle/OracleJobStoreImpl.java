@@ -795,14 +795,24 @@ class OracleJobStoreImpl implements OracleJobStore {
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
+    // Oracle exposes no privilege-free way to read the current session isolation level outside an
+    // active transaction: USERENV has no ISOLATION_LEVEL attribute (ORA-02003), and the
+    // v$transaction route needs both a live transaction and a v$ grant the runtime account may not
+    // hold. Oracle also defaults to READ COMMITTED and offers no REPEATABLE READ level, so it has
+    // none of the gap-lock foot-gun the MySQL/PostgreSQL checks guard against. Probing anyway is
+    // actively harmful here: a failing isolation SELECT marks the ambient JTA transaction
+    // rollback-only (the @Transactional(NOT_SUPPORTED) above is a no-op on a @PostConstruct
+    // lifecycle callback), which then derails the first store write after startup — e.g. the
+    // @Recurring master INSERT fails with STATUS_MARKED_ROLLBACK. Pass no probe query so the shared
+    // check degrades to a safe skip; isolation stays pinned through the datasource and
+    // hibernate.connection.isolation.
     IsolationCheck.verifyReadCommitted(
         em,
         "Oracle",
-        List.of("SELECT @@SESSION.transaction_isolation", "SELECT @@SESSION.tx_isolation"),
-        "READ-COMMITTED",
-        "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue during claim"
-            + " queries. Set hibernate.connection.isolation=2 in persistence.xml or"
-            + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.",
+        List.of(),
+        "READ COMMITTED",
+        "Set transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource (Oracle's default)"
+            + " or hibernate.connection.isolation=2 in persistence.xml.",
         options.store().isolationCheckMode());
     initDelegates();
   }
