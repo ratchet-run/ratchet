@@ -39,14 +39,16 @@ public class JpaTestDataManipulator implements TestDataManipulator {
   @Inject private UserTransaction utx;
 
   /**
-   * Native-query parameter binding for a UUID job_id. On MySQL the column is BINARY(16) and
-   * EclipseLink does not invoke @Convert for native queries, so the UUID has to be pre-converted to
-   * bytes (matching what {@code UuidByteArrayConverter} writes during JPA-managed inserts). On
-   * PostgreSQL the native {@code uuid} column type accepts the {@link UUID} directly.
+   * Native-query parameter binding for a UUID job_id. MySQL BINARY(16) and Oracle RAW(16) both
+   * store the 16 big-endian bytes of the UUID, and a native query does not run the entity's
+   * AttributeConverter. Hibernate happens to coerce a bare {@link UUID} parameter into those bytes,
+   * but EclipseLink binds it verbatim and the predicate then matches nothing, so pre-convert here.
+   * PostgreSQL is the exception: its native {@code uuid} column type accepts the {@link UUID}
+   * directly.
    */
   private static Object jobIdParam(UUID jobId) {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    if (!"mysql".equals(dbType)) {
+    if ("postgresql".equals(dbType)) {
       return jobId;
     }
     ByteBuffer buf = ByteBuffer.allocate(16);
