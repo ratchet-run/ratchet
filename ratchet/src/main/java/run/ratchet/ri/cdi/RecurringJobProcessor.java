@@ -229,6 +229,12 @@ public class RecurringJobProcessor {
 
   void onStartup(
       @Observes @Priority(Interceptor.Priority.APPLICATION) @Initialized(ApplicationScoped.class) Object init) {
+    // Deferred on build-time-CDI runtimes (e.g. Quarkus), which run this observer during
+    // STATIC_INIT before the EntityManager exists; they drive startup via RatchetRuntimeStart
+    // instead.
+    if (RatchetRuntimeStart.autoStartDeferred()) {
+      return;
+    }
     ScheduledExecutorService scheduler = resolveScheduledExecutor();
     if (scheduler == null) {
       // Plain-CDI / SE / unit tests: no managed executor, and the calling thread already carries a
@@ -245,6 +251,11 @@ public class RecurringJobProcessor {
     // registration to the managed scheduled executor, whose tasks run post-deployment with a proper
     // component context, and retry until every master is confirmed committed.
     scheduleDeferredRegistration(scheduler, 1);
+  }
+
+  void onRuntimeStart(
+      @Observes @Priority(Interceptor.Priority.APPLICATION) RatchetRuntimeStart event) {
+    registerRecurringJobs();
   }
 
   private ScheduledExecutorService resolveScheduledExecutor() {

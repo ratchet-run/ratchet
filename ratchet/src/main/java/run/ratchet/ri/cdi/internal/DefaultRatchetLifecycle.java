@@ -32,6 +32,7 @@ import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RatchetLifecycle;
+import run.ratchet.ri.cdi.RatchetRuntimeStart;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -81,6 +82,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
   private volatile List<SchedulerLifecycleHook> resolvedHooks;
   private volatile List<SchedulerLifecycleHook> startedHooks = List.of();
   private volatile boolean shutdownComplete;
+  private volatile boolean started;
 
   private static final Comparator<SchedulerLifecycleHook> HOOK_ORDER =
       Comparator.comparingInt(DefaultRatchetLifecycle::priorityValue)
@@ -175,6 +177,26 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       @Observes
           @Priority(Interceptor.Priority.APPLICATION + 500)
           @Initialized(ApplicationScoped.class) Object init) {
+    // Build-time-CDI runtimes (e.g. Quarkus/ArC) fire @Initialized(ApplicationScoped.class) during
+    // STATIC_INIT, before the JPA persistence unit exists. They set
+    // -Dratchet.lifecycle.defer-auto-start=true and drive start() from a later, post-persistence
+    // event (RatchetRuntimeStart) instead.
+    if (RatchetRuntimeStart.autoStartDeferred()) {
+      return;
+    }
+    start();
+  }
+
+  void onRuntimeStart(
+      @Observes @Priority(Interceptor.Priority.APPLICATION + 500) RatchetRuntimeStart event) {
+    start();
+  }
+
+  public synchronized void start() {
+    if (started) {
+      return;
+    }
+    started = true;
     log.info("Ratchet starting");
     List<SchedulerLifecycleHook> beforeStartSucceeded =
         notifyHooks("beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true);

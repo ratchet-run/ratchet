@@ -39,11 +39,14 @@ import run.ratchet.spi.ExecutorProvider;
 @ApplicationScoped
 public class StandaloneExecutorProvider implements ExecutorProvider {
 
-  private final ExecutorService jobExecutor =
-      Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job"));
-  private final ScheduledExecutorService scheduledExecutor =
-      Executors.newScheduledThreadPool(2, namedThreadFactory("ratchet-standalone-scheduler"));
+  // Pools are created lazily on first use, not in field initializers. Eager creation makes the
+  // bean construction start OS threads; under a build-time-CDI runtime (Quarkus native) the bean is
+  // instantiated during image build and a live thread would be captured into the image heap
+  // ("Detected a started Thread in the image heap"). Lazy creation keeps construction inert.
+  private volatile ExecutorService jobExecutor;
+  private volatile ScheduledExecutorService scheduledExecutor;
   private volatile ExecutorService virtualJobExecutor;
+  private volatile boolean closed;
 
   private static void shutdown(ExecutorService executor) {
     executor.shutdown();
@@ -78,7 +81,18 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
 
   @Override
   public ExecutorService getJobExecutor() {
-    return jobExecutor;
+    ExecutorService executor = jobExecutor;
+    if (executor == null) {
+      synchronized (this) {
+        executor = jobExecutor;
+        if (executor == null) {
+          ensureOpen();
+          executor = Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job"));
+          jobExecutor = executor;
+        }
+      }
+    }
+    return executor;
   }
 
   @Override
@@ -98,6 +112,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
       synchronized (this) {
         executor = virtualJobExecutor;
         if (executor == null) {
+          ensureOpen();
           executor = newVirtualThreadExecutor();
           virtualJobExecutor = executor;
         }
@@ -108,16 +123,41 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
 
   @Override
   public ScheduledExecutorService getScheduledExecutor() {
-    return scheduledExecutor;
+    ScheduledExecutorService executor = scheduledExecutor;
+    if (executor == null) {
+      synchronized (this) {
+        executor = scheduledExecutor;
+        if (executor == null) {
+          ensureOpen();
+          executor =
+              Executors.newScheduledThreadPool(
+                  2, namedThreadFactory("ratchet-standalone-scheduler"));
+          scheduledExecutor = executor;
+        }
+      }
+    }
+    return executor;
   }
 
   @PreDestroy
-  void shutdown() {
-    shutdown(jobExecutor);
-    ExecutorService virtualExecutor = virtualJobExecutor;
-    if (virtualExecutor != null) {
-      shutdown(virtualExecutor);
+  synchronized void shutdown() {
+    // Set before shutting the pools down so a concurrent lazy getter (which locks on this) cannot
+    // resurrect a pool after @PreDestroy and leak its threads.
+    closed = true;
+    shutdownIfPresent(jobExecutor);
+    shutdownIfPresent(virtualJobExecutor);
+    shutdownIfPresent(scheduledExecutor);
+  }
+
+  private void ensureOpen() {
+    if (closed) {
+      throw new IllegalStateException("StandaloneExecutorProvider is shut down");
     }
-    shutdown(scheduledExecutor);
+  }
+
+  private static void shutdownIfPresent(ExecutorService executor) {
+    if (executor != null) {
+      shutdown(executor);
+    }
   }
 }
