@@ -538,7 +538,7 @@ final class OracleJobWriteOperations {
       String pausedFrom = (String) row[5];
       JobStatus storedPausedFrom = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : null;
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
-      checkHotField(id, "lastError", incoming.getLastError(), row[6]);
+      checkHotField(id, "lastError", incoming.getLastError(), RowValues.stringOrNull(row[6]));
       Integer storedVersion = ((Number) row[7]).intValue();
       checkHotField(id, "version", incoming.getVersion(), storedVersion);
       return;
@@ -583,7 +583,7 @@ final class OracleJobWriteOperations {
     String storedPausedFromStr = (String) row[5];
     JobStatus storedPausedFrom =
         storedPausedFromStr != null ? JobStatus.valueOf(storedPausedFromStr) : null;
-    Object storedLastError = row[6];
+    String storedLastError = RowValues.stringOrNull(row[6]);
     int storedVersion = ((Number) row[7]).intValue();
 
     boolean statusDiffers = incoming.getStatus() != null && incoming.getStatus() != storedStatus;

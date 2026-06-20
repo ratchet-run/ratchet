@@ -55,7 +55,7 @@ final class OracleAuxiliaryOperations
     condition.setParentJobId(OracleJobRowMapper.uuidOrNull(row[1]));
     condition.setChildJobId(OracleJobRowMapper.uuidOrNull(row[2]));
     condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
-    condition.setConditionExpression(row[4] == null ? null : row[4].toString());
+    condition.setConditionExpression(RowValues.stringOrNull(row[4]));
     condition.setConditionPriority(((Number) row[5]).intValue());
     condition.setCreatedAt(RowValues.instantOrNull(row[6]));
     return condition;

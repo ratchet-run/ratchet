@@ -32,6 +32,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.util.BatchProgressRows;
+import run.ratchet.store.util.RowValues;
 
 final class OracleBatchOperations implements BatchStore {
 
@@ -351,7 +352,8 @@ final class OracleBatchOperations implements BatchStore {
       return null;
     }
     try {
-      return PayloadSerializerHolder.get().deserialize(jsonValue.toString(), JobPayload.class);
+      return PayloadSerializerHolder.get()
+          .deserialize(RowValues.stringOrNull(jsonValue), JobPayload.class);
     } catch (IllegalArgumentException e) {
       log.warn("Failed to deserialize stored batch progress hook payload", e);
       throw new IllegalArgumentException("JobPayload deserialization error", e);

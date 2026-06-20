@@ -92,10 +92,10 @@ final class OracleSignalOperations implements SignalStore {
         job.setBackoffPolicy(
             row[8] != null ? BackoffPolicy.valueOf((String) row[8]) : BackoffPolicy.NONE);
         job.setBackoffParamMs(row[9] != null ? ((Number) row[9]).intValue() : 0);
-        job.setSignalPayload((String) row[10]);
+        job.setSignalPayload(RowValues.stringOrNull(row[10]));
         job.setSignalPayloadType((String) row[11]);
         job.setSignalOutcome((String) row[12]);
-        job.setSignalRejectionReason((String) row[13]);
+        job.setSignalRejectionReason(RowValues.stringOrNull(row[13]));
         job.setSignalDeliveredAt(RowValues.instantOrNull(row[14]));
         job.setSignalDeliveredBy((String) row[15]);
         job.setSignalDeliveryId((String) row[16]);
