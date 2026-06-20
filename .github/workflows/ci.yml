@@ -151,6 +151,13 @@ jobs:
             database: postgresql
           - server: glassfish-managed
             database: mongodb
+          # Oracle runs one Hibernate cell (WildFly) and one EclipseLink cell
+          # (OpenLiberty); the ojdbc driver stays test-scoped and the gvenzl
+          # container supplies the database.
+          - server: wildfly-managed
+            database: oracle
+          - server: openliberty-managed
+            database: oracle
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
