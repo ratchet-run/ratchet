@@ -28,7 +28,6 @@ import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourceLimitEntity;
-import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
@@ -256,21 +255,22 @@ final class OracleAuxiliaryOperations
   @Override
   public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     try {
-      // Lock the resource-limit row first with a simple FOR UPDATE so concurrent acquirers for the
-      // same resource serialize on it. The permit counts are then read in separate statements while
-      // the lock is held: a waiter that proceeds after the holder commits re-reads fresh committed
-      // counts, which a single FOR UPDATE query with scalar-subquery counts does not reliably do on
-      // Oracle.
+      // Lock the resource-limit row in its own statement so concurrent acquirers for the same
+      // resource serialize on it, then let the capacity check ride inside the INSERT rather than a
+      // preceding SELECT COUNT. A separate count read can still observe the pre-lock statement
+      // snapshot after waiting on FOR UPDATE — EclipseLink on Oracle keeps over-admitting that way
+      // —
+      // whereas the guarded INSERT ... SELECT re-evaluates the count in the same statement that
+      // performs the write. PostgreSQL solves the identical EclipseLink behaviour the same way.
       // language=Oracle
       String lockSql =
-          "SELECT max_concurrent FROM scheduler_resource_limit WHERE resource_name = ? FOR UPDATE";
+          "SELECT resource_name FROM scheduler_resource_limit WHERE resource_name = ? FOR UPDATE";
       @SuppressWarnings("unchecked")
-      List<Object> limitRows =
+      List<Object> lockedLimits =
           ctx.em().createNativeQuery(lockSql).setParameter(1, resource).getResultList();
-      if (limitRows.isEmpty()) {
+      if (lockedLimits.isEmpty()) {
         throw new IllegalArgumentException("Resource is not configured: " + resource);
       }
-      int maxConcurrent = ((Number) limitRows.get(0)).intValue();
 
       // language=Oracle
       String existingForJobSql =
@@ -288,19 +288,27 @@ final class OracleAuxiliaryOperations
       }
 
       // language=Oracle
-      String activeSql = "SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?";
-      int active =
-          ((Number)
-                  ctx.em().createNativeQuery(activeSql).setParameter(1, resource).getSingleResult())
-              .intValue();
-      if (active >= maxConcurrent) {
-        return false;
-      }
-
-      ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
-      ctx.em().persist(permit);
-      ctx.em().flush();
-      return true;
+      String insertSql =
+          """
+          INSERT INTO scheduler_resource_permit (id, resource_name, job_id, node_id, acquired_at)
+          SELECT ?, resource_name, ?, ?, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+          FROM scheduler_resource_limit
+          WHERE resource_name = ?
+            AND (SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?)
+                < max_concurrent
+          """;
+      int inserted =
+          ctx.em()
+              .createNativeQuery(insertSql)
+              .setParameter(1, UuidRawConverter.toBytes(UuidV7Factory.create()))
+              .setParameter(2, UuidRawConverter.toBytes(jobId))
+              .setParameter(3, nodeId)
+              .setParameter(4, resource)
+              .setParameter(5, resource)
+              .executeUpdate();
+      return inserted > 0;
+    } catch (IllegalArgumentException e) {
+      throw e;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("try acquire permit", e);
     }
