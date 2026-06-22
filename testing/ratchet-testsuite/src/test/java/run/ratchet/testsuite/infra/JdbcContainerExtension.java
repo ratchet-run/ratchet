@@ -95,10 +95,19 @@ public class JdbcContainerExtension
       case "sqlserver" ->
           // No withInitScript: the schema is applied to a dedicated RCSI database after start
           // (see provisionSqlServer). MSSQLServerContainer is sa-only and has no withDatabaseName.
+          // withReuse keeps the container warm across local matrix runs (reuse is opt-in via
+          // ~/.testcontainers.properties and ignored on ephemeral CI runners), mirroring the
+          // store's
+          // MssqlContainers; a generous startup timeout absorbs the slow cold start of the x86
+          // image
+          // under emulation on Apple Silicon, where the default wait expires before SQL Server is
+          // up.
           new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2022-latest")
               .acceptLicense()
               .withPassword(SQLSERVER_PASSWORD)
-              .withUrlParam("trustServerCertificate", "true");
+              .withUrlParam("trustServerCertificate", "true")
+              .withStartupTimeout(Duration.ofMinutes(5))
+              .withReuse(true);
       default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
     };
   }
