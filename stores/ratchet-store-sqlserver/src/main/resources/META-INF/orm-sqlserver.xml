@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SQL Server-specific JPA mapping override. Forces UUID columns to round-trip via
+  UuidByteArrayConverter so any JPA provider produces 16 canonical big-endian bytes for BINARY(16).
+
+  The SQL Server store stores UUIDs as BINARY(16), NOT the native UNIQUEIDENTIFIER type:
+  UNIQUEIDENTIFIER uses .NET-Guid mixed-endian storage that EclipseLink 5.0 (GlassFish 8 / EE 11 RI)
+  reads byte-swapped from native queries. Raw bytes read identically across every provider.
+
+  This file is for EclipseLink (and other non-Hibernate JPA providers) only. Do NOT reference it in
+  a Hibernate-backed deployment: Hibernate maps UUID to BINARY(16) natively on the SQL Server
+  dialect, and Hibernate 7 rejects an AttributeConverter on an @Id attribute
+  (org.hibernate.AnnotationException). On Hibernate, omit this file entirely — no mapping file is
+  needed.
+
+  Production users wiring ratchet-store-sqlserver into a non-Hibernate persistence-unit must
+  reference this file from their persistence.xml: <mapping-file>META-INF/orm-sqlserver.xml</mapping-file>.
+
+  Native queries bypass AttributeConverter per JPA spec; in-store native-SQL call sites convert
+  manually via UuidByteArrayConverter.toBytes(uuid).
+
+  JPA 3.1 spec note: <convert> cannot be a child of <id>; use class-level <convert> with an
+  attribute-name attribute to apply a converter to id, basic, or relationship fields uniformly.
+-->
+<entity-mappings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xmlns="https://jakarta.ee/xml/ns/persistence/orm"
+                 xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence/orm
+                                     https://jakarta.ee/xml/ns/persistence/orm/orm_3_1.xsd"
+                 version="3.1">
+
+    <converter class="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter"/>
+
+    <entity class="run.ratchet.store.entity.JobEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="dependsOn"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="supersededBy"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ArchivedJobEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="originalJobId"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="dependedOn"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="supersededBy"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchMetricsEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="batchId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.DlqAlertEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobExecutionEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobLogEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ResourcePermitEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.WorkflowConditionEntity">
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="parentJobId"/>
+        <convert converter="run.ratchet.store.sqlserver.converter.UuidByteArrayConverter" attribute-name="childJobId"/>
+    </entity>
+
+</entity-mappings>

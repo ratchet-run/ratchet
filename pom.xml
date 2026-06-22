@@ -51,6 +51,7 @@
     <module>stores/ratchet-store-mysql</module>
     <module>stores/ratchet-store-postgresql</module>
     <module>stores/ratchet-store-oracle</module>
+    <module>stores/ratchet-store-sqlserver</module>
     <module>stores/ratchet-store-mongodb</module>
     <module>coordinators/ratchet-coordinator-common</module>
     <module>coordinators/ratchet-coordinator-postgresql</module>
@@ -155,6 +156,7 @@
     <protobuf-java.version>3.25.9</protobuf-java.version>
     <postgresql-driver.version>42.7.11</postgresql-driver.version>
     <ojdbc.version>23.9.0.25.07</ojdbc.version>
+    <mssql-jdbc.version>12.8.1.jre11</mssql-jdbc.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
     <artemis.version>2.54.0</artemis.version>
     <netty.version>4.1.133.Final</netty.version>
@@ -397,6 +399,11 @@
       </dependency>
       <dependency>
         <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-store-sqlserver</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
         <artifactId>ratchet-store-mongodb</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -573,6 +580,14 @@
         <groupId>org.postgresql</groupId>
         <artifactId>postgresql</artifactId>
         <version>${postgresql-driver.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <!-- SQL Server Driver -->
+      <dependency>
+        <groupId>com.microsoft.sqlserver</groupId>
+        <artifactId>mssql-jdbc</artifactId>
+        <version>${mssql-jdbc.version}</version>
         <scope>test</scope>
       </dependency>
 

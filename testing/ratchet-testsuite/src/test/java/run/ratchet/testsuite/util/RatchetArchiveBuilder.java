@@ -87,43 +87,55 @@ public class RatchetArchiveBuilder {
   }
 
   public RatchetArchiveBuilder addPersistenceXml(String dbType, String jtaDataSourceName) {
-    if (!dbType.equals("mysql") && !dbType.equals("postgresql") && !dbType.equals("oracle")) {
+    if (!dbType.equals("mysql")
+        && !dbType.equals("postgresql")
+        && !dbType.equals("oracle")
+        && !dbType.equals("sqlserver")) {
       throw new IllegalArgumentException("Unsupported db type: " + dbType);
     }
-    // MySQL stores UUIDs in BINARY(16). EclipseLink's default would send the 36-char hyphenated
-    // string and overflow the column, so EclipseLink deployments route every UUID through
-    // UuidByteArrayConverter via orm-mysql.xml. Hibernate maps UUID -> BINARY(16) natively (its
-    // default on the MySQL dialect), and Hibernate 7 (WildFly 40 / EE 11) rejects an
-    // AttributeConverter on an @Id attribute outright, so Hibernate-7 deployments must NOT
-    // reference orm-mysql.xml — they need no mapping file at all. PostgreSQL stores UUID natively
-    // and must NOT include the converter — it would re-encode native uuid as bytea.
-    //
-    // Oracle mirrors MySQL: RAW(16) UUIDs round-trip through UuidRawConverter via orm-oracle.xml on
-    // EclipseLink and Hibernate 6, while Hibernate 7 omits it (native UUID -> RAW(16)) and instead
-    // auto-quotes the LEVEL reserved word (orm-oracle.xml also carries that "level" column
-    // quoting).
-    boolean hibernate7 = "wildfly-ee11-managed".equals(System.getProperty("arquillian.launch"));
-    String mappingFile;
+    // MySQL and SQL Server store UUIDs in BINARY(16) and Oracle in RAW(16). EclipseLink's default
+    // would send the 36-char hyphenated string and overflow/mistype the column, so EclipseLink
+    // deployments route every UUID through a converter via orm-mysql.xml / orm-oracle.xml /
+    // orm-sqlserver.xml. The WildFly cells run Hibernate (6.6 on wildfly-managed, 7 on
+    // wildfly-ee11-managed); Hibernate maps UUID natively and Hibernate 7 rejects an
+    // AttributeConverter on an @Id outright, so those cells take no UUID mapping file — on MySQL
+    // the
+    // native byte order is already canonical, on SQL Server the preferred_uuid_jdbc_type property
+    // below forces it canonical, and on Oracle the native UUID maps to RAW(16). PostgreSQL stores
+    // UUID natively and must NOT include the converter — it would re-encode native uuid as bytea.
+    String launch = System.getProperty("arquillian.launch", "");
+    boolean hibernate = launch.startsWith("wildfly");
+    boolean hibernate7 = "wildfly-ee11-managed".equals(launch);
+    String mappingFile = "";
     if (dbType.equals("mysql") && !hibernate7) {
       mappingFile = "<mapping-file>META-INF/orm-mysql.xml</mapping-file>";
     } else if (dbType.equals("oracle") && !hibernate7) {
       mappingFile = "<mapping-file>META-INF/orm-oracle.xml</mapping-file>";
-    } else {
-      mappingFile = "";
+    } else if (dbType.equals("sqlserver") && !hibernate) {
+      mappingFile = "<mapping-file>META-INF/orm-sqlserver.xml</mapping-file>";
     }
-    // Oracle-only Hibernate tuning (no-op under EclipseLink, which carries the Instant mapping via
-    // InstantAttributeConverter): map entity Instant to plain TIMESTAMP rather than Hibernate's
-    // default TIMESTAMP WITH TIME ZONE (ORA-18716 on the plain TIMESTAMP columns), and on
-    // Hibernate 7 — where orm-oracle.xml is omitted — auto-quote the LEVEL reserved word so
-    // scheduler_job_log agrees with the shipped DDL.
-    String dialectProps =
-        dbType.equals("oracle")
-            ? """
+    // Per-dialect Hibernate tuning (no-op under EclipseLink). Oracle: map entity Instant to plain
+    // TIMESTAMP rather than Hibernate's default TIMESTAMP WITH TIME ZONE (ORA-18716 on the plain
+    // TIMESTAMP columns), and on Hibernate 7 — where orm-oracle.xml is omitted — auto-quote the
+    // LEVEL reserved word so scheduler_job_log agrees with the shipped DDL. SQL Server: force the
+    // BINARY JDBC type for UUID so Hibernate writes canonical big-endian bytes into BINARY(16)
+    // instead of the uniqueidentifier mixed-endian layout, matching UuidByteArrayConverter.toBytes.
+    String dialectProps;
+    if (dbType.equals("oracle")) {
+      dialectProps =
+          """
                   <property name="hibernate.type.preferred_instant_jdbc_type" value="TIMESTAMP"/>
                   <property name="hibernate.jdbc.time_zone" value="UTC"/>
                   <property name="hibernate.auto_quote_keyword" value="true"/>
-            """
-            : "";
+            """;
+    } else if (dbType.equals("sqlserver")) {
+      dialectProps =
+          """
+                  <property name="hibernate.type.preferred_uuid_jdbc_type" value="BINARY"/>
+            """;
+    } else {
+      dialectProps = "";
+    }
     // No <provider> or hibernate.dialect pin — WildFly auto-discovers via ServiceLoader and the
     // JPA provider auto-detects the dialect from the JDBC URL exposed by RatchetDS. Remaining
     // property keys are opt-in Hibernate tuning and no-op under any other JPA provider.
@@ -200,7 +212,7 @@ public class RatchetArchiveBuilder {
 
     // Store-specific classes
     switch (dbType) {
-      case "mysql", "postgresql", "oracle" -> {
+      case "mysql", "postgresql", "oracle", "sqlserver" -> {
         DataSourceStrategy strategy = DataSourceStrategyFactory.create();
         archive.addClasses(
             JpaTestCleanupStrategy.class,

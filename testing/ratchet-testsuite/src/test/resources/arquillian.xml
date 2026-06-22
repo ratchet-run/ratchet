@@ -16,6 +16,7 @@
       <property name="serverConfig">standalone.xml</property>
       <property name="javaVmArguments">
         -Xms512m -Xmx2048m
+        -Duser.timezone=UTC
         -Djboss.socket.binding.port-offset=20000
         ${jacoco.it.argLine}
         -Dratchet.test.db.url=${ratchet.test.db.url}
@@ -55,6 +56,7 @@
       <property name="jbossArguments">--stability=preview</property>
       <property name="javaVmArguments">
         -Xms512m -Xmx2048m
+        -Duser.timezone=UTC
         -Djboss.socket.binding.port-offset=21000
         ${jacoco.it.argLine}
         -Dratchet.test.db.url=${ratchet.test.db.url}
@@ -135,6 +137,7 @@
       <property name="httpPort">${openliberty.http.port}</property>
       <property name="javaVmArguments">
         -Xms512m -Xmx2048m
+        -Duser.timezone=UTC
         ${jacoco.it.argLine}
         -Dratchet.test.db.url=${ratchet.test.db.url}
         -Dratchet.test.db.username=${ratchet.test.db.username}

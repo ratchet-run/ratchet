@@ -166,6 +166,18 @@
       <artifactId>testcontainers-mongodb</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- Always on the compile classpath so JdbcContainerExtension's MSSQLServerContainer reference
+         resolves regardless of the active DB profile; the store itself ships only under sqlserver. -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mssqlserver</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.microsoft.sqlserver</groupId>
+      <artifactId>mssql-jdbc</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -373,6 +385,23 @@
                   </artifactItems>
                 </configuration>
               </execution>
+              <execution>
+                <id>copy-sqlserver-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>com.microsoft.sqlserver</groupId>
+                      <artifactId>mssql-jdbc</artifactId>
+                      <version>${mssql-jdbc.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/com/microsoft/sqlserver/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
             </executions>
           </plugin>
           <plugin>
@@ -428,6 +457,21 @@
     &lt;module name="java.security.jgss"/&gt;
     &lt;module name="java.management"/&gt;
     &lt;module name="java.xml"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <echo file="${wildfly.home}/modules/com/microsoft/sqlserver/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="com.microsoft.sqlserver"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="mssql-jdbc-${mssql-jdbc.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.naming"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="java.xml"/&gt;
+    &lt;module name="java.security.jgss"/&gt;
     &lt;module name="jakarta.transaction.api"/&gt;
   &lt;/dependencies&gt;
 &lt;/module&gt;</echo>
@@ -552,6 +596,23 @@
                   </artifactItems>
                 </configuration>
               </execution>
+              <execution>
+                <id>copy-sqlserver-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>com.microsoft.sqlserver</groupId>
+                      <artifactId>mssql-jdbc</artifactId>
+                      <version>${mssql-jdbc.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/com/microsoft/sqlserver/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
             </executions>
           </plugin>
           <plugin>
@@ -607,6 +668,21 @@
     &lt;module name="java.security.jgss"/&gt;
     &lt;module name="java.management"/&gt;
     &lt;module name="java.xml"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <echo file="${wildfly.home}/modules/com/microsoft/sqlserver/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="com.microsoft.sqlserver"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="mssql-jdbc-${mssql-jdbc.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.naming"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="java.xml"/&gt;
+    &lt;module name="java.security.jgss"/&gt;
     &lt;module name="jakarta.transaction.api"/&gt;
   &lt;/dependencies&gt;
 &lt;/module&gt;</echo>
@@ -747,13 +823,20 @@
                                    flags="g"
                                    byline="true"/>
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile)=[^&lt;]*&lt;/jvm-options&gt;"
+                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile|user\.timezone)=[^&lt;]*&lt;/jvm-options&gt;"
                                    replace=""
                                    flags="g"
                                    byline="true"/>
+                    <!--
+                      Pin the Payara server JVM to UTC for the same EclipseLink claim-skew
+                      reason documented on the GlassFish profile. The TZ=UTC failsafe env
+                      currently reaches Payara's adapter JVM, but that propagation is
+                      adapter-specific and fragile; injecting the zone as an explicit
+                      jvm-option makes the cell deterministic on non-UTC developer machines.
+                    -->
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
                                    match="(\s*)&lt;/java-config&gt;"
-                                   replace="\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
+                                   replace="\1  &lt;jvm-options&gt;-Duser.timezone=UTC&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
                                    flags="g"
                                    byline="true"/>
                     <!--
@@ -1013,13 +1096,22 @@
                       harmless duplication).
                     -->
                     <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile)=[^&lt;]*&lt;/jvm-options&gt;"
+                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile|user\.timezone)=[^&lt;]*&lt;/jvm-options&gt;"
                                    replace=""
                                    flags="g"
                                    byline="true"/>
+                    <!--
+                      Pin the GlassFish server JVM to UTC. EclipseLink writes the
+                      store's zone-less DATETIME/TIMESTAMP columns via JDBC Timestamps
+                      and claims them against the (UTC) database's server-side NOW(3);
+                      a non-UTC server zone skews next_fire/scheduled_time and stalls
+                      claims (jobs stay PENDING). The TZ=UTC failsafe env reaches the
+                      Payara adapter's JVM but NOT omnifish's GlassFish JVM, so inject
+                      the zone here as a proper jvm-option asadmin honors at launch.
+                    -->
                     <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
                                    match="(\s*)&lt;/java-config&gt;"
-                                   replace="\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
+                                   replace="\1  &lt;jvm-options&gt;-Duser.timezone=UTC&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
                                    flags="g"
                                    byline="true"/>
                   </target>
@@ -1236,6 +1328,46 @@
         <dependency>
           <groupId>org.testcontainers</groupId>
           <artifactId>testcontainers-mongodb</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+
+    <!--
+      SQL Server runs green on all five managed servers (wildfly-managed, wildfly-ee11-managed,
+      payara-managed, openliberty-managed, glassfish-managed). The store stores every UUID as
+      BINARY(16) holding the canonical big-endian bytes rather than the native UNIQUEIDENTIFIER
+      type: UNIQUEIDENTIFIER's .NET-Guid mixed-endian storage is read byte-swapped by EclipseLink
+      5.0 (GlassFish 8 / the Jakarta EE 11 RI) from native queries, which stalled every job on that
+      cell. Raw BINARY(16) bytes read identically across every JPA provider, so GlassFish is now
+      supported alongside the other four. Mirrors the BINARY(16) approach of ratchet-store-mysql.
+    -->
+    <profile>
+      <id>sqlserver</id>
+      <properties>
+        <ratchet.test.db.type>sqlserver</ratchet.test.db.type>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-sqlserver</artifactId>
+        </dependency>
+        <!-- Test-jar carries SqlserverDialectTestSupport (ServiceLoader-discovered by the testsuite). -->
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-sqlserver</artifactId>
+          <version>${project.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>com.microsoft.sqlserver</groupId>
+          <artifactId>mssql-jdbc</artifactId>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>org.testcontainers</groupId>
+          <artifactId>testcontainers-mssqlserver</artifactId>
           <scope>test</scope>
         </dependency>
       </dependencies>

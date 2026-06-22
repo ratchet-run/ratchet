@@ -42,6 +42,7 @@ module run.ratchet.store.core {
       run.ratchet.store.mysql,
       run.ratchet.store.postgresql,
       run.ratchet.store.oracle,
+      run.ratchet.store.sqlserver,
       run.ratchet.store.mongodb;
 
   opens run.ratchet.store.converter;

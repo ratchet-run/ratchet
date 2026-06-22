@@ -34,6 +34,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -86,6 +87,9 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
 
   private static final Map<String, EntityManagerFactory> EMF_CACHE = new ConcurrentHashMap<>();
   private static final MetricsCollector NO_OP_METRICS = new NoOpMetricsCollector();
+  // A method that fails with a transient store exception (e.g. a SQL Server deadlock victim) is
+  // retried on a fresh transaction, emulating a production transient-retry interceptor.
+  private static final int MAX_TRANSACTION_ATTEMPTS = 5;
 
   private final EntityManagerFactory emf;
   private final ThreadLocal<EntityManager> threadEm;
@@ -292,12 +296,20 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
               EntityManager em = threadEm.get();
               EntityTransaction tx = em.getTransaction();
               boolean owner = !tx.isActive();
-              if (owner) {
-                tx.begin();
+              // A nested (non-owner) call runs inside the caller's transaction and cannot retry.
+              if (!owner) {
+                return invokeUnwrapping(delegate, method, args);
               }
-              try {
-                Object result = method.invoke(delegate, args);
-                if (owner && tx.isActive()) {
+              // Emulate a production @Transactional method behind a transient-retry interceptor:
+              // each attempt is its own transaction, and a transient store failure (a SQL Server
+              // deadlock victim is the realistic case — lock-based engines can deadlock where the
+              // MVCC stores never do) is retried on a fresh transaction. MVCC stores never throw
+              // this, so the retry loop is a single pass for them.
+              RatchetTransientStoreException lastTransient = null;
+              for (int attempt = 1; attempt <= MAX_TRANSACTION_ATTEMPTS; attempt++) {
+                tx.begin();
+                try {
+                  Object result = invokeUnwrapping(delegate, method, args);
                   tx.commit();
                   // Production @Transactional + container-managed PersistenceContext resets the
                   // L1 cache between method invocations. The thread-local EM used by this proxy
@@ -305,22 +317,32 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
                   // subsequent em.find() calls would miss server-side UPDATEs issued via native
                   // SQL. Clear after commit to match production semantics.
                   em.clear();
-                }
-                return result;
-              } catch (InvocationTargetException ite) {
-                if (owner && tx.isActive()) {
-                  tx.rollback();
+                  return result;
+                } catch (RatchetTransientStoreException transient_) {
+                  if (tx.isActive()) {
+                    tx.rollback();
+                  }
                   em.clear();
-                }
-                throw ite.getCause();
-              } catch (Throwable t) {
-                if (owner && tx.isActive()) {
-                  tx.rollback();
+                  lastTransient = transient_;
+                } catch (Throwable t) {
+                  if (tx.isActive()) {
+                    tx.rollback();
+                  }
                   em.clear();
+                  throw t;
                 }
-                throw t;
               }
+              throw lastTransient;
             });
+  }
+
+  private static Object invokeUnwrapping(
+      Object delegate, java.lang.reflect.Method method, Object[] args) throws Throwable {
+    try {
+      return method.invoke(delegate, args);
+    } catch (InvocationTargetException ite) {
+      throw ite.getCause();
+    }
   }
 
   /** No-op metrics collector reused by every JPA fixture instance. */

@@ -43,6 +43,17 @@ public interface DialectTypeMapper {
   OnDeleteAction parseOnDelete(String introspectedValue);
 
   /**
+   * Whether the introspected {@code actual} ON DELETE action satisfies the catalog's expectation
+   * for {@code expected}. Defaults to strict equality. A dialect overrides this only where it
+   * cannot express a cataloged action — e.g. SQL Server forbids two {@code ON DELETE CASCADE}
+   * foreign keys from one table to the same parent, so it substitutes {@code NO_ACTION} and deletes
+   * the dependent rows in application code.
+   */
+  default boolean acceptsOnDelete(ForeignKey expected, OnDeleteAction actual) {
+    return expected.onDelete() == actual;
+  }
+
+  /**
    * Whether this dialect can introspect partial-index WHERE predicates. {@code false} when the
    * dialect lacks the concept (MySQL covering indexes) or lacks an introspection path. Tests that
    * verify partial predicates skip when this returns {@code false}.

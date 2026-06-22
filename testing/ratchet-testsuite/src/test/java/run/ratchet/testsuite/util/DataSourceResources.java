@@ -27,6 +27,7 @@ final class DataSourceResources {
       // instantiate datasource-classname directly (Oracle's own GlassFish docs use this class), and
       // an interface there fails to deploy with "Error instantiating class ...".
       case "oracle" -> "oracle.jdbc.pool.OracleDataSource";
+      case "sqlserver" -> "com.microsoft.sqlserver.jdbc.SQLServerDataSource";
       default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
     };
   }
@@ -36,6 +37,7 @@ final class DataSourceResources {
       case "mysql" -> "com.mysql:mysql-connector-j";
       case "postgresql" -> "org.postgresql:postgresql";
       case "oracle" -> "com.oracle.database.jdbc:ojdbc11";
+      case "sqlserver" -> "com.microsoft.sqlserver:mssql-jdbc";
       default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
     };
   }
