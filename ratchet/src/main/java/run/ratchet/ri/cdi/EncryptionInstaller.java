@@ -102,8 +102,7 @@ public class EncryptionInstaller {
   void onStartup(
       @Observes
           @Priority(Interceptor.Priority.APPLICATION + 499)
-          @Initialized(ApplicationScoped.class)
-          Object event) {
+          @Initialized(ApplicationScoped.class) Object event) {
     // Deferred on build-time-CDI runtimes (e.g. Quarkus): resolving node entropy here reaches the
     // node identity provider (DB + executor) at STATIC_INIT, before the persistence unit exists.
     // RatchetRuntimeStart drives it at runtime instead, which also yields a real node id for nonce
