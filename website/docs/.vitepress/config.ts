@@ -213,6 +213,7 @@ export default defineConfig({
             { text: 'Runtime setup', link: '/deployment/installation' },
             { text: 'Configuration', link: '/deployment/configuration' },
             { text: 'Configuration reference', link: '/deployment/configuration-reference' },
+            { text: 'Quarkus', link: '/deployment/quarkus' },
             { text: 'Database Setup', link: '/deployment/database-setup' },
             { text: 'Rolling Upgrades', link: '/deployment/rolling-upgrades' },
             { text: 'MySQL', link: '/deployment/mysql' },

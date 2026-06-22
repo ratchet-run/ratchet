@@ -18,6 +18,8 @@ Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11. It deploys 
 | **Database** | MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+ | One store module per database |
 | **Build Tool** | Maven 3.8+ | BOM import for version management |
 
+Running on Quarkus instead of a Jakarta EE server? The `ratchet-quarkus` extension supports Quarkus on the JVM and as a GraalVM native image. See [Quarkus Deployment](/deployment/quarkus).
+
 ## Ratchet modules
 
 A typical deployment includes three Ratchet JARs:
@@ -32,6 +34,7 @@ Optional modules:
 
 ```
 ratchet-micrometer   Micrometer metrics integration
+ratchet-quarkus      Quarkus extension (JVM and native) — see Quarkus Deployment
 ```
 
 All versions are managed through the `ratchet-bom`:
