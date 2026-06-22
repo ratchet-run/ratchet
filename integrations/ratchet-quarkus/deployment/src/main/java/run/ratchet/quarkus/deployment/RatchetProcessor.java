@@ -35,6 +35,7 @@ import org.jboss.jandex.DotName;
 import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
+import run.ratchet.quarkus.runtime.QuarkusRatchetEntityManagerProvider;
 import run.ratchet.quarkus.runtime.QuarkusRatchetExecutorProvider;
 import run.ratchet.quarkus.runtime.RatchetRuntimeProducers;
 import run.ratchet.quarkus.runtime.RatchetStartupTrigger;
@@ -55,13 +56,17 @@ class RatchetProcessor {
     return new FeatureBuildItem(FEATURE);
   }
 
-  /** The extension's own beans: the StartupEvent trigger, the executor, and default producers. */
+  /**
+   * The extension's own beans: the StartupEvent trigger, the executor, the named-unit EntityManager
+   * provider, and default producers.
+   */
   @BuildStep
   AdditionalBeanBuildItem beans() {
     return AdditionalBeanBuildItem.builder()
         .addBeanClasses(
             RatchetStartupTrigger.class,
             QuarkusRatchetExecutorProvider.class,
+            QuarkusRatchetEntityManagerProvider.class,
             RatchetRuntimeProducers.class)
         .setUnremovable()
         .build();
