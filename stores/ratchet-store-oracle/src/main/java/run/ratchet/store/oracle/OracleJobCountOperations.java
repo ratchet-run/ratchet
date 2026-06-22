@@ -109,7 +109,7 @@ final class OracleJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE status = 'RUNNING' AND picked_at < ?
         """;
-    return ctx.countByNative(sql, Timestamp.from(threshold));
+    return ctx.countByNative(sql, OracleTimestamps.microTimestamp(threshold));
   }
 
   long countPendingBatchChildren() {
@@ -190,7 +190,7 @@ final class OracleJobCountOperations {
           SELECT COUNT(*) FROM scheduler_job_queue
           WHERE status = ? AND updated_at >= ?
           """;
-      return ctx.countByNative(sql, status.name(), Timestamp.from(since));
+      return ctx.countByNative(sql, status.name(), OracleTimestamps.microTimestamp(since));
     }
     // language=Oracle
     String sql =
@@ -198,7 +198,7 @@ final class OracleJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job
         WHERE terminal_status = ? AND terminated_at >= ?
         """;
-    return ctx.countByNative(sql, status.name(), Timestamp.from(since));
+    return ctx.countByNative(sql, status.name(), OracleTimestamps.microTimestamp(since));
   }
 
   long countJobsWithRetries() {
@@ -213,7 +213,7 @@ final class OracleJobCountOperations {
   }
 
   double getRetryRateStats(Instant since) {
-    Timestamp sinceTs = Timestamp.from(since);
+    Timestamp sinceTs = OracleTimestamps.microTimestamp(since);
     // language=Oracle
     String sql =
         """
@@ -238,7 +238,7 @@ final class OracleJobCountOperations {
         WHERE terminal_status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL
           AND terminated_at >= ?
         """;
-    return ctx.doubleByNativeOrZero(sql, Timestamp.from(since));
+    return ctx.doubleByNativeOrZero(sql, OracleTimestamps.microTimestamp(since));
   }
 
   double getAverageBatchSize(Instant since) {
@@ -250,7 +250,7 @@ final class OracleJobCountOperations {
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE COALESCE(q.updated_at, c.terminated_at) >= ?
         """;
-    return ctx.doubleByNativeOrZero(sql, Timestamp.from(since));
+    return ctx.doubleByNativeOrZero(sql, OracleTimestamps.microTimestamp(since));
   }
 
   Optional<Instant> getOldestPendingJobTime() {

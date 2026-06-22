@@ -189,7 +189,7 @@ final class OracleJobQueryOperations {
       return;
     }
     and(where, col + " >= ?");
-    params.add(Timestamp.from(value));
+    params.add(OracleTimestamps.microTimestamp(value));
   }
 
   private static void appendInstantLt(
@@ -198,7 +198,7 @@ final class OracleJobQueryOperations {
       return;
     }
     and(where, col + " < ?");
-    params.add(Timestamp.from(value));
+    params.add(OracleTimestamps.microTimestamp(value));
   }
 
   private static String buildOrderBy(JobFilter filter) {

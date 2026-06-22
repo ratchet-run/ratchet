@@ -114,7 +114,12 @@ final class OracleAuxiliaryOperations
   public int purgeLogsOlderThan(Instant cutoff) {
     // language=JPAQL
     String jpql = "DELETE FROM JobLogEntity l WHERE l.ts < :cutoff";
-    return ctx.em().createQuery(jpql).setParameter("cutoff", cutoff).executeUpdate();
+    // ts is TIMESTAMP(6); floor the cutoff to microseconds so the boundary matches the column
+    // precision rather than Oracle's nanosecond-precision bind (see existsRecentDlqAlert).
+    return ctx.em()
+        .createQuery(jpql)
+        .setParameter("cutoff", OracleTimestamps.floorMicros(cutoff))
+        .executeUpdate();
   }
 
   @Override
@@ -242,12 +247,18 @@ final class OracleAuxiliaryOperations
         SELECT COUNT(a) FROM DlqAlertEntity a
         WHERE a.jobId = :jid AND a.errorHash = :hash AND a.alertSentAt >= :cutoff
         """;
+    // alert_sent_at is TIMESTAMP(6), so a persisted Instant is floored to microsecond
+    // precision. Oracle's JDBC binds an Instant parameter at full nanosecond precision and
+    // compares it literally, so an unmodified cutoff equal to a stored alert time fails the
+    // `>=` boundary by the sub-microsecond remainder (the MySQL/PG drivers floor the bind for
+    // us, which is why this only surfaces on Oracle, and only on a nanosecond-resolution clock).
+    // Floor the cutoff to match the column precision.
     Long count =
         ctx.em()
             .createQuery(jpql, Long.class)
             .setParameter("jid", jobId)
             .setParameter("hash", errorHash)
-            .setParameter("cutoff", cutoff)
+            .setParameter("cutoff", OracleTimestamps.floorMicros(cutoff))
             .getSingleResult();
     return count > 0;
   }

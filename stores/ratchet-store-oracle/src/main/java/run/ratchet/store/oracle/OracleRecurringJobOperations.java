@@ -202,7 +202,7 @@ final class OracleRecurringJobOperations implements RecurringJobStore {
                 + ")";
     Query q = ctx.em().createNativeQuery(baseSql + suffix);
     int p = 1;
-    q.setParameter(p++, Timestamp.from(nodeStartTime));
+    q.setParameter(p++, OracleTimestamps.microTimestamp(nodeStartTime));
     for (String key : knownBusinessKeys) {
       q.setParameter(p++, key);
     }

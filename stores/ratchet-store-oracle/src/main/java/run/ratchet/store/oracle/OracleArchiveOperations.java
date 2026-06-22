@@ -16,7 +16,6 @@
 package run.ratchet.store.oracle;
 
 import jakarta.persistence.Query;
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -165,7 +164,7 @@ final class OracleArchiveOperations implements ArchiveStore {
       List<Object[]> rows =
           ctx.em()
               .createNativeQuery(sql)
-              .setParameter(1, Timestamp.from(olderThan))
+              .setParameter(1, OracleTimestamps.microTimestamp(olderThan))
               .setParameter(2, limit)
               .getResultList();
       List<JobEntity> jobs = new ArrayList<>(rows.size());
@@ -193,7 +192,7 @@ final class OracleArchiveOperations implements ArchiveStore {
       Object result =
           ctx.em()
               .createNativeQuery(sql)
-              .setParameter(1, Timestamp.from(olderThan))
+              .setParameter(1, OracleTimestamps.microTimestamp(olderThan))
               .getSingleResult();
       return ((Number) result).longValue();
     } catch (RuntimeException e) {
@@ -208,9 +207,18 @@ final class OracleArchiveOperations implements ArchiveStore {
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     try {
+      // archived_at >= ? is an inclusive-lower bound; floor the cutoff to the TIMESTAMP(6) column
+      // precision so Oracle's nanosecond bind matches a stored (floored) value at the boundary.
+      // The shared builder is store-agnostic, so floor here rather than in store-core. The `to`
+      // bound uses <= and is correct unfloored.
       var searchQuery =
           ArchiveQuerySupport.buildFindArchivedJobsQuery(
-              ArchiveParameterBinder.ARCHIVE_COLUMNS, targetClass, businessKey, from, to, limit);
+              ArchiveParameterBinder.ARCHIVE_COLUMNS,
+              targetClass,
+              businessKey,
+              OracleTimestamps.floorMicros(from),
+              to,
+              limit);
       // The shared builder emits MySQL/PostgreSQL "LIMIT ?"; Oracle uses the row-limiting clause.
       // The limit bind stays the trailing parameter, so bindParameters' ordering is unaffected.
       String sql = searchQuery.sql().replace("LIMIT ?", "FETCH FIRST ? ROWS ONLY");
@@ -231,7 +239,7 @@ final class OracleArchiveOperations implements ArchiveStore {
       String sql = "DELETE FROM scheduler_job_archive WHERE archived_at < ?";
       return ctx.em()
           .createNativeQuery(sql)
-          .setParameter(1, Timestamp.from(olderThan))
+          .setParameter(1, OracleTimestamps.microTimestamp(olderThan))
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("purge archived jobs", e);

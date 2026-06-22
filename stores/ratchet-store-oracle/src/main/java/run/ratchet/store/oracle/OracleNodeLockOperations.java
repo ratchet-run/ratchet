@@ -181,7 +181,7 @@ final class OracleNodeLockOperations implements NodeStore, LockStore {
       String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ? FETCH FIRST ? ROWS ONLY";
       return ctx.em()
           .createNativeQuery(sql, NodeEntity.class)
-          .setParameter(1, Timestamp.from(cutoff))
+          .setParameter(1, OracleTimestamps.microTimestamp(cutoff))
           .setParameter(2, MAX_INACTIVE_NODES)
           .getResultList();
     } catch (RuntimeException e) {
@@ -196,7 +196,7 @@ final class OracleNodeLockOperations implements NodeStore, LockStore {
       String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
       return ctx.em()
           .createNativeQuery(sql)
-          .setParameter(1, Timestamp.from(cutoff))
+          .setParameter(1, OracleTimestamps.microTimestamp(cutoff))
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete inactive nodes", e);

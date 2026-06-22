@@ -80,7 +80,7 @@ final class OracleJobDeleteOperations {
       List<?> idRows =
           ctx.em()
               .createNativeQuery(selectSql)
-              .setParameter(1, Timestamp.from(cutoff))
+              .setParameter(1, OracleTimestamps.microTimestamp(cutoff))
               .getResultList();
       if (idRows.isEmpty()) {
         return 0;
@@ -151,7 +151,7 @@ final class OracleJobDeleteOperations {
             )
             AND picked_at < ?
           """;
-      Timestamp cutoffTimestamp = Timestamp.from(cutoff);
+      Timestamp cutoffTimestamp = OracleTimestamps.microTimestamp(cutoff);
       return ctx.em()
           .createNativeQuery(sql)
           .setParameter(1, cutoffTimestamp)
