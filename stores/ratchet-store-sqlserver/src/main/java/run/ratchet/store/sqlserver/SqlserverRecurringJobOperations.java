@@ -369,9 +369,9 @@ final class SqlserverRecurringJobOperations implements RecurringJobStore {
   private int archiveAndDeleteChunk(List<UUID> ids, ArchiveReason reason) {
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
     // language=SQL Server
-    // ON CONFLICT DO NOTHING keeps cancel idempotent under concurrent cancels for the same id:
-    // the loser of the race no-ops on the archive insert instead of throwing a PK violation,
-    // and the DELETE below is naturally idempotent.
+    // The NOT EXISTS guard keeps cancel idempotent under concurrent cancels for the same id: the
+    // loser of the race inserts no archive row instead of throwing a PK violation, and the DELETE
+    // below is naturally idempotent.
     String archiveSql =
         "INSERT INTO scheduler_recurring_job_archive ("
             + "id, cron_expr, zone_id, payload, on_success_payload, on_failure_payload,"

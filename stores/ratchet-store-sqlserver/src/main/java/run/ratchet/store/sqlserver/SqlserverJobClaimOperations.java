@@ -57,10 +57,11 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
   }
 
   /**
-   * Selects due PENDING rows in effective-priority order with {@code FOR UPDATE SKIP LOCKED}. The
-   * caller transitions the locked rows to RUNNING via a separate UPDATE; the priority ordering
-   * established here is preserved through that UPDATE because the caller iterates the SELECT rows
-   * directly. {@code UPDATE…RETURNING} from a CTE would emit rows in heap order instead.
+   * Selects due PENDING rows in effective-priority order, locking them with {@code WITH (UPDLOCK,
+   * READPAST, ROWLOCK)} so concurrent claimers skip the already-locked rows. The caller transitions
+   * the locked rows to RUNNING via a separate UPDATE; the priority ordering established here is
+   * preserved through that UPDATE because the caller iterates the SELECT rows directly. A single
+   * {@code UPDATE … OUTPUT} from a CTE would emit rows in heap order instead.
    *
    * <p>Placeholder order: typeFilter params → executionTargetFilter params → tagFilter params →
    * boostInterval (if &gt; 0) → limit.

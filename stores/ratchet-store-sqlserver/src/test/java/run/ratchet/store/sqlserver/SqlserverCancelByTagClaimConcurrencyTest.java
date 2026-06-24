@@ -49,12 +49,12 @@ import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
  *
  * <p>The window is internal to the cancel method, so this races a real {@code cancelJobsByTag}
  * against a real {@code claimNextBatchOptimized} on a shared barrier across many repetitions. The
- * fix locks the candidate queue row {@code FOR UPDATE} as the cancel's first statement, so the
- * claim's {@code FOR UPDATE SKIP LOCKED} always skips it. The post-invariant after each round is
- * exact: either the cancel won (job CANCELED, zero queue rows, zero reservations) or the claim won
- * (job still PENDING-or-RUNNING, exactly one queue row, reservation intact). The broken interleave
- * produced the forbidden mix — a CANCELED cold row with a surviving RUNNING queue row and a freed
- * reservation — which trips the assertions below.
+ * fix locks the candidate queue row with {@code WITH (UPDLOCK, ROWLOCK)} as the cancel's first
+ * statement, so the claim's {@code WITH (UPDLOCK, READPAST, ROWLOCK)} skips it via READPAST. The
+ * post-invariant after each round is exact: either the cancel won (job CANCELED, zero queue rows,
+ * zero reservations) or the claim won (job still PENDING-or-RUNNING, exactly one queue row,
+ * reservation intact). The broken interleave produced the forbidden mix — a CANCELED cold row with
+ * a surviving RUNNING queue row and a freed reservation — which trips the assertions below.
  */
 class SqlserverCancelByTagClaimConcurrencyTest {
 
