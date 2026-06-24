@@ -65,7 +65,7 @@ Both libraries support multiple stores, but the model differs.
 
 **JobRunr** supports SQL (Postgres, MySQL, Oracle, SQL Server, H2, DB2, MariaDB), MongoDB, and ElasticSearch via storage providers. Each provider is part of the JobRunr codebase. The schema is JobRunr-owned and migrated automatically at startup unless you opt out.
 
-**Ratchet** ships three stores (MySQL, PostgreSQL, MongoDB) implemented against a public `JobStore` SPI. Every store implementation has to pass a Technology Compatibility Kit before it ships. Schema migrations are off by default. DDL files ship as plain SQL, and you apply them with your existing tooling. There is an opt-in `SchemaMigrationLifecycleHook` if you want auto-apply.
+**Ratchet** ships four stores (MySQL, PostgreSQL, Oracle, MongoDB) implemented against a public `JobStore` SPI. Every store implementation has to pass a Technology Compatibility Kit before it ships. Schema migrations are off by default. DDL files ship as plain SQL, and you apply them with your existing tooling. There is an opt-in `SchemaMigrationLifecycleHook` if you want auto-apply.
 
 The TCK is a real technical difference. It is the reason we can promise that claim semantics, retry behavior, and visibility timing are identical whether you are running Mongo or Postgres. JobRunr's storage providers are tested individually; Ratchet's are tested against a shared contract.
 

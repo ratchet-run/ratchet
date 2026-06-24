@@ -12,7 +12,7 @@ Ratchet supports multi-node deployments where multiple application instances sha
 
 In a clustered Ratchet deployment:
 
-1. **Job claiming is safe by default.** The database handles concurrency via row-level locking (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL, InnoDB row locks on MySQL, atomic updates on MongoDB). No additional configuration is needed for one-shot jobs.
+1. **Job claiming is safe by default.** The database handles concurrency via row-level locking (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL and Oracle, InnoDB row locks on MySQL, atomic updates on MongoDB). No additional configuration is needed for one-shot jobs.
 
 2. **Recurring execution and startup coordination are separate concerns.** Runtime recurring execution uses `scheduler_lock` so only one node advances the recurring scheduler at a time, and destructive startup cleanup is gated by the built-in `StartupCoordinator`, which also uses store-backed leases.
 

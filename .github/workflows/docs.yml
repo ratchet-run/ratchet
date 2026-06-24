@@ -89,7 +89,7 @@ jobs:
       - name: Copy store reports into Docusaurus docs
         if: github.event_name == 'workflow_run'
         run: |
-          for entry in "mysql:MySQL" "postgresql:PostgreSQL" "mongodb:MongoDB"; do
+          for entry in "mysql:MySQL" "postgresql:PostgreSQL" "oracle:Oracle" "mongodb:MongoDB"; do
             store="${entry%%:*}"
             label="${entry##*:}"
             # The upload glob strips a common path prefix, so the store dir may
@@ -116,6 +116,7 @@ jobs:
           declare -A DB_LABELS=(
             [mysql]="MySQL"
             [postgresql]="PostgreSQL"
+            [oracle]="Oracle"
             [mongodb]="MongoDB"
           )
           mkdir -p website/docs/conformance/api website/docs/conformance/jakarta
@@ -123,7 +124,7 @@ jobs:
             [ -d "$dir" ] || continue
             suffix="${dir#tck-reports/runtime/tck-conformance-reports-}"
             suffix="${suffix%/}"
-            for db in mysql postgresql mongodb; do
+            for db in mysql postgresql oracle mongodb; do
               if [[ "$suffix" == *"-${db}" ]]; then
                 server="${suffix%-${db}}"
                 database="$db"

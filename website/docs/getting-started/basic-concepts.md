@@ -143,6 +143,7 @@ You choose a store implementation as a Maven dependency:
 <!-- Pick one -->
 <artifactId>ratchet-store-postgresql</artifactId>
 <artifactId>ratchet-store-mysql</artifactId>
+<artifactId>ratchet-store-oracle</artifactId>
 <artifactId>ratchet-store-mongodb</artifactId>
 ```
 

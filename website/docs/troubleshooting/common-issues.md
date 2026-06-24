@@ -366,7 +366,7 @@ If the running count equals the pool size for a type, the pool is saturated.
 
 Ratchet requires several SPI beans to be present in the CDI container. If you see unsatisfied dependency errors, check that you have:
 
-1. A `JobStore` implementation on the classpath (e.g., `ratchet-store-mysql` or `ratchet-store-postgresql`)
+1. A `JobStore` implementation on the classpath (e.g., `ratchet-store-mysql`, `ratchet-store-postgresql`, or `ratchet-store-oracle`)
 2. An `ExecutorProvider` bean (Ratchet provides `DefaultExecutorProvider`)
 3. A `MetricsCollector` bean (Ratchet provides `NoOpMetricsCollector`)
 

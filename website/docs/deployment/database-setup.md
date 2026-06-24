@@ -518,7 +518,7 @@ mongodump --db ratchet --out /backup/
 mongorestore --db ratchet /backup/ratchet/
 ```
 
-For all databases, schedule regular backups and test restoration periodically. In production, consider point-in-time recovery using WAL archiving (PostgreSQL), binary log (MySQL), or oplog (MongoDB).
+For all databases, schedule regular backups and test restoration periodically. In production, consider point-in-time recovery using WAL archiving (PostgreSQL), binary log (MySQL), archived redo logs (Oracle), or oplog (MongoDB).
 
 ## See Also
 

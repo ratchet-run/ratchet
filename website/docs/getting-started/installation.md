@@ -65,6 +65,7 @@ You need exactly one store module matching your database:
 |--------|----------|-------|
 | `ratchet-store-postgresql` | PostgreSQL 14+ | Uses JSONB columns, partial indexes, and `FOR UPDATE SKIP LOCKED` for efficient job claiming |
 | `ratchet-store-mysql` | MySQL 8+ | Uses JSON columns and `SELECT ... FOR UPDATE SKIP LOCKED` |
+| `ratchet-store-oracle` | Oracle 23ai+ | RAW(16) UUIDs, CLOB JSON read via `JSON_VALUE`, two-phase `FETCH FIRST` + `FOR UPDATE SKIP LOCKED` claim |
 | `ratchet-store-mongodb` | MongoDB 6+ | Document-based store with TTL indexes |
 
 ### Optional modules
@@ -158,7 +159,7 @@ Ratchet keeps its dependency footprint small:
 | `ratchet-api` | `jakarta.enterprise.cdi-api` (for `@InterceptorBinding` on `@CircuitBreakerProtected`) |
 | `ratchet` | ASM 9.8 (lambda bytecode analysis), cron-utils 9.2.1 (cron expression parsing), JBoss Logging; Jakarta EE APIs are provided by the runtime |
 | `ratchet-store-core` | Jakarta Persistence / JSON APIs, ASM, JBoss Logging |
-| `ratchet-store-mysql` / `ratchet-store-postgresql` | SQL store logic; JDBC drivers are supplied by the application server or your deployment |
+| `ratchet-store-mysql` / `ratchet-store-postgresql` / `ratchet-store-oracle` | SQL store logic; JDBC drivers are supplied by the application server or your deployment |
 | `ratchet-store-mongodb` | MongoDB sync driver |
 | `ratchet-micrometer` | Micrometer Core 1.14 |
 

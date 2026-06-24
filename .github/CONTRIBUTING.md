@@ -24,7 +24,7 @@ Ratchet currently expects:
 - `ratchet-api`: public API and SPI contracts
 - `ratchet`: reference implementation
 - `ratchet-encryption`: payload encryption engines
-- `stores/`: store implementations — `ratchet-store-core` plus the MySQL, PostgreSQL, and MongoDB stores
+- `stores/`: store implementations — `ratchet-store-core` plus the MySQL, PostgreSQL, Oracle, and MongoDB stores
 - `coordinators/`: cluster coordinator implementations (PostgreSQL, JMS, Infinispan, Hazelcast)
 - `observability/`: Micrometer and OpenTelemetry adapters
 - `testing/`: the TCK, managed integration tests, JPMS consumer test, load test harness, coverage aggregation, architecture tests, and showcase
@@ -53,6 +53,12 @@ MySQL:
 
 ```bash
 mvn verify -P wildfly-managed,mysql -B -pl :ratchet-testsuite,:ratchet-coverage -am
+```
+
+Oracle:
+
+```bash
+mvn verify -P wildfly-managed,oracle -B -pl :ratchet-testsuite,:ratchet-coverage -am
 ```
 
 ### Documentation Site

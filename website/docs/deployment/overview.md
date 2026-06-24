@@ -15,7 +15,7 @@ Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11. It deploys 
 | **Java** | 17 or later | Virtual threads available on 21+ |
 | **Jakarta EE Runtime** | 10/11 with CDI, JPA, Interceptors, and Jakarta Concurrency | WildFly, Payara, Open Liberty, GlassFish 8, etc. |
 | **CDI** | 4.0+ | `beans.xml` with `bean-discovery-mode="annotated"` |
-| **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ | One store module per database |
+| **Database** | MySQL 8+, PostgreSQL 14+, Oracle 23ai+, or MongoDB 6+ | One store module per database |
 | **Build Tool** | Maven 3.8+ | BOM import for version management |
 
 ## Ratchet modules
@@ -25,7 +25,7 @@ A typical deployment includes three Ratchet JARs:
 ```
 ratchet-api          Public API, events, enums, SPI interfaces (Jakarta EE APIs only)
 ratchet           Reference implementation — core engine, CDI integration, polling
-ratchet-store-*      One of: ratchet-store-mysql, ratchet-store-postgresql, ratchet-store-mongodb
+ratchet-store-*      One of: ratchet-store-mysql, ratchet-store-postgresql, ratchet-store-oracle, ratchet-store-mongodb
 ```
 
 Optional modules:
@@ -63,7 +63,7 @@ This is suitable for:
 
 ### Multi-node (clustered)
 
-Multiple application instances share the same database. Ratchet uses database-level claiming (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL, atomic document updates on MongoDB) to ensure each job is claimed by exactly one node.
+Multiple application instances share the same database. Ratchet uses database-level claiming (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL/Oracle, atomic document updates on MongoDB) to ensure each job is claimed by exactly one node.
 
 Recurring scans and destructive startup cleanup are already serialized through store-backed locks and leases. Implement `ClusterCoordinator` only if you want low-latency cross-node wakeups.
 
@@ -143,7 +143,7 @@ See [Monitoring & Observability](/deployment/monitoring) for integration guides.
 
 Before going to production:
 
-1. **Apply or initialize storage:** run schema SQL for MySQL/PostgreSQL; let MongoDB initialize collections and indexes at startup
+1. **Apply or initialize storage:** run schema SQL for MySQL/PostgreSQL/Oracle; let MongoDB initialize collections and indexes at startup
 2. **Configure the store resource:** JNDI-bound, JTA-managed `DataSource` for SQL stores, or a CDI-produced `MongoDatabase` for MongoDB
 3. **Set isolation level for SQL stores:** MySQL requires `READ COMMITTED` (not the default `REPEATABLE READ`)
 4. **Tune polling:** adjust `polling.minDelayMs`, `polling.maxDelayMs`, and `polling.batchSize` for your workload

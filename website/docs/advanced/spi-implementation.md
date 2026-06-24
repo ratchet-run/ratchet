@@ -941,4 +941,4 @@ public class MySpi implements SomeRatchetSpi {
 | `NodeIdentityProvider` | `DefaultNodeIdentityProvider` | Produced by `RatchetProducer` | ratchet |
 | `ClusterCoordinator` | `NoOpClusterCoordinator` | `@ApplicationScoped` | ratchet |
 | `ErrorSanitizer` | `DefaultErrorSanitizer` | Produced by `RatchetProducer` | ratchet |
-| `JobStore` | MySQL / PostgreSQL / MongoDB | `@ApplicationScoped` | ratchet-store-* |
+| `JobStore` | MySQL / PostgreSQL / Oracle / MongoDB | `@ApplicationScoped` | ratchet-store-* |

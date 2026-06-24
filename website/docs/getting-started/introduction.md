@@ -160,7 +160,7 @@ If you're building a microservice on Spring Boot or Quarkus and not targeting a 
 | **Java** | 17+ |
 | **Jakarta EE** | 10/11 -- CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1 |
 | **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8) |
-| **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ |
+| **Database** | MySQL 8+, PostgreSQL 14+, Oracle 23ai+, or MongoDB 6+ |
 
 ## Project status
 

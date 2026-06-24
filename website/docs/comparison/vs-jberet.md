@@ -91,7 +91,7 @@ Ratchet runs the same way on all four. The integration story is uniform: add the
 
 jBeret persists job state through its own JPA model into a configured `DataSource`. WildFly's default is the built-in H2 (which you absolutely should swap out for production), pointing at the same database your application uses. The schema is jBeret's, the tables are jBeret's, and migrations are managed by jBeret at startup.
 
-Ratchet persists through its pluggable `JobStore` SPI. The default schema is your problem to apply (DDL ships as plain SQL), or you opt in to `SchemaMigrationLifecycleHook` for auto-apply. The stores supported out of the box are MySQL, PostgreSQL, and MongoDB. jBeret is SQL-only.
+Ratchet persists through its pluggable `JobStore` SPI. The default schema is your problem to apply (DDL ships as plain SQL), or you opt in to `SchemaMigrationLifecycleHook` for auto-apply. The stores supported out of the box are MySQL, PostgreSQL, Oracle, and MongoDB. jBeret is SQL-only.
 
 If you have a Mongo-based stack, jBeret is not the answer.
 

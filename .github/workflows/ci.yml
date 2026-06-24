@@ -143,7 +143,9 @@ jobs:
       fail-fast: false
       matrix:
         server: [wildfly-managed, wildfly-ee11-managed, payara-managed, openliberty-managed]
-        database: [mysql, postgresql, mongodb]
+        # Oracle runs the full server matrix like the other stores; the ojdbc
+        # driver stays test-scoped and the gvenzl container supplies the database.
+        database: [mysql, postgresql, mongodb, oracle]
         include:
           - server: glassfish-managed
             database: mysql
@@ -151,12 +153,7 @@ jobs:
             database: postgresql
           - server: glassfish-managed
             database: mongodb
-          # Oracle runs one Hibernate cell (WildFly) and one EclipseLink cell
-          # (OpenLiberty); the ojdbc driver stays test-scoped and the gvenzl
-          # container supplies the database.
-          - server: wildfly-managed
-            database: oracle
-          - server: openliberty-managed
+          - server: glassfish-managed
             database: oracle
     steps:
       - uses: actions/checkout@v6
