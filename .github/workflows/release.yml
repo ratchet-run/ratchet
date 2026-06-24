@@ -29,7 +29,7 @@ jobs:
     needs: guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Pre-flight check (pom version)
         run: |
           set -euo pipefail
@@ -69,7 +69,7 @@ jobs:
       # RELEASE_TOKEN (fine-grained PAT) pushes the tag and the bump branch. A push from
       # the built-in GITHUB_TOKEN would not start CI on the bump PR, which the merge queue
       # needs, so the PAT is used for those git operations.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TOKEN }}
