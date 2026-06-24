@@ -1,44 +1,41 @@
-# MySQL Claim EXPLAIN Plans
+# Oracle Claim EXPLAIN Plans
 
-Captured on 2026-04-19 with Testcontainers `mysql:8.0` after seeding 600 pending executable jobs
-across multiple execution types.
+The executable-claim hot path is the only query whose plan is regression-guarded. `OracleExplainPlanCaptureIT`
+captures it live against a Testcontainers Oracle 23ai instance (seeded with pending executable jobs and
+freshly gathered stats) and writes the rendered plan to `target/explain-plans/oracle-optimized-claim.txt`.
 
 ## Optimized Executable Claim
 
-The RI hot path calls `claimNextBatchOptimized(jobType, limit, nodeId)`, so the representative
-claim shape is a single execution type:
+The RI hot path calls `claimNextBatchOptimized(jobType, limit, nodeId)`. On Oracle this runs as two phases
+(Oracle rejects `FETCH FIRST` combined with `FOR UPDATE SKIP LOCKED`, ORA-02014): Phase A selects the top-N
+candidates without locking, Phase B re-locks the still-`PENDING` ids with `FOR UPDATE SKIP LOCKED`. The plan
+that matters is Phase A — the candidate select:
 
 ```sql
-EXPLAIN FORMAT=JSON
-SELECT job_id, status, job_type, priority, scheduled_time,
+EXPLAIN PLAN SET STATEMENT_ID = 'ratchet_claim' FOR
+SELECT /*+ INDEX(sjq idx_claim_executable) */
+       job_id, status, job_type, priority, scheduled_time,
        version, timeout_sec, picked_by, picked_at, business_key,
-       attempts, max_retries
-FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
+       attempts, max_retries, execution_target
+FROM scheduler_job_queue sjq
 WHERE status = 'PENDING'
-  AND scheduled_time <= NOW(3)
+  AND scheduled_time <= CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
   AND job_type = 'SINGLE'
-ORDER BY
-  (priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))) / 15)) DESC,
-  scheduled_time ASC,
-  job_id ASC
-LIMIT 50
-FOR UPDATE SKIP LOCKED;
+ORDER BY (priority + FLOOR(GREATEST(0,
+           (CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE) - CAST(scheduled_time AS DATE)) * 1440)
+           / 15)) DESC,
+         scheduled_time ASC,
+         job_id ASC
+FETCH FIRST 50 ROWS ONLY;
+
+SELECT plan_table_output FROM TABLE(DBMS_XPLAN.DISPLAY('PLAN_TABLE', 'ratchet_claim', 'ALL'));
 ```
 
-Relevant JSON excerpt:
+`EXPLAIN PLAN` / `DBMS_XPLAN.DISPLAY` are granted to PUBLIC, so no extra privilege is needed. The `INDEX`
+hint forces the covering index the same way MySQL's `FORCE INDEX` does — Oracle silently ignores an
+un-honorable hint and falls back to a full scan, so the assertion is a structural regression guard.
 
-```json
-{
-  "table_name": "scheduler_job_queue",
-  "access_type": "range",
-  "possible_keys": ["idx_claim_executable"],
-  "key": "idx_claim_executable",
-  "used_key_parts": ["status", "job_type", "scheduled_time"],
-  "rows_examined_per_scan": 150,
-  "index_condition": "((`ratchet_test`.`scheduler_job_queue`.`status` = 'PENDING') and (`ratchet_test`.`scheduler_job_queue`.`scheduled_time` <= <cache>(now(3))) and (`ratchet_test`.`scheduler_job_queue`.`job_type` = 'SINGLE'))"
-}
-```
-
-`using_filesort=true` is expected: effective priority includes an age-boost expression based on
-`NOW(3)`, so MySQL cannot satisfy the full ordering from a static B-tree. The index invariant is
-that the plan filters to due rows with `idx_claim_executable` before sorting.
+A `SORT ORDER BY` step is expected: effective priority includes an age-boost expression based on the current
+UTC time, so the optimizer cannot satisfy the full ordering from a static B-tree. The invariant the IT
+asserts is that the plan reaches due rows through `IDX_CLAIM_EXECUTABLE` (an `INDEX RANGE SCAN`) before
+sorting, and never `TABLE ACCESS FULL` on `scheduler_job_queue`.

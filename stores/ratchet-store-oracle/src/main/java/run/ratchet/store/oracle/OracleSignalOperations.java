@@ -73,7 +73,10 @@ final class OracleSignalOperations implements SignalStore {
               + limit
               + " ROWS ONLY";
       List<Object[]> rows =
-          ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(now)).getResultList();
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, OracleTimestamps.microTimestamp(now))
+              .getResultList();
 
       List<JobEntity> result = new ArrayList<>(rows.size());
       for (Object[] row : rows) {

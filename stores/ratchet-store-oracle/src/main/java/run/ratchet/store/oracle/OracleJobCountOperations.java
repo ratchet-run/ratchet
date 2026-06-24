@@ -91,7 +91,7 @@ final class OracleJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE status = 'PENDING' AND scheduled_time <= ?
         """;
-    return ctx.countByNative(sql, Timestamp.from(now));
+    return ctx.countByNative(sql, OracleTimestamps.microTimestamp(now));
   }
 
   long countStuckJobs(Instant stuckThreshold) {

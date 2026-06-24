@@ -1,6 +1,6 @@
--- Optional debug indexes for ratchet-store-mysql.
+-- Optional debug indexes for ratchet-store-oracle.
 --
--- These indexes are NOT applied by the standard mysql-schema.sql. They support
+-- These indexes are NOT applied by the standard oracle-schema.sql. They support
 -- ad-hoc queries against scheduler_job by target class or method name during
 -- debugging, support escalations, or one-off audits. They add write amplification
 -- on every job insert/update, so they are off by default.

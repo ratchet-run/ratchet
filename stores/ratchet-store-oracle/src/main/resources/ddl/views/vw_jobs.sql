@@ -1,22 +1,21 @@
--- Read-only operator views: hyphenated UUID strings instead of raw BINARY(16).
+-- Read-only operator views: hyphenated UUID strings instead of raw RAW(16).
 --
--- BIN_TO_UUID(col) (no swap flag) reads bytes in standard order. The MySQL store
--- writes UUIDs in standard byte order via Hibernate's built-in UUID handler /
--- UuidByteArrayConverter under EclipseLink, matching java.util.UUID.toString().
--- Passing the v1-time-reorder flag (BIN_TO_UUID(col, 1)) would scramble the
--- first 8 bytes on read because nothing on the write side performs the inverse
--- swap; results would not match any stored row.
+-- Oracle has no BIN_TO_UUID(); RAWTOHEX(col) renders the 16 stored bytes as 32 uppercase
+-- hex characters, and REGEXP_REPLACE re-inserts the canonical 8-4-4-4-12 dashes. The store
+-- writes UUIDs in standard big-endian byte order via UuidRawConverter, so LOWER() of the
+-- formatted hex round-trips to java.util.UUID.toString() with no byte-order swap. NULL UUID
+-- columns (depends_on, superseded_by) stay NULL because RAWTOHEX(NULL) is NULL.
 --
--- These views are operator-only — Ratchet itself never reads from them. Apply
--- once, after the base schema, with:
---   mysql -u <user> -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/views/vw_jobs.sql
+-- These views are operator-only — Ratchet itself never reads from them. Apply once, after the
+-- base schema, with:
+--   sqlplus <user>/<pass>@<service> @stores/ratchet-store-oracle/src/main/resources/ddl/views/vw_jobs.sql
 
 CREATE OR REPLACE VIEW vw_jobs AS
 SELECT
-    BIN_TO_UUID(j.job_id)              AS job_id,
-    BIN_TO_UUID(j.depends_on)          AS depends_on,
-    BIN_TO_UUID(j.superseded_by)       AS superseded_by,
-    BIN_TO_UUID(j.recurring_master_id) AS recurring_master_id,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(j.job_id),              '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS job_id,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(j.depends_on),          '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS depends_on,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(j.superseded_by),       '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS superseded_by,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(j.recurring_master_id), '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS recurring_master_id,
     j.job_type,
     j.priority,
     j.max_retries,
@@ -32,7 +31,7 @@ FROM scheduler_job j;
 -- Operator view for recurring-master definitions.
 CREATE OR REPLACE VIEW vw_recurring_jobs AS
 SELECT
-    BIN_TO_UUID(r.id) AS id,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(r.id), '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS id,
     r.cron_expr,
     r.zone_id,
     r.next_fire,
@@ -52,7 +51,7 @@ FROM scheduler_recurring_job r;
 -- Operator view for archived recurring definitions.
 CREATE OR REPLACE VIEW vw_recurring_jobs_archive AS
 SELECT
-    BIN_TO_UUID(a.id) AS id,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(a.id), '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS id,
     a.cron_expr,
     a.zone_id,
     a.business_key,
@@ -66,7 +65,7 @@ FROM scheduler_recurring_job_archive a;
 -- Equivalent operator view for hot queue state.
 CREATE OR REPLACE VIEW vw_job_queue AS
 SELECT
-    BIN_TO_UUID(q.job_id) AS job_id,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(q.job_id), '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS job_id,
     q.status,
     q.job_type,
     q.scheduled_time,
@@ -81,8 +80,8 @@ FROM scheduler_job_queue q;
 -- Equivalent operator view for execution audit history.
 CREATE OR REPLACE VIEW vw_job_execution AS
 SELECT
-    BIN_TO_UUID(e.id)     AS id,
-    BIN_TO_UUID(e.job_id) AS job_id,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(e.id),     '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS id,
+    LOWER(REGEXP_REPLACE(RAWTOHEX(e.job_id), '(.{8})(.{4})(.{4})(.{4})(.{12})', '\1-\2-\3-\4-\5')) AS job_id,
     e.attempt,
     e.node_id,
     e.started_at,

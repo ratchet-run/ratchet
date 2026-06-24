@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Oracle-specific JPA mapping override. Forces UUID columns to round-trip via UuidRawConverter
-  so EclipseLink (and any non-Hibernate JPA provider) produces 16 raw bytes for BINARY(16) instead
-  of inserting the 36-character hyphenated form, which Oracle strict mode rejects with error 1406.
+  so EclipseLink (and any non-Hibernate JPA provider) produces 16 raw bytes for the RAW(16) columns
+  instead of inserting the 36-character hyphenated form, which a RAW(16) column cannot store
+  (the hyphenated text is neither 16 bytes nor valid hex).
 
   This file is for EclipseLink (and other non-Hibernate JPA providers) only. Do NOT reference it in
-  a Hibernate-backed deployment: Hibernate maps UUID to BINARY(16) natively on Oracle by default, and
-  Hibernate 7 rejects an AttributeConverter on an @Id attribute (org.hibernate.AnnotationException).
+  a Hibernate-backed deployment: Hibernate maps UUID through its BINARY JDBC type, which lands in a
+  RAW(16) column on Oracle, and Hibernate 7 rejects an AttributeConverter on an @Id attribute
+  (org.hibernate.AnnotationException).
   On Hibernate, omit this file entirely — no mapping file is needed.
 
   Production users wiring ratchet-store-oracle into a non-Hibernate persistence-unit must reference

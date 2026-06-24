@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.util;
 
+import java.io.IOException;
+import java.io.Reader;
 import java.sql.Clob;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -47,19 +49,26 @@ public final class RowValues {
   }
 
   private static String clobToString(Clob clob) {
-    try {
-      long length = clob.length();
-      if (length == 0) {
-        return "";
+    // Stream through the character reader rather than clob.getSubString(1, (int) clob.length()):
+    // the length is a long, so casting it to int silently overflows for a CLOB larger than
+    // Integer.MAX_VALUE characters and would read a truncated or corrupt prefix. Reading in chunks
+    // has no size ceiling and avoids a separate length() round-trip on the driver.
+    try (Reader reader = clob.getCharacterStream()) {
+      StringBuilder sb = new StringBuilder();
+      char[] buffer = new char[8192];
+      int read;
+      while ((read = reader.read(buffer)) != -1) {
+        sb.append(buffer, 0, read);
       }
-      return clob.getSubString(1, (int) length);
-    } catch (SQLException e) {
+      return sb.toString();
+    } catch (SQLException | IOException e) {
       throw new IllegalStateException("Failed to read CLOB column value", e);
     }
     // Deliberately not calling clob.free(): a single hydration may read the same LOB-backed column
     // value more than once (e.g. an encryption framing probe followed by the decrypt read), and
-    // freeing the locator after the first read would break the second. The driver reclaims the
-    // result-set LOBs when the statement/transaction closes.
+    // freeing the locator after the first read would break the second. Closing the character
+    // stream above does not free the locator. The driver reclaims the result-set LOBs when the
+    // statement/transaction closes.
   }
 
   public static Long longOrNull(Object value) {

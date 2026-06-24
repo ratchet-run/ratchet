@@ -61,7 +61,7 @@ import run.ratchet.store.util.IsolationCheck;
  * {@code REQUIRED} boundary. Read methods deliberately do NOT override with {@code SUPPORTS}: on
  * JTA-managed EclipseLink containers (Payara, GlassFish, OpenLiberty), calling a {@code SUPPORTS}
  * method outside an outer JTA tx leaks the borrowed pool connection with auto-commit disabled,
- * leaving an open InnoDB transaction holding metadata locks on subsequent writes (e.g. test-cleanup
+ * leaving an open Oracle transaction holding table locks on subsequent writes (e.g. test-cleanup
  * truncates). The class-level {@code REQUIRED} keeps each read in a clean tx boundary that commits
  * before the connection returns to the pool.
  */

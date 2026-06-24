@@ -33,7 +33,7 @@ class OracleJobStoreImplTransactionTest extends AbstractJobStoreTransactionBound
     // Read methods used to carry an explicit @Transactional(SUPPORTS), but on JTA-managed
     // EclipseLink containers (Payara, GlassFish, OpenLiberty) calling a SUPPORTS method outside
     // an outer JTA tx leaked the borrowed pool connection with auto-commit disabled, leaving an
-    // open InnoDB transaction holding metadata locks on subsequent writes. Reverting to the
+    // open Oracle transaction holding table locks on subsequent writes. Reverting to the
     // class-level @Transactional default (REQUIRED) makes each read have a clean tx boundary
     // that commits before returning the connection to the pool.
     //

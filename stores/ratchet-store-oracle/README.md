@@ -1,18 +1,18 @@
-# Ratchet MySQL store
+# Ratchet Oracle store
 
-MySQL 8.0+ persistence implementation for the Ratchet scheduler.
+Oracle Database 23ai+ persistence implementation for the Ratchet scheduler.
 
 ## Schema
 
 Authoritative DDL lives under `src/main/resources/ddl/`:
 
-- `mysql-schema.sql` — clean-install schema applied by integration tests via Testcontainers.
-- `migrations/V###__*.sql` — ordered upgrade scripts tracked through `ratchet_schema_version` by external migration tooling (or the opt-in `SchemaMigrator` utility).
+- `oracle-schema.sql` — clean-install schema applied by integration tests via Testcontainers.
+- `migrations/V###__*.sql` — ordered upgrade scripts tracked through `ratchet_schema_version` by external migration tooling (or the opt-in `SchemaMigrator` utility). The Oracle migrator holds its lock on a second pooled connection, so the DataSource pool maximum must be at least 2.
 - `views/vw_jobs.sql` — operator-only views (see below). Not loaded by the application or tests.
 
 ## Operator debugging
 
-UUIDv7 IDs are stored as `BINARY(16)`. Raw `SELECT * FROM scheduler_job` returns 16-byte binary values that display as control characters in `mysql` CLI clients.
+UUIDv7 IDs are stored as `RAW(16)`. Raw `SELECT * FROM scheduler_job` returns 16-byte values that display as 32-character hex (not hyphenated UUIDs) in `sqlplus`/SQLcl clients.
 
 Use the read-only views shipped in `ddl/views/vw_jobs.sql`:
 
@@ -22,32 +22,32 @@ SELECT * FROM vw_job_queue WHERE status = 'PENDING';
 SELECT * FROM vw_job_execution WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654';
 ```
 
-The views call `BIN_TO_UUID(col)` (no swap flag). The store writes UUIDs in standard byte order, so reading without the flag round-trips correctly with Java's `UUID.toString()`. Passing `BIN_TO_UUID(col, 1)` would apply MySQL's v1-time-reorder swap on read and produce values that do not match any stored row.
+The views render `RAW(16)` columns with `RAWTOHEX` + `REGEXP_REPLACE`, re-inserting the canonical 8-4-4-4-12 dashes and lowercasing the result. The store writes UUIDs in standard big-endian byte order, so the formatted value round-trips with Java's `UUID.toString()`.
 
 Apply the views once after schema load:
 
 ```bash
-mysql -u <user> -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/views/vw_jobs.sql
+sqlplus <user>/<pass>@<service> @stores/ratchet-store-oracle/src/main/resources/ddl/views/vw_jobs.sql
 ```
 
 Tools that handle binary IDs correctly (Hibernate, DataGrip's UUID-aware viewer, JDBC `getObject(..., UUID.class)`) can query the underlying tables directly.
 
 ## JPA mapping (production wiring)
 
-How you wire `ratchet-store-mysql` into a `persistence.xml` depends on the JPA provider, because UUID columns are stored as `BINARY(16)`. Give Ratchet its own persistence unit — its entity list is self-contained (`<exclude-unlisted-classes>true</exclude-unlisted-classes>`), and the `RatchetEntityManagerProvider` SPI lets a multi-unit application point Ratchet at it. Keeping Ratchet in its own unit means none of the provider settings below can touch your application's own entities or their columns.
+How you wire `ratchet-store-oracle` into a `persistence.xml` depends on the JPA provider, because UUID columns are stored as `RAW(16)`. Give Ratchet its own persistence unit — its entity list is self-contained (`<exclude-unlisted-classes>true</exclude-unlisted-classes>`), and the `RatchetEntityManagerProvider` SPI lets a multi-unit application point Ratchet at it. Keeping Ratchet in its own unit means none of the provider settings below can touch your application's own entities or their columns.
 
-**EclipseLink, OpenJPA (any non-Hibernate provider):** reference `META-INF/orm-mysql.xml` so UUID columns route through `UuidByteArrayConverter`. These providers default to a 36-character hyphenated representation that overflows `BINARY(16)` with MySQL strict-mode error 1406 ("Data too long for column"); the mapping file forces the byte representation.
+**EclipseLink, OpenJPA (any non-Hibernate provider):** reference `META-INF/orm-oracle.xml` so UUID columns route through `UuidRawConverter`. These providers default to a 36-character hyphenated representation that a `RAW(16)` column cannot store (the hyphenated text is neither 16 bytes nor valid hex); the mapping file forces the byte representation.
 
 ```xml
 <persistence-unit name="ratchet">
   <jta-data-source>java:/jdbc/MyDS</jta-data-source>
-  <mapping-file>META-INF/orm-mysql.xml</mapping-file>
+  <mapping-file>META-INF/orm-oracle.xml</mapping-file>
   <class>run.ratchet.store.entity.JobEntity</class>
   ...
 </persistence-unit>
 ```
 
-**Hibernate (ORM 6 or 7):** do NOT reference `orm-mysql.xml`. Hibernate maps `UUID` to `BINARY(16)` natively on MySQL by default (MySQL has no native UUID type), and Hibernate 7 rejects an `AttributeConverter` on an `@Id` attribute (`org.hibernate.AnnotationException`) — so referencing the mapping file would fail deployment. Use no mapping file at all:
+**Hibernate (ORM 6 or 7):** do NOT reference `orm-oracle.xml`. Hibernate maps `UUID` through its `BINARY` JDBC type, which lands in a `RAW(16)` column on Oracle (Oracle has no native UUID type), and Hibernate 7 rejects an `AttributeConverter` on an `@Id` attribute (`org.hibernate.AnnotationException`) — so referencing the mapping file would fail deployment. Use no mapping file at all:
 
 ```xml
 <persistence-unit name="ratchet">
