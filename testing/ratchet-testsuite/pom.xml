@@ -1157,11 +1157,6 @@
           <artifactId>ojdbc11</artifactId>
           <scope>test</scope>
         </dependency>
-        <dependency>
-          <groupId>org.testcontainers</groupId>
-          <artifactId>testcontainers-oracle-free</artifactId>
-          <scope>test</scope>
-        </dependency>
       </dependencies>
     </profile>
 
