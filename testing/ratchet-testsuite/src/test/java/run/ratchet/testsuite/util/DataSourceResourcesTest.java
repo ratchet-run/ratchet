@@ -37,8 +37,7 @@ class DataSourceResourcesTest {
         "org.postgresql.ds.PGSimpleDataSource",
         DataSourceResources.dataSourceClassName("postgresql"));
     assertEquals(
-        "oracle.jdbc.pool.OracleDataSource",
-        DataSourceResources.dataSourceClassName("oracle"));
+        "oracle.jdbc.pool.OracleDataSource", DataSourceResources.dataSourceClassName("oracle"));
   }
 
   @Test
