@@ -52,7 +52,8 @@ class SqlserverConstraintDetector implements ConstraintDetector {
       return null;
     }
     int marker = message.indexOf("constraint '");
-    int start = marker >= 0 ? marker + "constraint '".length() - 1 : message.indexOf('\'');
+    // Opening quote: the one in "constraint '" when present, else the first quote in the message.
+    int start = marker >= 0 ? message.indexOf('\'', marker) : message.indexOf('\'');
     if (start >= 0) {
       int end = message.indexOf('\'', start + 1);
       if (end > start) {
