@@ -23,7 +23,10 @@ final class DataSourceResources {
     return switch (dbType) {
       case "mysql" -> "com.mysql.cj.jdbc.MysqlDataSource";
       case "postgresql" -> "org.postgresql.ds.PGSimpleDataSource";
-      case "oracle" -> "oracle.jdbc.datasource.OracleDataSource";
+      // Concrete class, NOT the oracle.jdbc.datasource.OracleDataSource interface: GlassFish/Payara
+      // instantiate datasource-classname directly (Oracle's own GlassFish docs use this class), and
+      // an interface there fails to deploy with "Error instantiating class ...".
+      case "oracle" -> "oracle.jdbc.pool.OracleDataSource";
       default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
     };
   }
