@@ -792,6 +792,18 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     return signals.findJobsBySignalDeliveryId(deliveryId);
   }
 
+  // Probes the current session's isolation level. The @@SPID-scoped sys.dm_exec_sessions row is
+  // always visible to the session itself, so this needs no VIEW SERVER STATE grant.
+  // READ_COMMITTED_SNAPSHOT still reports level 2 (read committed). (SQL Server has no SHOW-style
+  // statement; the PostgreSQL "SHOW transaction_isolation" this was ported from is invalid T-SQL.)
+  // language=SQL Server
+  static final String ISOLATION_PROBE_SQL =
+      "SELECT CASE transaction_isolation_level"
+          + " WHEN 0 THEN 'unspecified' WHEN 1 THEN 'read uncommitted'"
+          + " WHEN 2 THEN 'read committed' WHEN 3 THEN 'repeatable read'"
+          + " WHEN 4 THEN 'serializable' WHEN 5 THEN 'snapshot' END"
+          + " FROM sys.dm_exec_sessions WHERE session_id = @@SPID";
+
   @PostConstruct
   void checkIsolationLevel() {
     if (em == null) {
@@ -800,12 +812,13 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     IsolationCheck.verifyReadCommitted(
         em,
         "SQL Server",
-        List.of("SHOW transaction_isolation"),
+        List.of(ISOLATION_PROBE_SQL),
         "read committed",
-        "SERIALIZABLE and REPEATABLE READ both surface SQLState 40001 serialization failures on"
-            + " concurrent job claims, which Ratchet's claim loop does not retry. Set"
-            + " default_transaction_isolation = 'read committed' in sqlserver.conf or unset any"
-            + " connection pool override (e.g. hibernate.connection.isolation=2).",
+        "SERIALIZABLE, REPEATABLE READ, and SNAPSHOT isolation surface error 1205 deadlock victims"
+            + " on concurrent job claims, which Ratchet's claim loop does not retry. Ratchet's SQL"
+            + " Server store relies on READ COMMITTED (the engine default; with"
+            + " READ_COMMITTED_SNAPSHOT ON it still reports level 2). Clear any connection-pool"
+            + " override that raises the level (e.g. hibernate.connection.isolation).",
         options.store().isolationCheckMode());
     initDelegates();
   }
