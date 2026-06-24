@@ -40,9 +40,6 @@ import run.ratchet.store.util.StatusClassifier;
 
 final class SqlserverJobClaimOperations implements JobClaimStore {
 
-  static final String EXECUTABLE_JOB_TYPE_FILTER =
-      "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
-
   private static final String CLAIM_SELECT_COLUMNS = ClaimColumn.selectClause();
 
   private final SqlserverStoreContext ctx;
@@ -55,7 +52,7 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
 
   // Overdue minutes since the row was due: DATEDIFF(SECOND, ...) is seconds, /60.0 converts to
   // minutes.
-  private static String pgOverdueMinutes(String timeColumn) {
+  private static String overdueMinutes(String timeColumn) {
     return "DATEDIFF(SECOND, " + timeColumn + ", SYSUTCDATETIME())/60.0";
   }
 
@@ -92,7 +89,7 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
             executionTargetFilterSql,
             tagFilterSql,
             JobClaimSqlSupport.buildBoostedOrderBy(
-                timeColumn, pgOverdueMinutes(timeColumn), boostInterval));
+                timeColumn, overdueMinutes(timeColumn), boostInterval));
   }
 
   // language=SQL Server
@@ -118,7 +115,7 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
             typeFilter,
             tagFilterSql,
             JobClaimSqlSupport.buildBoostedOrderBy(
-                timeColumn, pgOverdueMinutes(timeColumn), boostInterval, "q."));
+                timeColumn, overdueMinutes(timeColumn), boostInterval, "q."));
   }
 
   // SQL template is a compile-time constant defined in this package; runtime values are bound as

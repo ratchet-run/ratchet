@@ -114,14 +114,7 @@ final class SqlserverRecurringJobOperations implements RecurringJobStore {
     if (rows.isEmpty() || rows.get(0) == null) {
       return Optional.empty();
     }
-    Object v = rows.get(0);
-    if (v instanceof Timestamp ts) {
-      return Optional.of(ts.toInstant());
-    }
-    if (v instanceof Instant inst) {
-      return Optional.of(inst);
-    }
-    return Optional.empty();
+    return Optional.ofNullable(RowValues.instantOrNull(rows.get(0)));
   }
 
   @Override

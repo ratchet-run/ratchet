@@ -207,35 +207,23 @@ final class SqlserverJobCountOperations {
   }
 
   double getRetryRateStats(Instant since) {
-    try {
-      Timestamp sinceTs = Timestamp.from(since);
-      // language=SQL Server
-      String sql =
-          """
-          SELECT COALESCE(
-            CAST(
-              ((SELECT COUNT(*) FROM scheduler_job_queue
-                  WHERE attempts > 0 AND updated_at >= ?)
-               + (SELECT COUNT(*) FROM scheduler_job
-                  WHERE total_attempts > 0 AND terminated_at >= ?))
-              AS DOUBLE PRECISION)
-            / NULLIF(
-              ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= ?)
-               + (SELECT COUNT(*) FROM scheduler_job
-                  WHERE terminated_at >= ?)), 0), 0)
-          """;
-      Object result =
-          ctx.em()
-              .createNativeQuery(sql)
-              .setParameter(1, sinceTs)
-              .setParameter(2, sinceTs)
-              .setParameter(3, sinceTs)
-              .setParameter(4, sinceTs)
-              .getSingleResult();
-      return result == null ? 0.0 : ((Number) result).doubleValue();
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("get retry rate stats", e);
-    }
+    Timestamp sinceTs = Timestamp.from(since);
+    // language=SQL Server
+    String sql =
+        """
+        SELECT COALESCE(
+          CAST(
+            ((SELECT COUNT(*) FROM scheduler_job_queue
+                WHERE attempts > 0 AND updated_at >= ?)
+             + (SELECT COUNT(*) FROM scheduler_job
+                WHERE total_attempts > 0 AND terminated_at >= ?))
+            AS DOUBLE PRECISION)
+          / NULLIF(
+            ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= ?)
+             + (SELECT COUNT(*) FROM scheduler_job
+                WHERE terminated_at >= ?)), 0), 0)
+        """;
+    return ctx.doubleByNativeOrZero(sql, sinceTs, sinceTs, sinceTs, sinceTs);
   }
 
   double getAverageProcessingTime(Instant since) {
@@ -246,9 +234,7 @@ final class SqlserverJobCountOperations {
         WHERE terminal_status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL
           AND terminated_at >= ?
         """;
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(since)).getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    return ctx.doubleByNativeOrZero(sql, Timestamp.from(since));
   }
 
   double getAverageBatchSize(Instant since) {
@@ -260,9 +246,7 @@ final class SqlserverJobCountOperations {
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE COALESCE(q.updated_at, c.terminated_at) >= ?
         """;
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(since)).getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    return ctx.doubleByNativeOrZero(sql, Timestamp.from(since));
   }
 
   @SuppressWarnings("unchecked")
