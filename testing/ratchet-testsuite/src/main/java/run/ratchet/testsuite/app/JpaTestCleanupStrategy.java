@@ -24,21 +24,20 @@ import java.util.List;
 import java.util.Objects;
 import java.util.logging.Logger;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
+import run.ratchet.tck.store.SqlDialectTestSupport;
 
 /**
  * JPA/SQL implementation of {@link TestCleanupStrategy}.
  *
- * <p>Clears all scheduler tables using native SQL within a JTA transaction. Foreign key checks are
- * temporarily disabled for MySQL. Only packaged in the WAR when a JPA store profile (mysql,
- * postgresql) is active.
+ * <p>Clears all scheduler tables using native SQL within a JTA transaction. The dialect-specific
+ * pieces — foreign-key toggling and TRUNCATE vs DELETE — are delegated to {@link
+ * SqlDialectTestSupport}. Only packaged in the WAR when a JPA store profile (mysql, postgresql,
+ * oracle) is active.
  */
 @ApplicationScoped
 public class JpaTestCleanupStrategy implements TestCleanupStrategy {
 
   private static final Logger log = Logger.getLogger(JpaTestCleanupStrategy.class.getName());
-  private static final String DB_TYPE_MYSQL = "mysql";
-  private static final String DB_TYPE_POSTGRESQL = "postgresql";
-  private static final String DB_TYPE_ORACLE = "oracle";
 
   private static final List<String> TABLES_BEFORE_HOT_STATE =
       List.of(
@@ -74,34 +73,17 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void truncateAll() {
-    String dbType = TestRuntimeConfig.dbType();
-    boolean mysql = DB_TYPE_MYSQL.equals(dbType);
-    // PostgreSQL and Oracle clear via row-level DELETE rather than TRUNCATE. The scheduler poller
-    // keeps ticking through cleanup, and on Oracle a concurrent TRUNCATE both fails outright on
-    // tables that enabled foreign keys reference (ORA-02266) and resets a table's data-object
-    // number, so any in-flight poller query against it dies with ORA-08103. DELETE is MVCC-friendly
-    // and respects the child-before-parent ordering below, so it coexists with the live poller.
-    boolean useDelete = DB_TYPE_POSTGRESQL.equals(dbType) || DB_TYPE_ORACLE.equals(dbType);
-
+    SqlDialectTestSupport dialect = SqlDialectTestSupportProvider.get();
     try {
-      if (mysql) {
-        em().createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
-      }
-
+      dialect.disableForeignKeyChecks(em());
       for (String table : tablesToClear()) {
-        if (useDelete) {
-          em().createNativeQuery("DELETE FROM " + table).executeUpdate();
-        } else {
-          em().createNativeQuery("TRUNCATE TABLE " + table).executeUpdate();
-        }
+        dialect.clearTable(em(), table);
       }
     } finally {
-      if (mysql) {
-        try {
-          em().createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
-        } catch (Exception e) {
-          log.fine("Unable to re-enable MySQL foreign key checks: " + e.getMessage());
-        }
+      try {
+        dialect.enableForeignKeyChecks(em());
+      } catch (Exception e) {
+        log.fine("Unable to re-enable foreign key checks: " + e.getMessage());
       }
     }
   }
