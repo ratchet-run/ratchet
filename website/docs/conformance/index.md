@@ -32,13 +32,13 @@ store under test does not advertise that capability.
 |-------|--------|
 | MySQL | [MySQL Store Conformance](./mysql) |
 | PostgreSQL | [PostgreSQL Store Conformance](./postgresql) |
+| Oracle | [Oracle Store Conformance](./oracle) |
 | MongoDB | [MongoDB Store Conformance](./mongodb) |
 
 ## API and Jakarta Runtime Reports
 
-Results are published for all 15 server × database combinations (WildFly, WildFly EE 11, Payara,
-Open Liberty, GlassFish × MySQL, PostgreSQL, MongoDB) and regenerated after each successful CI run
-on `main`.
+Results are published for WildFly, WildFly EE 11, Payara, Open Liberty, and GlassFish across MySQL,
+PostgreSQL, Oracle, and MongoDB, and regenerated after each successful CI run on `main`.
 
 - [API Conformance Matrix](./api/) -- Tier 2 results across all runtimes
 - [Jakarta Runtime Conformance Matrix](./jakarta/) -- Tier 3 results across all runtimes
@@ -49,6 +49,7 @@ on `main`.
 ```bash
 mvn test -pl :ratchet-store-mysql -am      # generates stores/ratchet-store-mysql/target/tck-conformance-report.md
 mvn test -pl :ratchet-store-postgresql -am
+mvn test -pl :ratchet-store-oracle -am
 mvn test -pl :ratchet-store-mongodb -am
 ```
 

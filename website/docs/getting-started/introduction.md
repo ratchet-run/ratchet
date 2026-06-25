@@ -43,7 +43,7 @@ Ratchet was designed from the ground up for the common case: **schedule a method
 |----------------|----------------|
 | **Lambda-based API** | No `Job` interface to implement. Pass a method reference and you're done. |
 | **CDI-native** | Inject `JobSchedulerService` like any other bean. No special wiring. |
-| **Pluggable store SPI** | Use MySQL, PostgreSQL, or MongoDB. Or implement the TCK and bring your own. |
+| **Pluggable store SPI** | Use MySQL, PostgreSQL, Oracle, or MongoDB. Or implement the TCK and bring your own. |
 | **Built-in resilience** | Retries, backoff, circuit breakers, and dead letter queues are first-class. |
 | **Schema as DDL** | SQL stores ship plain DDL files. No Flyway dependency, no migration lock-in. MongoDB initializes collections and indexes at startup. |
 | **Workflow primitives** | Chain jobs, branch on results, and compose multi-step workflows without an external orchestrator. |
@@ -160,7 +160,7 @@ If you're building a microservice on Spring Boot or Quarkus and not targeting a 
 | **Java** | 17+ |
 | **Jakarta EE** | 10/11 -- CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1 |
 | **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8) |
-| **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ |
+| **Database** | MySQL 8+, PostgreSQL 14+, Oracle 23ai+, or MongoDB 6+ |
 
 ## Project status
 

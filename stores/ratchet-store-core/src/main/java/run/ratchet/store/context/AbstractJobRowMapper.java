@@ -141,7 +141,11 @@ public abstract class AbstractJobRowMapper {
     j.setBackoffPolicy(enumValue(row, IDX_BACKOFF_POLICY, "backoff_policy", BackoffPolicy.class));
     j.setBackoffParamMs(requiredNumber(row, IDX_BACKOFF_PARAM_MS, "backoff_param_ms").intValue());
     j.setTimeoutSec(requiredNumber(row, IDX_TIMEOUT_SEC, "timeout_sec").intValue());
-    j.setCronExpr((String) row[IDX_CRON_EXPR]);
+    // Oracle stores the engine's "" sentinel (non-recurring jobs) as NULL because it collapses the
+    // empty string. Coerce back to "" so cron_expr round-trips identically on every store; a no-op
+    // for MySQL/PostgreSQL, which keep the column NOT NULL and never return null here.
+    String cronExpr = (String) row[IDX_CRON_EXPR];
+    j.setCronExpr(cronExpr == null ? "" : cronExpr);
     j.setZoneId((String) row[IDX_ZONE_ID]);
     String rawPayload = RowValues.stringOrNull(row[IDX_PAYLOAD]);
     if (j.isEncryptedPayload() && PayloadEncryptor.argsFlaggedButUnframed(rawPayload)) {

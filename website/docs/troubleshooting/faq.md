@@ -23,12 +23,13 @@ This is not a supported configuration. If you need a non-CDI scheduler, consider
 
 ## What databases are supported?
 
-Ratchet ships with three store modules:
+Ratchet ships with four store modules:
 
 | Module | Database | Minimum Version |
 |---|---|---|
 | `ratchet-store-mysql` | MySQL | 8.0+ |
 | `ratchet-store-postgresql` | PostgreSQL | 14+ |
+| `ratchet-store-oracle` | Oracle | 23ai+ |
 | `ratchet-store-mongodb` | MongoDB | 6.0+ |
 
 The SQL modules provide DDL scripts (`src/main/resources/ddl/`) as plain SQL files. Apply them however you manage your schema (Flyway, Liquibase, manual scripts, etc.). The MongoDB module initializes its collections and indexes at startup.
@@ -120,7 +121,7 @@ Ratchet and Quartz have different architectures. Quartz uses trigger-based sched
 | `CronTrigger` | `scheduleRecurring()` or `@Recurring` annotation |
 | `SimpleTrigger` with repeat | `scheduleRecurring()` with cron expression |
 | `JobDataMap` | `JobBuilder.withParam()` / `JobContext.param()` |
-| `JobStore` (RAM/JDBC) | `ratchet-store-mysql`, `ratchet-store-postgresql`, or `ratchet-store-mongodb` |
+| `JobStore` (RAM/JDBC) | `ratchet-store-mysql`, `ratchet-store-postgresql`, `ratchet-store-oracle`, or `ratchet-store-mongodb` |
 | Clustering via database locks | Built-in atomic claim with optimistic locking |
 | `@PersistJobDataAfterExecution` | Job results stored in `job_result` column |
 

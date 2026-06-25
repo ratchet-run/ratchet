@@ -217,7 +217,7 @@ Ratchet uses **RFC 9562 §5.7 UUIDv7** for primary keys. UUIDs are 128-bit value
 - **Time-ordered:** The 48-bit timestamp prefix preserves B-tree locality: inserts cluster at the right edge, and range scans by time work directly.
 - **Monotonic within a millisecond:** `rand_a` is used as a per-ms counter; on overflow inside a single ms, generation busy-spins via `Thread.onSpinWait` until the wall clock advances (RFC 9562 §6.2 wait-for-tick). The timestamp is never advanced past wall-clock time.
 - **Coordination-free:** 62 bits of randomness in `rand_b` make collisions vanishingly unlikely without inter-node coordination.
-- **128-bit `java.util.UUID`:** Standard Java type, no special storage adapter on PostgreSQL (native `uuid`). MySQL stores as `BINARY(16)` and uses the MySQL store's `META-INF/orm-mysql.xml` mapping plus `UuidByteArrayConverter` so non-Hibernate JPA providers bind UUID fields as 16 bytes. MongoDB stores BSON UUID subtype 4 (`UuidRepresentation.STANDARD`).
+- **128-bit `java.util.UUID`:** Standard Java type, no special storage adapter on PostgreSQL (native `uuid`). MySQL stores as `BINARY(16)` and uses the MySQL store's `META-INF/orm-mysql.xml` mapping plus `UuidByteArrayConverter` so non-Hibernate JPA providers bind UUID fields as 16 bytes. Oracle stores as `RAW(16)` and uses the Oracle store's `META-INF/orm-oracle.xml` mapping plus `UuidRawConverter` the same way. MongoDB stores BSON UUID subtype 4 (`UuidRepresentation.STANDARD`).
 
 ### Utility Methods
 
@@ -239,7 +239,7 @@ UUID id = UuidV7Factory.create();
 
 ## JobStore SPI
 
-The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by also implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, and MongoDB stores advertise every capability.
+The mandatory `JobStore` interface composes the persistence concerns every store must provide. Optional capabilities are **not** part of it: a store advertises one by also implementing its interface, and callers probe for it with `capability()` rather than assuming it is present. A minimal backend implements only the core through one CDI bean; the shipped MySQL, PostgreSQL, Oracle, and MongoDB stores advertise every capability.
 
 ```java
 public interface JobStore

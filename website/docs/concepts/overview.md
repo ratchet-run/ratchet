@@ -12,7 +12,7 @@ Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11 applications
 
 In a typical Jakarta EE application, Ratchet sits between your business logic and the database. You inject `JobSchedulerService`, enqueue work using lambda expressions, and Ratchet handles persistence, polling, execution, retries, and lifecycle events.
 
-<div class="ratchet-fit-diagram" role="group" aria-label="Ratchet architecture: application code submits jobs through JobSchedulerService into the Ratchet engine, which persists through the JobStore SPI backed by MySQL, PostgreSQL, or MongoDB.">
+<div class="ratchet-fit-diagram" role="group" aria-label="Ratchet architecture: application code submits jobs through JobSchedulerService into the Ratchet engine, which persists through the JobStore SPI backed by MySQL, PostgreSQL, Oracle, or MongoDB.">
   <div class="fit-layer fit-layer-app">
     <div>
       <span class="fit-kicker">Your Jakarta EE Application</span>
@@ -72,6 +72,10 @@ scheduler.enqueue(() -> orderService.process(id)).withMaxRetries(3).submit();
       <small>SKIP LOCKED claiming</small>
     </div>
     <div class="fit-store">
+      <span>Oracle Store</span>
+      <small>SKIP LOCKED claiming</small>
+    </div>
+    <div class="fit-store">
       <span>MongoDB Store</span>
       <small>Atomic document updates</small>
     </div>
@@ -117,6 +121,10 @@ Ratchet is organized into modules following the Jakarta EE API / RI / TCK patter
       <div class="module-chip">
         <code>ratchet-store-postgresql</code>
         <p>PostgreSQL JobStore implementation and DDL.</p>
+      </div>
+      <div class="module-chip">
+        <code>ratchet-store-oracle</code>
+        <p>Oracle 23ai JobStore implementation and DDL.</p>
       </div>
       <div class="module-chip">
         <code>ratchet-store-mongodb</code>
@@ -252,6 +260,10 @@ Ratchet is organized into modules following the Jakarta EE API / RI / TCK patter
         <small>PostgreSQL + DDL</small>
       </div>
       <div class="dependency-node dependency-node-store">
+        <strong>ratchet-store-oracle</strong>
+        <small>Oracle + DDL</small>
+      </div>
+      <div class="dependency-node dependency-node-store">
         <strong>ratchet-store-mongodb</strong>
         <small>MongoDB collections + indexes</small>
       </div>
@@ -295,7 +307,7 @@ Ratchet separates API contracts from implementation through Service Provider Int
 
 | SPI | Purpose | Default |
 |-----|---------|---------|
-| `JobStore` | Persistence backend | MySQL / PostgreSQL / MongoDB modules |
+| `JobStore` | Persistence backend | MySQL / PostgreSQL / Oracle / MongoDB modules |
 | `JobInvocationResolver` | Callback-to-method invocation resolution | ASM bytecode analysis |
 | `ResultPersistenceStrategy` | Job return-value persistence | JSON metadata with size cap |
 | `RatchetOptions` | Typed runtime options | Required CDI producer; see [Configuration](/getting-started/configuration) |
@@ -358,7 +370,7 @@ Add Ratchet to your Jakarta EE application:
   <dependency>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-store-mysql</artifactId>
-    <!-- or ratchet-store-postgresql / ratchet-store-mongodb -->
+    <!-- or ratchet-store-postgresql / ratchet-store-oracle / ratchet-store-mongodb -->
   </dependency>
 </dependencies>
 ```

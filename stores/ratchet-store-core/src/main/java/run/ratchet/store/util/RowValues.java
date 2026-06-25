@@ -15,6 +15,10 @@
  */
 package run.ratchet.store.util;
 
+import java.io.IOException;
+import java.io.Reader;
+import java.sql.Clob;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -32,7 +36,39 @@ public final class RowValues {
   private RowValues() {}
 
   public static String stringOrNull(Object value) {
-    return value == null ? null : value.toString();
+    if (value == null) {
+      return null;
+    }
+    // Oracle returns LOB-backed columns (JSON-as-CLOB, large TEXT) as java.sql.Clob from native
+    // queries; toString() would yield an opaque handle, not the content. MySQL/PostgreSQL return
+    // these columns as String, so this branch is Oracle-only in practice.
+    if (value instanceof Clob clob) {
+      return clobToString(clob);
+    }
+    return value.toString();
+  }
+
+  private static String clobToString(Clob clob) {
+    // Stream through the character reader rather than clob.getSubString(1, (int) clob.length()):
+    // the length is a long, so casting it to int silently overflows for a CLOB larger than
+    // Integer.MAX_VALUE characters and would read a truncated or corrupt prefix. Reading in chunks
+    // has no size ceiling and avoids a separate length() round-trip on the driver.
+    try (Reader reader = clob.getCharacterStream()) {
+      StringBuilder sb = new StringBuilder();
+      char[] buffer = new char[8192];
+      int read;
+      while ((read = reader.read(buffer)) != -1) {
+        sb.append(buffer, 0, read);
+      }
+      return sb.toString();
+    } catch (SQLException | IOException e) {
+      throw new IllegalStateException("Failed to read CLOB column value", e);
+    }
+    // Deliberately not calling clob.free(): a single hydration may read the same LOB-backed column
+    // value more than once (e.g. an encryption framing probe followed by the decrypt read), and
+    // freeing the locator after the first read would break the second. Closing the character
+    // stream above does not free the locator. The driver reclaims the result-set LOBs when the
+    // statement/transaction closes.
   }
 
   public static Long longOrNull(Object value) {

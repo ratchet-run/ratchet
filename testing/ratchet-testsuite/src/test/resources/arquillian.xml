@@ -29,6 +29,7 @@
         -DPOLLER_DEEP_IDLE_THRESHOLD_MS=5000
         -DPOLLER_DEEP_IDLE_DELAY_MS=2000
         -DPOLLER_MAX_DELAY_MS=2000
+        -Doracle.jdbc.defaultLobPrefetchSize=1048576
       </property>
       <property name="managementPort">29990</property>
       <property name="allowConnectingToRunningServer">false</property>
@@ -68,6 +69,7 @@
         -DPOLLER_DEEP_IDLE_THRESHOLD_MS=5000
         -DPOLLER_DEEP_IDLE_DELAY_MS=2000
         -DPOLLER_MAX_DELAY_MS=2000
+        -Doracle.jdbc.defaultLobPrefetchSize=1048576
       </property>
       <property name="managementPort">30990</property>
       <property name="allowConnectingToRunningServer">false</property>
@@ -145,6 +147,7 @@
         -DPOLLER_DEEP_IDLE_THRESHOLD_MS=5000
         -DPOLLER_DEEP_IDLE_DELAY_MS=2000
         -DPOLLER_MAX_DELAY_MS=2000
+        -Doracle.jdbc.defaultLobPrefetchSize=1048576
       </property>
       <property name="allowConnectingToRunningServer">false</property>
       <property name="outputToConsole">true</property>

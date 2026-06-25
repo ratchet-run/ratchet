@@ -38,6 +38,7 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
   private static final Logger log = Logger.getLogger(JpaTestCleanupStrategy.class.getName());
   private static final String DB_TYPE_MYSQL = "mysql";
   private static final String DB_TYPE_POSTGRESQL = "postgresql";
+  private static final String DB_TYPE_ORACLE = "oracle";
 
   private static final List<String> TABLES_BEFORE_HOT_STATE =
       List.of(
@@ -75,7 +76,12 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
   public void truncateAll() {
     String dbType = TestRuntimeConfig.dbType();
     boolean mysql = DB_TYPE_MYSQL.equals(dbType);
-    boolean postgresql = DB_TYPE_POSTGRESQL.equals(dbType);
+    // PostgreSQL and Oracle clear via row-level DELETE rather than TRUNCATE. The scheduler poller
+    // keeps ticking through cleanup, and on Oracle a concurrent TRUNCATE both fails outright on
+    // tables that enabled foreign keys reference (ORA-02266) and resets a table's data-object
+    // number, so any in-flight poller query against it dies with ORA-08103. DELETE is MVCC-friendly
+    // and respects the child-before-parent ordering below, so it coexists with the live poller.
+    boolean useDelete = DB_TYPE_POSTGRESQL.equals(dbType) || DB_TYPE_ORACLE.equals(dbType);
 
     try {
       if (mysql) {
@@ -83,7 +89,7 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
       }
 
       for (String table : tablesToClear()) {
-        if (postgresql) {
+        if (useDelete) {
           em().createNativeQuery("DELETE FROM " + table).executeUpdate();
         } else {
           em().createNativeQuery("TRUNCATE TABLE " + table).executeUpdate();

@@ -13,7 +13,7 @@ This guide gets you from zero to a running background job in the shortest path p
 Before starting, make sure you have:
 
 1. A Jakarta EE 10/11 project with a running application server (WildFly, Open Liberty, Payara, GlassFish 8, etc.)
-2. A database (PostgreSQL, MySQL, or MongoDB) accessible from your application
+2. A database (PostgreSQL, MySQL, Oracle, or MongoDB) accessible from your application
 3. Ratchet dependencies added to your `pom.xml` (see [Installation](./installation.md))
 4. The Ratchet schema applied to your database
 5. A `@Produces RatchetOptions` CDI bean (required; no automatic fallback)
@@ -273,7 +273,7 @@ This usually means `ratchet` is not on the classpath, or your `beans.xml` is con
 
 ### "No JobStore implementation found"
 
-You need a store module (`ratchet-store-postgresql`, `ratchet-store-mysql`, or `ratchet-store-mongodb`) on the classpath, and it needs a configured `DataSource` or connection. Check that your application server's data source JNDI name matches what the store expects.
+You need a store module (`ratchet-store-postgresql`, `ratchet-store-mysql`, `ratchet-store-oracle`, or `ratchet-store-mongodb`) on the classpath, and it needs a configured `DataSource` or connection. Check that your application server's data source JNDI name matches what the store expects.
 
 ### Startup fails with `ClassPolicy allowedPackages is empty`
 

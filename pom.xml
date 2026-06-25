@@ -50,6 +50,7 @@
     <module>stores/ratchet-store-core</module>
     <module>stores/ratchet-store-mysql</module>
     <module>stores/ratchet-store-postgresql</module>
+    <module>stores/ratchet-store-oracle</module>
     <module>stores/ratchet-store-mongodb</module>
     <module>coordinators/ratchet-coordinator-common</module>
     <module>coordinators/ratchet-coordinator-postgresql</module>
@@ -153,6 +154,7 @@
     <mysql-connector.version>8.4.0</mysql-connector.version>
     <protobuf-java.version>3.25.9</protobuf-java.version>
     <postgresql-driver.version>42.7.11</postgresql-driver.version>
+    <ojdbc.version>23.9.0.25.07</ojdbc.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
     <artemis.version>2.54.0</artemis.version>
     <netty.version>4.1.133.Final</netty.version>
@@ -390,6 +392,11 @@
       </dependency>
       <dependency>
         <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-store-oracle</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
         <artifactId>ratchet-store-mongodb</artifactId>
         <version>${project.version}</version>
       </dependency>
@@ -540,6 +547,18 @@
         <groupId>com.mysql</groupId>
         <artifactId>mysql-connector-j</artifactId>
         <version>${mysql-connector.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <!--
+        Oracle JDBC driver. Published on Maven Central under Oracle's Free Use Terms and
+        Conditions (FUTC) — not an OSI-approved license — so it is never a hard runtime
+        dependency: the store scopes it test-only and deployers supply their own ojdbc.
+      -->
+      <dependency>
+        <groupId>com.oracle.database.jdbc</groupId>
+        <artifactId>ojdbc11</artifactId>
+        <version>${ojdbc.version}</version>
         <scope>test</scope>
       </dependency>
 

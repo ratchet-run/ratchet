@@ -1,12 +1,12 @@
 ---
 sidebar_position: 4
 title: Database Setup
-description: "Setting up MySQL, PostgreSQL, or MongoDB for Ratchet: schema application, DataSource configuration, and connection pooling."
+description: "Setting up MySQL, PostgreSQL, Oracle, or MongoDB for Ratchet: schema application, DataSource configuration, and connection pooling."
 ---
 
 # Database Setup
 
-Ratchet requires a database to persist jobs, execution history, and scheduling metadata. This guide covers setup for all three supported stores.
+Ratchet requires a database to persist jobs, execution history, and scheduling metadata. This guide covers setup for all supported stores.
 
 SQL stores ship DDL as plain SQL files bundled inside each SQL store module JAR. There is no Flyway or Liquibase dependency: apply the schema using whatever mechanism your team prefers, **or** opt in to Ratchet's built-in startup migrator (see [Auto-migration](#auto-migration) below). MongoDB initializes collections and indexes at startup unconditionally; its named indexes are referenced by claim queries, so initialization is correctness-critical, not optional.
 
@@ -228,6 +228,66 @@ Verify the effective level on a live connection with `SELECT @@transaction_isola
 - Business key uniqueness for active jobs is enforced by the `scheduler_business_key_reservation` table, not by a column on `scheduler_job`
 - All tables use `InnoDB` engine with `utf8mb4_unicode_ci` collation
 
+## Oracle
+
+### Create the Database
+
+Create a user (schema) and grant it the usual application privileges:
+
+```sql
+CREATE USER ratchet IDENTIFIED BY "your-secure-password"
+  DEFAULT TABLESPACE users QUOTA UNLIMITED ON users;
+GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE TO ratchet;
+```
+
+### Apply the Schema
+
+```bash
+# From the source tree
+sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 \
+  @stores/ratchet-store-oracle/src/main/resources/ddl/oracle-schema.sql
+
+# Or extract from the JAR
+jar xf ratchet-store-oracle-0.1.1-SNAPSHOT.jar ddl/oracle-schema.sql
+sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 @ddl/oracle-schema.sql
+```
+
+### Verify Installation
+
+```sql
+SELECT table_name FROM user_tables
+WHERE table_name LIKE 'SCHEDULER\_%' ESCAPE '\' ORDER BY table_name;
+```
+
+You should see the same core tables as the other SQL stores, with Oracle-specific column types (`RAW(16)` ids, `CLOB` JSON, native `BOOLEAN`, virtual `JSON_VALUE` columns).
+
+### DataSource Configuration
+
+Oracle's JDBC driver (`ojdbc11`) is published under the Free Use Terms and Conditions, not an OSI-approved license, so Ratchet does not bundle it — supply your own on the application or server module path.
+
+```bash
+# WildFly: register the driver module, then add the data source
+/subsystem=datasources/data-source=RatchetDS:add( \
+    jndi-name=java:/RatchetDS, \
+    driver-name=oracle, \
+    connection-url=jdbc:oracle:thin:@//localhost:1521/FREEPDB1, \
+    user-name=ratchet, \
+    password=your-secure-password, \
+    min-pool-size=5, \
+    max-pool-size=20, \
+    transaction-isolation=TRANSACTION_READ_COMMITTED)
+```
+
+See [Oracle Deployment](/deployment/oracle) for the persistence-unit mapping (including the `orm-oracle.xml` mapping file for EclipseLink) and the UTC time-zone requirement.
+
+### Oracle-Specific Notes
+
+- Requires Oracle Database 23ai for the native `BOOLEAN` type and `CREATE TABLE IF NOT EXISTS`
+- Stores UUIDs as `RAW(16)`; JSON payloads as `CLOB` (native `JSON` reorders keys and breaks payload encryption framing)
+- `target_class`/`method_name`/`trace_id_extracted` are virtual columns computed with `JSON_VALUE`
+- The claim path is two-phase: an unlocked candidate select then a `FOR UPDATE SKIP LOCKED` lock over those ids, since Oracle rejects `FETCH FIRST` with `FOR UPDATE SKIP LOCKED` (ORA-02014)
+- Timestamp columns hold UTC wall-clock; run the JVM in UTC
+
 ## MongoDB
 
 ### Create the Database
@@ -407,9 +467,12 @@ If no `DataSource` bean is available when `auto-migrate=true`, deployment fails 
 | MySQL ≥ 8 | `mysql` | yes |
 | MariaDB | `mysql` | yes |
 | PostgreSQL | `postgresql` | yes |
+| Oracle ≥ 23ai | `oracle` | yes |
 | Anything else (incl. CockroachDB) | unsupported | no |
 
-The dialect is auto-detected from `DatabaseMetaData.getDatabaseProductName()`. Look-alike products such as **CockroachDB** report a PostgreSQL wire protocol but lack `pg_advisory_lock`, so they are explicitly rejected even though the wire is compatible. Override the auto-detected value with `RATCHET_SCHEMA_MIGRATION_DIALECT=mysql` (or `postgresql`) only if you have verified your driver-product combination.
+The dialect is auto-detected from `DatabaseMetaData.getDatabaseProductName()`. Look-alike products such as **CockroachDB** report a PostgreSQL wire protocol but lack `pg_advisory_lock`, so they are explicitly rejected even though the wire is compatible. Override the auto-detected value with `RATCHET_SCHEMA_MIGRATION_DIALECT=mysql` (or `postgresql`, `oracle`) only if you have verified your driver-product combination.
+
+Each dialect serializes concurrent migrators differently: MySQL via `GET_LOCK`, PostgreSQL via `pg_advisory_lock`, and Oracle via an `EXCLUSIVE` lock on a dedicated `ratchet_schema_lock` table held on a second connection (Oracle has no grant-free session-level advisory lock and its DDL auto-commits). Oracle auto-migration therefore needs a connection pool maximum of at least 2.
 
 ### Enabling auto-migrate on a database that already has the schema
 
@@ -455,7 +518,7 @@ mongodump --db ratchet --out /backup/
 mongorestore --db ratchet /backup/ratchet/
 ```
 
-For all databases, schedule regular backups and test restoration periodically. In production, consider point-in-time recovery using WAL archiving (PostgreSQL), binary log (MySQL), or oplog (MongoDB).
+For all databases, schedule regular backups and test restoration periodically. In production, consider point-in-time recovery using WAL archiving (PostgreSQL), binary log (MySQL), archived redo logs (Oracle), or oplog (MongoDB).
 
 ## See Also
 

@@ -5,7 +5,7 @@
 // Jakarta EE evaluator checks before adopting. Numbers mirror the source of
 // truth in docs/conformance/index.md — keep them in sync.
 const runtimes = ['WildFly', 'WildFly EE 11', 'Open Liberty', 'Payara', 'GlassFish']
-const databases = ['MySQL', 'PostgreSQL', 'MongoDB']
+const databases = ['MySQL', 'PostgreSQL', 'Oracle', 'MongoDB']
 
 const facts = [
   { label: '15 verified combinations', detail: '5 runtimes × 3 databases' },

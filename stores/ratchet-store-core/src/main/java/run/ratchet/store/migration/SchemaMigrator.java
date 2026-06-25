@@ -62,6 +62,12 @@ public final class SchemaMigrator {
   private static final Pattern SCRIPT_NAME = Pattern.compile("V(\\d+)__(.+)\\.sql");
   private static final String LOCK_NAME = "ratchet_schema_migration";
   private static final long POSTGRESQL_LOCK_KEY = 0x52617463686574L;
+  // Oracle has no grant-free session-level advisory lock and its DDL auto-commits, so the lock is
+  // held as an EXCLUSIVE table lock on a dedicated connection (see acquireLock/migrate). WAIT N is
+  // in seconds; a second migrator that cannot acquire the lock within this window fails loudly.
+  private static final int ORACLE_LOCK_WAIT_SECONDS = 120;
+  private static final int ORA_NAME_ALREADY_USED = 955;
+  private static final int ORA_RESOURCE_BUSY = 54;
 
   private final DataSource dataSource;
   private final Dialect dialect;
@@ -91,8 +97,8 @@ public final class SchemaMigrator {
   }
 
   /**
-   * Resolves the migration dialect string ({@code "mysql"} or {@code "postgresql"}) from a JDBC
-   * connection's product name.
+   * Resolves the migration dialect string ({@code "mysql"}, {@code "postgresql"}, or {@code
+   * "oracle"}) from a JDBC connection's product name.
    *
    * <p>Whitelist only — auto-detection is intentionally narrow because look-alike products such as
    * CockroachDB report a PostgreSQL wire protocol but lack {@code pg_advisory_lock}, and MariaDB
@@ -117,10 +123,13 @@ public final class SchemaMigrator {
     if (normalized.equals("postgresql")) {
       return "postgresql";
     }
+    if (normalized.equals("oracle")) {
+      return "oracle";
+    }
     throw new SchemaInitializationException(
         "Unsupported database product '"
             + product
-            + "' for Ratchet schema auto-migration. Supported: MySQL, MariaDB, PostgreSQL."
+            + "' for Ratchet schema auto-migration. Supported: MySQL, MariaDB, PostgreSQL, Oracle."
             + " Override via ratchet.schema.migration-dialect"
             + " (RATCHET_SCHEMA_MIGRATION_DIALECT) if your driver reports a non-standard name,"
             + " or apply the bundled DDL externally and leave ratchet.schema.auto-migrate=false.");
@@ -242,32 +251,43 @@ public final class SchemaMigrator {
     List<MigrationScript> skipped = new ArrayList<>();
 
     try (Connection connection = dataSource.getConnection()) {
-      acquireLock(connection);
-      Throwable migrationFailure = null;
+      // Most dialects hold a session-level advisory lock on the migration connection itself.
+      // Oracle cannot: its DDL auto-commits (which would drop a transactional lock) and DBMS_LOCK
+      // needs an EXECUTE grant managed users often lack, so it locks on a second connection.
+      Connection lockConnection =
+          dialect.usesDedicatedLockConnection() ? openLockConnection() : connection;
       try {
-        ensureSchemaVersionTable(connection);
-        for (MigrationScript script : scripts) {
-          String existingChecksum = existingChecksum(connection, script.version());
-          if (existingChecksum != null) {
-            if (!existingChecksum.equals(script.checksum())) {
-              throw new SchemaMigrationException(
-                  "Checksum mismatch for Ratchet schema migration "
-                      + script.version()
-                      + " ("
-                      + script.resourceName()
-                      + ")");
+        acquireLock(lockConnection);
+        Throwable migrationFailure = null;
+        try {
+          ensureSchemaVersionTable(connection);
+          for (MigrationScript script : scripts) {
+            String existingChecksum = existingChecksum(connection, script.version());
+            if (existingChecksum != null) {
+              if (!existingChecksum.equals(script.checksum())) {
+                throw new SchemaMigrationException(
+                    "Checksum mismatch for Ratchet schema migration "
+                        + script.version()
+                        + " ("
+                        + script.resourceName()
+                        + ")");
+              }
+              skipped.add(script);
+              continue;
             }
-            skipped.add(script);
-            continue;
+            applyMigration(connection, script);
+            applied.add(script);
           }
-          applyMigration(connection, script);
-          applied.add(script);
+        } catch (SQLException | RuntimeException | Error e) {
+          migrationFailure = e;
+          throw e;
+        } finally {
+          releaseLock(lockConnection, migrationFailure);
         }
-      } catch (SQLException | RuntimeException | Error e) {
-        migrationFailure = e;
-        throw e;
       } finally {
-        releaseLock(connection, migrationFailure);
+        if (lockConnection != connection) {
+          lockConnection.close();
+        }
       }
     }
 
@@ -308,7 +328,23 @@ public final class SchemaMigrator {
         .toList();
   }
 
+  private Connection openLockConnection() throws SQLException {
+    try {
+      return dataSource.getConnection();
+    } catch (SQLException e) {
+      throw new SchemaMigrationException(
+          "Oracle schema migration needs a second JDBC connection to hold its advisory lock, but"
+              + " the DataSource could not supply one. Configure a connection pool maximum of at"
+              + " least 2 (one connection runs the migration, the other holds the lock).",
+          e);
+    }
+  }
+
   private void acquireLock(Connection connection) throws SQLException {
+    if (dialect == Dialect.ORACLE) {
+      acquireOracleLock(connection);
+      return;
+    }
     try (Statement statement = connection.createStatement()) {
       switch (dialect) {
         case MYSQL -> {
@@ -321,11 +357,58 @@ public final class SchemaMigrator {
         }
         case POSTGRESQL ->
             statement.execute("SELECT pg_advisory_lock(" + POSTGRESQL_LOCK_KEY + ")");
+        default -> {
+          // Oracle is handled above; no other dialect reaches here.
+        }
       }
     }
   }
 
+  /**
+   * Acquires the Oracle migration lock on a dedicated connection.
+   *
+   * <p>Oracle DDL auto-commits, which would release any transactional lock held on the migration
+   * connection itself, and {@code DBMS_LOCK} requires an EXECUTE grant that managed users often
+   * lack. Instead a tiny dedicated {@code ratchet_schema_lock} table is locked {@code IN EXCLUSIVE
+   * MODE} on a second connection that never runs DDL, so the lock survives the migration's
+   * per-script commits. The lock table is separate from {@code ratchet_schema_version} on purpose:
+   * an EXCLUSIVE lock on the ledger would block the migration connection's own ledger writes.
+   */
+  private void acquireOracleLock(Connection connection) throws SQLException {
+    try (Statement statement = connection.createStatement()) {
+      statement.execute(
+          "CREATE TABLE IF NOT EXISTS ratchet_schema_lock (lock_name VARCHAR2(128) NOT NULL,"
+              + " CONSTRAINT pk_ratchet_schema_lock PRIMARY KEY (lock_name))");
+    } catch (SQLException e) {
+      // ORA-00955: a concurrent migrator created the lock table first. Any other error is fatal.
+      if (e.getErrorCode() != ORA_NAME_ALREADY_USED) {
+        throw e;
+      }
+    }
+    connection.setAutoCommit(false);
+    try (Statement statement = connection.createStatement()) {
+      statement.execute(
+          "LOCK TABLE ratchet_schema_lock IN EXCLUSIVE MODE WAIT " + ORACLE_LOCK_WAIT_SECONDS);
+    } catch (SQLException e) {
+      if (e.getErrorCode() == ORA_RESOURCE_BUSY) {
+        throw new SchemaMigrationException(
+            "Timed out after "
+                + ORACLE_LOCK_WAIT_SECONDS
+                + "s acquiring the Oracle schema migration lock; another migrator held it longer"
+                + " than the wait window.",
+            e);
+      }
+      throw e;
+    }
+  }
+
   private void releaseLock(Connection connection) throws SQLException {
+    if (dialect == Dialect.ORACLE) {
+      // Commit releases the EXCLUSIVE table lock; the dedicated lock connection is closed by the
+      // caller immediately afterward.
+      connection.commit();
+      return;
+    }
     try (Statement statement = connection.createStatement()) {
       switch (dialect) {
         case MYSQL -> {
@@ -338,6 +421,9 @@ public final class SchemaMigrator {
         }
         case POSTGRESQL ->
             statement.execute("SELECT pg_advisory_unlock(" + POSTGRESQL_LOCK_KEY + ")");
+        default -> {
+          // Oracle is handled above; no other dialect reaches here.
+        }
       }
     }
   }
@@ -487,7 +573,8 @@ public final class SchemaMigrator {
 
   private enum Dialect {
     MYSQL,
-    POSTGRESQL;
+    POSTGRESQL,
+    ORACLE;
 
     private static Dialect from(String value) {
       if (value == null || value.isBlank()) {
@@ -496,9 +583,14 @@ public final class SchemaMigrator {
       return switch (value.trim().toLowerCase(Locale.ROOT)) {
         case "mysql" -> MYSQL;
         case "postgres", "postgresql", "pg" -> POSTGRESQL;
+        case "oracle" -> ORACLE;
         default ->
             throw new IllegalArgumentException("Unsupported Ratchet schema dialect: " + value);
       };
+    }
+
+    private boolean usesDedicatedLockConnection() {
+      return this == ORACLE;
     }
 
     private String createVersionTableSql() {
@@ -527,6 +619,17 @@ public final class SchemaMigrator {
                 CONSTRAINT pk_ratchet_schema_version PRIMARY KEY (version)
             )\
             """;
+        case ORACLE ->
+            """
+            CREATE TABLE IF NOT EXISTS ratchet_schema_version
+            (
+                version     VARCHAR2(20)  NOT NULL,
+                applied_at  TIMESTAMP(6)  DEFAULT SYSTIMESTAMP NOT NULL,
+                description VARCHAR2(200) NOT NULL,
+                checksum    VARCHAR2(64),
+                CONSTRAINT pk_ratchet_schema_version PRIMARY KEY (version)
+            )\
+            """;
       };
     }
 
@@ -540,6 +643,14 @@ public final class SchemaMigrator {
             "INSERT INTO ratchet_schema_version (version, description, checksum) VALUES (?, ?, ?)"
                 + " ON CONFLICT (version) DO UPDATE SET description = EXCLUDED.description,"
                 + " checksum = EXCLUDED.checksum";
+        case ORACLE ->
+            "MERGE INTO ratchet_schema_version t"
+                + " USING (SELECT ? AS version, ? AS description, ? AS checksum FROM dual) s"
+                + " ON (t.version = s.version)"
+                + " WHEN MATCHED THEN UPDATE SET t.description = s.description,"
+                + " t.checksum = s.checksum"
+                + " WHEN NOT MATCHED THEN INSERT (version, description, checksum)"
+                + " VALUES (s.version, s.description, s.checksum)";
       };
     }
   }

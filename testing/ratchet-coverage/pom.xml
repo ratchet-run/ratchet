@@ -44,6 +44,10 @@
     </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-oracle</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
       <artifactId>ratchet-store-mongodb</artifactId>
     </dependency>
     <dependency>

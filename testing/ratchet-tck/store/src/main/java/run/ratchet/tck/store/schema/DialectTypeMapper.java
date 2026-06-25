@@ -68,6 +68,41 @@ public interface DialectTypeMapper {
   }
 
   /**
+   * Normalize a catalog table/identifier for {@link java.sql.DatabaseMetaData} lookups. MySQL and
+   * PostgreSQL match the catalog's lower-case names as stored, so the default returns the name
+   * unchanged; Oracle stores unquoted identifiers upper-case and must override to match.
+   */
+  default String metadataIdentifier(String name) {
+    return name;
+  }
+
+  /**
+   * Whether this dialect is permitted to leave a column nullable even though the catalog declares
+   * it NOT NULL. Only relaxation (NOT NULL → nullable) is allowed, for documented dialect reasons —
+   * e.g. Oracle collapses the empty string to NULL, so {@code scheduler_job.cron_expr} (whose
+   * engine sentinel is {@code ""}) cannot be NOT NULL. Defaults to {@code false}.
+   */
+  default boolean nullabilityRelaxed(String table, String column) {
+    return false;
+  }
+
+  /**
+   * SQL that reads each foreign key's ON DELETE rule for a table, keyed by constraint name, with a
+   * single {@code ?} bind for the (already {@link #metadataIdentifier normalized}) table name and
+   * result columns aliased {@code constraint_name} and {@code delete_rule}. The default uses the
+   * SQL-standard {@code information_schema}; Oracle, which has no {@code information_schema},
+   * overrides with {@code user_constraints}.
+   */
+  default String deleteRuleQuery() {
+    return "SELECT rc.constraint_name AS constraint_name, rc.delete_rule AS delete_rule"
+        + " FROM information_schema.referential_constraints rc"
+        + " JOIN information_schema.key_column_usage kcu"
+        + "   ON rc.constraint_name = kcu.constraint_name"
+        + "   AND rc.constraint_schema = kcu.constraint_schema"
+        + " WHERE kcu.table_name = ?";
+  }
+
+  /**
    * Compose the dialect-specific index column ordering from the catalog's canonical columns and
    * (optional) partial-index predicate. Dialects that support partial indexes (PostgreSQL) return
    * {@code canonicalColumns} unchanged; dialects without partial-index support (MySQL covering

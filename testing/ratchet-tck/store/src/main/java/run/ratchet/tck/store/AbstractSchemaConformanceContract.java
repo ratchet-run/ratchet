@@ -108,16 +108,25 @@ public abstract class AbstractSchemaConformanceContract {
                       + actual.typeName()
                       + "; expected one of "
                       + accepted);
-          assertEquals(
-              expected.nullable(),
-              actual.nullable(),
-              () ->
-                  mapper().dialectName()
-                      + " column "
-                      + t.name()
-                      + "."
-                      + expected.name()
-                      + " nullability mismatch");
+          // A dialect may keep a catalog-NOT-NULL column nullable for a documented reason (Oracle
+          // collapses '' to NULL, so cron_expr cannot be NOT NULL). It may never tighten a nullable
+          // column to NOT NULL, so only this direction is tolerated.
+          boolean relaxed =
+              !expected.nullable()
+                  && actual.nullable()
+                  && mapper().nullabilityRelaxed(t.name(), expected.name());
+          if (!relaxed) {
+            assertEquals(
+                expected.nullable(),
+                actual.nullable(),
+                () ->
+                    mapper().dialectName()
+                        + " column "
+                        + t.name()
+                        + "."
+                        + expected.name()
+                        + " nullability mismatch");
+          }
         }
       }
     }
@@ -311,7 +320,8 @@ public abstract class AbstractSchemaConformanceContract {
       throws SQLException {
     DatabaseMetaData md = c.getMetaData();
     Map<String, IntrospectedColumn> out = new LinkedHashMap<>();
-    try (ResultSet rs = md.getColumns(c.getCatalog(), c.getSchema(), table, "%")) {
+    try (ResultSet rs =
+        md.getColumns(c.getCatalog(), c.getSchema(), mapper().metadataIdentifier(table), "%")) {
       while (rs.next()) {
         String subject = "columns for table " + table;
         String name = requireMetadataString(rs, "COLUMN_NAME", subject).toLowerCase(Locale.ROOT);
@@ -326,7 +336,10 @@ public abstract class AbstractSchemaConformanceContract {
   private List<String> introspectPrimaryKey(DatabaseMetaData md, String table) throws SQLException {
     Map<Short, String> ordered = new TreeMap<>();
     try (ResultSet rs =
-        md.getPrimaryKeys(md.getConnection().getCatalog(), md.getConnection().getSchema(), table)) {
+        md.getPrimaryKeys(
+            md.getConnection().getCatalog(),
+            md.getConnection().getSchema(),
+            mapper().metadataIdentifier(table))) {
       while (rs.next()) {
         ordered.put(
             rs.getShort("KEY_SEQ"),
@@ -343,7 +356,9 @@ public abstract class AbstractSchemaConformanceContract {
     Map<String, IntrospectedForeignKey> out = new LinkedHashMap<>();
     try (ResultSet rs =
         md.getImportedKeys(
-            md.getConnection().getCatalog(), md.getConnection().getSchema(), table)) {
+            md.getConnection().getCatalog(),
+            md.getConnection().getSchema(),
+            mapper().metadataIdentifier(table))) {
       while (rs.next()) {
         String subject = "imported foreign keys for table " + table;
         String fkColumn =
@@ -371,15 +386,9 @@ public abstract class AbstractSchemaConformanceContract {
   private Map<String, String> introspectDeleteRules(Connection connection, String table)
       throws SQLException {
     Map<String, String> byConstraint = new LinkedHashMap<>();
-    String sql =
-        "SELECT rc.constraint_name AS constraint_name, rc.delete_rule AS delete_rule"
-            + " FROM information_schema.referential_constraints rc"
-            + " JOIN information_schema.key_column_usage kcu"
-            + "   ON rc.constraint_name = kcu.constraint_name"
-            + "   AND rc.constraint_schema = kcu.constraint_schema"
-            + " WHERE kcu.table_name = ?";
+    String sql = mapper().deleteRuleQuery();
     try (PreparedStatement ps = connection.prepareStatement(sql)) {
-      ps.setString(1, table);
+      ps.setString(1, mapper().metadataIdentifier(table));
       try (ResultSet rs = ps.executeQuery()) {
         while (rs.next()) {
           byConstraint.put(rs.getString("constraint_name"), rs.getString("delete_rule"));
@@ -396,7 +405,11 @@ public abstract class AbstractSchemaConformanceContract {
     List<String> primaryKeyCols = introspectPrimaryKey(md, table);
     try (ResultSet rs =
         md.getIndexInfo(
-            md.getConnection().getCatalog(), md.getConnection().getSchema(), table, false, false)) {
+            md.getConnection().getCatalog(),
+            md.getConnection().getSchema(),
+            mapper().metadataIdentifier(table),
+            false,
+            false)) {
       while (rs.next()) {
         String idxName = rs.getString("INDEX_NAME");
         if (idxName == null) {
