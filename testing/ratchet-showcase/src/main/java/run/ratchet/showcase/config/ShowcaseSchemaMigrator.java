@@ -23,6 +23,7 @@ import java.sql.SQLFeatureNotSupportedException;
 import java.util.Locale;
 import java.util.logging.Logger;
 import javax.sql.DataSource;
+import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrator;
 
 public final class ShowcaseSchemaMigrator {
@@ -40,21 +41,34 @@ public final class ShowcaseSchemaMigrator {
     String user = args[2];
     String password = args[3];
 
-    loadDriver(dialect);
+    SchemaMigrationDialect migrationDialect = dialectFor(dialect);
     SchemaMigrator.MigrationResult result =
-        new SchemaMigrator(new DriverManagerDataSource(jdbcUrl, user, password), dialect).migrate();
+        new SchemaMigrator(new DriverManagerDataSource(jdbcUrl, user, password), migrationDialect)
+            .migrate();
     System.out.printf(
         "Ratchet schema migration complete: applied=%d skipped=%d%n",
         result.appliedCount(), result.skippedCount());
   }
 
-  private static void loadDriver(String dialect) throws ClassNotFoundException {
-    switch (dialect) {
-      case "postgresql" -> Class.forName("org.postgresql.Driver");
-      case "mysql" -> Class.forName("com.mysql.cj.jdbc.Driver");
-      default ->
-          throw new IllegalArgumentException("Unsupported SQL showcase database: " + dialect);
-    }
+  private static SchemaMigrationDialect dialectFor(String dialect)
+      throws ReflectiveOperationException {
+    // The active Maven profile bundles exactly one SQL store, so resolve its dialect reflectively
+    // rather than statically referencing a store module that may not be on the classpath.
+    String dialectClass =
+        switch (dialect) {
+          case "postgresql" -> {
+            Class.forName("org.postgresql.Driver");
+            yield "run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect";
+          }
+          case "mysql" -> {
+            Class.forName("com.mysql.cj.jdbc.Driver");
+            yield "run.ratchet.store.mysql.MysqlSchemaMigrationDialect";
+          }
+          default ->
+              throw new IllegalArgumentException("Unsupported SQL showcase database: " + dialect);
+        };
+    return (SchemaMigrationDialect)
+        Class.forName(dialectClass).getDeclaredConstructor().newInstance();
   }
 
   private static final class DriverManagerDataSource implements DataSource {

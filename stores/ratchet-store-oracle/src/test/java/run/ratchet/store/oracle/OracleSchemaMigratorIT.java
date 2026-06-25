@@ -33,6 +33,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.oracle.OracleContainer;
+import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrationException;
 import run.ratchet.store.migration.SchemaMigrator;
 import run.ratchet.tck.store.AbstractSchemaMigratorContract;
@@ -74,8 +75,8 @@ class OracleSchemaMigratorIT extends AbstractSchemaMigratorContract {
   }
 
   @Override
-  protected String dialect() {
-    return "oracle";
+  protected SchemaMigrationDialect dialect() {
+    return new OracleSchemaMigrationDialect();
   }
 
   @Override
@@ -138,7 +139,8 @@ class OracleSchemaMigratorIT extends AbstractSchemaMigratorContract {
   void rejectsPreviouslyAppliedMigrationWithDifferentChecksum() throws Exception {
     resetDatabase();
 
-    SchemaMigrator.MigrationResult first = new SchemaMigrator(dataSource(), "oracle").migrate();
+    SchemaMigrator.MigrationResult first =
+        new SchemaMigrator(dataSource(), new OracleSchemaMigrationDialect()).migrate();
     assertTrue(first.appliedCount() > 0, "expected at least one migration applied");
 
     String firstVersion = first.applied().get(0).version();
@@ -147,7 +149,7 @@ class OracleSchemaMigratorIT extends AbstractSchemaMigratorContract {
     SchemaMigrationException ex =
         assertThrows(
             SchemaMigrationException.class,
-            () -> new SchemaMigrator(dataSource(), "oracle").migrate());
+            () -> new SchemaMigrator(dataSource(), new OracleSchemaMigrationDialect()).migrate());
     assertTrue(ex.getMessage().contains("Checksum mismatch"), () -> "got: " + ex.getMessage());
     assertTrue(ex.getMessage().contains(firstVersion), () -> "got: " + ex.getMessage());
   }
