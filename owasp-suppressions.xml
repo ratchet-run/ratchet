@@ -53,11 +53,12 @@
         snappy-compressed body and over-allocates heap, a DoS fixed in Prometheus
         server 3.5.3 and 3.11.3. micrometer-registry-prometheus is the io.micrometer
         client library that only emits metrics (write-only scrape()); it has no
-        remote-read endpoint and is not the Prometheus server. The CPE rule above
-        strips the Prometheus server CPE identifier, but the CVE is also attached
-        directly via the NVD CVE analyzer, so suppress that record by CVE id.
+        remote-read endpoint and is not the Prometheus server. Matched by file path,
+        not packageUrl: this scan reaches the jar nested inside the WARs (WEB-INF/lib),
+        where Dependency-Check assigns the server CPE from the name but no Maven PURL,
+        so packageUrl/cpe rules never match (mirrors the protobuf-java entry).
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/io\.micrometer/micrometer-registry-prometheus@.*$</packageUrl>
+        <filePath regex="true">.*/micrometer-registry-prometheus-[^/]+\.jar$</filePath>
         <cve>CVE-2026-42154</cve>
     </suppress>
 
