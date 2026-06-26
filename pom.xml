@@ -156,7 +156,7 @@
     <protobuf-java.version>3.25.9</protobuf-java.version>
     <postgresql-driver.version>42.7.11</postgresql-driver.version>
     <ojdbc.version>23.9.0.25.07</ojdbc.version>
-    <mssql-jdbc.version>12.8.1.jre11</mssql-jdbc.version>
+    <mssql-jdbc.version>12.8.2.jre11</mssql-jdbc.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
     <artemis.version>2.54.0</artemis.version>
     <netty.version>4.1.133.Final</netty.version>
