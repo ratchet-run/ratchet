@@ -28,6 +28,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.mysql.MySQLContainer;
+import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrationException;
 import run.ratchet.store.migration.SchemaMigrator;
 import run.ratchet.tck.store.AbstractSchemaMigratorContract;
@@ -66,8 +67,8 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
   }
 
   @Override
-  protected String dialect() {
-    return "mysql";
+  protected SchemaMigrationDialect dialect() {
+    return new MysqlSchemaMigrationDialect();
   }
 
   private void corruptRecordedChecksum(String version) throws SQLException {
@@ -100,7 +101,8 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
   void rejectsPreviouslyAppliedMigrationWithDifferentChecksum() throws Exception {
     resetDatabase();
 
-    SchemaMigrator.MigrationResult first = new SchemaMigrator(dataSource(), "mysql").migrate();
+    SchemaMigrator.MigrationResult first =
+        new SchemaMigrator(dataSource(), new MysqlSchemaMigrationDialect()).migrate();
     assertTrue(first.appliedCount() > 0, "expected at least one migration applied");
 
     String firstVersion = first.applied().get(0).version();
@@ -109,7 +111,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     SchemaMigrationException ex =
         assertThrows(
             SchemaMigrationException.class,
-            () -> new SchemaMigrator(dataSource(), "mysql").migrate());
+            () -> new SchemaMigrator(dataSource(), new MysqlSchemaMigrationDialect()).migrate());
     assertTrue(ex.getMessage().contains("Checksum mismatch"), () -> "got: " + ex.getMessage());
     assertTrue(ex.getMessage().contains(firstVersion), () -> "got: " + ex.getMessage());
   }

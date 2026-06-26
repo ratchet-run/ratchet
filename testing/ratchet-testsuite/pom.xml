@@ -88,6 +88,18 @@
       <artifactId>ratchet-tck-jakarta</artifactId>
       <scope>test</scope>
     </dependency>
+    <!--
+      The Jpa* test helpers (src/main) reference the SqlDialectTestSupport interface, which lives in
+      ratchet-tck-store next to DialectTypeMapper. provided keeps tck-store (and its JUnit deps) off
+      the WAR; RatchetArchiveBuilder bundles just the interface plus the active store's ServiceLoader
+      implementation. The per-store implementations are pulled in via the test-jar dependencies under
+      each db profile below.
+    -->
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-store</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-micrometer</artifactId>
@@ -1116,6 +1128,14 @@
           <groupId>run.ratchet</groupId>
           <artifactId>ratchet-store-mysql</artifactId>
         </dependency>
+        <!-- Test-jar carries MysqlDialectTestSupport (ServiceLoader-discovered by the testsuite). -->
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-mysql</artifactId>
+          <version>${project.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
         <dependency>
           <groupId>com.mysql</groupId>
           <artifactId>mysql-connector-j</artifactId>
@@ -1139,6 +1159,14 @@
           <groupId>run.ratchet</groupId>
           <artifactId>ratchet-store-postgresql</artifactId>
         </dependency>
+        <!-- Test-jar carries PostgresqlDialectTestSupport (ServiceLoader-discovered by the testsuite). -->
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-postgresql</artifactId>
+          <version>${project.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
+        </dependency>
         <dependency>
           <groupId>org.postgresql</groupId>
           <artifactId>postgresql</artifactId>
@@ -1161,6 +1189,14 @@
         <dependency>
           <groupId>run.ratchet</groupId>
           <artifactId>ratchet-store-oracle</artifactId>
+        </dependency>
+        <!-- Test-jar carries OracleDialectTestSupport (ServiceLoader-discovered by the testsuite). -->
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-oracle</artifactId>
+          <version>${project.version}</version>
+          <type>test-jar</type>
+          <scope>test</scope>
         </dependency>
         <!--
           Oracle's JDBC driver is published under the Free Use Terms and Conditions (not an

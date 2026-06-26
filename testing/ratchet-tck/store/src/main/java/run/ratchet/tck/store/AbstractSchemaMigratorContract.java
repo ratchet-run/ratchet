@@ -33,6 +33,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrator;
 
 /**
@@ -44,7 +45,7 @@ public abstract class AbstractSchemaMigratorContract {
 
   protected abstract DataSource dataSource();
 
-  protected abstract String dialect();
+  protected abstract SchemaMigrationDialect dialect();
 
   protected abstract void resetDatabase() throws Exception;
 

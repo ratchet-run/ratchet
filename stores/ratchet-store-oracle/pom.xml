@@ -137,6 +137,19 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- Publishes a test-jar so the integration testsuite can ServiceLoad this store's
+                 SqlDialectTestSupport implementation into the deployment WAR. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>

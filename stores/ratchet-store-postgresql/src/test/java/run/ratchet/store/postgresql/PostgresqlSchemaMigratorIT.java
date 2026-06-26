@@ -23,6 +23,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrator;
 import run.ratchet.tck.store.AbstractSchemaMigratorContract;
 import run.ratchet.tck.store.JdbcDriverDataSource;
@@ -59,8 +60,8 @@ class PostgresqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
   }
 
   @Override
-  protected String dialect() {
-    return "postgresql";
+  protected SchemaMigrationDialect dialect() {
+    return new PostgresqlSchemaMigrationDialect();
   }
 
   @Override

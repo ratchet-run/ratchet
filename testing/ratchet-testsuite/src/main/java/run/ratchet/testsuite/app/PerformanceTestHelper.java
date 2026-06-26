@@ -26,7 +26,21 @@ package run.ratchet.testsuite.app;
  */
 public interface PerformanceTestHelper {
 
-  void insertBackgroundRows(int count, String keyPrefix);
+  /**
+   * Inserts completed (terminal) background rows that grow the cold archive without becoming
+   * claimable. Used by the table-growth IT. {@code baseOffset} is the number of background rows
+   * already inserted across prior calls, so row numbering (and ids) stay unique across the IT's
+   * incremental growth steps.
+   */
+  void insertTerminalBackgroundRows(int count, int baseOffset, String keyPrefix);
+
+  /**
+   * Inserts live PENDING background rows that grow the hot claim queue. Rows are far-future so a
+   * running poller never drains them. Used by the claim-degradation IT. {@code baseOffset} is the
+   * number of background rows already inserted across prior calls; the deterministic job ids derive
+   * from {@code baseOffset + row}, so it must advance between calls or ids collide.
+   */
+  void insertPendingBackgroundRows(int count, int baseOffset, String keyPrefix);
 
   /**
    * Returns the queue wait time in milliseconds at the given percentile.
@@ -35,5 +49,6 @@ public interface PerformanceTestHelper {
    */
   long queryQueueWaitPercentileForClass(String targetClass, double percentile);
 
-  void assertNoFullScan(String label, Runnable storeOperation);
+  /** Runs {@code storeOperation} and asserts it triggered no sequential scan on {@code table}. */
+  void assertNoFullScan(String table, String label, Runnable storeOperation);
 }

@@ -27,6 +27,7 @@ import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestMetricsCollectorAdapter;
 import run.ratchet.testsuite.app.TimingJob;
 import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
@@ -56,6 +57,7 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
             ConfigurableWorkJob.class,
             ProbabilisticFailingJob.class,
             PerformanceMetricsCollector.class,
+            TestMetricsCollectorAdapter.class,
             TestJobService.class,
             BasePerformanceIT.class,
             PerformanceBaseline.class,
@@ -82,7 +84,7 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
       // Insert background rows to reach the target table size
       int toInsert = tableSize - previousSize;
       if (toInsert > 0) {
-        perfHelper.insertBackgroundRows(toInsert, "bg-growth");
+        perfHelper.insertTerminalBackgroundRows(toInsert, previousSize, "bg-growth");
         log.info("Inserted " + toInsert + " background rows (total target: " + tableSize + ")");
       }
       previousSize = tableSize;
@@ -141,11 +143,18 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
   }
 
   private void assertClaimQueriesUseIndexes(String sizeKey) {
+    // The claim path reads only the hot scheduler_job_queue, never the cold scheduler_job this IT
+    // grows. Asserting no sequential scan on the COLD table therefore proves the split keeps claim
+    // isolated from archive growth — the seq_scan delta is zero by design, and a future change that
+    // joined a claim query back to the cold table would trip this guard.
     Instant now = Instant.now();
     perfHelper.assertNoFullScan(
-        "countReadyJobs @ " + sizeKey, () -> jobAnalyticsStore.countReadyJobs(now));
+        "scheduler_job",
+        "countReadyJobs @ " + sizeKey,
+        () -> jobAnalyticsStore.countReadyJobs(now));
 
     perfHelper.assertNoFullScan(
+        "scheduler_job",
         "claimNextBatch @ " + sizeKey,
         () -> jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "perf-test-node"));
   }

@@ -16,6 +16,7 @@
 package run.ratchet.testsuite.util;
 
 import java.util.Map;
+import java.util.ServiceLoader;
 import java.util.TreeMap;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
@@ -23,6 +24,7 @@ import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 import run.ratchet.store.converter.InstantAttributeConverter;
+import run.ratchet.tck.store.SqlDialectTestSupport;
 import run.ratchet.testsuite.app.DocumentStorePerformanceTestHelper;
 import run.ratchet.testsuite.app.DocumentStoreTestCleanupStrategy;
 import run.ratchet.testsuite.app.DocumentStoreTestDataManipulator;
@@ -30,6 +32,7 @@ import run.ratchet.testsuite.app.JpaPerformanceTestHelper;
 import run.ratchet.testsuite.app.JpaTestCleanupStrategy;
 import run.ratchet.testsuite.app.JpaTestDataManipulator;
 import run.ratchet.testsuite.app.PerformanceTestHelper;
+import run.ratchet.testsuite.app.SqlDialectTestSupportProvider;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
 import run.ratchet.testsuite.app.TestDataManipulator;
 import run.ratchet.testsuite.app.TestEntityManagerProvider;
@@ -203,8 +206,10 @@ public class RatchetArchiveBuilder {
             JpaTestCleanupStrategy.class,
             JpaTestDataManipulator.class,
             JpaPerformanceTestHelper.class,
+            SqlDialectTestSupportProvider.class,
             TestEntityManagerProvider.class,
             InstantAttributeConverter.class);
+        addSqlDialectTestSupport();
         addPersistenceXml(dbType, strategy.jtaDataSourceName());
         addDataSource(strategy);
       }
@@ -225,6 +230,26 @@ public class RatchetArchiveBuilder {
 
   public WebArchive build() {
     return archive;
+  }
+
+  /**
+   * Bundles the active store's {@link SqlDialectTestSupport} into the WAR. Exactly one store is on
+   * the test classpath (profile-gated test-jar dependency), so {@link ServiceLoader} resolves a
+   * single implementation here in the build JVM. ShrinkWrap adds named classes only, so the
+   * interface, the implementation (plus any nested types it declares), and a regenerated service
+   * registration are all added explicitly for the in-container lookup that {@code
+   * SqlDialectTestSupportProvider} performs at runtime.
+   */
+  private void addSqlDialectTestSupport() {
+    // SqlDialectTestSupportProvider already resolves (and caches) the single implementation via the
+    // same ServiceLoader lookup in this build JVM, so reuse it rather than scanning a second time.
+    Class<?> implClass = SqlDialectTestSupportProvider.get().getClass();
+    archive.addClass(SqlDialectTestSupport.class);
+    archive.addClass(implClass);
+    archive.addClasses(implClass.getDeclaredClasses());
+    archive.addAsResource(
+        new StringAsset(implClass.getName()),
+        "META-INF/services/" + SqlDialectTestSupport.class.getName());
   }
 
   private void addAwaitility() {

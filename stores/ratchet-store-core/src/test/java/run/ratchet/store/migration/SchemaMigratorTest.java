@@ -30,9 +30,9 @@ import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.inject.Instance;
 import java.sql.Connection;
-import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import javax.sql.DataSource;
@@ -41,6 +41,12 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import run.ratchet.api.RatchetOptions;
 
+/**
+ * Exercises the dialect-agnostic {@link SchemaMigrator} engine — discovery, checksum validation,
+ * the apply loop, and lock orchestration — against a {@link RecordingDialect} stub.
+ * Dialect-specific SQL (lock statements, version DDL, upserts) is covered by each store's own
+ * dialect test.
+ */
 class SchemaMigratorTest {
 
   private DataSource dataSource;
@@ -48,8 +54,7 @@ class SchemaMigratorTest {
   private Statement statement;
   private PreparedStatement selectVersion;
   private PreparedStatement insertVersion;
-  private ResultSet mysqlLock;
-  private ResultSet mysqlRelease;
+  private RecordingDialect dialect;
 
   private static ResultSet missingVersion() throws Exception {
     ResultSet resultSet = mock(ResultSet.class);
@@ -74,7 +79,7 @@ class SchemaMigratorTest {
   }
 
   private SchemaMigrator migrator(String classpathPrefix) {
-    return new SchemaMigrator(dataSource, "mysql", classpathPrefix);
+    return new SchemaMigrator(dataSource, dialect, classpathPrefix);
   }
 
   @BeforeEach
@@ -84,8 +89,7 @@ class SchemaMigratorTest {
     statement = mock(Statement.class);
     selectVersion = mock(PreparedStatement.class);
     insertVersion = mock(PreparedStatement.class);
-    mysqlLock = mock(ResultSet.class);
-    mysqlRelease = mock(ResultSet.class);
+    dialect = new RecordingDialect();
 
     when(dataSource.getConnection()).thenReturn(connection);
     when(connection.createStatement()).thenReturn(statement);
@@ -93,14 +97,6 @@ class SchemaMigratorTest {
     when(connection.prepareStatement(startsWith("SELECT checksum"))).thenReturn(selectVersion);
     when(connection.prepareStatement(startsWith("INSERT INTO ratchet_schema_version")))
         .thenReturn(insertVersion);
-    when(statement.executeQuery("SELECT GET_LOCK('ratchet_schema_migration', 30)"))
-        .thenReturn(mysqlLock);
-    when(statement.executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')"))
-        .thenReturn(mysqlRelease);
-    when(mysqlLock.next()).thenReturn(true);
-    when(mysqlLock.getInt(1)).thenReturn(1);
-    when(mysqlRelease.next()).thenReturn(true);
-    when(mysqlRelease.getInt(1)).thenReturn(1);
   }
 
   @Test
@@ -129,6 +125,8 @@ class SchemaMigratorTest {
 
     verify(insertVersion, times(2)).executeUpdate();
     verify(connection, times(2)).commit();
+    assertEquals(1, dialect.acquireCount());
+    assertEquals(1, dialect.releaseCount());
   }
 
   @Test
@@ -172,26 +170,16 @@ class SchemaMigratorTest {
   }
 
   @Test
-  void failsWhenMysqlAdvisoryLockCannotBeAcquired() throws Exception {
-    when(mysqlLock.getInt(1)).thenReturn(0);
+  void failsWhenAdvisoryLockCannotBeAcquired() throws Exception {
+    dialect.failAcquireWith(
+        new SchemaMigrationException("Timed out acquiring schema migration lock"));
 
     SchemaMigrationException ex =
         assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").migrate());
 
-    assertTrue(ex.getMessage().contains("Timed out acquiring MySQL schema migration lock"));
+    assertTrue(ex.getMessage().contains("Timed out acquiring schema migration lock"));
     verify(statement, never()).execute(startsWith("CREATE TABLE IF NOT EXISTS"));
-    verify(statement, never()).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
-  }
-
-  @Test
-  void postgresqlDialectUsesAdvisoryLock() throws Exception {
-    SchemaMigrator.MigrationResult result =
-        new SchemaMigrator(dataSource, "postgresql", "schema-migrator-empty").migrate();
-
-    assertEquals(0, result.appliedCount());
-    assertEquals(0, result.skippedCount());
-    verify(statement).execute(startsWith("SELECT pg_advisory_lock("));
-    verify(statement).execute(startsWith("SELECT pg_advisory_unlock("));
+    assertEquals(0, dialect.releaseCount());
   }
 
   @Test
@@ -209,7 +197,7 @@ class SchemaMigratorTest {
     verify(connection).rollback();
     verify(connection).setAutoCommit(true);
     verify(insertVersion, never()).executeUpdate();
-    verify(statement).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
+    assertEquals(1, dialect.releaseCount());
   }
 
   @Test
@@ -230,75 +218,32 @@ class SchemaMigratorTest {
   }
 
   @Test
-  void surfacesMysqlReleaseLockFailureAfterMigrationWorkCompletes() throws Exception {
-    when(mysqlRelease.getInt(1)).thenReturn(0);
+  void surfacesReleaseLockFailureAfterMigrationWorkCompletes() {
+    dialect.failReleaseWith(new java.sql.SQLException("Failed to release schema migration lock"));
 
     java.sql.SQLException ex =
         assertThrows(
             java.sql.SQLException.class, () -> migrator("schema-migrator-empty").migrate());
 
-    assertTrue(ex.getMessage().contains("Failed to release MySQL schema migration lock"));
-    verify(statement).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
+    assertTrue(ex.getMessage().contains("Failed to release schema migration lock"));
+    assertEquals(1, dialect.releaseCount());
   }
 
   @Test
-  void keepsMigrationFailureWhenMysqlReleaseLockAlsoFails() throws Exception {
+  void keepsMigrationFailureWhenReleaseLockAlsoFails() throws Exception {
     ResultSet firstMissingVersion = missingVersion();
     when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
     when(statement.execute(contains("CREATE TABLE ratchet_test_order")))
         .thenThrow(new java.sql.SQLException("migration failed"));
-    when(mysqlRelease.getInt(1)).thenReturn(0);
+    dialect.failReleaseWith(new java.sql.SQLException("Failed to release schema migration lock"));
 
     java.sql.SQLException ex =
         assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
 
     assertEquals("migration failed", ex.getMessage());
     assertEquals(1, ex.getSuppressed().length);
-    assertTrue(ex.getSuppressed()[0].getMessage().contains("Failed to release MySQL"));
+    assertTrue(ex.getSuppressed()[0].getMessage().contains("Failed to release"));
     verify(connection).rollback();
-    verify(statement).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
-  }
-
-  @Test
-  void dialectFromMetadataMapsKnownProducts() throws Exception {
-    DatabaseMetaData mysqlMeta = mock(DatabaseMetaData.class);
-    when(mysqlMeta.getDatabaseProductName()).thenReturn("MySQL");
-    Connection mysqlConn = mock(Connection.class);
-    when(mysqlConn.getMetaData()).thenReturn(mysqlMeta);
-    assertEquals("mysql", SchemaMigrator.dialectFromMetadata(mysqlConn));
-
-    DatabaseMetaData mariaMeta = mock(DatabaseMetaData.class);
-    when(mariaMeta.getDatabaseProductName()).thenReturn("MariaDB");
-    Connection mariaConn = mock(Connection.class);
-    when(mariaConn.getMetaData()).thenReturn(mariaMeta);
-    assertEquals("mysql", SchemaMigrator.dialectFromMetadata(mariaConn));
-
-    DatabaseMetaData pgMeta = mock(DatabaseMetaData.class);
-    when(pgMeta.getDatabaseProductName()).thenReturn("PostgreSQL");
-    Connection pgConn = mock(Connection.class);
-    when(pgConn.getMetaData()).thenReturn(pgMeta);
-    assertEquals("postgresql", SchemaMigrator.dialectFromMetadata(pgConn));
-
-    DatabaseMetaData oracleMeta = mock(DatabaseMetaData.class);
-    when(oracleMeta.getDatabaseProductName()).thenReturn("Oracle");
-    Connection oracleConn = mock(Connection.class);
-    when(oracleConn.getMetaData()).thenReturn(oracleMeta);
-    assertEquals("oracle", SchemaMigrator.dialectFromMetadata(oracleConn));
-  }
-
-  @Test
-  void dialectFromMetadataRejectsLookalikes() throws Exception {
-    DatabaseMetaData crdbMeta = mock(DatabaseMetaData.class);
-    when(crdbMeta.getDatabaseProductName()).thenReturn("CockroachDB");
-    Connection crdbConn = mock(Connection.class);
-    when(crdbConn.getMetaData()).thenReturn(crdbMeta);
-
-    SchemaInitializationException ex =
-        assertThrows(
-            SchemaInitializationException.class,
-            () -> SchemaMigrator.dialectFromMetadata(crdbConn));
-    assertTrue(ex.getMessage().contains("CockroachDB"));
-    assertTrue(ex.getMessage().contains("Supported"));
   }
 
   @Test
@@ -311,6 +256,13 @@ class SchemaMigratorTest {
     when(dataSources.get()).thenReturn(failingDataSource);
     when(failingDataSource.getConnection()).thenThrow(new java.sql.SQLException());
 
+    SchemaMigrationDialect mysqlDialect = mock(SchemaMigrationDialect.class);
+    when(mysqlDialect.id()).thenReturn("mysql");
+    @SuppressWarnings("unchecked")
+    Instance<SchemaMigrationDialect> dialects = mock(Instance.class);
+    when(dialects.isUnsatisfied()).thenReturn(false);
+    when(dialects.iterator()).thenReturn(List.of(mysqlDialect).iterator());
+
     RatchetOptions options =
         RatchetOptions.builder()
             .schema(
@@ -320,11 +272,76 @@ class SchemaMigratorTest {
                         .migrationDialect("mysql")
                         .migrationPrefix("schema-migrator-empty"))
             .build();
-    SchemaMigrationLifecycleHook hook = new SchemaMigrationLifecycleHook(options, dataSources);
+    SchemaMigrationLifecycleHook hook =
+        new SchemaMigrationLifecycleHook(options, dataSources, dialects);
 
     SchemaInitializationException ex =
         assertThrows(SchemaInitializationException.class, hook::beforeStart);
 
     assertEquals("Ratchet schema auto-migration failed: SQLException", ex.getMessage());
+  }
+
+  /**
+   * Minimal {@link SchemaMigrationDialect} for engine tests: returns predictable SQL and records
+   * (or fails) lock calls so the engine's orchestration can be asserted without a real database.
+   */
+  private static final class RecordingDialect implements SchemaMigrationDialect {
+
+    private RuntimeException acquireFailure;
+    private SQLException releaseFailure;
+    private int acquireCount;
+    private int releaseCount;
+
+    void failAcquireWith(RuntimeException failure) {
+      this.acquireFailure = failure;
+    }
+
+    void failReleaseWith(SQLException failure) {
+      this.releaseFailure = failure;
+    }
+
+    int acquireCount() {
+      return acquireCount;
+    }
+
+    int releaseCount() {
+      return releaseCount;
+    }
+
+    @Override
+    public String id() {
+      return "stub";
+    }
+
+    @Override
+    public String createVersionTableSql() {
+      return "CREATE TABLE IF NOT EXISTS ratchet_schema_version (version VARCHAR(20) NOT NULL)";
+    }
+
+    @Override
+    public String recordVersionSql() {
+      return "INSERT INTO ratchet_schema_version (version, description, checksum) VALUES (?, ?, ?)";
+    }
+
+    @Override
+    public boolean usesDedicatedLockConnection() {
+      return false;
+    }
+
+    @Override
+    public void acquireLock(Connection connection) {
+      acquireCount++;
+      if (acquireFailure != null) {
+        throw acquireFailure;
+      }
+    }
+
+    @Override
+    public void releaseLock(Connection connection) throws SQLException {
+      releaseCount++;
+      if (releaseFailure != null) {
+        throw releaseFailure;
+      }
+    }
   }
 }

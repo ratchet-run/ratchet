@@ -20,8 +20,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
-import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import javax.sql.DataSource;
 import org.jboss.logging.Logger;
@@ -37,6 +40,9 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  * Setting {@code RATCHET_SCHEMA_AUTO_MIGRATE=true} flips on a Quartz/Spring-Batch-dev style
  * "just-works" bootstrap suitable for development, CI, and embedded deployments.
  *
+ * <p>The dialect is supplied by the deployed store, never inferred by this hook: each SQL store
+ * publishes a {@link SchemaMigrationDialect} CDI bean, and the hook consumes whatever is present.
+ *
  * <p>Resolution rules:
  *
  * <ul>
@@ -44,16 +50,16 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  *   <li>Enabled with no {@link DataSource} CDI bean: throws {@link SchemaInitializationException}
  *       (deployment fails fast). Application must produce a {@code DataSource} via
  *       {@code @Resource} or {@code @Produces}.
- *   <li>Enabled with no explicit dialect: probes {@code DatabaseMetaData#getDatabaseProductName}
- *       through {@link SchemaMigrator#dialectFromMetadata(Connection)} — only MySQL, MariaDB,
- *       PostgreSQL, and Oracle are accepted; everything else (including CockroachDB) requires
- *       {@code RATCHET_SCHEMA_MIGRATION_DIALECT}. Oracle holds its migration lock on a second
- *       pooled connection, so the DataSource pool maximum must be at least 2.
+ *   <li>Enabled with no {@link SchemaMigrationDialect} bean: throws — the deployed store does not
+ *       support managed migration.
+ *   <li>Enabled with exactly one dialect bean: uses it.
+ *   <li>Enabled with several dialect beans: requires {@code RATCHET_SCHEMA_MIGRATION_DIALECT} to
+ *       select one by {@link SchemaMigrationDialect#id() id}.
  * </ul>
  *
  * <p>Scope is JDBC-only by contract. MongoDB initializes its collections and indexes
  * unconditionally inside {@code MongoJobStoreImpl} because named indexes are referenced by claim
- * queries (correctness-critical, not operational).
+ * queries (correctness-critical, not operational), and ships no {@link SchemaMigrationDialect}.
  */
 @ApplicationScoped
 @Priority(Interceptor.Priority.LIBRARY_BEFORE)
@@ -63,17 +69,22 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
 
   private final RatchetOptions options;
   private final Instance<DataSource> dataSourceLookup;
+  private final Instance<SchemaMigrationDialect> dialectLookup;
 
   protected SchemaMigrationLifecycleHook() {
     this.options = null;
     this.dataSourceLookup = null;
+    this.dialectLookup = null;
   }
 
   @Inject
   public SchemaMigrationLifecycleHook(
-      RatchetOptions options, Instance<DataSource> dataSourceLookup) {
+      RatchetOptions options,
+      Instance<DataSource> dataSourceLookup,
+      Instance<SchemaMigrationDialect> dialectLookup) {
     this.options = options;
     this.dataSourceLookup = dataSourceLookup;
+    this.dialectLookup = dialectLookup;
   }
 
   @Override
@@ -101,12 +112,12 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
     }
 
     DataSource dataSource = dataSourceLookup.get();
-    String dialect = resolveDialect(dataSource, schemaOptions);
+    SchemaMigrationDialect dialect = resolveDialect(schemaOptions);
     String prefix = schemaOptions.migrationPrefix();
     log.infof(
         "Ratchet schema auto-migration enabled (dialect=%s, prefix=%s); applying pending"
             + " migrations.",
-        dialect, prefix);
+        dialect.id(), prefix);
     try {
       SchemaMigrator.MigrationResult result =
           new SchemaMigrator(dataSource, dialect, prefix).migrate();
@@ -129,19 +140,53 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
     return e.getClass().getSimpleName() + ": " + message;
   }
 
-  private String resolveDialect(DataSource dataSource, RatchetOptions.SchemaOptions schemaOptions) {
+  /**
+   * Selects the {@link SchemaMigrationDialect} for the deployed store. The store declares it; the
+   * hook never infers a dialect from the JDBC product name.
+   */
+  private SchemaMigrationDialect resolveDialect(RatchetOptions.SchemaOptions schemaOptions) {
+    if (dialectLookup == null || dialectLookup.isUnsatisfied()) {
+      throw new SchemaInitializationException(
+          "ratchet.schema.auto-migrate=true but the deployed store provides no"
+              + " SchemaMigrationDialect. Managed migration is JDBC-only and requires a SQL store"
+              + " module (MySQL, PostgreSQL, or Oracle). Apply the bundled DDL externally and set"
+              + " ratchet.schema.auto-migrate=false if the deployed store does not support managed"
+              + " migration.");
+    }
+
     String configured = schemaOptions.migrationDialect();
     if (configured != null && !configured.isBlank()) {
-      return configured.trim();
-    }
-    try (Connection connection = dataSource.getConnection()) {
-      return SchemaMigrator.dialectFromMetadata(connection);
-    } catch (SQLException e) {
+      String wanted = configured.trim().toLowerCase(Locale.ROOT);
+      for (SchemaMigrationDialect candidate : dialectLookup) {
+        if (candidate.id().equals(wanted)) {
+          return candidate;
+        }
+      }
       throw new SchemaInitializationException(
-          "Could not probe DataSource metadata to resolve migration dialect; set"
-              + " ratchet.schema.migration-dialect explicitly. Cause: "
-              + exceptionSummary(e),
-          e);
+          "ratchet.schema.migration-dialect="
+              + configured
+              + " but no deployed SchemaMigrationDialect advertises that id. Available: "
+              + availableIds()
+              + ".");
     }
+
+    if (dialectLookup.isAmbiguous()) {
+      throw new SchemaInitializationException(
+          "Multiple SchemaMigrationDialect beans are available ("
+              + availableIds()
+              + "); set ratchet.schema.migration-dialect (RATCHET_SCHEMA_MIGRATION_DIALECT) to"
+              + " select one.");
+    }
+
+    return dialectLookup.get();
+  }
+
+  private String availableIds() {
+    List<String> ids = new ArrayList<>();
+    for (SchemaMigrationDialect candidate : dialectLookup) {
+      ids.add(candidate.id());
+    }
+    Collections.sort(ids);
+    return String.join(", ", ids);
   }
 }

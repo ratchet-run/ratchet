@@ -19,16 +19,19 @@ import java.time.Instant;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestMetricsCollectorAdapter;
 import run.ratchet.testsuite.app.TimingJob;
 import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
 import run.ratchet.testsuite.util.PerformanceReportWriter;
+import run.ratchet.testsuite.util.PollerControl;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
@@ -42,6 +45,16 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(ClaimQueryDegradationIT.class.getName());
 
+  @BeforeEach
+  void stopPollerForIsolatedMeasurement() {
+    // This IT bypasses the scheduler and times the claim query directly. Runs after the base
+    // class's @BeforeEach starts the poller, so it leaves the poller quiesced for the test body.
+    // Two reasons: the live poller would race the measured rows, and because
+    // pg_stat_user_tables.seq_scan is a process-global counter, any poll tick landing inside an
+    // assertNoFullScan window would inflate the seq_scan delta and flake the assertion.
+    PollerControl.stopAndAwait(pollerScheduler);
+  }
+
   @Deployment
   public static WebArchive createDeployment() {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
@@ -54,6 +67,7 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
             ConfigurableWorkJob.class,
             ProbabilisticFailingJob.class,
             PerformanceMetricsCollector.class,
+            TestMetricsCollectorAdapter.class,
             TestJobService.class,
             BasePerformanceIT.class,
             PerformanceBaseline.class,
@@ -76,7 +90,7 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
         // Insert background rows to reach target
         int toInsert = tableSize - previousSize;
         if (toInsert > 0) {
-          perfHelper.insertBackgroundRows(toInsert, "bg-claim");
+          perfHelper.insertPendingBackgroundRows(toInsert, previousSize, "bg-claim");
           log.info("Inserted " + toInsert + " background rows (total target: " + tableSize + ")");
         }
         previousSize = tableSize;
@@ -141,13 +155,14 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
           "Claim query degradation ratio phase failed at tableSize=" + lastSizeKey, e);
     }
 
-    // Verify actual store methods use index scans at maximum table size
+    // Verify the claim path uses an index scan on the hot queue at maximum table size.
+    // claimNextBatchOptimized supplies job_type (the leading column of idx_claim_executable), so it
+    // exercises the real claim access path. countReadyJobs omits job_type and serves only as the
+    // latency proxy above, not a scan probe. The background rows are far-future, so the claim finds
+    // no due rows and ranges over the index without a sequential scan.
     try {
-      Instant finalNow = Instant.now();
       perfHelper.assertNoFullScan(
-          "countReadyJobs @ " + lastSizeKey, () -> jobAnalyticsStore.countReadyJobs(finalNow));
-
-      perfHelper.assertNoFullScan(
+          "scheduler_job_queue",
           "claimNextBatch @ " + lastSizeKey,
           () ->
               jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "perf-test-node"));
