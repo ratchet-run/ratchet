@@ -50,6 +50,11 @@ jobs:
           path: '.'
           format: 'HTML'
           out: 'target'
+          # The Central Analyzer recovers jar coordinates by SHA-1 lookup against the legacy
+          # search.maven.org Solr endpoint, which read-times-out and 403s under load. Maven-built
+          # jars already carry their GAV in META-INF/maven/**/pom.properties, so --disableCentral
+          # drops that flaky network call without losing identification (the NVD data is preloaded
+          # in the action image, so CVE matching is unaffected).
           args: >
             --format SARIF
             --failOnCVSS 7
@@ -63,6 +68,7 @@ jobs:
             --disablePnpmAudit
             --disableRetireJs
             --disableOssIndex
+            --disableCentral
             --suppression /github/workspace/owasp-suppressions.xml
 
       - name: Upload Dependency-Check report
