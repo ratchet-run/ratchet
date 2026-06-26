@@ -13,8 +13,8 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
-    "playwright": "^1.61.0",
-    "shiki": "^4.2.0",
+    "playwright": "^1.61.1",
+    "shiki": "^4.3.0",
     "vitepress": "^1.6.0"
   },
   "engines": {
