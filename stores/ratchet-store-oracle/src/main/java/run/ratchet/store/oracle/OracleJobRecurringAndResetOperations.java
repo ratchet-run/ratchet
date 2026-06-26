@@ -25,8 +25,7 @@ final class OracleJobRecurringAndResetOperations {
 
   private final OracleStoreContext ctx;
 
-  OracleJobRecurringAndResetOperations(
-      OracleStoreContext ctx, OracleBusinessKeyReservations reservations) {
+  OracleJobRecurringAndResetOperations(OracleStoreContext ctx) {
     this.ctx = ctx;
   }
 

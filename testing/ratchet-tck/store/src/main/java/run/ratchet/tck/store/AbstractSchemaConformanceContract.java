@@ -167,10 +167,15 @@ public abstract class AbstractSchemaConformanceContract {
               expected.refColumn().toLowerCase(Locale.ROOT),
               actual.refColumn().toLowerCase(Locale.ROOT),
               () -> "FK " + expected.name() + " referenced column mismatch");
-          assertEquals(
-              expected.onDelete(),
-              actual.onDelete(),
-              () -> "FK " + expected.name() + " ON DELETE action mismatch");
+          assertTrue(
+              mapper().acceptsOnDelete(expected, actual.onDelete()),
+              () ->
+                  "FK "
+                      + expected.name()
+                      + " ON DELETE action mismatch: expected "
+                      + expected.onDelete()
+                      + " but introspected "
+                      + actual.onDelete());
         }
       }
     }

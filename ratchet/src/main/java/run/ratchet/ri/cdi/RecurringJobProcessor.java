@@ -23,6 +23,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Any;
+import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Inject;
@@ -41,6 +42,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobHandle;
@@ -52,8 +56,10 @@ import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
+import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.RecurringJobStore;
 
 /**
  * Scans CDI beans for {@link Recurring}-annotated methods and registers them as recurring jobs at
@@ -70,6 +76,8 @@ public class RecurringJobProcessor {
   private static final Logger log = Logger.getLogger(RecurringJobProcessor.class);
   private static final String ORPHAN_CLEANUP_ACTION = "recurring-annotation-orphan-cleanup";
   private static final Duration ORPHAN_CLEANUP_LEASE_TTL = Duration.ofMinutes(5);
+  private static final long REGISTRATION_RETRY_DELAY_MS = 500;
+  private static final int MAX_REGISTRATION_ATTEMPTS = 10;
 
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
@@ -86,6 +94,15 @@ public class RecurringJobProcessor {
   private final RatchetOptions options;
   private final Set<Class<?>> discoveredRecurringBeanClasses;
   private final Clock clock;
+
+  // Field-injected (not constructor) so direct-construction test/SE paths leave them null and
+  // register inline; the CDI-managed bean uses the managed scheduled executor (a post-deployment
+  // thread that carries a Jakarta EE component invocation, which @Transactional registration needs)
+  // and the store to verify each master committed before declaring registration complete.
+  @Inject private ExecutorProvider executorProvider;
+  @Inject private Instance<RecurringJobStore> recurringJobStoreInstance;
+
+  private final AtomicBoolean registrationFinalized = new AtomicBoolean();
 
   protected RecurringJobProcessor() {
     this.schedulerService = null;
@@ -212,19 +229,83 @@ public class RecurringJobProcessor {
 
   void onStartup(
       @Observes @Priority(Interceptor.Priority.APPLICATION) @Initialized(ApplicationScoped.class) Object init) {
-    registerRecurringJobs();
+    ScheduledExecutorService scheduler = resolveScheduledExecutor();
+    if (scheduler == null) {
+      // Plain-CDI / SE / unit tests: no managed executor, and the calling thread already carries a
+      // usable transaction context, so register inline.
+      registerRecurringJobs();
+      return;
+    }
+    // On a Jakarta EE container the @Initialized(ApplicationScoped) observer can fire before the
+    // application's component invocation context is established (notably GlassFish 8, which fires
+    // it
+    // mid-deployment). Without that context the @Transactional submit path neither starts nor
+    // commits a transaction, so on EclipseLink 5 + SQL Server (whose JTA pool pins autocommit off)
+    // the recurring-master INSERT is rolled back on connection return and silently lost. Defer
+    // registration to the managed scheduled executor, whose tasks run post-deployment with a proper
+    // component context, and retry until every master is confirmed committed.
+    scheduleDeferredRegistration(scheduler, 1);
   }
 
-  void registerRecurringJobs() {
+  private ScheduledExecutorService resolveScheduledExecutor() {
+    if (executorProvider == null) {
+      return null;
+    }
+    try {
+      return executorProvider.getScheduledExecutor();
+    } catch (RuntimeException e) {
+      log.warnf(
+          e,
+          "Managed scheduled executor unavailable for @Recurring registration; registering inline");
+      return null;
+    }
+  }
+
+  private void scheduleDeferredRegistration(ScheduledExecutorService scheduler, int attempt) {
+    scheduler.schedule(
+        () -> attemptDeferredRegistration(scheduler, attempt),
+        REGISTRATION_RETRY_DELAY_MS,
+        TimeUnit.MILLISECONDS);
+  }
+
+  private void attemptDeferredRegistration(ScheduledExecutorService scheduler, int attempt) {
+    try {
+      boolean committed = registerRecurringJobs();
+      if (!committed && attempt < MAX_REGISTRATION_ATTEMPTS) {
+        log.infof(
+            "@Recurring registration not yet committed (attempt %s/%s); retrying",
+            attempt, MAX_REGISTRATION_ATTEMPTS);
+        scheduleDeferredRegistration(scheduler, attempt + 1);
+      }
+    } catch (RuntimeException e) {
+      log.error("@Recurring registration attempt failed", e);
+      if (attempt < MAX_REGISTRATION_ATTEMPTS) {
+        scheduleDeferredRegistration(scheduler, attempt + 1);
+      }
+    }
+  }
+
+  /**
+   * Registers every discovered {@code @Recurring} method, skipping any whose master is already
+   * committed so the call is idempotent across retries and restarts.
+   *
+   * @return {@code true} once every discovered master is confirmed present in the store (or the
+   *     store does not advertise the recurring capability), so the caller can stop retrying
+   */
+  boolean registerRecurringJobs() {
     Instant startTime = effective().instant();
     log.info("Starting registration of @Recurring annotated jobs");
 
+    RecurringJobStore store = resolveRecurringJobStore();
     List<RecurringMethodRegistration> registrations = discoverRecurringMethods();
     Set<String> discoveredJobIds =
         registrations.stream()
             .map(RecurringMethodRegistration::jobId)
             .collect(Collectors.toCollection(LinkedHashSet::new));
     for (RecurringMethodRegistration registration : registrations) {
+      if (store != null && store.findRecurringByBusinessKey(registration.jobId()).isPresent()) {
+        continue; // already committed (a prior attempt or a previous run) — idempotent skip
+      }
       try {
         registerJob(registration);
       } catch (Exception e) {
@@ -236,6 +317,27 @@ public class RecurringJobProcessor {
       }
     }
 
+    boolean committed =
+        store == null
+            || registrations.stream()
+                .allMatch(r -> store.findRecurringByBusinessKey(r.jobId()).isPresent());
+    if (committed) {
+      finalizeRegistration(startTime, discoveredJobIds);
+    }
+    return committed;
+  }
+
+  private RecurringJobStore resolveRecurringJobStore() {
+    if (recurringJobStoreInstance == null || !recurringJobStoreInstance.isResolvable()) {
+      return null;
+    }
+    return recurringJobStoreInstance.get();
+  }
+
+  private void finalizeRegistration(Instant startTime, Set<String> discoveredJobIds) {
+    if (!registrationFinalized.compareAndSet(false, true)) {
+      return; // already finalized by an earlier attempt
+    }
     log.infof("Completed registration of %s recurring jobs", registeredJobIds.size());
 
     // Publish the discovered key set to the shared registration state BEFORE running cleanup,

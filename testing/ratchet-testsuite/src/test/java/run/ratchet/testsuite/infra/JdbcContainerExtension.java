@@ -15,11 +15,22 @@
  */
 package run.ratchet.testsuite.infra;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.testcontainers.containers.JdbcDatabaseContainer;
+import org.testcontainers.mssqlserver.MSSQLServerContainer;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.oracle.OracleContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -28,10 +39,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * JUnit 5 extension that starts a shared Testcontainers SQL database before all tests.
  *
  * <p>The database type is determined by the {@code ratchet.test.db.type} system property. The
- * extension starts a container only for {@code mysql}, {@code postgresql}, or {@code oracle}; other
- * values leave the extension inactive, and {@link #getConfig()} will fail until a SQL-backed run
- * initializes it. The container is started once and shared across all test classes via the JUnit
- * {@link ExtensionContext.Store} with GLOBAL namespace.
+ * extension starts a container only for {@code mysql}, {@code postgresql}, {@code oracle}, or
+ * {@code sqlserver}; other values leave the extension inactive, and {@link #getConfig()} will fail
+ * until a SQL-backed run initializes it. The container is started once and shared across all test
+ * classes via the JUnit {@link ExtensionContext.Store} with GLOBAL namespace.
  */
 public class JdbcContainerExtension
     implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {
@@ -52,6 +63,9 @@ public class JdbcContainerExtension
     }
     return config;
   }
+
+  private static final String SQLSERVER_DB = "ratchet";
+  private static final String SQLSERVER_PASSWORD = "Ratchet!Str0ngPwd";
 
   @SuppressWarnings({"resource"})
   private static JdbcDatabaseContainer<?> createContainer(String dbType) {
@@ -78,6 +92,22 @@ public class JdbcContainerExtension
               .withSharedMemorySize(2L * 1024 * 1024 * 1024)
               .withStartupTimeout(Duration.ofMinutes(5))
               .withInitScript("ddl/oracle-schema.sql");
+      case "sqlserver" ->
+          // No withInitScript: the schema is applied to a dedicated RCSI database after start
+          // (see provisionSqlServer). MSSQLServerContainer is sa-only and has no withDatabaseName.
+          // withReuse keeps the container warm across local matrix runs (reuse is opt-in via
+          // ~/.testcontainers.properties and ignored on ephemeral CI runners), mirroring the
+          // store's
+          // MssqlContainers; a generous startup timeout absorbs the slow cold start of the x86
+          // image
+          // under emulation on Apple Silicon, where the default wait expires before SQL Server is
+          // up.
+          new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2022-latest")
+              .acceptLicense()
+              .withPassword(SQLSERVER_PASSWORD)
+              .withUrlParam("trustServerCertificate", "true")
+              .withStartupTimeout(Duration.ofMinutes(5))
+              .withReuse(true);
       default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
     };
   }
@@ -85,7 +115,10 @@ public class JdbcContainerExtension
   @Override
   public void beforeAll(ExtensionContext context) {
     String dbType = System.getProperty("ratchet.test.db.type");
-    if (!"mysql".equals(dbType) && !"postgresql".equals(dbType) && !"oracle".equals(dbType)) {
+    if (!"mysql".equals(dbType)
+        && !"postgresql".equals(dbType)
+        && !"oracle".equals(dbType)
+        && !"sqlserver".equals(dbType)) {
       return;
     }
 
@@ -138,6 +171,14 @@ public class JdbcContainerExtension
           jdbcUrl = jdbcUrl.substring(0, queryStart);
         }
         jdbcUrl += "?connectionTimeZone=UTC";
+      } else if ("sqlserver".equals(dbType)) {
+        // SQL Server's default lock-based READ COMMITTED takes shared read locks (unlike the MVCC
+        // engines Ratchet targets), so concurrent claim/cancel paths deadlock. Provision a
+        // dedicated
+        // database with READ_COMMITTED_SNAPSHOT (which cannot be set on master) and apply the
+        // schema
+        // there. SQL Server JDBC URLs use ';' separators, which are XML-safe in arquillian.xml.
+        jdbcUrl = provisionSqlServer(container);
       }
 
       config =
@@ -160,12 +201,76 @@ public class JdbcContainerExtension
             case "mysql" -> "mysql";
             case "postgresql" -> "postgresql";
             case "oracle" -> "oracle";
+            case "sqlserver" -> "sqlserver";
             default -> "h2";
           };
       System.setProperty("ratchet.test.db.driver.name", driverName);
 
       started = true;
       log.info("Database container ready: " + config.url());
+    }
+  }
+
+  /**
+   * Creates the dedicated {@code ratchet} database with {@code READ_COMMITTED_SNAPSHOT} enabled,
+   * applies the SQL Server schema there, and returns the JDBC URL targeting it. Mirrors the unit
+   * fixture's {@code MssqlContainers}.
+   */
+  private static String provisionSqlServer(JdbcDatabaseContainer<?> mssql) {
+    String master = mssql.getJdbcUrl();
+    try (Connection c =
+            DriverManager.getConnection(master, mssql.getUsername(), mssql.getPassword());
+        Statement s = c.createStatement()) {
+      s.execute(
+          "IF DB_ID('"
+              + SQLSERVER_DB
+              + "') IS NOT NULL BEGIN ALTER DATABASE ["
+              + SQLSERVER_DB
+              + "] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE ["
+              + SQLSERVER_DB
+              + "]; END");
+      s.execute("CREATE DATABASE [" + SQLSERVER_DB + "]");
+      s.execute("ALTER DATABASE [" + SQLSERVER_DB + "] SET READ_COMMITTED_SNAPSHOT ON");
+      s.execute("ALTER DATABASE [" + SQLSERVER_DB + "] SET ALLOW_SNAPSHOT_ISOLATION ON");
+    } catch (SQLException e) {
+      throw new IllegalStateException("Failed to provision the SQL Server ratchet database", e);
+    }
+    String ratchetUrl = master + ";databaseName=" + SQLSERVER_DB;
+    applySqlServerSchema(ratchetUrl, mssql.getUsername(), mssql.getPassword());
+    return ratchetUrl;
+  }
+
+  private static void applySqlServerSchema(String url, String user, String password) {
+    String schema = stripSqlComments(readSqlServerSchema());
+    try (Connection conn = DriverManager.getConnection(url, user, password);
+        Statement st = conn.createStatement()) {
+      for (String raw : schema.split(";")) {
+        String stmt = raw.strip();
+        if (!stmt.isBlank()) {
+          st.execute(stmt);
+        }
+      }
+    } catch (SQLException e) {
+      throw new IllegalStateException("Failed to apply the SQL Server schema", e);
+    }
+  }
+
+  private static String stripSqlComments(String sql) {
+    return Arrays.stream(sql.split("\n"))
+        .filter(line -> !line.stripLeading().startsWith("--"))
+        .collect(Collectors.joining("\n"));
+  }
+
+  private static String readSqlServerSchema() {
+    try (InputStream in =
+        JdbcContainerExtension.class.getResourceAsStream("/ddl/sqlserver-schema.sql")) {
+      if (in == null) {
+        throw new IllegalStateException(
+            "ddl/sqlserver-schema.sql not found — is the sqlserver profile active?");
+      }
+      return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
     }
   }
 

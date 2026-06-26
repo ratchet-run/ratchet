@@ -54,6 +54,11 @@
             </dependency>
             <dependency>
                 <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-store-sqlserver</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
                 <artifactId>ratchet-store-mongodb</artifactId>
                 <version>${project.version}</version>
             </dependency>

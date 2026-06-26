@@ -155,7 +155,7 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
           <dataSource id="RatchetDS"
                       jndiName="%s"
                       jdbcDriverRef="RatchetJdbcDriver"
-                      transactional="true">
+                      transactional="true"%s>
             <properties URL="%s" user="%s" password="%s"/>
           </dataSource>
         </server>
@@ -164,9 +164,21 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
         DataSourceResources.xml(config.dbType()),
         DataSourceResources.dataSourceClassName(config.dbType()),
         JTA_DATASOURCE,
+        isolationLevelAttribute(config.dbType()),
         DataSourceResources.xml(config.url()),
         DataSourceResources.xml(config.username()),
         DataSourceResources.xml(config.password()));
+  }
+
+  private static String isolationLevelAttribute(String dbType) {
+    // Open Liberty's SQL Server data-store helper defaults an unset isolation level to
+    // TRANSACTION_REPEATABLE_READ. Ratchet's claim contract requires READ COMMITTED, so its startup
+    // isolation check throws under that default and the EclipseLink persistence-context connection
+    // it acquired is never returned — leaking one connection per deploy cycle until the
+    // server-level RatchetDS pool (max 50) is exhausted and every later deployment times out.
+    // Pin READ COMMITTED for SQL Server, matching the level WildFly sets via its setup CLI. The
+    // other Liberty cells already run READ COMMITTED, so they are left untouched.
+    return "sqlserver".equals(dbType) ? " isolationLevel=\"TRANSACTION_READ_COMMITTED\"" : "";
   }
 
   private static String driverCoordinates(String dbType) {
