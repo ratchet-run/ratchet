@@ -19,7 +19,6 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -119,7 +118,7 @@ final class SqlserverAuxiliaryOperations
     // precision rather than mssql-jdbc's nanosecond-precision bind (see existsRecentDlqAlert).
     return ctx.em()
         .createQuery(jpql)
-        .setParameter("cutoff", cutoff.truncatedTo(ChronoUnit.MICROS))
+        .setParameter("cutoff", SqlserverTimestamps.floorMicros(cutoff))
         .executeUpdate();
   }
 
@@ -262,7 +261,7 @@ final class SqlserverAuxiliaryOperations
             // floor the bind for us, which is why this only surfaces on SQL Server and Oracle, and
             // only on a nanosecond-resolution clock). Floor the cutoff to match the column
             // precision.
-            .setParameter("cutoff", cutoff.truncatedTo(ChronoUnit.MICROS))
+            .setParameter("cutoff", SqlserverTimestamps.floorMicros(cutoff))
             .getSingleResult();
     return count > 0;
   }

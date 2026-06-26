@@ -170,7 +170,7 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
               + " ORDER BY (SELECT 1) OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY";
       return ctx.em()
           .createNativeQuery(sql, NodeEntity.class)
-          .setParameter(1, Timestamp.from(cutoff))
+          .setParameter(1, SqlserverTimestamps.microTimestamp(cutoff))
           .setParameter(2, MAX_INACTIVE_NODES)
           .getResultList();
     } catch (RuntimeException e) {
@@ -185,7 +185,7 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
       String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
       return ctx.em()
           .createNativeQuery(sql)
-          .setParameter(1, Timestamp.from(cutoff))
+          .setParameter(1, SqlserverTimestamps.microTimestamp(cutoff))
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete inactive nodes", e);

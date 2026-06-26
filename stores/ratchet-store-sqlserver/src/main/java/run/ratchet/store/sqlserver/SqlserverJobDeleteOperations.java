@@ -77,7 +77,7 @@ final class SqlserverJobDeleteOperations {
           """;
       return ctx.em()
           .createNativeQuery(deleteSql)
-          .setParameter(1, Timestamp.from(cutoff))
+          .setParameter(1, SqlserverTimestamps.microTimestamp(cutoff))
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete dlq older than cutoff", e);
@@ -136,7 +136,7 @@ final class SqlserverJobDeleteOperations {
             )
             AND picked_at < ?
           """;
-      Timestamp cutoffTimestamp = Timestamp.from(cutoff);
+      Timestamp cutoffTimestamp = SqlserverTimestamps.microTimestamp(cutoff);
       return ctx.em()
           .createNativeQuery(sql)
           .setParameter(1, cutoffTimestamp)
