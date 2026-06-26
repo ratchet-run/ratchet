@@ -36,7 +36,7 @@ final class SqlserverJobLifecycleOperations
       SqlserverBatchOperations batches) {
     this.transitions = new SqlserverJobStatusTransitions(ctx);
     this.terminals = new SqlserverJobTerminalOperations(ctx, reservations, batches);
-    this.recurring = new SqlserverJobRecurringAndResetOperations(ctx, reservations);
+    this.recurring = new SqlserverJobRecurringAndResetOperations(ctx);
   }
 
   @Override

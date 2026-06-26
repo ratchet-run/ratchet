@@ -28,8 +28,7 @@ final class PostgresqlJobRecurringAndResetOperations {
 
   private final PostgresqlStoreContext ctx;
 
-  PostgresqlJobRecurringAndResetOperations(
-      PostgresqlStoreContext ctx, PostgresqlBusinessKeyReservations reservations) {
+  PostgresqlJobRecurringAndResetOperations(PostgresqlStoreContext ctx) {
     this.ctx = ctx;
   }
 

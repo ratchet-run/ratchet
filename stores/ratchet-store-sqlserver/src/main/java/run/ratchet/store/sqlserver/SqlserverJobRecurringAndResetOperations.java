@@ -29,8 +29,7 @@ final class SqlserverJobRecurringAndResetOperations {
 
   private final SqlserverStoreContext ctx;
 
-  SqlserverJobRecurringAndResetOperations(
-      SqlserverStoreContext ctx, SqlserverBusinessKeyReservations reservations) {
+  SqlserverJobRecurringAndResetOperations(SqlserverStoreContext ctx) {
     this.ctx = ctx;
   }
 

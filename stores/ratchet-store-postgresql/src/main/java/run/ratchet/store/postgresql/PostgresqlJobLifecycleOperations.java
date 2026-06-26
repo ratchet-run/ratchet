@@ -36,7 +36,7 @@ final class PostgresqlJobLifecycleOperations
       PostgresqlBatchOperations batches) {
     this.transitions = new PostgresqlJobStatusTransitions(ctx);
     this.terminals = new PostgresqlJobTerminalOperations(ctx, reservations, batches);
-    this.recurring = new PostgresqlJobRecurringAndResetOperations(ctx, reservations);
+    this.recurring = new PostgresqlJobRecurringAndResetOperations(ctx);
   }
 
   @Override

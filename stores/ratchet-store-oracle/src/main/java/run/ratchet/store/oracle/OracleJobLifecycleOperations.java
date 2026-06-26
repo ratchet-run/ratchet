@@ -36,7 +36,7 @@ final class OracleJobLifecycleOperations
       OracleBatchOperations batches) {
     this.transitions = new OracleJobStatusTransitions(ctx);
     this.terminals = new OracleJobTerminalOperations(ctx, reservations, batches);
-    this.recurring = new OracleJobRecurringAndResetOperations(ctx, reservations);
+    this.recurring = new OracleJobRecurringAndResetOperations(ctx);
   }
 
   @Override
