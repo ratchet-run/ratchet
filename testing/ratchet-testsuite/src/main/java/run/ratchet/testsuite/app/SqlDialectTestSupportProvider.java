@@ -15,6 +15,8 @@
  */
 package run.ratchet.testsuite.app;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.ServiceLoader;
 import run.ratchet.tck.store.SqlDialectTestSupport;
 
@@ -34,12 +36,25 @@ public final class SqlDialectTestSupportProvider {
   }
 
   private static SqlDialectTestSupport load() {
-    return ServiceLoader.load(SqlDialectTestSupport.class)
-        .findFirst()
-        .orElseThrow(
-            () ->
-                new IllegalStateException(
-                    "No SqlDialectTestSupport registered on the classpath — the active store module"
-                        + " must contribute one via META-INF/services"));
+    // The rest of the testsuite assumes exactly one dialect support. Fail loudly on zero (no store
+    // active) or more than one (misconfigured profiles / stale classpath) rather than silently
+    // picking an arbitrary implementation.
+    List<SqlDialectTestSupport> found = new ArrayList<>();
+    ServiceLoader.load(SqlDialectTestSupport.class).forEach(found::add);
+    if (found.isEmpty()) {
+      throw new IllegalStateException(
+          "No SqlDialectTestSupport registered on the classpath — the active store module"
+              + " must contribute one via META-INF/services");
+    }
+    if (found.size() > 1) {
+      List<String> names = new ArrayList<>();
+      found.forEach(support -> names.add(support.getClass().getName()));
+      names.sort(null);
+      throw new IllegalStateException(
+          "Multiple SqlDialectTestSupport implementations on the classpath ("
+              + String.join(", ", names)
+              + ") — exactly one store module must be active");
+    }
+    return found.get(0);
   }
 }

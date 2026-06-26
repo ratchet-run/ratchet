@@ -154,7 +154,7 @@ public final class PostgresqlDialectTestSupport implements SqlDialectTestSupport
 
     if (seqDelta != 0) {
       throw new AssertionError(
-          label + ": sequential scan detected on scheduler_job (seq_scan delta=" + seqDelta + ")");
+          label + ": sequential scan detected on " + table + " (seq_scan delta=" + seqDelta + ")");
     }
   }
 

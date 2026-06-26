@@ -37,18 +37,22 @@ public interface SchemaMigrationDialect {
   /**
    * Canonical dialect id, lower-case ({@code "mysql"}, {@code "postgresql"}, {@code "oracle"}).
    *
-   * <p>Used to select a dialect from a configured or auto-detected dialect string.
+   * <p>The schema-migration lifecycle hook matches this id against {@code
+   * RATCHET_SCHEMA_MIGRATION_DIALECT} to choose one dialect when several store modules are
+   * deployed; the engine no longer infers a dialect from JDBC product metadata.
    *
    * @return the canonical id; never {@code null} or blank
    */
   String id();
 
   /**
-   * Returns the {@code CREATE TABLE IF NOT EXISTS ratchet_schema_version} statement for this
-   * dialect. The table must expose {@code version}, {@code applied_at}, {@code description}, and a
-   * nullable {@code checksum} column with {@code version} as the primary key.
+   * Returns a single executable statement that creates {@code ratchet_schema_version} if it does
+   * not already exist — the engine runs it before every migration and does not catch already-exists
+   * errors, so the statement must be idempotent on its own. The table must expose {@code version},
+   * {@code applied_at}, {@code description}, and a nullable {@code checksum} column with {@code
+   * version} as the primary key.
    *
-   * @return a single executable DDL statement
+   * @return a single executable statement
    */
   String createVersionTableSql();
 

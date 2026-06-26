@@ -45,15 +45,26 @@ public class OracleSchemaMigrationDialect implements SchemaMigrationDialect {
 
   @Override
   public String createVersionTableSql() {
+    // Oracle's CREATE TABLE IF NOT EXISTS is 23ai-only, and the engine runs this statement without
+    // catching already-exists errors, so wrap a plain CREATE TABLE in a PL/SQL block that swallows
+    // ORA-00955 (name already used). That keeps re-runs idempotent across Oracle versions. The
+    // statement runs under the migration lock, so there is no concurrent-create race to handle.
     return """
-        CREATE TABLE IF NOT EXISTS ratchet_schema_version
-        (
-            version     VARCHAR2(20)  NOT NULL,
-            applied_at  TIMESTAMP(6)  DEFAULT SYSTIMESTAMP NOT NULL,
-            description VARCHAR2(200) NOT NULL,
-            checksum    VARCHAR2(64),
-            CONSTRAINT pk_ratchet_schema_version PRIMARY KEY (version)
-        )\
+        BEGIN
+          EXECUTE IMMEDIATE 'CREATE TABLE ratchet_schema_version
+          (
+              version     VARCHAR2(20)  NOT NULL,
+              applied_at  TIMESTAMP(6)  DEFAULT SYSTIMESTAMP NOT NULL,
+              description VARCHAR2(200) NOT NULL,
+              checksum    VARCHAR2(64),
+              CONSTRAINT pk_ratchet_schema_version PRIMARY KEY (version)
+          )';
+        EXCEPTION
+          WHEN OTHERS THEN
+            IF SQLCODE != -955 THEN
+              RAISE;
+            END IF;
+        END;\
         """;
   }
 
@@ -86,8 +97,11 @@ public class OracleSchemaMigrationDialect implements SchemaMigrationDialect {
   @Override
   public void acquireLock(Connection connection) throws SQLException {
     try (Statement statement = connection.createStatement()) {
+      // Plain CREATE TABLE rather than IF NOT EXISTS (which is 23ai-only): the lock table is
+      // created before the lock is held, so two migrators can race here. The ORA-00955 catch below
+      // handles the loser of that race and keeps this portable across Oracle versions.
       statement.execute(
-          "CREATE TABLE IF NOT EXISTS ratchet_schema_lock (lock_name VARCHAR2(128) NOT NULL,"
+          "CREATE TABLE ratchet_schema_lock (lock_name VARCHAR2(128) NOT NULL,"
               + " CONSTRAINT pk_ratchet_schema_lock PRIMARY KEY (lock_name))");
     } catch (SQLException e) {
       // ORA-00955: a concurrent migrator created the lock table first. Any other error is fatal.
