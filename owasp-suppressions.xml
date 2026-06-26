@@ -48,6 +48,21 @@
 
     <suppress>
         <notes><![CDATA[
+        False positive: CVE-2026-42154 is a Prometheus SERVER vulnerability — the
+        remote-read endpoint (/api/v1/read) under-validates the declared length of a
+        snappy-compressed body and over-allocates heap, a DoS fixed in Prometheus
+        server 3.5.3 and 3.11.3. micrometer-registry-prometheus is the io.micrometer
+        client library that only emits metrics (write-only scrape()); it has no
+        remote-read endpoint and is not the Prometheus server. The CPE rule above
+        strips the Prometheus server CPE identifier, but the CVE is also attached
+        directly via the NVD CVE analyzer, so suppress that record by CVE id.
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.micrometer/micrometer-registry-prometheus@.*$</packageUrl>
+        <cve>CVE-2026-42154</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
         False positive: this package is the Prometheus Java client library
         (metrics emission), not the Prometheus server binary. Dependency-Check
         attaches the Prometheus server CPE because the artifact name contains
