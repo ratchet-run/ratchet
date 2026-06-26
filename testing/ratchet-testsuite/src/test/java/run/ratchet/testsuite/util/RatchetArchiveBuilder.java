@@ -241,15 +241,9 @@ public class RatchetArchiveBuilder {
    * SqlDialectTestSupportProvider} performs at runtime.
    */
   private void addSqlDialectTestSupport() {
-    SqlDialectTestSupport support =
-        ServiceLoader.load(SqlDialectTestSupport.class)
-            .findFirst()
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "No SqlDialectTestSupport on the test classpath — the active store module"
-                            + " must contribute one via META-INF/services"));
-    Class<?> implClass = support.getClass();
+    // SqlDialectTestSupportProvider already resolves (and caches) the single implementation via the
+    // same ServiceLoader lookup in this build JVM, so reuse it rather than scanning a second time.
+    Class<?> implClass = SqlDialectTestSupportProvider.get().getClass();
     archive.addClass(SqlDialectTestSupport.class);
     archive.addClass(implClass);
     archive.addClasses(implClass.getDeclaredClasses());
