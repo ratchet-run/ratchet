@@ -38,6 +38,9 @@ class DataSourceResourcesTest {
         DataSourceResources.dataSourceClassName("postgresql"));
     assertEquals(
         "oracle.jdbc.pool.OracleDataSource", DataSourceResources.dataSourceClassName("oracle"));
+    assertEquals(
+        "com.microsoft.sqlserver.jdbc.SQLServerDataSource",
+        DataSourceResources.dataSourceClassName("sqlserver"));
   }
 
   @Test
@@ -46,13 +49,18 @@ class DataSourceResourcesTest {
     assertEquals("org.postgresql:postgresql", DataSourceResources.driverCoordinates("postgresql"));
     assertEquals(
         "com.oracle.database.jdbc:ojdbc11", DataSourceResources.driverCoordinates("oracle"));
+    assertEquals(
+        "com.microsoft.sqlserver:mssql-jdbc", DataSourceResources.driverCoordinates("sqlserver"));
   }
 
   @Test
   void unsupportedDatabaseTypeIsRejected() {
+    // "mongodb" is a deliberate sentinel: it is a Ratchet store with no JDBC DataSource, so it is
+    // structurally outside this JDBC resolver and cannot become a supported type here — unlike a
+    // real RDBMS name, which a future store could add and silently un-break this assertion.
     assertThrows(
-        IllegalArgumentException.class, () -> DataSourceResources.dataSourceClassName("sqlserver"));
+        IllegalArgumentException.class, () -> DataSourceResources.dataSourceClassName("mongodb"));
     assertThrows(
-        IllegalArgumentException.class, () -> DataSourceResources.driverCoordinates("sqlserver"));
+        IllegalArgumentException.class, () -> DataSourceResources.driverCoordinates("mongodb"));
   }
 }
