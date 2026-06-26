@@ -39,8 +39,9 @@ import run.ratchet.store.util.StatusClassifier;
  *   <li>Live state from {@code scheduler_job_queue} (alias {@code q}) when present.
  * </ul>
  *
- * <p>Shares the column indexes and hydration body with {@link AbstractJobRowMapper}; only the
- * projection differs (SQL Server casts JSON columns to {@code }).
+ * <p>Shares the column indexes and hydration body with {@link AbstractJobRowMapper}. SQL Server
+ * stores the JSON columns as {@code NVARCHAR(MAX)}, so unlike PostgreSQL (which casts native {@code
+ * json} to {@code ::text}) the projection selects them directly with no cast.
  */
 final class SqlserverJobRowMapper extends AbstractJobRowMapper {
 
