@@ -20,6 +20,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -47,11 +48,30 @@ public class DocumentStorePerformanceTestHelper implements PerformanceTestHelper
   @Inject private Clock clock;
 
   @Override
-  public void insertBackgroundRows(int count, String keyPrefix) {
+  public void insertTerminalBackgroundRows(int count, int baseOffset, String keyPrefix) {
+    // MongoDB keeps one scheduler_job collection (no hot/cold split): terminal docs are SUCCEEDED
+    // and past-due, so countReadyJobs (PENDING-only) never counts them and the poller never claims
+    // them.
+    insertBackgroundRows(
+        count, baseOffset, keyPrefix, "SUCCEEDED", clock.instant().minusSeconds(3600));
+  }
+
+  @Override
+  public void insertPendingBackgroundRows(int count, int baseOffset, String keyPrefix) {
+    // PENDING but far-future so a running poller never claims them mid-measurement, mirroring the
+    // SQL hot-queue background rows.
+    insertBackgroundRows(
+        count, baseOffset, keyPrefix, "PENDING", clock.instant().plus(365, ChronoUnit.DAYS));
+  }
+
+  private void insertBackgroundRows(
+      int count, int baseOffset, String keyPrefix, String status, Instant scheduledTime) {
     int chunkSize = 10_000;
 
     for (int offset = 0; offset < count; offset += chunkSize) {
       int batchCount = Math.min(chunkSize, count - offset);
+      // Number documents from the cumulative base so business keys stay unique across growth calls.
+      int rowOffset = baseOffset + offset;
 
       List<Document> docs = new ArrayList<>(batchCount);
       Instant now = clock.instant();
@@ -59,8 +79,8 @@ public class DocumentStorePerformanceTestHelper implements PerformanceTestHelper
       for (int i = 0; i < batchCount; i++) {
         docs.add(
             new Document()
-                .append("status", "SUCCEEDED")
-                .append("scheduled_time", Date.from(past))
+                .append("status", status)
+                .append("scheduled_time", Date.from(scheduledTime))
                 .append("job_type", "SINGLE")
                 .append(
                     "payload",
@@ -71,7 +91,7 @@ public class DocumentStorePerformanceTestHelper implements PerformanceTestHelper
                         .append("isStatic", true)
                         .append("args", List.of()))
                 .append("idempotency_key", UUID.randomUUID().toString())
-                .append("business_key", keyPrefix + "-" + (offset + i + 1))
+                .append("business_key", keyPrefix + "-" + (rowOffset + i + 1))
                 .append("execution_start_time", Date.from(past))
                 .append("execution_end_time", Date.from(past.plusMillis(10)))
                 .append("created_at", Date.from(now))
@@ -116,16 +136,16 @@ public class DocumentStorePerformanceTestHelper implements PerformanceTestHelper
   }
 
   @Override
-  public void assertNoFullScan(String label, Runnable storeOperation) {
+  public void assertNoFullScan(String table, String label, Runnable storeOperation) {
     // MongoDB: collStats provides scan diagnostics, but collection-level scan counters
-    // are not as straightforward as PostgreSQL's pg_stat_user_tables. Execute the operation
-    // and log for informational purposes.
+    // are not as straightforward as PostgreSQL's pg_stat_user_tables. The table argument is
+    // irrelevant here (one collection holds every job). Execute the operation and log only.
     storeOperation.run();
 
     log.info(
         String.format(
-            "Scan stats [%s]: MongoDB — per-collection scan metrics not directly available, "
+            "Scan stats [%s] on %s: MongoDB — per-collection scan metrics not directly available, "
                 + "relying on index definitions and explain plans for verification",
-            label));
+            label, table));
   }
 }

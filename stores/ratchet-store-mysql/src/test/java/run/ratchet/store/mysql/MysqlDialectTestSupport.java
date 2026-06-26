@@ -50,32 +50,31 @@ public final class MysqlDialectTestSupport implements SqlDialectTestSupport {
   }
 
   @Override
-  public void insertBackgroundChunk(
-      EntityManager em, int batchCount, int offset, String keyPrefix) {
-    // job_id is BINARY(16); UUID_TO_BIN(UUID(), 1) produces a time-ordered 16-byte value.
-    // language=MySQL
-    String setDepthSql = "SET @@cte_max_recursion_depth = " + (batchCount + 1);
-    em.createNativeQuery(setDepthSql).executeUpdate();
+  public void insertTerminalChunk(EntityManager em, int batchCount, int offset, String keyPrefix) {
+    // Cold archive rows: terminal_status='SUCCEEDED', no queue row. job_id is BINARY(16);
+    // UUID_TO_BIN(UUID(), 1) produces a time-ordered 16-byte value (random is fine here — these
+    // rows are never correlated to a queue row).
+    setRecursionDepth(em, batchCount);
     // language=MySQL
     String sql =
         """
         INSERT INTO scheduler_job
-          (job_id, status, scheduled_time, job_type, payload, idempotency_key,
-           business_key, execution_start_time, execution_end_time,
-           created_at, updated_at)
+          (job_id, job_type, payload, idempotency_key, business_key,
+           created_at, terminal_status, terminated_at,
+           execution_start_time, execution_end_time, queue_wait_ms)
         WITH RECURSIVE seq(n) AS (
           SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < %d
         )
-        SELECT UUID_TO_BIN(UUID(), 1),
-               'SUCCEEDED', NOW() - INTERVAL 1 HOUR, 'SINGLE',
+        SELECT UUID_TO_BIN(UUID(), 1), 'SINGLE',
                JSON_OBJECT('target','run.ratchet.testsuite.app.TimingJob',
                            'method','execute','descriptor','()V','isStatic',true,
                            'args',JSON_ARRAY()),
                UUID(),
                CONCAT('%s-', n + %d),
+               NOW(), 'SUCCEEDED', NOW() - INTERVAL 1 HOUR,
                NOW() - INTERVAL 1 HOUR,
                DATE_ADD(NOW() - INTERVAL 1 HOUR, INTERVAL 10000 MICROSECOND),
-               NOW(), NOW()
+               10
         FROM seq
         """
             .formatted(batchCount, keyPrefix, offset);
@@ -83,15 +82,63 @@ public final class MysqlDialectTestSupport implements SqlDialectTestSupport {
   }
 
   @Override
-  public void analyzeSchedulerJob(EntityManager em) {
+  public void insertPendingQueueChunk(
+      EntityManager em, int batchCount, int offset, String keyPrefix) {
+    // Live PENDING jobs: a cold parent plus a far-future hot queue row. Deterministic BINARY(16)
+    // ids — UNHEX(LPAD(HEX(n), 32, '0')) — let both inserts agree on job_id without an anti-join.
+    setRecursionDepth(em, batchCount);
     // language=MySQL
-    String mysqlAnalyze = "ANALYZE TABLE scheduler_job";
+    String coldSql =
+        """
+        INSERT INTO scheduler_job
+          (job_id, job_type, payload, idempotency_key, business_key, created_at)
+        WITH RECURSIVE seq(n) AS (
+          SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < %1$d
+        )
+        SELECT UNHEX(LPAD(HEX(n + %2$d), 32, '0')), 'SINGLE',
+               JSON_OBJECT('target','run.ratchet.testsuite.app.TimingJob',
+                           'method','execute','descriptor','()V','isStatic',true,
+                           'args',JSON_ARRAY()),
+               CONCAT('%3$s-key-', n + %2$d),
+               CONCAT('%3$s-', n + %2$d),
+               NOW()
+        FROM seq
+        """
+            .formatted(batchCount, offset, keyPrefix);
+    em.createNativeQuery(coldSql).executeUpdate();
+
+    // language=MySQL
+    String hotSql =
+        """
+        INSERT INTO scheduler_job_queue
+          (job_id, status, job_type, scheduled_time, updated_at)
+        WITH RECURSIVE seq(n) AS (
+          SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < %1$d
+        )
+        SELECT UNHEX(LPAD(HEX(n + %2$d), 32, '0')), 'PENDING', 'SINGLE',
+               NOW() + INTERVAL 365 DAY, NOW()
+        FROM seq
+        """
+            .formatted(batchCount, offset);
+    em.createNativeQuery(hotSql).executeUpdate();
+  }
+
+  private void setRecursionDepth(EntityManager em, int batchCount) {
+    // language=MySQL
+    String setDepthSql = "SET @@cte_max_recursion_depth = " + (batchCount + 1);
+    em.createNativeQuery(setDepthSql).executeUpdate();
+  }
+
+  @Override
+  public void analyzeTable(EntityManager em, String table) {
+    // language=MySQL
+    String mysqlAnalyze = "ANALYZE TABLE " + table;
     em.createNativeQuery(mysqlAnalyze).getResultList();
   }
 
   @Override
   public void assertNoFullScan(
-      EntityManager em, UserTransaction utx, String label, Runnable storeOperation)
+      EntityManager em, UserTransaction utx, String table, String label, Runnable storeOperation)
       throws Exception {
     // MySQL: Select_scan is session-wide (all tables), not per-table like PostgreSQL's
     // pg_stat_user_tables. Log for informational purposes only.
@@ -106,8 +153,8 @@ public final class MysqlDialectTestSupport implements SqlDialectTestSupport {
 
     log.info(
         String.format(
-            "Scan stats [%s]: MySQL — per-table scan metrics not available, "
+            "Scan stats [%s] on %s: MySQL — per-table scan metrics not available, "
                 + "relying on index definitions and EXPLAIN plans for verification",
-            label));
+            label, table));
   }
 }

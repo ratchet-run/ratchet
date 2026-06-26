@@ -35,16 +35,34 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
   @Inject private UserTransaction utx;
 
   @Override
-  public void insertBackgroundRows(int count, String keyPrefix) {
+  public void insertTerminalBackgroundRows(int count, int baseOffset, String keyPrefix) {
+    insertBackgroundRows(count, baseOffset, keyPrefix, /* terminal= */ true);
+  }
+
+  @Override
+  public void insertPendingBackgroundRows(int count, int baseOffset, String keyPrefix) {
+    insertBackgroundRows(count, baseOffset, keyPrefix, /* terminal= */ false);
+  }
+
+  private void insertBackgroundRows(int count, int baseOffset, String keyPrefix, boolean terminal) {
     SqlDialectTestSupport dialect = SqlDialectTestSupportProvider.get();
     int chunkSize = 100_000;
+    // Terminal rows grow the cold archive; pending rows grow the hot claim queue. Analyze whichever
+    // table the planner consults for the IT that uses this kind of background.
+    String tableToAnalyze = terminal ? "scheduler_job" : "scheduler_job_queue";
 
     try {
       for (int offset = 0; offset < count; offset += chunkSize) {
         int batchCount = Math.min(chunkSize, count - offset);
+        // Number rows from the cumulative base so ids stay unique across incremental growth calls.
+        int rowOffset = baseOffset + offset;
 
         utx.begin();
-        dialect.insertBackgroundChunk(em(), batchCount, offset, keyPrefix);
+        if (terminal) {
+          dialect.insertTerminalChunk(em(), batchCount, rowOffset, keyPrefix);
+        } else {
+          dialect.insertPendingQueueChunk(em(), batchCount, rowOffset, keyPrefix);
+        }
         utx.commit();
 
         if (count > chunkSize) {
@@ -55,7 +73,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
 
       // Refresh table statistics for accurate query planner estimates
       utx.begin();
-      dialect.analyzeSchedulerJob(em());
+      dialect.analyzeTable(em(), tableToAnalyze);
       utx.commit();
     } catch (RuntimeException e) {
       rollbackQuietly();
@@ -71,11 +89,13 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
   public long queryQueueWaitPercentileForClass(String targetClass, double percentile) {
     try {
       utx.begin();
+      // queue_wait_ms lives on the cold scheduler_job row, set at the terminal transition; the
+      // terminal state is terminal_status (status moved to the hot scheduler_job_queue table).
       // language=SQL
       String sql =
           """
           SELECT queue_wait_ms FROM scheduler_job
-          WHERE target_class = :cls AND status = 'SUCCEEDED'
+          WHERE target_class = :cls AND terminal_status = 'SUCCEEDED'
             AND queue_wait_ms IS NOT NULL
           ORDER BY queue_wait_ms
           """;
@@ -96,9 +116,9 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
   }
 
   @Override
-  public void assertNoFullScan(String label, Runnable storeOperation) {
+  public void assertNoFullScan(String table, String label, Runnable storeOperation) {
     try {
-      SqlDialectTestSupportProvider.get().assertNoFullScan(em(), utx, label, storeOperation);
+      SqlDialectTestSupportProvider.get().assertNoFullScan(em(), utx, table, label, storeOperation);
     } catch (RuntimeException e) {
       throw e;
     } catch (Exception e) {

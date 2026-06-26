@@ -56,26 +56,27 @@ public final class PostgresqlDialectTestSupport implements SqlDialectTestSupport
   }
 
   @Override
-  public void insertBackgroundChunk(
-      EntityManager em, int batchCount, int offset, String keyPrefix) {
-    // job_id is native uuid; gen_random_uuid() returns a fresh v4 per row.
+  public void insertTerminalChunk(EntityManager em, int batchCount, int offset, String keyPrefix) {
+    // Cold archive rows: terminal_status='SUCCEEDED', no queue row. job_id is native uuid;
+    // gen_random_uuid() returns a fresh v4 per row (random is fine — never correlated to a queue
+    // row).
     // language=PostgreSQL
     String sql =
         """
         INSERT INTO scheduler_job
-          (job_id, status, scheduled_time, job_type, payload, idempotency_key,
-           business_key, execution_start_time, execution_end_time,
-           created_at, updated_at)
-        SELECT gen_random_uuid(),
-               'SUCCEEDED', NOW() - INTERVAL '1 hour', 'SINGLE',
+          (job_id, job_type, payload, idempotency_key, business_key,
+           created_at, terminal_status, terminated_at,
+           execution_start_time, execution_end_time, queue_wait_ms)
+        SELECT gen_random_uuid(), 'SINGLE',
                '{"target":"run.ratchet.testsuite.app.TimingJob",\
         "method":"execute","descriptor":"()V",\
         "isStatic":true,"args":[]}'::jsonb,
                gen_random_uuid()::text,
                '%s-' || (g + %d),
+               NOW(), 'SUCCEEDED', NOW() - INTERVAL '1 hour',
                NOW() - INTERVAL '1 hour',
                NOW() - INTERVAL '1 hour' + INTERVAL '10 milliseconds',
-               NOW(), NOW()
+               10
         FROM generate_series(1, %d) AS g
         """
             .formatted(keyPrefix, offset, batchCount);
@@ -83,22 +84,55 @@ public final class PostgresqlDialectTestSupport implements SqlDialectTestSupport
   }
 
   @Override
-  public void analyzeSchedulerJob(EntityManager em) {
+  public void insertPendingQueueChunk(
+      EntityManager em, int batchCount, int offset, String keyPrefix) {
+    // Live PENDING jobs: a cold parent plus a far-future hot queue row. Deterministic uuids —
+    // '00000000-0000-0000-0000-' || lpad(to_hex(n), 12, '0') — let both inserts agree on job_id
+    // without an anti-join.
     // language=PostgreSQL
-    String pgAnalyze = "ANALYZE scheduler_job";
+    String coldSql =
+        """
+        INSERT INTO scheduler_job
+          (job_id, job_type, payload, idempotency_key, business_key, created_at)
+        SELECT ('00000000-0000-0000-0000-' || lpad(to_hex(g + %2$d), 12, '0'))::uuid, 'SINGLE',
+               '{"target":"run.ratchet.testsuite.app.TimingJob",\
+        "method":"execute","descriptor":"()V",\
+        "isStatic":true,"args":[]}'::jsonb,
+               '%3$s-key-' || (g + %2$d),
+               '%3$s-' || (g + %2$d),
+               NOW()
+        FROM generate_series(1, %1$d) AS g
+        """
+            .formatted(batchCount, offset, keyPrefix);
+    em.createNativeQuery(coldSql).executeUpdate();
+
+    // language=PostgreSQL
+    String hotSql =
+        """
+        INSERT INTO scheduler_job_queue
+          (job_id, status, job_type, scheduled_time, updated_at)
+        SELECT ('00000000-0000-0000-0000-' || lpad(to_hex(g + %2$d), 12, '0'))::uuid,
+               'PENDING', 'SINGLE', NOW() + INTERVAL '365 days', NOW()
+        FROM generate_series(1, %1$d) AS g
+        """
+            .formatted(batchCount, offset);
+    em.createNativeQuery(hotSql).executeUpdate();
+  }
+
+  @Override
+  public void analyzeTable(EntityManager em, String table) {
+    // language=PostgreSQL
+    String pgAnalyze = "ANALYZE " + table;
     em.createNativeQuery(pgAnalyze).executeUpdate();
   }
 
   @Override
   public void assertNoFullScan(
-      EntityManager em, UserTransaction utx, String label, Runnable storeOperation)
+      EntityManager em, UserTransaction utx, String table, String label, Runnable storeOperation)
       throws Exception {
     // language=PostgreSQL
     String statSql =
-        """
-        SELECT seq_scan, idx_scan FROM pg_stat_user_tables
-        WHERE relname = 'scheduler_job'
-        """;
+        "SELECT seq_scan, idx_scan FROM pg_stat_user_tables WHERE relname = '" + table + "'";
     ScanCounts before = readScanCounts(em, utx, statSql);
 
     utx.begin();

@@ -63,26 +63,40 @@ public interface SqlDialectTestSupport {
   Object jobIdParam(UUID jobId);
 
   // --- performance ---
-  // MySQL and PostgreSQL carry the live implementations. Oracle's perf SQL lands with the perf
-  // suite's hot/cold-schema migration; until then the Oracle implementation throws.
+  // The schema splits completed jobs (cold {@code scheduler_job}) from live, claimable jobs
+  // (hot {@code scheduler_job_queue}). The two perf ITs grow different tables: table-growth grows
+  // the cold archive, claim-degradation grows the hot queue. Each store owns the dialect-native
+  // bulk insert and the (dialect-specific) scan diagnostics for both.
 
   /**
-   * Inserts one chunk of background {@code scheduler_job} rows using a dialect-native bulk insert.
+   * Inserts one chunk of terminal (completed) {@code scheduler_job} rows — {@code
+   * terminal_status='SUCCEEDED'}, no queue row — so they grow the cold archive without becoming
+   * claimable. Used by the table-growth IT. Random ids; {@code offset} keeps {@code business_key}
+   * and {@code idempotency_key} unique across chunks.
    */
-  void insertBackgroundChunk(EntityManager em, int batchCount, int offset, String keyPrefix);
-
-  /** Refreshes {@code scheduler_job} table statistics for accurate query-planner estimates. */
-  void analyzeSchedulerJob(EntityManager em);
+  void insertTerminalChunk(EntityManager em, int batchCount, int offset, String keyPrefix);
 
   /**
-   * Runs {@code storeOperation} and asserts it triggered no sequential scan on {@code
-   * scheduler_job}. The transaction boundaries are themselves dialect-specific — PostgreSQL reads
-   * {@code pg_stat_user_tables} in separately committed transactions on either side of the
-   * operation, while MySQL can only log — so each implementation owns (and rolls back) the
+   * Inserts one chunk of live, PENDING jobs: a cold {@code scheduler_job} parent plus a hot {@code
+   * scheduler_job_queue} row referencing it (the queue's foreign key requires the parent). The
+   * queue rows are far-future {@code scheduled_time} so the running poller never claims or drains
+   * them mid-measurement. Used by the claim-degradation IT. Ids are derived deterministically from
+   * {@code offset + row} so the cold and hot inserts agree on {@code job_id} without an anti-join.
+   */
+  void insertPendingQueueChunk(EntityManager em, int batchCount, int offset, String keyPrefix);
+
+  /** Refreshes one table's statistics for accurate query-planner estimates. */
+  void analyzeTable(EntityManager em, String table);
+
+  /**
+   * Runs {@code storeOperation} and asserts it triggered no sequential scan on {@code table}. The
+   * transaction boundaries are themselves dialect-specific — PostgreSQL reads {@code
+   * pg_stat_user_tables} in separately committed transactions on either side of the operation,
+   * while MySQL and Oracle can only log — so each implementation owns (and rolls back) the
    * transactions it opens.
    */
   void assertNoFullScan(
-      EntityManager em, UserTransaction utx, String label, Runnable storeOperation)
+      EntityManager em, UserTransaction utx, String table, String label, Runnable storeOperation)
       throws Exception;
 
   /**

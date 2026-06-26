@@ -17,21 +17,17 @@ package run.ratchet.store.oracle;
 
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.UserTransaction;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.logging.Logger;
 import run.ratchet.tck.store.SqlDialectTestSupport;
 
 /**
  * Oracle {@link SqlDialectTestSupport}: RAW(16) ids, no foreign-key toggling, and row-level DELETE.
- *
- * <p>The performance methods throw {@link UnsupportedOperationException}: the perf helper's bulk
- * insert and scan checks still target the pre-hot/cold-split {@code scheduler_job} columns and run
- * only on MySQL and PostgreSQL today. Oracle's perf SQL arrives with the perf suite's hot/cold
- * migration; the cleanup and id-binding paths used by every functional IT are fully supported here.
  */
 public final class OracleDialectTestSupport implements SqlDialectTestSupport {
 
-  private static final String PERF_PENDING =
-      "Oracle performance SQL lands with the perf suite's hot/cold-schema migration";
+  private static final Logger log = Logger.getLogger(OracleDialectTestSupport.class.getName());
 
   /** Public no-arg constructor required by {@link java.util.ServiceLoader}. */
   public OracleDialectTestSupport() {}
@@ -61,19 +57,100 @@ public final class OracleDialectTestSupport implements SqlDialectTestSupport {
   }
 
   @Override
-  public void insertBackgroundChunk(
-      EntityManager em, int batchCount, int offset, String keyPrefix) {
-    throw new UnsupportedOperationException(PERF_PENDING);
+  public void insertTerminalChunk(EntityManager em, int batchCount, int offset, String keyPrefix) {
+    // Cold archive rows: terminal_status='SUCCEEDED', no queue row. CONNECT BY LEVEL generates the
+    // chunk; SYS_GUID() is a fresh RAW(16) per row (random is fine — never correlated to a queue
+    // row). The payload literal is implicitly stored into the CLOB column.
+    // language=Oracle
+    String sql =
+        """
+        INSERT INTO scheduler_job
+          (job_id, job_type, payload, idempotency_key, business_key,
+           created_at, terminal_status, terminated_at,
+           execution_start_time, execution_end_time, queue_wait_ms)
+        SELECT SYS_GUID(), 'SINGLE',
+               '{"target":"run.ratchet.testsuite.app.TimingJob",\
+        "method":"execute","descriptor":"()V",\
+        "isStatic":true,"args":[]}',
+               RAWTOHEX(SYS_GUID()),
+               '%2$s-' || (LEVEL + %1$d),
+               SYSTIMESTAMP, 'SUCCEEDED', SYSTIMESTAMP - INTERVAL '1' HOUR,
+               SYSTIMESTAMP - INTERVAL '1' HOUR,
+               SYSTIMESTAMP - INTERVAL '1' HOUR + INTERVAL '0.01' SECOND,
+               10
+        FROM dual CONNECT BY LEVEL <= %3$d
+        """
+            .formatted(offset, keyPrefix, batchCount);
+    em.createNativeQuery(sql).executeUpdate();
   }
 
   @Override
-  public void analyzeSchedulerJob(EntityManager em) {
-    throw new UnsupportedOperationException(PERF_PENDING);
+  public void insertPendingQueueChunk(
+      EntityManager em, int batchCount, int offset, String keyPrefix) {
+    // Live PENDING jobs: a cold parent plus a far-future hot queue row. Deterministic RAW(16) ids —
+    // HEXTORAW(LPAD(TO_CHAR(n, 'FMXXXX...'), 32, '0')) — let both inserts agree on job_id without
+    // an
+    // anti-join.
+    // language=Oracle
+    String coldSql =
+        """
+        INSERT INTO scheduler_job
+          (job_id, job_type, payload, idempotency_key, business_key, created_at)
+        SELECT HEXTORAW(LPAD(TO_CHAR(LEVEL + %1$d, 'FMXXXXXXXXXXXXXXXX'), 32, '0')), 'SINGLE',
+               '{"target":"run.ratchet.testsuite.app.TimingJob",\
+        "method":"execute","descriptor":"()V",\
+        "isStatic":true,"args":[]}',
+               '%2$s-key-' || (LEVEL + %1$d),
+               '%2$s-' || (LEVEL + %1$d),
+               SYSTIMESTAMP
+        FROM dual CONNECT BY LEVEL <= %3$d
+        """
+            .formatted(offset, keyPrefix, batchCount);
+    em.createNativeQuery(coldSql).executeUpdate();
+
+    // language=Oracle
+    String hotSql =
+        """
+        INSERT INTO scheduler_job_queue
+          (job_id, status, job_type, scheduled_time, updated_at)
+        SELECT HEXTORAW(LPAD(TO_CHAR(LEVEL + %1$d, 'FMXXXXXXXXXXXXXXXX'), 32, '0')),
+               'PENDING', 'SINGLE', SYSTIMESTAMP + INTERVAL '365' DAY(3), SYSTIMESTAMP
+        FROM dual CONNECT BY LEVEL <= %2$d
+        """
+            .formatted(offset, batchCount);
+    em.createNativeQuery(hotSql).executeUpdate();
+  }
+
+  @Override
+  public void analyzeTable(EntityManager em, String table) {
+    // Oracle gathers optimizer statistics via DBMS_STATS; the table name is upper-cased to match
+    // the data-dictionary identifier. Runs in its own committed transaction (the caller commits the
+    // insert chunks first), so it does not deadlock against uncommitted DML.
+    String block =
+        "BEGIN DBMS_STATS.GATHER_TABLE_STATS(USER, '" + table.toUpperCase(Locale.ROOT) + "'); END;";
+    em.createNativeQuery(block).executeUpdate();
   }
 
   @Override
   public void assertNoFullScan(
-      EntityManager em, UserTransaction utx, String label, Runnable storeOperation) {
-    throw new UnsupportedOperationException(PERF_PENDING);
+      EntityManager em, UserTransaction utx, String table, String label, Runnable storeOperation)
+      throws Exception {
+    // Oracle has no cheap per-table sequential-scan counter (v$ views are instance-wide and require
+    // privileges Testcontainers does not grant), so the claim path's index usage is verified by the
+    // schema-conformance TCK and EXPLAIN plans instead. Log for informational purposes only.
+    utx.begin();
+    try {
+      storeOperation.run();
+      utx.commit();
+    } catch (RuntimeException e) {
+      rollbackQuietly(utx);
+      throw e;
+    }
+
+    log.info(
+        String.format(
+            "Scan stats [%s] on %s: Oracle — per-table scan metrics not available, "
+                + "relying on index definitions and EXPLAIN plans for verification",
+            label, table));
   }
 }
