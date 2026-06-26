@@ -47,6 +47,8 @@ exclude:
       - stores/ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobQueryOperations.java
       - stores/ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobQueryOperations.java
       - stores/ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlStoreContext.java
+      - stores/ratchet-store-sqlserver/src/main/java/run/ratchet/store/sqlserver/SqlserverJobQueryOperations.java
+      - stores/ratchet-store-sqlserver/src/main/java/run/ratchet/store/sqlserver/SqlserverStoreContext.java
       - testing/ratchet-tck/store/src/main/java/run/ratchet/tck/store/JpaContainerFixture.java
 
   - name: BusyWait
