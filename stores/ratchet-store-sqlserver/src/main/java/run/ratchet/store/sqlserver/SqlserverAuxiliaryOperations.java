@@ -19,6 +19,7 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -114,7 +115,12 @@ final class SqlserverAuxiliaryOperations
   public int purgeLogsOlderThan(Instant cutoff) {
     // language=JPAQL
     String jpql = "DELETE FROM JobLogEntity l WHERE l.ts < :cutoff";
-    return ctx.em().createQuery(jpql).setParameter("cutoff", cutoff).executeUpdate();
+    // ts is DATETIME2(6); floor the cutoff to microseconds so the boundary matches the column
+    // precision rather than mssql-jdbc's nanosecond-precision bind (see existsRecentDlqAlert).
+    return ctx.em()
+        .createQuery(jpql)
+        .setParameter("cutoff", cutoff.truncatedTo(ChronoUnit.MICROS))
+        .executeUpdate();
   }
 
   @Override
@@ -248,7 +254,14 @@ final class SqlserverAuxiliaryOperations
             .createQuery(jpql, Long.class)
             .setParameter("jid", jobId)
             .setParameter("hash", errorHash)
-            .setParameter("cutoff", cutoff)
+            // alert_sent_at is DATETIME2(6), so a persisted Instant is floored to microsecond
+            // precision. The mssql-jdbc driver binds an Instant parameter at full nanosecond
+            // precision and compares it literally, so an unmodified cutoff equal to a stored alert
+            // time fails the `>=` boundary by the sub-microsecond remainder (the MySQL/PG drivers
+            // floor the bind for us, which is why this only surfaces on SQL Server and Oracle, and
+            // only on a nanosecond-resolution clock). Floor the cutoff to match the column
+            // precision.
+            .setParameter("cutoff", cutoff.truncatedTo(ChronoUnit.MICROS))
             .getSingleResult();
     return count > 0;
   }
