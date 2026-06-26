@@ -229,7 +229,8 @@ final class SqlserverAuxiliaryOperations
   public long countConditionsByParentJobId(UUID parentJobId) {
     // language=SQL Server
     String sql = "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?";
-    return ctx.countByNative(sql, UuidByteArrayConverter.toBytes(parentJobId));
+    // Cast to Object so the byte[] is bound as a single varargs parameter, not spread.
+    return ctx.countByNative(sql, (Object) UuidByteArrayConverter.toBytes(parentJobId));
   }
 
   @Override

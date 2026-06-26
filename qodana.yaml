@@ -11,6 +11,7 @@ exclude:
       - stores/ratchet-store-mysql/src/main/java
       - stores/ratchet-store-postgresql/src/main/java
       - stores/ratchet-store-oracle/src/main/java
+      - stores/ratchet-store-sqlserver/src/main/java
       - testing/ratchet-testsuite/src/main/java/run/ratchet/testsuite/app
       - stores/ratchet-store-core/src/main/java/run/ratchet/store/converter
       # ExecutorService is used as a test resource
@@ -35,6 +36,7 @@ exclude:
       - stores/ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobStoreImpl.java
       - stores/ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobStoreImpl.java
       - stores/ratchet-store-oracle/src/main/java/run/ratchet/store/oracle/OracleJobStoreImpl.java
+      - stores/ratchet-store-sqlserver/src/main/java/run/ratchet/store/sqlserver/SqlserverJobStoreImpl.java
 
   - name: SqlSourceToSinkFlow
     paths:
