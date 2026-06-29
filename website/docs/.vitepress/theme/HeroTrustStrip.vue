@@ -5,10 +5,10 @@
 // Jakarta EE evaluator checks before adopting. Numbers mirror the source of
 // truth in docs/conformance/index.md — keep them in sync.
 const runtimes = ['WildFly', 'WildFly EE 11', 'Open Liberty', 'Payara', 'GlassFish']
-const databases = ['MySQL', 'PostgreSQL', 'Oracle', 'MongoDB']
+const databases = ['MySQL', 'PostgreSQL', 'Oracle', 'SQL Server', 'MongoDB']
 
 const facts = [
-  { label: '15 verified combinations', detail: '5 runtimes × 3 databases' },
+  { label: '25 verified combinations', detail: '5 runtimes × 5 databases' },
   { label: 'Three TCK tiers', detail: 'Store · API · Jakarta Runtime' },
   { label: 'Apache 2.0', detail: 'no paid tier' },
   { label: 'Java 17+', detail: 'Jakarta EE 10 / 11' },

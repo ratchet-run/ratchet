@@ -658,7 +658,7 @@ jobStore.capability(SignalStore.class)
     .ifPresent(signals -> signals.deliverSignalByKey(key, payload));
 ```
 
-Ratchet ships MySQL, PostgreSQL, Oracle, and MongoDB implementations, all of which advertise every capability. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
+Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations, all of which advertise every capability. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement the core `JobStore`, plus any optional capabilities your backend can support, and validate it against the TCK.
 
 ### Core Store Interfaces (mandatory)
 
@@ -941,4 +941,4 @@ public class MySpi implements SomeRatchetSpi {
 | `NodeIdentityProvider` | `DefaultNodeIdentityProvider` | Produced by `RatchetProducer` | ratchet |
 | `ClusterCoordinator` | `NoOpClusterCoordinator` | `@ApplicationScoped` | ratchet |
 | `ErrorSanitizer` | `DefaultErrorSanitizer` | Produced by `RatchetProducer` | ratchet |
-| `JobStore` | MySQL / PostgreSQL / Oracle / MongoDB | `@ApplicationScoped` | ratchet-store-* |
+| `JobStore` | MySQL / PostgreSQL / Oracle / SQL Server / MongoDB | `@ApplicationScoped` | ratchet-store-* |

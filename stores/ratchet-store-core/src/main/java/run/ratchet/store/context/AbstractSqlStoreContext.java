@@ -19,7 +19,7 @@ import jakarta.persistence.EntityManager;
 import run.ratchet.spi.MetricsCollector;
 
 /**
- * Shared scaffolding for the JDBC/JPA store dialects (MySQL, PostgreSQL).
+ * Shared scaffolding for the JDBC/JPA store dialects (MySQL, PostgreSQL, Oracle, SQL Server).
  *
  * <p>Adds the {@link EntityManager} handle and the trusted native-query scalar helpers on top of
  * {@link AbstractStoreContext}. Both helpers translate transient faults so a deadlock or dropped

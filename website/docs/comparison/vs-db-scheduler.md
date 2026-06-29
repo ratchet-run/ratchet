@@ -86,7 +86,7 @@ The db-scheduler model is more explicit; the Ratchet model is more concise. The 
 
 db-scheduler is single-table and SQL-only. It supports Postgres, MySQL, MariaDB, Oracle, MSSQL, and H2 through standard JDBC. The schema is one table (`scheduled_tasks`) with a documented column layout, and the library is happy for you to apply the DDL however you want.
 
-Ratchet uses a multi-table schema (jobs, batches, recurring jobs, archived jobs, locks, signals, etc.) and supports MySQL, PostgreSQL, Oracle, and MongoDB via a pluggable `JobStore` SPI with a TCK. The schema is bigger, the model is richer, and the trade-off is real: more code, more tables, more to understand.
+Ratchet uses a multi-table schema (jobs, batches, recurring jobs, archived jobs, locks, signals, etc.) and supports MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB via a pluggable `JobStore` SPI with a TCK. The schema is bigger, the model is richer, and the trade-off is real: more code, more tables, more to understand.
 
 If your store is Mongo, db-scheduler is not an option.
 

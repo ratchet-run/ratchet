@@ -38,6 +38,8 @@ external_db_configured=false
 case "$db" in
   postgresql) [[ -n "${POSTGRES_HOST:-}" ]] && external_db_configured=true ;;
   mysql) [[ -n "${MYSQL_HOST:-}" ]] && external_db_configured=true ;;
+  oracle) [[ -n "${ORACLE_HOST:-}" ]] && external_db_configured=true ;;
+  sqlserver) [[ -n "${SQLSERVER_HOST:-}" ]] && external_db_configured=true ;;
   mongodb) [[ -n "${MONGO_URI:-}" ]] && external_db_configured=true ;;
 esac
 
@@ -53,6 +55,19 @@ mysql_db="${MYSQL_DATABASE:-ratchet}"
 mysql_user="${MYSQL_USER:-ratchet}"
 mysql_password="${MYSQL_PASSWORD:-ratchet}"
 
+oracle_host="${ORACLE_HOST:-localhost}"
+oracle_port="${ORACLE_PORT:-1521}"
+oracle_service="${ORACLE_SERVICE:-FREEPDB1}"
+oracle_user="${ORACLE_USER:-ratchet}"
+oracle_password="${ORACLE_PASSWORD:-ratchet}"
+
+sqlserver_host="${SQLSERVER_HOST:-localhost}"
+sqlserver_port="${SQLSERVER_PORT:-1433}"
+sqlserver_db="${SQLSERVER_DATABASE:-ratchet}"
+sqlserver_user="${SQLSERVER_USER:-ratchet}"
+# SQL Server enforces SA password complexity; the embedded path below reuses this.
+sqlserver_password="${SQLSERVER_PASSWORD:-Ratchet!Str0ngPwd}"
+
 export MONGO_URI="${MONGO_URI:-mongodb://localhost:27017}"
 export MONGO_DATABASE="${MONGO_DATABASE:-ratchet}"
 
@@ -65,7 +80,7 @@ ds_jndi="${SHOWCASE_DATASOURCE_JNDI:-java:jboss/datasources/RatchetDS}"
 # prerequisite. The container publishes on a random loopback port (so a local
 # Postgres/MySQL/Mongo on the standard port doesn't collide) and is removed on
 # exit. Set SHOWCASE_DB_EMBEDDED=false, or point POSTGRES_HOST/MYSQL_HOST/
-# MONGO_URI at your own database, to opt out.
+# ORACLE_HOST/SQLSERVER_HOST/MONGO_URI at your own database, to opt out.
 db_container_id=""
 
 docker_available() {
@@ -104,7 +119,7 @@ wait_for_db_ready() {
 start_embedded_db() {
   if ! docker_available; then
     echo "Docker is required to start the embedded showcase database, but the Docker daemon is not reachable." >&2
-    echo "Start Docker and retry, set SHOWCASE_DB_EMBEDDED=false, or point POSTGRES_HOST/MYSQL_HOST/MONGO_URI at an external database." >&2
+    echo "Start Docker and retry, set SHOWCASE_DB_EMBEDDED=false, or point POSTGRES_HOST/MYSQL_HOST/ORACLE_HOST/SQLSERVER_HOST/MONGO_URI at an external database." >&2
     exit 1
   fi
 
@@ -135,6 +150,36 @@ start_embedded_db() {
       wait_for_db_ready mysql -h127.0.0.1 -u"$mysql_user" -p"$mysql_password" "$mysql_db" -e "SELECT 1"
       mysql_host="127.0.0.1"
       mysql_port="$(published_port 3306)"
+      ;;
+    oracle)
+      # VERIFY: gvenzl/oracle-free is a multi-hundred-MB image; on a cold pull it can
+      # take well over the 60s readiness deadline used by wait_for_db_ready. healthcheck.sh
+      # is the image's built-in probe; it also auto-creates APP_USER in FREEPDB1.
+      db_container_id="$(docker run -d --rm --name "$name" \
+        -e ORACLE_PASSWORD="$oracle_password" \
+        -e APP_USER="$oracle_user" \
+        -e APP_USER_PASSWORD="$oracle_password" \
+        -p 127.0.0.1::1521 gvenzl/oracle-free:23-slim)"
+      wait_for_db_ready healthcheck.sh
+      oracle_host="127.0.0.1"
+      oracle_port="$(published_port 1521)"
+      ;;
+    sqlserver)
+      db_container_id="$(docker run -d --rm --name "$name" \
+        -e ACCEPT_EULA=Y \
+        -e MSSQL_SA_PASSWORD="$sqlserver_password" \
+        -p 127.0.0.1::1433 mcr.microsoft.com/mssql/server:2022-latest)"
+      # SA accepts logins only after the engine finishes starting; probe with sqlcmd
+      # (the 2022 image ships it at /opt/mssql-tools18/bin; -C trusts the self-signed cert).
+      wait_for_db_ready /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$sqlserver_password" -C -Q "SELECT 1"
+      # VERIFY: Ratchet's claim path requires READ_COMMITTED_SNAPSHOT, which cannot be set
+      # on master, so the app database is created with RCSI before migration runs. The
+      # embedded demo connects as sa; an external SQL Server uses SQLSERVER_USER instead.
+      docker exec "$db_container_id" /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$sqlserver_password" -C -Q \
+        "IF DB_ID('$sqlserver_db') IS NULL CREATE DATABASE [$sqlserver_db]; ALTER DATABASE [$sqlserver_db] SET READ_COMMITTED_SNAPSHOT ON; ALTER DATABASE [$sqlserver_db] SET ALLOW_SNAPSHOT_ISOLATION ON;"
+      sqlserver_user="sa"
+      sqlserver_host="127.0.0.1"
+      sqlserver_port="$(published_port 1433)"
       ;;
     mongodb)
       db_container_id="$(docker run -d --rm --name "$name" \
@@ -212,6 +257,14 @@ mysql_jar() {
   ls "$jdbc_dir"/mysql-connector-j-*.jar 2>/dev/null | head -n 1
 }
 
+oracle_jar() {
+  ls "$jdbc_dir"/ojdbc11-*.jar 2>/dev/null | head -n 1
+}
+
+sqlserver_jar() {
+  ls "$jdbc_dir"/mssql-jdbc-*.jar 2>/dev/null | head -n 1
+}
+
 ensure_sql_driver_available() {
   if [[ "$db" == "postgresql" && -z "$(postgres_jar)" ]]; then
     echo "PostgreSQL driver missing under $jdbc_dir. Run Maven package first." >&2
@@ -221,30 +274,41 @@ ensure_sql_driver_available() {
     echo "MySQL driver missing under $jdbc_dir. Run Maven package first." >&2
     exit 1
   fi
+  if [[ "$db" == "oracle" && -z "$(oracle_jar)" ]]; then
+    echo "Oracle driver missing under $jdbc_dir. Run Maven package first." >&2
+    exit 1
+  fi
+  if [[ "$db" == "sqlserver" && -z "$(sqlserver_jar)" ]]; then
+    echo "SQL Server driver missing under $jdbc_dir. Run Maven package first." >&2
+    exit 1
+  fi
 }
 
 jdbc_url() {
-  if [[ "$db" == "postgresql" ]]; then
-    echo "jdbc:postgresql://$postgres_host:$postgres_port/$postgres_db"
-  else
-    echo "jdbc:mysql://$mysql_host:$mysql_port/$mysql_db"
-  fi
+  case "$db" in
+    postgresql) echo "jdbc:postgresql://$postgres_host:$postgres_port/$postgres_db" ;;
+    mysql) echo "jdbc:mysql://$mysql_host:$mysql_port/$mysql_db" ;;
+    oracle) echo "jdbc:oracle:thin:@//$oracle_host:$oracle_port/$oracle_service" ;;
+    sqlserver) echo "jdbc:sqlserver://$sqlserver_host:$sqlserver_port;databaseName=$sqlserver_db;encrypt=true;trustServerCertificate=true" ;;
+  esac
 }
 
 jdbc_user() {
-  if [[ "$db" == "postgresql" ]]; then
-    echo "$postgres_user"
-  else
-    echo "$mysql_user"
-  fi
+  case "$db" in
+    postgresql) echo "$postgres_user" ;;
+    mysql) echo "$mysql_user" ;;
+    oracle) echo "$oracle_user" ;;
+    sqlserver) echo "$sqlserver_user" ;;
+  esac
 }
 
 jdbc_password() {
-  if [[ "$db" == "postgresql" ]]; then
-    echo "$postgres_password"
-  else
-    echo "$mysql_password"
-  fi
+  case "$db" in
+    postgresql) echo "$postgres_password" ;;
+    mysql) echo "$mysql_password" ;;
+    oracle) echo "$oracle_password" ;;
+    sqlserver) echo "$sqlserver_password" ;;
+  esac
 }
 
 run_sql_schema_migration() {
@@ -395,7 +459,8 @@ cleanup_wildfly_term() {
 
 configure_wildfly_modules() {
   local home="$1"
-  mkdir -p "$home/modules/org/postgresql/main" "$home/modules/com/mysql/main"
+  mkdir -p "$home/modules/org/postgresql/main" "$home/modules/com/mysql/main" \
+    "$home/modules/com/oracle/main" "$home/modules/com/microsoft/sqlserver/main"
   if [[ -n "$(postgres_jar)" ]]; then
     cp "$(postgres_jar)" "$home/modules/org/postgresql/main/"
     cat > "$home/modules/org/postgresql/main/module.xml" <<EOF
@@ -427,6 +492,44 @@ EOF
     <module name="java.logging"/>
     <module name="java.security.sasl"/>
     <module name="java.management"/>
+    <module name="java.xml"/>
+    <module name="jakarta.transaction.api"/>
+  </dependencies>
+</module>
+EOF
+  fi
+  if [[ -n "$(oracle_jar)" ]]; then
+    cp "$(oracle_jar)" "$home/modules/com/oracle/main/"
+    cat > "$home/modules/com/oracle/main/module.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<module xmlns="urn:jboss:module:1.9" name="com.oracle">
+  <resources>
+    <resource-root path="$(basename "$(oracle_jar)")"/>
+  </resources>
+  <dependencies>
+    <module name="java.sql"/>
+    <module name="java.naming"/>
+    <module name="java.logging"/>
+    <module name="java.management"/>
+    <module name="jakarta.transaction.api"/>
+  </dependencies>
+</module>
+EOF
+  fi
+  if [[ -n "$(sqlserver_jar)" ]]; then
+    cp "$(sqlserver_jar)" "$home/modules/com/microsoft/sqlserver/main/"
+    cat > "$home/modules/com/microsoft/sqlserver/main/module.xml" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<module xmlns="urn:jboss:module:1.9" name="com.microsoft.sqlserver">
+  <resources>
+    <resource-root path="$(basename "$(sqlserver_jar)")"/>
+  </resources>
+  <dependencies>
+    <module name="java.sql"/>
+    <module name="java.naming"/>
+    <module name="java.logging"/>
+    <module name="java.management"/>
+    <module name="java.security.jgss"/>
     <module name="java.xml"/>
     <module name="jakarta.transaction.api"/>
   </dependencies>
@@ -502,29 +605,60 @@ run_wildfly() {
   clear_wildfly_deployment_config "$home"
   if [[ "$db" != "mongodb" ]]; then
     local cli="$build_dir/showcase-wildfly-datasource.cli"
-    if [[ "$db" == "postgresql" ]]; then
-      cat > "$cli" <<EOF
+    case "$db" in
+      postgresql)
+        cat > "$cli" <<EOF
 embed-server --server-config=standalone.xml --std-out=echo
 if (outcome != success) of /subsystem=datasources/jdbc-driver=postgresql:read-resource
   /subsystem=datasources/jdbc-driver=postgresql:add(driver-name=postgresql,driver-module-name=org.postgresql,driver-class-name=org.postgresql.Driver)
 end-if
 if (outcome != success) of /subsystem=datasources/data-source=RatchetDS:read-resource
-  data-source add --name=RatchetDS --jndi-name=$ds_jndi --driver-name=postgresql --connection-url=jdbc:postgresql://$postgres_host:$postgres_port/$postgres_db --user-name=$postgres_user --password=$postgres_password --enabled=true
+  data-source add --name=RatchetDS --jndi-name=$ds_jndi --driver-name=postgresql --connection-url=$(jdbc_url) --user-name=$(jdbc_user) --password=$(jdbc_password) --enabled=true
 end-if
 stop-embedded-server
 EOF
-    else
-      cat > "$cli" <<EOF
+        ;;
+      mysql)
+        cat > "$cli" <<EOF
 embed-server --server-config=standalone.xml --std-out=echo
 if (outcome != success) of /subsystem=datasources/jdbc-driver=mysql:read-resource
   /subsystem=datasources/jdbc-driver=mysql:add(driver-name=mysql,driver-module-name=com.mysql,driver-class-name=com.mysql.cj.jdbc.Driver)
 end-if
 if (outcome != success) of /subsystem=datasources/data-source=RatchetDS:read-resource
-  data-source add --name=RatchetDS --jndi-name=$ds_jndi --driver-name=mysql --connection-url=jdbc:mysql://$mysql_host:$mysql_port/$mysql_db --user-name=$mysql_user --password=$mysql_password --enabled=true
+  data-source add --name=RatchetDS --jndi-name=$ds_jndi --driver-name=mysql --connection-url=$(jdbc_url) --user-name=$(jdbc_user) --password=$(jdbc_password) --enabled=true
 end-if
 stop-embedded-server
 EOF
-    fi
+        ;;
+      oracle)
+        cat > "$cli" <<EOF
+embed-server --server-config=standalone.xml --std-out=echo
+if (outcome != success) of /subsystem=datasources/jdbc-driver=oracle:read-resource
+  /subsystem=datasources/jdbc-driver=oracle:add(driver-name=oracle,driver-module-name=com.oracle,driver-class-name=oracle.jdbc.OracleDriver)
+end-if
+if (outcome != success) of /subsystem=datasources/data-source=RatchetDS:read-resource
+  data-source add --name=RatchetDS --jndi-name=$ds_jndi --driver-name=oracle --connection-url=$(jdbc_url) --user-name=$(jdbc_user) --password=$(jdbc_password) --enabled=true
+end-if
+stop-embedded-server
+EOF
+        ;;
+      sqlserver)
+        # VERIFY: the SQL Server connection URL contains ';' separators. jboss-cli treats
+        # ';' as a command separator on a CLI line, but inside a --file script each line is
+        # one command, so the unquoted URL should pass through; confirm the datasource adds
+        # cleanly and quote the value if the CLI splits it.
+        cat > "$cli" <<EOF
+embed-server --server-config=standalone.xml --std-out=echo
+if (outcome != success) of /subsystem=datasources/jdbc-driver=sqlserver:read-resource
+  /subsystem=datasources/jdbc-driver=sqlserver:add(driver-name=sqlserver,driver-module-name=com.microsoft.sqlserver,driver-class-name=com.microsoft.sqlserver.jdbc.SQLServerDriver)
+end-if
+if (outcome != success) of /subsystem=datasources/data-source=RatchetDS:read-resource
+  data-source add --name=RatchetDS --jndi-name=$ds_jndi --driver-name=sqlserver --connection-url=$(jdbc_url) --user-name=$(jdbc_user) --password=$(jdbc_password) --transaction-isolation=TRANSACTION_READ_COMMITTED --enabled=true
+end-if
+stop-embedded-server
+EOF
+        ;;
+    esac
     "$home/bin/jboss-cli.sh" --file="$cli"
     wait_for_port_release "$port"
     wait_for_port_release "$management_port"
@@ -577,11 +711,24 @@ patch_domain_ports() {
 }
 
 asadmin_sql_args() {
-  if [[ "$db" == "postgresql" ]]; then
-    echo "--datasourceclassname org.postgresql.ds.PGSimpleDataSource --restype javax.sql.DataSource --property serverName=$postgres_host:portNumber=$postgres_port:databaseName=$postgres_db:user=$postgres_user:password=$postgres_password"
-  else
-    echo "--datasourceclassname com.mysql.cj.jdbc.MysqlDataSource --restype javax.sql.DataSource --property serverName=$mysql_host:portNumber=$mysql_port:databaseName=$mysql_db:user=$mysql_user:password=$mysql_password"
-  fi
+  case "$db" in
+    postgresql)
+      echo "--datasourceclassname org.postgresql.ds.PGSimpleDataSource --restype javax.sql.DataSource --property serverName=$postgres_host:portNumber=$postgres_port:databaseName=$postgres_db:user=$postgres_user:password=$postgres_password"
+      ;;
+    mysql)
+      echo "--datasourceclassname com.mysql.cj.jdbc.MysqlDataSource --restype javax.sql.DataSource --property serverName=$mysql_host:portNumber=$mysql_port:databaseName=$mysql_db:user=$mysql_user:password=$mysql_password"
+      ;;
+    oracle)
+      # VERIFY: asadmin --property is ':'-delimited, so a full Oracle thin URL (which is
+      # full of colons) cannot be passed as a single url= property. OracleDataSource builds
+      # the URL from discrete properties instead; confirm driverType/serviceName map to your
+      # PDB (FREEPDB1) on GlassFish/Payara.
+      echo "--datasourceclassname oracle.jdbc.pool.OracleDataSource --restype javax.sql.DataSource --property serverName=$oracle_host:portNumber=$oracle_port:databaseName=$oracle_service:driverType=thin:user=$oracle_user:password=$oracle_password"
+      ;;
+    sqlserver)
+      echo "--datasourceclassname com.microsoft.sqlserver.jdbc.SQLServerDataSource --restype javax.sql.DataSource --property serverName=$sqlserver_host:portNumber=$sqlserver_port:databaseName=$sqlserver_db:user=$sqlserver_user:password=$sqlserver_password:encrypt=true:trustServerCertificate=true"
+      ;;
+  esac
 }
 
 run_glassfish_family() {
@@ -652,6 +799,24 @@ EOF
   <dataSource id="RatchetDS" jndiName="$ds_jndi">
     <jdbcDriver libraryRef="jdbcLib"/>
     <properties.mysql serverName="$mysql_host" portNumber="$mysql_port" databaseName="$mysql_db" user="$mysql_user" password="$mysql_password"/>
+  </dataSource>
+EOF
+    elif [[ "$db" == "oracle" ]]; then
+      cat <<EOF
+  <library id="jdbcLib"><fileset dir="\${server.config.dir}/jdbc" includes="*.jar"/></library>
+  <dataSource id="RatchetDS" jndiName="$ds_jndi">
+    <jdbcDriver libraryRef="jdbcLib"/>
+    <properties.oracle URL="$(jdbc_url)" user="$oracle_user" password="$oracle_password"/>
+  </dataSource>
+EOF
+    elif [[ "$db" == "sqlserver" ]]; then
+      # Open Liberty defaults SQL Server data sources to TRANSACTION_REPEATABLE_READ; Ratchet's
+      # startup isolation check requires READ COMMITTED, so pin it explicitly.
+      cat <<EOF
+  <library id="jdbcLib"><fileset dir="\${server.config.dir}/jdbc" includes="*.jar"/></library>
+  <dataSource id="RatchetDS" jndiName="$ds_jndi" isolationLevel="TRANSACTION_READ_COMMITTED">
+    <jdbcDriver libraryRef="jdbcLib"/>
+    <properties.microsoft.sqlserver serverName="$sqlserver_host" portNumber="$sqlserver_port" databaseName="$sqlserver_db" user="$sqlserver_user" password="$sqlserver_password" encrypt="true" trustServerCertificate="true"/>
   </dataSource>
 EOF
     fi

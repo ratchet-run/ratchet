@@ -95,7 +95,7 @@ Either way the timeout is the job's own concern. You do not run a reaper, and a 
 
 ## Honest scope
 
-- Signals are an **optional store capability**. A store that does not advertise `SignalStore` throws `UnsupportedOperationException` from the submission path, refusing to create a `WAITING` job it could neither signal nor time out, rather than stranding it forever. The bundled MySQL, PostgreSQL, Oracle, and MongoDB stores all advertise it.
+- Signals are an **optional store capability**. A store that does not advertise `SignalStore` throws `UnsupportedOperationException` from the submission path, refusing to create a `WAITING` job it could neither signal nor time out, rather than stranding it forever. The bundled MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB stores all advertise it.
 - A signal payload is **not a typed-bean carrier**. It round-trips as JSON, so it returns as a `String`, a `Number` (a `BigDecimal` under the default serializer), a `Boolean`, a `List`, or a `Map`. Pass an id or an amount and look the rest up; do not try to ship a domain object through the signal and get the same class back.
 - `awaitSignal` waits for *a* signal, not a conversation. For multi-step back-and-forth (approve, then later confirm shipment), model each wait as its own job in a [workflow](../concepts/workflows.md), chained on the previous one's result.
 - The decision's outcome is **scheduler-visible metadata for audit and events, not enforcement**. An approved decision still just unblocks the job; nothing pays out until your body decides to. Approval and rejection are signals to your code, not actions the scheduler takes on your behalf.

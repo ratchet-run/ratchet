@@ -67,7 +67,7 @@ public final class MicrometerMetricTagPolicy {
         .allowValues("transport", "jms", "none")
         .allowValues("outcome", "success", "failure", "skipped", "delivered", "ignored_self")
         .allowValues("outcome", "empty", "hit", "transient_failure")
-        .allowValues("store", "mysql", "postgresql", "mongodb")
+        .allowValues("store", "mysql", "postgresql", "oracle", "sqlserver", "mongodb")
         .allowValues(
             "operation",
             "claim_lookup",

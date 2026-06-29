@@ -1,7 +1,7 @@
 # Ratchet Docker Compose Load Testing
 
 This stack runs a scalable Ratchet cluster for throughput and resiliency testing. It supports
-PostgreSQL, MySQL, and MongoDB backends, Prometheus/Grafana observability, and an optional chaos
+PostgreSQL, MySQL, Oracle, SQL Server, and MongoDB backends, Prometheus/Grafana observability, and an optional chaos
 monkey that stops and restarts Ratchet node containers.
 
 ## Start a Cluster

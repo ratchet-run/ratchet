@@ -12,7 +12,7 @@ Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11 applications
 
 In a typical Jakarta EE application, Ratchet sits between your business logic and the database. You inject `JobSchedulerService`, enqueue work using lambda expressions, and Ratchet handles persistence, polling, execution, retries, and lifecycle events.
 
-<div class="ratchet-fit-diagram" role="group" aria-label="Ratchet architecture: application code submits jobs through JobSchedulerService into the Ratchet engine, which persists through the JobStore SPI backed by MySQL, PostgreSQL, Oracle, or MongoDB.">
+<div class="ratchet-fit-diagram" role="group" aria-label="Ratchet architecture: application code submits jobs through JobSchedulerService into the Ratchet engine, which persists through the JobStore SPI backed by MySQL, PostgreSQL, Oracle, SQL Server, or MongoDB.">
   <div class="fit-layer fit-layer-app">
     <div>
       <span class="fit-kicker">Your Jakarta EE Application</span>
@@ -307,7 +307,7 @@ Ratchet separates API contracts from implementation through Service Provider Int
 
 | SPI | Purpose | Default |
 |-----|---------|---------|
-| `JobStore` | Persistence backend | MySQL / PostgreSQL / Oracle / MongoDB modules |
+| `JobStore` | Persistence backend | MySQL / PostgreSQL / Oracle / SQL Server / MongoDB modules |
 | `JobInvocationResolver` | Callback-to-method invocation resolution | ASM bytecode analysis |
 | `ResultPersistenceStrategy` | Job return-value persistence | JSON metadata with size cap |
 | `RatchetOptions` | Typed runtime options | Required CDI producer; see [Configuration](/getting-started/configuration) |

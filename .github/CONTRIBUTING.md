@@ -61,6 +61,12 @@ Oracle:
 mvn verify -P wildfly-managed,oracle -B -pl :ratchet-testsuite,:ratchet-coverage -am
 ```
 
+SQL Server:
+
+```bash
+mvn verify -P wildfly-managed,sqlserver -B -pl :ratchet-testsuite,:ratchet-coverage -am
+```
+
 ### Documentation Site
 
 ```bash

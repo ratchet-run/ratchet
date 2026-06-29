@@ -89,7 +89,7 @@ Quartz ships its own JDBC `JobStore`. It works, but it has constraints:
 - **Quartz-owned schema.** The DDL is Quartz's, the tables start with `QRTZ_`, and migrations are your problem. Several wrapper projects exist (`quartz-mongodb`, etc.) but they are not officially supported.
 - **Connection management is separate.** Quartz wants its own `DataSource`, configured through `quartz.properties` or its own setter calls. Sharing your application's existing JPA `DataSource` requires extra plumbing.
 
-Ratchet ships a `JobStore` SPI with four reference implementations (MySQL, PostgreSQL, Oracle, MongoDB) that all pass the same TCK. The DDL is plain SQL files you can apply with whatever migration tool you already use (Flyway, Liquibase, plain `psql`). You can also opt in to a `SchemaMigrationLifecycleHook` that runs at startup if you want zero-config.
+Ratchet ships a `JobStore` SPI with five reference implementations (MySQL, PostgreSQL, Oracle, SQL Server, MongoDB) that all pass the same TCK. The DDL is plain SQL files you can apply with whatever migration tool you already use (Flyway, Liquibase, plain `psql`). You can also opt in to a `SchemaMigrationLifecycleHook` that runs at startup if you want zero-config.
 
 For Mongo, no third-party adapter is needed. Indexes are created at startup because index correctness gates claim safety.
 

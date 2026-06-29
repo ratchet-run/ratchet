@@ -109,6 +109,18 @@
                   <version>${postgresql-driver.version}</version>
                   <outputDirectory>${project.build.directory}/showcase-jdbc</outputDirectory>
                 </artifactItem>
+                <artifactItem>
+                  <groupId>com.oracle.database.jdbc</groupId>
+                  <artifactId>ojdbc11</artifactId>
+                  <version>${ojdbc.version}</version>
+                  <outputDirectory>${project.build.directory}/showcase-jdbc</outputDirectory>
+                </artifactItem>
+                <artifactItem>
+                  <groupId>com.microsoft.sqlserver</groupId>
+                  <artifactId>mssql-jdbc</artifactId>
+                  <version>${mssql-jdbc.version}</version>
+                  <outputDirectory>${project.build.directory}/showcase-jdbc</outputDirectory>
+                </artifactItem>
               </artifactItems>
             </configuration>
           </execution>
@@ -236,6 +248,64 @@
           <artifactId>ratchet-store-mongodb</artifactId>
         </dependency>
       </dependencies>
+    </profile>
+
+    <profile>
+      <id>oracle</id>
+      <properties>
+        <showcase.db>oracle</showcase.db>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-oracle</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>com.oracle.database.jdbc</groupId>
+          <artifactId>ojdbc11</artifactId>
+          <scope>runtime</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <resources>
+          <resource>
+            <directory>src/main/resources</directory>
+          </resource>
+          <resource>
+            <directory>src/oracle/resources</directory>
+            <filtering>true</filtering>
+          </resource>
+        </resources>
+      </build>
+    </profile>
+
+    <profile>
+      <id>sqlserver</id>
+      <properties>
+        <showcase.db>sqlserver</showcase.db>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-sqlserver</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>com.microsoft.sqlserver</groupId>
+          <artifactId>mssql-jdbc</artifactId>
+          <scope>runtime</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <resources>
+          <resource>
+            <directory>src/main/resources</directory>
+          </resource>
+          <resource>
+            <directory>src/sqlserver/resources</directory>
+            <filtering>true</filtering>
+          </resource>
+        </resources>
+      </build>
     </profile>
 
     <profile>
