@@ -1,7 +1,7 @@
 ---
 sidebar_position: 4
 title: Database Setup
-description: "Setting up MySQL, PostgreSQL, Oracle, or MongoDB for Ratchet: schema application, DataSource configuration, and connection pooling."
+description: "Setting up MySQL, PostgreSQL, Oracle, SQL Server, or MongoDB for Ratchet: schema application, DataSource configuration, and connection pooling."
 ---
 
 # Database Setup
@@ -470,9 +470,9 @@ If no `DataSource` bean is available when `auto-migrate=true`, deployment fails 
 | Oracle ≥ 23ai | `oracle` | yes |
 | Anything else (incl. CockroachDB) | unsupported | no |
 
-The dialect is auto-detected from `DatabaseMetaData.getDatabaseProductName()`. Look-alike products such as **CockroachDB** report a PostgreSQL wire protocol but lack `pg_advisory_lock`, so they are explicitly rejected even though the wire is compatible. Override the auto-detected value with `RATCHET_SCHEMA_MIGRATION_DIALECT=mysql` (or `postgresql`, `oracle`) only if you have verified your driver-product combination.
+The dialect is auto-detected from `DatabaseMetaData.getDatabaseProductName()`. Look-alike products such as **CockroachDB** report a PostgreSQL wire protocol but lack `pg_advisory_lock`, so they are explicitly rejected even though the wire is compatible. Override the auto-detected value with `RATCHET_SCHEMA_MIGRATION_DIALECT=mysql` (or `postgresql`, `oracle`, `sqlserver`) only if you have verified your driver-product combination.
 
-Each dialect serializes concurrent migrators differently: MySQL via `GET_LOCK`, PostgreSQL via `pg_advisory_lock`, and Oracle via an `EXCLUSIVE` lock on a dedicated `ratchet_schema_lock` table held on a second connection (Oracle has no grant-free session-level advisory lock and its DDL auto-commits). Oracle auto-migration therefore needs a connection pool maximum of at least 2.
+Each dialect serializes concurrent migrators differently: MySQL via `GET_LOCK`, PostgreSQL via `pg_advisory_lock`, Oracle via an `EXCLUSIVE` lock on a dedicated `ratchet_schema_lock` table held on a second connection (Oracle has no grant-free session-level advisory lock and its DDL auto-commits), and SQL Server via a session-scoped `sp_getapplock`. Oracle auto-migration therefore needs a connection pool maximum of at least 2.
 
 ### Enabling auto-migrate on a database that already has the schema
 
@@ -518,7 +518,7 @@ mongodump --db ratchet --out /backup/
 mongorestore --db ratchet /backup/ratchet/
 ```
 
-For all databases, schedule regular backups and test restoration periodically. In production, consider point-in-time recovery using WAL archiving (PostgreSQL), binary log (MySQL), archived redo logs (Oracle), or oplog (MongoDB).
+For all databases, schedule regular backups and test restoration periodically. In production, consider point-in-time recovery using WAL archiving (PostgreSQL), binary log (MySQL), archived redo logs (Oracle), transaction log backups (SQL Server), or oplog (MongoDB).
 
 ## See Also
 

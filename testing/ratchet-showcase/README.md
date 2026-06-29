@@ -47,7 +47,7 @@ database container both shut down.
 > build fails. Use `mvn install` (above) to refresh siblings instead.
 
 The embedded container publishes on a random loopback port, so a Postgres,
-MySQL, or Mongo already running on the standard port won't collide.
+MySQL, Oracle, SQL Server, or Mongo already running on the standard port won't collide.
 
 ### Using your own database
 
@@ -57,6 +57,8 @@ disables the embedded container on its own. Connection defaults:
 
 - PostgreSQL: `POSTGRES_HOST=localhost`, `POSTGRES_PORT=5432`, database/user/password `ratchet`
 - MySQL: `MYSQL_HOST=localhost`, `MYSQL_PORT=3306`, database/user/password `ratchet`
+- Oracle: `ORACLE_HOST=localhost`, `ORACLE_PORT=1521`, `ORACLE_SERVICE=FREEPDB1`, user/password `ratchet`
+- SQL Server: `SQLSERVER_HOST=localhost`, `SQLSERVER_PORT=1433`, `SQLSERVER_DATABASE=ratchet`, `SQLSERVER_USER`/`SQLSERVER_PASSWORD` (the database must have `READ_COMMITTED_SNAPSHOT` enabled)
 - MongoDB: `MONGO_URI=mongodb://localhost:27017`, database `ratchet`
 
 ```bash
@@ -82,6 +84,10 @@ Combine one server profile with one store profile:
 
 - `postgresql`
 - `mysql`
+- `oracle`
+- `sqlserver`
 - `mongodb`
 
 GlassFish 8 requires JDK 21 or newer.
+
+The embedded Oracle (`gvenzl/oracle-free`) and SQL Server (`mcr.microsoft.com/mssql/server:2022-latest`) images are larger than the Postgres/MySQL/Mongo images and take longer to become ready on first pull. The embedded SQL Server database is created with `READ_COMMITTED_SNAPSHOT` enabled, which Ratchet's claim path requires.

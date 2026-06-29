@@ -27,6 +27,8 @@ updates:
       - /stores/ratchet-store-core
       - /stores/ratchet-store-mysql
       - /stores/ratchet-store-postgresql
+      - /stores/ratchet-store-oracle
+      - /stores/ratchet-store-sqlserver
       - /stores/ratchet-store-mongodb
       - /coordinators/ratchet-coordinator-common
       - /coordinators/ratchet-coordinator-postgresql

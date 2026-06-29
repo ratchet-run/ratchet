@@ -13,7 +13,7 @@ This guide gets you from zero to a running background job in the shortest path p
 Before starting, make sure you have:
 
 1. A Jakarta EE 10/11 project with a running application server (WildFly, Open Liberty, Payara, GlassFish 8, etc.)
-2. A database (PostgreSQL, MySQL, Oracle, or MongoDB) accessible from your application
+2. A database (PostgreSQL, MySQL, Oracle, SQL Server, or MongoDB) accessible from your application
 3. Ratchet dependencies added to your `pom.xml` (see [Installation](./installation.md))
 4. The Ratchet schema applied to your database
 5. A `@Produces RatchetOptions` CDI bean (required; no automatic fallback)

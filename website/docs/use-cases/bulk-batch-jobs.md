@@ -110,7 +110,7 @@ Same counting, same completion branches; the difference is that the items arrive
 
 ## Honest scope
 
-- Batches are an **optional store capability**. A store that does not advertise `BatchStore` throws `UnsupportedOperationException` from `enqueueBatch` and `streamingBatch`, by design: it refuses to persist a parent job whose children it cannot track, rather than silently dropping the count. The bundled MySQL, PostgreSQL, Oracle, and MongoDB stores all advertise it.
+- Batches are an **optional store capability**. A store that does not advertise `BatchStore` throws `UnsupportedOperationException` from `enqueueBatch` and `streamingBatch`, by design: it refuses to persist a parent job whose children it cannot track, rather than silently dropping the count. The bundled MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB stores all advertise it.
 - The items and the per-item action must be `Serializable`; the action is stored and replayed, so capture ids and keys, not live service handles.
 - Children are independent and run in whatever order workers claim them. A batch counts completions and failures; it does not sequence one item after another. If item B depends on item A, that is a [workflow](../concepts/workflows.md), not a batch.
 - `submit()` runs with the Jakarta transaction attribute `REQUIRED`, so the batch is created inside the caller's transaction. The children become eligible when that transaction commits, then run on the next poll, not the same instant.

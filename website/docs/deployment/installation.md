@@ -8,7 +8,7 @@ title: Installation & Setup
 
 - **Java**: 17 or later
 - **Jakarta EE**: 10/11 with CDI, JPA, Interceptors, and Jakarta Concurrency for the default RI runtime
-- **Database**: MySQL 8+, PostgreSQL 14+, Oracle 23ai+, or MongoDB 6+
+- **Database**: MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+
 - **Maven**: 3.8+
 
 ## Step 1: Add Dependencies

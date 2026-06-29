@@ -5,9 +5,9 @@ STORE="${1:-postgresql}"
 NODES="${2:-3}"
 
 case "$STORE" in
-  postgresql|mysql|mongodb) ;;
+  postgresql|mysql|oracle|sqlserver|mongodb) ;;
   *)
-    echo "usage: sh infra/loadtest/run.sh [postgresql|mysql|mongodb] [nodes] [chaos]" >&2
+    echo "usage: sh infra/loadtest/run.sh [postgresql|mysql|oracle|sqlserver|mongodb] [nodes] [chaos]" >&2
     exit 2
     ;;
 esac
@@ -26,7 +26,7 @@ for extra in "$@"; do
       COMPOSE_PROFILES="$COMPOSE_PROFILES --profile chaos"
       ;;
     *)
-      echo "usage: sh infra/loadtest/run.sh [postgresql|mysql|mongodb] [nodes] [chaos]" >&2
+      echo "usage: sh infra/loadtest/run.sh [postgresql|mysql|oracle|sqlserver|mongodb] [nodes] [chaos]" >&2
       exit 2
       ;;
   esac

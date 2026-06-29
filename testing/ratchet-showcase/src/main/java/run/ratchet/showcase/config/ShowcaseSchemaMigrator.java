@@ -33,7 +33,7 @@ public final class ShowcaseSchemaMigrator {
   public static void main(String[] args) throws Exception {
     if (args.length != 4) {
       throw new IllegalArgumentException(
-          "Usage: ShowcaseSchemaMigrator <postgresql|mysql> <jdbcUrl> <user> <password>");
+          "Usage: ShowcaseSchemaMigrator <postgresql|mysql|oracle|sqlserver> <jdbcUrl> <user> <password>");
     }
 
     String dialect = args[0].toLowerCase(Locale.ROOT);
@@ -63,6 +63,14 @@ public final class ShowcaseSchemaMigrator {
           case "mysql" -> {
             Class.forName("com.mysql.cj.jdbc.Driver");
             yield "run.ratchet.store.mysql.MysqlSchemaMigrationDialect";
+          }
+          case "oracle" -> {
+            Class.forName("oracle.jdbc.OracleDriver");
+            yield "run.ratchet.store.oracle.OracleSchemaMigrationDialect";
+          }
+          case "sqlserver" -> {
+            Class.forName("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+            yield "run.ratchet.store.sqlserver.SqlserverSchemaMigrationDialect";
           }
           default ->
               throw new IllegalArgumentException("Unsupported SQL showcase database: " + dialect);

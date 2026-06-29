@@ -28,7 +28,7 @@ public class OrderService {
 - **Zero-ceremony CDI.** `@Inject JobSchedulerService` and go. No XML, no scheduler boilerplate, no separate daemon.
 - **Real workflows, not just timers.** Chaining, conditional branching on results, batches, and jobs that park on an external signal until an approval or webhook resumes them.
 - **Resilience built in.** Retries with backoff, a circuit breaker, and a dead-letter queue — no Resilience4j, no Flyway, no extra runtime deps.
-- **Stores you can prove.** MySQL, PostgreSQL, Oracle, and MongoDB ship out of the box, each verified by a reusable store TCK. Bring your own and run the same conformance suite.
+- **Stores you can prove.** MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB ship out of the box, each verified by a reusable store TCK. Bring your own and run the same conformance suite.
 - **Customizable to the core** — see below.
 - **Portable.** Plain Jakarta EE 10/11. Runs on WildFly, Open Liberty, Payara, GlassFish, and friends.
 
@@ -120,7 +120,7 @@ More — batches, callbacks, encrypted payloads, event observation, job control:
 
 ## Showcase App
 
-`ratchet-showcase` is a runnable Jakarta EE WAR with an order-fulfillment dashboard demonstrating live workflow chains, conditional fraud-review signals, retries, resource limits, queue health, and Prometheus metrics. See [`testing/ratchet-showcase/README.md`](./testing/ratchet-showcase/README.md) to run it on WildFly, Payara, Open Liberty, or GlassFish against PostgreSQL, MySQL, or MongoDB.
+`ratchet-showcase` is a runnable Jakarta EE WAR with an order-fulfillment dashboard demonstrating live workflow chains, conditional fraud-review signals, retries, resource limits, queue health, and Prometheus metrics. See [`testing/ratchet-showcase/README.md`](./testing/ratchet-showcase/README.md) to run it on WildFly, Payara, Open Liberty, or GlassFish against PostgreSQL, MySQL, Oracle, SQL Server, or MongoDB.
 
 ## Architecture
 
@@ -133,10 +133,11 @@ flowchart TD
   mysql["ratchet-store-mysql"]
   postgres["ratchet-store-postgresql"]
   oracle["ratchet-store-oracle"]
+  sqlserver["ratchet-store-sqlserver"]
   mongo["ratchet-store-mongodb"]
 
   app --> api --> ri --> store
-  store --> mysql & postgres & oracle & mongo
+  store --> mysql & postgres & oracle & sqlserver & mongo
 ```
 
 Pluggable stores, optional cluster coordinators (PostgreSQL `LISTEN`/`NOTIFY`, JMS, Infinispan, Hazelcast), and reference encryption/metrics modules round out the reactor. [Module overview & deployment topology →](https://ratchet.run/deployment/overview)
@@ -155,7 +156,7 @@ Pluggable stores, optional cluster coordinators (PostgreSQL `LISTEN`/`NOTIFY`, J
 - **Java** 17+
 - **Jakarta EE** 10/11 (CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Concurrency 3.0/3.1)
 - **Runtime** Jakarta EE 10/11 server with managed executors (WildFly, Open Liberty, Payara, GlassFish 8, …); plain CDI/test deployments can opt into `StandaloneExecutorProvider`
-- **Database** MySQL 8+, PostgreSQL 14+, Oracle 23ai+, or MongoDB 6+
+- **Database** MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+
 
 ## Building from Source
 

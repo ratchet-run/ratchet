@@ -5,9 +5,9 @@ STORE="${1:-postgresql}"
 NODES="${2:-3}"
 
 case "$STORE" in
-  postgresql|mysql|mongodb) ;;
+  postgresql|mysql|oracle|sqlserver|mongodb) ;;
   *)
-    echo "usage: sh infra/loadtest/run-k6-enqueue.sh [postgresql|mysql|mongodb] [expected-nodes]" >&2
+    echo "usage: sh infra/loadtest/run-k6-enqueue.sh [postgresql|mysql|oracle|sqlserver|mongodb] [expected-nodes]" >&2
     exit 2
     ;;
 esac
@@ -22,7 +22,7 @@ shift 2
 
 COMPOSE_FILES="-f compose.yml -f compose.${STORE}.yml"
 if [ "$#" -ne 0 ]; then
-  echo "usage: sh infra/loadtest/run-k6-enqueue.sh [postgresql|mysql|mongodb] [expected-nodes]" >&2
+  echo "usage: sh infra/loadtest/run-k6-enqueue.sh [postgresql|mysql|oracle|sqlserver|mongodb] [expected-nodes]" >&2
   exit 2
 fi
 
