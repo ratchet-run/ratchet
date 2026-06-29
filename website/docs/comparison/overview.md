@@ -33,7 +33,7 @@ Are you on Spring Boot, and is Spring already your DI container?
 
 **Footnotes**
 
-1. JobRunr ships starters for Spring Boot, Quarkus, and Micronaut. It works in a vanilla CDI app, but Jakarta EE is not the design center.
+1. JobRunr ships starters for Spring Boot, Quarkus, and Micronaut. It works in a vanilla CDI app (8.7.0 adds a documented manual-wiring guide for it), but Jakarta EE is not the design center: JobRunr embeds a runtime that runs alongside your app on its own thread pool, rather than executing jobs as managed beans on a Jakarta-managed executor.
 2. db-scheduler has no DI integration of its own; you wire it up by hand in whatever container you use.
 3. Quartz supports trigger listeners and job chaining via `JobChainingJobListener`, but it is bolted on rather than a first-class workflow primitive.
 4. JobRunr Core is LGPL. JobRunr Pro is a paid commercial license that locks a substantial set of features (clustering with leader election, dashboard auth/SSO, batches, multi-tenancy, parameter encryption, custom/prioritized queues, atomic enqueue-on-condition, job continuations, PostgreSQL LISTEN/NOTIFY, and others) behind it, plus a commercial support tier with SLAs. See [the JobRunr pricing page](https://www.jobrunr.io/en/pricing/) for the current feature split.
