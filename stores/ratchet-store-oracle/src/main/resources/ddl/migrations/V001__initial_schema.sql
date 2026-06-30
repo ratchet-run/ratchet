@@ -360,6 +360,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     depended_on             RAW(16),
     superseded_by           RAW(16),
     tags                    VARCHAR2(512),
+    properties              CLOB,
+    extension_state         CLOB,
     CONSTRAINT pk_scheduler_job_archive PRIMARY KEY (archive_id),
     CONSTRAINT chk_archive_status CHECK (final_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
     CONSTRAINT chk_archive_job_type CHECK (job_type IN
@@ -431,3 +433,33 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 
 CREATE INDEX IF NOT EXISTS idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
 CREATE INDEX IF NOT EXISTS idx_resource_permit_job ON scheduler_resource_permit (job_id);
+
+-- 14. Per-job extension properties (write-once indexed scalars; plaintext by design — no secrets)
+CREATE TABLE IF NOT EXISTS scheduler_job_properties
+(
+    job_id       RAW(16)        NOT NULL,
+    property_key VARCHAR2(255)  NOT NULL,
+    value        VARCHAR2(1024),
+    CONSTRAINT pk_scheduler_job_properties PRIMARY KEY (job_id, property_key),
+    CONSTRAINT fk_job_properties_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_property_kv ON scheduler_job_properties (property_key, value);
+
+-- 15. Per-job extension state (mutable per-namespace blobs with per-row CAS; encrypted at rest when
+-- payload encryption is configured — state holds ciphertext, encrypted_state/encryption_key_id
+-- mirror the scheduler_job payload-encryption metadata columns)
+CREATE TABLE IF NOT EXISTS scheduler_job_extension_state
+(
+    job_id            RAW(16)      NOT NULL,
+    namespace         VARCHAR2(64) NOT NULL,
+    state             CLOB         NOT NULL,
+    encrypted_state   BOOLEAN      DEFAULT FALSE NOT NULL,
+    encryption_key_id VARCHAR2(256),
+    version           NUMBER(10)   DEFAULT 0 NOT NULL,
+    updated_at        TIMESTAMP(6) NOT NULL,
+    CONSTRAINT pk_scheduler_job_extension_state PRIMARY KEY (job_id, namespace),
+    CONSTRAINT fk_job_extension_state_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_extension_state_key_id ON scheduler_job_extension_state (encryption_key_id);

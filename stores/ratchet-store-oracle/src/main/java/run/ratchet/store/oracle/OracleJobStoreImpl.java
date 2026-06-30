@@ -85,6 +85,7 @@ class OracleJobStoreImpl implements OracleJobStore {
   private OracleTagOperations tags;
   private OracleSignalOperations signals;
   private OracleRecurringJobOperations recurringJobs;
+  private OracleExtensionOperations extensions;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected OracleJobStoreImpl() {
@@ -841,6 +842,7 @@ class OracleJobStoreImpl implements OracleJobStore {
     auxiliary = new OracleAuxiliaryOperations(ctx);
     signals = new OracleSignalOperations(ctx);
     recurringJobs = new OracleRecurringJobOperations(ctx, reservations);
+    extensions = new OracleExtensionOperations(ctx);
   }
 
   // ---------- RecurringJobStore delegates ----------
@@ -895,5 +897,37 @@ class OracleJobStoreImpl implements OracleJobStore {
   @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
     return recurringJobs.listAll();
+  }
+
+  // ---------- JobExtensionStore delegates ----------
+
+  @Override
+  public void putProperty(UUID jobId, String key, String value) {
+    extensions.putProperty(jobId, key, value);
+  }
+
+  @Override
+  public Optional<String> getProperty(UUID jobId, String key) {
+    return extensions.getProperty(jobId, key);
+  }
+
+  @Override
+  public Map<String, String> getPropertiesByPrefix(UUID jobId, String prefix) {
+    return extensions.getPropertiesByPrefix(jobId, prefix);
+  }
+
+  @Override
+  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+    return extensions.getState(jobId, namespace);
+  }
+
+  @Override
+  public void initState(UUID jobId, String namespace, String initialState) {
+    extensions.initState(jobId, namespace, initialState);
+  }
+
+  @Override
+  public boolean updateState(UUID jobId, String namespace, String newState, int expectedVersion) {
+    return extensions.updateState(jobId, namespace, newState, expectedVersion);
   }
 }

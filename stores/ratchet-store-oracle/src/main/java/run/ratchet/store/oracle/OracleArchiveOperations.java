@@ -19,6 +19,7 @@ import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,6 +35,7 @@ import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ArchiveParameterBinder;
 import run.ratchet.store.util.ArchiveQuerySupport;
 import run.ratchet.store.util.ArchiveRowMapper;
+import run.ratchet.store.util.ExtensionArchiveJson;
 import run.ratchet.store.util.RowValues;
 
 final class OracleArchiveOperations implements ArchiveStore {
@@ -84,6 +86,7 @@ final class OracleArchiveOperations implements ArchiveStore {
       JobEntity hydrated = hydrateForArchive(job);
       ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
       prepareArchive(archive);
+      populateExtensionData(archive, hydrated.getId());
       Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
       ArchiveParameterBinder.bind(query, archive, 1, UuidRawConverter::toBytes);
       query.executeUpdate();
@@ -118,6 +121,7 @@ final class OracleArchiveOperations implements ArchiveStore {
         }
         ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
         prepareArchive(archive);
+        populateExtensionData(archive, hydrated.getId());
         archives.add(archive);
       }
 
@@ -249,5 +253,55 @@ final class OracleArchiveOperations implements ArchiveStore {
   private JobEntity hydrateForArchive(JobEntity job) {
     return jobs.findById(job.getId())
         .orElseThrow(() -> new IllegalStateException("Job not found for archival: " + job.getId()));
+  }
+
+  private void populateExtensionData(ArchivedJobEntity archive, UUID jobId) {
+    // language=Oracle
+    String propertySql =
+        """
+        SELECT property_key, value
+        FROM scheduler_job_properties
+        WHERE job_id = ?
+        """;
+    @SuppressWarnings("unchecked")
+    List<Object[]> propertyRows =
+        ctx.em()
+            .createNativeQuery(propertySql)
+            .setParameter(1, UuidRawConverter.toBytes(jobId))
+            .getResultList();
+    Map<String, String> properties = new LinkedHashMap<>();
+    for (Object[] row : propertyRows) {
+      String value = RowValues.stringOrNull(row[1]);
+      if (value != null) {
+        properties.put((String) row[0], value);
+      }
+    }
+    archive.setProperties(ExtensionArchiveJson.propertiesJson(properties));
+
+    // language=Oracle
+    String stateSql =
+        """
+        SELECT namespace, state, encrypted_state, encryption_key_id, version, updated_at
+        FROM scheduler_job_extension_state
+        WHERE job_id = ?
+        """;
+    @SuppressWarnings("unchecked")
+    List<Object[]> stateRows =
+        ctx.em()
+            .createNativeQuery(stateSql)
+            .setParameter(1, UuidRawConverter.toBytes(jobId))
+            .getResultList();
+    List<ExtensionArchiveJson.StateRow> states = new ArrayList<>(stateRows.size());
+    for (Object[] row : stateRows) {
+      states.add(
+          new ExtensionArchiveJson.StateRow(
+              (String) row[0],
+              RowValues.stringOrNull(row[1]),
+              RowValues.booleanOrFalse(row[2]),
+              RowValues.stringOrNull(row[3]),
+              ((Number) row[4]).intValue(),
+              RowValues.instantOrNull(row[5])));
+    }
+    archive.setExtensionState(ExtensionArchiveJson.extensionStateJson(states));
   }
 }
