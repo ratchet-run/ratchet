@@ -88,6 +88,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   private SqlserverAuxiliaryOperations auxiliary;
   private SqlserverSignalOperations signals;
   private SqlserverRecurringJobOperations recurringJobs;
+  private SqlserverExtensionOperations extensions;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected SqlserverJobStoreImpl() {
@@ -846,6 +847,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     auxiliary = new SqlserverAuxiliaryOperations(ctx);
     signals = new SqlserverSignalOperations(ctx);
     recurringJobs = new SqlserverRecurringJobOperations(ctx, reservations);
+    extensions = new SqlserverExtensionOperations(ctx);
   }
 
   // ---------- RecurringJobStore delegates ----------
@@ -896,5 +898,37 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
     return recurringJobs.listAll();
+  }
+
+  // ---------- JobExtensionStore delegates ----------
+
+  @Override
+  public void putProperty(UUID jobId, String key, String value) {
+    extensions.putProperty(jobId, key, value);
+  }
+
+  @Override
+  public Optional<String> getProperty(UUID jobId, String key) {
+    return extensions.getProperty(jobId, key);
+  }
+
+  @Override
+  public Map<String, String> getPropertiesByPrefix(UUID jobId, String prefix) {
+    return extensions.getPropertiesByPrefix(jobId, prefix);
+  }
+
+  @Override
+  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+    return extensions.getState(jobId, namespace);
+  }
+
+  @Override
+  public void initState(UUID jobId, String namespace, String initialState) {
+    extensions.initState(jobId, namespace, initialState);
+  }
+
+  @Override
+  public boolean updateState(UUID jobId, String namespace, String newState, int expectedVersion) {
+    return extensions.updateState(jobId, namespace, newState, expectedVersion);
   }
 }
