@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.annotation.Priority;
@@ -224,6 +225,55 @@ class DefaultRatchetLifecycleHookTest {
 
     assertDoesNotThrow(() -> lifecycle.onStartup(new Object()));
     assertDoesNotThrow(lifecycle::onShutdown);
+  }
+
+  @Test
+  void onStartup_whenScheduledExecutorUnavailable_degradesScheduledServicesAndContinues() {
+    Poller poller = mock(Poller.class);
+    RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
+    OrphanRecoveryTimer orphanRecoveryTimer = mock(OrphanRecoveryTimer.class);
+    BatchRecoveryTimer batchRecoveryTimer = mock(BatchRecoveryTimer.class);
+    DeadLetterService deadLetterService = mock(DeadLetterService.class);
+    JobArchivingService jobArchivingService = mock(JobArchivingService.class);
+    LogPurgeTimer logPurgeTimer = mock(LogPurgeTimer.class);
+    PollerWakeupListener pollerWakeupListener = mock(PollerWakeupListener.class);
+    JobExecutionCoordinator jobExecutionCoordinator = mock(JobExecutionCoordinator.class);
+    ExecutorProvider provider = mock(ExecutorProvider.class);
+    when(provider.getScheduledExecutor()).thenThrow(new IllegalStateException("java:comp unbound"));
+
+    List<String> events = new ArrayList<>();
+    DefaultRatchetLifecycle lifecycle =
+        new DefaultRatchetLifecycle(
+            poller,
+            recurringScheduler,
+            orphanRecoveryTimer,
+            batchRecoveryTimer,
+            deadLetterService,
+            jobArchivingService,
+            logPurgeTimer,
+            pollerWakeupListener,
+            provider,
+            mock(NodeIdentityProvider.class),
+            mock(DrainController.class),
+            RatchetOptions.defaults(),
+            jobExecutionCoordinator,
+            mock(ClusterCoordinator.class),
+            new RecordingInstance<>(List.of(new SuccessfulHook(events))));
+
+    assertDoesNotThrow(() -> lifecycle.onStartup(new Object()));
+
+    assertEquals(List.of("successful.beforeStart", "successful.afterStart"), events);
+    verify(provider).getScheduledExecutor();
+    verify(pollerWakeupListener).init();
+    verifyNoInteractions(
+        poller,
+        recurringScheduler,
+        orphanRecoveryTimer,
+        batchRecoveryTimer,
+        deadLetterService,
+        jobArchivingService,
+        logPurgeTimer,
+        jobExecutionCoordinator);
   }
 
   private DefaultRatchetLifecycle newLifecycle(Instance<SchedulerLifecycleHook> hooks) {
