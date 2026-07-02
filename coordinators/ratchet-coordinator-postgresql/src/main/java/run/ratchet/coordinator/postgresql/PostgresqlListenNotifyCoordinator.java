@@ -34,6 +34,7 @@ import javax.sql.DataSource;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.coordinator.common.AbstractPushCoordinator;
 import run.ratchet.coordinator.common.CoordinatorSupport;
 import run.ratchet.coordinator.common.CoordinatorThreading;
@@ -85,6 +86,8 @@ public class PostgresqlListenNotifyCoordinator extends AbstractPushCoordinator
    * unsatisfied dependency and fail deployment validation out of the box.
    */
   @Inject Instance<PostgresqlCoordinatorConfig> configInstance;
+
+  @Inject Instance<RatchetOptions> optionsInstance;
 
   @Inject @Any Instance<DataSource> dataSourceInstance;
   @Inject MetricsCollector metrics;
@@ -144,7 +147,10 @@ public class PostgresqlListenNotifyCoordinator extends AbstractPushCoordinator
     if (threading == null) {
       // CDI/production path: route the LISTEN loop and the dispatch pool through the container's
       // managed thread factory. Standalone is an explicit opt-in via the test constructors.
-      threading = CoordinatorThreading.managed("ratchet-coordinator-postgresql");
+      RatchetOptions options = CoordinatorSupport.resolveOptionsOrDefault(optionsInstance);
+      threading =
+          CoordinatorThreading.managed(
+              "ratchet-coordinator-postgresql", options.execution().coordinatorThreadFactoryJndi());
     }
     configureDispatch(
         COORDINATOR_KIND,

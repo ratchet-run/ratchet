@@ -190,6 +190,7 @@ public final class RatchetOptionsFactory {
         .defaultThreadingMode(config.get(RatchetConfigKeys.WORKER_DEFAULT_THREADING_MODE))
         .jobExecutorJndi(config.get(RatchetConfigKeys.WORKER_JOB_EXECUTOR_JNDI))
         .scheduledExecutorJndi(config.get(RatchetConfigKeys.WORKER_SCHEDULED_EXECUTOR_JNDI))
+        .coordinatorThreadFactoryJndi(config.get(RatchetConfigKeys.COORDINATOR_THREAD_FACTORY_JNDI))
         .virtualExecutorJndi(config.get(RatchetConfigKeys.WORKER_VIRTUAL_EXECUTOR_JNDI))
         .virtualCounterAccounting(config.get(RatchetConfigKeys.WORKER_VIRTUAL_COUNTER_ACCOUNTING))
         .queueSize(config.get(RatchetConfigKeys.THREAD_POOL_QUEUE_SIZE))

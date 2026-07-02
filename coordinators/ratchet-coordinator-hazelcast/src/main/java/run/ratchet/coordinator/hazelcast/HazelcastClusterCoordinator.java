@@ -35,6 +35,7 @@ import java.util.concurrent.CompletionStage;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.coordinator.common.AbstractPushCoordinator;
 import run.ratchet.coordinator.common.CoordinatorSupport;
 import run.ratchet.coordinator.common.CoordinatorThreading;
@@ -83,6 +84,8 @@ public class HazelcastClusterCoordinator extends AbstractPushCoordinator
    */
   @Inject Instance<HazelcastCoordinatorConfig> configInstance;
 
+  @Inject Instance<RatchetOptions> optionsInstance;
+
   @Inject @Any Instance<HazelcastInstanceProvider> providerInstance;
   @Inject MetricsCollector metrics;
 
@@ -123,7 +126,10 @@ public class HazelcastClusterCoordinator extends AbstractPushCoordinator
     if (threading == null) {
       // CDI/production path: route the dispatch pool through the container's managed thread
       // factory. Standalone is an explicit opt-in via the test constructor.
-      threading = CoordinatorThreading.managed("ratchet-coordinator-hazelcast");
+      RatchetOptions options = CoordinatorSupport.resolveOptionsOrDefault(optionsInstance);
+      threading =
+          CoordinatorThreading.managed(
+              "ratchet-coordinator-hazelcast", options.execution().coordinatorThreadFactoryJndi());
     }
     configureDispatch(
         COORDINATOR_KIND,

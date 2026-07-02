@@ -32,6 +32,7 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.coordinator.common.AbstractPushCoordinator;
 import run.ratchet.coordinator.common.CoordinatorSupport;
 import run.ratchet.coordinator.common.CoordinatorThreading;
@@ -80,6 +81,8 @@ public class InfinispanClusterCoordinator extends AbstractPushCoordinator
    */
   @Inject Instance<InfinispanCoordinatorConfig> configInstance;
 
+  @Inject Instance<RatchetOptions> optionsInstance;
+
   @Inject @Any Instance<InfinispanCacheManagerProvider> providerInstance;
   @Inject MetricsCollector metrics;
 
@@ -121,7 +124,10 @@ public class InfinispanClusterCoordinator extends AbstractPushCoordinator
     if (threading == null) {
       // CDI/production path: route the dispatch pool through the container's managed thread
       // factory. Standalone is an explicit opt-in via the test constructor.
-      threading = CoordinatorThreading.managed("ratchet-coordinator-infinispan");
+      RatchetOptions options = CoordinatorSupport.resolveOptionsOrDefault(optionsInstance);
+      threading =
+          CoordinatorThreading.managed(
+              "ratchet-coordinator-infinispan", options.execution().coordinatorThreadFactoryJndi());
     }
     configureDispatch(
         COORDINATOR_KIND,
