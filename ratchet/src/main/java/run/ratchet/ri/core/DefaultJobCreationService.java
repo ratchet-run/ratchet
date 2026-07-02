@@ -815,11 +815,14 @@ class DefaultJobCreationService
     // lambda's target class is rejected before reaching the database, not after a worker dequeues
     // it. Framework coordination payloads (the batch-parent noop) target an internal placeholder,
     // never run user code, and so are not subject to the application allowlist — gating them would
-    // break batch submission for any app that allowlists only its own packages.
+    // break batch submission for any app that allowlists only its own packages. @Recurring
+    // annotation payloads similarly target a framework dispatch shim; the shim validates the real
+    // annotated bean class against ClassPolicy before dispatching.
     if (classPolicy != null
         && payload != null
         && payload.target() != null
         && !JobPayloadFactory.isCoordinationPlaceholder(payload)
+        && !JobPayloadFactory.isRecurringDispatchShim(payload)
         && !classPolicy.isAllowed(payload.target())) {
       throw new SecurityException(
           "Class " + payload.target() + " is not allowed for job execution.");

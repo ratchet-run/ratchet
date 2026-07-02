@@ -58,6 +58,15 @@ public final class JobPayloadFactory {
    */
   static final String COORDINATION_PLACEHOLDER_TARGET = "run.ratchet.ri.util.JobPlaceholders";
 
+  /**
+   * Fully-qualified name of the framework's recurring dispatch shim ({@code
+   * run.ratchet.ri.cdi.RecurringMethodInvoker}). Kept as a string so this payload package does not
+   * depend on the CDI package. Payloads pointing here are framework-created by {@code
+   * RecurringJobProcessor}; {@code RecurringMethodInvoker.invoke()} performs its own {@code
+   * ClassPolicy} check against the real annotated bean class before dispatching.
+   */
+  static final String RECURRING_DISPATCH_TARGET = "run.ratchet.ri.cdi.RecurringMethodInvoker";
+
   private static final JobPayload NOOP =
       new JobPayload(COORDINATION_PLACEHOLDER_TARGET, "noop", "()V", true, List.of());
 
@@ -155,6 +164,21 @@ public final class JobPayloadFactory {
    */
   public static boolean isCoordinationPlaceholder(JobPayload payload) {
     return payload != null && COORDINATION_PLACEHOLDER_TARGET.equals(payload.target());
+  }
+
+  /**
+   * Returns true if {@code payload} targets the framework's internal recurring dispatch shim. The
+   * shim is allowed through framework class-policy gates because it never decides the user target
+   * itself: {@code RecurringMethodInvoker.invoke()} validates the real annotated bean class against
+   * the configured {@code ClassPolicy} before invoking it.
+   */
+  public static boolean isRecurringDispatchShim(JobPayload payload) {
+    return payload != null && isRecurringDispatchShim(payload.target());
+  }
+
+  /** String overload for call sites that only have the target class name. */
+  public static boolean isRecurringDispatchShim(String className) {
+    return RECURRING_DISPATCH_TARGET.equals(className);
   }
 
   private static String singleInvocationError(Serializable lambda, int stepCount) {
