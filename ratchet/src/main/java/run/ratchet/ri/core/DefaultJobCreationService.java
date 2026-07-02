@@ -30,6 +30,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.jboss.logging.Logger;
@@ -45,6 +46,7 @@ import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -626,18 +628,104 @@ class DefaultJobCreationService
             callerPrincipal,
             builder.encryptedPayload());
 
-    UUID saved = recurringJobStore.createRecurring(definition);
-
-    if (!builder.tags().isEmpty()) {
-      tagStore.insertTags(saved, builder.tags());
-    }
+    RecurringJobDefinition saved = createOrReconcileRecurring(definition, builder.tags());
 
     log.infof(
         "Recurring job submitted (id=%s, cron=%s, zone=%s, nextFire=%s)",
-        saved, builder.cronExpr(), builder.zone(), nextFire);
+        saved.id(), saved.cronExpr(), saved.zoneId(), saved.nextFire());
 
     recurringScheduler.kick();
-    return () -> saved;
+    return saved::id;
+  }
+
+  private RecurringJobDefinition createOrReconcileRecurring(
+      RecurringJobDefinition candidate, List<String> tags) {
+    Optional<RecurringJobDefinition> existing = findRecurringByBusinessKey(candidate.businessKey());
+    if (existing.isPresent()) {
+      return reconcileRecurring(existing.get(), candidate);
+    }
+
+    try {
+      UUID saved = recurringJobStore.createRecurring(candidate);
+      if (!tags.isEmpty()) {
+        tagStore.insertTags(saved, tags);
+      }
+      return candidate;
+    } catch (RatchetTransientStoreException e) {
+      Optional<RecurringJobDefinition> raced = findRecurringByBusinessKey(candidate.businessKey());
+      if (raced.isPresent()) {
+        return reconcileRecurring(raced.get(), candidate);
+      }
+      throw e;
+    }
+  }
+
+  private Optional<RecurringJobDefinition> findRecurringByBusinessKey(String businessKey) {
+    if (businessKey == null) {
+      return Optional.empty();
+    }
+    return recurringJobStore.findRecurringByBusinessKey(businessKey);
+  }
+
+  private RecurringJobDefinition reconcileRecurring(
+      RecurringJobDefinition existing, RecurringJobDefinition candidate) {
+    RecurringJobDefinition replacement = reconciledDefinition(existing, candidate);
+    if (recurringDefinitionsMatch(existing, replacement)) {
+      return existing;
+    }
+    if (!recurringJobStore.updateRecurring(existing.id(), replacement)) {
+      throw new IllegalStateException(
+          "Recurring master " + existing.id() + " disappeared during business-key reconciliation");
+    }
+    return replacement;
+  }
+
+  private static RecurringJobDefinition reconciledDefinition(
+      RecurringJobDefinition existing, RecurringJobDefinition candidate) {
+    boolean scheduleChanged =
+        !Objects.equals(existing.cronExpr(), candidate.cronExpr())
+            || !Objects.equals(existing.zoneId(), candidate.zoneId());
+    Instant nextFire = scheduleChanged ? candidate.nextFire() : existing.nextFire();
+    return new RecurringJobDefinition(
+        existing.id(),
+        candidate.cronExpr(),
+        candidate.zoneId(),
+        nextFire,
+        existing.paused(),
+        existing.pausedAt(),
+        candidate.priority(),
+        candidate.maxRetries(),
+        candidate.backoffPolicy(),
+        candidate.backoffParamMs(),
+        candidate.timeoutSec(),
+        candidate.payload(),
+        candidate.onSuccessPayload(),
+        candidate.onFailurePayload(),
+        existing.businessKey(),
+        candidate.resourceName(),
+        candidate.executionTarget(),
+        existing.createdAt(),
+        existing.callerPrincipal(),
+        candidate.encryptedPayload());
+  }
+
+  private static boolean recurringDefinitionsMatch(
+      RecurringJobDefinition existing, RecurringJobDefinition replacement) {
+    return Objects.equals(existing.cronExpr(), replacement.cronExpr())
+        && Objects.equals(existing.zoneId(), replacement.zoneId())
+        && Objects.equals(existing.nextFire(), replacement.nextFire())
+        && existing.priority() == replacement.priority()
+        && existing.maxRetries() == replacement.maxRetries()
+        && existing.backoffPolicy() == replacement.backoffPolicy()
+        && existing.backoffParamMs() == replacement.backoffParamMs()
+        && existing.timeoutSec() == replacement.timeoutSec()
+        && Objects.equals(existing.payload(), replacement.payload())
+        && Objects.equals(existing.onSuccessPayload(), replacement.onSuccessPayload())
+        && Objects.equals(existing.onFailurePayload(), replacement.onFailurePayload())
+        && Objects.equals(existing.businessKey(), replacement.businessKey())
+        && Objects.equals(existing.resourceName(), replacement.resourceName())
+        && Objects.equals(existing.executionTarget(), replacement.executionTarget())
+        && existing.encryptedPayload() == replacement.encryptedPayload();
   }
 
   private void requireBatchCapability() {
