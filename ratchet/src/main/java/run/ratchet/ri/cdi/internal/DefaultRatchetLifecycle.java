@@ -27,6 +27,7 @@ import jakarta.interceptor.Interceptor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
@@ -180,42 +181,65 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
     List<SchedulerLifecycleHook> beforeStartSucceeded =
         notifyHooks("beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true);
 
-    recurringScheduler.configure(
-        options.recurring().pollMs(),
-        options.recurring().maxPollMs(),
-        options.recurring().batchLimit());
-    poller.init();
-    recurringScheduler.init();
+    ScheduledExecutorService scheduledExecutor = resolveScheduledExecutorForStartup();
+    if (scheduledExecutor != null) {
+      recurringScheduler.configure(
+          options.recurring().pollMs(),
+          options.recurring().maxPollMs(),
+          options.recurring().batchLimit());
+      poller.init();
+      recurringScheduler.init();
 
-    orphanRecoveryTimer.start(
-        executorProvider.getScheduledExecutor(), options.node().orphanScanIntervalMinutes());
-    batchRecoveryTimer.start(executorProvider.getScheduledExecutor());
+      orphanRecoveryTimer.start(scheduledExecutor, options.node().orphanScanIntervalMinutes());
+      batchRecoveryTimer.start(scheduledExecutor);
 
-    if (options.maintenance().dlqPurgeEnabled()) {
-      Cron dlqCron = RecurringScheduler.PARSER.parse(options.maintenance().dlqPurgeCron());
-      deadLetterService.init(options.maintenance().dlqPurgeDays(), dlqCron);
-    }
+      if (options.maintenance().dlqPurgeEnabled()) {
+        Cron dlqCron = RecurringScheduler.PARSER.parse(options.maintenance().dlqPurgeCron());
+        deadLetterService.init(options.maintenance().dlqPurgeDays(), dlqCron);
+      }
 
-    if (options.maintenance().jobArchiveEnabled()) {
-      Cron archiveCron = RecurringScheduler.PARSER.parse(options.maintenance().jobArchiveCron());
-      jobArchivingService.init(
-          true,
-          options.maintenance().jobRetentionDays(),
-          options.maintenance().jobArchiveBatchSize(),
-          archiveCron);
-    }
+      if (options.maintenance().jobArchiveEnabled()) {
+        Cron archiveCron = RecurringScheduler.PARSER.parse(options.maintenance().jobArchiveCron());
+        jobArchivingService.init(
+            true,
+            options.maintenance().jobRetentionDays(),
+            options.maintenance().jobArchiveBatchSize(),
+            archiveCron);
+      }
 
-    if (options.maintenance().logPurgeEnabled()) {
-      Cron logCron = RecurringScheduler.PARSER.parse(options.maintenance().logPurgeCron());
-      logPurgeTimer.init(options.maintenance().logRetentionDays(), logCron);
+      if (options.maintenance().logPurgeEnabled()) {
+        Cron logCron = RecurringScheduler.PARSER.parse(options.maintenance().logPurgeCron());
+        logPurgeTimer.init(options.maintenance().logRetentionDays(), logCron);
+      }
+
+      jobExecutionCoordinator.initRetryBufferDrainer();
     }
 
     pollerWakeupListener.init();
-    jobExecutionCoordinator.initRetryBufferDrainer();
 
     startedHooks =
         notifyHooks("afterStart", beforeStartSucceeded, SchedulerLifecycleHook::afterStart, false);
     log.info("Ratchet started");
+  }
+
+  private ScheduledExecutorService resolveScheduledExecutorForStartup() {
+    try {
+      return executorProvider.getScheduledExecutor();
+    } catch (RuntimeException e) {
+      RatchetOptions.ExecutionOptions execution = options.execution();
+      log.errorf(
+          e,
+          "Managed scheduled executor unavailable during Ratchet startup; scheduled background"
+              + " services are disabled: polling, recurring scheduling, orphan recovery, batch"
+              + " recovery, DLQ purge, job archiving, log purge, and retry-buffer draining."
+              + " Configure RatchetOptions.execution().scheduledExecutorJndi(...) to a valid"
+              + " ManagedScheduledExecutorService (current scheduledExecutorJndi=%s,"
+              + " jobExecutorJndi=%s, virtualExecutorJndi=%s).",
+          execution.scheduledExecutorJndi(),
+          execution.jobExecutorJndi(),
+          execution.virtualExecutorJndi());
+      return null;
+    }
   }
 
   @Override
