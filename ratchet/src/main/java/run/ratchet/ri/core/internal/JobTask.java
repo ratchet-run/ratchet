@@ -53,6 +53,7 @@ import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.payload.ArgumentCoercion;
+import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -430,7 +431,9 @@ public class JobTask implements Callable<Void> {
     if (className == null || className.isEmpty()) {
       throw new SecurityException("Class name cannot be null or empty");
     }
-    if (classPolicy != null && !classPolicy.isAllowed(className)) {
+    if (classPolicy != null
+        && !JobPayloadFactory.isRecurringDispatchShim(className)
+        && !classPolicy.isAllowed(className)) {
       throw new SecurityException("Class " + className + " is not allowed for job execution.");
     }
     synchronized (REFLECTION_CACHE_LOCK) {

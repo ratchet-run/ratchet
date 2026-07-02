@@ -20,6 +20,7 @@ import jakarta.inject.Inject;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import org.jboss.logging.Logger;
+import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.store.entity.JobPayload;
 
@@ -70,7 +71,8 @@ public class JobSecurityValidator {
       throw new SecurityException("Job payload target class cannot be null or empty");
     }
 
-    if (!classPolicy.isAllowed(targetClass)) {
+    if (!JobPayloadFactory.isRecurringDispatchShim(payload)
+        && !classPolicy.isAllowed(targetClass)) {
       throw new SecurityException("Class " + targetClass + " is not allowed for job execution.");
     }
 
