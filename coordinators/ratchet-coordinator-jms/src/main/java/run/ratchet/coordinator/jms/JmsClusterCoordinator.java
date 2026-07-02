@@ -35,6 +35,7 @@ import java.util.Objects;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.coordinator.common.AbstractPushCoordinator;
 import run.ratchet.coordinator.common.CoordinatorSupport;
 import run.ratchet.coordinator.common.CoordinatorThreading;
@@ -92,6 +93,8 @@ public class JmsClusterCoordinator extends AbstractPushCoordinator
    * deployment validation out of the box.
    */
   @Inject Instance<JmsCoordinatorConfig> configInstance;
+
+  @Inject Instance<RatchetOptions> optionsInstance;
 
   @Inject @Any Instance<JmsConnectionFactoryProvider> providerInstance;
   @Inject MetricsCollector metrics;
@@ -157,7 +160,10 @@ public class JmsClusterCoordinator extends AbstractPushCoordinator
     if (threading == null) {
       // CDI/production path: route loop threads and the dispatch pool through the container's
       // managed thread factory. Standalone is an explicit opt-in via the test constructors.
-      threading = CoordinatorThreading.managed("ratchet-coordinator-jms");
+      RatchetOptions options = CoordinatorSupport.resolveOptionsOrDefault(optionsInstance);
+      threading =
+          CoordinatorThreading.managed(
+              "ratchet-coordinator-jms", options.execution().coordinatorThreadFactoryJndi());
     }
     configureDispatch(
         COORDINATOR_KIND,

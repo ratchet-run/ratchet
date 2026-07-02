@@ -16,15 +16,24 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -81,6 +90,34 @@ class PollerWakeupListenerTest {
   }
 
   @Test
+  void init_registrationFailureLogsThrowableWithCauseChain() {
+    RuntimeException rootCause = new RuntimeException("jndi missing");
+    IllegalStateException failure = new IllegalStateException("coordinator init failed", rootCause);
+    doThrow(failure).when(clusterCoordinator).registerWakeupListener(any());
+    PollerWakeupListener listener =
+        new PollerWakeupListener(clusterCoordinator, pollerScheduler, metricsCollector);
+
+    try (LogCapture logs = LogCapture.start(PollerWakeupListener.class)) {
+      listener.init();
+
+      LogRecord record =
+          logs.records().stream()
+              .filter(log -> log.getMessage().contains("Wakeup listener registration error"))
+              .findFirst()
+              .orElseThrow();
+      assertSame(failure, record.getThrown());
+      assertSame(rootCause, record.getThrown().getCause());
+      assertEquals(
+          "Wakeup listener registration error — polling continues without push notifications",
+          record.getMessage());
+      assertTrue(
+          record.getParameters() == null || record.getParameters().length == 0,
+          "Throwable must be attached to the log record, not supplied as a formatting parameter");
+      assertTrue(record.getLevel().intValue() >= Level.SEVERE.intValue());
+    }
+  }
+
+  @Test
   void registeredListener_wakeupFailureDoesNotPropagate() {
     AtomicReference<Consumer<JobWakeupHint>> listenerRef = new AtomicReference<>();
     doAnswer(
@@ -104,5 +141,50 @@ class PollerWakeupListenerTest {
 
     verify(metricsCollector).localWakeup("cluster_listener");
     verify(pollerScheduler).wakeup();
+  }
+
+  private static final class LogCapture implements AutoCloseable {
+    private final Logger logger;
+    private final Handler handler;
+    private final Level originalLevel;
+    private final boolean originalUseParentHandlers;
+    private final List<LogRecord> records = new ArrayList<>();
+
+    private LogCapture(Class<?> type) {
+      logger = Logger.getLogger(type.getName());
+      originalLevel = logger.getLevel();
+      originalUseParentHandlers = logger.getUseParentHandlers();
+      handler =
+          new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+              records.add(record);
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+          };
+      logger.setLevel(Level.ALL);
+      logger.setUseParentHandlers(false);
+      logger.addHandler(handler);
+    }
+
+    static LogCapture start(Class<?> type) {
+      return new LogCapture(type);
+    }
+
+    List<LogRecord> records() {
+      return records;
+    }
+
+    @Override
+    public void close() {
+      logger.removeHandler(handler);
+      logger.setLevel(originalLevel);
+      logger.setUseParentHandlers(originalUseParentHandlers);
+    }
   }
 }

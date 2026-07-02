@@ -37,6 +37,9 @@ class RatchetOptionsTest {
     assertEquals(
         "java:comp/DefaultManagedScheduledExecutorService",
         options.execution().scheduledExecutorJndi());
+    assertEquals(
+        "java:comp/DefaultManagedThreadFactory",
+        options.execution().coordinatorThreadFactoryJndi());
     assertEquals(60L, options.recurring().startupGraceSeconds());
     assertEquals(500, options.timeout().signalTimeoutBatchSize());
     assertEquals(RatchetOptions.IsolationCheckMode.FAIL, options.store().isolationCheckMode());
@@ -52,6 +55,8 @@ class RatchetOptionsTest {
                 execution ->
                     execution
                         .defaultThreadingMode(RatchetOptions.ThreadingMode.VIRTUAL)
+                        .coordinatorThreadFactoryJndi(
+                            "java:jboss/ee/concurrency/factory/RatchetCoordinator")
                         .maxConcurrency("dlq-alert", 4)
                         .virtualThreadLimit("workflow-join", 19)
                         .rateLimitPerMinute("single", 50))
@@ -68,6 +73,9 @@ class RatchetOptionsTest {
     assertEquals(100, options.polling().batchSize());
     assertEquals(2, options.polling().claimHeadroomFactor());
     assertEquals(RatchetOptions.ThreadingMode.VIRTUAL, options.execution().defaultThreadingMode());
+    assertEquals(
+        "java:jboss/ee/concurrency/factory/RatchetCoordinator",
+        options.execution().coordinatorThreadFactoryJndi());
     assertEquals(4, options.execution().maxConcurrency("DLQ_ALERT", -1));
     assertEquals(19, options.execution().virtualThreadLimit("WORKFLOW_JOIN", -1));
     assertEquals(50, options.execution().rateLimitPerMinute("SINGLE"));

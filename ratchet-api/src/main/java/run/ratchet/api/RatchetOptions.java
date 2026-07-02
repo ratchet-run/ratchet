@@ -38,6 +38,9 @@ import java.util.function.Consumer;
 @SuppressWarnings("ClassCanBeRecord")
 public class RatchetOptions {
 
+  private static final String DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI =
+      "java:comp/DefaultManagedThreadFactory";
+
   private final PollingOptions polling;
   private final ExecutionOptions execution;
   private final NodeOptions node;
@@ -391,6 +394,8 @@ public class RatchetOptions {
    * @param jobExecutorJndi JNDI name of the {@code ManagedExecutorService} that runs jobs
    * @param scheduledExecutorJndi JNDI name of the {@code ManagedScheduledExecutorService} used for
    *     scheduled work
+   * @param coordinatorThreadFactoryJndi JNDI name of the {@code ManagedThreadFactory} used by
+   *     bundled cluster coordinators for listener loops and dispatch pools
    * @param virtualExecutorJndi JNDI name of the {@code ManagedExecutorService} used for
    *     virtual-thread execution; when blank, virtual-targeted jobs fall back to the platform pool
    * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
@@ -404,8 +409,32 @@ public class RatchetOptions {
       Map<String, Integer> rateLimitsPerMinute,
       String jobExecutorJndi,
       String scheduledExecutorJndi,
+      String coordinatorThreadFactoryJndi,
       String virtualExecutorJndi,
       boolean virtualCounterAccounting) {
+
+    public ExecutionOptions(
+        ThreadingMode defaultThreadingMode,
+        int queueSize,
+        Map<String, Integer> maxConcurrency,
+        Map<String, Integer> virtualThreadLimits,
+        Map<String, Integer> rateLimitsPerMinute,
+        String jobExecutorJndi,
+        String scheduledExecutorJndi,
+        String virtualExecutorJndi,
+        boolean virtualCounterAccounting) {
+      this(
+          defaultThreadingMode,
+          queueSize,
+          maxConcurrency,
+          virtualThreadLimits,
+          rateLimitsPerMinute,
+          jobExecutorJndi,
+          scheduledExecutorJndi,
+          DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI,
+          virtualExecutorJndi,
+          virtualCounterAccounting);
+    }
 
     public ExecutionOptions {
       maxConcurrency = Map.copyOf(maxConcurrency);
@@ -413,6 +442,8 @@ public class RatchetOptions {
       rateLimitsPerMinute = Map.copyOf(rateLimitsPerMinute);
       jobExecutorJndi = requireNonBlank("jobExecutorJndi", jobExecutorJndi);
       scheduledExecutorJndi = requireNonBlank("scheduledExecutorJndi", scheduledExecutorJndi);
+      coordinatorThreadFactoryJndi =
+          requireNonBlank("coordinatorThreadFactoryJndi", coordinatorThreadFactoryJndi);
       defaultThreadingMode =
           defaultThreadingMode == null ? ThreadingMode.PLATFORM : defaultThreadingMode;
       virtualExecutorJndi = blankToNull(virtualExecutorJndi);
@@ -864,6 +895,7 @@ public class RatchetOptions {
     private int queueSize = 100;
     private String jobExecutorJndi = "java:comp/DefaultManagedExecutorService";
     private String scheduledExecutorJndi = "java:comp/DefaultManagedScheduledExecutorService";
+    private String coordinatorThreadFactoryJndi = DEFAULT_COORDINATOR_THREAD_FACTORY_JNDI;
     private String virtualExecutorJndi;
     private boolean virtualCounterAccounting;
 
@@ -927,6 +959,18 @@ public class RatchetOptions {
       return this;
     }
 
+    /**
+     * Sets the JNDI name of the {@code ManagedThreadFactory} used by bundled cluster coordinators.
+     * Defaults to the container's {@code java:comp/DefaultManagedThreadFactory}. Some EAR
+     * deployments expose only global concurrency resources during early CDI startup; point this at
+     * that deployment-specific managed factory when {@code java:comp} is not bound yet.
+     */
+    public ExecutionBuilder coordinatorThreadFactoryJndi(String coordinatorThreadFactoryJndi) {
+      this.coordinatorThreadFactoryJndi =
+          requireNonBlank("coordinatorThreadFactoryJndi", coordinatorThreadFactoryJndi);
+      return this;
+    }
+
     public ExecutionBuilder queueSize(int queueSize) {
       this.queueSize = atLeast("queueSize", queueSize, 0);
       return this;
@@ -957,6 +1001,7 @@ public class RatchetOptions {
           rateLimitsPerMinute,
           jobExecutorJndi,
           scheduledExecutorJndi,
+          coordinatorThreadFactoryJndi,
           virtualExecutorJndi,
           virtualCounterAccounting);
     }

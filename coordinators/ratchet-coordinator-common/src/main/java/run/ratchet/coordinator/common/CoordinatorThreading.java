@@ -15,6 +15,7 @@
  */
 package run.ratchet.coordinator.common;
 
+import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
@@ -81,8 +82,16 @@ public final class CoordinatorThreading {
    * JNDI miss. {@code threadNamePrefix} names the loop threads (the container may rename them).
    */
   public static CoordinatorThreading managed(String threadNamePrefix) {
+    return managed(threadNamePrefix, MANAGED_THREAD_FACTORY_JNDI);
+  }
+
+  /**
+   * Container mode. Resolves the supplied managed thread factory JNDI name lazily and throws on a
+   * JNDI miss. {@code threadNamePrefix} names the loop threads (the container may rename them).
+   */
+  public static CoordinatorThreading managed(String threadNamePrefix, String jndiName) {
     return new CoordinatorThreading(
-        true, threadNamePrefix, MANAGED_THREAD_FACTORY_JNDI, /* presetFactory= */ null);
+        true, threadNamePrefix, requireJndiName(jndiName), /* presetFactory= */ null);
   }
 
   /**
@@ -177,11 +186,20 @@ public final class CoordinatorThreading {
       throw new IllegalStateException(
           "CoordinatorThreading could not resolve "
               + jndiName
-              + " from JNDI. This name is required by Jakarta Concurrency 3.0+; if you are running"
+              + " from JNDI. Configure ratchet.coordinator.thread-factory-jndi if this deployment"
+              + " exposes the managed thread factory under a different name; if you are running"
               + " outside a Jakarta EE 10+ container, build the coordinator with"
               + " CoordinatorThreading.standalone(...).",
           e);
     }
+  }
+
+  private static String requireJndiName(String jndiName) {
+    String value = Objects.requireNonNull(jndiName, "jndiName").trim();
+    if (value.isEmpty()) {
+      throw new IllegalArgumentException("jndiName must not be blank");
+    }
+    return value;
   }
 
   private static ThreadFactory daemonThreadFactory(String prefix) {

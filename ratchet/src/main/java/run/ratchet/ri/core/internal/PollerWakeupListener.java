@@ -66,8 +66,7 @@ public class PollerWakeupListener {
       log.info("PollerWakeupListener registered with ClusterCoordinator");
     } catch (Exception e) {
       log.errorf(
-          "Wakeup listener registration error — polling continues without push notifications: %s",
-          e);
+          e, "Wakeup listener registration error — polling continues without push notifications");
     }
   }
 

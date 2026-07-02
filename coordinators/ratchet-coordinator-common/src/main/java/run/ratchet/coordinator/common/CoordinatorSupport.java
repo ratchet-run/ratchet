@@ -18,6 +18,7 @@ package run.ratchet.coordinator.common;
 import jakarta.enterprise.inject.Instance;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 
 /** Shared CDI {@link Instance} resolution helpers for the bundled cluster coordinators. */
 public final class CoordinatorSupport {
@@ -49,5 +50,12 @@ public final class CoordinatorSupport {
     return configInstance != null && configInstance.isResolvable()
         ? configInstance.get()
         : defaults.get();
+  }
+
+  /**
+   * Resolves Ratchet options from CDI, falling back to compiled defaults when no producer exists.
+   */
+  public static RatchetOptions resolveOptionsOrDefault(Instance<RatchetOptions> optionsInstance) {
+    return resolveConfigOrDefault(optionsInstance, RatchetOptions::defaults);
   }
 }
