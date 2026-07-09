@@ -15,10 +15,9 @@
  */
 package run.ratchet.ri.security;
 
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
-import jakarta.inject.Inject;
+import jakarta.enterprise.inject.Vetoed;
 import jakarta.security.enterprise.SecurityContext;
 import java.security.Principal;
 import java.util.Optional;
@@ -28,6 +27,10 @@ import org.jboss.logging.Logger;
  * Resolves the current caller principal from {@link SecurityContext} when one is available in the
  * container, and returns an empty Optional otherwise. Stamped onto {@code
  * JobEntity.callerPrincipal} at job creation for audit.
+ *
+ * <p>The default bean is supplied by a {@code @Produces @Default} producer on {@link
+ * run.ratchet.ri.cdi.RatchetProducer}. Applications override it with a CDI
+ * {@code @Alternative @Priority(APPLICATION) CallerPrincipalProvider} bean.
  *
  * <p>The captured principal is also passed to the pluggable {@link
  * run.ratchet.spi.JobAuthorizationPolicy} SPI at every mutation point ({@code checkCreate}, {@code
@@ -44,7 +47,7 @@ import org.jboss.logging.Logger;
  * @see run.ratchet.api.JobSchedulerService for the normative capture contract
  * @see run.ratchet.spi.JobAuthorizationPolicy for the enforcement SPI
  */
-@ApplicationScoped
+@Vetoed
 public class CallerPrincipalProvider {
 
   private static final Logger log = Logger.getLogger(CallerPrincipalProvider.class);
@@ -55,7 +58,6 @@ public class CallerPrincipalProvider {
     this.securityContexts = null;
   }
 
-  @Inject
   public CallerPrincipalProvider(Instance<SecurityContext> securityContexts) {
     this.securityContexts = securityContexts;
   }

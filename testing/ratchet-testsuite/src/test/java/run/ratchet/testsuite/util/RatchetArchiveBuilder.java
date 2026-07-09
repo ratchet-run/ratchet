@@ -15,6 +15,7 @@
  */
 package run.ratchet.testsuite.util;
 
+import java.io.File;
 import java.util.Map;
 import java.util.ServiceLoader;
 import java.util.TreeMap;
@@ -56,19 +57,30 @@ public class RatchetArchiveBuilder {
     archive = ShrinkWrap.create(WebArchive.class, "ratchet-test.war");
   }
 
+  private RatchetArchiveBuilder(WebArchive archive) {
+    this.archive = archive;
+  }
+
   public static RatchetArchiveBuilder create() {
     return new RatchetArchiveBuilder();
   }
 
+  public static RatchetArchiveBuilder forArchive(WebArchive archive) {
+    return new RatchetArchiveBuilder(archive);
+  }
+
   public RatchetArchiveBuilder addRatchetDependencies(String... profiles) {
-    archive.addAsLibraries(
-        Maven.configureResolver()
-            .loadPomFromFile("pom.xml", profiles)
-            .importCompileAndRuntimeDependencies()
-            .resolve()
-            .withTransitivity()
-            .asFile());
+    archive.addAsLibraries(ratchetDependencyFiles(profiles));
     return this;
+  }
+
+  public static File[] ratchetDependencyFiles(String... profiles) {
+    return Maven.configureResolver()
+        .loadPomFromFile("pom.xml", profiles)
+        .importCompileAndRuntimeDependencies()
+        .resolve()
+        .withTransitivity()
+        .asFile();
   }
 
   public RatchetArchiveBuilder addClasses(Class<?>... classes) {
@@ -87,6 +99,13 @@ public class RatchetArchiveBuilder {
   }
 
   public RatchetArchiveBuilder addPersistenceXml(String dbType, String jtaDataSourceName) {
+    archive.addAsResource(
+        new StringAsset(persistenceXmlContent(dbType, jtaDataSourceName)),
+        "META-INF/persistence.xml");
+    return this;
+  }
+
+  public static String persistenceXmlContent(String dbType, String jtaDataSourceName) {
     if (!dbType.equals("mysql")
         && !dbType.equals("postgresql")
         && !dbType.equals("oracle")
@@ -140,8 +159,7 @@ public class RatchetArchiveBuilder {
     // JPA provider auto-detects the dialect from the JDBC URL exposed by RatchetDS. Remaining
     // property keys are opt-in Hibernate tuning and no-op under any other JPA provider.
     // language=XML
-    String persistenceXml =
-        """
+    return """
         <?xml version="1.0" encoding="UTF-8"?>
         <persistence xmlns="https://jakarta.ee/xml/ns/persistence"
                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -176,10 +194,7 @@ public class RatchetArchiveBuilder {
           </persistence-unit>
         </persistence>
         """
-            .formatted(jtaDataSourceName, mappingFile, dialectProps);
-
-    archive.addAsResource(new StringAsset(persistenceXml), "META-INF/persistence.xml");
-    return this;
+        .formatted(jtaDataSourceName, mappingFile, dialectProps);
   }
 
   public RatchetArchiveBuilder addDataSource(DataSourceStrategy strategy) {
@@ -252,7 +267,7 @@ public class RatchetArchiveBuilder {
    * registration are all added explicitly for the in-container lookup that {@code
    * SqlDialectTestSupportProvider} performs at runtime.
    */
-  private void addSqlDialectTestSupport() {
+  public RatchetArchiveBuilder addSqlDialectTestSupport() {
     // SqlDialectTestSupportProvider already resolves (and caches) the single implementation via the
     // same ServiceLoader lookup in this build JVM, so reuse it rather than scanning a second time.
     Class<?> implClass = SqlDialectTestSupportProvider.get().getClass();
@@ -262,20 +277,35 @@ public class RatchetArchiveBuilder {
     archive.addAsResource(
         new StringAsset(implClass.getName()),
         "META-INF/services/" + SqlDialectTestSupport.class.getName());
+    return this;
   }
 
   private void addAwaitility() {
     // Awaitility is needed in-container by JobAssertions but is test-scoped
     // (not pulled in by importCompileAndRuntimeDependencies)
-    archive.addAsLibraries(
-        Maven.configureResolver()
-            .loadPomFromFile("pom.xml")
-            .resolve("org.awaitility:awaitility")
-            .withTransitivity()
-            .asFile());
+    archive.addAsLibraries(awaitilityFiles());
   }
 
-  private void addTestRuntimeConfig(String dbType) {
+  public static File[] awaitilityFiles() {
+    return Maven.configureResolver()
+        .loadPomFromFile("pom.xml")
+        .resolve("org.awaitility:awaitility")
+        .withTransitivity()
+        .asFile();
+  }
+
+  public RatchetArchiveBuilder addTestRuntimeConfig(String dbType) {
+    archive.addAsResource(
+        new StringAsset(testRuntimeConfigContent(dbType)), "ratchet-testsuite.properties");
+    return this;
+  }
+
+  public static String testRuntimeConfigContent(String dbType) {
+    return testRuntimeConfigContent(dbType, Map.of());
+  }
+
+  public static String testRuntimeConfigContent(
+      String dbType, Map<String, String> extraProperties) {
     Map<String, String> properties = new TreeMap<>();
     put(properties, "ratchet.test.db.type", dbType);
     putIfPresent(properties, "ratchet.test.db.url");
@@ -294,6 +324,8 @@ public class RatchetArchiveBuilder {
     put(properties, "ratchet.node.dynamic-heartbeat-enabled", "false");
     put(properties, "ratchet.node.heartbeat-interval-seconds", "300");
 
+    extraProperties.forEach((key, value) -> put(properties, key, value));
+
     StringBuilder content = new StringBuilder();
     properties.forEach(
         (key, value) ->
@@ -302,7 +334,7 @@ public class RatchetArchiveBuilder {
                 .append('=')
                 .append(escapeProperty(value))
                 .append('\n'));
-    archive.addAsResource(new StringAsset(content.toString()), "ratchet-testsuite.properties");
+    return content.toString();
   }
 
   private static void putIfPresent(Map<String, String> properties, String key) {
