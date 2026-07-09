@@ -15,6 +15,11 @@
  */
 package run.ratchet.store.oracle;
 
+import static run.ratchet.store.util.ExtensionValidation.escapeLike;
+import static run.ratchet.store.util.ExtensionValidation.requireKey;
+import static run.ratchet.store.util.ExtensionValidation.requireNamespace;
+import static run.ratchet.store.util.ExtensionValidation.requireState;
+
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -214,27 +219,5 @@ final class OracleExtensionOperations implements JobExtensionStore {
             .setParameter(7, expectedVersion)
             .executeUpdate();
     return updated > 0;
-  }
-
-  private static void requireKey(String key) {
-    if (key == null || key.isBlank()) {
-      throw new IllegalArgumentException("property key must not be null or blank");
-    }
-  }
-
-  private static void requireNamespace(String namespace) {
-    if (namespace == null || namespace.isBlank()) {
-      throw new IllegalArgumentException("namespace must not be null or blank");
-    }
-  }
-
-  private static void requireState(String state) {
-    if (state == null) {
-      throw new IllegalArgumentException("state must not be null");
-    }
-  }
-
-  private static String escapeLike(String raw) {
-    return raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
   }
 }

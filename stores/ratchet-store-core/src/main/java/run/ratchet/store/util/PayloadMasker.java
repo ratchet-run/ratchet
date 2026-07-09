@@ -73,18 +73,13 @@ public final class PayloadMasker {
    * Serializes {@code payload} to JSON then masks sensitive fields; returns null if input is null.
    */
   public static String maskPayload(Object payload) {
-    return maskPayload(payload, null);
-  }
-
-  /** Context-aware variant of {@link #maskPayload(Object)}. */
-  public static String maskPayload(Object payload, MaskingContext context) {
     if (payload == null) {
       return null;
     }
 
     try {
       String json = PayloadSerializerHolder.get().serialize(payload);
-      return maskPayload(json, context);
+      return maskPayload(json);
     } catch (Exception e) {
       log.warn("Payload serialization error, redacting entire payload", e);
       return MASKED_VALUE;

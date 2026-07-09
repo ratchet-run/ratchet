@@ -27,12 +27,19 @@ import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static run.ratchet.store.mongodb.MongoFieldNames.ARCHIVED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.ENCRYPTED_STATE;
+import static run.ratchet.store.mongodb.MongoFieldNames.ENCRYPTION_KEY_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.NAMESPACE;
+import static run.ratchet.store.mongodb.MongoFieldNames.PROPERTY_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATE;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TARGET_CLASS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.VALUE;
+import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.result.DeleteResult;
@@ -151,11 +158,17 @@ final class MongoArchiveOperations implements ArchiveStore {
     if (jobList.isEmpty()) {
       return 0;
     }
+    List<UUID> jobIds = jobList.stream().map(JobEntity::getId).toList();
+    Map<UUID, Map<String, String>> propertiesByJobId = extensionProperties(session, jobIds);
+    Map<UUID, List<ExtensionArchiveJson.StateRow>> statesByJobId = extensionStates(session, jobIds);
     List<Document> docs = new ArrayList<>(jobList.size());
     for (JobEntity job : jobList) {
       ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
       archive.setId(UuidV7Factory.create());
-      populateExtensionData(archive, job.getId());
+      populateExtensionData(
+          archive,
+          propertiesByJobId.getOrDefault(job.getId(), Map.of()),
+          statesByJobId.getOrDefault(job.getId(), List.of()));
       docs.add(DocumentMapper.toDocument(archive));
     }
     ctx.archives().insertMany(session, docs);
@@ -266,25 +279,67 @@ final class MongoArchiveOperations implements ArchiveStore {
   private void populateExtensionData(ArchivedJobEntity archive, UUID jobId) {
     Map<String, String> properties = new LinkedHashMap<>();
     for (Document doc :
-        ctx.jobProperties().find(eq(JOB_ID, jobId)).sort(new Document("property_key", 1))) {
-      String value = doc.getString("value");
+        ctx.jobProperties().find(eq(JOB_ID, jobId)).sort(new Document(PROPERTY_KEY, 1))) {
+      String value = doc.getString(VALUE);
       if (value != null) {
-        properties.put(doc.getString("property_key"), value);
+        properties.put(doc.getString(PROPERTY_KEY), value);
       }
     }
-    archive.setProperties(ExtensionArchiveJson.propertiesJson(properties));
 
     List<ExtensionArchiveJson.StateRow> states = new ArrayList<>();
     for (Document doc : ctx.jobExtensionState().find(eq(JOB_ID, jobId))) {
       states.add(
           new ExtensionArchiveJson.StateRow(
-              doc.getString("namespace"),
-              doc.getString("state"),
-              doc.getBoolean("encrypted_state", false),
-              doc.getString("encryption_key_id"),
-              doc.getInteger("version", 0),
-              DocumentMapper.toInstant(doc.getDate("updated_at"))));
+              doc.getString(NAMESPACE),
+              doc.getString(STATE),
+              doc.getBoolean(ENCRYPTED_STATE, false),
+              doc.getString(ENCRYPTION_KEY_ID),
+              doc.getInteger(VERSION, 0),
+              DocumentMapper.toInstant(doc.getDate(UPDATED_AT))));
     }
+    populateExtensionData(archive, properties, states);
+  }
+
+  private Map<UUID, Map<String, String>> extensionProperties(
+      ClientSession session, List<UUID> jobIds) {
+    Map<UUID, Map<String, String>> propertiesByJobId = new LinkedHashMap<>();
+    for (Document doc :
+        ctx.jobProperties().find(session, in(JOB_ID, jobIds)).sort(new Document(PROPERTY_KEY, 1))) {
+      String value = doc.getString(VALUE);
+      if (value != null) {
+        UUID jobId = doc.get(JOB_ID, UUID.class);
+        propertiesByJobId
+            .computeIfAbsent(jobId, ignored -> new LinkedHashMap<>())
+            .put(doc.getString(PROPERTY_KEY), value);
+      }
+    }
+    return propertiesByJobId;
+  }
+
+  private Map<UUID, List<ExtensionArchiveJson.StateRow>> extensionStates(
+      ClientSession session, List<UUID> jobIds) {
+    Map<UUID, List<ExtensionArchiveJson.StateRow>> statesByJobId = new LinkedHashMap<>();
+    for (Document doc : ctx.jobExtensionState().find(session, in(JOB_ID, jobIds))) {
+      UUID jobId = doc.get(JOB_ID, UUID.class);
+      statesByJobId
+          .computeIfAbsent(jobId, ignored -> new ArrayList<>())
+          .add(
+              new ExtensionArchiveJson.StateRow(
+                  doc.getString(NAMESPACE),
+                  doc.getString(STATE),
+                  doc.getBoolean(ENCRYPTED_STATE, false),
+                  doc.getString(ENCRYPTION_KEY_ID),
+                  doc.getInteger(VERSION, 0),
+                  DocumentMapper.toInstant(doc.getDate(UPDATED_AT))));
+    }
+    return statesByJobId;
+  }
+
+  private void populateExtensionData(
+      ArchivedJobEntity archive,
+      Map<String, String> properties,
+      List<ExtensionArchiveJson.StateRow> states) {
+    archive.setProperties(ExtensionArchiveJson.propertiesJson(properties));
     archive.setExtensionState(ExtensionArchiveJson.extensionStateJson(states));
   }
 

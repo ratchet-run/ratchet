@@ -46,10 +46,7 @@ final class InvocationStreamingState<T extends Serializable>
   }
 
   @Override
-  void validateReady() {
-    if (stream() == null) {
-      throw new IllegalStateException("Stream must be set via fromStream() before calling start()");
-    }
+  void validateProcessingReady() {
     if (invocationFactory == null) {
       throw new IllegalStateException(
           "Invocation factory must be set via process() before calling start()");

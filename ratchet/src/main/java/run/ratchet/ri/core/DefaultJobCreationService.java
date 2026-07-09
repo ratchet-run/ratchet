@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
@@ -745,35 +746,27 @@ class DefaultJobCreationService
     return createStreamingChildJobs(parentId, builder, chunk);
   }
 
-  /**
-   * Invocation-mode sibling of {@link #createStreamingChildJobs}: per-item payloads come from the
-   * builder's invocation factory instead of lambda resolution. Chunk-level bulk insert, caller
-   * stamping, and authorization checks are identical.
-   */
   private <T extends Serializable> int createInvocationStreamingChildJobs(
       UUID parentId, InvocationStreamingState<T> builder, List<T> items) {
-    List<JobEntity> children = new ArrayList<>(items.size());
-    for (T item : items) {
-      JobEntity child = new JobEntity();
-      child.setJobType(JobExecutionType.BATCH_CHILD);
-      child.setStatus(JobStatus.PENDING);
-      child.setPriority(JobPriority.NORMAL);
-      child.setScheduledTime(effective().instant());
-      child.setPayload(
-          validate(JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item))));
-      child.setIdempotencyKey(UUID.randomUUID().toString());
-      child.setDependsOn(parentId);
-      child.setExecutionTarget(builder.executionTarget());
-      stampCallerPrincipal(child);
-      checkCreateAuthorization(child);
-      children.add(child);
-    }
-    bulkStore().bulkInsert(children);
-    return children.size();
+    return createStreamingChildJobs(
+        parentId,
+        builder,
+        items,
+        item ->
+            validate(JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item))));
   }
 
   private <T extends Serializable> int createStreamingChildJobs(
       UUID parentId, DefaultStreamingBatchBuilder<T> builder, List<T> items) {
+    return createStreamingChildJobs(
+        parentId, builder, items, item -> payload(builder.action(), List.of(item)));
+  }
+
+  private <T extends Serializable> int createStreamingChildJobs(
+      UUID parentId,
+      DefaultStreamingBatchBuilder<T> builder,
+      List<T> items,
+      Function<T, JobPayload> payloadFactory) {
     List<JobEntity> children = new ArrayList<>(items.size());
     for (T item : items) {
       JobEntity child = new JobEntity();
@@ -781,7 +774,7 @@ class DefaultJobCreationService
       child.setStatus(JobStatus.PENDING);
       child.setPriority(JobPriority.NORMAL);
       child.setScheduledTime(effective().instant());
-      child.setPayload(payload(builder.action(), List.of(item)));
+      child.setPayload(payloadFactory.apply(item));
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
       child.setExecutionTarget(builder.executionTarget());
@@ -867,9 +860,6 @@ class DefaultJobCreationService
     // they still run through the same validation and class-policy gate below.
     if (callback instanceof InvocationAdapter adapter) {
       return validate(JobPayloadFactory.fromInvocation(adapter.invocation()));
-    }
-    if (callback instanceof JobInvocation invocation) {
-      return validate(JobPayloadFactory.fromInvocation(invocation));
     }
     return validate(JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback)));
   }

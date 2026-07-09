@@ -176,45 +176,6 @@ public class JobTask implements Callable<Void> {
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
       JobTimeoutHandler timeoutHandler,
-      Clock clock) {
-    this(
-        jobStore,
-        resourcePermitService,
-        lifecycleFacade,
-        nodeIdProvider,
-        observabilityFacade,
-        validationFacade,
-        beanResolver,
-        retryPolicy,
-        resilienceStrategy,
-        errorSanitizer,
-        classPolicy,
-        jobLoggerFactory,
-        resultPersistenceStrategy,
-        authorizationPolicy,
-        payloadSerializer,
-        timeoutHandler,
-        clock,
-        null);
-  }
-
-  public JobTask(
-      JobStore jobStore,
-      ResourcePermitService resourcePermitService,
-      PostExecutionHandler lifecycleFacade,
-      NodeIdentityProvider nodeIdProvider,
-      ExecutionObserver observabilityFacade,
-      PreExecutionValidator validationFacade,
-      BeanResolver beanResolver,
-      RetryPolicy retryPolicy,
-      ResilienceStrategy resilienceStrategy,
-      ErrorSanitizer errorSanitizer,
-      ClassPolicy classPolicy,
-      JobLoggerFactory jobLoggerFactory,
-      ResultPersistenceStrategy resultPersistenceStrategy,
-      JobAuthorizationPolicy authorizationPolicy,
-      PayloadSerializer payloadSerializer,
-      JobTimeoutHandler timeoutHandler,
       Clock clock,
       PreExecutionArgResolver argResolver) {
     this.argResolver = argResolver;

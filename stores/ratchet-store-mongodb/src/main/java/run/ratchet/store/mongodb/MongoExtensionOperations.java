@@ -21,7 +21,18 @@ import static com.mongodb.client.model.Filters.regex;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
+import static run.ratchet.store.mongodb.MongoFieldNames.ENCRYPTED_STATE;
+import static run.ratchet.store.mongodb.MongoFieldNames.ENCRYPTION_KEY_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.NAMESPACE;
+import static run.ratchet.store.mongodb.MongoFieldNames.PROPERTY_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATE;
+import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.VALUE;
+import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+import static run.ratchet.store.util.ExtensionValidation.requireKey;
+import static run.ratchet.store.util.ExtensionValidation.requireNamespace;
+import static run.ratchet.store.util.ExtensionValidation.requireState;
 
 import com.mongodb.MongoException;
 import com.mongodb.client.model.UpdateOptions;
@@ -53,15 +64,6 @@ import run.ratchet.store.util.PayloadEncryptor;
  * encrypted_state = false}.
  */
 final class MongoExtensionOperations implements JobExtensionStore {
-
-  private static final String PROPERTY_KEY = "property_key";
-  private static final String VALUE = "value";
-  private static final String NAMESPACE = "namespace";
-  private static final String STATE = "state";
-  private static final String ENCRYPTED_STATE = "encrypted_state";
-  private static final String ENCRYPTION_KEY_ID = "encryption_key_id";
-  private static final String VERSION = "version";
-  private static final String UPDATED_AT = "updated_at";
 
   private final MongoStoreContext ctx;
 
@@ -172,23 +174,5 @@ final class MongoExtensionOperations implements JobExtensionStore {
                     inc(VERSION, 1),
                     set(UPDATED_AT, DocumentMapper.toDate(Instant.now()))));
     return result.getModifiedCount() > 0;
-  }
-
-  private static void requireKey(String key) {
-    if (key == null || key.isBlank()) {
-      throw new IllegalArgumentException("property key must not be null or blank");
-    }
-  }
-
-  private static void requireNamespace(String namespace) {
-    if (namespace == null || namespace.isBlank()) {
-      throw new IllegalArgumentException("namespace must not be null or blank");
-    }
-  }
-
-  private static void requireState(String state) {
-    if (state == null) {
-      throw new IllegalArgumentException("state must not be null");
-    }
   }
 }

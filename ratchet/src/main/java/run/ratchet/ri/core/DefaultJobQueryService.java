@@ -197,14 +197,13 @@ class DefaultJobQueryService implements JobQueryService {
   }
 
   /**
-   * Builds the per-job masking context: the job's extension properties when the store advertises
-   * the {@code JobExtensionStore} capability, an empty map otherwise. Fetched only when masking is
-   * enabled, once per detail read.
+   * Builds the per-job masking context: the job's extension properties are fetched only when a
+   * context-aware masking policy reads them.
    */
   private MaskingContext maskingContext(UUID jobId) {
-    Map<String, String> properties =
-        extensionStore == null ? Map.of() : extensionStore.getPropertiesByPrefix(jobId, "");
-    return new MaskingContext(jobId, properties);
+    return new MaskingContext(
+        jobId,
+        () -> extensionStore == null ? Map.of() : extensionStore.getPropertiesByPrefix(jobId, ""));
   }
 
   private static String extractSortValue(JobEntity last, JobQuerySortField field) {

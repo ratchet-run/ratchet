@@ -19,7 +19,6 @@ import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +30,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.util.ArchiveExtensionData;
 import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ArchiveParameterBinder;
 import run.ratchet.store.util.ArchiveQuerySupport;
@@ -86,7 +86,8 @@ final class OracleArchiveOperations implements ArchiveStore {
       JobEntity hydrated = hydrateForArchive(job);
       ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
       prepareArchive(archive);
-      populateExtensionData(archive, hydrated.getId());
+      ArchiveExtensionData extensionData = fetchArchiveExtensionData(List.of(hydrated.getId()));
+      populateExtensionData(archive, extensionData, hydrated.getId());
       Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
       ArchiveParameterBinder.bind(query, archive, 1, UuidRawConverter::toBytes);
       query.executeUpdate();
@@ -114,6 +115,7 @@ final class OracleArchiveOperations implements ArchiveStore {
           jobs.findByIds(ids).stream()
               .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
       List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
+      List<UUID> archiveIds = new ArrayList<>(jobsToArchive.size());
       for (UUID id : ids) {
         JobEntity hydrated = hydratedById.get(id);
         if (hydrated == null) {
@@ -121,8 +123,12 @@ final class OracleArchiveOperations implements ArchiveStore {
         }
         ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
         prepareArchive(archive);
-        populateExtensionData(archive, hydrated.getId());
         archives.add(archive);
+        archiveIds.add(hydrated.getId());
+      }
+      ArchiveExtensionData extensionData = fetchArchiveExtensionData(archiveIds);
+      for (int i = 0; i < archives.size(); i++) {
+        populateExtensionData(archives.get(i), extensionData, archiveIds.get(i));
       }
 
       String rows =
@@ -255,53 +261,14 @@ final class OracleArchiveOperations implements ArchiveStore {
         .orElseThrow(() -> new IllegalStateException("Job not found for archival: " + job.getId()));
   }
 
-  private void populateExtensionData(ArchivedJobEntity archive, UUID jobId) {
-    // language=Oracle
-    String propertySql =
-        """
-        SELECT property_key, value
-        FROM scheduler_job_properties
-        WHERE job_id = ?
-        """;
-    @SuppressWarnings("unchecked")
-    List<Object[]> propertyRows =
-        ctx.em()
-            .createNativeQuery(propertySql)
-            .setParameter(1, UuidRawConverter.toBytes(jobId))
-            .getResultList();
-    Map<String, String> properties = new LinkedHashMap<>();
-    for (Object[] row : propertyRows) {
-      String value = RowValues.stringOrNull(row[1]);
-      if (value != null) {
-        properties.put((String) row[0], value);
-      }
-    }
-    archive.setProperties(ExtensionArchiveJson.propertiesJson(properties));
+  private ArchiveExtensionData fetchArchiveExtensionData(List<UUID> jobIds) {
+    return ArchiveExtensionData.fetch(
+        ctx.em(), jobIds, UuidRawConverter::toBytes, RowValues::uuidOrNull);
+  }
 
-    // language=Oracle
-    String stateSql =
-        """
-        SELECT namespace, state, encrypted_state, encryption_key_id, version, updated_at
-        FROM scheduler_job_extension_state
-        WHERE job_id = ?
-        """;
-    @SuppressWarnings("unchecked")
-    List<Object[]> stateRows =
-        ctx.em()
-            .createNativeQuery(stateSql)
-            .setParameter(1, UuidRawConverter.toBytes(jobId))
-            .getResultList();
-    List<ExtensionArchiveJson.StateRow> states = new ArrayList<>(stateRows.size());
-    for (Object[] row : stateRows) {
-      states.add(
-          new ExtensionArchiveJson.StateRow(
-              (String) row[0],
-              RowValues.stringOrNull(row[1]),
-              RowValues.booleanOrFalse(row[2]),
-              RowValues.stringOrNull(row[3]),
-              ((Number) row[4]).intValue(),
-              RowValues.instantOrNull(row[5])));
-    }
-    archive.setExtensionState(ExtensionArchiveJson.extensionStateJson(states));
+  private void populateExtensionData(
+      ArchivedJobEntity archive, ArchiveExtensionData extensionData, UUID jobId) {
+    archive.setProperties(ExtensionArchiveJson.propertiesJson(extensionData.properties(jobId)));
+    archive.setExtensionState(ExtensionArchiveJson.extensionStateJson(extensionData.states(jobId)));
   }
 }

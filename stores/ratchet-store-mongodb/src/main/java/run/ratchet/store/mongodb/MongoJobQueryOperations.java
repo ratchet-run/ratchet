@@ -158,8 +158,10 @@ final class MongoJobQueryOperations {
       List<UUID> matching =
           ctx.jobProperties()
               .distinct(
-                  "job_id",
-                  and(eq("property_key", entry.getKey()), in("value", entry.getValue())),
+                  MongoFieldNames.JOB_ID,
+                  and(
+                      eq(MongoFieldNames.PROPERTY_KEY, entry.getKey()),
+                      in(MongoFieldNames.VALUE, entry.getValue())),
                   UUID.class)
               .into(new ArrayList<>());
       conditions.add(in(MongoFieldNames.ID, matching));

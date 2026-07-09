@@ -114,7 +114,8 @@ class JobTaskAuthorizationTest {
             authorizationPolicy,
             null,
             null,
-            Clock.systemUTC());
+            Clock.systemUTC(),
+            null);
   }
 
   @Test
@@ -258,7 +259,8 @@ class JobTaskAuthorizationTest {
             null,
             serializer,
             null,
-            Clock.systemUTC());
+            Clock.systemUTC(),
+            null);
 
     JobEntity job = createBaseJob();
     nullPolicyTask.init(job);

@@ -49,11 +49,6 @@ public final class PayloadMasker {
     return run.ratchet.store.util.PayloadMasker.maskPayload(payload);
   }
 
-  /** Context-aware variant of {@link #maskPayload(Object)}. */
-  public static String maskPayload(Object payload, MaskingContext context) {
-    return run.ratchet.store.util.PayloadMasker.maskPayload(payload, context);
-  }
-
   /**
    * Masks the values of sensitive entries in a parameter map; a {@code null} or empty map is
    * returned unchanged. Keys are matched against the active policy, so the original map is never

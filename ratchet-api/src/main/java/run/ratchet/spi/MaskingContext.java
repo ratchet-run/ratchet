@@ -16,7 +16,9 @@
 package run.ratchet.spi;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 import run.ratchet.api.Incubating;
 
 /**
@@ -24,18 +26,41 @@ import run.ratchet.api.Incubating;
  * MaskingContext)} overload, so a policy can decide sensitivity per job rather than by field name
  * alone (the same field name can be secret in one job and not in another).
  *
- * <p>{@code jobProperties} carries the job's extension-property rows (read through the {@code
+ * <p>{@code jobProperties()} carries the job's extension-property rows (read through the {@code
  * JobExtensionStore} capability when the store advertises it; empty otherwise). Extensions key
  * their identity here — for example {@code ratchet-blocks.block_name} — so a policy can look up
  * what the job is and which of its fields are declared secret.
  *
- * @param jobId owning job id; never {@code null}
- * @param jobProperties the job's extension properties; never {@code null}, may be empty
+ * <p>Properties are loaded and copied to an immutable map on first access, then memoized. This
+ * context is used single-threaded during masking, so the lazy memoization is intentionally
+ * unsynchronized and instances do not provide record value semantics.
  */
 @Incubating
-public record MaskingContext(UUID jobId, Map<String, String> jobProperties) {
+public final class MaskingContext {
 
-  public MaskingContext {
-    jobProperties = jobProperties == null ? Map.of() : Map.copyOf(jobProperties);
+  private final UUID jobId;
+  private final Supplier<Map<String, String>> jobPropertiesSupplier;
+  private Map<String, String> jobProperties;
+
+  public MaskingContext(UUID jobId, Map<String, String> jobProperties) {
+    this(jobId, () -> jobProperties);
+  }
+
+  public MaskingContext(UUID jobId, Supplier<Map<String, String>> jobPropertiesSupplier) {
+    this.jobId = Objects.requireNonNull(jobId, "jobId");
+    this.jobPropertiesSupplier =
+        Objects.requireNonNull(jobPropertiesSupplier, "jobPropertiesSupplier");
+  }
+
+  public UUID jobId() {
+    return jobId;
+  }
+
+  public Map<String, String> jobProperties() {
+    if (jobProperties == null) {
+      Map<String, String> supplied = jobPropertiesSupplier.get();
+      jobProperties = supplied == null ? Map.of() : Map.copyOf(supplied);
+    }
+    return jobProperties;
   }
 }

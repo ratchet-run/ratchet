@@ -156,6 +156,7 @@ class JobTaskTest {
                 null,
                 null,
                 null,
+                null,
                 null));
   }
 
@@ -200,7 +201,8 @@ class JobTaskTest {
             null,
             serializer,
             null,
-            Clock.systemUTC());
+            Clock.systemUTC(),
+            null);
   }
 
   @AfterEach
@@ -1010,7 +1012,8 @@ class JobTaskTest {
             null,
             signalSerializer,
             null,
-            Clock.systemUTC());
+            Clock.systemUTC(),
+            null);
     JobEntity job = createTestJob();
     job.setPayload(
         new JobPayload(
@@ -1064,7 +1067,8 @@ class JobTaskTest {
             null,
             signalSerializer,
             null,
-            Clock.systemUTC());
+            Clock.systemUTC(),
+            null);
     JobEntity job = createTestJob();
     job.setPayload(
         new JobPayload(
@@ -1256,7 +1260,8 @@ class JobTaskTest {
         null,
         null,
         timeoutHandler,
-        FIXED_CLOCK);
+        FIXED_CLOCK,
+        null);
   }
 
   private JobTask newJobTaskWithClock(Clock taskClock) {
@@ -1279,7 +1284,8 @@ class JobTaskTest {
         null,
         null,
         null,
-        taskClock);
+        taskClock,
+        null);
   }
 
   /** Encrypts to a real frame but always fails to decrypt — a tampered/wrong-key analogue. */
