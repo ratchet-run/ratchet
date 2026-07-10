@@ -154,12 +154,12 @@
     <openliberty-arquillian.version>2.1.4</openliberty-arquillian.version>
     <mysql-connector.version>8.4.0</mysql-connector.version>
     <protobuf-java.version>3.25.9</protobuf-java.version>
-    <postgresql-driver.version>42.7.11</postgresql-driver.version>
+    <postgresql-driver.version>42.7.13</postgresql-driver.version>
     <ojdbc.version>23.9.0.25.07</ojdbc.version>
     <mssql-jdbc.version>12.8.2.jre11</mssql-jdbc.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
     <artemis.version>2.54.0</artemis.version>
-    <netty.version>4.1.133.Final</netty.version>
+    <netty.version>4.1.135.Final</netty.version>
     <commons-configuration2.version>2.15.0</commons-configuration2.version>
     <jackson-core.version>2.18.6</jackson-core.version>
     <infinispan.version>15.1.7.Final</infinispan.version>
