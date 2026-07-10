@@ -41,8 +41,7 @@ class ExtensionValidationTest {
   @Test
   void requireNamespace_rejects65Characters() {
     assertThrows(
-        IllegalArgumentException.class,
-        () -> ExtensionValidation.requireNamespace("x".repeat(65)));
+        IllegalArgumentException.class, () -> ExtensionValidation.requireNamespace("x".repeat(65)));
   }
 
   @Test
