@@ -33,7 +33,9 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.EarAlternativeMarkerBean;
+import run.ratchet.testsuite.app.DocumentStorePerformanceTestHelper;
+import run.ratchet.testsuite.app.DocumentStoreTestCleanupStrategy;
+import run.ratchet.testsuite.app.DocumentStoreTestDataManipulator;
 import run.ratchet.testsuite.app.EarStubCallerPrincipalProvider;
 import run.ratchet.testsuite.app.JpaPerformanceTestHelper;
 import run.ratchet.testsuite.app.JpaTestCleanupStrategy;
@@ -45,19 +47,24 @@ import run.ratchet.testsuite.app.TestCleanupStrategy;
 import run.ratchet.testsuite.app.TestDataManipulator;
 import run.ratchet.testsuite.app.TestEntityManagerProvider;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestMongoProducer;
 import run.ratchet.testsuite.app.TestRatchetOptionsProducer;
 import run.ratchet.testsuite.app.TestRuntimeConfig;
+import run.ratchet.testsuite.infra.JdbcContainerExtension;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.DataSourceStrategy;
 import run.ratchet.testsuite.util.DataSourceStrategyFactory;
+import run.ratchet.testsuite.util.GlassFishDataSourceStrategy;
 import run.ratchet.testsuite.util.JobAssertions;
+import run.ratchet.testsuite.util.PayaraDataSourceStrategy;
 import run.ratchet.testsuite.util.PollerControl;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import run.ratchet.testsuite.util.TestClassPolicy;
 
 /**
  * Verifies caller-principal capture when Ratchet is deployed from EAR/lib and the application
- * overrides {@code CallerPrincipalProvider} from an EJB-jar subdeployment.
+ * overrides {@code CallerPrincipalProvider} with an {@code @Alternative} packaged in EAR/lib
+ * alongside Ratchet.
  */
 class EarCallerPrincipalCaptureIT extends BaseRatchetIT {
 
@@ -70,39 +77,57 @@ class EarCallerPrincipalCaptureIT extends BaseRatchetIT {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
     String profile = System.getProperty("testsuite.profile", "wildfly-managed");
     DataSourceStrategy strategy = DataSourceStrategyFactory.create();
+    boolean sql = !"mongodb".equals(dbType);
+    boolean earLevelDataSource =
+        sql
+            && (strategy instanceof PayaraDataSourceStrategy
+                || strategy instanceof GlassFishDataSourceStrategy);
 
-    JavaArchive providerJar =
-        ShrinkWrap.create(JavaArchive.class, "caller-principal-provider.jar")
+    Map<String, String> executorOverrides =
+        profile.startsWith("wildfly")
+            ? Map.of(
+                "ratchet.worker.job-executor-jndi",
+                "java:jboss/ee/concurrency/executor/default",
+                "ratchet.worker.scheduled-executor-jndi",
+                "java:jboss/ee/concurrency/scheduler/default",
+                "ratchet.coordinator.thread-factory-jndi",
+                "java:jboss/ee/concurrency/factory/default")
+            : Map.of();
+
+    JavaArchive supportJar =
+        ShrinkWrap.create(JavaArchive.class, "caller-principal-support.jar")
             .addClasses(
                 EarStubCallerPrincipalProvider.class,
-                EarAlternativeMarkerBean.class,
-                // Job target classes must be loadable from the EAR-level module classloader;
-                // this mirrors the downstream EAR where job targets live in the EJB module.
                 SimpleJob.class,
                 TestRatchetOptionsProducer.class,
                 TestRuntimeConfig.class,
-                TestClassPolicy.class,
-                TestEntityManagerProvider.class)
-            // java:comp defaults are component-scoped; Ratchet's EAR-level startup observers run
-            // with no component namespace, so this EAR uses WildFly's global concurrency bindings.
+                TestClassPolicy.class)
+            // Ratchet's EAR-level startup observers run outside any component namespace. On
+            // WildFly, java:comp/* therefore does not resolve, so the global
+            // java:jboss/ee/concurrency/* bindings are required. Other Jakarta EE 10+ containers
+            // (Payara, GlassFish, and Open Liberty) bind the portable
+            // java:comp/DefaultManagedExecutorService and
+            // java:comp/DefaultManagedScheduledExecutorService names even for EAR-level observers,
+            // so an empty override map lets DefaultExecutorProvider use the RI defaults there.
             .addAsResource(
                 new StringAsset(
-                    RatchetArchiveBuilder.testRuntimeConfigContent(
-                        dbType,
-                        Map.of(
-                            "ratchet.worker.job-executor-jndi",
-                            "java:jboss/ee/concurrency/executor/default",
-                            "ratchet.worker.scheduled-executor-jndi",
-                            "java:jboss/ee/concurrency/scheduler/default",
-                            "ratchet.coordinator.thread-factory-jndi",
-                            "java:jboss/ee/concurrency/factory/default"))),
+                    RatchetArchiveBuilder.testRuntimeConfigContent(dbType, executorOverrides)),
                 "ratchet-testsuite.properties")
-            .addAsManifestResource(
-                new StringAsset(
-                    RatchetArchiveBuilder.persistenceXmlContent(
-                        dbType, strategy.jtaDataSourceName())),
-                "persistence.xml")
             .addAsManifestResource(new StringAsset(allModeBeansXml()), "beans.xml");
+
+    JavaArchive persistenceUnitJar = null;
+    if (sql) {
+      supportJar.addClass(TestEntityManagerProvider.class);
+      persistenceUnitJar =
+          ShrinkWrap.create(JavaArchive.class, "caller-principal-pu.jar")
+              .addAsManifestResource(
+                  new StringAsset(
+                      RatchetArchiveBuilder.persistenceXmlContent(
+                          dbType, strategy.jtaDataSourceName())),
+                  "persistence.xml");
+    } else {
+      supportJar.addClass(TestMongoProducer.class);
+    }
 
     WebArchive war =
         ShrinkWrap.create(WebArchive.class, "caller-principal-test.war")
@@ -114,32 +139,48 @@ class EarCallerPrincipalCaptureIT extends BaseRatchetIT {
                 PollerControl.class,
                 TestCleanupStrategy.class,
                 TestDataManipulator.class,
-                PerformanceTestHelper.class,
-                JpaTestCleanupStrategy.class,
-                JpaTestDataManipulator.class,
-                JpaPerformanceTestHelper.class,
-                SqlDialectTestSupportProvider.class)
+                PerformanceTestHelper.class)
             .addAsWebInfResource(EmptyAsset.INSTANCE, "beans.xml");
 
-    RatchetArchiveBuilder.forArchive(war).addSqlDialectTestSupport().addDataSource(strategy);
+    if (sql) {
+      war.addClasses(
+          JpaTestCleanupStrategy.class,
+          JpaTestDataManipulator.class,
+          JpaPerformanceTestHelper.class,
+          SqlDialectTestSupportProvider.class);
+      RatchetArchiveBuilder warBuilder =
+          RatchetArchiveBuilder.forArchive(war).addSqlDialectTestSupport();
+      if (!earLevelDataSource) {
+        warBuilder.addDataSource(strategy);
+      }
+    } else {
+      war.addClasses(
+          DocumentStoreTestCleanupStrategy.class,
+          DocumentStoreTestDataManipulator.class,
+          DocumentStorePerformanceTestHelper.class);
+    }
 
-    return ShrinkWrap.create(EnterpriseArchive.class, "caller-principal-capture.ear")
-        .addAsLibraries(RatchetArchiveBuilder.ratchetDependencyFiles(profile, dbType))
-        .addAsLibraries(RatchetArchiveBuilder.awaitilityFiles())
-        .addAsModule(providerJar)
-        .addAsModule(Testable.archiveToTest(war))
-        .addAsManifestResource(
-            new StringAsset(
-                """
-                <jboss-deployment-structure>
-                  <ear-subdeployments-isolated>false</ear-subdeployments-isolated>
-                </jboss-deployment-structure>
-                """),
-            "jboss-deployment-structure.xml");
+    EnterpriseArchive ear =
+        ShrinkWrap.create(EnterpriseArchive.class, "caller-principal-capture.ear")
+            .addAsLibraries(RatchetArchiveBuilder.ratchetDependencyFiles(profile, dbType))
+            .addAsLibraries(RatchetArchiveBuilder.awaitilityFiles())
+            .addAsLibraries(supportJar)
+            .addAsModule(Testable.archiveToTest(war))
+            .addAsManifestResource(new StringAsset(applicationXmlContent()), "application.xml");
+
+    if (persistenceUnitJar != null) {
+      ear.addAsLibraries(persistenceUnitJar);
+    }
+
+    if (earLevelDataSource) {
+      strategy.configureEnterpriseArchive(ear, JdbcContainerExtension.getConfig());
+    }
+
+    return ear;
   }
 
   @Test
-  void scheduledJob_stampsCallerPrincipalFromEjbJarAlternativeBeforeExecution() {
+  void scheduledJob_stampsCallerPrincipalFromEarLibAlternativeBeforeExecution() {
     JobHandle handle = jobService.schedule(Duration.ofSeconds(2), SimpleJob::execute).submit();
 
     assertNotNull(handle);
@@ -151,7 +192,7 @@ class EarCallerPrincipalCaptureIT extends BaseRatchetIT {
     assertEquals(
         EarStubCallerPrincipalProvider.STUB_PRINCIPAL,
         beforeExecution.getCallerPrincipal(),
-        "Framework MUST persist the principal returned by the EJB-jar alternative");
+        "Framework MUST persist the principal returned by the EAR/lib alternative");
 
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
 
@@ -175,6 +216,24 @@ class EarCallerPrincipalCaptureIT extends BaseRatchetIT {
                version="4.0"
                bean-discovery-mode="all">
         </beans>
+        """;
+  }
+
+  private static String applicationXmlContent() {
+    return """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <application xmlns="https://jakarta.ee/xml/ns/jakartaee"
+                     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                     xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+                         https://jakarta.ee/xml/ns/jakartaee/application_10.xsd"
+                     version="10">
+          <module>
+            <web>
+              <web-uri>caller-principal-test.war</web-uri>
+              <context-root>/caller-principal-test</context-root>
+            </web>
+          </module>
+        </application>
         """;
   }
 }

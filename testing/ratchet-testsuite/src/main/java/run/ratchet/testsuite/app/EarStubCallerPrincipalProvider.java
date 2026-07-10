@@ -22,9 +22,9 @@ import java.util.Optional;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 
 /**
- * {@link CallerPrincipalProvider} {@code @Alternative} used from an EAR EJB-jar subdeployment to
- * verify that application-level alternatives override Ratchet's default provider across
- * subdeployment boundaries.
+ * {@link CallerPrincipalProvider} {@code @Alternative} packaged in the EAR library directory
+ * ({@code EAR/lib}) alongside Ratchet's jars to verify that an application-level alternative
+ * overrides Ratchet's default provider when both are visible to the same CDI bean archive.
  */
 @Alternative
 @jakarta.annotation.Priority(Priority.APPLICATION)
