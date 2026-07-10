@@ -826,7 +826,7 @@ class DefaultJobCreationService
                   null,
                   chunkIndex,
                   chunk.size(),
-                  e.getMessage()));
+                  Objects.requireNonNullElse(e.getMessage(), e.getClass().getName())));
         }
         throw e;
       }

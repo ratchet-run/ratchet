@@ -88,11 +88,16 @@ final class MongoArchiveOperations implements ArchiveStore {
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
     archive.setId(UuidV7Factory.create());
-    populateExtensionData(archive, job.getId());
-    Document doc = DocumentMapper.toDocument(archive);
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
           () -> {
+            populateExtensionData(
+                archive,
+                extensionProperties(session, List.of(job.getId()))
+                    .getOrDefault(job.getId(), Map.of()),
+                extensionStates(session, List.of(job.getId()))
+                    .getOrDefault(job.getId(), List.of()));
+            Document doc = DocumentMapper.toDocument(archive);
             ctx.archives().insertOne(session, doc);
             // Only delete a job that is still terminal: a concurrent reset to PENDING must not be
             // archived away. If nothing was deleted, the snapshot is stale, so roll back.
@@ -269,35 +274,6 @@ final class MongoArchiveOperations implements ArchiveStore {
       a.setTags(String.join(",", job.getTags()));
     }
     return a;
-  }
-
-  /**
-   * Copies the job's extension properties and extension-state docs onto the archive entity as the
-   * denormalized JSON the archive row carries (state blobs stay as stored — ciphertext when
-   * encrypted at rest).
-   */
-  private void populateExtensionData(ArchivedJobEntity archive, UUID jobId) {
-    Map<String, String> properties = new LinkedHashMap<>();
-    for (Document doc :
-        ctx.jobProperties().find(eq(JOB_ID, jobId)).sort(new Document(PROPERTY_KEY, 1))) {
-      String value = doc.getString(VALUE);
-      if (value != null) {
-        properties.put(doc.getString(PROPERTY_KEY), value);
-      }
-    }
-
-    List<ExtensionArchiveJson.StateRow> states = new ArrayList<>();
-    for (Document doc : ctx.jobExtensionState().find(eq(JOB_ID, jobId))) {
-      states.add(
-          new ExtensionArchiveJson.StateRow(
-              doc.getString(NAMESPACE),
-              doc.getString(STATE),
-              doc.getBoolean(ENCRYPTED_STATE, false),
-              doc.getString(ENCRYPTION_KEY_ID),
-              doc.getInteger(VERSION, 0),
-              DocumentMapper.toInstant(doc.getDate(UPDATED_AT))));
-    }
-    populateExtensionData(archive, properties, states);
   }
 
   private Map<UUID, Map<String, String>> extensionProperties(

@@ -19,6 +19,7 @@ import static run.ratchet.store.util.ExtensionValidation.escapeLike;
 import static run.ratchet.store.util.ExtensionValidation.requireKey;
 import static run.ratchet.store.util.ExtensionValidation.requireNamespace;
 import static run.ratchet.store.util.ExtensionValidation.requireState;
+import static run.ratchet.store.util.ExtensionValidation.requireValue;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -54,6 +55,7 @@ final class MysqlExtensionOperations implements JobExtensionStore {
   @Override
   public void putProperty(UUID jobId, String key, String value) {
     requireKey(key);
+    requireValue(value);
     // language=MySQL
     String sql =
         """

@@ -33,6 +33,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 import static run.ratchet.store.util.ExtensionValidation.requireKey;
 import static run.ratchet.store.util.ExtensionValidation.requireNamespace;
 import static run.ratchet.store.util.ExtensionValidation.requireState;
+import static run.ratchet.store.util.ExtensionValidation.requireValue;
 
 import com.mongodb.MongoException;
 import com.mongodb.client.model.UpdateOptions;
@@ -74,6 +75,7 @@ final class MongoExtensionOperations implements JobExtensionStore {
   @Override
   public void putProperty(UUID jobId, String key, String value) {
     requireKey(key);
+    requireValue(value);
     ctx.jobProperties()
         .updateOne(
             and(eq(JOB_ID, jobId), eq(PROPERTY_KEY, key)),

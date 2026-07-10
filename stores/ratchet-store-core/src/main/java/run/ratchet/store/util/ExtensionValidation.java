@@ -18,17 +18,36 @@ package run.ratchet.store.util;
 /** Shared extension-argument validation used by store extension implementations. */
 public final class ExtensionValidation {
 
+  private static final int MAX_KEY_LENGTH = 255;
+  private static final int MAX_NAMESPACE_LENGTH = 64;
+  private static final int MAX_VALUE_LENGTH = 1024;
+
   private ExtensionValidation() {}
 
   public static void requireKey(String key) {
     if (key == null || key.isBlank()) {
       throw new IllegalArgumentException("property key must not be null or blank");
     }
+    if (key.length() > MAX_KEY_LENGTH) {
+      throw new IllegalArgumentException(
+          "property key must be at most " + MAX_KEY_LENGTH + " characters");
+    }
   }
 
   public static void requireNamespace(String namespace) {
     if (namespace == null || namespace.isBlank()) {
       throw new IllegalArgumentException("namespace must not be null or blank");
+    }
+    if (namespace.length() > MAX_NAMESPACE_LENGTH) {
+      throw new IllegalArgumentException(
+          "namespace must be at most " + MAX_NAMESPACE_LENGTH + " characters");
+    }
+  }
+
+  public static void requireValue(String value) {
+    if (value != null && value.length() > MAX_VALUE_LENGTH) {
+      throw new IllegalArgumentException(
+          "property value must be at most " + MAX_VALUE_LENGTH + " characters");
     }
   }
 

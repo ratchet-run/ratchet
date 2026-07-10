@@ -74,6 +74,45 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
   }
 
   @Test
+  void putProperty_rejectsKeyLongerThan255Characters() {
+    var job = persist(newPendingJob());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> extensionStore().putProperty(job.getId(), "x".repeat(256), "value"));
+  }
+
+  @Test
+  void putProperty_rejectsValueLongerThan1024Characters() {
+    var job = persist(newPendingJob());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> extensionStore().putProperty(job.getId(), "ratchet-tck.value", "x".repeat(1025)));
+  }
+
+  @Test
+  void putProperty_roundTrips255CharacterKey() {
+    var job = persist(newPendingJob());
+    String key = "x".repeat(255);
+
+    extensionStore().putProperty(job.getId(), key, "value");
+
+    assertEquals("value", extensionStore().getProperty(job.getId(), key).orElseThrow());
+  }
+
+  @Test
+  void putProperty_roundTrips1024CharacterValue() {
+    var job = persist(newPendingJob());
+    String value = "x".repeat(1024);
+
+    extensionStore().putProperty(job.getId(), "ratchet-tck.value", value);
+
+    assertEquals(
+        value, extensionStore().getProperty(job.getId(), "ratchet-tck.value").orElseThrow());
+  }
+
+  @Test
   void putProperty_replacesExistingValueForSameKey() {
     var job = persist(newPendingJob());
 
@@ -147,6 +186,15 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
     assertEquals("{\"steps\":{}}", state.json());
     assertEquals(0, state.version());
+  }
+
+  @Test
+  void initState_rejectsNamespaceLongerThan64Characters() {
+    var job = persist(newPendingJob());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> extensionStore().initState(job.getId(), "x".repeat(65), "{}"));
   }
 
   @Test

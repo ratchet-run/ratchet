@@ -293,6 +293,37 @@ class DefaultInvocationSubmissionServiceTest {
     assertEquals("boom", event.getFailureReason());
   }
 
+  @Test
+  void chunkFailure_withoutMessage_usesExceptionClassNameAsFailureReason() {
+    List<Object> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+    InternalEventPublisher publisher = new InternalEventPublisher() {};
+    publisher.addListener(events::add);
+    DefaultInvocationSubmissionService failing =
+        new DefaultInvocationSubmissionService(
+            newCreationService(null, publisher), new DefaultJobInvocationResolver());
+    org.mockito.Mockito.doThrow(new RuntimeException()).when(jobBulkStore).bulkInsert(any());
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            failing
+                .invocationStreamingBatch("stream")
+                .fromStream(Stream.of("inv_1"))
+                .process(
+                    id ->
+                        new JobInvocation(
+                            TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+                .start());
+
+    BatchChunkFailureEvent event =
+        events.stream()
+            .filter(BatchChunkFailureEvent.class::isInstance)
+            .map(BatchChunkFailureEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(RuntimeException.class.getName(), event.getFailureReason());
+  }
+
   private static JobEntity persist(org.mockito.invocation.InvocationOnMock invocation) {
     JobEntity job = invocation.getArgument(0);
     if (job.getId() == null) {
