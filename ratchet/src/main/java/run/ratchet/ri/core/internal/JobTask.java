@@ -58,11 +58,13 @@ import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.JobLoggerContext;
 import run.ratchet.spi.JobLoggerFactory;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.PreExecutionArgResolver;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
@@ -112,6 +114,7 @@ public class JobTask implements Callable<Void> {
   private final NodeIdentityProvider nodeIdProvider;
   private final ExecutionObserver observabilityFacade;
   private final PreExecutionValidator validationFacade;
+  private final PreExecutionArgResolver argResolver;
   private final BeanResolver beanResolver;
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
@@ -153,6 +156,7 @@ public class JobTask implements Callable<Void> {
     this.payloadSerializer = null;
     this.timeoutHandler = null;
     this.clock = null;
+    this.argResolver = null;
   }
 
   @Inject
@@ -173,7 +177,9 @@ public class JobTask implements Callable<Void> {
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
       JobTimeoutHandler timeoutHandler,
-      Clock clock) {
+      Clock clock,
+      PreExecutionArgResolver argResolver) {
+    this.argResolver = argResolver;
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
     this.lifecycleFacade = lifecycleFacade;
@@ -384,9 +390,13 @@ public class JobTask implements Callable<Void> {
         // Validate before breaker scope — config errors must not trip the circuit breaker
         validationFacade.validateSecurity(jobEntity.getPayload());
 
+        // Last-moment argument resolution (late binding), after the security gate cleared the
+        // dispatch target and before the resilience scope so resolver failures don't trip the
+        // breaker. The target identity stays pinned; only arguments can change.
+        JobPayload dispatchPayload = resolveArguments(jobEntity.getPayload(), jobEntity.getId());
+
         jobResult =
-            resilienceStrategy.execute(
-                resilienceServiceName, () -> runPayload(jobEntity.getPayload()));
+            resilienceStrategy.execute(resilienceServiceName, () -> runPayload(dispatchPayload));
 
         if (wasJobCanceledDuringExecution()) {
           handleCanceledDuringExecution(start);
@@ -1192,7 +1202,34 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  /**
+   * Consults the optional {@link PreExecutionArgResolver}: only the returned invocation's arguments
+   * are honored — the dispatch target the security gate validated cannot change.
+   */
   @SuppressWarnings("java:S112")
+  private JobPayload resolveArguments(JobPayload payload, UUID jobId) {
+    if (argResolver == null) {
+      return payload;
+    }
+    JobInvocation invocation =
+        new JobInvocation(
+            payload.target(),
+            payload.method(),
+            payload.methodDescriptor(),
+            payload.isStatic(),
+            payload.args());
+    JobInvocation resolved = argResolver.resolveArguments(jobId, invocation);
+    if (resolved == null || resolved == invocation) {
+      return payload;
+    }
+    return new JobPayload(
+        payload.target(),
+        payload.method(),
+        payload.methodDescriptor(),
+        payload.isStatic(),
+        resolved.arguments());
+  }
+
   private Object runPayload(JobPayload payload) throws Exception {
     // validateSecurity() is called by call() BEFORE entering the resilience scope.
     // Do not re-validate here — security exceptions inside the breaker would poison it.

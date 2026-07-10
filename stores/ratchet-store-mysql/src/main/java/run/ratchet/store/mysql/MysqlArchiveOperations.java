@@ -31,10 +31,12 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.util.ArchiveExtensionData;
 import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ArchiveParameterBinder;
 import run.ratchet.store.util.ArchiveQuerySupport;
 import run.ratchet.store.util.ArchiveRowMapper;
+import run.ratchet.store.util.ExtensionArchiveJson;
 import run.ratchet.store.util.RowValues;
 
 final class MysqlArchiveOperations implements ArchiveStore {
@@ -85,6 +87,8 @@ final class MysqlArchiveOperations implements ArchiveStore {
       JobEntity hydrated = hydrateForArchive(job);
       ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
       prepareArchive(archive);
+      ArchiveExtensionData extensionData = fetchArchiveExtensionData(List.of(hydrated.getId()));
+      populateExtensionData(archive, extensionData, hydrated.getId());
       Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
       ArchiveParameterBinder.bind(query, archive, 1, UuidByteArrayConverter::toBytes);
       query.executeUpdate();
@@ -112,6 +116,7 @@ final class MysqlArchiveOperations implements ArchiveStore {
           jobs.findByIds(ids).stream()
               .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
       List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
+      List<UUID> archiveIds = new ArrayList<>(jobsToArchive.size());
       for (UUID id : ids) {
         JobEntity hydrated = hydratedById.get(id);
         if (hydrated == null) {
@@ -120,6 +125,11 @@ final class MysqlArchiveOperations implements ArchiveStore {
         ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
         prepareArchive(archive);
         archives.add(archive);
+        archiveIds.add(hydrated.getId());
+      }
+      ArchiveExtensionData extensionData = fetchArchiveExtensionData(archiveIds);
+      for (int i = 0; i < archives.size(); i++) {
+        populateExtensionData(archives.get(i), extensionData, archiveIds.get(i));
       }
 
       String rows =
@@ -238,5 +248,16 @@ final class MysqlArchiveOperations implements ArchiveStore {
   private JobEntity hydrateForArchive(JobEntity job) {
     return jobs.findById(job.getId())
         .orElseThrow(() -> new IllegalStateException("Job not found for archival: " + job.getId()));
+  }
+
+  private ArchiveExtensionData fetchArchiveExtensionData(List<UUID> jobIds) {
+    return ArchiveExtensionData.fetch(
+        ctx.em(), jobIds, UuidByteArrayConverter::toBytes, RowValues::uuidOrNull);
+  }
+
+  private void populateExtensionData(
+      ArchivedJobEntity archive, ArchiveExtensionData extensionData, UUID jobId) {
+    archive.setProperties(ExtensionArchiveJson.propertiesJson(extensionData.properties(jobId)));
+    archive.setExtensionState(ExtensionArchiveJson.extensionStateJson(extensionData.states(jobId)));
   }
 }

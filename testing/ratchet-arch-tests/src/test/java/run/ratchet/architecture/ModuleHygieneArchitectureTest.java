@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Test;
  * here instead of deep in the server matrix.
  *
  * <ul>
- *   <li>Observability providers stay out of the core (api/spi/ri/stores/coordinators).
+ *   <li>Observability providers stay out of the core (api/spi/ri/stores/coordinators/blocks).
  *   <li>The JPA API is confined to the store layer.
  *   <li>The serializable-lambda deserialization surface stays in {@code ratchet-api}.
  *   <li>Implementation modules never print to stdout/stderr or call {@code printStackTrace}.
@@ -58,6 +58,14 @@ public class ModuleHygieneArchitectureTest {
   private static final String SPI = "run.ratchet.spi..";
   private static final String STORE_CORE = "run.ratchet.store..";
   private static final String RI = "run.ratchet.ri..";
+
+  /**
+   * The optional low-code extension (ratchet-blocks, not yet shipped). Included in the hygiene
+   * rules now so the first blocks class is governed from day one; until the module lands the rules
+   * match it vacuously, which is fine — every rule here also covers non-empty packages.
+   */
+  private static final String BLOCKS = "run.ratchet.blocks..";
+
   private static final String COORDINATOR = "run.ratchet.coordinator..";
   private static final String COORDINATOR_JMS = "run.ratchet.coordinator.jms..";
   private static final String COORDINATOR_POSTGRESQL = "run.ratchet.coordinator.postgresql..";
@@ -97,17 +105,17 @@ public class ModuleHygieneArchitectureTest {
   // --- 1. Observability providers stay out of the core ---
 
   /**
-   * The api/spi/ri/store/coordinator modules must not depend on a concrete observability provider.
-   * Metrics and tracing are reached through the {@code MetricsCollector}/{@code TracingCollector}
-   * SPIs; a direct Micrometer or OpenTelemetry import would hardwire the core to one provider and
-   * break the dependency-free public surface. The provider adapters live in {@code
+   * The api/spi/ri/store/coordinator/blocks modules must not depend on a concrete observability
+   * provider. Metrics and tracing are reached through the {@code MetricsCollector}/{@code
+   * TracingCollector} SPIs; a direct Micrometer or OpenTelemetry import would hardwire the core to
+   * one provider and break the dependency-free public surface. The provider adapters live in {@code
    * ratchet-micrometer}/{@code ratchet-otel}, which are outside these packages.
    */
   @ArchTest
   static final ArchRule coreModulesDoNotDependOnObservabilityProviders =
       noClasses()
           .that()
-          .resideInAnyPackage(API, SPI, RI, STORE_CORE, COORDINATOR)
+          .resideInAnyPackage(API, SPI, RI, STORE_CORE, COORDINATOR, BLOCKS)
           .should()
           .dependOnClassesThat()
           .resideInAnyPackage("io.micrometer..", "io.opentelemetry..")
@@ -119,15 +127,16 @@ public class ModuleHygieneArchitectureTest {
 
   /**
    * The {@code jakarta.persistence} API stays in the store layer. The public API, the reference
-   * implementation, and the coordinators are JPA-free — persistence is reached only through the
-   * store SPI. Scoped to SQL-stores-only is unnecessary: store-core legitimately uses JPA, and the
-   * Mongo store does not, so confining to {@code run.ratchet.store..} subsumes both.
+   * implementation, the coordinators, and the blocks extension are JPA-free — persistence is
+   * reached only through the store SPI. Scoped to SQL-stores-only is unnecessary: store-core
+   * legitimately uses JPA, and the Mongo store does not, so confining to {@code
+   * run.ratchet.store..} subsumes both.
    */
   @ArchTest
   static final ArchRule jpaApiIsConfinedToStoreModules =
       noClasses()
           .that()
-          .resideInAnyPackage(API, SPI, RI, COORDINATOR)
+          .resideInAnyPackage(API, SPI, RI, COORDINATOR, BLOCKS)
           .should()
           .dependOnClassesThat()
           .resideInAPackage("jakarta.persistence..")
@@ -159,16 +168,16 @@ public class ModuleHygieneArchitectureTest {
   // --- 4. No stdout/stderr or printStackTrace in implementation modules ---
 
   /**
-   * Implementation modules (RI, store, coordinator) must not write to {@code System.out}/{@code
-   * System.err} or call any {@code Throwable.printStackTrace} overload. Diagnostics go through
-   * JBoss Logging so EE deployments route them consistently; a stray stack-trace dump bypasses the
-   * configured logger.
+   * Implementation modules (RI, store, coordinator, blocks) must not write to {@code
+   * System.out}/{@code System.err} or call any {@code Throwable.printStackTrace} overload.
+   * Diagnostics go through JBoss Logging so EE deployments route them consistently; a stray
+   * stack-trace dump bypasses the configured logger.
    */
   @ArchTest
   static final ArchRule noStdoutStderrOrPrintStackTrace =
       noClasses()
           .that()
-          .resideInAnyPackage(RI, STORE_CORE, COORDINATOR)
+          .resideInAnyPackage(RI, STORE_CORE, COORDINATOR, BLOCKS)
           .should()
           .accessField(System.class, "out")
           .orShould()

@@ -139,6 +139,7 @@ class JobFilterTest {
             false,
             false,
             false,
+            null,
             null);
 
     statuses.add(JobStatus.FAILED);

@@ -842,6 +842,88 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     }
   }
 
+  // ── Extension-property filtering ──────────────────────────────────────
+
+  @Test
+  void searchByPropertyEquals_returnsOnlyJobsCarryingTheProperty() {
+    var tagged = persist(newPendingJob());
+    var other = persist(newPendingJob());
+    extensionStore().putProperty(tagged.getId(), "ratchet-tck.block_name", "invoice.send");
+    extensionStore().putProperty(other.getId(), "ratchet-tck.block_name", "invoice.archive");
+
+    List<JobEntity> results =
+        queryStore()
+            .searchJobs(
+                JobFilter.builder()
+                    .propertyEquals("ratchet-tck.block_name", "invoice.send")
+                    .build(),
+                100,
+                0);
+
+    assertEquals(1, results.size(), "propertyEquals must match exactly the tagged job");
+    assertEquals(tagged.getId(), results.get(0).getId());
+  }
+
+  @Test
+  void searchByPropertyIn_matchesAnyListedValue() {
+    var first = persist(newPendingJob());
+    var second = persist(newPendingJob());
+    var third = persist(newPendingJob());
+    extensionStore().putProperty(first.getId(), "ratchet-tck.block_name", "invoice.send");
+    extensionStore().putProperty(second.getId(), "ratchet-tck.block_name", "invoice.archive");
+    extensionStore().putProperty(third.getId(), "ratchet-tck.block_name", "invoice.void");
+
+    List<JobEntity> results =
+        queryStore()
+            .searchJobs(
+                JobFilter.builder()
+                    .propertyIn(
+                        "ratchet-tck.block_name", List.of("invoice.send", "invoice.archive"))
+                    .build(),
+                100,
+                0);
+
+    assertEquals(2, results.size(), "propertyIn must match jobs carrying any listed value");
+  }
+
+  @Test
+  void searchByMultiplePropertyKeys_combinesWithAnd() {
+    var both = persist(newPendingJob());
+    var nameOnly = persist(newPendingJob());
+    extensionStore().putProperty(both.getId(), "ratchet-tck.block_name", "invoice.send");
+    extensionStore().putProperty(both.getId(), "ratchet-tck.block_version", "2");
+    extensionStore().putProperty(nameOnly.getId(), "ratchet-tck.block_name", "invoice.send");
+
+    List<JobEntity> results =
+        queryStore()
+            .searchJobs(
+                JobFilter.builder()
+                    .propertyEquals("ratchet-tck.block_name", "invoice.send")
+                    .propertyEquals("ratchet-tck.block_version", "2")
+                    .build(),
+                100,
+                0);
+
+    assertEquals(1, results.size(), "multiple property keys must intersect");
+    assertEquals(both.getId(), results.get(0).getId());
+  }
+
+  @Test
+  void countJobs_appliesPropertyFilters() {
+    var tagged = persist(newPendingJob());
+    persist(newPendingJob());
+    extensionStore().putProperty(tagged.getId(), "ratchet-tck.block_name", "invoice.send");
+
+    long count =
+        queryStore()
+            .countJobs(
+                JobFilter.builder()
+                    .propertyEquals("ratchet-tck.block_name", "invoice.send")
+                    .build());
+
+    assertEquals(1, count, "countJobs must apply property filters");
+  }
+
   private static void assertDefaultCreatedAtOrder(JobEntity previous, JobEntity current) {
     assertNotNull(previous.getCreatedAt(), "Sorted jobs must expose non-null createdAt values");
     assertNotNull(current.getCreatedAt(), "Sorted jobs must expose non-null createdAt values");

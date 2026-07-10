@@ -97,4 +97,25 @@ public final class EncryptionAad {
   public static byte[] binding(String key) {
     return key == null ? new byte[0] : key.getBytes(UTF_8);
   }
+
+  /**
+   * Returns binding bytes for a surface bound to both an id and a string qualifier (the
+   * extension-state surface binds the owning job id and the namespace). Each component is
+   * length-prefixed so {@code (id="A", qualifier="BC")} cannot collide with {@code (id="AB",
+   * qualifier="C")}.
+   *
+   * @param id the binding id, or {@code null}
+   * @param qualifier the binding qualifier, or {@code null}
+   * @return the canonical binding bytes
+   */
+  public static byte[] binding(UUID id, String qualifier) {
+    byte[] idBytes = binding(id);
+    byte[] qualifierBytes = binding(qualifier);
+    return ByteBuffer.allocate(4 + idBytes.length + 4 + qualifierBytes.length)
+        .putInt(idBytes.length)
+        .put(idBytes)
+        .putInt(qualifierBytes.length)
+        .put(qualifierBytes)
+        .array();
+  }
 }

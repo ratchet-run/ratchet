@@ -339,6 +339,27 @@ public void onBatchCompleted(@Observes BatchCompletedEvent event) {
 }
 ```
 
+### BatchChunkFailureEvent {#batchchunkfailureevent}
+
+Fired when a streaming-batch chunk fails to persist (the chunk's bulk insert threw) on the invocation-mode submission path (`InvocationStreamingBatchBuilder`). Lambda-mode streaming batches do not emit it.
+
+```java
+@Incubating
+public class BatchChunkFailureEvent extends AbstractJobSchedulerEvent {
+    public int getChunkIndex()
+    public int getChunkSize()
+    public String getFailureReason()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getChunkIndex()` | `int` | Zero-based index of the chunk that failed |
+| `getChunkSize()` | `int` | Number of items in the failed chunk |
+| `getFailureReason()` | `String` | Failure description from the underlying store exception |
+
+This is a best-effort, pre-rollback diagnostic. Streaming submission runs in one transaction, so a chunk failure rolls back the batch parent and every previously inserted chunk with it; the event fires before that rollback and may reference a batch parent id (`getJobId()`) that never commits. Treat it as an operational signal of the failed submission, not as a pointer to durable rows.
+
 ## Chain event types {#chainevent-types}
 
 ### ChainStartedEvent

@@ -261,6 +261,25 @@ public class PiiSanitizer implements ErrorSanitizer {
 }
 ```
 
+## PayloadMaskingPolicy
+
+Decides which payload fields are masked before a payload leaves the framework on a read or observability path (for example the `params` map on a job detail when `maskPayloads` is enabled). The durable store payload and anything a worker needs to execute are never altered. The built-in policy matches a fixed set of common credential and PII field names (`password`, `token`, `ssn`, ...); deployers produce their own implementation to change the field set.
+
+```java
+@Incubating
+public interface PayloadMaskingPolicy {
+    boolean isSensitiveField(String fieldName);
+
+    default boolean isSensitiveField(String fieldName, MaskingContext context) {
+        return isSensitiveField(fieldName);
+    }
+}
+
+public record MaskingContext(UUID jobId, Map<String, String> jobProperties) {}
+```
+
+The context-aware overload exists for per-job decisions — the same field name can be secret on one job and not on another. `MaskingContext` carries the owning job's id and its extension properties, populated when the store advertises the `JobExtensionStore` capability (empty map otherwise). Existing name-only policies keep working unchanged through the default method.
+
 ## PayloadEncryption
 
 Keyed authenticated-encryption (AEAD) engine that protects sensitive job data at rest. The engine owns its nonce and returns an opaque body carrying everything decryption needs except the key and the additional authenticated data. `algorithmId()` is recorded in each value's envelope so the matching engine is selected at read time. Reference AES-256-GCM and XChaCha20-Poly1305 engines ship in `ratchet-encryption`.
@@ -303,6 +322,42 @@ public interface JobInvocationResolver {
     JobInvocation resolve(Serializable callback, List<Object> runtimeArguments);
 }
 ```
+
+## InvocationSubmissionService
+
+Submission seam for trusted extensions that construct `JobInvocation`s directly instead of going through the lambda-serializing builders on `JobSchedulerService`. Every submission converges on the same creation path as the public builders — same validation, idempotency, tags, batch metadata, workflow condition rows, and wakeup behavior. There is no separate persistence path.
+
+The seam is trusted by convention, not a security barrier: anything that can inject it can persist an arbitrary invocation, exactly as `JobInvocationResolver` consumers can. An extension that accepts external input (block names, workflow definitions) must validate and authorize it before constructing the invocation. Submissions still pass the full standard chain — payload validation, the deployment's class policy, and `JobAuthorizationPolicy.checkCreate()` at persistence time; the worker re-applies the security validation (public-method and signature checks, `checkExecute()`) at dispatch.
+
+```java
+@Incubating
+public interface InvocationSubmissionService {
+    InvocationJobBuilder enqueueInvocation(JobInvocation invocation);
+    InvocationJobBuilder scheduleInvocation(Duration delay, JobInvocation invocation);
+    InvocationBatchBuilder enqueueInvocationBatch(String name);
+    <T extends Serializable> InvocationStreamingBatchBuilder<T> invocationStreamingBatch(String name);
+    WorkflowCondition invocationCondition(JobInvocation invocation);
+}
+```
+
+`JobInvocation` is the serializable description of the dispatch target: fully qualified class name, method name, JVM method descriptor, static flag, and the argument list. Arguments must be JSON-representable — persistence converts the invocation through the payload factory, never JDK serialization.
+
+The three builders mirror their public counterparts. `InvocationJobBuilder` carries the options and chaining surface of [JobBuilder](/api-reference/job-builder) (`then`, `branch`, `awaitSignal`, `withTags`, `withEncryptedPayload`, ...) with a `JobInvocation` in place of each lambda. `InvocationBatchBuilder` and `InvocationStreamingBatchBuilder<T>` mirror [BatchBuilder and StreamingBatchBuilder](/api-reference/batch-builder); the streaming variant expands each stream item into a child job through a `Function<T, JobInvocation>` factory and inherits the chunk-boundary persistence and replay behavior. A streaming chunk whose bulk insert fails emits [`BatchChunkFailureEvent`](/api-reference/event-system#batchchunkfailureevent) before the submission transaction rolls back.
+
+`invocationCondition(...)` wraps a pre-resolved invocation as a `CUSTOM` workflow condition. The target method is dispatched reflectively at evaluation time with the parent's `JobResult` supplied as the trailing argument and must return `boolean`; the invocation persists as the condition's expression payload and is encrypted under the parent's predicate surface when payload encryption applies.
+
+## PreExecutionArgResolver
+
+Worker-side hook that can patch a job's invocation **arguments** at the last moment before reflective dispatch — after security validation, before argument coercion. Extensions use it for late binding: resolving placeholder arguments against state that did not exist at submission time, such as upstream step results in a workflow.
+
+```java
+@Incubating
+public interface PreExecutionArgResolver {
+    JobInvocation resolveArguments(UUID jobId, JobInvocation invocation);
+}
+```
+
+Arguments only: the dispatched target class, method, and descriptor stay pinned to the payload that security validation cleared, and only the returned invocation's arguments are honored. Returning `null` or the input instance dispatches the persisted arguments unchanged, as does leaving the hook unregistered. A thrown exception fails the job through the normal failure path, so the retry policy applies. The hook covers the job's main invocation; success/failure callback payloads and workflow-condition predicates follow their own dispatch paths and are not resolved.
 
 ## ResultPersistenceStrategy
 

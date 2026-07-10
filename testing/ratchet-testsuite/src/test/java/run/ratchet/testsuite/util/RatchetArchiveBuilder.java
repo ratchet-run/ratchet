@@ -40,6 +40,7 @@ import run.ratchet.testsuite.app.TestEntityManagerProvider;
 import run.ratchet.testsuite.app.TestMongoProducer;
 import run.ratchet.testsuite.app.TestRatchetOptionsProducer;
 import run.ratchet.testsuite.app.TestRuntimeConfig;
+import run.ratchet.testsuite.app.TestTransactionRunner;
 import run.ratchet.testsuite.infra.JdbcContainerExtension;
 import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 
@@ -221,6 +222,7 @@ public class RatchetArchiveBuilder {
         TestClassPolicy.class,
         TestCleanupStrategy.class,
         TestDataManipulator.class,
+        TestTransactionRunner.class,
         PerformanceTestHelper.class,
         TestRatchetOptionsProducer.class,
         TestRuntimeConfig.class);

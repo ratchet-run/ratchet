@@ -97,6 +97,14 @@ compliance reviewers about this boundary.
 - A payload column echoed into a log line or diagnostic dump shows ciphertext, not the
   value.
 
+Deployments using framework extensions get one more surface: per-namespace extension
+state (`scheduler_job_extension_state`) is encrypted whenever the **global switch** is on
+— it has no per-job opt-in, because the state is written by extension code after
+submission, not by the submitter. Archiving copies the state rows as stored, so encrypted
+state stays ciphertext on the archive row. The full protected-surface table and rationale
+live in the payload-encryption ADR in the repository
+(`website/docs/adr/0001-payload-encryption-threat-model.md`).
+
 **Not protected against**
 
 - Live worker memory. A job's arguments are plaintext on the JVM heap while the job runs;

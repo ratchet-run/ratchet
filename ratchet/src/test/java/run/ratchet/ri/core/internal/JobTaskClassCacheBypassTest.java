@@ -129,6 +129,7 @@ class JobTaskClassCacheBypassTest {
         null,
         serializer,
         null,
-        Clock.systemUTC());
+        Clock.systemUTC(),
+        null);
   }
 }

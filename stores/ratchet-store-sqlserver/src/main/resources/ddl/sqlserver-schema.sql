@@ -370,6 +370,8 @@ CREATE TABLE scheduler_job_archive
     depended_on             BINARY(16),
     superseded_by           BINARY(16),
     tags                    VARCHAR(512),
+    properties              NVARCHAR(MAX),
+    extension_state         NVARCHAR(MAX),
     CONSTRAINT pk_scheduler_job_archive PRIMARY KEY (archive_id),
     CONSTRAINT chk_archive_status CHECK (final_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
     CONSTRAINT chk_archive_job_type CHECK (job_type IN
@@ -444,3 +446,35 @@ CREATE TABLE scheduler_resource_permit
 
 CREATE INDEX idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
 CREATE INDEX idx_resource_permit_job ON scheduler_resource_permit (job_id);
+
+-- 14. scheduler_job_properties (write-once indexed scalars; plaintext by design — no secrets)
+-- property_key/value are non-unicode VARCHAR so the (property_key, value) index key fits SQL
+-- Server's 1700-byte nonclustered-index limit (255 + 1024 = 1279 < 1700); block metadata is ASCII.
+CREATE TABLE scheduler_job_properties
+(
+    job_id       BINARY(16)    NOT NULL,
+    property_key VARCHAR(255)  NOT NULL,
+    value        VARCHAR(1024),
+    CONSTRAINT pk_scheduler_job_properties PRIMARY KEY (job_id, property_key),
+    CONSTRAINT fk_job_properties_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_property_kv ON scheduler_job_properties (property_key, value);
+
+-- 15. scheduler_job_extension_state (mutable per-namespace blobs with per-row CAS; encrypted at rest
+-- when payload encryption is configured — state holds ciphertext, encrypted_state/encryption_key_id
+-- mirror the scheduler_job payload-encryption metadata columns)
+CREATE TABLE scheduler_job_extension_state
+(
+    job_id            BINARY(16)    NOT NULL,
+    namespace         VARCHAR(64)   NOT NULL,
+    state             NVARCHAR(MAX) NOT NULL,
+    encrypted_state   BIT           NOT NULL DEFAULT 0,
+    encryption_key_id VARCHAR(256),
+    version           INT           NOT NULL DEFAULT 0,
+    updated_at        DATETIME2(6)  NOT NULL,
+    CONSTRAINT pk_scheduler_job_extension_state PRIMARY KEY (job_id, namespace),
+    CONSTRAINT fk_job_extension_state_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_extension_state_key_id ON scheduler_job_extension_state (encryption_key_id);

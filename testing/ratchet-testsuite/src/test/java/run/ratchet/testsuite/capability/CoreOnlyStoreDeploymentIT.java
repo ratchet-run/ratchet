@@ -34,6 +34,7 @@ import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -74,6 +75,7 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
   @Inject private Instance<JobAnalyticsStore> analyticsStore;
   @Inject private Instance<JobAuditStore> auditStore;
   @Inject private Instance<DlqAlertStore> dlqAlertStore;
+  @Inject private Instance<JobExtensionStore> jobExtensionStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -107,6 +109,7 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
     assertTrue(analyticsStore.isUnsatisfied(), "JobAnalyticsStore must be unsatisfied");
     assertTrue(auditStore.isUnsatisfied(), "JobAuditStore must be unsatisfied");
     assertTrue(dlqAlertStore.isUnsatisfied(), "DlqAlertStore must be unsatisfied");
+    assertTrue(jobExtensionStore.isUnsatisfied(), "JobExtensionStore must be unsatisfied");
   }
 
   @Test

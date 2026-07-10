@@ -31,10 +31,12 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
+import run.ratchet.store.util.ArchiveExtensionData;
 import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ArchiveParameterBinder;
 import run.ratchet.store.util.ArchiveQuerySupport;
 import run.ratchet.store.util.ArchiveRowMapper;
+import run.ratchet.store.util.ExtensionArchiveJson;
 import run.ratchet.store.util.RowValues;
 
 final class SqlserverArchiveOperations implements ArchiveStore {
@@ -45,10 +47,10 @@ final class SqlserverArchiveOperations implements ArchiveStore {
   // superseded_by (30) are nullable BINARY(16) columns, and mssql-jdbc binds an untyped Java null
   // as
   // nvarchar, which SQL Server refuses to implicitly convert to binary. CAST(? AS BINARY(16)) makes
-  // the conversion explicit (a non-null byte[] casts harmlessly). The other 29 placeholders match
-  // the shared binder's positional order exactly.
+  // the conversion explicit (a non-null byte[] casts harmlessly). The other 31 placeholders match
+  // the shared binder's positional order exactly (tags 31, properties 32, extension_state 33).
   private static final String SQLSERVER_ARCHIVE_VALUE_PLACEHOLDERS =
-      "(" + "?, ".repeat(28) + "CAST(? AS BINARY(16)), CAST(? AS BINARY(16)), ?)";
+      "(" + "?, ".repeat(28) + "CAST(? AS BINARY(16)), CAST(? AS BINARY(16)), ?, ?, ?)";
 
   // language=SQL Server
   private static final String INSERT_ARCHIVE_SQL =
@@ -87,6 +89,8 @@ final class SqlserverArchiveOperations implements ArchiveStore {
       JobEntity hydrated = reads.hydrateForArchive(job);
       ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
       prepareArchive(archive);
+      ArchiveExtensionData extensionData = fetchArchiveExtensionData(List.of(hydrated.getId()));
+      populateExtensionData(archive, extensionData, hydrated.getId());
       Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
       ArchiveParameterBinder.bind(query, archive, 1, UuidByteArrayConverter::toBytes);
       query.executeUpdate();
@@ -115,6 +119,7 @@ final class SqlserverArchiveOperations implements ArchiveStore {
           reads.findByIds(ids).stream()
               .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
       List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
+      List<UUID> archiveIds = new ArrayList<>(jobsToArchive.size());
       for (UUID id : ids) {
         JobEntity hydrated = hydratedById.get(id);
         if (hydrated == null) {
@@ -123,6 +128,11 @@ final class SqlserverArchiveOperations implements ArchiveStore {
         ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
         prepareArchive(archive);
         archives.add(archive);
+        archiveIds.add(hydrated.getId());
+      }
+      ArchiveExtensionData extensionData = fetchArchiveExtensionData(archiveIds);
+      for (int i = 0; i < archives.size(); i++) {
+        populateExtensionData(archives.get(i), extensionData, archiveIds.get(i));
       }
 
       String rows =
@@ -229,5 +239,16 @@ final class SqlserverArchiveOperations implements ArchiveStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("purge archived jobs", e);
     }
+  }
+
+  private ArchiveExtensionData fetchArchiveExtensionData(List<UUID> jobIds) {
+    return ArchiveExtensionData.fetch(
+        ctx.em(), jobIds, UuidByteArrayConverter::toBytes, RowValues::uuidOrNull);
+  }
+
+  private void populateExtensionData(
+      ArchivedJobEntity archive, ArchiveExtensionData extensionData, UUID jobId) {
+    archive.setProperties(ExtensionArchiveJson.propertiesJson(extensionData.properties(jobId)));
+    archive.setExtensionState(ExtensionArchiveJson.extensionStateJson(extensionData.states(jobId)));
   }
 }

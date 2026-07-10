@@ -73,6 +73,8 @@ class SqlserverSchemaMigratorIT extends AbstractSchemaMigratorContract {
           "scheduler_business_key_reservation",
           "scheduler_job_queue",
           "scheduler_job_tag",
+          "scheduler_job_properties",
+          "scheduler_job_extension_state",
           "scheduler_job_log",
           "scheduler_job_execution",
           "scheduler_resource_permit",

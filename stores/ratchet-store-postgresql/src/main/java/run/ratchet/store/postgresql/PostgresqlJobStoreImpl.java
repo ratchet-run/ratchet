@@ -88,6 +88,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private PostgresqlAuxiliaryOperations auxiliary;
   private PostgresqlSignalOperations signals;
   private PostgresqlRecurringJobOperations recurringJobs;
+  private PostgresqlExtensionOperations extensions;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected PostgresqlJobStoreImpl() {
@@ -833,6 +834,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);
     signals = new PostgresqlSignalOperations(ctx);
     recurringJobs = new PostgresqlRecurringJobOperations(ctx, reservations);
+    extensions = new PostgresqlExtensionOperations(ctx);
   }
 
   // ---------- RecurringJobStore delegates ----------
@@ -883,5 +885,37 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
     return recurringJobs.listAll();
+  }
+
+  // ---------- JobExtensionStore delegates ----------
+
+  @Override
+  public void putProperty(UUID jobId, String key, String value) {
+    extensions.putProperty(jobId, key, value);
+  }
+
+  @Override
+  public Optional<String> getProperty(UUID jobId, String key) {
+    return extensions.getProperty(jobId, key);
+  }
+
+  @Override
+  public Map<String, String> getPropertiesByPrefix(UUID jobId, String prefix) {
+    return extensions.getPropertiesByPrefix(jobId, prefix);
+  }
+
+  @Override
+  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+    return extensions.getState(jobId, namespace);
+  }
+
+  @Override
+  public void initState(UUID jobId, String namespace, String initialState) {
+    extensions.initState(jobId, namespace, initialState);
+  }
+
+  @Override
+  public boolean updateState(UUID jobId, String namespace, String newState, int expectedVersion) {
+    return extensions.updateState(jobId, namespace, newState, expectedVersion);
   }
 }

@@ -691,6 +691,7 @@ A store advertises each of these by implementing the interface; the engine probe
 | `JobAnalyticsStore` | Aggregate counts, rates, and percentiles | `countJobsByStatus()`, `getQueueWaitTimePercentile()` |
 | `JobAuditStore` | Execution history and per-job logs | `saveExecution()`, `findExecutionsByJobId()`, `appendLog()` |
 | `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `existsRecentDlqAlert()` |
+| `JobExtensionStore` | Indexed job properties and per-namespace extension state | `putProperty()`, `getPropertiesByPrefix()`, `initState()`, `updateState()` |
 
 ### Implementing a Custom Store
 

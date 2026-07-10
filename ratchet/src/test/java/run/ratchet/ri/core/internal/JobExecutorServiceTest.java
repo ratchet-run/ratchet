@@ -92,7 +92,8 @@ class JobExecutorServiceTest {
             null,
             null,
             null,
-            FIXED_CLOCK);
+            FIXED_CLOCK,
+            null);
   }
 
   @Test

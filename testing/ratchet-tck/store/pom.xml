@@ -34,6 +34,16 @@
             <scope>provided</scope>
         </dependency>
         <!--
+          jakarta.json-api lets the archive-retention contract parse the denormalized
+          properties/extension_state JSON the archive row carries. Provided scope: the store under
+          test already supplies a JSON-P implementation (ExtensionArchiveJson uses it at runtime).
+        -->
+        <dependency>
+            <groupId>jakarta.json</groupId>
+            <artifactId>jakarta.json-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <!--
           jakarta.transaction-api lets the transaction-boundary contract assert the @Transactional
           attribute JPA stores declare on their lock/heartbeat operations. Provided scope: the store
           under test already supplies it.
