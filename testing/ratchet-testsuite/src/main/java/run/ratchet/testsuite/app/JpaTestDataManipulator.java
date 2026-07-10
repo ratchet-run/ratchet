@@ -62,13 +62,10 @@ public class JpaTestDataManipulator implements TestDataManipulator {
         """;
     Object idParam = jobIdParam(jobId);
     em().createNativeQuery(coldSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
-    try {
-      // language=SQL
-      String hotSql = "UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2";
-      em().createNativeQuery(hotSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
-    } catch (RuntimeException ignored) {
-      // The queue row may not exist once a job has moved to the terminal table.
-    }
+    // Terminal jobs have no queue row, which makes this a zero-row no-op rather than an error.
+    // language=SQL
+    String hotSql = "UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2";
+    em().createNativeQuery(hotSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
   }
 
   @Override

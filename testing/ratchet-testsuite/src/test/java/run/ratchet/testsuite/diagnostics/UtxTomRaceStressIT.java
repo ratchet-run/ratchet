@@ -68,7 +68,7 @@ class UtxTomRaceStressIT extends BaseRatchetIT {
   private static final int RACER_COUNT = 3;
   private static final long STRESS_NANOS = TimeUnit.SECONDS.toNanos(20);
   private static final long REGRESSION_NANOS = TimeUnit.SECONDS.toNanos(6);
-  private static final long STOP_WAIT_MILLIS = 300;
+  private static final long STOP_WAIT_SECONDS = 5;
 
   @Inject private JobCrudStore jobCrudStore;
 
@@ -180,7 +180,16 @@ class UtxTomRaceStressIT extends BaseRatchetIT {
           throw e;
         }
 
-        utx.commit();
+        try {
+          utx.commit();
+        } catch (Exception e) {
+          try {
+            utx.rollback();
+          } catch (Exception ignored) {
+            // The failed commit already resolved the transaction.
+          }
+          throw e;
+        }
       }
 
       log.info(
@@ -240,12 +249,14 @@ class UtxTomRaceStressIT extends BaseRatchetIT {
   private static void stopRacers(AtomicBoolean running, List<Future<?>> futures) {
     running.set(false);
     for (Future<?> future : futures) {
-      future.cancel(true);
-    }
-    try {
-      Thread.sleep(STOP_WAIT_MILLIS);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
+      try {
+        future.get(STOP_WAIT_SECONDS, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        future.cancel(true);
+      } catch (Exception e) {
+        future.cancel(true);
+      }
     }
   }
 }
