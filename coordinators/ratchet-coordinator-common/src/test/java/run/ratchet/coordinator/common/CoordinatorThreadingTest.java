@@ -22,8 +22,11 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -62,8 +65,8 @@ class CoordinatorThreadingTest {
 
     ExecutorService pool = threading.newDispatchPool("dispatch", 1, 8);
     try {
-      pool.submit(() -> {}).get(2, java.util.concurrent.TimeUnit.SECONDS);
-    } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+      pool.submit(() -> {}).get(2, TimeUnit.SECONDS);
+    } catch (ExecutionException | TimeoutException e) {
       throw new AssertionError(e);
     }
     pool.shutdownNow();
@@ -80,6 +83,19 @@ class CoordinatorThreadingTest {
     assertTrue(
         ex.getMessage().contains("DefaultManagedThreadFactory"),
         "JNDI-miss message should name the well-known factory: " + ex.getMessage());
+  }
+
+  @Test
+  void managedPathUsesConfiguredJndiName() {
+    String jndiName = "java:jboss/ee/concurrency/factory/RatchetCoordinator";
+    CoordinatorThreading threading = CoordinatorThreading.managed("test", jndiName);
+
+    IllegalStateException ex =
+        assertThrows(IllegalStateException.class, () -> threading.newLoopThread("loop", () -> {}));
+
+    assertTrue(
+        ex.getMessage().contains(jndiName),
+        "JNDI-miss message should name the configured factory: " + ex.getMessage());
   }
 
   @Test

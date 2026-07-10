@@ -205,6 +205,43 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
+  void mapsCoordinatorThreadFactoryJndiFromProperty() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(
+                    "ratchet.coordinator.thread-factory-jndi",
+                    "java:jboss/ee/concurrency/factory/RatchetCoordinator"),
+                Map.of()));
+
+    assertEquals(
+        "java:jboss/ee/concurrency/factory/RatchetCoordinator",
+        options.execution().coordinatorThreadFactoryJndi());
+  }
+
+  @Test
+  void mapsCoordinatorThreadFactoryJndiFromEnvironmentVariable() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(),
+                Map.of(
+                    "RATCHET_COORDINATOR_THREAD_FACTORY_JNDI",
+                    "java:jboss/ee/concurrency/factory/RatchetCoordinator")));
+
+    assertEquals(
+        "java:jboss/ee/concurrency/factory/RatchetCoordinator",
+        options.execution().coordinatorThreadFactoryJndi());
+  }
+
+  @Test
+  void coordinatorThreadFactoryJndiUsesCoordinatorEnvironmentVariableName() {
+    assertEquals(
+        "RATCHET_COORDINATOR_THREAD_FACTORY_JNDI",
+        RatchetConfigKeys.COORDINATOR_THREAD_FACTORY_JNDI.environmentVariable());
+  }
+
+  @Test
   void skipsSourceThatThrowsAndUsesNextSource() {
     RatchetOptions options =
         optionsFrom(

@@ -286,8 +286,9 @@ public class RecurringJobProcessor {
   }
 
   /**
-   * Registers every discovered {@code @Recurring} method, skipping any whose master is already
-   * committed so the call is idempotent across retries and restarts.
+   * Registers every discovered {@code @Recurring} method. The recurring submit path reconciles
+   * existing masters by business key, so registration is idempotent across retries and restarts
+   * while still applying annotation changes.
    *
    * @return {@code true} once every discovered master is confirmed present in the store (or the
    *     store does not advertise the recurring capability), so the caller can stop retrying
@@ -303,9 +304,6 @@ public class RecurringJobProcessor {
             .map(RecurringMethodRegistration::jobId)
             .collect(Collectors.toCollection(LinkedHashSet::new));
     for (RecurringMethodRegistration registration : registrations) {
-      if (store != null && store.findRecurringByBusinessKey(registration.jobId()).isPresent()) {
-        continue; // already committed (a prior attempt or a previous run) — idempotent skip
-      }
       try {
         registerJob(registration);
       } catch (Exception e) {

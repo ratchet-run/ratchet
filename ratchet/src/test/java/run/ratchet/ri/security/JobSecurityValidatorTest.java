@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.store.entity.JobPayload;
 
 class JobSecurityValidatorTest {
@@ -99,6 +100,20 @@ class JobSecurityValidatorTest {
             "(Ljava/lang/String;)V",
             false,
             List.of("hello"));
+    assertDoesNotThrow(() -> validator.validate(payload));
+  }
+
+  @Test
+  void recurringDispatchShimPassesEvenWhenItsOwnPackageIsNotAllowlisted() {
+    JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
+    JobPayload payload =
+        new JobPayload(
+            RecurringMethodInvoker.class.getName(),
+            "invoke",
+            "(Ljava/lang/String;Ljava/lang/String;Z)V",
+            false,
+            List.of(SampleTarget.class.getName(), "doWork", false));
+
     assertDoesNotThrow(() -> validator.validate(payload));
   }
 

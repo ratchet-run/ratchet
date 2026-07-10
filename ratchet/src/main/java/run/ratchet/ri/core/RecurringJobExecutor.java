@@ -205,6 +205,7 @@ public class RecurringJobExecutor {
     child.setOnFailurePayload(master.onFailurePayload());
     child.setResourceName(master.resourceName());
     child.setExecutionTarget(master.executionTarget());
+    child.setCallerPrincipal(master.callerPrincipal());
     child.setEncryptedPayload(master.encryptedPayload());
     child.setIdempotencyKey(UUID.randomUUID().toString());
     return child;
