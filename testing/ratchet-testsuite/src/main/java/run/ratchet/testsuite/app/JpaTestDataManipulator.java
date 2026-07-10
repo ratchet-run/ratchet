@@ -18,7 +18,7 @@ package run.ratchet.testsuite.app;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import jakarta.transaction.UserTransaction;
+import jakarta.transaction.Transactional;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
@@ -27,85 +27,61 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
 /**
  * JPA/SQL implementation of {@link TestDataManipulator}.
  *
- * <p>Uses native SQL queries within JTA transactions to manipulate test data. Only packaged in the
- * WAR when a JPA store profile is active.
+ * <p>Uses native SQL queries within interceptor-managed transactions to manipulate test data. Only
+ * packaged in the WAR when a JPA store profile is active.
+ *
+ * <p>These methods deliberately use {@code @Transactional(REQUIRES_NEW)} rather than a direct
+ * {@link jakarta.transaction.UserTransaction}: bare UserTransaction calls are gated by a
+ * TransactionOperationsManager check that a Payara/GlassFish {@code TransactionalInterceptorBase}
+ * race can corrupt under concurrent load, while the interceptor path never consults that gate. See
+ * {@code run.ratchet.testsuite.diagnostics.UtxTomRaceStressIT}.
  */
 @ApplicationScoped
 public class JpaTestDataManipulator implements TestDataManipulator {
 
   @Inject private RatchetEntityManagerProvider entityManagerProvider;
 
-  @Inject private UserTransaction utx;
-
   private static Object jobIdParam(UUID jobId) {
     return SqlDialectTestSupportProvider.get().jobIdParam(jobId);
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void setJobUpdatedAt(UUID jobId, Instant updatedAt) {
+    Timestamp ts = Timestamp.from(updatedAt);
+
+    // Both JPA stores are now hot/cold-split: cold scheduler_job has no updated_at; the
+    // archive/DLQ-purge cutoff lives on cold.terminated_at, and the live update timestamp
+    // lives on scheduler_job_queue.updated_at. Tests aim this method at one or the other
+    // depending on the row's lifecycle stage.
+    // language=SQL
+    String coldSql =
+        """
+        UPDATE scheduler_job SET terminated_at = ?1
+        WHERE job_id = ?2 AND terminal_status IS NOT NULL
+        """;
+    Object idParam = jobIdParam(jobId);
+    em().createNativeQuery(coldSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
     try {
-      utx.begin();
-      Timestamp ts = Timestamp.from(updatedAt);
-
-      // Both JPA stores are now hot/cold-split: cold scheduler_job has no updated_at; the
-      // archive/DLQ-purge cutoff lives on cold.terminated_at, and the live update timestamp
-      // lives on scheduler_job_queue.updated_at. Tests aim this method at one or the other
-      // depending on the row's lifecycle stage.
       // language=SQL
-      String coldSql =
-          """
-          UPDATE scheduler_job SET terminated_at = ?1
-          WHERE job_id = ?2 AND terminal_status IS NOT NULL
-          """;
-      Object idParam = jobIdParam(jobId);
-      em().createNativeQuery(coldSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
-      try {
-        // language=SQL
-        String hotSql = "UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2";
-        em().createNativeQuery(hotSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
-      } catch (RuntimeException ignored) {
-        // The queue row may not exist once a job has moved to the terminal table.
-      }
-
-      utx.commit();
-    } catch (RuntimeException e) {
-      rollbackQuietly();
-      throw e;
-    } catch (Exception e) {
-      rollbackQuietly();
-      throw new RuntimeException("Failed to set updated_at", e);
+      String hotSql = "UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2";
+      em().createNativeQuery(hotSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
+    } catch (RuntimeException ignored) {
+      // The queue row may not exist once a job has moved to the terminal table.
     }
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void setArchivedAt(UUID archiveId, Instant archivedAt) {
-    try {
-      utx.begin();
-      Timestamp ts = Timestamp.from(archivedAt);
+    Timestamp ts = Timestamp.from(archivedAt);
 
-      // language=SQL
-      String sql = "UPDATE scheduler_job_archive SET archived_at = ?1 WHERE archive_id = ?2";
-      em().createNativeQuery(sql)
-          .setParameter(1, ts)
-          .setParameter(2, jobIdParam(archiveId))
-          .executeUpdate();
-
-      utx.commit();
-    } catch (RuntimeException e) {
-      rollbackQuietly();
-      throw e;
-    } catch (Exception e) {
-      rollbackQuietly();
-      throw new RuntimeException("Failed to set archived_at", e);
-    }
-  }
-
-  private void rollbackQuietly() {
-    try {
-      utx.rollback();
-    } catch (Exception ignored) {
-      // best-effort rollback
-    }
+    // language=SQL
+    String sql = "UPDATE scheduler_job_archive SET archived_at = ?1 WHERE archive_id = ?2";
+    em().createNativeQuery(sql)
+        .setParameter(1, ts)
+        .setParameter(2, jobIdParam(archiveId))
+        .executeUpdate();
   }
 
   private EntityManager em() {

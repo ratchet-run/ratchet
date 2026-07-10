@@ -36,6 +36,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.TestTransactionRunner;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
@@ -59,6 +60,8 @@ class PostExecutionRequiresNewIT extends BaseRatchetIT {
 
   @Inject private UserTransaction utx;
 
+  @Inject private TestTransactionRunner txRunner;
+
   @Deployment
   public static WebArchive createDeployment() {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
@@ -75,14 +78,23 @@ class PostExecutionRequiresNewIT extends BaseRatchetIT {
   void batchChildAck_commitsInOwnTransaction_andSurvivesCallerRollback() throws Exception {
     // A three-item batch so neither the ack nor the probe below completes it: the only observable
     // effect is the completed-child counter moving, with no completion cascade.
-    JobEntity parent = jobCrudStore.save(batchParentJob());
-    BatchEntity batch = new BatchEntity();
-    batch.setId(parent.getId());
-    batch.setTotalItems(3);
-    batch.setCompletedItems(0);
-    batch.setFailedItems(0);
-    batch.setCompletionProcessed(false);
-    batchStore.saveBatch(batch);
+    // Seeding goes through TestTransactionRunner so the servlet frame cannot be left poisoned by
+    // the store-interceptor TOM race before the deliberate utx.begin() below; the
+    // handleJobSuccess window stays exposed because caller-managed rollback IS the behavior
+    // under test.
+    JobEntity parent =
+        txRunner.call(
+            () -> {
+              JobEntity saved = jobCrudStore.save(batchParentJob());
+              BatchEntity batch = new BatchEntity();
+              batch.setId(saved.getId());
+              batch.setTotalItems(3);
+              batch.setCompletedItems(0);
+              batch.setFailedItems(0);
+              batch.setCompletionProcessed(false);
+              batchStore.saveBatch(batch);
+              return saved;
+            });
 
     // update() reads only getDependsOn() off the child, so an in-memory entity is enough and the
     // poller has no claimable row to touch.
