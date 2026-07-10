@@ -22,6 +22,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -373,6 +374,7 @@ final class OracleJobQueryOperations {
     appendStringEq("c.trace_id_extracted", filter.traceCorrelationId(), where, params);
     appendParentJobId(filter, where, params);
     appendTagCondition(filter, where, params);
+    appendPropertyConditions(filter, where, params);
     appendInstantGte("c.created_at", filter.createdAfter(), where, params);
     appendInstantLt("c.created_at", filter.createdBefore(), where, params);
     appendInstantGte(
@@ -610,6 +612,26 @@ final class OracleJobQueryOperations {
             + placeholders(filterTags.size())
             + "))");
     params.addAll(filterTags);
+  }
+
+  private void appendPropertyConditions(
+      JobFilter filter, StringBuilder where, List<Object> params) {
+    Map<String, Set<String>> propertyFilters = filter.propertyFilters();
+    if (propertyFilters == null || propertyFilters.isEmpty()) {
+      return;
+    }
+    // One EXISTS per key (AND across keys); IN over the allowed values, served by the
+    // (property_key, value) index on scheduler_job_properties.
+    for (Map.Entry<String, Set<String>> entry : propertyFilters.entrySet()) {
+      and(
+          where,
+          "EXISTS (SELECT 1 FROM scheduler_job_properties p"
+              + " WHERE p.job_id = c.job_id AND p.property_key = ? AND p.value IN ("
+              + placeholders(entry.getValue().size())
+              + "))");
+      params.add(entry.getKey());
+      params.addAll(entry.getValue());
+    }
   }
 
   private void appendCursorCondition(JobFilter filter, StringBuilder where, List<Object> params) {

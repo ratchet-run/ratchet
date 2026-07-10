@@ -77,6 +77,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoJobQueryOperations query;
   private final MongoSignalOperations signals;
   private final MongoRecurringJobOperations recurringJobs;
+  private final MongoExtensionOperations extensions;
 
   /**
    * Package-private no-arg constructor required for Weld client-proxy generation (CDI 4.0 §3.15).
@@ -98,6 +99,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.query = null;
     this.signals = null;
     this.recurringJobs = null;
+    this.extensions = null;
   }
 
   MongoJobStoreImpl(MongoClient client, MongoDatabase database, RatchetOptions options) {
@@ -127,6 +129,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.query = new MongoJobQueryOperations(ctx);
     this.signals = new MongoSignalOperations(ctx);
     this.recurringJobs = new MongoRecurringJobOperations(ctx);
+    this.extensions = new MongoExtensionOperations(ctx);
   }
 
   @Override
@@ -918,5 +921,37 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
     return recurringJobs.listAll();
+  }
+
+  // ---------- JobExtensionStore delegates ----------
+
+  @Override
+  public void putProperty(UUID jobId, String key, String value) {
+    extensions.putProperty(jobId, key, value);
+  }
+
+  @Override
+  public Optional<String> getProperty(UUID jobId, String key) {
+    return extensions.getProperty(jobId, key);
+  }
+
+  @Override
+  public Map<String, String> getPropertiesByPrefix(UUID jobId, String prefix) {
+    return extensions.getPropertiesByPrefix(jobId, prefix);
+  }
+
+  @Override
+  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+    return extensions.getState(jobId, namespace);
+  }
+
+  @Override
+  public void initState(UUID jobId, String namespace, String initialState) {
+    extensions.initState(jobId, namespace, initialState);
+  }
+
+  @Override
+  public boolean updateState(UUID jobId, String namespace, String newState, int expectedVersion) {
+    return extensions.updateState(jobId, namespace, newState, expectedVersion);
   }
 }

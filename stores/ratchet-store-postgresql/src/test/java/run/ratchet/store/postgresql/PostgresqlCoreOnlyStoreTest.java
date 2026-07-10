@@ -34,6 +34,7 @@ import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
@@ -64,7 +65,8 @@ class PostgresqlCoreOnlyStoreTest {
           JobQueryStore.class,
           JobAnalyticsStore.class,
           JobAuditStore.class,
-          DlqAlertStore.class);
+          DlqAlertStore.class,
+          JobExtensionStore.class);
 
   private final PostgresqlCoreOnlyTestFixture fixture = new PostgresqlCoreOnlyTestFixture();
 

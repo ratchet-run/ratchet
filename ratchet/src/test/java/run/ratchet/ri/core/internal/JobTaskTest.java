@@ -72,11 +72,13 @@ import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.EncryptionContext;
 import run.ratchet.spi.EncryptionKey;
 import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadEncryption;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.PreExecutionArgResolver;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
@@ -154,6 +156,7 @@ class JobTaskTest {
                 null,
                 null,
                 null,
+                null,
                 null));
   }
 
@@ -198,7 +201,8 @@ class JobTaskTest {
             null,
             serializer,
             null,
-            Clock.systemUTC());
+            Clock.systemUTC(),
+            null);
   }
 
   @AfterEach
@@ -1008,7 +1012,8 @@ class JobTaskTest {
             null,
             signalSerializer,
             null,
-            Clock.systemUTC());
+            Clock.systemUTC(),
+            null);
     JobEntity job = createTestJob();
     job.setPayload(
         new JobPayload(
@@ -1062,7 +1067,8 @@ class JobTaskTest {
             null,
             signalSerializer,
             null,
-            Clock.systemUTC());
+            Clock.systemUTC(),
+            null);
     JobEntity job = createTestJob();
     job.setPayload(
         new JobPayload(
@@ -1117,6 +1123,73 @@ class JobTaskTest {
     verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
     verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
     verify(lifecycleFacade).moveToDlq(eq(job), any(PayloadDecryptionException.class));
+  }
+
+  private static final java.util.concurrent.atomic.AtomicReference<String> OBSERVED_ARG =
+      new java.util.concurrent.atomic.AtomicReference<>();
+
+  public static String captureArg(String value) {
+    OBSERVED_ARG.set(value);
+    return "done";
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_consultsArgResolverAndDispatchesPatchedArguments() throws Exception {
+    OBSERVED_ARG.set(null);
+    JsonbTestPayloadSerializer serializer = new JsonbTestPayloadSerializer();
+    // The resolver patches the argument AND tries to redirect the target; only the arguments are
+    // honored — the dispatch target stays pinned to the payload the security gate validated.
+    PreExecutionArgResolver resolver =
+        (jobId, invocation) ->
+            new JobInvocation(
+                "com.example.Evil",
+                "evil",
+                invocation.methodDescriptor(),
+                true,
+                List.of("patched"));
+    JobTask resolving =
+        new JobTask(
+            jobStore,
+            resourcePermitService,
+            lifecycleFacade,
+            nodeIdProvider,
+            observabilityFacade,
+            validationFacade,
+            beanResolver,
+            retryPolicy,
+            resilienceStrategy,
+            errorSanitizer,
+            classPolicy,
+            context -> new JBossLoggingJobLogger(context.jobId(), null),
+            new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
+            null,
+            serializer,
+            null,
+            Clock.systemUTC(),
+            resolver);
+
+    JobEntity job = createTestJob();
+    job.setPayload(
+        new JobPayload(
+            JobTaskTest.class.getName(),
+            "captureArg",
+            "(Ljava/lang/String;)Ljava/lang/String;",
+            true,
+            List.of("original")));
+    initJobTaskWithDefaultStubs(resolving, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    resolving.call();
+
+    Assertions.assertEquals(
+        "patched", OBSERVED_ARG.get(), "the resolver-patched argument must be dispatched");
   }
 
   private JobEntity createTestJob() {
@@ -1187,7 +1260,8 @@ class JobTaskTest {
         null,
         null,
         timeoutHandler,
-        FIXED_CLOCK);
+        FIXED_CLOCK,
+        null);
   }
 
   private JobTask newJobTaskWithClock(Clock taskClock) {
@@ -1210,7 +1284,8 @@ class JobTaskTest {
         null,
         null,
         null,
-        taskClock);
+        taskClock,
+        null);
   }
 
   /** Encrypts to a real frame but always fails to decrypt — a tampered/wrong-key analogue. */

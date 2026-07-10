@@ -47,6 +47,9 @@ class PostgresqlExceptionTranslationTest {
         entityManager(
             queryReturning(Collections.singletonList(terminalRow())),
             queryReturning(List.of()),
+            // archive copy of extension data: properties + extension-state reads
+            queryReturning(List.of()),
+            queryReturning(List.of()),
             queryThrowingOnExecute());
     var ctx = new PostgresqlStoreContext(em);
     var tags = new PostgresqlTagOperations(ctx);

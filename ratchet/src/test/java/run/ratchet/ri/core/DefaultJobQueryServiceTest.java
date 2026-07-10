@@ -58,6 +58,8 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.MaskingContext;
+import run.ratchet.spi.PayloadMaskingPolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -66,7 +68,9 @@ import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.util.PayloadMaskingPolicyHolder;
 
 @ExtendWith(MockitoExtension.class)
 class DefaultJobQueryServiceTest {
@@ -499,6 +503,63 @@ class DefaultJobQueryServiceTest {
         params.get("password"),
         "sensitive key must be redacted when masking is on");
     assertEquals("db", params.get("host"), "non-sensitive key must survive masking unchanged");
+  }
+
+  @Test
+  void getJobDetail_passesJobPropertiesToContextAwarePolicy() {
+    UUID jobId = UUID.randomUUID();
+    JobEntity entity = minimalJobWithId(jobId);
+    entity.setParams(Map.of("channel", "ssn-here", "host", "db"));
+    when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+
+    JobExtensionStore extensionStore = Mockito.mock(JobExtensionStore.class);
+    when(extensionStore.getPropertiesByPrefix(jobId, ""))
+        .thenReturn(Map.of("ratchet-blocks.block_name", "invoice.send"));
+
+    // A per-block policy: "channel" is secret only on invoice.send jobs, identified through the
+    // job properties carried by the masking context. Name-only matching would never redact it.
+    PayloadMaskingPolicy perBlockPolicy =
+        new PayloadMaskingPolicy() {
+          @Override
+          public boolean isSensitiveField(String fieldName) {
+            return false;
+          }
+
+          @Override
+          public boolean isSensitiveField(String fieldName, MaskingContext ctx) {
+            return "channel".equals(fieldName)
+                && "invoice.send".equals(ctx.jobProperties().get("ratchet-blocks.block_name"));
+          }
+        };
+    PayloadMaskingPolicyHolder.set(perBlockPolicy);
+    try {
+      DefaultJobQueryService masking =
+          new DefaultJobQueryService(
+              queryStore,
+              crudStore,
+              analyticsStore,
+              executionStore,
+              recurringJobStore,
+              authPolicy,
+              principalProvider,
+              FIXED_CLOCK,
+              RatchetOptions.builder().security(s -> s.maskPayloads(true)).build(),
+              extensionStore);
+
+      Map<String, String> params = masking.getJobDetail(jobId).orElseThrow().params();
+
+      assertEquals(
+          "***REDACTED***",
+          params.get("channel"),
+          "context-aware policy must see the job's properties and redact per block");
+      assertEquals("db", params.get("host"), "non-sensitive key must survive unchanged");
+    } finally {
+      PayloadMaskingPolicyHolder.set(null);
+    }
   }
 
   @Test

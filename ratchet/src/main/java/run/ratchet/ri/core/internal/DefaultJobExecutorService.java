@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Duration;
@@ -48,6 +49,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobLoggerFactory;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.PreExecutionArgResolver;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
@@ -85,6 +87,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final PayloadSerializer payloadSerializer;
   private final PollerScheduler pollerScheduler;
   private final Clock clock;
+  private final PreExecutionArgResolver argResolver;
   private final Object submissionLock = new Object();
   private final AtomicBoolean acceptingExecutions = new AtomicBoolean(true);
   private final Set<TrackingFutureTask> activeFutures = ConcurrentHashMap.newKeySet();
@@ -110,6 +113,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.payloadSerializer = null;
     this.pollerScheduler = null;
     this.clock = null;
+    this.argResolver = null;
   }
 
   @Inject
@@ -133,7 +137,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
       ResultPersistenceStrategy resultPersistenceStrategy,
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
-      Clock clock) {
+      Clock clock,
+      Instance<PreExecutionArgResolver> argResolver) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
@@ -154,6 +159,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.authorizationPolicy = authorizationPolicy;
     this.payloadSerializer = payloadSerializer;
     this.clock = clock;
+    this.argResolver = argResolver != null && argResolver.isResolvable() ? argResolver.get() : null;
   }
 
   private static void cancelTimeoutHandles(
@@ -317,7 +323,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
         authorizationPolicy,
         payloadSerializer,
         timeoutHandler,
-        effective());
+        effective(),
+        argResolver);
   }
 
   private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(

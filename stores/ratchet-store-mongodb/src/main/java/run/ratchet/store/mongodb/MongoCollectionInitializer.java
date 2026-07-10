@@ -85,6 +85,35 @@ class MongoCollectionInitializer {
     createDlqAlertIndexes();
     createResourceLimitIndexes();
     createResourcePermitIndexes();
+    createJobPropertiesIndexes();
+    createJobExtensionStateIndexes();
+  }
+
+  private void createJobPropertiesIndexes() {
+    var coll = database.getCollection("scheduler_job_properties");
+    // Uniqueness mirror of the SQL PK (job_id, property_key); claim-correctness is not at stake
+    // but upsert semantics depend on it, so it is required.
+    createRequiredIndex(
+        coll,
+        Indexes.compoundIndex(Indexes.ascending("job_id"), Indexes.ascending("property_key")),
+        new IndexOptions().name("uk_job_property").unique(true));
+    // Cross-job (property_key, value) filter support for the query layer.
+    createRequiredIndex(
+        coll,
+        Indexes.compoundIndex(Indexes.ascending("property_key"), Indexes.ascending("value")),
+        new IndexOptions().name("idx_property_kv"));
+  }
+
+  private void createJobExtensionStateIndexes() {
+    var coll = database.getCollection("scheduler_job_extension_state");
+    // Uniqueness mirror of the SQL PK (job_id, namespace); initState duplicate detection and the
+    // CAS update path both depend on one row per (job, namespace).
+    createRequiredIndex(
+        coll,
+        Indexes.compoundIndex(Indexes.ascending("job_id"), Indexes.ascending("namespace")),
+        new IndexOptions().name("uk_job_extension_namespace").unique(true));
+    // Key-rotation drain check, mirroring idx_job_encryption_key_id on the job table.
+    createIndex(coll, Indexes.ascending("encryption_key_id"), "idx_extension_state_key_id");
   }
 
   private void createJobIndexes() {

@@ -54,6 +54,8 @@ public class SqlserverTestFixture extends JpaContainerFixture {
     executeNativeSql("DELETE FROM scheduler_dlq_alerts");
     executeNativeSql("DELETE FROM scheduler_batch_metrics");
     executeNativeSql("DELETE FROM scheduler_job_archive");
+    executeNativeSql("DELETE FROM scheduler_job_properties");
+    executeNativeSql("DELETE FROM scheduler_job_extension_state");
     executeNativeSql("DELETE FROM scheduler_job");
     executeNativeSql("DELETE FROM scheduler_recurring_job_archive");
     executeNativeSql("DELETE FROM scheduler_recurring_job");

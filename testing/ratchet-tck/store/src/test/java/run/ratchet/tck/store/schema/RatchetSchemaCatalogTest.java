@@ -97,10 +97,10 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionMatchesMaxDdlSchemaVersionInsert() {
     assertEquals(
-        10,
+        11,
         RatchetSchemaCatalog.CURRENT_VERSION,
         "CURRENT_VERSION must match the highest ratchet_schema_version insert in the shipped DDL"
-            + " (currently '010'); bump both together when the schema advances so the catalog never"
+            + " (currently '011'); bump both together when the schema advances so the catalog never"
             + " lags the DDL again");
   }
 

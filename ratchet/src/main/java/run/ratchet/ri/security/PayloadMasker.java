@@ -16,6 +16,7 @@
 package run.ratchet.ri.security;
 
 import java.util.Map;
+import run.ratchet.spi.MaskingContext;
 
 /**
  * Public entry point for masking sensitive fields (passwords, tokens, PII) in job payload data
@@ -34,6 +35,14 @@ public final class PayloadMasker {
   }
 
   /**
+   * Context-aware variant of {@link #maskPayload(String)}: the policy's context-aware overload is
+   * consulted per field. A {@code null} context falls back to name-only matching.
+   */
+  public static String maskPayload(String payloadJson, MaskingContext context) {
+    return run.ratchet.store.util.PayloadMasker.maskPayload(payloadJson, context);
+  }
+
+  /**
    * Serializes {@code payload} to JSON then masks sensitive fields; returns null if input is null.
    */
   public static String maskPayload(Object payload) {
@@ -47,5 +56,10 @@ public final class PayloadMasker {
    */
   public static Map<String, String> maskParams(Map<String, String> params) {
     return run.ratchet.store.util.PayloadMasker.maskParams(params);
+  }
+
+  /** Context-aware variant of {@link #maskParams(Map)}. */
+  public static Map<String, String> maskParams(Map<String, String> params, MaskingContext context) {
+    return run.ratchet.store.util.PayloadMasker.maskParams(params, context);
   }
 }

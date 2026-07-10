@@ -16,9 +16,13 @@
 package run.ratchet.api;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -66,6 +70,13 @@ import java.util.UUID;
  *     layer (for example by widening the policy to omit the principal filter when archive
  *     visibility is required, or by running two queries).
  * @param cursor opaque keyset-pagination cursor, or null to use offset-based pagination
+ * @param propertyFilters per-key extension-property constraints, or null for no property filter.
+ *     Each entry matches jobs that carry a {@code scheduler_job_properties} row whose key equals
+ *     the map key and whose value is one of the entry's values (IN semantics); multiple entries
+ *     combine with AND. Requires a store advertising the {@code JobExtensionStore} capability to
+ *     have written the rows. Property filters match hot rows only: like {@code callerPrincipal} and
+ *     {@code traceCorrelationId}, they are not applied to the archive branch when {@code
+ *     includeArchived} is set.
  * @since 0.1
  */
 @Incubating
@@ -91,13 +102,15 @@ public record JobFilter(
     boolean sortAscending,
     boolean skipCount,
     boolean includeArchived,
-    String cursor) {
+    String cursor,
+    Map<String, Set<String>> propertyFilters) {
 
   public JobFilter {
     statuses = copyOrNull(statuses);
     types = copyOrNull(types);
     priorities = copyOrNull(priorities);
     tags = copyOrNull(tags);
+    propertyFilters = copyPropertyFiltersOrNull(propertyFilters);
   }
 
   public static Builder builder() {
@@ -106,6 +119,16 @@ public record JobFilter(
 
   private static <T> Set<T> copyOrNull(Set<T> values) {
     return values == null ? null : Collections.unmodifiableSet(new HashSet<>(values));
+  }
+
+  private static Map<String, Set<String>> copyPropertyFiltersOrNull(
+      Map<String, Set<String>> values) {
+    if (values == null) {
+      return null;
+    }
+    Map<String, Set<String>> copy = new LinkedHashMap<>();
+    values.forEach((key, allowed) -> copy.put(key, copyOrNull(allowed)));
+    return Collections.unmodifiableMap(copy);
   }
 
   /**
@@ -142,6 +165,7 @@ public record JobFilter(
     b.skipCount = this.skipCount;
     b.includeArchived = this.includeArchived;
     b.cursor = this.cursor;
+    b.propertyFilters = this.propertyFilters == null ? null : new HashMap<>(this.propertyFilters);
     return b;
   }
 
@@ -169,6 +193,7 @@ public record JobFilter(
     private boolean skipCount = false;
     private boolean includeArchived = false;
     private String cursor;
+    private Map<String, Set<String>> propertyFilters;
 
     private Builder() {}
 
@@ -316,6 +341,33 @@ public record JobFilter(
       return this;
     }
 
+    /**
+     * Requires an extension property with the exact key and value. Repeated calls for different
+     * keys combine with AND; a repeated call for the same key replaces the earlier constraint.
+     */
+    public Builder propertyEquals(String key, String value) {
+      return propertyIn(key, Set.of(value));
+    }
+
+    /**
+     * Requires an extension property with the exact key and any of the given values (IN semantics).
+     * Repeated calls for different keys combine with AND; a repeated call for the same key replaces
+     * the earlier constraint.
+     */
+    public Builder propertyIn(String key, Collection<String> values) {
+      if (key == null || key.isBlank()) {
+        throw new IllegalArgumentException("property key must not be null or blank");
+      }
+      if (values == null || values.isEmpty()) {
+        throw new IllegalArgumentException("property values must not be null or empty");
+      }
+      if (this.propertyFilters == null) {
+        this.propertyFilters = new LinkedHashMap<>();
+      }
+      this.propertyFilters.put(key, Set.copyOf(values));
+      return this;
+    }
+
     public JobFilter build() {
       return new JobFilter(
           statuses,
@@ -339,7 +391,8 @@ public record JobFilter(
           sortAscending,
           skipCount,
           includeArchived,
-          cursor);
+          cursor,
+          propertyFilters);
     }
   }
 }

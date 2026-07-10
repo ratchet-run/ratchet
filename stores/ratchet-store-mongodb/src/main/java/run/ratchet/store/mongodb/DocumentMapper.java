@@ -487,6 +487,8 @@ public final class DocumentMapper {
     doc.append("depended_on", a.getDependedOn());
     doc.append("superseded_by", a.getSupersededBy());
     doc.append("tags", a.getTags());
+    doc.append("properties", a.getProperties());
+    doc.append("extension_state", a.getExtensionState());
     return doc;
   }
 
@@ -576,6 +578,8 @@ public final class DocumentMapper {
     a.setDependedOn(doc.get("depended_on", UUID.class));
     a.setSupersededBy(doc.get("superseded_by", UUID.class));
     a.setTags(doc.getString("tags"));
+    a.setProperties(doc.getString("properties"));
+    a.setExtensionState(doc.getString("extension_state"));
     return a;
   }
 

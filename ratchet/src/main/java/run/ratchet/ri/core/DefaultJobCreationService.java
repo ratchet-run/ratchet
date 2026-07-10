@@ -33,6 +33,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
@@ -40,10 +41,12 @@ import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSubmitter;
+import run.ratchet.api.JobType;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
+import run.ratchet.api.event.BatchChunkFailureEvent;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -56,6 +59,7 @@ import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
@@ -520,7 +524,7 @@ class DefaultJobCreationService
       while (iterator.hasNext()) {
         chunk.add(iterator.next());
         if (chunk.size() >= builder.chunkSize()) {
-          totalItems += createStreamingChildJobs(parentId, builder, chunk);
+          totalItems += createChildChunk(parentId, builder, chunk, chunksInserted);
           chunksInserted++;
           builder.invokeLocalProgressHook(parentId, totalItems, chunksInserted);
           chunk.clear();
@@ -528,7 +532,7 @@ class DefaultJobCreationService
       }
 
       if (!chunk.isEmpty()) {
-        totalItems += createStreamingChildJobs(parentId, builder, chunk);
+        totalItems += createChildChunk(parentId, builder, chunk, chunksInserted);
         chunksInserted++;
         builder.invokeLocalProgressHook(parentId, totalItems, chunksInserted);
       }
@@ -801,8 +805,56 @@ class DefaultJobCreationService
     }
   }
 
+  /**
+   * Routes one chunk to the matching child constructor. Invocation-mode chunks emit a best-effort
+   * {@link BatchChunkFailureEvent} before the failure propagates (and the enclosing transaction
+   * rolls the whole submission back).
+   */
+  private <T extends Serializable> int createChildChunk(
+      UUID parentId, DefaultStreamingBatchBuilder<T> builder, List<T> chunk, int chunkIndex) {
+    if (builder instanceof InvocationStreamingState<T> invocationBuilder) {
+      try {
+        return createInvocationStreamingChildJobs(parentId, invocationBuilder, chunk);
+      } catch (RuntimeException e) {
+        if (eventPublisher != null) {
+          eventPublisher.publish(
+              new BatchChunkFailureEvent(
+                  parentId,
+                  null,
+                  JobType.BATCH,
+                  JobPriority.NORMAL,
+                  null,
+                  chunkIndex,
+                  chunk.size(),
+                  Objects.requireNonNullElse(e.getMessage(), e.getClass().getName())));
+        }
+        throw e;
+      }
+    }
+    return createStreamingChildJobs(parentId, builder, chunk);
+  }
+
+  private <T extends Serializable> int createInvocationStreamingChildJobs(
+      UUID parentId, InvocationStreamingState<T> builder, List<T> items) {
+    return createStreamingChildJobs(
+        parentId,
+        builder,
+        items,
+        item ->
+            validate(JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item))));
+  }
+
   private <T extends Serializable> int createStreamingChildJobs(
       UUID parentId, DefaultStreamingBatchBuilder<T> builder, List<T> items) {
+    return createStreamingChildJobs(
+        parentId, builder, items, item -> payload(builder.action(), List.of(item)));
+  }
+
+  private <T extends Serializable> int createStreamingChildJobs(
+      UUID parentId,
+      DefaultStreamingBatchBuilder<T> builder,
+      List<T> items,
+      Function<T, JobPayload> payloadFactory) {
     List<JobEntity> children = new ArrayList<>(items.size());
     for (T item : items) {
       JobEntity child = new JobEntity();
@@ -810,7 +862,7 @@ class DefaultJobCreationService
       child.setStatus(JobStatus.PENDING);
       child.setPriority(JobPriority.NORMAL);
       child.setScheduledTime(effective().instant());
-      child.setPayload(payload(builder.action(), List.of(item)));
+      child.setPayload(payloadFactory.apply(item));
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
       child.setExecutionTarget(builder.executionTarget());
@@ -869,8 +921,13 @@ class DefaultJobCreationService
     condition.setConditionPriority(branch.condition().priority());
     if (branch.condition().expression() != null) {
       Serializable expr = branch.condition().expression();
-      if (expr instanceof SerializablePredicate<?> || expr instanceof SerializableFunction<?, ?>) {
-        JobPayload p = JobPayloadFactory.fromLambda(expr);
+      if (expr instanceof SerializablePredicate<?>
+          || expr instanceof SerializableFunction<?, ?>
+          || expr instanceof JobInvocation) {
+        JobPayload p =
+            expr instanceof JobInvocation invocation
+                ? JobPayloadFactory.fromInvocation(invocation)
+                : JobPayloadFactory.fromLambda(expr);
         // The predicate belongs to the parent job, binds the parent id, and follows the parent's
         // encryption opt-in: an opted-in workflow encrypts its predicate even when the global
         // switch is off.
@@ -887,6 +944,11 @@ class DefaultJobCreationService
   }
 
   private JobPayload payload(Serializable callback) {
+    // Pre-resolved invocations (from InvocationSubmissionService facades) skip lambda resolution;
+    // they still run through the same validation and class-policy gate below.
+    if (callback instanceof InvocationAdapter adapter) {
+      return validate(JobPayloadFactory.fromInvocation(adapter.invocation()));
+    }
     return validate(JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback)));
   }
 

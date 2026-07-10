@@ -76,6 +76,13 @@ final class MongoFieldNames {
   // Job execution attempt
   static final String JOB_ID = "job_id";
   static final String ATTEMPT = "attempt";
+  // Extension properties / state
+  static final String PROPERTY_KEY = "property_key";
+  static final String VALUE = "value";
+  static final String NAMESPACE = "namespace";
+  static final String STATE = "state";
+  static final String ENCRYPTED_STATE = "encrypted_state";
+  static final String ENCRYPTION_KEY_ID = "encryption_key_id";
   // Job log
   static final String TS = "ts";
   // Archive

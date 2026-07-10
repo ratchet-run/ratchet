@@ -59,4 +59,13 @@ public record EncryptionTarget(ProtectedSurface surface, UUID jobId, byte[] bind
         parentJobId,
         EncryptionAad.binding(parentJobId));
   }
+
+  /**
+   * The extension-state surface, bound to the owning job id and the namespace so a blob cannot be
+   * relocated between jobs or between namespaces on the same job.
+   */
+  public static EncryptionTarget extensionState(UUID jobId, String namespace) {
+    return new EncryptionTarget(
+        ProtectedSurface.EXTENSION_STATE, jobId, EncryptionAad.binding(jobId, namespace));
+  }
 }

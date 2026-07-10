@@ -28,6 +28,7 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
+import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
@@ -62,7 +63,8 @@ public class CoreOnlyStoreExtension implements Extension {
           JobQueryStore.class,
           JobAnalyticsStore.class,
           JobAuditStore.class,
-          DlqAlertStore.class);
+          DlqAlertStore.class,
+          JobExtensionStore.class);
 
   <T> void demoteStoreToCore(@Observes ProcessBeanAttributes<T> event) {
     BeanAttributes<T> attributes = event.getBeanAttributes();

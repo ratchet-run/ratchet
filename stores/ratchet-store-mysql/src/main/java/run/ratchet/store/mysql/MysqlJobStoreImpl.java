@@ -85,6 +85,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   private MysqlTagOperations tags;
   private MysqlSignalOperations signals;
   private MysqlRecurringJobOperations recurringJobs;
+  private MysqlExtensionOperations extensions;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected MysqlJobStoreImpl() {
@@ -830,6 +831,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     auxiliary = new MysqlAuxiliaryOperations(ctx);
     signals = new MysqlSignalOperations(ctx);
     recurringJobs = new MysqlRecurringJobOperations(ctx, reservations);
+    extensions = new MysqlExtensionOperations(ctx);
   }
 
   // ---------- RecurringJobStore delegates ----------
@@ -884,5 +886,37 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
     return recurringJobs.listAll();
+  }
+
+  // ---------- JobExtensionStore delegates ----------
+
+  @Override
+  public void putProperty(UUID jobId, String key, String value) {
+    extensions.putProperty(jobId, key, value);
+  }
+
+  @Override
+  public Optional<String> getProperty(UUID jobId, String key) {
+    return extensions.getProperty(jobId, key);
+  }
+
+  @Override
+  public Map<String, String> getPropertiesByPrefix(UUID jobId, String prefix) {
+    return extensions.getPropertiesByPrefix(jobId, prefix);
+  }
+
+  @Override
+  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+    return extensions.getState(jobId, namespace);
+  }
+
+  @Override
+  public void initState(UUID jobId, String namespace, String initialState) {
+    extensions.initState(jobId, namespace, initialState);
+  }
+
+  @Override
+  public boolean updateState(UUID jobId, String namespace, String newState, int expectedVersion) {
+    return extensions.updateState(jobId, namespace, newState, expectedVersion);
   }
 }

@@ -30,7 +30,7 @@ import run.ratchet.store.entity.JobExecutionType;
 /** Maps explicit archive native-query projections into {@link ArchivedJobEntity} instances. */
 public final class ArchiveRowMapper {
 
-  public static final int COLUMN_COUNT = 31;
+  public static final int COLUMN_COUNT = 33;
 
   private ArchiveRowMapper() {}
 
@@ -76,6 +76,8 @@ public final class ArchiveRowMapper {
     archive.setDependedOn(uuidOrNull(cursor.next("depended_on")));
     archive.setSupersededBy(uuidOrNull(cursor.next("superseded_by")));
     archive.setTags(stringOrNull(cursor.next("tags")));
+    archive.setProperties(stringOrNull(cursor.next("properties")));
+    archive.setExtensionState(stringOrNull(cursor.next("extension_state")));
     return archive;
   }
 

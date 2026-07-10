@@ -19,6 +19,7 @@ import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.ExecutorTargets;
@@ -30,6 +31,7 @@ import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobPayload;
 
@@ -150,6 +152,14 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   String executionTarget() {
     return executionTarget;
+  }
+
+  /** Invocation-typed sibling of {@link #forEach}: each child persists the factory's invocation. */
+  <T extends Serializable> void forEachInvocation(
+      Collection<T> items, Function<T, JobInvocation> invocationFactory) {
+    for (T item : items) {
+      children.add(new ChildSpec(JobPayloadFactory.fromInvocation(invocationFactory.apply(item))));
+    }
   }
 
   private JobPayload payload(Serializable callback) {

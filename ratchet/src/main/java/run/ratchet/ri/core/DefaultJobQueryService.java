@@ -42,6 +42,7 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.PayloadMasker;
 import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.MaskingContext;
 import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
@@ -49,6 +50,7 @@ import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -68,6 +70,7 @@ class DefaultJobQueryService implements JobQueryService {
   private final CallerPrincipalProvider principalProvider;
   private final Clock clock;
   private final boolean maskPayloads;
+  private final JobExtensionStore extensionStore;
 
   protected DefaultJobQueryService() {
     this.queryStore = null;
@@ -79,6 +82,7 @@ class DefaultJobQueryService implements JobQueryService {
     this.principalProvider = null;
     this.clock = null;
     this.maskPayloads = false;
+    this.extensionStore = null;
   }
 
   public DefaultJobQueryService(
@@ -128,6 +132,7 @@ class DefaultJobQueryService implements JobQueryService {
       Instance<JobAnalyticsStore> analyticsStore,
       Instance<JobAuditStore> executionStore,
       Instance<RecurringJobStore> recurringJobStore,
+      Instance<JobExtensionStore> extensionStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
       Clock clock,
@@ -141,7 +146,8 @@ class DefaultJobQueryService implements JobQueryService {
         authPolicy,
         principalProvider,
         clock,
-        options);
+        options,
+        extensionStore.isResolvable() ? extensionStore.get() : null);
   }
 
   DefaultJobQueryService(
@@ -154,6 +160,30 @@ class DefaultJobQueryService implements JobQueryService {
       CallerPrincipalProvider principalProvider,
       Clock clock,
       RatchetOptions options) {
+    this(
+        queryStore,
+        crudStore,
+        analyticsStore,
+        executionStore,
+        recurringJobStore,
+        authPolicy,
+        principalProvider,
+        clock,
+        options,
+        null);
+  }
+
+  DefaultJobQueryService(
+      JobQueryStore queryStore,
+      JobCrudStore crudStore,
+      JobAnalyticsStore analyticsStore,
+      JobAuditStore executionStore,
+      RecurringJobStore recurringJobStore,
+      JobAuthorizationPolicy authPolicy,
+      CallerPrincipalProvider principalProvider,
+      Clock clock,
+      RatchetOptions options,
+      JobExtensionStore extensionStore) {
     this.queryStore = queryStore;
     this.crudStore = crudStore;
     this.analyticsStore = analyticsStore;
@@ -163,6 +193,17 @@ class DefaultJobQueryService implements JobQueryService {
     this.principalProvider = principalProvider;
     this.clock = clock;
     this.maskPayloads = options != null && options.security().maskPayloads();
+    this.extensionStore = extensionStore;
+  }
+
+  /**
+   * Builds the per-job masking context: the job's extension properties are fetched only when a
+   * context-aware masking policy reads them.
+   */
+  private MaskingContext maskingContext(UUID jobId) {
+    return new MaskingContext(
+        jobId,
+        () -> extensionStore == null ? Map.of() : extensionStore.getPropertiesByPrefix(jobId, ""));
   }
 
   private static String extractSortValue(JobEntity last, JobQuerySortField field) {
@@ -283,17 +324,20 @@ class DefaultJobQueryService implements JobQueryService {
     // through). Free-text fields such as lastError are out of scope — see
     // RatchetOptions.SecurityOptions#maskPayloads.
     // params arrive already decrypted by the row mapper; trace_context is never encrypted.
+    MaskingContext maskingContext = maskPayloads ? maskingContext(e.getId()) : null;
     Map<String, String> params =
-        maskPayloads ? PayloadMasker.maskParams(e.getParams()) : e.getParams();
+        maskPayloads ? PayloadMasker.maskParams(e.getParams(), maskingContext) : e.getParams();
     Map<String, String> traceContext =
-        maskPayloads ? PayloadMasker.maskParams(e.getTraceContext()) : e.getTraceContext();
+        maskPayloads
+            ? PayloadMasker.maskParams(e.getTraceContext(), maskingContext)
+            : e.getTraceContext();
     // job_result is a raw column (no row-mapper decryption), so decrypt at rest first, then mask.
     // Decryption is marker-driven (no-op on plaintext); masking is a no-op when disabled.
     String jobResult =
         PayloadEncryptor.decryptJsonColumn(
             e.getJobResult(), EncryptionTarget.rowBound(ProtectedSurface.RESULT, e.getId()));
     if (maskPayloads) {
-      jobResult = PayloadMasker.maskPayload(jobResult);
+      jobResult = PayloadMasker.maskPayload(jobResult, maskingContext);
     }
 
     JobDetail detail =
