@@ -76,7 +76,9 @@ class IdempotencyIT extends BaseDocumentStoreIT {
     RatchetTransientStoreException ex =
         assertThrows(RatchetTransientStoreException.class, () -> store().save(job2));
     assertTrue(ex.getMessage().contains("business key"));
-    assertTrue(causeMessage(ex).contains("idx_job_active_business_key"));
+    String cause = causeMessage(ex);
+    assertTrue(cause.contains("scheduler_business_key_reservation"), cause);
+    assertTrue(cause.contains("index: _id_"), cause);
   }
 
   @Test
