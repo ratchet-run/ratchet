@@ -34,6 +34,7 @@ import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.payload.ArgumentCoercion;
+import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -282,6 +283,7 @@ public class WorkflowConditionEvaluator {
       Class<?> cls =
           Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
       Method method = findMethod(cls, payload);
+      payload = ArgumentMaterializer.materialize(payload, payloadSerializer, classPolicy);
       Object target;
       Object[] args;
       if (payload.isStatic()) {

@@ -28,10 +28,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.Serializable;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -50,6 +52,7 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCompletedEvent;
@@ -65,6 +68,7 @@ import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
@@ -85,6 +89,7 @@ import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
@@ -102,6 +107,7 @@ class JobTaskTest {
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, java.time.ZoneOffset.UTC);
   private static final ThreadLocal<SignalDecision> OBSERVED_SIGNAL_DECISION = new ThreadLocal<>();
   private static final ThreadLocal<String> OBSERVED_SIGNAL_STRING = new ThreadLocal<>();
+  private static final ThreadLocal<CustomArgument> OBSERVED_CUSTOM_ARGUMENT = new ThreadLocal<>();
 
   private final ClassPolicy classPolicy = className -> true;
   @Mock private JobStore jobStore;
@@ -132,6 +138,10 @@ class JobTaskTest {
 
   public static void failingCallback() {
     throw new IllegalStateException("callback boom");
+  }
+
+  public static void captureCustomArgument(CustomArgument argument) {
+    OBSERVED_CUSTOM_ARGUMENT.set(argument);
   }
 
   @Test
@@ -182,6 +192,7 @@ class JobTaskTest {
   @BeforeEach
   void setUp() {
     OBSERVED_SIGNAL_DECISION.remove();
+    OBSERVED_CUSTOM_ARGUMENT.remove();
     JsonbTestPayloadSerializer serializer = new JsonbTestPayloadSerializer();
     jobTask =
         new JobTask(
@@ -209,7 +220,36 @@ class JobTaskTest {
   void tearDown() {
     OBSERVED_SIGNAL_DECISION.remove();
     OBSERVED_SIGNAL_STRING.remove();
+    OBSERVED_CUSTOM_ARGUMENT.remove();
     EncryptionHolder.disable();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_restoresCustomArgumentTypeAfterPersistenceRoundTrip() throws Exception {
+    CustomArgument argument = new CustomArgument("invoice-42", 3);
+    JobPayload scheduled =
+        JobPayloadFactory.fromLambda(
+            (SerializableCheckedRunnable) () -> captureCustomArgument(argument));
+    JobPayloadConverter converter = new JobPayloadConverter();
+    JobPayload reloaded =
+        converter.convertToEntityAttribute(converter.convertToDatabaseColumn(scheduled));
+    Assertions.assertInstanceOf(Map.class, reloaded.args().get(0));
+
+    JobEntity job = createTestJob();
+    job.setPayload(reloaded);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(invocation -> ((Callable<?>) invocation.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    Assertions.assertEquals(argument, OBSERVED_CUSTOM_ARGUMENT.get());
   }
 
   @Test
@@ -1419,4 +1459,6 @@ class JobTaskTest {
       return "done";
     }
   }
+
+  public record CustomArgument(String reference, int attempt) implements Serializable {}
 }

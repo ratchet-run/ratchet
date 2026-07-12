@@ -52,6 +52,7 @@ import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.payload.ArgumentCoercion;
+import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -393,9 +394,12 @@ public class JobTask implements Callable<Void> {
         // dispatch target and before the resilience scope so resolver failures don't trip the
         // breaker. The target identity stays pinned; only arguments can change.
         JobPayload dispatchPayload = resolveArguments(jobEntity.getPayload(), jobEntity.getId());
+        dispatchPayload =
+            ArgumentMaterializer.materialize(dispatchPayload, payloadSerializer, classPolicy);
 
+        JobPayload invocationPayload = dispatchPayload;
         jobResult =
-            resilienceStrategy.execute(resilienceServiceName, () -> runPayload(dispatchPayload));
+            resilienceStrategy.execute(resilienceServiceName, () -> runPayload(invocationPayload));
 
         if (wasJobCanceledDuringExecution()) {
           handleCanceledDuringExecution(start);
@@ -1081,7 +1085,9 @@ public class JobTask implements Callable<Void> {
       }
       Method method = resolveMethod(cls, callbackPayload);
       Object target = callbackPayload.isStatic() ? null : beanResolver.resolve(cls);
-      List<Object> args = callbackPayload.args() != null ? callbackPayload.args() : List.of();
+      JobPayload invocationPayload =
+          ArgumentMaterializer.materialize(callbackPayload, payloadSerializer, classPolicy);
+      List<Object> args = invocationPayload.args() != null ? invocationPayload.args() : List.of();
       invokeTargetMethod(method, target, args);
     } catch (Exception e) {
       // Log + metric + event; parent job still succeeds
