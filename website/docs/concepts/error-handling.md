@@ -177,6 +177,22 @@ scheduler.retryJob(jobId);
 
 This resets the attempt counter to 0, clears error information, sets `scheduled_time` to now, and transitions the job from FAILED to PENDING. The job becomes immediately eligible for polling.
 
+For incident recovery, retry a filtered batch instead of issuing one transaction per job:
+
+```java
+JobFilter outageFailures = JobFilter.builder()
+    .tags("payment-provider")
+    .createdAfter(outageStarted)
+    .build();
+
+int recovered = scheduler.retryJobs(outageFailures, 250);
+```
+
+Each call handles at most 1000 jobs and commits the selected set atomically. Repeat it until the
+returned count is smaller than your chosen limit. Filters are always narrowed to `FAILED`, and
+archived jobs cannot be retried because their executable payload is no longer retained. A
+business-key conflict rolls back the full batch; none of the selected jobs are reset.
+
 ### Automatic Purge
 
 The `DeadLetterService` runs a cron-based purge that removes old DLQ entries after a configurable retention period. The purge uses distributed locking to ensure only one node runs the cleanup in a cluster.

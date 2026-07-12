@@ -378,6 +378,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
+  }
+
+  @Override
   public boolean resetRunningJob(UUID id, String nodeId) {
     return lifecycle.resetRunningJob(id, nodeId);
   }
@@ -815,7 +820,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     query = new MysqlJobQueryOperations(ctx, mapper, tags);
     batches = new MysqlBatchOperations(ctx);
     claims = new MysqlJobClaimOperations(ctx, jobs);
-    lifecycle = new MysqlJobLifecycleOperations(ctx, reservations, batches);
+    lifecycle = new MysqlJobLifecycleOperations(ctx, reservations, batches, query);
     nodeLocks = new MysqlNodeLockOperations(ctx);
     archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
     auxiliary = new MysqlAuxiliaryOperations(ctx);

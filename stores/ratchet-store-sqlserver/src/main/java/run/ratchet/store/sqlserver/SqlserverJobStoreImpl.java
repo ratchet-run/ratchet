@@ -381,6 +381,11 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
+  }
+
+  @Override
   public boolean resetRunningJob(UUID id, String nodeId) {
     return lifecycle.resetRunningJob(id, nodeId);
   }
@@ -832,7 +837,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     query = new SqlserverJobQueryOperations(ctx, tags);
     batches = new SqlserverBatchOperations(ctx);
     claims = new SqlserverJobClaimOperations(ctx, reads);
-    lifecycle = new SqlserverJobLifecycleOperations(ctx, reservations, batches);
+    lifecycle = new SqlserverJobLifecycleOperations(ctx, reservations, batches, query);
     nodeLocks = new SqlserverNodeLockOperations(ctx);
     archives = new SqlserverArchiveOperations(ctx, reads, deletes);
     auxiliary = new SqlserverAuxiliaryOperations(ctx);

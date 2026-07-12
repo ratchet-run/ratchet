@@ -378,6 +378,11 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
+  }
+
+  @Override
   public boolean resetRunningJob(UUID id, String nodeId) {
     return lifecycle.resetRunningJob(id, nodeId);
   }
@@ -826,7 +831,7 @@ class OracleJobStoreImpl implements OracleJobStore {
     query = new OracleJobQueryOperations(ctx, mapper, tags);
     batches = new OracleBatchOperations(ctx);
     claims = new OracleJobClaimOperations(ctx, jobs);
-    lifecycle = new OracleJobLifecycleOperations(ctx, reservations, batches);
+    lifecycle = new OracleJobLifecycleOperations(ctx, reservations, batches, query);
     nodeLocks = new OracleNodeLockOperations(ctx);
     archives = new OracleArchiveOperations(ctx, mapper, tags, jobs);
     auxiliary = new OracleAuxiliaryOperations(ctx);

@@ -124,11 +124,11 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.crud = new MongoJobCrudOperations(ctx, reservations);
     this.batches = new MongoBatchOperations(ctx);
     this.claims = new MongoJobClaimOperations(ctx);
-    this.lifecycle = new MongoJobLifecycleOperations(ctx, batches, reservations);
+    this.query = new MongoJobQueryOperations(ctx);
+    this.lifecycle = new MongoJobLifecycleOperations(ctx, batches, reservations, query);
     this.nodeLocks = new MongoNodeLockOperations(ctx);
     this.archives = new MongoArchiveOperations(ctx);
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
-    this.query = new MongoJobQueryOperations(ctx);
     this.signals = new MongoSignalOperations(ctx);
     this.recurringJobs = new MongoRecurringJobOperations(ctx, reservations);
     this.extensions = new MongoExtensionOperations(ctx);
@@ -423,6 +423,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public boolean resetFailedToPending(UUID id) {
     return lifecycle.resetFailedToPending(id);
+  }
+
+  @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
   }
 
   @Override

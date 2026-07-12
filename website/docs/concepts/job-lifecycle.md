@@ -243,6 +243,17 @@ This:
 
 Only FAILED jobs can be retried. The job becomes immediately eligible for polling.
 
+To recover multiple failures from one incident, use a bounded `JobFilter` operation:
+
+```java
+int retried = scheduler.retryJobs(
+    JobFilter.builder().tags("billing").build(),
+    250);
+```
+
+The selected jobs move from FAILED to PENDING atomically. The 1 to 1000 limit keeps each recovery
+transaction bounded; repeat the call for larger DLQs.
+
 ### Cancellation
 
 ```java

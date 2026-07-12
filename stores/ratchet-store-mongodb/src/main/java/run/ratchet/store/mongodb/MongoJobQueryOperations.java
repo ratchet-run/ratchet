@@ -385,8 +385,7 @@ final class MongoJobQueryOperations {
     return searchLive(null, filter, limit, offset);
   }
 
-  private List<JobEntity> searchLive(
-      ClientSession session, JobFilter filter, int limit, int offset) {
+  List<JobEntity> searchLive(ClientSession session, JobFilter filter, int limit, int offset) {
     Bson query = buildFilter(filter);
     Bson sort = buildSort(filter);
     List<JobEntity> result = new ArrayList<>(limit);

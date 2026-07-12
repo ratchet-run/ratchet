@@ -381,6 +381,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
+  }
+
+  @Override
   public boolean resetRunningJob(UUID id, String nodeId) {
     return lifecycle.resetRunningJob(id, nodeId);
   }
@@ -819,7 +824,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     query = new PostgresqlJobQueryOperations(ctx, tags);
     batches = new PostgresqlBatchOperations(ctx);
     claims = new PostgresqlJobClaimOperations(ctx, reads);
-    lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches);
+    lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches, query);
     nodeLocks = new PostgresqlNodeLockOperations(ctx);
     archives = new PostgresqlArchiveOperations(ctx, reads, deletes);
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);

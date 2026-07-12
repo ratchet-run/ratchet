@@ -138,7 +138,8 @@ class MongoExceptionTranslationTest {
             });
     MongoStoreContext ctx = contextWithJobs(jobs);
     MongoJobLifecycleOperations lifecycle =
-        new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx));
+        new MongoJobLifecycleOperations(
+            ctx, new MongoBatchOperations(ctx), new MongoJobQueryOperations(ctx));
 
     RatchetTransientStoreException thrown =
         assertThrows(
@@ -175,7 +176,8 @@ class MongoExceptionTranslationTest {
             });
     MongoStoreContext ctx = contextWithJobsAndSession(jobs, session);
     MongoJobLifecycleOperations lifecycle =
-        new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx));
+        new MongoJobLifecycleOperations(
+            ctx, new MongoBatchOperations(ctx), new MongoJobQueryOperations(ctx));
 
     assertThrows(
         RatchetTransientStoreException.class,

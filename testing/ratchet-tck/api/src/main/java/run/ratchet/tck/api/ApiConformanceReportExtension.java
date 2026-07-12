@@ -57,6 +57,7 @@ public class ApiConformanceReportExtension extends AbstractConformanceReportExte
                   "AbstractPayloadSizeContract",
                   "AbstractBroadcastSignalContract",
                   "AbstractBulkCancelEventContract",
+                  "AbstractBulkRetryContract",
                   "AbstractJobControlReturnContract",
                   "AbstractRetryPolicyContract",
                   "AbstractJobQueryContract",

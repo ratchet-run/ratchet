@@ -212,6 +212,33 @@ public void onBulkCancelled(@Observes JobsBulkCancelledEvent event) {
 }
 ```
 
+### JobsBulkRetriedEvent
+
+Fired exactly once when `retryJobs(JobFilter, int)` resets at least one failed job. Bulk retry does
+not publish a `JobRetryingEvent` for each selected job.
+
+```java
+public class JobsBulkRetriedEvent implements Serializable {
+    public JobFilter getFilter()
+    public int getLimit()
+    public int getCount()
+    public Instant getRetriedAt()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getFilter()` | `JobFilter` | Selection requested by the caller |
+| `getLimit()` | `int` | Maximum jobs allowed in the recovery batch |
+| `getCount()` | `int` | Number of failed jobs reset to pending |
+| `getRetriedAt()` | `Instant` | When the bulk operation completed |
+
+```java
+public void onBulkRetried(@Observes JobsBulkRetriedEvent event) {
+    log.info("Recovered {} failed jobs", event.getCount());
+}
+```
+
 ### JobPausedEvent
 
 Fired when a job is paused.
@@ -551,6 +578,10 @@ public class SchedulerMonitoring {
     public void onBulkCancelled(@Observes JobsBulkCancelledEvent e) {
         metrics.counter("jobs.cancelled.bulk", "tag", e.getTag())
             .increment(e.getCount());
+    }
+
+    public void onBulkRetried(@Observes JobsBulkRetriedEvent e) {
+        metrics.counter("jobs.retried.bulk").increment(e.getCount());
     }
 }
 ```

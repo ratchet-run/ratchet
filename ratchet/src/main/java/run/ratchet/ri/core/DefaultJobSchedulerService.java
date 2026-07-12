@@ -25,6 +25,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -34,6 +35,7 @@ import javax.naming.NamingException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.JobBuilder;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
@@ -49,6 +51,7 @@ import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
+import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -675,6 +678,33 @@ public class DefaultJobSchedulerService
       log.debugf("Cannot retry job %s — not in FAILED state (current: %s)", jobId, current);
     }
     return false;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p><strong>Authorization note:</strong> this bulk operation is not subject to per-job {@link
+   * JobAuthorizationPolicy} checks. Use {@link #retryJob(UUID)} for authorization-gated recovery.
+   */
+  @Override
+  @Transactional
+  public int retryJobs(JobFilter filter, int limit) {
+    Objects.requireNonNull(filter, "filter");
+    if (limit < 1 || limit > 1000) {
+      throw new IllegalArgumentException("limit must be between 1 and 1000");
+    }
+    int count = jobRetryStore.resetFailedToPending(filter, limit);
+    if (count > 0) {
+      JobsBulkRetriedEvent event =
+          new JobsBulkRetriedEvent(filter, limit, count, effective().instant());
+      if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+        eventPublisher.publish(event);
+      }
+      if (wakeupService != null) {
+        wakeupService.notify(JobPriority.NORMAL, true, null);
+      }
+    }
+    return count;
   }
 
   /**

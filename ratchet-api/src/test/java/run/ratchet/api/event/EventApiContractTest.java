@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
@@ -336,6 +337,21 @@ class EventApiContractTest {
 
     assertEquals(SignalDecision.Outcome.REJECTED, event.getOutcome());
     assertEquals("no", event.getRejectionReason());
+  }
+
+  @Test
+  void bulkRetriedEventValidatesBoundsAndPreservesSelection() {
+    JobFilter filter = JobFilter.builder().tags("billing").build();
+    JobsBulkRetriedEvent event = new JobsBulkRetriedEvent(filter, 25, 7, TIMESTAMP);
+
+    assertEquals(filter, event.getFilter());
+    assertEquals(25, event.getLimit());
+    assertEquals(7, event.getCount());
+    assertEquals(TIMESTAMP, event.getRetriedAt());
+    assertThrows(
+        IllegalArgumentException.class, () -> new JobsBulkRetriedEvent(filter, 0, 1, TIMESTAMP));
+    assertThrows(
+        IllegalArgumentException.class, () -> new JobsBulkRetriedEvent(filter, 1, 2, TIMESTAMP));
   }
 
   @Test

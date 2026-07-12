@@ -295,6 +295,36 @@ if (retried) {
 }
 ```
 
+### retryJobs
+
+```java
+int retryJobs(JobFilter filter, int limit)
+```
+
+Recovers a bounded set of failed jobs in one atomic store operation. Ratchet intersects the filter
+with `FAILED`, ignores archived rows, resets retry metadata, and makes the selected jobs immediately
+eligible again. The limit must be from 1 through 1000; repeat the call to drain a larger incident in
+bounded transactions.
+
+```java
+JobFilter billingFailures = JobFilter.builder()
+    .tags("billing")
+    .createdAfter(incidentStarted)
+    .sortField(JobQuerySortField.CREATED_AT)
+    .sortAscending(true)
+    .build();
+
+int recovered = scheduler.retryJobs(billingFailures, 250);
+```
+
+- All `JobFilter` criteria and ordering apply, but only current `FAILED` jobs are eligible.
+- The batch commits or rolls back as a unit. A business-key reservation conflict rolls back the
+  whole selected batch instead of partially recovering it.
+- This administrative operation does not run per-job authorization checks. Use `retryJob(UUID)`
+  when each job needs an authorization decision.
+- One `JobsBulkRetriedEvent` and one scheduler wakeup are emitted when the count is positive. Ratchet
+  does not emit one `JobRetryingEvent` per recovered job.
+
 ## Signal delivery methods
 
 Signal-waiting jobs are created through [`JobBuilder.awaitSignal()`](./job-builder#awaitsignal). They remain in `WAITING` status until a matching signal is delivered, or until their signal timeout fails the job.

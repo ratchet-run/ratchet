@@ -16,12 +16,15 @@
 package run.ratchet.store.oracle;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.util.BulkRetryFilters;
 
 final class OracleJobLifecycleOperations
     implements JobBatchStatusStore, JobRetryStore, JobTerminalStore, JobPauseStore {
@@ -29,14 +32,17 @@ final class OracleJobLifecycleOperations
   private final OracleJobStatusTransitions transitions;
   private final OracleJobTerminalOperations terminals;
   private final OracleJobRecurringAndResetOperations recurring;
+  private final OracleJobQueryOperations query;
 
   OracleJobLifecycleOperations(
       OracleStoreContext ctx,
       OracleBusinessKeyReservations reservations,
-      OracleBatchOperations batches) {
+      OracleBatchOperations batches,
+      OracleJobQueryOperations query) {
     this.transitions = new OracleJobStatusTransitions(ctx);
     this.terminals = new OracleJobTerminalOperations(ctx, reservations, batches);
     this.recurring = new OracleJobRecurringAndResetOperations(ctx);
+    this.query = query;
   }
 
   @Override
@@ -126,6 +132,16 @@ final class OracleJobLifecycleOperations
   @Override
   public boolean resetFailedToPending(UUID id) {
     return terminals.resetFailedToPending(id);
+  }
+
+  @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    JobFilter failed = BulkRetryFilters.normalize(filter, limit);
+    if (failed == null) {
+      return 0;
+    }
+    List<UUID> ids = query.searchJobs(failed, limit, 0).stream().map(job -> job.getId()).toList();
+    return terminals.resetFailedToPending(ids);
   }
 
   @Override

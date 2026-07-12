@@ -59,11 +59,15 @@ import java.util.function.Supplier;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.util.BulkRetryFilters;
 import run.ratchet.store.util.StatusClassifier;
 
 /**
@@ -80,18 +84,37 @@ final class MongoJobLifecycleOperations
   private final MongoStoreContext ctx;
   private final MongoBatchOperations batches;
   private final MongoBusinessKeyReservations reservations;
+  private final MongoJobQueryOperations query;
 
   MongoJobLifecycleOperations(MongoStoreContext ctx, MongoBatchOperations batches) {
-    this(ctx, batches, new MongoBusinessKeyReservations(ctx));
+    this(
+        ctx,
+        batches,
+        new MongoBusinessKeyReservations(ctx),
+        new MongoJobQueryOperations(ctx));
   }
 
   MongoJobLifecycleOperations(
       MongoStoreContext ctx,
       MongoBatchOperations batches,
       MongoBusinessKeyReservations reservations) {
+    this(ctx, batches, reservations, new MongoJobQueryOperations(ctx));
+  }
+
+  MongoJobLifecycleOperations(
+      MongoStoreContext ctx, MongoBatchOperations batches, MongoJobQueryOperations query) {
+    this(ctx, batches, new MongoBusinessKeyReservations(ctx), query);
+  }
+
+  MongoJobLifecycleOperations(
+      MongoStoreContext ctx,
+      MongoBatchOperations batches,
+      MongoBusinessKeyReservations reservations,
+      MongoJobQueryOperations query) {
     this.ctx = ctx;
     this.batches = batches;
     this.reservations = reservations;
+    this.query = query;
   }
 
   @Override
@@ -531,6 +554,51 @@ final class MongoJobLifecycleOperations
                               set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
                               inc(VERSION, 1))));
         });
+  }
+
+  @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    JobFilter failed = BulkRetryFilters.normalize(filter, limit);
+    if (failed == null) {
+      return 0;
+    }
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            List<UUID> ids =
+                query.searchLive(session, failed, limit, 0).stream().map(JobEntity::getId).toList();
+            if (ids.isEmpty()) {
+              return 0;
+            }
+            Instant now = Instant.now();
+            UpdateResult result =
+                ctx.jobs()
+                    .updateMany(
+                        session,
+                        and(in(ID, ids), eq(STATUS, "FAILED")),
+                        combine(
+                            set(STATUS, "PENDING"),
+                            set(ATTEMPTS, 0),
+                            set(LAST_ERROR, null),
+                            set(SCHEDULED_TIME, DocumentMapper.toDate(now)),
+                            set(PICKED_BY, null),
+                            set(PICKED_AT, null),
+                            unset(TERMINATED_AT),
+                            set(UPDATED_AT, DocumentMapper.toDate(now)),
+                            inc(VERSION, 1)));
+            int modified = (int) result.getModifiedCount();
+            if (modified != ids.size()) {
+              throw new RatchetTransientStoreException(
+                  "Bulk retry selection changed concurrently: selected "
+                      + ids.size()
+                      + " jobs but reset "
+                      + modified);
+            }
+            return modified;
+          });
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("bulk reset failed jobs to pending", e);
+    }
   }
 
   @Override

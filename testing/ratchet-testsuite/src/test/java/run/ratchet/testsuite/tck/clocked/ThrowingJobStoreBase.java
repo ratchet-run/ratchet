@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
@@ -285,6 +286,11 @@ public abstract class ThrowingJobStoreBase
   @Override
   public boolean resetFailedToPending(UUID id) {
     return fail("resetFailedToPending");
+  }
+
+  @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return fail("resetFailedToPending(filter, limit)");
   }
 
   // ----- JobPauseStore -----

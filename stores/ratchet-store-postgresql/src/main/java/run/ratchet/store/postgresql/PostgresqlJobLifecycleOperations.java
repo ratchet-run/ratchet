@@ -16,12 +16,15 @@
 package run.ratchet.store.postgresql;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.util.BulkRetryFilters;
 
 final class PostgresqlJobLifecycleOperations
     implements JobBatchStatusStore, JobTerminalStore, JobRetryStore, JobPauseStore {
@@ -29,14 +32,17 @@ final class PostgresqlJobLifecycleOperations
   private final PostgresqlJobStatusTransitions transitions;
   private final PostgresqlJobTerminalOperations terminals;
   private final PostgresqlJobRecurringAndResetOperations recurring;
+  private final PostgresqlJobQueryOperations query;
 
   PostgresqlJobLifecycleOperations(
       PostgresqlStoreContext ctx,
       PostgresqlBusinessKeyReservations reservations,
-      PostgresqlBatchOperations batches) {
+      PostgresqlBatchOperations batches,
+      PostgresqlJobQueryOperations query) {
     this.transitions = new PostgresqlJobStatusTransitions(ctx);
     this.terminals = new PostgresqlJobTerminalOperations(ctx, reservations, batches);
     this.recurring = new PostgresqlJobRecurringAndResetOperations(ctx);
+    this.query = query;
   }
 
   @Override
@@ -126,6 +132,16 @@ final class PostgresqlJobLifecycleOperations
   @Override
   public boolean resetFailedToPending(UUID id) {
     return terminals.resetFailedToPending(id);
+  }
+
+  @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    JobFilter failed = BulkRetryFilters.normalize(filter, limit);
+    if (failed == null) {
+      return 0;
+    }
+    List<UUID> ids = query.searchJobs(failed, limit, 0).stream().map(job -> job.getId()).toList();
+    return terminals.resetFailedToPending(ids);
   }
 
   @Override
