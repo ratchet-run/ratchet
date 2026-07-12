@@ -159,4 +159,4 @@ Like the other SQL stores, the bundled startup migrator supports SQL Server. Set
 - [PostgreSQL Deployment](/deployment/postgresql)
 - [Oracle Deployment](/deployment/oracle)
 - [Database Setup](/deployment/database-setup)
-- [Installation](/deployment/installation)
+- [Runtime setup](/deployment/installation)

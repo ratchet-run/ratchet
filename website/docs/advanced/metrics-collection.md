@@ -10,7 +10,7 @@ Ratchet provides a `MetricsCollector` SPI that receives callbacks during the job
 
 ## MetricsCollector SPI
 
-`MetricsCollector` covers the job lifecycle and the scheduler paths operators need when work is not progressing normally. It currently declares 22 callbacks:
+`MetricsCollector` covers the job lifecycle and the scheduler paths operators need when work is not progressing normally. It currently declares 23 callbacks:
 
 | Area | Callbacks |
 |------|-----------|
@@ -20,6 +20,7 @@ Ratchet provides a `MetricsCollector` SPI that receives callbacks during the job
 | Wakeups and routing | `localWakeup`, `executionTargetFallback`, `clusterWakeupPublished`, `clusterWakeupReceived` |
 | Callbacks and signals | `callbackFailed`, `signalWaiting`, `signalDelivered`, `signalTimedOut`, `signalCancelled` |
 | Store health | `storeOperation`, `pollerBreakerState` |
+| Application resilience | `circuitBreakerState` |
 | Payload encryption | `encryptionIntegrityViolation`, `encryptionEnvelopeVersionSkew` |
 
 The first ten methods are required for a direct implementation. The remaining methods have default no-op bodies so the incubating SPI can grow without breaking existing implementations. Treat those defaults as a compatibility mechanism, not a claim that the signals are unimportant. A complete monitoring adapter should make an explicit decision about every callback.
@@ -74,7 +75,7 @@ public class MetricsProducer {
 
 ### Published Metrics
 
-The Micrometer adapter publishes the following 23 meters:
+The Micrometer adapter publishes the following 24 meters:
 
 | Metric Name | Type | Tags | Description |
 |-------------|------|------|-------------|
@@ -99,6 +100,7 @@ The Micrometer adapter publishes the following 23 meters:
 | `ratchet.signal.cancelled` | Counter | `type`, `signal_key` | Signal waits cancelled before delivery |
 | `ratchet.store.operation` | Timer | `store`, `operation`, `outcome` | Timed store operations on claim and execution hot paths |
 | `ratchet.poller.breaker.state` | Gauge | `breaker` | Poller claim-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.circuit.breaker.state` | Gauge | `service`, `profile` | Application circuit-breaker state: `0` closed/unknown, `1` half-open, `2` open |
 | `ratchet.encryption.integrity.violations` | Counter | `surface` | A row marked as encrypted contained unframed plaintext. The read succeeds, but this signals a downgrade, lagging writer, or bug. |
 | `ratchet.encryption.envelope.version_skew` | Counter | `version_gap` | A job used a newer envelope than this node can read. `next` is one version ahead, `multiple_versions_ahead` is more than one, and `not_newer` flags an unexpected callback. Ratchet releases valid newer jobs for an upgraded peer; a persistent rate identifies a lagging node. |
 

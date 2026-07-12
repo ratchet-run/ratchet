@@ -255,7 +255,8 @@ non-container deployments.
 
 ## What's next
 
-With your dependencies in place and the schema applied, you're ready to write your first job:
+With your dependencies in place and the schema applied, complete [Runtime setup](/deployment/installation) before booting the application. Ratchet intentionally fails startup until the deployment provides both `RatchetOptions` and a non-empty `ClassPolicy` allowlist.
 
+- [Runtime setup](/deployment/installation) -- Required CDI beans, security policy, and container resources
 - [Quick Start](./quickstart.md) -- Minimal working example in under 5 minutes
 - [Your First Job](./first-job.md) -- Complete walkthrough with retries, callbacks, and monitoring

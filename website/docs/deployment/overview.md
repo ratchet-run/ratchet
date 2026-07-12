@@ -153,7 +153,7 @@ Before going to production:
 
 ## Next steps
 
-- [Installation & Setup](/deployment/installation) -- Step-by-step getting started
+- [Runtime setup](/deployment/installation) -- CDI, security policy, and container resources
 - [Database Setup](/deployment/database-setup) -- Schema application for all stores
 - [Rolling Upgrades](/deployment/rolling-upgrades) -- Version coexistence boundaries and rollout order
 - [Configuration](/deployment/configuration) -- Full configuration reference

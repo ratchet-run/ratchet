@@ -542,7 +542,8 @@ public class RatchetOptions {
    *
    * @param allowEmptyClassPolicy {@code true} to permit running without a configured {@code
    *     ClassPolicy}; {@code false} (default) fails fast at startup when no policy is bound
-   * @param redactEmails {@code true} to redact email-shaped strings from observability output
+   * @param redactEmails {@code true} to redact email-shaped strings from sanitized exception text
+   *     before persistence or lifecycle-event publication
    * @param maskPayloads {@code true} to mask sensitive fields in structured payloads returned from
    *     a read API — the {@code params} map and trace context on a job detail, plus the serialized
    *     job result; {@code false} (default) leaves them unmasked. Map masking is key-based and

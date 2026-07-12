@@ -144,4 +144,4 @@ Like the other SQL stores, the bundled startup migrator supports Oracle. Set `ra
 - [PostgreSQL Deployment](/deployment/postgresql)
 - [MySQL Deployment](/deployment/mysql)
 - [Database Setup](/deployment/database-setup)
-- [Installation](/deployment/installation)
+- [Runtime setup](/deployment/installation)

@@ -137,7 +137,7 @@ public class PlatformRatchetConfigSource implements RatchetConfigSource {
 }
 ```
 
-The env lookup recognizes canonical `RATCHET_*` environment variable names and `ratchet.*` property names, such as `ratchet.poller.batch-size`.
+The env lookup recognizes canonical `RATCHET_*` environment variable names and `ratchet.*` property names, such as `ratchet.poller.batch-size`. See the source-derived [Configuration reference](/deployment/configuration-reference) for the complete catalog and defaults.
 
 ## SPI Overrides
 
@@ -154,5 +154,6 @@ Security and behavior extension points are CDI beans, not class names in propert
 ## See also
 
 - [Getting Started configuration](/getting-started/configuration)
-- [Installation](/deployment/installation)
+- [Configuration reference](/deployment/configuration-reference)
+- [Runtime setup](/deployment/installation)
 - [Troubleshooting](/troubleshooting/common-issues)

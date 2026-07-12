@@ -188,6 +188,9 @@ DDL, not a datasource.
 | Builder method | Default | Description |
 |---|---:|---|
 | `defaultThreadingMode(ThreadingMode)` | `PLATFORM` | Pool a job runs on when it sets no target of its own |
+| `jobExecutorJndi(String)` | `java:comp/DefaultManagedExecutorService` | Managed executor used for job attempts |
+| `scheduledExecutorJndi(String)` | `java:comp/DefaultManagedScheduledExecutorService` | Managed scheduled executor used for timers and maintenance |
+| `coordinatorThreadFactoryJndi(String)` | `java:comp/DefaultManagedThreadFactory` | Managed thread factory used by coordinator adapters |
 | `virtualExecutorJndi(String)` | _(none)_ | Adds a second managed executor as the virtual pool; absent means virtual-targeted jobs fall back to platform |
 | `virtualCounterAccounting(boolean)` | `false` | Opt the virtual pool into counter-based backpressure instead of a bounded semaphore |
 | `queueSize(int)` | `100` | Reserved for custom executor implementations |
@@ -241,6 +244,7 @@ DDL, not a datasource.
 | `recurring.convergenceWindowSeconds(long)` | `0` | Startup cleanup convergence window |
 | `timeout.softTimeoutPercent(int)` | `80` | Percent of SLA where warning fires |
 | `timeout.defaultSlaSeconds(long)` | `1800` | Default job SLA timeout |
+| `timeout.signalTimeoutBatchSize(int)` | `500` | Maximum waiting jobs scanned during one signal-timeout tick |
 | `circuitBreaker.enabled(boolean)` | `true` | Master switch for built-in circuit breakers |
 | `circuitBreaker.profile(profile, builder)` | profile defaults | Per-profile thresholds |
 
@@ -281,7 +285,7 @@ public class PlatformRatchetConfigSource implements RatchetConfigSource {
 }
 ```
 
-The env lookup recognizes canonical `ratchet.*` property names and `RATCHET_*` environment variable names.
+The env lookup recognizes canonical `ratchet.*` property names and `RATCHET_*` environment variable names. The source-derived [Configuration reference](/deployment/configuration-reference) lists every fixed pair and its default; the website build fails if that table falls behind the typed catalog.
 
 ## SPI overrides
 
@@ -332,6 +336,17 @@ RatchetOptions.builder()
 ```
 
 In that mode the default policy still rejects every target class. Install a real `ClassPolicy` before running jobs.
+
+## Security and read-surface masking
+
+Two independent controls limit sensitive data exposure:
+
+| Builder method | Property / environment variable | Default | Scope |
+|---|---|---:|---|
+| `security.redactEmails(boolean)` | `ratchet.security.redact-emails` / `RATCHET_REDACT_EMAILS` | `true` | Removes email-shaped strings from sanitized failure text before it is persisted or published |
+| `security.maskPayloads(boolean)` | `ratchet.security.mask-payloads` / `RATCHET_MASK_PAYLOADS` | `false` | Masks sensitive keys in `JobDetail` parameters, trace context, and result values returned by query APIs |
+
+Payload masking is a presentation boundary. It does not rewrite durable payloads and does not change the values handed to a worker. When masking is enabled, `PayloadMaskingPolicy` decides which field names are sensitive; provide a CDI alternative when the built-in credential and PII names do not match your domain.
 
 ## What's next
 

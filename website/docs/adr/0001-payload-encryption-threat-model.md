@@ -1,7 +1,8 @@
 # ADR 0001 — Payload encryption: threat model and protected-surface scope
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-06-04
+- **Implemented:** 2026-06-05 in the `ratchet-encryption` reference engines and runtime wiring
 - **Supersedes:** the incubating `PayloadCipher` string-transform seam (uncommitted)
 - **Scope:** payload encryption for sensitive job parameters. This ADR is the
   prerequisite the feature is gated on: an ADR documenting the threat model and which
@@ -27,7 +28,7 @@ difference between a feature that protects data and one that only appears to.
 
 Ratchet serializes job data to JSON and persists it. Compliance programs at regulated
 enterprises require that sensitive job parameters not be readable in plaintext in the
-store. There is no encryption primitive today.
+store. At the time of this decision, Ratchet had no production encryption primitive.
 
 Three constraints shape every option:
 

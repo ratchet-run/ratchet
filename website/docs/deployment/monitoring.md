@@ -98,7 +98,7 @@ topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 
 ### Custom `MetricsCollector`
 
-If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Its 22 callbacks cover job outcomes, success finalization, claims and gates, wakeups and executor routing, callback and signal events, store timing, the poller breaker, and encryption integrity/version signals.
+If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Its 23 callbacks cover job outcomes, success finalization, claims and gates, wakeups and executor routing, callback and signal events, store timing, poller and application circuit breakers, and encryption integrity/version signals.
 
 The example below is intentionally partial: it records two basic job outcomes and drops every other signal. Extending `NoOpMetricsCollector` is convenient when that is what you want. For a production replacement, review every callback in [Metrics Collection](../advanced/metrics-collection.md#metricscollector-spi) and either export it or delegate it to a complete collector.
 
