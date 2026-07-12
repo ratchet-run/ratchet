@@ -82,7 +82,8 @@ class PostgresqlSchemaMigrationDialectTest {
             .orElseThrow();
 
     assertEquals(
-        List.of("001", "002"), migrations.stream().map(script -> script.version()).toList());
+        List.of("001", "002", "003", "004", "005"),
+        migrations.stream().map(script -> script.version()).toList());
     assertEquals(
         "de49b983ef0b9110af22f59047a9e91fd1b37efdf7a790241b8297f82c857160", v001.checksum());
   }
