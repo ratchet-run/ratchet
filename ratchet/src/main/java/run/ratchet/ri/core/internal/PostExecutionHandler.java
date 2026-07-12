@@ -19,9 +19,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.store.entity.JobEntity;
@@ -62,6 +64,21 @@ import run.ratchet.store.entity.JobEntity;
 @ApplicationScoped
 @Transactional(value = TxType.REQUIRES_NEW, rollbackOn = Exception.class)
 public class PostExecutionHandler {
+
+  /**
+   * Result of a timeout transition that won its terminal-state compare-and-swap.
+   *
+   * <p>The ordered events are published before {@code JobDlqEvent} by {@link DeadLetterService} in
+   * one after-commit callback on this handler's transaction.
+   */
+  public record TerminalTimeoutTransition(
+      JobEntity job, List<AbstractJobSchedulerEvent> eventsBeforeDlq) {
+
+    public TerminalTimeoutTransition {
+      Objects.requireNonNull(job, "job must not be null");
+      eventsBeforeDlq = List.copyOf(eventsBeforeDlq);
+    }
+  }
 
   private final BatchService batchService;
   private final WorkflowScheduler workflowScheduler;
@@ -146,10 +163,11 @@ public class PostExecutionHandler {
    * transaction.
    *
    * <p>The callback must perform the complete timeout transition, including the retry-attempt
-   * update and any after-commit event registration. Returning the terminal job means the callback
-   * won the terminal-state compare-and-swap; permanent-failure routing then runs locally in this
-   * same {@link TxType#REQUIRES_NEW} transaction. An empty result means the job was retried or a
-   * competing path already changed it, so no terminal lifecycle work is performed.
+   * update and construction of its ordered terminal events. Returning a terminal transition means
+   * the callback won the terminal-state compare-and-swap; permanent-failure routing then registers
+   * the timeout, failure, and DLQ events in one after-commit callback on this same {@link
+   * TxType#REQUIRES_NEW} transaction. An empty result means the job was retried or a competing path
+   * already changed it, so no terminal lifecycle work is performed.
    *
    * @param ex timeout failure used for DLQ routing
    * @param cancelChainOnFailure whether a terminal signal timeout must cancel its chain
@@ -157,14 +175,19 @@ public class PostExecutionHandler {
    * @return {@code true} when the callback applied the terminal transition
    */
   public boolean handleTimeoutTransition(
-      Throwable ex, boolean cancelChainOnFailure, Supplier<Optional<JobEntity>> transition) {
-    Optional<JobEntity> terminalJob = transition.get();
-    if (terminalJob.isEmpty()) {
+      Throwable ex,
+      boolean cancelChainOnFailure,
+      Supplier<Optional<TerminalTimeoutTransition>> transition) {
+    Optional<TerminalTimeoutTransition> terminalTransition = transition.get();
+    if (terminalTransition.isEmpty()) {
       return false;
     }
 
-    JobEntity job = terminalJob.orElseThrow();
-    handlePermanentFailure(job, ex);
+    TerminalTimeoutTransition outcome = terminalTransition.orElseThrow();
+    JobEntity job = outcome.job();
+    requireFailureRoutingMetadata(job);
+    deadLetterService.recordDlqTransitionInCurrentTransaction(job, ex, outcome.eventsBeforeDlq());
+    wakeupIfNewWorkAvailable(applyPermanentFailureBookkeeping(job));
     if (cancelChainOnFailure) {
       workflowScheduler.cancelChain(job);
     }

@@ -38,6 +38,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 
@@ -48,7 +49,7 @@ class PostExecutionHandlerTest {
   @Mock private WorkflowScheduler workflowScheduler;
   @Mock private DeadLetterService deadLetterService;
   @Mock private PollerScheduler pollerScheduler;
-  @Mock private Supplier<Optional<JobEntity>> timeoutTransition;
+  @Mock private Supplier<Optional<TerminalTimeoutTransition>> timeoutTransition;
 
   private PostExecutionHandler handler;
 
@@ -320,7 +321,8 @@ class PostExecutionHandlerTest {
   void handleTimeoutTransition_terminalHardTimeoutRoutesFailureInSameBoundary() {
     JobEntity job = job(JobExecutionType.SINGLE);
     RuntimeException failure = new RuntimeException("boom");
-    when(timeoutTransition.get()).thenReturn(Optional.of(job));
+    TerminalTimeoutTransition outcome = new TerminalTimeoutTransition(job, List.of());
+    when(timeoutTransition.get()).thenReturn(Optional.of(outcome));
     when(workflowScheduler.scheduleNext(job)).thenReturn(false);
 
     boolean terminal = handler.handleTimeoutTransition(failure, false, timeoutTransition);
@@ -328,7 +330,9 @@ class PostExecutionHandlerTest {
     assertTrue(terminal);
     InOrder order = inOrder(timeoutTransition, deadLetterService, workflowScheduler);
     order.verify(timeoutTransition).get();
-    order.verify(deadLetterService).recordDlqTransition(job, failure);
+    order
+        .verify(deadLetterService)
+        .recordDlqTransitionInCurrentTransaction(job, failure, List.of());
     order.verify(workflowScheduler).scheduleNext(job);
     verify(workflowScheduler, never()).cancelChain(job);
   }
@@ -337,14 +341,17 @@ class PostExecutionHandlerTest {
   void handleTimeoutTransition_terminalSignalTimeoutCancelsChainAfterFailureRouting() {
     JobEntity job = job(JobExecutionType.SINGLE);
     RuntimeException failure = new RuntimeException("boom");
-    when(timeoutTransition.get()).thenReturn(Optional.of(job));
+    TerminalTimeoutTransition outcome = new TerminalTimeoutTransition(job, List.of());
+    when(timeoutTransition.get()).thenReturn(Optional.of(outcome));
     when(workflowScheduler.scheduleNext(job)).thenReturn(false);
 
     handler.handleTimeoutTransition(failure, true, timeoutTransition);
 
     InOrder order = inOrder(timeoutTransition, deadLetterService, workflowScheduler);
     order.verify(timeoutTransition).get();
-    order.verify(deadLetterService).recordDlqTransition(job, failure);
+    order
+        .verify(deadLetterService)
+        .recordDlqTransitionInCurrentTransaction(job, failure, List.of());
     order.verify(workflowScheduler).scheduleNext(job);
     order.verify(workflowScheduler).cancelChain(job);
   }
