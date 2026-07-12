@@ -16,8 +16,11 @@
 package run.ratchet.spi;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.function.Function;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobHandle;
@@ -60,6 +63,22 @@ public interface InvocationBatchBuilder {
 
   /** Requests execution on the platform-thread executor target. */
   InvocationBatchBuilder platform();
+
+  /** Sets the retry backoff policy and base delay for every invocation child. */
+  default InvocationBatchBuilder withBackoff(BackoffPolicy policy, Duration param) {
+    Objects.requireNonNull(policy, "policy");
+    Objects.requireNonNull(param, "param");
+    throw new UnsupportedOperationException(
+        "Invocation batch child retry backoff is not supported");
+  }
+
+  /** Sets the maximum retry count for every invocation child. */
+  default InvocationBatchBuilder withMaxRetries(int retries) {
+    if (retries < 0) {
+      throw new IllegalArgumentException("retries must be at least 0");
+    }
+    throw new UnsupportedOperationException("Invocation batch child retries are not supported");
+  }
 
   /**
    * Persists the batch parent and all children through the standard creation path.

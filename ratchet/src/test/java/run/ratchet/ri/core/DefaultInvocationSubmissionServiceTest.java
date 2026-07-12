@@ -36,6 +36,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.event.BatchChunkFailureEvent;
@@ -229,6 +230,8 @@ class DefaultInvocationSubmissionServiceTest {
             id ->
                 new JobInvocation(
                     TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+        .withMaxRetries(4)
+        .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(3))
         .submit();
 
     ArgumentCaptor<List<JobEntity>> captor = ArgumentCaptor.forClass(List.class);
@@ -237,6 +240,9 @@ class DefaultInvocationSubmissionServiceTest {
     assertEquals(2, children.size());
     assertEquals(List.of("inv_1"), children.get(0).getPayload().args());
     assertEquals(List.of("inv_2"), children.get(1).getPayload().args());
+    assertEquals(4, children.get(0).getMaxRetries());
+    assertEquals(BackoffPolicy.FIXED, children.get(0).getBackoffPolicy());
+    assertEquals(3_000, children.get(0).getBackoffParamMs());
   }
 
   @Test
@@ -261,6 +267,8 @@ class DefaultInvocationSubmissionServiceTest {
             id ->
                 new JobInvocation(
                     TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+        .withMaxRetries(2)
+        .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofMillis(500))
         .start();
 
     ArgumentCaptor<List<JobEntity>> captor = ArgumentCaptor.forClass(List.class);
@@ -270,6 +278,9 @@ class DefaultInvocationSubmissionServiceTest {
     assertEquals(1, chunks.get(1).size());
     assertEquals(List.of("inv_1"), chunks.get(0).get(0).getPayload().args());
     assertEquals(List.of("inv_3"), chunks.get(1).get(0).getPayload().args());
+    assertEquals(2, chunks.get(0).get(0).getMaxRetries());
+    assertEquals(BackoffPolicy.EXPONENTIAL, chunks.get(0).get(0).getBackoffPolicy());
+    assertEquals(500, chunks.get(0).get(0).getBackoffParamMs());
   }
 
   @Test

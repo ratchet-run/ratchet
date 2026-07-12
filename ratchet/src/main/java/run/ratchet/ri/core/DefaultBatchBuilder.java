@@ -16,14 +16,17 @@
 package run.ratchet.ri.core;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.function.Function;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.SerializablePredicate;
@@ -50,6 +53,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   private final List<ChildSpec> children = new ArrayList<>();
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
+  private final BatchChildRetryOptions childRetryOptions = new BatchChildRetryOptions();
   private SerializableConsumer<BatchContext> progressHook;
   private String executionTarget;
 
@@ -88,6 +92,18 @@ public class DefaultBatchBuilder implements BatchBuilder {
   @Override
   public BatchBuilder platform() {
     this.executionTarget = ExecutorTargets.PLATFORM;
+    return this;
+  }
+
+  @Override
+  public BatchBuilder withBackoff(BackoffPolicy policy, Duration param) {
+    childRetryOptions.withBackoff(policy, param);
+    return this;
+  }
+
+  @Override
+  public BatchBuilder withMaxRetries(int retries) {
+    childRetryOptions.withMaxRetries(retries);
     return this;
   }
 
@@ -152,6 +168,10 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   String executionTarget() {
     return executionTarget;
+  }
+
+  JobOptions childOptions() {
+    return childRetryOptions.value();
   }
 
   /** Invocation-typed sibling of {@link #forEach}: each child persists the factory's invocation. */

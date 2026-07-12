@@ -468,6 +468,7 @@ class DefaultJobCreationService
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
       childJob.setExecutionTarget(builder.executionTarget());
+      applyOptions(childJob, builder.childOptions());
       stampCallerPrincipal(childJob);
       checkCreateAuthorization(childJob);
       childJobs.add(childJob);
@@ -872,6 +873,7 @@ class DefaultJobCreationService
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
       child.setExecutionTarget(builder.executionTarget());
+      applyOptions(child, builder.childOptions());
       stampCallerPrincipal(child);
       checkCreateAuthorization(child);
       children.add(child);

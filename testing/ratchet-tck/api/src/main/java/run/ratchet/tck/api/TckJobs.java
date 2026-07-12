@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.JobResult;
@@ -67,6 +68,7 @@ public final class TckJobs {
       new ConcurrentLinkedQueue<>();
   private static final ConcurrentLinkedQueue<String> RAW_SIGNAL_PAYLOADS =
       new ConcurrentLinkedQueue<>();
+  private static final AtomicInteger FLAKY_BATCH_CHILD_ATTEMPTS = new AtomicInteger();
 
   private TckJobs() {}
 
@@ -82,6 +84,18 @@ public final class TckJobs {
   /** Always-failing task body. Used by retry / failure-path contracts. */
   public static void throwIntentional() {
     throw new IllegalStateException("intentional TCK failure");
+  }
+
+  /** Batch child that fails its first attempt and succeeds on retry. */
+  public static void failFirstBatchChildAttempt(String item) {
+    if (FLAKY_BATCH_CHILD_ATTEMPTS.incrementAndGet() == 1) {
+      throw new IllegalStateException("intentional first batch-child failure for " + item);
+    }
+  }
+
+  /** Number of attempts made by {@link #failFirstBatchChildAttempt(String)}. */
+  public static int flakyBatchChildAttempts() {
+    return FLAKY_BATCH_CHILD_ATTEMPTS.get();
   }
 
   /**
@@ -225,5 +239,6 @@ public final class TckJobs {
     WORKFLOW_BRANCH_EVENTS.clear();
     SIGNAL_DECISIONS.clear();
     RAW_SIGNAL_PAYLOADS.clear();
+    FLAKY_BATCH_CHILD_ATTEMPTS.set(0);
   }
 }

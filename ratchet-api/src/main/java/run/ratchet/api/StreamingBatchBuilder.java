@@ -16,6 +16,8 @@
 package run.ratchet.api;
 
 import java.io.Serializable;
+import java.time.Duration;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -84,6 +86,40 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    */
   @Incubating
   StreamingBatchBuilder<T> platform();
+
+  /**
+   * Sets the retry backoff policy and base delay for every child job in this batch.
+   *
+   * <p>The setting applies to the whole builder regardless of call order. It does not apply to the
+   * no-op batch parent or workflow branches.
+   *
+   * @param policy the backoff strategy applied between child attempts
+   * @param param policy-specific base delay
+   * @throws NullPointerException if {@code policy} or {@code param} is null
+   * @throws UnsupportedOperationException if the builder does not support child retry settings
+   */
+  default StreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param) {
+    Objects.requireNonNull(policy, "policy");
+    Objects.requireNonNull(param, "param");
+    throw new UnsupportedOperationException("Streaming batch child retry backoff is not supported");
+  }
+
+  /**
+   * Sets the maximum number of retry attempts for every child job in this batch.
+   *
+   * <p>The default is {@code 0} for compatibility. The setting applies to the whole builder
+   * regardless of call order. It does not apply to the no-op batch parent or workflow branches.
+   *
+   * @param retries maximum child retry attempts; {@code 0} disables retries
+   * @throws IllegalArgumentException if {@code retries} is negative
+   * @throws UnsupportedOperationException if the builder does not support child retry settings
+   */
+  default StreamingBatchBuilder<T> withMaxRetries(int retries) {
+    if (retries < 0) {
+      throw new IllegalArgumentException("retries must be at least 0");
+    }
+    throw new UnsupportedOperationException("Streaming batch child retries are not supported");
+  }
 
   /**
    * Submits the configured streaming batch for execution.

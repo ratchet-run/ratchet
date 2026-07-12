@@ -43,6 +43,7 @@ public class ApiConformanceReportExtension extends AbstractConformanceReportExte
               List.of(
                   "AbstractJobLifecycleContract",
                   "AbstractJobRetryContract",
+                  "AbstractBatchRetryContract",
                   "AbstractJobCancelContract",
                   "AbstractDelayedSchedulingContract",
                   "AbstractBusinessKeyContract",
