@@ -58,9 +58,13 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MaskingContext;
 import run.ratchet.spi.PayloadMaskingPolicy;
+import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.spi.SerializedJobResult;
+import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -71,6 +75,8 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.PayloadEncryptor;
 import run.ratchet.store.util.PayloadMaskingPolicyHolder;
 
 @ExtendWith(MockitoExtension.class)
@@ -628,6 +634,32 @@ class DefaultJobQueryServiceTest {
         "{\"password\":\"hunter2\"}",
         detail.jobResult(),
         "result must be raw when masking off (default)");
+  }
+
+  @Test
+  void getJobDetail_decryptsTruncationMetadataAndKeepsReservedStateVisible() {
+    EncryptionTestKit.install(true);
+    try {
+      UUID jobId = UUID.randomUUID();
+      String marker = "{\"_truncated\":true,\"_originalSize\":2048,\"_maxAllowed\":1024}";
+      JobEntity entity = minimalJobWithId(jobId);
+      entity.setJobResult(
+          PayloadEncryptor.encryptJsonColumn(
+              marker, true, EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId)));
+      entity.setResultType(SerializedJobResult.TRUNCATED_RESULT_TYPE);
+      when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
+      when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+          .thenReturn(Collections.emptyList());
+      when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+          .thenReturn(Collections.emptyList());
+
+      JobDetail detail = service.getJobDetail(jobId).orElseThrow();
+
+      assertEquals(marker, detail.jobResult());
+      assertEquals(SerializedJobResult.TRUNCATED_RESULT_TYPE, detail.resultType());
+    } finally {
+      EncryptionHolder.disable();
+    }
   }
 
   @Test
