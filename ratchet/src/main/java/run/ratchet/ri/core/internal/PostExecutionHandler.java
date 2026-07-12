@@ -20,6 +20,8 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Supplier;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.store.entity.JobEntity;
@@ -36,11 +38,13 @@ import run.ratchet.store.entity.JobEntity;
  * those helper calls intentionally share the composite handler's transaction instead of re-entering
  * the CDI proxy.
  *
- * <p>The {@code REQUIRES_NEW} attribute is load bearing: {@link JobTask} is submitted to a {@code
- * ManagedExecutorService} which, per Jakarta Concurrency 3.0 §3.4.4, propagates JTA context from
- * the submitting thread by default. Without {@code REQUIRES_NEW} the post-execution commit would
- * join that inherited transaction, and any rollback of the outer transaction would silently discard
- * the job-completion ack — the job would be re-executed after it had already succeeded.
+ * <p>A {@code ManagedExecutorService} task does not inherit the submitting transaction. Jakarta
+ * Concurrency 3.0 §3.1.8 requires the task to run outside that transaction and suspends any
+ * transaction already associated with the executing thread. The {@code REQUIRES_NEW} attribute is
+ * still load bearing: it gives each composite lifecycle operation one explicit, independent
+ * transaction. It also protects transactional non-executor callers and recovery paths by suspending
+ * their caller transaction, so the lifecycle transition, event registration, and downstream
+ * bookkeeping commit or roll back together instead of following the caller's outcome.
  *
  * <p>{@code rollbackOn = Exception.class} covers the {@code ExecutionException} wrapping that
  * {@code ManagedExecutorService} applies to failures from submitted {@code Callable}s. The default
@@ -135,6 +139,36 @@ public class PostExecutionHandler {
     requireFailureRoutingMetadata(job);
     moveToDlq(job, ex);
     wakeupIfNewWorkAvailable(applyPermanentFailureBookkeeping(job));
+  }
+
+  /**
+   * Runs a timeout-owned state transition and its terminal lifecycle work in one independent
+   * transaction.
+   *
+   * <p>The callback must perform the complete timeout transition, including the retry-attempt
+   * update and any after-commit event registration. Returning the terminal job means the callback
+   * won the terminal-state compare-and-swap; permanent-failure routing then runs locally in this
+   * same {@link TxType#REQUIRES_NEW} transaction. An empty result means the job was retried or a
+   * competing path already changed it, so no terminal lifecycle work is performed.
+   *
+   * @param ex timeout failure used for DLQ routing
+   * @param cancelChainOnFailure whether a terminal signal timeout must cancel its chain
+   * @param transition complete timeout state transition and event-registration callback
+   * @return {@code true} when the callback applied the terminal transition
+   */
+  public boolean handleTimeoutTransition(
+      Throwable ex, boolean cancelChainOnFailure, Supplier<Optional<JobEntity>> transition) {
+    Optional<JobEntity> terminalJob = transition.get();
+    if (terminalJob.isEmpty()) {
+      return false;
+    }
+
+    JobEntity job = terminalJob.orElseThrow();
+    handlePermanentFailure(job, ex);
+    if (cancelChainOnFailure) {
+      workflowScheduler.cancelChain(job);
+    }
+    return true;
   }
 
   private boolean applyPermanentFailureBookkeeping(JobEntity job) {

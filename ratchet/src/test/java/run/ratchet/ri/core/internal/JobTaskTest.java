@@ -38,6 +38,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -481,6 +482,13 @@ class JobTaskTest {
     when(jobStore.incrementRetryAttempt(JOB_UUID))
         .thenAnswer(inv -> running.get() == 1 ? attempts.incrementAndGet() : -1);
     when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
+    when(lifecycleFacade.handleTimeoutTransition(any(), eq(false), any(Supplier.class)))
+        .thenAnswer(
+            invocation -> {
+              Optional<?> terminalJob =
+                  (Optional<?>) invocation.getArgument(2, Supplier.class).get();
+              return terminalJob.isPresent();
+            });
 
     JobTimeoutHandler timeoutHandler =
         new JobTimeoutHandler(
@@ -491,7 +499,6 @@ class JobTaskTest {
             80,
             60L,
             FIXED_CLOCK,
-            null,
             null,
             null,
             null,
@@ -551,7 +558,6 @@ class JobTaskTest {
             80,
             60L,
             FIXED_CLOCK,
-            null,
             null,
             null,
             null,

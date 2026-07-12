@@ -27,7 +27,9 @@ import static org.mockito.Mockito.when;
 import jakarta.transaction.Transactional;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -46,6 +48,7 @@ class PostExecutionHandlerTest {
   @Mock private WorkflowScheduler workflowScheduler;
   @Mock private DeadLetterService deadLetterService;
   @Mock private PollerScheduler pollerScheduler;
+  @Mock private Supplier<Optional<JobEntity>> timeoutTransition;
 
   private PostExecutionHandler handler;
 
@@ -300,6 +303,50 @@ class PostExecutionHandlerTest {
     verify(deadLetterService).recordDlqTransition(batchParent, failure);
     verify(deadLetterService).recordDlqTransition(workflowJoin, failure);
     verifyNoInteractions(batchService, workflowScheduler, pollerScheduler);
+  }
+
+  @Test
+  void handleTimeoutTransition_nonTerminalOutcomeDoesNotRunFailureLifecycle() {
+    RuntimeException failure = new RuntimeException("boom");
+    when(timeoutTransition.get()).thenReturn(Optional.empty());
+
+    handler.handleTimeoutTransition(failure, true, timeoutTransition);
+
+    verify(timeoutTransition).get();
+    verifyNoInteractions(batchService, workflowScheduler, deadLetterService, pollerScheduler);
+  }
+
+  @Test
+  void handleTimeoutTransition_terminalHardTimeoutRoutesFailureInSameBoundary() {
+    JobEntity job = job(JobExecutionType.SINGLE);
+    RuntimeException failure = new RuntimeException("boom");
+    when(timeoutTransition.get()).thenReturn(Optional.of(job));
+    when(workflowScheduler.scheduleNext(job)).thenReturn(false);
+
+    boolean terminal = handler.handleTimeoutTransition(failure, false, timeoutTransition);
+
+    assertTrue(terminal);
+    InOrder order = inOrder(timeoutTransition, deadLetterService, workflowScheduler);
+    order.verify(timeoutTransition).get();
+    order.verify(deadLetterService).recordDlqTransition(job, failure);
+    order.verify(workflowScheduler).scheduleNext(job);
+    verify(workflowScheduler, never()).cancelChain(job);
+  }
+
+  @Test
+  void handleTimeoutTransition_terminalSignalTimeoutCancelsChainAfterFailureRouting() {
+    JobEntity job = job(JobExecutionType.SINGLE);
+    RuntimeException failure = new RuntimeException("boom");
+    when(timeoutTransition.get()).thenReturn(Optional.of(job));
+    when(workflowScheduler.scheduleNext(job)).thenReturn(false);
+
+    handler.handleTimeoutTransition(failure, true, timeoutTransition);
+
+    InOrder order = inOrder(timeoutTransition, deadLetterService, workflowScheduler);
+    order.verify(timeoutTransition).get();
+    order.verify(deadLetterService).recordDlqTransition(job, failure);
+    order.verify(workflowScheduler).scheduleNext(job);
+    order.verify(workflowScheduler).cancelChain(job);
   }
 
   @Test

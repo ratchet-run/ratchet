@@ -65,8 +65,9 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 |---|---|
 | [`JobStartedEvent`](./event-system#jobstartedevent) | Job begins execution |
 | [`JobCompletedEvent`](./event-system#jobcompletedevent) | Job completes successfully |
-| [`JobFailedEvent`](./event-system#jobfailedevent) | Job fails after final attempt |
+| [`JobFailedEvent`](./event-system#jobfailedevent) | Job reaches terminal `FAILED` state |
 | [`JobRetryingEvent`](./event-system#jobretryingevent) | Job is being retried |
+| [`JobExecutionTimedOutEvent`](./event-system#jobexecutiontimeoutedevent) | Running job exceeds its execution timeout |
 | [`JobCancelledEvent`](./event-system#jobcancelledevent) | Job cancellation confirmed |
 | [`JobPausedEvent`](./event-system#jobpausedevent) | Job paused |
 | [`JobResumedEvent`](./event-system#jobresumedevent) | Job resumed |

@@ -697,7 +697,8 @@ public class DefaultJobSchedulerService
     if (count > 0) {
       JobsBulkRetriedEvent event =
           new JobsBulkRetriedEvent(filter, limit, count, effective().instant());
-      if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      if (registerAfterCommit(() -> eventPublisher.publish(event))
+          == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
         eventPublisher.publish(event);
       }
       if (wakeupService != null) {

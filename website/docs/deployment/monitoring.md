@@ -148,6 +148,12 @@ public class JobMonitor {
             event.getJobId(), event.getRetryAttempt(), event.getErrorMessage());
     }
 
+    public void onExecutionTimeout(@Observes JobExecutionTimedOutEvent event) {
+        // Dispatch external alerts on an application-managed executor: observers are synchronous.
+        timeoutAlertExecutor.execute(() -> alertOps(
+            "Job " + event.getJobId() + " exceeded " + event.getExecutionTimeout()));
+    }
+
     public void onDlq(@Observes JobDlqEvent event) {
         // Alert: job exhausted all retries
         alertOps("Job " + event.getJobId() + " moved to DLQ: " + event.getErrorMessage());
@@ -176,9 +182,10 @@ For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI 
 |-------|-----------|
 | `JobStartedEvent` | Worker begins executing a job |
 | `JobCompletedEvent` | Job finished successfully |
-| `JobFailedEvent` | Job threw an exception |
+| `JobFailedEvent` | Job reached terminal `FAILED` state |
 | `JobRetryingEvent` | Job failed but will be retried |
 | `JobDlqEvent` | Job entered terminal dead-letter/FAILED handling |
+| `JobExecutionTimedOutEvent` | Running job exceeded its configured execution timeout |
 | `JobCancelledEvent` | Job was cancelled via API |
 | `BatchCompletingEvent` | All children in a batch have finished |
 | `ChainStartedEvent` | A chained job was triggered by its parent |

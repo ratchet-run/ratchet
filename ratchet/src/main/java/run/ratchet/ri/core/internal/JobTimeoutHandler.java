@@ -33,7 +33,9 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
@@ -60,7 +62,6 @@ public class JobTimeoutHandler {
   private final JobBatchStatusStore jobBatchStatusStore;
   private final PostExecutionHandler lifecycleFacade;
   private final InternalEventPublisher eventPublisher;
-  private final ChainScheduler chainScheduler;
   private final SignalStore signalStore;
   private final MetricsCollector metricsCollector;
   private final int softTimeoutPercent;
@@ -85,7 +86,6 @@ public class JobTimeoutHandler {
     this.jobBatchStatusStore = null;
     this.lifecycleFacade = null;
     this.eventPublisher = null;
-    this.chainScheduler = null;
     this.signalStore = null;
     this.metricsCollector = null;
     this.softTimeoutPercent = 0;
@@ -105,7 +105,6 @@ public class JobTimeoutHandler {
       long defaultTimeoutSeconds,
       Clock clock,
       InternalEventPublisher eventPublisher,
-      ChainScheduler chainScheduler,
       SignalStore signalStore,
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize) {
@@ -118,7 +117,6 @@ public class JobTimeoutHandler {
         defaultTimeoutSeconds,
         clock,
         eventPublisher,
-        chainScheduler,
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
@@ -135,7 +133,6 @@ public class JobTimeoutHandler {
       long defaultTimeoutSeconds,
       Clock clock,
       InternalEventPublisher eventPublisher,
-      ChainScheduler chainScheduler,
       SignalStore signalStore,
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
@@ -149,7 +146,6 @@ public class JobTimeoutHandler {
         defaultTimeoutSeconds,
         clock,
         eventPublisher,
-        chainScheduler,
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
@@ -166,7 +162,6 @@ public class JobTimeoutHandler {
       long defaultTimeoutSeconds,
       Clock clock,
       InternalEventPublisher eventPublisher,
-      ChainScheduler chainScheduler,
       SignalStore signalStore,
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
@@ -180,7 +175,6 @@ public class JobTimeoutHandler {
     this.defaultTimeoutSeconds = defaultTimeoutSeconds;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.eventPublisher = eventPublisher;
-    this.chainScheduler = chainScheduler;
     this.signalStore = signalStore;
     this.metricsCollector = metricsCollector;
     this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
@@ -274,12 +268,25 @@ public class JobTimeoutHandler {
 
   /** Applies timeout routing: retry if attempts remain, otherwise fail permanently. */
   void processHardTimeout(UUID jobId, long timeoutSec) {
+    processHardTimeout(jobId, timeoutSec, Duration.ofSeconds(timeoutSec));
+  }
+
+  void processHardTimeout(UUID jobId, long timeoutSec, Duration elapsedTime) {
+    Duration observedElapsedTime = elapsedTime.isNegative() ? Duration.ZERO : elapsedTime;
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
+    lifecycleFacade.handleTimeoutTransition(
+        timeoutEx,
+        false,
+        () -> applyHardTimeoutTransition(jobId, timeoutEx, timeoutSec, observedElapsedTime));
+  }
+
+  private Optional<JobEntity> applyHardTimeoutTransition(
+      UUID jobId, TimeoutException timeoutEx, long timeoutSec, Duration observedElapsedTime) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
       log.infof("Job %s no longer exists when timeout handler ran", jobId);
-      return;
+      return Optional.empty();
     }
 
     // Step 1: Increment attempts while status is still RUNNING.
@@ -287,7 +294,7 @@ public class JobTimeoutHandler {
     if (newAttempts < 0) {
       // Not in RUNNING anymore — worker already transitioned it. Nothing to do.
       log.infof("Job %s already left RUNNING when timeout handler ran", jobId);
-      return;
+      return Optional.empty();
     }
 
     // Step 2: Retries remain? Try to reschedule.
@@ -296,10 +303,12 @@ public class JobTimeoutHandler {
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
       if (rescheduled) {
+        publishHardTimeoutRetryEvents(
+            job, timeoutEx.getMessage(), newAttempts, retryTime, timeoutSec, observedElapsedTime);
         log.warnf(
             "Job %s timed out but has retries remaining (%s/%s) — rescheduled for %s",
             jobId, newAttempts, job.getMaxRetries(), retryTime);
-        return;
+        return Optional.empty();
       }
       // scheduleJobRetry returned false — a competing path finalized the job between the
       // increment and the reschedule. Do NOT escalate to DLQ; the job already has a terminal
@@ -307,7 +316,7 @@ public class JobTimeoutHandler {
       log.infof(
           "Job %s timed out but was already finalized by a competing path — no DLQ escalation",
           jobId);
-      return;
+      return Optional.empty();
     }
 
     // Step 3: Retries exhausted — CAS to FAILED and route to DLQ.
@@ -316,25 +325,36 @@ public class JobTimeoutHandler {
             jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
     if (!marked) {
       log.infof("Job %s already in terminal state when timeout handler ran", jobId);
-      return;
+      return Optional.empty();
     }
     log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
     job.setAttempts(newAttempts);
     job.setStatus(JobStatus.FAILED);
     job.setLastError(timeoutEx.getMessage());
-    publishHardTimeoutFailureEvent(job, timeoutEx.getMessage(), newAttempts);
-    lifecycleFacade.handlePermanentFailure(job, timeoutEx);
+    publishHardTimeoutFailureEvents(
+        job, timeoutEx.getMessage(), newAttempts, timeoutSec, observedElapsedTime);
+    return Optional.of(job);
   }
 
   void processSignalTimeout(JobEntity job, Instant now) {
-    UUID jobId = job.getId();
     String message = "Signal timeout exceeded for key: " + job.getSignalKey();
     SignalTimeoutException timeoutEx = new SignalTimeoutException(message);
 
+    lifecycleFacade.handleTimeoutTransition(
+        timeoutEx, true, () -> applySignalTimeoutTransition(job.getId(), now, message));
+  }
+
+  private Optional<JobEntity> applySignalTimeoutTransition(
+      UUID jobId, Instant now, String message) {
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+    if (job == null) {
+      log.infof("Job %s no longer exists when signal timeout scanner ran", jobId);
+      return Optional.empty();
+    }
     int newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
     if (newAttempts < 0) {
       log.infof("Job %s already left WAITING when signal timeout scanner ran", jobId);
-      return;
+      return Optional.empty();
     }
 
     if (newAttempts <= job.getMaxRetries()) {
@@ -350,15 +370,16 @@ public class JobTimeoutHandler {
         job.setLastError(message);
         job.setScheduledTime(retryTime);
         job.setStatus(JobStatus.PENDING);
+        publishRetryingEvent(job, message, newAttempts, retryTime, now);
         log.warnf(
             "Job %s signal timed out but has retries remaining (%s/%s) — rescheduled for %s",
             jobId, newAttempts, job.getMaxRetries(), retryTime);
-        return;
+        return Optional.empty();
       }
       log.infof(
           "Job %s signal timed out but was already finalized by a competing path — no DLQ escalation",
           jobId);
-      return;
+      return Optional.empty();
     }
 
     boolean marked =
@@ -366,19 +387,15 @@ public class JobTimeoutHandler {
             jobId, JobStatus.WAITING, JobStatus.FAILED, message);
     if (!marked) {
       log.infof("Job %s already left WAITING when signal timeout scanner ran", jobId);
-      return;
+      return Optional.empty();
     }
 
     log.infof("Job %s FAILED due to signal timeout (key=%s)", jobId, job.getSignalKey());
     job.setAttempts(newAttempts);
     job.setLastError(message);
     job.setStatus(JobStatus.FAILED);
-    publishSignalTimedOutEvent(job);
-    lifecycleFacade.handlePermanentFailure(job, timeoutEx);
-
-    if (chainScheduler != null) {
-      chainScheduler.cancelChain(job);
-    }
+    publishSignalTimeoutFailureEvents(job, message, newAttempts, now);
+    return Optional.of(job);
   }
 
   private Clock effective() {
@@ -394,7 +411,8 @@ public class JobTimeoutHandler {
     return effective().instant().plusSeconds(timeoutSec).plusMillis(jitterMs);
   }
 
-  private void publishSignalTimedOutEvent(JobEntity job) {
+  private void publishSignalTimeoutFailureEvents(
+      JobEntity job, String errorMessage, int retryAttempt, Instant timestamp) {
     if (metricsCollector != null) {
       metricsCollector.signalTimedOut(job.getId(), job.getPublicJobType(), job.getSignalKey());
     }
@@ -411,13 +429,25 @@ public class JobTimeoutHandler {
             job.getBusinessKey(),
             job.getPublicJobType(),
             job.getPriority(),
-            null,
+            job.getPickedBy(),
+            timestamp,
             job.getSignalKey(),
             configuredTimeout);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    JobFailedEvent failedEvent =
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            timestamp,
+            errorMessage,
+            retryAttempt);
+    publishAfterCommit(
+        () -> {
+          eventPublisher.publish(event);
+          eventPublisher.publish(failedEvent);
+        });
   }
 
   private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
@@ -425,27 +455,106 @@ public class JobTimeoutHandler {
         resolveTxRegistry(),
         action,
         log,
-        "After-commit signal timeout event registration failed; event suppressed: %s");
+        "After-commit timeout event registration failed; events suppressed: %s");
   }
 
   private TransactionSynchronizationRegistry resolveTxRegistry() {
     return txRegistry != null ? txRegistry : JobWakeupService.lookupTxRegistry(log);
   }
 
-  private void publishHardTimeoutFailureEvent(
-      JobEntity job, String errorMessage, int retryAttempt) {
+  private void publishHardTimeoutRetryEvents(
+      JobEntity job,
+      String errorMessage,
+      int retryAttempt,
+      Instant retryTime,
+      long timeoutSec,
+      Duration elapsedTime) {
     if (eventPublisher == null) {
       return;
     }
-    eventPublisher.publish(
+    Instant timestamp = effective().instant();
+    JobExecutionTimedOutEvent timedOutEvent =
+        executionTimedOutEvent(job, timestamp, timeoutSec, elapsedTime, retryAttempt);
+    JobRetryingEvent retryingEvent =
+        new JobRetryingEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            timestamp,
+            errorMessage,
+            retryAttempt,
+            retryTime);
+    publishAfterCommit(
+        () -> {
+          eventPublisher.publish(timedOutEvent);
+          eventPublisher.publish(retryingEvent);
+        });
+  }
+
+  private void publishHardTimeoutFailureEvents(
+      JobEntity job, String errorMessage, int retryAttempt, long timeoutSec, Duration elapsedTime) {
+    if (eventPublisher == null) {
+      return;
+    }
+    Instant timestamp = effective().instant();
+    JobExecutionTimedOutEvent timedOutEvent =
+        executionTimedOutEvent(job, timestamp, timeoutSec, elapsedTime, retryAttempt);
+    JobFailedEvent failedEvent =
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
+            timestamp,
             errorMessage,
-            retryAttempt));
+            retryAttempt);
+    publishAfterCommit(
+        () -> {
+          eventPublisher.publish(timedOutEvent);
+          eventPublisher.publish(failedEvent);
+        });
+  }
+
+  private JobExecutionTimedOutEvent executionTimedOutEvent(
+      JobEntity job, Instant timestamp, long timeoutSec, Duration elapsedTime, int retryAttempt) {
+    return new JobExecutionTimedOutEvent(
+        job.getId(),
+        job.getBusinessKey(),
+        job.getPublicJobType(),
+        job.getPriority(),
+        job.getPickedBy(),
+        timestamp,
+        Duration.ofSeconds(timeoutSec),
+        elapsedTime,
+        retryAttempt);
+  }
+
+  private void publishRetryingEvent(
+      JobEntity job, String errorMessage, int retryAttempt, Instant retryTime, Instant timestamp) {
+    if (eventPublisher == null) {
+      return;
+    }
+    JobRetryingEvent event =
+        new JobRetryingEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            timestamp,
+            errorMessage,
+            retryAttempt,
+            retryTime);
+    publishAfterCommit(() -> eventPublisher.publish(event));
+  }
+
+  private void publishAfterCommit(Runnable action) {
+    if (registerAfterCommit(action) == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+      action.run();
+    }
   }
 
   private String formatDuration(Duration duration) {
@@ -494,7 +603,7 @@ public class JobTimeoutHandler {
     future.cancel(true);
 
     try {
-      processHardTimeout(jobId, timeoutSec);
+      processHardTimeout(jobId, timeoutSec, elapsed);
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
       throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);

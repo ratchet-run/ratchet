@@ -222,6 +222,7 @@ The failure callback is invoked **only on permanent failure** (DLQ entry), not o
 | Event | When | Key Fields |
 |-------|------|------------|
 | `JobRetryingEvent` | Each retry attempt | `jobId`, `errorMessage`, `retryAttempt`, `scheduledTime` |
+| `JobExecutionTimedOutEvent` | A hard execution timeout successfully triggers a retry or terminal transition | `jobId`, `executionTimeout`, `elapsedTime`, `retryAttempt` |
 | `JobDlqEvent` | Permanent failure (DLQ entry) | `jobId`, `errorMessage`, `retryAttempt` |
 | `JobFailedEvent` | Terminal failure only (job reaches FAILED state) -- not fired on retryable attempts | `jobId`, `errorMessage`, `retryAttempt` |
 
