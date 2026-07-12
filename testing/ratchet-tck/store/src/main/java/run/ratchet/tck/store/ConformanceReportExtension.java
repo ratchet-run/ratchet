@@ -22,7 +22,7 @@ import run.ratchet.tck.util.AbstractConformanceReportExtension;
 
 /**
  * Store-tier conformance report listener. Extends {@link AbstractConformanceReportExtension} with
- * the 22-contract {@link ConformanceLevel} registry and writes to {@code
+ * the 23-contract {@link ConformanceLevel} registry and writes to {@code
  * target/tck-conformance-report.md}.
  *
  * <p>Store modules inject the store identity via Surefire's {@code systemPropertyVariables}: {@code
