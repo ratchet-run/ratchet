@@ -21,12 +21,9 @@ sqlplus ratchet/secret@//localhost:1521/FREEPDB1 \
   @stores/ratchet-store-oracle/src/main/resources/ddl/oracle-schema.sql
 ```
 
-The DDL is also bundled inside the store JAR at `ddl/oracle-schema.sql`:
-
-```bash
-jar xf ratchet-store-oracle-0.1.1-SNAPSHOT.jar ddl/oracle-schema.sql
-sqlplus ratchet/secret@//localhost:1521/FREEPDB1 @ddl/oracle-schema.sql
-```
+The Oracle store was added after the `0.1.1` release, so there is no published store JAR to
+extract at that version. Build the current source tree and use the DDL path above. Starting with
+`0.1.2`, the store JAR also contains the file at `ddl/oracle-schema.sql`.
 
 Or copy it into your migration tool's versioned scripts:
 

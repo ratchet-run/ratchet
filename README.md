@@ -48,6 +48,12 @@ public class PaymentRetryPolicy implements RetryPolicy {
         // Stop early on a hard decline; otherwise let maxRetries decide.
         return !(cause instanceof PaymentDeclinedException);
     }
+
+    @Override
+    public Duration getDelay(int attempt) {
+        // Defer to the job's configured backoff policy.
+        return Duration.ZERO;
+    }
 }
 ```
 
@@ -63,7 +69,7 @@ Swap the retry logic, circuit-breaker behavior, polling cadence, thread/executor
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.1.2-SNAPSHOT</version>
+      <version>0.1.1</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -79,7 +85,7 @@ Swap the retry logic, circuit-breaker behavior, polling cadence, thread/executor
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet</artifactId>
   </dependency>
-  <!-- Pick your store: ratchet-store-{postgresql,mysql,oracle,mongodb} -->
+  <!-- Pick a store published in 0.1.1: ratchet-store-{postgresql,mysql,mongodb} -->
   <dependency>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-store-postgresql</artifactId>

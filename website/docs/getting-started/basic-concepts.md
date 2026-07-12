@@ -140,11 +140,14 @@ A **store** is the persistence backend that holds jobs, execution history, locks
 You choose a store implementation as a Maven dependency:
 
 ```xml
-<!-- Pick one -->
+<!-- Published in 0.1.1; pick one -->
 <artifactId>ratchet-store-postgresql</artifactId>
 <artifactId>ratchet-store-mysql</artifactId>
-<artifactId>ratchet-store-oracle</artifactId>
 <artifactId>ratchet-store-mongodb</artifactId>
+
+<!-- Published starting in 0.1.2; build from source when using 0.1.1 -->
+<artifactId>ratchet-store-oracle</artifactId>
+<artifactId>ratchet-store-sqlserver</artifactId>
 ```
 
 See [Persistence](../concepts/persistence.md) for how stores work internally.
@@ -182,7 +185,15 @@ Many Ratchet behaviors are pluggable via CDI alternatives. To replace the defaul
 ```java
 @ApplicationScoped
 public class MyRetryPolicy implements RetryPolicy {
-    // Your custom logic
+    @Override
+    public boolean shouldRetry(int attempt, Throwable cause) {
+        return true;
+    }
+
+    @Override
+    public Duration getDelay(int attempt) {
+        return Duration.ZERO;
+    }
 }
 ```
 

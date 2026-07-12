@@ -114,7 +114,6 @@
     <jakarta.authentication-api.version>3.0.0</jakarta.authentication-api.version>
     <junit.version>5.14.4</junit.version>
     <junit.platform.version>1.14.4</junit.platform.version>
-    <asm.version>9.7.1</asm.version>
     <cron-utils.version>9.2.1</cron-utils.version>
     <arquillian.version>1.10.1.Final</arquillian.version>
     <!-- Plugin versions -->

@@ -38,7 +38,7 @@ The `ratchet-micrometer` module provides a Micrometer adapter that publishes job
 <dependency>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-micrometer</artifactId>
-    <version>${ratchet.version}</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 

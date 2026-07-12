@@ -30,12 +30,9 @@ sqlcmd -S localhost,1433 -U ratchet -P 'secret' -d ratchet -C \
   -i stores/ratchet-store-sqlserver/src/main/resources/ddl/sqlserver-schema.sql
 ```
 
-The DDL is also bundled inside the store JAR at `ddl/sqlserver-schema.sql`:
-
-```bash
-jar xf ratchet-store-sqlserver-0.1.2-SNAPSHOT.jar ddl/sqlserver-schema.sql
-sqlcmd -S localhost,1433 -U ratchet -P 'secret' -d ratchet -C -i ddl/sqlserver-schema.sql
-```
+The SQL Server store was added after the `0.1.1` release, so there is no published store JAR to
+extract at that version. Build the current source tree and use the DDL path above. Starting with
+`0.1.2`, the store JAR also contains the file at `ddl/sqlserver-schema.sql`.
 
 Or copy it into your migration tool's versioned scripts:
 

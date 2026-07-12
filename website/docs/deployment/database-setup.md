@@ -39,7 +39,7 @@ The DDL file is at `stores/ratchet-store-postgresql/src/main/resources/ddl/postg
 psql -U ratchet -d ratchet -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 
 # Or extract from the JAR
-jar xf ratchet-store-postgresql-0.1.2-SNAPSHOT.jar ddl/postgresql-schema.sql
+jar xf ratchet-store-postgresql-0.1.1.jar ddl/postgresql-schema.sql
 psql -U ratchet -d ratchet -f ddl/postgresql-schema.sql
 ```
 
@@ -162,7 +162,7 @@ FLUSH PRIVILEGES;
 mysql -u ratchet -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 
 # Or extract from the JAR
-jar xf ratchet-store-mysql-0.1.2-SNAPSHOT.jar ddl/mysql-schema.sql
+jar xf ratchet-store-mysql-0.1.1.jar ddl/mysql-schema.sql
 mysql -u ratchet -p ratchet < ddl/mysql-schema.sql
 ```
 
@@ -245,11 +245,11 @@ GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE TO ratchet;
 # From the source tree
 sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 \
   @stores/ratchet-store-oracle/src/main/resources/ddl/oracle-schema.sql
-
-# Or extract from the JAR
-jar xf ratchet-store-oracle-0.1.1-SNAPSHOT.jar ddl/oracle-schema.sql
-sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 @ddl/oracle-schema.sql
 ```
+
+The Oracle store was added after `0.1.1`, so that release has no store JAR to extract. Build the
+current source tree and use the DDL path above; the JAR contains `ddl/oracle-schema.sql` starting
+with `0.1.2`.
 
 ### Verify Installation
 

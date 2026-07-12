@@ -922,7 +922,7 @@ Compatible" label. API and Jakarta-runtime compatibility are separate tiers; fol
 <dependency>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-tck-store</artifactId>
-    <version>${ratchet.version}</version>
+    <version>0.1.1</version>
     <scope>test</scope>
 </dependency>
 ```
