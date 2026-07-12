@@ -83,7 +83,6 @@ You should see these scheduler tables plus `ratchet_schema_version`:
 | `scheduler_resource_limit` | Resource concurrency config |
 | `scheduler_resource_permit` | Active resource permits |
 | `scheduler_workflow_condition` | Workflow branching conditions |
-| `scheduler_dlq_alerts` | DLQ alert tracking |
 | `ratchet_schema_version` | Applied schema migration/checksum tracking |
 
 ### DataSource Configuration
@@ -324,7 +323,6 @@ db.createCollection("scheduler_recurring_job_archive");
 db.createCollection("scheduler_node");
 db.createCollection("scheduler_lock");
 db.createCollection("scheduler_workflow_condition");
-db.createCollection("scheduler_dlq_alerts");
 db.createCollection("scheduler_resource_permit");
 db.createCollection("scheduler_resource_limit");
 

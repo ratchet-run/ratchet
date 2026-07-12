@@ -123,7 +123,6 @@ public class RatchetOptions {
     defaults.put("BATCH_CHILD", 30);
     defaults.put("BATCH_PARENT", 2);
     defaults.put("CHAIN_STEP", 10);
-    defaults.put("DLQ_ALERT", 2);
     defaults.put("WORKFLOW_BRANCH", 10);
     defaults.put("WORKFLOW_JOIN", 10);
     return defaults;

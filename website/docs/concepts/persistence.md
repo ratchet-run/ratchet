@@ -16,9 +16,9 @@ metadata table (`scheduler_job`) and a hot executable queue table
 history; the hot table exists only while a job is live and owns claim/poll
 state. MongoDB maps the same logical model to collections. Supporting entities
 handle batches, executions, workflow conditions, locks, nodes, structured logs,
-resource limits, DLQ alerts, and archived jobs.
+resource limits, and archived jobs.
 
-<div class="docs-diagram persistence-model-diagram" role="img" aria-label="Ratchet persistence model with scheduler_job as cold metadata, scheduler_job_queue as hot live state, and supporting tables for tags, executions, batches, workflow conditions, locks, nodes, logs, resources, alerts, and archive rows.">
+<div class="docs-diagram persistence-model-diagram" role="img" aria-label="Ratchet persistence model with scheduler_job as cold metadata, scheduler_job_queue as hot live state, and supporting tables for tags, executions, batches, workflow conditions, locks, nodes, logs, resources, and archive rows.">
   <div class="docs-diagram-table docs-diagram-card--primary">
     <div class="docs-diagram-table-header">
       <strong>scheduler_job</strong>
@@ -105,10 +105,6 @@ resource limits, DLQ alerts, and archived jobs.
     <div class="docs-diagram-card">
       <strong>scheduler_resource_limit / permit</strong>
       <small>Resource capacity and active permits.</small>
-    </div>
-    <div class="docs-diagram-card">
-      <strong>scheduler_dlq_alerts</strong>
-      <small>DLQ alert audit and deduplication.</small>
     </div>
     <div class="docs-diagram-card">
       <strong>scheduler_job_archive</strong>
@@ -294,7 +290,6 @@ public interface JobStore
 | `JobQueryStore` | Read-only list/detail/queue-health queries and tag lookups |
 | `JobAnalyticsStore` | Aggregate counts, rate statistics, and percentile metrics |
 | `JobAuditStore` | Execution history recording and structured job log storage |
-| `DlqAlertStore` | DLQ alert audit trail and deduplication |
 | `JobExtensionStore` | Indexed job properties (`scheduler_job_properties`) and mutable per-namespace extension state with optimistic CAS (`scheduler_job_extension_state`), used by framework extensions; archiving copies both onto the archive row as denormalized JSON |
 
 ### Why a Core-Plus-Capabilities Split?

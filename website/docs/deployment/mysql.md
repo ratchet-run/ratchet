@@ -40,7 +40,6 @@ You should see:
 - `scheduler_batch`
 - `scheduler_batch_metrics`
 - `scheduler_business_key_reservation`
-- `scheduler_dlq_alerts`
 - `scheduler_job`
 - `scheduler_job_archive`
 - `scheduler_job_execution`
@@ -73,7 +72,6 @@ Configure your data source for MySQL:
   <class>run.ratchet.store.entity.WorkflowConditionEntity</class>
   <class>run.ratchet.store.entity.ArchivedJobEntity</class>
   <class>run.ratchet.store.entity.NodeEntity</class>
-  <class>run.ratchet.store.entity.DlqAlertEntity</class>
   <class>run.ratchet.store.entity.JobLogEntity</class>
   <class>run.ratchet.store.entity.ResourcePermitEntity</class>
   <class>run.ratchet.store.entity.BatchEntity</class>

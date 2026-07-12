@@ -68,7 +68,6 @@ public class MysqlTestFixture extends JpaContainerFixture {
     executeNativeSql("DELETE FROM scheduler_job_execution");
     executeNativeSql("DELETE FROM scheduler_resource_permit");
     executeNativeSql("DELETE FROM scheduler_workflow_condition");
-    executeNativeSql("DELETE FROM scheduler_dlq_alerts");
     executeNativeSql("DELETE FROM scheduler_batch_metrics");
     executeNativeSql("DELETE FROM scheduler_job_archive");
     executeNativeSql("DELETE FROM scheduler_job_properties");

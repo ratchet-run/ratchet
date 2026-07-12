@@ -93,8 +93,6 @@ public final class RatchetConfigKeys {
           "ratchet.thread-pool.size.batch-parent", "RATCHET_THREAD_POOL_SIZE_BATCH_PARENT", 2, 0);
   public static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_CHAIN =
       intKey("ratchet.thread-pool.size.chain-step", "RATCHET_THREAD_POOL_SIZE_CHAIN", 10, 0);
-  public static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_DLQ_ALERT =
-      intKey("ratchet.thread-pool.size.dlq-alert", "RATCHET_THREAD_POOL_SIZE_DLQ_ALERT", 2, 0);
   public static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_WORKFLOW_BRANCH =
       intKey(
           "ratchet.thread-pool.size.workflow-branch",

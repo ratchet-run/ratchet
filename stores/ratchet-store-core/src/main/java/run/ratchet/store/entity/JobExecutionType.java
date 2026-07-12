@@ -29,7 +29,6 @@ public enum JobExecutionType {
   BATCH_PARENT(JobType.BATCH),
   BATCH_CHILD(JobType.BATCH),
   CHAIN_STEP(JobType.CHAIN),
-  DLQ_ALERT(JobType.SYSTEM),
   WORKFLOW_BRANCH(JobType.WORKFLOW),
   WORKFLOW_JOIN(JobType.WORKFLOW);
 

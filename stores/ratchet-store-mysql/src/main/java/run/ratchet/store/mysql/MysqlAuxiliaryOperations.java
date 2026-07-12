@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourceLimitEntity;
@@ -32,7 +31,6 @@ import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -40,7 +38,7 @@ import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.WorkflowConditionOrdering;
 
 final class MysqlAuxiliaryOperations
-    implements JobAuditStore, WorkflowConditionStore, DlqAlertStore, ResourcePermitStore {
+    implements JobAuditStore, WorkflowConditionStore, ResourcePermitStore {
 
   private static final int PERMIT_CLEANUP_CHUNK_SIZE = 500;
 
@@ -222,33 +220,6 @@ final class MysqlAuxiliaryOperations
             .setParameter(1, UuidByteArrayConverter.toBytes(parentJobId))
             .getSingleResult();
     return ((Number) result).longValue();
-  }
-
-  @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    if (alert.getId() == null) {
-      ctx.em().persist(alert);
-      return alert;
-    }
-    return ctx.em().merge(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    // language=JPAQL
-    String jpql =
-        """
-        SELECT COUNT(a) FROM DlqAlertEntity a
-        WHERE a.jobId = :jid AND a.errorHash = :hash AND a.alertSentAt >= :cutoff
-        """;
-    Long count =
-        ctx.em()
-            .createQuery(jpql, Long.class)
-            .setParameter("jid", jobId)
-            .setParameter("hash", errorHash)
-            .setParameter("cutoff", cutoff)
-            .getSingleResult();
-    return count > 0;
   }
 
   @Override

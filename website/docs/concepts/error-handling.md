@@ -140,20 +140,22 @@ public class CustomErrorSanitizer implements ErrorSanitizer {
 
 ## Dead Letter Queue (DLQ)
 
-When a job permanently fails (exhausts retries, `@DoNotRetry`, or `RetryPolicy` rejects), it moves to the DLQ. The DLQ is not a separate table; it's the set of jobs with `status = FAILED` and no remaining retries.
+When a job permanently fails (retry exhaustion, `@DoNotRetry`, poison data, or a protective
+runtime limit), it enters terminal dead-letter handling. The DLQ is not a separate table; it is
+represented by durable jobs with `status = FAILED` that were routed through that terminal path.
 
 ### What Happens on DLQ Entry
 
-1. **Status update:** The job transitions from RUNNING to FAILED via compare-and-swap
-2. **Error recording:** The sanitized error message is stored in `last_error`
-3. **Alert recording:** A `DlqAlertEntity` is created for audit trail
-4. **Deduplication:** If the same job+error hash combination was recorded within the last hour, the alert is suppressed to prevent notification storms
-5. **Event publishing:** A `JobDlqEvent` is published
-6. **Downstream handling:**
+1. **Status update:** The live queue row is removed and the durable job row is marked with `terminal_status = 'FAILED'`
+2. **Error recording:** The sanitized error and final retry count are stored on the durable job row
+3. **Event publishing:** `JobFailedEvent` is published before one centrally owned `JobDlqEvent`,
+   after the terminal transition commits, for application-defined alerting and audit handling.
+   These notifications are not replayed; the durable FAILED job row is the source of truth
+4. **Downstream handling:**
    - For batch children: parent batch progress is updated (as failure)
    - For chain steps: downstream steps may receive failure notification
    - For workflow branches: FAILURE-condition branches may fire
-7. **Failure callback:** The `onFailure` callback is invoked if configured
+5. **Failure callback:** The `onFailure` callback is invoked if configured
 
 ### Observing DLQ Events
 

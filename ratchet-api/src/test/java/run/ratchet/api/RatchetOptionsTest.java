@@ -90,7 +90,7 @@ class RatchetOptionsTest {
                         .defaultThreadingMode(RatchetOptions.ThreadingMode.VIRTUAL)
                         .coordinatorThreadFactoryJndi(
                             "java:jboss/ee/concurrency/factory/RatchetCoordinator")
-                        .maxConcurrency("dlq-alert", 4)
+                        .maxConcurrency("workflow-branch", 4)
                         .virtualThreadLimit("workflow-join", 19)
                         .rateLimitPerMinute("single", 50))
             .recurring(recurring -> recurring.batchLimit(40))
@@ -109,7 +109,7 @@ class RatchetOptionsTest {
     assertEquals(
         "java:jboss/ee/concurrency/factory/RatchetCoordinator",
         options.execution().coordinatorThreadFactoryJndi());
-    assertEquals(4, options.execution().maxConcurrency("DLQ_ALERT", -1));
+    assertEquals(4, options.execution().maxConcurrency("WORKFLOW_BRANCH", -1));
     assertEquals(19, options.execution().virtualThreadLimit("WORKFLOW_JOIN", -1));
     assertEquals(50, options.execution().rateLimitPerMinute("SINGLE"));
     assertEquals(40, options.recurring().batchLimit());

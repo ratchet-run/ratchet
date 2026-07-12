@@ -455,7 +455,6 @@ public class RatchetProducer {
       case BATCH_CHILD -> options.execution().maxConcurrency("BATCH_CHILD", 30);
       case BATCH_PARENT -> options.execution().maxConcurrency("BATCH_PARENT", 2);
       case CHAIN_STEP -> options.execution().maxConcurrency("CHAIN_STEP", 10);
-      case DLQ_ALERT -> options.execution().maxConcurrency("DLQ_ALERT", 2);
       case WORKFLOW_BRANCH -> options.execution().maxConcurrency("WORKFLOW_BRANCH", 10);
       case WORKFLOW_JOIN -> options.execution().maxConcurrency("WORKFLOW_JOIN", 10);
     };

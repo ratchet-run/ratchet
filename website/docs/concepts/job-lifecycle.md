@@ -200,12 +200,15 @@ When the job throws an exception and retries remain:
 
 ### RUNNING to FAILED (Terminal -- DLQ)
 
-When retries are exhausted or `@DoNotRetry` applies:
+When retries are exhausted, `@DoNotRetry` applies, poison data is detected, or a protective
+runtime limit forces terminal handling:
 
 1. Status transitions RUNNING -> FAILED via compare-and-swap
 2. Error message is sanitized via `ErrorSanitizer` SPI
-3. `DeadLetterService.moveToDlq()` records the alert with deduplication
-4. `JobDlqEvent` is published
+3. The durable job row records terminal FAILED status, the sanitized error, and the final retry
+   count; there is no separate alert or deduplication ledger
+4. `JobFailedEvent` is followed by one centrally published `JobDlqEvent` after the terminal commit.
+   `JobDlqEvent` is a non-replayable notification; the durable FAILED row is the source of truth
 5. For batch children: parent batch progress is updated (failure)
 6. For chain/workflow: downstream evaluation occurs (FAILURE branches may fire)
 7. Failure callback (`onFailure`) is invoked if configured

@@ -92,7 +92,6 @@ class MongoCollectionInitializer {
     createLockIndexes();
     createNodeIndexes();
     createWorkflowConditionIndexes();
-    createDlqAlertIndexes();
     createResourceLimitIndexes();
     createResourcePermitIndexes();
     createJobPropertiesIndexes();
@@ -409,15 +408,6 @@ class MongoCollectionInitializer {
             Indexes.ascending(DEFINITION_ORDER)),
         "idx_wfc_evaluation_order");
     createIndex(coll, Indexes.ascending(CHILD_JOB_ID), "idx_wfc_child");
-  }
-
-  private void createDlqAlertIndexes() {
-    var coll = database.getCollection("scheduler_dlq_alerts");
-    createRequiredIndex(
-        coll,
-        Indexes.compoundIndex(Indexes.ascending(JOB_ID), Indexes.ascending(ERROR_HASH)),
-        new IndexOptions().name("idx_dlq_job_hash").unique(true));
-    createIndex(coll, Indexes.ascending(ALERT_SENT_AT), "idx_dlq_sent_at");
   }
 
   private void createResourceLimitIndexes() {}

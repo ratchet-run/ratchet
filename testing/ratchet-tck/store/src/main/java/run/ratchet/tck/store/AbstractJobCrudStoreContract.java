@@ -33,7 +33,6 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -85,7 +84,6 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
             JobQueryStore.class,
             JobAnalyticsStore.class,
             JobAuditStore.class,
-            DlqAlertStore.class,
             JobExtensionStore.class);
     for (Class<?> cap : capabilities) {
       var view = store.capability(cap);

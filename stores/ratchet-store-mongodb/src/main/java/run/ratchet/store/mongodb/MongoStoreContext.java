@@ -148,10 +148,6 @@ final class MongoStoreContext extends AbstractStoreContext {
     return database.getCollection("scheduler_workflow_condition");
   }
 
-  MongoCollection<Document> dlqAlerts() {
-    return database.getCollection("scheduler_dlq_alerts");
-  }
-
   MongoCollection<Document> resourceLimits() {
     return database.getCollection("scheduler_resource_limit");
   }

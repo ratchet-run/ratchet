@@ -234,7 +234,9 @@ No additional fields.
 
 ### JobDlqEvent
 
-Fired when a job is moved to the Dead Letter Queue after exhausting all retries.
+Fired when a job enters terminal dead-letter handling. This can follow retry exhaustion, a
+non-retryable failure such as poison data, or a protective runtime limit such as the retry-buffer
+hard cap.
 
 ```java
 public class JobDlqEvent extends AbstractJobSchedulerEvent {
@@ -246,7 +248,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
 | Method | Return Type | Description |
 |---|---|---|
 | `getErrorMessage()` | `String` | Error from the final failure |
-| `getRetryAttempt()` | `int` | Total retry attempts before DLQ |
+| `getRetryAttempt()` | `int` | Final recorded retry count before DLQ; zero means no retry was consumed |
 
 ```java
 public void onDlq(@Observes JobDlqEvent event) {

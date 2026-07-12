@@ -192,7 +192,6 @@ public final class RatchetOptionsFactory {
         .maxConcurrency("BATCH_CHILD", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_BATCH_CHILD))
         .maxConcurrency("BATCH_PARENT", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_BATCH_PARENT))
         .maxConcurrency("CHAIN_STEP", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_CHAIN))
-        .maxConcurrency("DLQ_ALERT", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_DLQ_ALERT))
         .maxConcurrency(
             "WORKFLOW_BRANCH", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_WORKFLOW_BRANCH))
         .maxConcurrency(
@@ -205,7 +204,6 @@ public final class RatchetOptionsFactory {
           "BATCH_CHILD",
           "BATCH_PARENT",
           "CHAIN_STEP",
-          "DLQ_ALERT",
           "WORKFLOW_BRANCH",
           "WORKFLOW_JOIN"
         }) {

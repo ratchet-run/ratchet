@@ -683,7 +683,6 @@ A store advertises each of these by implementing the interface; the engine probe
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
 | `JobAnalyticsStore` | Aggregate counts, rates, and percentiles | `countJobsByStatus()`, `getQueueWaitTimePercentile()` |
 | `JobAuditStore` | Execution history and per-job logs | `saveExecution()`, `findExecutionsByJobId()`, `appendLog()` |
-| `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `existsRecentDlqAlert()` |
 | `JobExtensionStore` | Indexed job properties and per-namespace extension state | `putProperty()`, `getPropertiesByPrefix()`, `initState()`, `updateState()` |
 
 ### Implementing a Custom Store
@@ -864,7 +863,6 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractJobAnalyticsStoreContract` | Analytics/aggregation queries |
 | `AbstractTagStoreContract` | Tag-based job queries |
 | `AbstractWorkflowConditionStoreContract` | Workflow condition evaluation |
-| `AbstractDlqAlertStoreContract` | DLQ alert lifecycle |
 | `AbstractResourcePermitStoreContract` | Permit acquire and release |
 | `AbstractDualWriteInvariantContract` | Cross-store invariants for dual hot/cold write paths |
 

@@ -109,9 +109,6 @@ final class MongoFieldNames {
   static final String CONDITION_TYPE = "condition_type";
   static final String CONDITION_PRIORITY = "condition_priority";
   static final String DEFINITION_ORDER = "definition_order";
-  // DLQ alert
-  static final String ERROR_HASH = "error_hash";
-  static final String ALERT_SENT_AT = "alert_sent_at";
   // Observability
   static final String TRACE_CONTEXT = "trace_context";
   // Resource permit / limit

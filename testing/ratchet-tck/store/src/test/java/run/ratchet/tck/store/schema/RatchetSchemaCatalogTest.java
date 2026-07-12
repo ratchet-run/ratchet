@@ -105,11 +105,11 @@ class RatchetSchemaCatalogTest {
   }
 
   @Test
-  void currentVersionTracksRecurringMisfirePolicySchemaRevision() {
+  void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        13,
+        12,
         RatchetSchemaCatalog.CURRENT_VERSION,
-        "catalog version should advance when recurring misfire policy columns are added");
+        "catalog version should track the combined workflow, recurring, and DLQ schema revision");
   }
 
   @Test
@@ -126,6 +126,22 @@ class RatchetSchemaCatalogTest {
         List.of("parent_job_id", "condition_priority", "definition_order"),
         index(workflowConditions, "idx_workflow_evaluation_order").columns(),
         "workflow evaluation index should follow the routing order");
+  }
+
+  @Test
+  void dlqAlertLedgerIsRemovedAtMigrationVersionFive() {
+    assertTrue(
+        RatchetSchemaCatalog.CURRENT.tables().stream()
+            .noneMatch(table -> table.name().equals("scheduler_dlq_alerts")),
+        "the dead DLQ alert ledger must not remain in the current schema");
+    assertTrue(
+        RatchetSchemaCatalog.CURRENT.deprecated().stream()
+            .anyMatch(
+                artifact ->
+                    artifact instanceof DeprecatedArtifact.DroppedTable droppedTable
+                        && droppedTable.table().equals("scheduler_dlq_alerts")
+                        && droppedTable.sinceVersion() == 5),
+        "migration V005 must mark scheduler_dlq_alerts as removed");
   }
 
   private static List<String> signalColumns() {

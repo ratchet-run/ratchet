@@ -38,6 +38,7 @@ import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
@@ -73,6 +74,7 @@ public class BatchService {
   private final JobTerminalStore jobTerminalStore;
   private final MetricsCollector metricsCollector;
   private final InternalEventPublisher eventPublisher;
+  private final DeadLetterService deadLetterService;
   private final WorkflowScheduler workflowScheduler;
   private final ClassPolicy classPolicy;
   private final BeanResolver beanResolver;
@@ -88,6 +90,7 @@ public class BatchService {
     this.jobTerminalStore = null;
     this.metricsCollector = null;
     this.eventPublisher = null;
+    this.deadLetterService = null;
     this.workflowScheduler = null;
     this.classPolicy = null;
     this.beanResolver = null;
@@ -102,6 +105,7 @@ public class BatchService {
       JobTerminalStore jobTerminalStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
+      DeadLetterService deadLetterService,
       WorkflowScheduler workflowScheduler,
       ClassPolicy classPolicy,
       BeanResolver beanResolver) {
@@ -112,6 +116,7 @@ public class BatchService {
         jobTerminalStore,
         metricsCollector,
         eventPublisher,
+        deadLetterService,
         workflowScheduler,
         classPolicy,
         beanResolver,
@@ -127,6 +132,7 @@ public class BatchService {
       JobTerminalStore jobTerminalStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
+      DeadLetterService deadLetterService,
       WorkflowScheduler workflowScheduler,
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
@@ -139,6 +145,7 @@ public class BatchService {
         jobTerminalStore,
         metricsCollector,
         eventPublisher,
+        deadLetterService,
         workflowScheduler,
         classPolicy,
         beanResolver,
@@ -153,6 +160,7 @@ public class BatchService {
       JobTerminalStore jobTerminalStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
+      DeadLetterService deadLetterService,
       WorkflowScheduler workflowScheduler,
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
@@ -164,6 +172,7 @@ public class BatchService {
     this.jobTerminalStore = jobTerminalStore;
     this.metricsCollector = metricsCollector;
     this.eventPublisher = eventPublisher;
+    this.deadLetterService = deadLetterService;
     this.workflowScheduler = workflowScheduler;
     this.classPolicy = classPolicy;
     this.beanResolver = beanResolver;
@@ -178,6 +187,7 @@ public class BatchService {
       JobTerminalStore jobTerminalStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
+      DeadLetterService deadLetterService,
       WorkflowScheduler workflowScheduler,
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
@@ -189,6 +199,7 @@ public class BatchService {
         jobTerminalStore,
         metricsCollector,
         eventPublisher,
+        deadLetterService,
         workflowScheduler,
         classPolicy,
         beanResolver,
@@ -347,6 +358,10 @@ public class BatchService {
       return false;
     }
     parent.setStatus(terminalStatus);
+    if (!succeeded) {
+      parent.setAttempts(0);
+      parent.setLastError(batchFailureMessage(batch));
+    }
 
     batchStore.finalizeBatchMetrics(parentId);
 
@@ -374,8 +389,7 @@ public class BatchService {
       if (succeeded) {
         return jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
       }
-      return jobTerminalStore.markJobFailedTerminal(
-          parentId, "Batch completed with " + batch.getFailedItems() + " failed children", 0);
+      return jobTerminalStore.markJobFailedTerminal(parentId, batchFailureMessage(batch), 0);
     } catch (RuntimeException e) {
       resetSyntheticBatchPickup(parentId, e);
       throw e;
@@ -451,6 +465,8 @@ public class BatchService {
               totalDurationMs));
       return;
     }
+    String errorMessage = parent.getLastError();
+    Instant timestamp = effective().instant();
     eventPublisher.publish(
         new JobFailedEvent(
             parent.getId(),
@@ -458,8 +474,17 @@ public class BatchService {
             parent.getPublicJobType(),
             parent.getPriority(),
             parent.getPickedBy(),
-            "Batch completed with " + batch.getFailedItems() + " failed children",
+            timestamp,
+            errorMessage,
             parent.getAttempts()));
+    // This method runs from BatchService's after-commit callback. Keep the REQUIRES_NEW DLQ
+    // delegation here, after JobFailedEvent, so the synthetic parent's durable FAILED transition
+    // is committed before the centralized JobDlqEvent path begins.
+    deadLetterService.recordDlqTransition(parent, null);
+  }
+
+  private static String batchFailureMessage(BatchEntity batch) {
+    return "Batch completed with " + batch.getFailedItems() + " failed children";
   }
 
   private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {

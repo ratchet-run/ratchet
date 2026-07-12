@@ -31,13 +31,13 @@ class DefaultExecutionTuningProviderTest {
             .execution(
                 execution ->
                     execution
-                        .maxConcurrency("DLQ_ALERT", 4)
+                        .maxConcurrency("WORKFLOW_BRANCH", 4)
                         .virtualThreadLimit("WORKFLOW_JOIN", 19))
             .build();
 
     ExecutionTuningProvider provider = new DefaultExecutionTuningProvider(options);
 
-    assertEquals(4, provider.maxConcurrency("DLQ_ALERT", 2));
+    assertEquals(4, provider.maxConcurrency("WORKFLOW_BRANCH", 2));
     assertEquals(19, provider.virtualThreadLimit("WORKFLOW_JOIN", 1000));
   }
 

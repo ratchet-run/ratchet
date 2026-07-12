@@ -40,7 +40,6 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCompletedEvent;
-import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
@@ -508,39 +507,46 @@ public class JobTask implements Callable<Void> {
 
   /**
    * Moves a job whose payload failed to decrypt during hydration to a terminal FAILED state without
-   * retry, and emits the DLQ event. The entity never finished hydrating, so this works from the job
-   * id alone: it CAS-transitions RUNNING to FAILED (the same guard {@link #transitionToDlq} uses)
-   * and publishes a best-effort {@link JobDlqEvent}. The richer metadata the normal terminal path
-   * carries is unavailable here precisely because the row could not be read.
+   * retry. The entity never finished hydrating, so a lightweight claim snapshot is passed to the
+   * {@link PostExecutionHandler} composite that owns the terminal transition, ordered failure/DLQ
+   * event registration, and batch/workflow bookkeeping in one {@code REQUIRES_NEW} transaction. If
+   * that transaction fails, it rolls back as a unit and stale-RUNNING recovery can reclaim the job.
    */
   private void deadLetterPoisonedJob(UUID jobId, Throwable ex) {
-    String safeError;
-    try {
-      safeError = errorSanitizer.sanitize(ex);
-    } catch (Throwable sanitizerError) {
-      safeError = ex.getClass().getName();
-    }
     log.errorf(
         ex,
         "Job %s carries undecryptable payload ciphertext (poison) — moving to FAILED/DLQ without"
             + " retry",
         jobId);
-    boolean moved;
+    JobEntity poisonedJob = poisonedJobSnapshot(jobId);
     try {
-      moved = jobStore.compareAndSwapStatus(jobId, JobStatus.RUNNING, JobStatus.FAILED, safeError);
+      if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(poisonedJob, ex)) {
+        log.infof("Job %s already left RUNNING while poison handling was in progress", jobId);
+      }
     } catch (Throwable t) {
       log.errorf(
-          t, "Job %s could not be transitioned to FAILED — will require orphan recovery", jobId);
-      return;
+          t,
+          "Job %s poison finalization rolled back — stale-RUNNING recovery will retry it",
+          jobId);
     }
-    if (moved) {
-      try {
-        observabilityFacade.publishEvent(
-            new JobDlqEvent(jobId, null, null, null, nodeIdProvider.getNodeId(), safeError, 1));
-      } catch (Throwable eventError) {
-        log.warnf(eventError, "Poison DLQ event publish failed for job %s", jobId);
-      }
+  }
+
+  private JobEntity poisonedJobSnapshot(UUID jobId) {
+    JobEntity snapshot = new JobEntity();
+    snapshot.setId(jobId);
+    snapshot.setStatus(JobStatus.RUNNING);
+    if (claim == null) {
+      snapshot.setPickedBy(nodeIdProvider.getNodeId());
+      return snapshot;
     }
+    snapshot.setJobType(claim.jobType());
+    snapshot.setPriority(claim.priority());
+    snapshot.setPickedBy(claim.pickedBy());
+    snapshot.setBusinessKey(claim.businessKey());
+    snapshot.setAttempts(Math.max(0, claim.attempts()));
+    snapshot.setMaxRetries(Math.max(0, claim.maxRetries()));
+    snapshot.setDependsOn(claim.dependsOn());
+    return snapshot;
   }
 
   /**
@@ -1007,11 +1013,13 @@ public class JobTask implements Callable<Void> {
       observabilityFacade.saveExecution(currentExecution);
     }
 
+    String sanitized = errorSanitizer.sanitize(ex);
     if (jobStore.compareAndSwapStatus(
-        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, errorSanitizer.sanitize(ex))) {
+        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, sanitized)) {
       job.setAttempts(attempt);
       job.setStatus(JobStatus.FAILED);
-      publishTerminalFailureEvents(ex, attempt);
+      job.setLastError(sanitized);
+      publishTerminalFailureEvent(sanitized, attempt);
       lifecycleFacade.moveToDlq(job, ex);
       handleBatchOrWorkflowPermanentFailure();
       invokeCallback(job.getOnFailurePayload(), "onFailure");
@@ -1020,21 +1028,10 @@ public class JobTask implements Callable<Void> {
     return false;
   }
 
-  private void publishTerminalFailureEvents(Throwable ex, int attempt) {
-    String sanitized = errorSanitizer.sanitize(ex);
+  private void publishTerminalFailureEvent(String sanitized, int attempt) {
     Instant timestamp = effective().instant();
     observabilityFacade.publishEvent(
         new JobFailedEvent(
-            job.getId(),
-            job.getBusinessKey(),
-            job.getPublicJobType(),
-            job.getPriority(),
-            job.getPickedBy(),
-            timestamp,
-            sanitized,
-            attempt));
-    observabilityFacade.publishEvent(
-        new JobDlqEvent(
             job.getId(),
             job.getBusinessKey(),
             job.getPublicJobType(),
@@ -1047,19 +1044,12 @@ public class JobTask implements Callable<Void> {
 
   private void publishForcedTerminalFailure(Throwable ex, String safeError) {
     job.setStatus(JobStatus.FAILED);
+    job.setLastError(safeError);
     int attempt = Math.max(1, job.getAttempts());
+    job.setAttempts(attempt);
     try {
       observabilityFacade.publishEvent(
           new JobFailedEvent(
-              job.getId(),
-              job.getBusinessKey(),
-              job.getPublicJobType(),
-              job.getPriority(),
-              job.getPickedBy(),
-              safeError,
-              attempt));
-      observabilityFacade.publishEvent(
-          new JobDlqEvent(
               job.getId(),
               job.getBusinessKey(),
               job.getPublicJobType(),

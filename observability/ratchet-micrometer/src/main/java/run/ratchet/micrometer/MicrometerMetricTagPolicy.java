@@ -63,7 +63,6 @@ public final class MicrometerMetricTagPolicy {
             "BATCH_PARENT",
             "BATCH_CHILD",
             "CHAIN_STEP",
-            "DLQ_ALERT",
             "WORKFLOW_BRANCH",
             "WORKFLOW_JOIN")
         .allowValues("gate_status", "DRAINING", "RATE_LIMITED", "NO_PERMITS")

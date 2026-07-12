@@ -17,13 +17,17 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +36,10 @@ import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.model.time.ExecutionTime;
 import com.cronutils.parser.CronParser;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
+import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -49,14 +57,16 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.DlqAlertStore;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.LockStore;
 
@@ -70,13 +80,12 @@ class DeadLetterServiceTest {
   private static final String DAILY_CRON = "0 0 2 * * ?";
 
   @Mock private ExecutorProvider executorProvider;
-  @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private SingletonLeaseService singletonLeaseService;
-  @Mock private DlqAlertStore dlqAlertStore;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private ErrorSanitizer errorSanitizer;
+  @Mock private TransactionSynchronizationRegistry txRegistry;
   @Mock private ScheduledExecutorService scheduledExecutor;
   @Mock private LockStore lockStore;
 
@@ -87,68 +96,201 @@ class DeadLetterServiceTest {
     service =
         new DeadLetterService(
             executorProvider,
-            jobCrudStore,
             jobBulkStore,
             jobTerminalStore,
             singletonLeaseService,
-            dlqAlertStore,
             eventPublisher,
             errorSanitizer,
             FIXED_CLOCK);
   }
 
   @Test
-  void moveToDlq_savesAlertWhenNoRecentDuplicateExists() {
+  void moveToDlqPersistsStateAndPublishesFailureThenDlqWithIdenticalMetadata() {
     JobEntity job = jobWithAttempts(2);
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(dlqAlertStore.existsRecentDlqAlert(eq(job.getId()), anyString(), any(Instant.class)))
-        .thenReturn(false);
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    service.setTxRegistryForTesting(txRegistry);
 
-    service.moveToDlq(job, cause);
+    assertTrue(service.moveToDlq(job, cause));
 
     verify(jobTerminalStore).markJobFailedTerminal(job.getId(), "safe error", 2);
+    assertEquals(JobStatus.FAILED, job.getStatus());
     assertEquals("safe error", job.getLastError());
-
-    ArgumentCaptor<DlqAlertEntity> alertCaptor = ArgumentCaptor.forClass(DlqAlertEntity.class);
-    verify(dlqAlertStore).saveDlqAlert(alertCaptor.capture());
-    DlqAlertEntity alert = alertCaptor.getValue();
-    assertEquals(job.getId(), alert.getJobId());
-    assertEquals("system", alert.getAlertChannel());
-    assertNotNull(alert.getErrorHash());
-    assertEquals(FIXED_NOW, alert.getAlertSentAt());
-    verify(dlqAlertStore)
-        .existsRecentDlqAlert(
-            eq(job.getId()), anyString(), eq(FIXED_NOW.minus(Duration.ofHours(1))));
+    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(2)).publish(events.capture());
+    assertTrue(events.getAllValues().get(0) instanceof JobFailedEvent);
+    assertTrue(events.getAllValues().get(1) instanceof JobDlqEvent);
+    JobFailedEvent failed = (JobFailedEvent) events.getAllValues().get(0);
+    JobDlqEvent dlq = (JobDlqEvent) events.getAllValues().get(1);
+    assertEquals(job.getId(), failed.getJobId());
+    assertEquals(job.getId(), dlq.getJobId());
+    assertEquals("business-key", failed.getBusinessKey());
+    assertEquals(failed.getBusinessKey(), dlq.getBusinessKey());
+    assertEquals(JobPriority.HIGH, failed.getPriority());
+    assertEquals(failed.getPriority(), dlq.getPriority());
+    assertEquals("node-1", failed.getNodeId());
+    assertEquals(failed.getNodeId(), dlq.getNodeId());
+    assertEquals(FIXED_NOW, failed.getTimestamp());
+    assertEquals(failed.getTimestamp(), dlq.getTimestamp());
+    assertEquals("safe error", failed.getErrorMessage());
+    assertEquals(failed.getErrorMessage(), dlq.getErrorMessage());
+    assertEquals(2, failed.getRetryAttempt());
+    assertEquals(failed.getRetryAttempt(), dlq.getRetryAttempt());
   }
 
   @Test
-  void moveToDlq_suppressesAlertWhenRecentDuplicateExists() {
-    JobEntity job = jobWithAttempts(1);
-    IllegalStateException cause = new IllegalStateException("duplicate");
-    when(errorSanitizer.sanitize(cause)).thenReturn("safe duplicate");
-    when(dlqAlertStore.existsRecentDlqAlert(eq(job.getId()), anyString(), any(Instant.class)))
-        .thenReturn(true);
+  void moveToDlqDoesNotPublishWhenTheTerminalTransitionLosesTheRace() {
+    JobEntity job = jobWithAttempts(2);
+    RuntimeException cause = new RuntimeException("boom");
+    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
 
-    service.moveToDlq(job, cause);
+    assertFalse(service.moveToDlq(job, cause));
 
-    verify(jobTerminalStore).markJobFailedTerminal(job.getId(), "safe duplicate", 1);
-    verify(dlqAlertStore, never()).saveDlqAlert(any());
+    verify(eventPublisher, never()).publish(any());
   }
 
   @Test
-  void moveToDlq_keepsTerminalTransitionWhenAlertRecordingFails() {
-    JobEntity job = jobWithAttempts(3);
-    RuntimeException cause = new RuntimeException("store down");
-    when(errorSanitizer.sanitize(cause)).thenReturn("safe store down");
-    when(dlqAlertStore.existsRecentDlqAlert(eq(job.getId()), anyString(), any(Instant.class)))
-        .thenThrow(new IllegalStateException("alert store down"));
+  void moveToDlqPublishesBothTerminalEventsWhenNoRetryWasConsumed() {
+    JobEntity job = jobWithAttempts(0);
+    RuntimeException cause = new RuntimeException("retry buffer hard cap");
+    when(errorSanitizer.sanitize(cause)).thenReturn("safe overflow");
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe overflow", 0)).thenReturn(true);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    service.setTxRegistryForTesting(txRegistry);
 
-    assertDoesNotThrow(() -> service.moveToDlq(job, cause));
+    assertTrue(service.moveToDlq(job, cause));
 
-    verify(jobTerminalStore).markJobFailedTerminal(job.getId(), "safe store down", 3);
-    assertEquals("safe store down", job.getLastError());
-    verify(dlqAlertStore, never()).saveDlqAlert(any());
+    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(2)).publish(events.capture());
+    JobFailedEvent failed = (JobFailedEvent) events.getAllValues().get(0);
+    JobDlqEvent dlq = (JobDlqEvent) events.getAllValues().get(1);
+    assertEquals(0, failed.getRetryAttempt());
+    assertEquals(0, dlq.getRetryAttempt());
+  }
+
+  @Test
+  void recordDlqTransitionPublishesWithoutRepeatingTheTerminalMutation() {
+    JobEntity job = jobWithAttempts(2);
+    RuntimeException cause = new RuntimeException("boom");
+    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    service.setTxRegistryForTesting(txRegistry);
+
+    service.recordDlqTransition(job, cause);
+
+    verify(jobTerminalStore, never()).markJobFailedTerminal(eq(job.getId()), any(), anyInt());
+    verify(eventPublisher).publish(any(JobDlqEvent.class));
+    verify(eventPublisher, never()).publish(any(JobFailedEvent.class));
+  }
+
+  @Test
+  void recordDlqTransitionPublishesTheExactPersistedTerminalError() {
+    JobEntity job = jobWithAttempts(2);
+    job.setLastError("exact persisted terminal error");
+    RuntimeException cause = new RuntimeException("raw secret");
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    service.setTxRegistryForTesting(txRegistry);
+
+    service.recordDlqTransition(job, cause);
+
+    verify(errorSanitizer, never()).sanitize(any());
+    ArgumentCaptor<JobDlqEvent> event = ArgumentCaptor.forClass(JobDlqEvent.class);
+    verify(eventPublisher).publish(event.capture());
+    assertEquals("exact persisted terminal error", event.getValue().getErrorMessage());
+  }
+
+  @Test
+  void moveToDlqFallsBackSafelyWhenCustomSanitizerThrows() {
+    JobEntity job = jobWithAttempts(2);
+    RuntimeException cause = new RuntimeException("raw secret");
+    String fallback = RuntimeException.class.getName();
+    when(errorSanitizer.sanitize(cause)).thenThrow(new AssertionError("broken sanitizer"));
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), fallback, 2)).thenReturn(true);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    service.setTxRegistryForTesting(txRegistry);
+
+    assertTrue(service.moveToDlq(job, cause));
+
+    assertEquals(fallback, job.getLastError());
+    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(2)).publish(events.capture());
+    JobFailedEvent failed = (JobFailedEvent) events.getAllValues().get(0);
+    JobDlqEvent dlq = (JobDlqEvent) events.getAllValues().get(1);
+    assertEquals(fallback, failed.getErrorMessage());
+    assertEquals(fallback, dlq.getErrorMessage());
+  }
+
+  @Test
+  void recordDlqTransitionUsesAnIndependentTransaction() throws NoSuchMethodException {
+    Transactional transactional =
+        DeadLetterService.class
+            .getMethod("recordDlqTransition", JobEntity.class, Throwable.class)
+            .getAnnotation(Transactional.class);
+
+    assertNotNull(transactional);
+    assertEquals(Transactional.TxType.REQUIRES_NEW, transactional.value());
+  }
+
+  @Test
+  void moveToDlqPublishesOnlyAfterTheTransitionTransactionCommits() {
+    JobEntity job = jobWithAttempts(2);
+    RuntimeException cause = new RuntimeException("boom");
+    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    service.setTxRegistryForTesting(txRegistry);
+    ArgumentCaptor<Synchronization> synchronization =
+        ArgumentCaptor.forClass(Synchronization.class);
+
+    assertTrue(service.moveToDlq(job, cause));
+
+    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    verify(eventPublisher, never()).publish(any());
+
+    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(2)).publish(events.capture());
+    assertTrue(events.getAllValues().get(0) instanceof JobFailedEvent);
+    assertTrue(events.getAllValues().get(1) instanceof JobDlqEvent);
+  }
+
+  @Test
+  void moveToDlqSuppressesTheEventWhenTheTransitionTransactionRollsBack() {
+    JobEntity job = jobWithAttempts(2);
+    RuntimeException cause = new RuntimeException("boom");
+    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    service.setTxRegistryForTesting(txRegistry);
+    ArgumentCaptor<Synchronization> synchronization =
+        ArgumentCaptor.forClass(Synchronization.class);
+
+    assertTrue(service.moveToDlq(job, cause));
+    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+
+    synchronization.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void moveToDlqSuppressesEventsWhenAfterCommitRegistrationFails() {
+    JobEntity job = jobWithAttempts(2);
+    RuntimeException cause = new RuntimeException("boom");
+    when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doThrow(new IllegalStateException("registration failed"))
+        .when(txRegistry)
+        .registerInterposedSynchronization(any(Synchronization.class));
+    service.setTxRegistryForTesting(txRegistry);
+
+    assertTrue(service.moveToDlq(job, cause));
+
+    verify(eventPublisher, never()).publish(any());
   }
 
   @Test
@@ -199,6 +341,10 @@ class DeadLetterServiceTest {
   private static JobEntity jobWithAttempts(int attempts) {
     JobEntity job = new JobEntity();
     job.setId(UUID.randomUUID());
+    job.setBusinessKey("business-key");
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.HIGH);
+    job.setPickedBy("node-1");
     job.setAttempts(attempts);
     return job;
   }

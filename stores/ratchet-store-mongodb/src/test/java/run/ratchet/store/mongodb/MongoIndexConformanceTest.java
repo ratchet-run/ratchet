@@ -23,10 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.DEFINITION_ORDER;
-import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_HASH;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
-import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.PARENT_JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
@@ -258,16 +256,6 @@ class MongoIndexConformanceTest {
             .first();
     assertNotNull(recovered);
     assertEquals(recurringId, recovered.get("owner_job_id", UUID.class));
-  }
-
-  @Test
-  void schedulerDlqAlerts_hasJobHashUniqueIndex() {
-    assertIndex(
-        "scheduler_dlq_alerts",
-        "idx_dlq_job_hash",
-        new Document(JOB_ID, 1).append(ERROR_HASH, 1),
-        true,
-        null);
   }
 
   @Test

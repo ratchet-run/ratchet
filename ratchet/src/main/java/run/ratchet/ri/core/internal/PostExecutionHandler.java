@@ -19,6 +19,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import java.util.Objects;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.store.entity.JobEntity;
@@ -99,7 +100,25 @@ public class PostExecutionHandler {
   }
 
   public void moveToDlq(JobEntity job, Throwable ex) {
-    deadLetterService.moveToDlq(job, ex);
+    deadLetterService.recordDlqTransition(job, ex);
+  }
+
+  /**
+   * Atomically moves a still-RUNNING job to the DLQ and applies its batch/workflow failure
+   * bookkeeping. The class-level {@code REQUIRES_NEW} boundary is load-bearing: the terminal
+   * transition, ordered failure/DLQ event registration, and downstream bookkeeping either commit
+   * together or roll back together.
+   *
+   * @return {@code true} when this call won the terminal transition, or {@code false} when the job
+   *     had already left RUNNING
+   */
+  public boolean moveToDlqAndHandlePermanentFailure(JobEntity job, Throwable ex) {
+    requireFailureRoutingMetadata(job);
+    if (!deadLetterService.moveToDlq(job, ex)) {
+      return false;
+    }
+    wakeupIfNewWorkAvailable(applyPermanentFailureBookkeeping(job));
+    return true;
   }
 
   public void handleJobSuccess(JobEntity job) {
@@ -113,19 +132,22 @@ public class PostExecutionHandler {
   }
 
   public void handlePermanentFailure(JobEntity job, Throwable ex) {
-    boolean newWorkAvailable =
-        switch (job.getJobType()) {
-          case BATCH_CHILD -> markBatchChildFailed(job);
-          case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH -> {
-            moveToDlq(job, ex);
-            yield scheduleNext(job);
-          }
-          default -> {
-            moveToDlq(job, ex);
-            yield false;
-          }
-        };
-    wakeupIfNewWorkAvailable(newWorkAvailable);
+    requireFailureRoutingMetadata(job);
+    moveToDlq(job, ex);
+    wakeupIfNewWorkAvailable(applyPermanentFailureBookkeeping(job));
+  }
+
+  private boolean applyPermanentFailureBookkeeping(JobEntity job) {
+    return switch (job.getJobType()) {
+      case BATCH_CHILD -> markBatchChildFailed(job);
+      case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH -> scheduleNext(job);
+      default -> false;
+    };
+  }
+
+  private static void requireFailureRoutingMetadata(JobEntity job) {
+    Objects.requireNonNull(job, "job must not be null");
+    Objects.requireNonNull(job.getJobType(), "job type must not be null");
   }
 
   private void wakeupIfNewWorkAvailable(boolean newWorkAvailable) {

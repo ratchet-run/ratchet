@@ -108,7 +108,6 @@ The SQL schema creates these primary tables. MongoDB uses analogous collections 
 | `scheduler_resource_limit` | Resource concurrency configuration |
 | `scheduler_resource_permit` | Active resource permits for concurrency control |
 | `scheduler_workflow_condition` | Workflow branching conditions |
-| `scheduler_dlq_alerts` | Dead letter queue alert tracking |
 
 ## Configuration
 

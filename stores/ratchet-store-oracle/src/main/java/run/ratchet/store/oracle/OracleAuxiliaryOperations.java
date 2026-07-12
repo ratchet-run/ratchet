@@ -24,14 +24,12 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourceLimitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -39,7 +37,7 @@ import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.WorkflowConditionOrdering;
 
 final class OracleAuxiliaryOperations
-    implements JobAuditStore, WorkflowConditionStore, DlqAlertStore, ResourcePermitStore {
+    implements JobAuditStore, WorkflowConditionStore, ResourcePermitStore {
 
   private static final int PERMIT_CLEANUP_CHUNK_SIZE = 500;
 
@@ -117,7 +115,7 @@ final class OracleAuxiliaryOperations
     // language=JPAQL
     String jpql = "DELETE FROM JobLogEntity l WHERE l.ts < :cutoff";
     // ts is TIMESTAMP(6); floor the cutoff to microseconds so the boundary matches the column
-    // precision rather than Oracle's nanosecond-precision bind (see existsRecentDlqAlert).
+    // precision rather than Oracle's nanosecond-precision bind.
     return ctx.em()
         .createQuery(jpql)
         .setParameter("cutoff", OracleTimestamps.floorMicros(cutoff))
@@ -233,39 +231,6 @@ final class OracleAuxiliaryOperations
             .setParameter(1, UuidRawConverter.toBytes(parentJobId))
             .getSingleResult();
     return ((Number) result).longValue();
-  }
-
-  @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    if (alert.getId() == null) {
-      ctx.em().persist(alert);
-      return alert;
-    }
-    return ctx.em().merge(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    // language=JPAQL
-    String jpql =
-        """
-        SELECT COUNT(a) FROM DlqAlertEntity a
-        WHERE a.jobId = :jid AND a.errorHash = :hash AND a.alertSentAt >= :cutoff
-        """;
-    // alert_sent_at is TIMESTAMP(6), so a persisted Instant is floored to microsecond
-    // precision. Oracle's JDBC binds an Instant parameter at full nanosecond precision and
-    // compares it literally, so an unmodified cutoff equal to a stored alert time fails the
-    // `>=` boundary by the sub-microsecond remainder (the MySQL/PG drivers floor the bind for
-    // us, which is why this only surfaces on Oracle, and only on a nanosecond-resolution clock).
-    // Floor the cutoff to match the column precision.
-    Long count =
-        ctx.em()
-            .createQuery(jpql, Long.class)
-            .setParameter("jid", jobId)
-            .setParameter("hash", errorHash)
-            .setParameter("cutoff", OracleTimestamps.floorMicros(cutoff))
-            .getSingleResult();
-    return count > 0;
   }
 
   @Override

@@ -124,6 +124,7 @@ class SubmissionFailureHandlerTest {
             null,
             0,
             0,
+            null,
             null);
     when(jobStateManager.resetJobToPending(claim.id())).thenReturn(true);
 
@@ -234,6 +235,7 @@ class SubmissionFailureHandlerTest {
             null,
             0,
             0,
+            null,
             null);
     when(retryBufferManager.offer(claim)).thenReturn(true, false, false);
     when(jobStateManager.resetJobToPending(claimJobId)).thenReturn(true, false);
@@ -304,6 +306,7 @@ class SubmissionFailureHandlerTest {
             null,
             0,
             0,
+            null,
             null);
     SubmissionFailureHandler realStateHandler = handlerWithRealStateManager();
     when(retryBufferManager.offer(claim)).thenReturn(false);

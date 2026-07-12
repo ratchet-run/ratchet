@@ -39,7 +39,6 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -689,16 +688,6 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   @Override
   public long countConditionsByParentJobId(UUID parentJobId) {
     return auxiliary.countConditionsByParentJobId(parentJobId);
-  }
-
-  @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    return auxiliary.saveDlqAlert(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    return auxiliary.existsRecentDlqAlert(jobId, errorHash, cutoff);
   }
 
   @Override

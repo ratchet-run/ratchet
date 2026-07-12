@@ -25,7 +25,6 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobExtensionStore;
@@ -63,7 +62,6 @@ public class CoreOnlyStoreExtension implements Extension {
           JobQueryStore.class,
           JobAnalyticsStore.class,
           JobAuditStore.class,
-          DlqAlertStore.class,
           JobExtensionStore.class);
 
   <T> void demoteStoreToCore(@Observes ProcessBeanAttributes<T> event) {

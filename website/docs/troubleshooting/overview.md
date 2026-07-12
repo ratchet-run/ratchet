@@ -99,7 +99,7 @@ public class JobDiagnosticObserver {
 | `JobStartedEvent` | Job begins execution on a worker thread |
 | `JobCompletedEvent` | Job finishes successfully |
 | `JobRetryingEvent` | Job failed but will be retried (includes next scheduled time) |
-| `JobDlqEvent` | Job exhausted retries and moved to dead letter queue |
+| `JobDlqEvent` | Job entered terminal dead-letter/FAILED handling |
 | `JobCancelledEvent` | Job successfully canceled |
 | `JobPausedEvent` | Job paused via `pauseJob()` |
 | `JobResumedEvent` | Job resumed via `resumeJob()` |

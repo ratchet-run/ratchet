@@ -536,28 +536,127 @@ class JobTaskTest {
   }
 
   @Test
-  void call_hydrationDecryptPoison_movesToDlqWithoutRetry() {
+  void call_hydrationDecryptPoison_delegatesAtomicTerminalHandlingWithoutRetry() {
     // A claimed RUNNING job whose payload fails to decrypt during hydration is poison: the
     // ciphertext cannot be recovered by re-running. It must be dead-lettered, not swallowed and
     // left to stall until lease recovery (the regression this guards).
-    JobClaimDto claim = claimForNode("node-1");
+    JobClaimDto claim =
+        new JobClaimDto(
+            JOB_UUID,
+            JobStatus.RUNNING,
+            JobExecutionType.SINGLE,
+            JobPriority.HIGH,
+            Instant.EPOCH,
+            1,
+            30,
+            "node-1",
+            Instant.EPOCH,
+            "poisoned-job",
+            2,
+            3,
+            null,
+            null);
     jobTask.initFromClaim(claim);
     when(jobStore.findById(JOB_UUID))
         .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
-    when(errorSanitizer.sanitize(any())).thenReturn("decryption failed");
-    when(jobStore.compareAndSwapStatus(
-            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(PayloadDecryptionException.class)))
         .thenReturn(true);
 
     jobTask.call();
 
-    // Routed through the controlled DLQ path: terminal FAILED + a DLQ event.
-    verify(jobStore)
+    ArgumentCaptor<JobEntity> dlqJob = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(
+            dlqJob.capture(), any(PayloadDecryptionException.class));
+    Assertions.assertEquals("poisoned-job", dlqJob.getValue().getBusinessKey());
+    Assertions.assertEquals(JobExecutionType.SINGLE, dlqJob.getValue().getJobType());
+    Assertions.assertEquals(JobPriority.HIGH, dlqJob.getValue().getPriority());
+    Assertions.assertEquals("node-1", dlqJob.getValue().getPickedBy());
+    Assertions.assertEquals(2, dlqJob.getValue().getAttempts());
+    Assertions.assertEquals(3, dlqJob.getValue().getMaxRetries());
+    Assertions.assertEquals(JobStatus.RUNNING, dlqJob.getValue().getStatus());
+    verify(jobStore, never())
         .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
-    verify(observabilityFacade).publishEvent(any(JobDlqEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
     // Non-retryable: never rescheduled, never increments the attempt counter.
     verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+  }
+
+  @Test
+  void call_hydrationDecryptPoison_lostTransitionRacePublishesNoTerminalEvents() {
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+
+    jobTask.call();
+
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(PayloadDecryptionException.class));
+    verify(jobStore, never())
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
+  }
+
+  @Test
+  void call_hydrationDecryptPoison_updatesBatchChildFailureProgress() {
+    UUID parentId = UUID.randomUUID();
+    JobClaimDto claim =
+        new JobClaimDto(
+            JOB_UUID,
+            JobStatus.RUNNING,
+            JobExecutionType.BATCH_CHILD,
+            JobPriority.NORMAL,
+            Instant.EPOCH,
+            1,
+            30,
+            "node-1",
+            Instant.EPOCH,
+            null,
+            0,
+            0,
+            null,
+            parentId);
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(PayloadDecryptionException.class)))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    ArgumentCaptor<JobEntity> failedChild = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(
+            failedChild.capture(), any(PayloadDecryptionException.class));
+    Assertions.assertEquals(JOB_UUID, failedChild.getValue().getId());
+    Assertions.assertEquals(parentId, failedChild.getValue().getDependsOn());
+  }
+
+  @Test
+  void call_hydrationDecryptPoison_compositeFailureLeavesRecoveryToStaleRunningPath() {
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+    doThrow(new IllegalStateException("batch store unavailable"))
+        .when(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(PayloadDecryptionException.class));
+
+    jobTask.call();
+
+    verify(jobStore, never())
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
   }
 
   @Test
@@ -660,8 +759,9 @@ class JobTaskTest {
     RuntimeException error = new RuntimeException("do not retry");
     when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(true);
+    when(errorSanitizer.sanitize(error)).thenReturn("safe do not retry");
     when(jobStore.compareAndSwapStatus(
-            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), eq("safe do not retry")))
         .thenReturn(true);
 
     jobTask.call();
@@ -670,13 +770,15 @@ class JobTaskTest {
     verify(retryPolicy, never()).shouldRetry(anyInt(), any());
     verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(observabilityFacade).recordJobFailure(job, error, 2);
+    verify(errorSanitizer, times(1)).sanitize(error);
+    Assertions.assertEquals("safe do not retry", job.getLastError());
     verify(lifecycleFacade).moveToDlq(eq(job), eq(error));
     verify(lifecycleFacade).scheduleNext(job);
   }
 
   @Test
   @SuppressWarnings("unchecked")
-  void handleFailureFallbackPublishesTerminalEventsWhenFailureHandlingThrows() throws Exception {
+  void handleFailureFallbackPublishesFailureEventAndDelegatesDlqEvent() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
@@ -697,8 +799,9 @@ class JobTaskTest {
     jobTask.call();
 
     verify(observabilityFacade).publishEvent(any(JobFailedEvent.class));
-    verify(observabilityFacade).publishEvent(any(JobDlqEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
     verify(lifecycleFacade).moveToDlq(job, error);
+    Assertions.assertEquals(1, job.getAttempts());
   }
 
   @Test
@@ -1218,6 +1321,7 @@ class JobTaskTest {
         null,
         0,
         3,
+        null,
         null);
   }
 

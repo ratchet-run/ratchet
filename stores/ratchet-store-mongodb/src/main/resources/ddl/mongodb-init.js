@@ -11,7 +11,6 @@ db.counters.insertOne({ _id: "scheduler_job_execution", seq: NumberLong(0) });
 db.counters.insertOne({ _id: "scheduler_job_log", seq: NumberLong(0) });
 db.counters.insertOne({ _id: "scheduler_job_archive", seq: NumberLong(0) });
 db.counters.insertOne({ _id: "scheduler_workflow_condition", seq: NumberLong(0) });
-db.counters.insertOne({ _id: "scheduler_dlq_alerts", seq: NumberLong(0) });
 db.counters.insertOne({ _id: "scheduler_resource_permit", seq: NumberLong(0) });
 
 // ── scheduler_job ────────────────────────────────────────────────────────────
@@ -153,13 +152,6 @@ db.scheduler_workflow_condition.createIndex(
   { name: "idx_wfc_evaluation_order" }
 );
 db.scheduler_workflow_condition.createIndex({ child_job_id: 1 }, { name: "idx_wfc_child" });
-
-// ── scheduler_dlq_alerts ─────────────────────────────────────────────────────
-db.scheduler_dlq_alerts.createIndex(
-  { job_id: 1, error_hash: 1 },
-  { name: "idx_dlq_job_hash", unique: true }
-);
-db.scheduler_dlq_alerts.createIndex({ alert_sent_at: 1 }, { name: "idx_dlq_sent_at" });
 
 // ── scheduler_resource_permit ────────────────────────────────────────────────
 db.scheduler_resource_permit.createIndex({ resource_name: 1 }, { name: "idx_permit_resource" });

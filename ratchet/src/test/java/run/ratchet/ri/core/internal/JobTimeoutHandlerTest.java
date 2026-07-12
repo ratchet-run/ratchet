@@ -50,7 +50,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
-import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
@@ -187,7 +186,7 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
-  void hardTimeoutTerminalFailurePublishesFailedAndDlqEvents() {
+  void hardTimeoutTerminalFailurePublishesFailedEventBeforeDlqHandling() {
     handler =
         newHandler(
             null,
@@ -206,7 +205,7 @@ class JobTimeoutHandlerTest {
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
     ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher, times(2)).publish(eventCaptor.capture());
+    verify(eventPublisher).publish(eventCaptor.capture());
     JobFailedEvent failedEvent =
         eventCaptor.getAllValues().stream()
             .filter(JobFailedEvent.class::isInstance)
@@ -216,14 +215,6 @@ class JobTimeoutHandlerTest {
     assertEquals(JOB_ID, failedEvent.getJobId());
     assertEquals("timeout-key", failedEvent.getBusinessKey());
     assertEquals(1, failedEvent.getRetryAttempt());
-    JobDlqEvent dlqEvent =
-        eventCaptor.getAllValues().stream()
-            .filter(JobDlqEvent.class::isInstance)
-            .map(JobDlqEvent.class::cast)
-            .findFirst()
-            .orElseThrow();
-    assertEquals(JOB_ID, dlqEvent.getJobId());
-    assertEquals(1, dlqEvent.getRetryAttempt());
   }
 
   @Test

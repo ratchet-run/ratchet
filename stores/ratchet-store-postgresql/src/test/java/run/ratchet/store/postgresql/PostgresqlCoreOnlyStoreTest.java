@@ -16,13 +16,14 @@
 package run.ratchet.store.postgresql;
 
 import run.ratchet.tck.store.AbstractCoreOnlyStoreContract;
+import run.ratchet.tck.store.CoreOnlyStoreView;
 import run.ratchet.tck.store.JobStoreContractFixture;
 
 /**
  * Proves a store that advertises only the mandatory core contract still satisfies the engine's
- * correctness floor. The backing store is a real PostgreSQL implementation viewed through {@link
- * run.ratchet.tck.store.CoreOnlyStoreView}, so core lifecycle calls run for real while every
- * optional capability reports absent.
+ * required lifecycle. The fixture wraps the full PostgreSQL implementation in {@link
+ * CoreOnlyStoreView}, so core lifecycle calls run for real while every optional capability reports
+ * absent.
  */
 class PostgresqlCoreOnlyStoreTest extends AbstractCoreOnlyStoreContract {
 

@@ -58,7 +58,6 @@ operation is idempotent and safe to run on every boot.
 | `scheduler_lock` | Distributed advisory locks with TTL |
 | `scheduler_node` | Cluster node heartbeats |
 | `scheduler_workflow_condition` | Workflow branch conditions |
-| `scheduler_dlq_alerts` | Dead-letter queue deduplication |
 | `scheduler_resource_limit` | Resource concurrency configuration |
 | `scheduler_resource_permit` | Resource permit tracking for rate limiting |
 
@@ -174,9 +173,9 @@ public MongoDatabase mongoDatabase(
 }
 ```
 
-Required unique indexes are created at startup. If Ratchet cannot create the idempotency,
-active-business-key, or DLQ deduplication indexes, startup fails so duplicate scheduling semantics
-are not silently weakened.
+Required unique indexes are created at startup. If Ratchet cannot create the idempotency or
+active-business-key indexes, startup fails so duplicate scheduling semantics are not silently
+weakened.
 
 When upgrading an existing database, startup backfills reservations for active queue jobs and live
 recurring masters. If the old data already contains the same business key in both collections,

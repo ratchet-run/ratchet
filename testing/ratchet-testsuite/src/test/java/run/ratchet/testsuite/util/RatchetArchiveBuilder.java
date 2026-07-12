@@ -159,7 +159,6 @@ public class RatchetArchiveBuilder {
             <class>run.ratchet.store.entity.WorkflowConditionEntity</class>
             <class>run.ratchet.store.entity.ArchivedJobEntity</class>
             <class>run.ratchet.store.entity.NodeEntity</class>
-            <class>run.ratchet.store.entity.DlqAlertEntity</class>
             <class>run.ratchet.store.entity.JobLogEntity</class>
             <class>run.ratchet.store.entity.ResourcePermitEntity</class>
             <class>run.ratchet.store.entity.BatchEntity</class>

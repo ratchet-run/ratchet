@@ -348,7 +348,7 @@ class DocumentMapperTest {
         Instant.parse("2026-01-01T01:00:00Z"),
         false,
         null,
-        JobPriority.NORMAL.ordinal(),
+        JobPriority.NORMAL.persistedCode(),
         0,
         BackoffPolicy.NONE,
         0,

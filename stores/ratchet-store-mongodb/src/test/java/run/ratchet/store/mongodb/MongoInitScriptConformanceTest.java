@@ -45,7 +45,6 @@ class MongoInitScriptConformanceTest {
     "idx_signal_delivery_id",
     MongoIndexHints.RECURRING_JOB_CLAIM,
     "uk_rec_business_key",
-    "idx_dlq_job_hash",
     "idx_wfc_evaluation_order",
   };
 

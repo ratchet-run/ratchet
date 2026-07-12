@@ -178,7 +178,7 @@ For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI 
 | `JobCompletedEvent` | Job finished successfully |
 | `JobFailedEvent` | Job threw an exception |
 | `JobRetryingEvent` | Job failed but will be retried |
-| `JobDlqEvent` | Job exhausted retries, moved to dead-letter queue |
+| `JobDlqEvent` | Job entered terminal dead-letter/FAILED handling |
 | `JobCancelledEvent` | Job was cancelled via API |
 | `BatchCompletingEvent` | All children in a batch have finished |
 | `ChainStartedEvent` | A chained job was triggered by its parent |
@@ -232,10 +232,13 @@ Alert if `CRITICAL` or `HIGH` jobs have been pending for more than a few seconds
 Jobs in the dead-letter queue need human attention:
 
 ```sql
-SELECT COUNT(*) FROM scheduler_dlq_alerts;
+SELECT COUNT(*)
+FROM scheduler_job
+WHERE terminal_status = 'FAILED';
 ```
 
-Wire this into your alerting system. A non-zero DLQ count means something failed permanently.
+Wire this into your alerting system. The durable `scheduler_job` row remains the source of truth
+after its live `scheduler_job_queue` row is removed.
 
 ## Alerting recommendations
 

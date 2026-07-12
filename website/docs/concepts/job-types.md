@@ -34,7 +34,6 @@ The `JobExecutionType` enum adds granularity the engine needs for routing:
 | `CHAIN_STEP` | CHAIN | One step in a sequential chain |
 | `WORKFLOW_BRANCH` | WORKFLOW | Conditional branch job |
 | `WORKFLOW_JOIN` | WORKFLOW | Join point for workflow convergence |
-| `DLQ_ALERT` | SYSTEM | Dead letter queue alert tracking |
 
 This separation lets external observers see clean semantic categories while the engine routes jobs to the correct handler based on their execution role.
 
@@ -191,7 +190,7 @@ See [Workflows](./workflows.md) for the full condition type catalog and branchin
 
 ## SYSTEM jobs
 
-System jobs are framework-managed and not directly creatable through the public API. Currently, the `DLQ_ALERT` execution type is the only system job, used internally for dead letter queue alert tracking.
+`SYSTEM` is reserved for framework-managed work and is not directly creatable through the public API. The reference implementation does not currently define a system execution role.
 
 ## Type routing in the engine
 

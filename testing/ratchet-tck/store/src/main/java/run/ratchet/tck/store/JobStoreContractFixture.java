@@ -22,7 +22,6 @@ import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobExtensionStore;
@@ -112,10 +111,6 @@ public interface JobStoreContractFixture {
 
   default JobAuditStore auditStore() {
     return capabilityView(JobAuditStore.class);
-  }
-
-  default DlqAlertStore dlqAlertStore() {
-    return capabilityView(DlqAlertStore.class);
   }
 
   default JobExtensionStore extensionStore() {

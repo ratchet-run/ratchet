@@ -36,7 +36,6 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -254,7 +253,8 @@ public final class DocumentMapper {
         doc.getString("business_key"),
         doc.getInteger("attempts", DEFAULT_COUNT),
         doc.getInteger("max_retries", DEFAULT_COUNT),
-        doc.getString("execution_target"));
+        doc.getString("execution_target"),
+        doc.get("depends_on", UUID.class));
   }
 
   public static Document toRecurringDocument(RecurringJobDefinition definition) {
@@ -662,28 +662,6 @@ public final class DocumentMapper {
     bm.setCompletedAt(toInstant(doc.getDate("completed_at")));
     bm.setVersion(doc.getInteger("version", DEFAULT_VERSION));
     return bm;
-  }
-
-  public static Document toDocument(DlqAlertEntity alert) {
-    Document doc = new Document();
-    if (alert.getId() != null) {
-      doc.append("_id", alert.getId());
-    }
-    doc.append("job_id", alert.getJobId());
-    doc.append("error_hash", alert.getErrorHash());
-    doc.append("alert_sent_at", toDate(alert.getAlertSentAt()));
-    doc.append("alert_channel", alert.getAlertChannel());
-    return doc;
-  }
-
-  public static DlqAlertEntity toDlqAlertEntity(Document doc) {
-    DlqAlertEntity alert = new DlqAlertEntity();
-    alert.setId(doc.get("_id", UUID.class));
-    alert.setJobId(doc.get("job_id", UUID.class));
-    alert.setErrorHash(doc.getString("error_hash"));
-    alert.setAlertSentAt(toInstant(doc.getDate("alert_sent_at")));
-    alert.setAlertChannel(doc.getString("alert_channel"));
-    return alert;
   }
 
   public static Document toDocument(ResourcePermitEntity permit) {

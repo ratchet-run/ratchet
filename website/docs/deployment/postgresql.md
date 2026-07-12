@@ -49,7 +49,6 @@ You should see:
 - `scheduler_resource_limit`
 - `scheduler_resource_permit`
 - `scheduler_workflow_condition`
-- `scheduler_dlq_alerts`
 - `scheduler_recurring_job`
 - `scheduler_recurring_job_archive`
 
@@ -70,7 +69,6 @@ Configure your data source for PostgreSQL:
   <class>run.ratchet.store.entity.WorkflowConditionEntity</class>
   <class>run.ratchet.store.entity.ArchivedJobEntity</class>
   <class>run.ratchet.store.entity.NodeEntity</class>
-  <class>run.ratchet.store.entity.DlqAlertEntity</class>
   <class>run.ratchet.store.entity.JobLogEntity</class>
   <class>run.ratchet.store.entity.ResourcePermitEntity</class>
   <class>run.ratchet.store.entity.BatchEntity</class>

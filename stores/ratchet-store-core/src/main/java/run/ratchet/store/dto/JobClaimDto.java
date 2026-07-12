@@ -44,6 +44,7 @@ import run.ratchet.store.entity.JobExecutionType;
  * @param businessKey caller-supplied business key, or {@code null} when none was provided
  * @param attempts retry attempts consumed so far
  * @param maxRetries maximum retry attempts permitted
+ * @param dependsOn parent job id for a dependent job, or {@code null} when this job is independent
  */
 public record JobClaimDto(
     UUID id,
@@ -58,7 +59,8 @@ public record JobClaimDto(
     @Nullable String businessKey,
     int attempts,
     int maxRetries,
-    String executionTarget)
+    String executionTarget,
+    @Nullable UUID dependsOn)
     implements Serializable {
 
   /** Returns true if id, status, and jobType are all non-null. */
