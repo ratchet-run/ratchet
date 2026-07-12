@@ -146,7 +146,7 @@ jobs:
             JAR_PATHS="$JAR_PATHS ${m}:${m}"
           done
           for m in ratchet-store-core ratchet-store-mysql \
-                   ratchet-store-postgresql ratchet-store-oracle
+                   ratchet-store-postgresql ratchet-store-oracle \
                    ratchet-store-sqlserver ratchet-store-mongodb; do
             JAR_PATHS="$JAR_PATHS stores/${m}:${m}"
           done

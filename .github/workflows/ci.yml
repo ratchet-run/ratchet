@@ -17,6 +17,23 @@ env:
   TESTCONTAINERS_RYUK_DISABLED: "true"
 
 jobs:
+  # Validate workflow structure and parse every shell run block before any
+  # release can reach its deploy step. Limit ShellCheck to errors so this gate
+  # catches invalid shell without turning existing advisory findings into
+  # unrelated CI failures.
+  workflow-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint GitHub Actions workflows and embedded shell
+        uses: docker://rhysd/actionlint:1.7.12
+        env:
+          SHELLCHECK_OPTS: -S error
+        with:
+          args: -color
+
   # Detects whether a pull request touches anything other than documentation, so
   # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
   # docs-only PRs. Only pull_request events are eligible for that docs skip;
@@ -311,7 +328,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [changes, build, spotbugs, ee11-verify, integration-test, dash-license-check, license-gate, a11y]
+    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, dash-license-check, license-gate, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
