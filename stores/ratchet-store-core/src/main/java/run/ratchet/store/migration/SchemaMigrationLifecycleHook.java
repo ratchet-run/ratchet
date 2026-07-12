@@ -149,7 +149,7 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
       throw new SchemaInitializationException(
           "ratchet.schema.auto-migrate=true but the deployed store provides no"
               + " SchemaMigrationDialect. Managed migration is JDBC-only and requires a SQL store"
-              + " module (MySQL, PostgreSQL, or Oracle). Apply the bundled DDL externally and set"
+              + " module (MySQL, PostgreSQL, Oracle, or SQL Server). Apply the bundled DDL externally and set"
               + " ratchet.schema.auto-migrate=false if the deployed store does not support managed"
               + " migration.");
     }
