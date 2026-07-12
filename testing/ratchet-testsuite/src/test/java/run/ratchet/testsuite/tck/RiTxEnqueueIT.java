@@ -19,13 +19,16 @@ import jakarta.inject.Inject;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.jakarta.AbstractTxEnqueueContract;
 
 /**
- * RI subclass of {@link AbstractTxEnqueueContract}. The RI's MySQL store enqueues via JPA against
- * the JTA-managed RatchetDS, so it inherits the caller's transaction context.
+ * RI subclass of {@link AbstractTxEnqueueContract}. JTA-backed RI stores participate in the
+ * caller's transaction. The MongoDB cell still runs the commit-visible contract, while its rollback
+ * contract is capability-exempt because that store is not enlisted in JTA.
  */
 @ExtendWith(ArquillianExtension.class)
 class RiTxEnqueueIT extends AbstractTxEnqueueContract {
@@ -35,6 +38,16 @@ class RiTxEnqueueIT extends AbstractTxEnqueueContract {
   @Override
   protected RatchetTckRuntime runtime() {
     return runtime;
+  }
+
+  @Override
+  @Test
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  protected void rollbackSuppressesEnqueuedJob() throws Exception {
+    // Arquillian wraps an in-container TestAbortedException as an error. Apply the runtime
+    // capability at the client boundary for the RI's non-JTA store, then delegate to the neutral
+    // contract for every participating store.
+    super.rollbackSuppressesEnqueuedJob();
   }
 
   @Deployment

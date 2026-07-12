@@ -77,6 +77,11 @@ public class RiRatchetTckRuntime implements RatchetTckRuntime {
   }
 
   @Override
+  public boolean supportsCallerTransactionRollback() {
+    return !"mongodb".equals(System.getProperty("ratchet.test.db.type", ""));
+  }
+
+  @Override
   public void clear() {
     clearRuntime(
         "RiRatchetTckRuntime", drainController, executor, cleanupStrategy::truncateAll, probe);

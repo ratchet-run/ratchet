@@ -30,6 +30,7 @@ import run.ratchet.api.JobSchedulerService;
  *   <li>a {@link RatchetTckProbe} that observes lifecycle events for that scheduler,
  *   <li>optionally a {@link TestClock} when the implementation can drive its scheduler from a
  *       controllable clock,
+ *   <li>whether the backing store participates in caller transaction rollback,
  *   <li>a non-destructive {@link #clear() drain} so tests are isolated from each other.
  * </ul>
  *
@@ -62,6 +63,17 @@ public interface RatchetTckRuntime {
    */
   default OptionalLong maxPayloadBytes() {
     return OptionalLong.empty();
+  }
+
+  /**
+   * Returns whether scheduler writes participate in rollback of the caller's Jakarta transaction.
+   *
+   * <p>The default is {@code true}. Runtimes backed by a non-JTA store should return {@code false}
+   * so rollback-specific Jakarta contracts report {@code N/A} without teaching the neutral TCK
+   * about implementation or store names.
+   */
+  default boolean supportsCallerTransactionRollback() {
+    return true;
   }
 
   /**
