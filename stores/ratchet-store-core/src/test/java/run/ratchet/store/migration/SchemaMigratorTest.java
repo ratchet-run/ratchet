@@ -130,6 +130,22 @@ class SchemaMigratorTest {
   }
 
   @Test
+  void singleStatementDirectivePreservesJdbcBlocksWithInternalSemicolons() throws Exception {
+    ResultSet firstMissingVersion = missingVersion();
+    when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
+
+    migrator("schema-migrator-single-statement").migrate();
+
+    ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+    verify(statement, atLeast(2)).execute(sqlCaptor.capture());
+    List<String> executedSql = sqlCaptor.getAllValues();
+    List<String> blocks = executedSql.stream().filter(sql -> sql.startsWith("BEGIN")).toList();
+    assertEquals(1, blocks.size());
+    assertTrue(blocks.get(0).contains("EXECUTE IMMEDIATE 'SELECT 1 FROM dual';"));
+    assertTrue(blocks.get(0).endsWith("END;"));
+  }
+
+  @Test
   void skipsMigrationsWithMatchingChecksums() throws Exception {
     SchemaMigrator migrator = migrator("schema-migrator");
     List<SchemaMigrator.MigrationScript> scripts = migrator.discoverMigrations();

@@ -417,8 +417,6 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     depended_on             uuid,
     superseded_by           uuid,
     tags                    VARCHAR(512),
-    properties              TEXT,
-    extension_state         TEXT,
     CONSTRAINT pk_scheduler_job_archive PRIMARY KEY (archive_id),
     CONSTRAINT chk_archive_status CHECK (final_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
     CONSTRAINT chk_archive_job_type CHECK (job_type IN
@@ -490,33 +488,3 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 
 CREATE INDEX IF NOT EXISTS idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
 CREATE INDEX IF NOT EXISTS idx_resource_permit_job ON scheduler_resource_permit (job_id);
-
--- 14. scheduler_job_properties — write-once indexed scalars (plaintext by design; no secrets)
-CREATE TABLE IF NOT EXISTS scheduler_job_properties
-(
-    job_id       uuid          NOT NULL,
-    property_key VARCHAR(255)  NOT NULL,
-    value        VARCHAR(1024),
-    CONSTRAINT pk_scheduler_job_properties PRIMARY KEY (job_id, property_key),
-    CONSTRAINT fk_job_properties_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_property_kv ON scheduler_job_properties (property_key, value);
-
--- 15. scheduler_job_extension_state — mutable per-namespace blobs with per-row CAS; encrypted at
--- rest when payload encryption is configured (state holds ciphertext, encrypted_state /
--- encryption_key_id mirror the scheduler_job payload-encryption metadata columns)
-CREATE TABLE IF NOT EXISTS scheduler_job_extension_state
-(
-    job_id            uuid         NOT NULL,
-    namespace         VARCHAR(64)  NOT NULL,
-    state             TEXT         NOT NULL,
-    encrypted_state   BOOLEAN      NOT NULL DEFAULT FALSE,
-    encryption_key_id VARCHAR(256),
-    version           INT          NOT NULL DEFAULT 0,
-    updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT pk_scheduler_job_extension_state PRIMARY KEY (job_id, namespace),
-    CONSTRAINT fk_job_extension_state_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_extension_state_key_id ON scheduler_job_extension_state (encryption_key_id);

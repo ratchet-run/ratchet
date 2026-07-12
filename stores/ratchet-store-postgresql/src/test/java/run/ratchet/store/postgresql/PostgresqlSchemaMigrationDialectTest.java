@@ -25,8 +25,11 @@ import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.Statement;
+import java.util.List;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.migration.SchemaMigrator;
 
 class PostgresqlSchemaMigrationDialectTest {
 
@@ -66,5 +69,21 @@ class PostgresqlSchemaMigrationDialectTest {
     assertTrue(dialect.createVersionTableSql().contains("TIMESTAMPTZ"));
     assertTrue(dialect.recordVersionSql().startsWith("INSERT INTO ratchet_schema_version"));
     assertTrue(dialect.recordVersionSql().contains("ON CONFLICT (version) DO UPDATE"));
+  }
+
+  @Test
+  void preservesReleasedV001Checksum() throws Exception {
+    List<SchemaMigrator.MigrationScript> migrations =
+        new SchemaMigrator(mock(DataSource.class), dialect).discoverMigrations();
+    SchemaMigrator.MigrationScript v001 =
+        migrations.stream()
+            .filter(script -> script.version().equals("001"))
+            .findFirst()
+            .orElseThrow();
+
+    assertEquals(
+        List.of("001", "002"), migrations.stream().map(script -> script.version()).toList());
+    assertEquals(
+        "de49b983ef0b9110af22f59047a9e91fd1b37efdf7a790241b8297f82c857160", v001.checksum());
   }
 }

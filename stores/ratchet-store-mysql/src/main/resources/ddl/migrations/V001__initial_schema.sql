@@ -410,8 +410,6 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     depended_on             BINARY(16)                                                                                                          NULL,
     superseded_by           BINARY(16)                                                                                                          NULL,
     tags                    VARCHAR(512)                                                                                                        NULL,
-    properties              JSON                                                                                                                NULL,
-    extension_state         JSON                                                                                                                NULL,
     PRIMARY KEY (archive_id),
     CONSTRAINT chk_archive_priority CHECK (priority BETWEEN 0 AND 4),
     INDEX idx_archive_original_id (original_job_id),
@@ -479,38 +477,6 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_permit
     INDEX idx_resource_permit_resource (resource_name),
     INDEX idx_resource_permit_job (job_id),
     CONSTRAINT fk_resource_permit_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4
-  COLLATE = utf8mb4_unicode_ci;
-
--- 14. Per-job extension properties (write-once indexed scalars; plaintext by design — no secrets)
-CREATE TABLE IF NOT EXISTS scheduler_job_properties
-(
-    job_id       BINARY(16)    NOT NULL,
-    property_key VARCHAR(255)  NOT NULL,
-    value        VARCHAR(1024) NULL,
-    PRIMARY KEY (job_id, property_key),
-    INDEX idx_property_kv (property_key, value(255)),
-    CONSTRAINT fk_job_properties_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4
-  COLLATE = utf8mb4_unicode_ci;
-
--- 15. Per-job extension state (mutable per-namespace blobs with per-row CAS; encrypted at rest when
--- payload encryption is configured — state holds ciphertext, encrypted_state/encryption_key_id
--- mirror the scheduler_job payload-encryption metadata columns)
-CREATE TABLE IF NOT EXISTS scheduler_job_extension_state
-(
-    job_id            BINARY(16)   NOT NULL,
-    namespace         VARCHAR(64)  NOT NULL,
-    state             TEXT         NOT NULL,
-    encrypted_state   BOOLEAN      NOT NULL DEFAULT FALSE,
-    encryption_key_id VARCHAR(256) NULL,
-    version           INT          NOT NULL DEFAULT 0,
-    updated_at        DATETIME(6)  NOT NULL,
-    PRIMARY KEY (job_id, namespace),
-    INDEX idx_extension_state_key_id (encryption_key_id),
-    CONSTRAINT fk_job_extension_state_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
