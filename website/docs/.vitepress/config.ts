@@ -260,6 +260,7 @@ export default defineConfig({
           text: 'Conformance',
           items: [
             { text: 'Overview', link: '/conformance/' },
+            { text: 'Adopting the TCK', link: '/conformance/adopting-the-tck' },
             {
               text: 'Store Reports',
               collapsed: false,
