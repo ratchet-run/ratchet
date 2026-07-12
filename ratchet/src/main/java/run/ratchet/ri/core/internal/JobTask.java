@@ -18,23 +18,14 @@ package run.ratchet.ri.core.internal;
 import jakarta.inject.Inject;
 import java.io.Serial;
 import java.io.Serializable;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
-import org.objectweb.asm.Type;
-import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
@@ -47,16 +38,10 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.PayloadDecryptionException;
-import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
-import run.ratchet.ri.payload.ArgumentCoercion;
-import run.ratchet.ri.payload.ArgumentMaterializer;
-import run.ratchet.ri.payload.JobPayloadFactory;
-import run.ratchet.spi.BeanResolver;
-import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocation;
@@ -86,21 +71,7 @@ import run.ratchet.store.util.PayloadEncryptor;
  */
 public class JobTask implements Callable<Void> {
 
-  /**
-   * Maximum entries per reflection cache. Bounds memory use across long-running deployments where
-   * the set of distinct job target classes/methods could otherwise grow without limit. LRU
-   * (access-order) eviction keeps hot entries resident.
-   */
-  static final int CACHE_MAX_ENTRIES = 1024;
-
   private static final Logger log = Logger.getLogger(JobTask.class);
-  private static final Map<String, Method> METHOD_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
-  private static final Map<String, Class<?>> CLASS_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
-  private static final Map<String, String> SERVICE_NAME_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
-  private static final Object REFLECTION_CACHE_LOCK = new Object();
-  private static final int SUCCESS_FINALIZATION_MAX_ATTEMPTS = 5;
-  private static final long[] SUCCESS_FINALIZATION_BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
-  private static final long SUCCESS_FINALIZATION_JITTER_MAX_MS = 25L;
 
   /**
    * Backoff before a job released for being written by a newer Ratchet is eligible again. Long
@@ -116,11 +87,11 @@ public class JobTask implements Callable<Void> {
   private final ExecutionObserver observabilityFacade;
   private final PreExecutionValidator validationFacade;
   private final PreExecutionArgResolver argResolver;
-  private final BeanResolver beanResolver;
+  private final JobPayloadInvoker payloadInvoker;
+  private final JobSuccessFinalizer successFinalizer;
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
   private final ErrorSanitizer errorSanitizer;
-  private final ClassPolicy classPolicy;
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final JobAuthorizationPolicy authorizationPolicy;
@@ -146,11 +117,11 @@ public class JobTask implements Callable<Void> {
     this.nodeIdProvider = null;
     this.observabilityFacade = null;
     this.validationFacade = null;
-    this.beanResolver = null;
+    this.payloadInvoker = null;
+    this.successFinalizer = null;
     this.retryPolicy = null;
     this.resilienceStrategy = null;
     this.errorSanitizer = null;
-    this.classPolicy = null;
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
     this.authorizationPolicy = null;
@@ -168,11 +139,11 @@ public class JobTask implements Callable<Void> {
       NodeIdentityProvider nodeIdProvider,
       ExecutionObserver observabilityFacade,
       PreExecutionValidator validationFacade,
-      BeanResolver beanResolver,
+      JobPayloadInvoker payloadInvoker,
+      JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
       ErrorSanitizer errorSanitizer,
-      ClassPolicy classPolicy,
       JobLoggerFactory jobLoggerFactory,
       ResultPersistenceStrategy resultPersistenceStrategy,
       JobAuthorizationPolicy authorizationPolicy,
@@ -187,51 +158,17 @@ public class JobTask implements Callable<Void> {
     this.nodeIdProvider = nodeIdProvider;
     this.observabilityFacade = observabilityFacade;
     this.validationFacade = validationFacade;
-    this.beanResolver = beanResolver;
+    this.payloadInvoker = payloadInvoker;
+    this.successFinalizer = successFinalizer;
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
     this.errorSanitizer = errorSanitizer;
-    this.classPolicy = classPolicy;
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
     this.authorizationPolicy = authorizationPolicy;
     this.payloadSerializer = payloadSerializer;
     this.timeoutHandler = timeoutHandler;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
-  }
-
-  /**
-   * Creates an LRU map bounded to {@code maxEntries}. Access-order ({@code get()}) promotes entries
-   * to the most-recently-used position so hot entries survive eviction pressure. Callers must guard
-   * all access with {@code REFLECTION_CACHE_LOCK}; access-order reads mutate the map.
-   */
-  static <K, V> Map<K, V> newBoundedCache(int maxEntries) {
-    return new LinkedHashMap<K, V>(16, 0.75f, true) {
-      @Serial private static final long serialVersionUID = 1L;
-
-      @Override
-      protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
-        return size() > maxEntries;
-      }
-    };
-  }
-
-  /**
-   * Clears all static reflection caches. Must be called on application shutdown to release
-   * classloader references and prevent memory leaks in redeployable containers (e.g., WildFly,
-   * Payara).
-   */
-  public static void clearCaches() {
-    synchronized (REFLECTION_CACHE_LOCK) {
-      SERVICE_NAME_CACHE.clear();
-      METHOD_CACHE.clear();
-      CLASS_CACHE.clear();
-    }
-  }
-
-  private static String simpleClassName(String fqcn) {
-    int lastDot = fqcn.lastIndexOf('.');
-    return lastDot >= 0 ? fqcn.substring(lastDot + 1) : fqcn;
   }
 
   /**
@@ -364,7 +301,7 @@ public class JobTask implements Callable<Void> {
 
       Object jobResult;
       permitAcquired = false;
-      String resilienceServiceName = resolveResilienceServiceName(jobEntity.getPayload());
+      String resilienceServiceName = payloadInvoker.serviceName(jobEntity.getPayload());
       try {
         currentScope = observabilityFacade.startExecutionScope(jobEntity);
         if (wasJobCanceledDuringExecution()) {
@@ -395,8 +332,7 @@ public class JobTask implements Callable<Void> {
         // dispatch target and before the resilience scope so resolver failures don't trip the
         // breaker. The target identity stays pinned; only arguments can change.
         JobPayload dispatchPayload = resolveArguments(jobEntity.getPayload(), jobEntity.getId());
-        dispatchPayload =
-            ArgumentMaterializer.materialize(dispatchPayload, payloadSerializer, classPolicy);
+        dispatchPayload = payloadInvoker.materializeArguments(dispatchPayload, payloadSerializer);
 
         JobPayload invocationPayload = dispatchPayload;
         jobResult =
@@ -437,29 +373,6 @@ public class JobTask implements Callable<Void> {
   public void initFromClaim(JobClaimDto claim) {
     this.claim = claim;
     this.job = null;
-  }
-
-  // ONLY path that populates CLASS_CACHE. Re-checks ClassPolicy on every call (even cache hits)
-  // to block post-load policy changes and cache-poisoning from code that bypasses validationFacade.
-  private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {
-    if (className == null || className.isEmpty()) {
-      throw new SecurityException("Class name cannot be null or empty");
-    }
-    if (classPolicy != null
-        && !JobPayloadFactory.isRecurringDispatchShim(className)
-        && !classPolicy.isAllowed(className)) {
-      throw new SecurityException("Class " + className + " is not allowed for job execution.");
-    }
-    synchronized (REFLECTION_CACHE_LOCK) {
-      Class<?> cached = CLASS_CACHE.get(className);
-      if (cached != null) {
-        return cached;
-      }
-      Class<?> loaded =
-          Class.forName(className, true, Thread.currentThread().getContextClassLoader());
-      CLASS_CACHE.put(className, loaded);
-      return loaded;
-    }
   }
 
   private JobEntity getJob() {
@@ -854,13 +767,14 @@ public class JobTask implements Callable<Void> {
     String resultJson = serializedResult.json();
     String resultType = serializedResult.type();
 
-    SuccessFinalizationState finalizationState =
-        finalizeSuccessWithRetry(resultJson, resultType, start, endTime, executionMs, queueMs);
-    if (finalizationState == SuccessFinalizationState.TERMINAL_SKIPPED) {
+    JobSuccessFinalizer.Outcome finalizationState =
+        successFinalizer.finalizeSuccess(
+            job, resultJson, resultType, start, endTime, executionMs, queueMs);
+    if (finalizationState == JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED) {
       log.infof("Job %s already in terminal state, skipping success handling", job.getId());
       return;
     }
-    if (finalizationState == SuccessFinalizationState.STUCK) {
+    if (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
       return;
     }
 
@@ -874,9 +788,9 @@ public class JobTask implements Callable<Void> {
 
     job.setStatus(JobStatus.SUCCEEDED);
     job.setJobResult(
-        finalizationState == SuccessFinalizationState.COMPLETED_FULL ? resultJson : null);
+        finalizationState == JobSuccessFinalizer.Outcome.COMPLETED_FULL ? resultJson : null);
     job.setResultType(
-        finalizationState == SuccessFinalizationState.COMPLETED_FULL ? resultType : null);
+        finalizationState == JobSuccessFinalizer.Outcome.COMPLETED_FULL ? resultType : null);
     job.setExecutionStartTime(start);
     job.setExecutionEndTime(endTime);
     job.setExecutionDurationMs(executionMs);
@@ -908,76 +822,6 @@ public class JobTask implements Callable<Void> {
     invokeCallback(job.getOnSuccessPayload(), "onSuccess");
 
     log.infof("Job %s succeeded in %s ms", job.getId(), executionMs);
-  }
-
-  private SuccessFinalizationState finalizeSuccessWithRetry(
-      String resultJson,
-      String resultType,
-      Instant start,
-      Instant end,
-      long durationMs,
-      long queueWaitMs) {
-    for (int attempt = 1; attempt <= SUCCESS_FINALIZATION_MAX_ATTEMPTS; attempt++) {
-      try {
-        boolean updated =
-            jobStore.markJobSucceeded(
-                job.getId(), resultJson, resultType, start, end, durationMs, queueWaitMs);
-        return updated
-            ? SuccessFinalizationState.COMPLETED_FULL
-            : SuccessFinalizationState.TERMINAL_SKIPPED;
-      } catch (RatchetTransientStoreException e) {
-        observabilityFacade.recordSuccessFinalizationRetry(job);
-        if (attempt == SUCCESS_FINALIZATION_MAX_ATTEMPTS) {
-          log.warnf(
-              "Job %s exhausted success finalization retries after transient store conflicts: %s",
-              job.getId(), e.getMessage());
-          break;
-        }
-
-        log.warnf(
-            "Job %s transient success finalization failure on attempt %s/%s: %s",
-            job.getId(), attempt, SUCCESS_FINALIZATION_MAX_ATTEMPTS, e.getMessage());
-
-        if (!sleepBeforeSuccessFinalizationRetry(attempt)) {
-          break;
-        }
-      }
-    }
-
-    try {
-      boolean updated =
-          jobStore.markJobSucceededMinimal(job.getId(), start, end, durationMs, queueWaitMs);
-      if (updated) {
-        observabilityFacade.recordSuccessFinalizationMinimal(job);
-        log.warnf(
-            "Job %s persisted minimal success after transient store finalization conflicts",
-            job.getId());
-        return SuccessFinalizationState.COMPLETED_MINIMAL;
-      }
-      return SuccessFinalizationState.TERMINAL_SKIPPED;
-    } catch (RatchetTransientStoreException e) {
-      observabilityFacade.recordSuccessFinalizationStuck(job);
-      log.errorf(
-          e,
-          "Job %s succeeded but success finalization is stuck after transient store conflicts",
-          job.getId());
-      return SuccessFinalizationState.STUCK;
-    }
-  }
-
-  private boolean sleepBeforeSuccessFinalizationRetry(int attempt) {
-    long baseDelay =
-        SUCCESS_FINALIZATION_BACKOFF_MS[
-            Math.min(attempt - 1, SUCCESS_FINALIZATION_BACKOFF_MS.length - 1)];
-    long jitter = ThreadLocalRandom.current().nextLong(SUCCESS_FINALIZATION_JITTER_MAX_MS + 1L);
-    try {
-      Thread.sleep(baseDelay + jitter);
-      return true;
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      log.warnf("Job %s finalization retry interrupted", job.getId());
-      return false;
-    }
   }
 
   /**
@@ -1083,18 +927,9 @@ public class JobTask implements Callable<Void> {
     }
     try {
       validationFacade.validateSecurity(callbackPayload);
-      Class<?> cls;
-      try {
-        cls = loadAllowedClass(callbackPayload.target());
-      } catch (ClassNotFoundException e) {
-        throw new IllegalStateException("Callback class not found: " + callbackPayload.target(), e);
-      }
-      Method method = resolveMethod(cls, callbackPayload);
-      Object target = callbackPayload.isStatic() ? null : beanResolver.resolve(cls);
       JobPayload invocationPayload =
-          ArgumentMaterializer.materialize(callbackPayload, payloadSerializer, classPolicy);
-      List<Object> args = invocationPayload.args() != null ? invocationPayload.args() : List.of();
-      invokeTargetMethod(method, target, args);
+          payloadInvoker.materializeArguments(callbackPayload, payloadSerializer);
+      payloadInvoker.invoke(invocationPayload);
     } catch (Exception e) {
       // Log + metric + event; parent job still succeeds
       log.errorf(
@@ -1128,78 +963,6 @@ public class JobTask implements Callable<Void> {
                 1));
       } catch (Exception eventEx) {
         log.warnf("Callback event publish error for job %s: %s", job.getId(), eventEx.getMessage());
-      }
-    }
-  }
-
-  private Method resolveMethod(Class<?> clazz, JobPayload payload) throws NoSuchMethodException {
-    String cacheKey = clazz.getName() + "#" + payload.method() + ":" + payload.methodDescriptor();
-    synchronized (REFLECTION_CACHE_LOCK) {
-      Method cached = METHOD_CACHE.get(cacheKey);
-      if (cached != null) {
-        return cached;
-      }
-
-      for (Method m : clazz.getMethods()) {
-        if (m.getName().equals(payload.method())
-            && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-          METHOD_CACHE.put(cacheKey, m);
-          return m;
-        }
-      }
-
-      for (Method m : clazz.getDeclaredMethods()) {
-        if (m.getName().equals(payload.method())
-            && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-          String visibility =
-              Modifier.isPrivate(m.getModifiers())
-                  ? "private"
-                  : Modifier.isProtected(m.getModifiers()) ? "protected" : "package-private";
-          throw new NoSuchMethodException(
-              payload.method()
-                  + " in "
-                  + clazz.getName()
-                  + " is "
-                  + visibility
-                  + " — only public methods can be scheduled as jobs. "
-                  + "Change the method visibility to public.");
-        }
-      }
-
-      throw new NoSuchMethodException(
-          payload.method() + " with descriptor " + payload.methodDescriptor());
-    }
-  }
-
-  private String resolveResilienceServiceName(JobPayload payload) {
-    String cacheKey = payload.target() + "#" + payload.method() + ":" + payload.methodDescriptor();
-    synchronized (REFLECTION_CACHE_LOCK) {
-      String cached = SERVICE_NAME_CACHE.get(cacheKey);
-      if (cached != null) {
-        return cached;
-      }
-
-      String fallbackServiceName = simpleClassName(payload.target()) + "." + payload.method();
-      try {
-        // Route through the policy-guarded loader so CLASS_CACHE is never primed with a denied
-        // class. This path runs BEFORE runPayload's security validation, so without this guard
-        // an attacker-controlled class name would land in the cache unchecked.
-        Class<?> clazz = loadAllowedClass(payload.target());
-        Method method = resolveMethod(clazz, payload);
-        CircuitBreakerProtected annotation = method.getAnnotation(CircuitBreakerProtected.class);
-        if (annotation == null) {
-          annotation = clazz.getAnnotation(CircuitBreakerProtected.class);
-        }
-
-        String resolved =
-            annotation != null && annotation.service() != null && !annotation.service().isBlank()
-                ? annotation.service()
-                : clazz.getSimpleName() + "." + method.getName();
-        SERVICE_NAME_CACHE.put(cacheKey, resolved);
-        return resolved;
-      } catch (Exception e) {
-        SERVICE_NAME_CACHE.put(cacheKey, fallbackServiceName);
-        return fallbackServiceName;
       }
     }
   }
@@ -1240,17 +1003,11 @@ public class JobTask implements Callable<Void> {
         "Job %s resolving target: %s.%s (static=%s)",
         job.getId(), payload.target(), payload.method(), payload.isStatic());
 
-    Class<?> cls;
     try {
-      cls = loadAllowedClass(payload.target());
+      return payloadInvoker.invoke(payload);
     } catch (ClassNotFoundException cnfe) {
       log.errorf(cnfe, "Job %s target class not found: %s", job.getId(), payload.target());
       throw cnfe;
-    }
-
-    Method m;
-    try {
-      m = resolveMethod(cls, payload);
     } catch (NoSuchMethodException e) {
       log.errorf(
           e,
@@ -1259,48 +1016,6 @@ public class JobTask implements Callable<Void> {
           payload.method(),
           payload.methodDescriptor(),
           payload.target());
-      throw e;
-    }
-
-    List<Object> args = payload.args() != null ? payload.args() : List.of();
-    if (payload.isStatic()) {
-      return invokeTargetMethod(m, null, args);
-    }
-
-    Object bean;
-    try {
-      bean = beanResolver.resolve(cls);
-    } catch (Exception e) {
-      log.errorf(
-          e,
-          "Failed to resolve bean for instance method %s in class %s",
-          payload.method(),
-          payload.target());
-      throw new IllegalStateException(
-          "Cannot resolve bean for instance method "
-              + payload.method()
-              + " in class "
-              + payload.target()
-              + ". Ensure the class is a managed bean or use a static method.",
-          e);
-    }
-
-    return invokeTargetMethod(m, bean, args);
-  }
-
-  private Object invokeTargetMethod(Method method, Object target, List<Object> args)
-      throws Exception {
-    try {
-      return method.invoke(
-          target, ArgumentCoercion.coerce(method.getParameterTypes(), args.toArray()));
-    } catch (InvocationTargetException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof Exception exception) {
-        throw exception;
-      }
-      if (cause instanceof Error error) {
-        throw error;
-      }
       throw e;
     }
   }
@@ -1368,13 +1083,6 @@ public class JobTask implements Callable<Void> {
       throw new IllegalStateException("JobTask clock was not initialized");
     }
     return clock;
-  }
-
-  private enum SuccessFinalizationState {
-    COMPLETED_FULL,
-    COMPLETED_MINIMAL,
-    TERMINAL_SKIPPED,
-    STUCK
   }
 
   private static class ResourceCapacityException extends RuntimeException {
