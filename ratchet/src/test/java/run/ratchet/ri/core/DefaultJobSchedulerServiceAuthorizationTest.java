@@ -38,6 +38,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -185,7 +186,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             java.time.Instant.parse("2026-05-19T00:00:00Z"),
             OWNER,
-            false);
+            false,
+            RecurringMisfirePolicy.defaults());
     when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(def));
 
     service.cancelJob(JOB_ID);

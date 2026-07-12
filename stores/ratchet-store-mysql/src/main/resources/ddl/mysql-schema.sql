@@ -81,8 +81,14 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     created_at            DATETIME(6)                                                       NOT NULL,
     caller_principal      VARCHAR(255)                                                      NULL,
     encrypted_payload     BOOLEAN                                                           NOT NULL DEFAULT FALSE,
+    misfire_policy        ENUM ('SKIP','FIRE_ONCE','CATCH_UP')                              NOT NULL DEFAULT 'CATCH_UP',
+    max_catch_up_executions INT                                                             NOT NULL DEFAULT 11,
     PRIMARY KEY (id),
     CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
+    CONSTRAINT chk_rec_misfire_policy CHECK (
+        (misfire_policy = 'CATCH_UP' AND max_catch_up_executions >= 1)
+        OR (misfire_policy IN ('SKIP', 'FIRE_ONCE') AND max_catch_up_executions = 0)
+    ),
     -- Claim index: filter unpaused rows first, then order by next_fire.
     INDEX idx_rec_claim (is_paused, next_fire),
     INDEX idx_rec_business_key (business_key),

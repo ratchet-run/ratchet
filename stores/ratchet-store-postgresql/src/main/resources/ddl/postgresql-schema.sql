@@ -72,9 +72,15 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     created_at            TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     caller_principal      VARCHAR(255),
     encrypted_payload     BOOLEAN NOT NULL DEFAULT FALSE,
+    misfire_policy        TEXT NOT NULL DEFAULT 'CATCH_UP',
+    max_catch_up_executions INT NOT NULL DEFAULT 11,
     CONSTRAINT pk_scheduler_recurring_job PRIMARY KEY (id),
     CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
-    CONSTRAINT chk_rec_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
+    CONSTRAINT chk_rec_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
+    CONSTRAINT chk_rec_misfire_policy CHECK (
+        (misfire_policy = 'CATCH_UP' AND max_catch_up_executions >= 1)
+        OR (misfire_policy IN ('SKIP', 'FIRE_ONCE') AND max_catch_up_executions = 0)
+    )
 );
 
 -- Claim index: partial on unpaused rows for FOR UPDATE SKIP LOCKED scan efficiency.

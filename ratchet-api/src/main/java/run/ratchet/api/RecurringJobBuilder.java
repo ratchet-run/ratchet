@@ -16,6 +16,7 @@
 package run.ratchet.api;
 
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Fluent builder for configuring and submitting recurring jobs.
@@ -61,6 +62,22 @@ public interface RecurringJobBuilder {
    * @param key the business key, or null/blank for none
    */
   RecurringJobBuilder withBusinessKey(String key);
+
+  /**
+   * Sets the policy used when more than one cron occurrence is overdue after downtime.
+   *
+   * <p>The default is {@link RecurringMisfirePolicy#defaults()}, which preserves Ratchet's existing
+   * bounded catch-up behavior. The policy is stored with the recurring master so every node applies
+   * the same decision after restart.
+   *
+   * @param policy non-null misfire policy
+   * @throws NullPointerException if {@code policy} is null
+   * @throws UnsupportedOperationException if the builder does not support persisted misfire policy
+   */
+  default RecurringJobBuilder withMisfirePolicy(RecurringMisfirePolicy policy) {
+    Objects.requireNonNull(policy, "policy");
+    throw new UnsupportedOperationException("Recurring misfire policies are not supported");
+  }
 
   /**
    * Routes occurrences created from this recurring job to the virtual executor pool ({@link

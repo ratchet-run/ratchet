@@ -134,6 +134,8 @@ final class MongoFieldNames {
   static final String BACKOFF_POLICY = "backoff_policy";
   static final String BACKOFF_PARAM_MS = "backoff_param_ms";
   static final String TIMEOUT_SEC = "timeout_sec";
+  static final String MISFIRE_POLICY = "misfire_policy";
+  static final String MAX_CATCH_UP_EXECUTIONS = "max_catch_up_executions";
 
   // Signal-waiting jobs
   static final String SIGNAL_KEY = "signal_key";

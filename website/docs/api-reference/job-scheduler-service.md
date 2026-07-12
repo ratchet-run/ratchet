@@ -91,14 +91,14 @@ RecurringJobBuilder scheduleRecurring(
     String cron, ZoneId zone, SerializableCheckedRunnable task)
 ```
 
-Schedules a recurring job based on a cron expression. Returns a `RecurringJobBuilder` for configuring options and tags.
+Schedules a recurring job based on a cron expression. Returns a `RecurringJobBuilder` for configuring options, tags, identity, and downtime behavior.
 
 **Parameters:**
 - `cron` -- Quartz cron expression (6-7 fields: `second minute hour day-of-month month day-of-week [year]`).
 - `zone` -- timezone for evaluating the cron expression.
 - `task` -- the job task to execute on each occurrence.
 
-**Returns:** a `RecurringJobBuilder` for configuring options, tags, and business key.
+**Returns:** a `RecurringJobBuilder` for configuring options, tags, business key, and a persisted `RecurringMisfirePolicy`.
 
 ```java
 // Every weekday at 9 AM Eastern
@@ -111,8 +111,11 @@ scheduler.scheduleRecurring(
         .withBackoff(BackoffPolicy.FIXED, Duration.ofMinutes(5)))
     .withTags(List.of("reports", "daily"))
     .withBusinessKey("daily-report")
+    .withMisfirePolicy(RecurringMisfirePolicy.fireOnce())
     .submit();
 ```
+
+`withMisfirePolicy` accepts `skip()`, `fireOnce()`, or `catchUp(maxExecutions)`. The default is `catchUp(11)`, which preserves the previous bounded catch-up behavior. Policies apply only when at least two occurrences are overdue; a lone due occurrence runs normally.
 
 ## Batch methods
 

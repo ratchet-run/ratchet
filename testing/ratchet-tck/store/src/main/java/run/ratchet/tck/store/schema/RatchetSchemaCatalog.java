@@ -48,7 +48,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 12;
+  public static final int CURRENT_VERSION = 13;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -231,6 +231,8 @@ public final class RatchetSchemaCatalog {
         .column(required("created_at", TIMESTAMP_TZ))
         .column(nullable("caller_principal", TEXT))
         .column(required("encrypted_payload", BOOLEAN))
+        .column(required("misfire_policy", TEXT))
+        .column(required("max_catch_up_executions", INT32))
         .primaryKey("id")
         .index(Index.of("idx_rec_business_key", "business_key"))
         .build();

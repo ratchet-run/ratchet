@@ -64,6 +64,16 @@ class RatchetSchemaCatalogTest {
   }
 
   @Test
+  void schedulerRecurringJobIncludesPersistedMisfirePolicy() {
+    List<String> columns =
+        table("scheduler_recurring_job").columns().stream().map(Column::name).toList();
+
+    assertTrue(
+        columns.containsAll(List.of("misfire_policy", "max_catch_up_executions")),
+        "scheduler_recurring_job should persist the complete misfire policy");
+  }
+
+  @Test
   void schedulerJobDeclaresRecurringMasterAndTraceContext() {
     Table job = table("scheduler_job");
     List<String> columns = job.columns().stream().map(Column::name).toList();
@@ -95,12 +105,11 @@ class RatchetSchemaCatalogTest {
   }
 
   @Test
-  void currentVersionTracksWorkflowDefinitionOrderSchemaRevision() {
+  void currentVersionTracksRecurringMisfirePolicySchemaRevision() {
     assertEquals(
-        12,
+        13,
         RatchetSchemaCatalog.CURRENT_VERSION,
-        "CURRENT_VERSION must advance when workflow definition order is added to the schema"
-            + " catalog");
+        "catalog version should advance when recurring misfire policy columns are added");
   }
 
   @Test

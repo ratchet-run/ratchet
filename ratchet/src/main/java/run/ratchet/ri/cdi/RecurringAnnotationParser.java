@@ -17,6 +17,7 @@ package run.ratchet.ri.cdi;
 
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.Recurring;
+import run.ratchet.api.RecurringMisfirePolicy;
 
 /**
  * Parses {@code @Recurring} annotation values: enabled flag, numeric-to-{@link JobPriority}
@@ -39,6 +40,15 @@ final class RecurringAnnotationParser {
   /** Returns true if the job should be registered. */
   static boolean isEnabled(Recurring annotation) {
     return annotation.enabled();
+  }
+
+  /** Converts the annotation action and catch-up limit into the public value type. */
+  static RecurringMisfirePolicy misfirePolicy(Recurring annotation) {
+    return switch (annotation.misfirePolicy()) {
+      case SKIP -> RecurringMisfirePolicy.skip();
+      case FIRE_ONCE -> RecurringMisfirePolicy.fireOnce();
+      case CATCH_UP -> RecurringMisfirePolicy.catchUp(annotation.maxCatchUpExecutions());
+    };
   }
 
   /**

@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -40,6 +41,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.RecurringJobDefinition;
 
 class DocumentMapperTest {
 
@@ -194,6 +196,30 @@ class DocumentMapperTest {
   }
 
   @Test
+  void roundTripsRecurringMisfirePolicy() {
+    RecurringJobDefinition definition = recurringDefinition(RecurringMisfirePolicy.catchUp(4));
+
+    Document doc = DocumentMapper.toRecurringDocument(definition);
+    RecurringJobDefinition reloaded = DocumentMapper.toRecurringJobDefinition(doc);
+
+    assertEquals("CATCH_UP", doc.getString("misfire_policy"));
+    assertEquals(4, doc.getInteger("max_catch_up_executions"));
+    assertEquals(definition.misfirePolicy(), reloaded.misfirePolicy());
+  }
+
+  @Test
+  void readsLegacyRecurringDocumentWithDefaultMisfirePolicy() {
+    Document doc =
+        DocumentMapper.toRecurringDocument(recurringDefinition(RecurringMisfirePolicy.skip()));
+    doc.remove("misfire_policy");
+    doc.remove("max_catch_up_executions");
+
+    RecurringJobDefinition reloaded = DocumentMapper.toRecurringJobDefinition(doc);
+
+    assertEquals(RecurringMisfirePolicy.defaults(), reloaded.misfirePolicy());
+  }
+
+  @Test
   void wrapsUnsupportedPayloadStorageTypeWithMappingException() {
     Document doc = DocumentMapper.toDocument(job(null));
     doc.put("payload", 42);
@@ -311,5 +337,30 @@ class DocumentMapperTest {
     assertEquals(permit.getJobId(), reloaded.getJobId());
     assertEquals(permit.getNodeId(), reloaded.getNodeId());
     assertEquals(permit.getAcquiredAt(), reloaded.getAcquiredAt());
+  }
+
+  private static RecurringJobDefinition recurringDefinition(RecurringMisfirePolicy misfirePolicy) {
+    return new RecurringJobDefinition(
+        UuidV7Factory.create(),
+        "0 * * * * ?",
+        "UTC",
+        Instant.parse("2026-01-01T01:00:00Z"),
+        false,
+        null,
+        JobPriority.NORMAL.ordinal(),
+        0,
+        BackoffPolicy.NONE,
+        0,
+        0,
+        payload("com.example.RecurringJob", "run"),
+        null,
+        null,
+        "recurring-mapper-test",
+        null,
+        null,
+        Instant.parse("2026-01-01T00:00:00Z"),
+        null,
+        false,
+        misfirePolicy);
   }
 }

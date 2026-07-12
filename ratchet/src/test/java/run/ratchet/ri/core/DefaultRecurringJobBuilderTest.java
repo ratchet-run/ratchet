@@ -24,6 +24,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobOptions;
+import run.ratchet.api.RecurringMisfirePolicy;
 
 class DefaultRecurringJobBuilderTest {
 
@@ -65,6 +66,21 @@ class DefaultRecurringJobBuilderTest {
 
     builder.virtual();
     assertEquals(ExecutorTargets.VIRTUAL, builder.executionTarget());
+  }
+
+  @Test
+  void misfirePolicyDefaultsToCompatibilityCatchUp() {
+    assertEquals(RecurringMisfirePolicy.defaults(), newBuilder().misfirePolicy());
+  }
+
+  @Test
+  void withMisfirePolicyReplacesPolicyAndRejectsNull() {
+    DefaultRecurringJobBuilder builder = newBuilder();
+
+    builder.withMisfirePolicy(RecurringMisfirePolicy.skip());
+
+    assertEquals(RecurringMisfirePolicy.skip(), builder.misfirePolicy());
+    assertThrows(NullPointerException.class, () -> builder.withMisfirePolicy(null));
   }
 
   private static DefaultRecurringJobBuilder newBuilder() {

@@ -633,7 +633,8 @@ class DefaultJobCreationService
             builder.executionTarget(),
             base,
             callerPrincipal,
-            builder.encryptedPayload());
+            builder.encryptedPayload(),
+            builder.misfirePolicy());
 
     RecurringJobDefinition saved = createOrReconcileRecurring(definition, builder.tags());
 
@@ -713,7 +714,8 @@ class DefaultJobCreationService
         candidate.executionTarget(),
         existing.createdAt(),
         existing.callerPrincipal(),
-        candidate.encryptedPayload());
+        candidate.encryptedPayload(),
+        candidate.misfirePolicy());
   }
 
   private static boolean recurringDefinitionsMatch(
@@ -732,7 +734,8 @@ class DefaultJobCreationService
         && Objects.equals(existing.businessKey(), replacement.businessKey())
         && Objects.equals(existing.resourceName(), replacement.resourceName())
         && Objects.equals(existing.executionTarget(), replacement.executionTarget())
-        && existing.encryptedPayload() == replacement.encryptedPayload();
+        && existing.encryptedPayload() == replacement.encryptedPayload()
+        && Objects.equals(existing.misfirePolicy(), replacement.misfirePolicy());
   }
 
   private void requireBatchCapability() {

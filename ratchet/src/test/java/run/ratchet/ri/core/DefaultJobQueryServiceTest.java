@@ -55,6 +55,7 @@ import run.ratchet.api.JobSummary;
 import run.ratchet.api.JobType;
 import run.ratchet.api.QueueHealthSnapshot;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -154,7 +155,8 @@ class DefaultJobQueryServiceTest {
             null,
             Instant.parse("2026-05-19T00:00:00Z"),
             "alice",
-            false);
+            false,
+            RecurringMisfirePolicy.defaults());
     when(recurringJobStore.listAll()).thenReturn(new java.util.ArrayList<>(List.of(def)));
 
     JobPage<JobSummary> page = service.getRecurringMasters(10, 0);
@@ -829,7 +831,8 @@ class DefaultJobQueryServiceTest {
         null,
         Instant.parse("2026-05-19T00:00:00Z"),
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 
   private static run.ratchet.store.spi.RecurringJobDefinition recurringDefWithPrincipal(
@@ -855,7 +858,8 @@ class DefaultJobQueryServiceTest {
         null,
         Instant.parse("2026-05-19T00:00:00Z"),
         principal,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 
   private static run.ratchet.store.spi.RecurringJobDefinition recurringDefWithBusinessKey(
@@ -881,6 +885,7 @@ class DefaultJobQueryServiceTest {
         null,
         Instant.parse("2026-05-19T00:00:00Z"),
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 }

@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
@@ -49,7 +50,7 @@ import run.ratchet.store.spi.TagStore;
  * <ol>
  *   <li>Concurrent claim safety — exactly-once observation across nodes.
  *   <li>Atomic next-fire advance — successor claim cycle does not re-claim the master.
- *   <li>Catch-up correctness — bounded MAX_CATCHUP runs spawn before {@code next_fire} is updated.
+ *   <li>Catch-up correctness — bounded overdue runs spawn before {@code next_fire} is updated.
  *   <li>Pause / resume isolation + concurrent-admin idempotency.
  *   <li>Cancel / archive atomicity — snapshot row appears iff live row disappears.
  *   <li>Business-key reservation orphan absence post-cancel.
@@ -317,6 +318,39 @@ public abstract class AbstractRecurringJobStoreContract {
     assertEquals(ExecutorTargets.VIRTUAL, def.get().executionTarget());
   }
 
+  /** Misfire policy is part of the durable recurring definition, not executor-local state. */
+  @Test
+  void createRecurring_roundTripsMisfirePolicy() {
+    UUID id = UuidV7Factory.create();
+    RecurringMisfirePolicy expected = RecurringMisfirePolicy.catchUp(4);
+    recurringStore()
+        .createRecurring(
+            definitionWithMisfirePolicy(
+                id, "0 * * * * ?", Instant.now().plusSeconds(60), expected));
+
+    RecurringJobDefinition reread = recurringStore().getRecurring(id).orElseThrow();
+
+    assertEquals(expected, reread.misfirePolicy());
+  }
+
+  /** Reconciliation updates must replace the stored misfire policy with the new definition. */
+  @Test
+  void updateRecurring_replacesMisfirePolicy() {
+    UUID id = UuidV7Factory.create();
+    Instant nextFire = Instant.now().plusSeconds(60);
+    recurringStore()
+        .createRecurring(
+            definitionWithMisfirePolicy(
+                id, "0 * * * * ?", nextFire, RecurringMisfirePolicy.catchUp(4)));
+    RecurringJobDefinition replacement =
+        definitionWithMisfirePolicy(id, "0 * * * * ?", nextFire, RecurringMisfirePolicy.skip());
+
+    assertTrue(recurringStore().updateRecurring(id, replacement));
+    assertEquals(
+        RecurringMisfirePolicy.skip(),
+        recurringStore().getRecurring(id).orElseThrow().misfirePolicy());
+  }
+
   /**
    * Business-key uniqueness: two concurrent {@code createRecurring} calls with the same business
    * key must not both succeed. SQL stores enforce via {@code scheduler_business_key_reservation};
@@ -509,7 +543,8 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         createdAt,
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 
   private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
@@ -538,7 +573,8 @@ public abstract class AbstractRecurringJobStoreContract {
         executionTarget,
         Instant.now(),
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 
   private RecurringJobDefinition definitionWithBusinessKey(
@@ -563,6 +599,33 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         Instant.now(),
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
+  }
+
+  private RecurringJobDefinition definitionWithMisfirePolicy(
+      UUID id, String cron, Instant nextFire, RecurringMisfirePolicy misfirePolicy) {
+    return new RecurringJobDefinition(
+        id,
+        cron,
+        "UTC",
+        nextFire,
+        false,
+        null,
+        2,
+        0,
+        BackoffPolicy.NONE,
+        0,
+        0,
+        noopPayload(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        Instant.now(),
+        null,
+        false,
+        misfirePolicy);
   }
 }

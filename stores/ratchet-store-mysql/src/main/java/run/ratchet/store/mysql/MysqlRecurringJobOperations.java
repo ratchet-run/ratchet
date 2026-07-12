@@ -49,7 +49,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
       "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec, cron_expr,"
           + " zone_id, next_fire, is_paused, paused_at, payload, on_success_payload,"
           + " on_failure_payload, business_key, resource_name, execution_target, created_at,"
-          + " caller_principal, encrypted_payload";
+          + " caller_principal, encrypted_payload, misfire_policy, max_catch_up_executions";
 
   private final MysqlStoreContext ctx;
   private final MysqlBusinessKeyReservations reservations;
@@ -230,9 +230,10 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
             + "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec,"
             + " cron_expr, zone_id, next_fire, is_paused, paused_at, payload,"
             + " on_success_payload, on_failure_payload, business_key, resource_name,"
-            + " execution_target, created_at, caller_principal, encrypted_payload)"
+            + " execution_target, created_at, caller_principal, encrypted_payload,"
+            + " misfire_policy, max_catch_up_executions)"
             + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON),"
-            + " CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, ?)";
+            + " CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, ?, ?, ?)";
     Instant created = d.createdAt() != null ? d.createdAt() : Instant.now();
     boolean active = JobEncryption.activeFor(d.encryptedPayload());
     Query q = ctx.em().createNativeQuery(sql);
@@ -265,7 +266,9 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, d.executionTarget());
     q.setParameter(i++, Timestamp.from(created));
     q.setParameter(i++, d.callerPrincipal());
-    q.setParameter(i, active);
+    q.setParameter(i++, active);
+    q.setParameter(i++, d.misfirePolicy().action().name());
+    q.setParameter(i, d.misfirePolicy().maxCatchUpExecutions());
     try {
       q.executeUpdate();
       if (d.businessKey() != null) {
@@ -291,7 +294,8 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
             + " timeout_sec = ?, cron_expr = ?, zone_id = ?, next_fire = ?,"
             + " payload = CAST(? AS JSON),"
             + " on_success_payload = CAST(? AS JSON), on_failure_payload = CAST(? AS JSON),"
-            + " resource_name = ?, execution_target = ?, encrypted_payload = ?"
+            + " resource_name = ?, execution_target = ?, encrypted_payload = ?,"
+            + " misfire_policy = ?, max_catch_up_executions = ?"
             + " WHERE id = ?";
     boolean active = JobEncryption.activeFor(d.encryptedPayload());
     Query q = ctx.em().createNativeQuery(sql);
@@ -319,6 +323,8 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, d.resourceName());
     q.setParameter(i++, d.executionTarget());
     q.setParameter(i++, active);
+    q.setParameter(i++, d.misfirePolicy().action().name());
+    q.setParameter(i++, d.misfirePolicy().maxCatchUpExecutions());
     q.setParameter(i, UuidByteArrayConverter.toBytes(id));
     return q.executeUpdate() > 0;
   }

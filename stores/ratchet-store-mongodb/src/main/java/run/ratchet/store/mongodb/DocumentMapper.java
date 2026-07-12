@@ -27,6 +27,7 @@ import org.bson.Document;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.converter.PayloadSerializerHolder;
@@ -293,6 +294,8 @@ public final class DocumentMapper {
         toDate(definition.createdAt() != null ? definition.createdAt() : Instant.now()));
     doc.append("caller_principal", definition.callerPrincipal());
     doc.append("encrypted_payload", active);
+    doc.append("misfire_policy", definition.misfirePolicy().action().name());
+    doc.append("max_catch_up_executions", definition.misfirePolicy().maxCatchUpExecutions());
     return doc;
   }
 
@@ -311,6 +314,7 @@ public final class DocumentMapper {
         && PayloadEncryptor.argsFlaggedButUnframed(s)) {
       EncryptionIntegrity.flaggedButUnframed(id, ProtectedSurface.PAYLOAD_ARGS);
     }
+    RecurringMisfirePolicy misfirePolicy = recurringMisfirePolicy(doc);
     return new RecurringJobDefinition(
         id,
         doc.getString("cron_expr"),
@@ -339,7 +343,24 @@ public final class DocumentMapper {
         doc.getString("execution_target"),
         toInstant(doc.getDate("created_at")),
         doc.getString("caller_principal"),
-        doc.getBoolean("encrypted_payload", false));
+        doc.getBoolean("encrypted_payload", false),
+        misfirePolicy);
+  }
+
+  private static RecurringMisfirePolicy recurringMisfirePolicy(Document doc) {
+    String storedAction = doc.getString("misfire_policy");
+    if (storedAction == null) {
+      return RecurringMisfirePolicy.defaults();
+    }
+    RecurringMisfirePolicy.Action action = RecurringMisfirePolicy.Action.valueOf(storedAction);
+    Number storedLimit = (Number) doc.get("max_catch_up_executions");
+    int limit =
+        storedLimit != null
+            ? storedLimit.intValue()
+            : action == RecurringMisfirePolicy.Action.CATCH_UP
+                ? RecurringMisfirePolicy.DEFAULT_MAX_CATCH_UP_EXECUTIONS
+                : 0;
+    return new RecurringMisfirePolicy(action, limit);
   }
 
   public static Document toDocument(BatchEntity batch) {

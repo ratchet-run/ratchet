@@ -113,8 +113,21 @@ scheduler.scheduleRecurring(
         .withTimeout(Duration.ofMinutes(10)))
     .withTags(List.of("reports"))
     .withBusinessKey("hourly-report")
+    .withMisfirePolicy(RecurringMisfirePolicy.fireOnce())
     .submit();
 ```
+
+#### Downtime and misfires
+
+When at least two cron occurrences are overdue, the recurring master's persisted misfire policy decides what Ratchet creates:
+
+| Policy | Backlog behavior |
+|---|---|
+| `RecurringMisfirePolicy.skip()` | Discard every overdue occurrence and resume in the future |
+| `RecurringMisfirePolicy.fireOnce()` | Create only the oldest overdue occurrence, then resume in the future |
+| `RecurringMisfirePolicy.catchUp(n)` | Create at most `n` overdue occurrences in scheduled order |
+
+The default is `catchUp(11)`, matching Ratchet's earlier bounded catch-up behavior. A single overdue occurrence is not a backlog and runs normally under all three policies. Annotation-based schedules use `misfirePolicy` plus `maxCatchUpExecutions`; the limit is ignored for `SKIP` and `FIRE_ONCE`.
 
 #### Cron Expression Examples
 
@@ -139,7 +152,9 @@ Cron expressions are evaluated in the specified timezone. This matters for sched
 public void nightlyJob() { ... }
 ```
 
-If no timezone is specified, UTC is used.
+If no timezone is specified, UTC is used. When the clock jumps forward, a local time that does not
+exist is skipped. When the clock falls back and repeats a local time, Ratchet fires the first
+occurrence only. Use UTC when every nominal occurrence matters more than local wall-clock behavior.
 
 ## The `enqueue` vs `schedule` vs `recurring` API
 

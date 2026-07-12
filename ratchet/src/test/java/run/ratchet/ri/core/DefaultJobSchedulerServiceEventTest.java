@@ -43,6 +43,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
@@ -387,7 +388,8 @@ class DefaultJobSchedulerServiceEventTest {
         null,
         FIXED_NOW,
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 
   private static JobEntity job(JobStatus status, JobExecutionType type) {

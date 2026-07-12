@@ -27,6 +27,8 @@ Marks a method for cron-scheduled recurring execution. Annotated methods are aut
     maxRetries = 3,
     backoffPolicy = BackoffPolicy.EXPONENTIAL,
     backoffDelayMs = 1000,
+    misfirePolicy = RecurringMisfirePolicy.Action.CATCH_UP,
+    maxCatchUpExecutions = 11,
     timeoutSeconds = 3600,
     tags = {"maintenance", "nightly"}
 )
@@ -45,6 +47,8 @@ Marks a method for cron-scheduled recurring execution. Annotated methods are aut
 | `maxRetries` | `int` | `3` | No | Maximum retry attempts on failure. |
 | `backoffPolicy` | `BackoffPolicy` | `EXPONENTIAL` | No | Retry delay strategy: `NONE`, `FIXED`, or `EXPONENTIAL`. |
 | `backoffDelayMs` | `long` | `1000` | No | Base delay in milliseconds for backoff calculations. |
+| `misfirePolicy` | `RecurringMisfirePolicy.Action` | `CATCH_UP` | No | Backlog action: `SKIP`, `FIRE_ONCE`, or bounded `CATCH_UP`. A backlog means at least two cron occurrences are overdue. |
+| `maxCatchUpExecutions` | `int` | `11` | No | Maximum total overdue occurrences created by `CATCH_UP`. It is ignored and has no effect for `SKIP` or `FIRE_ONCE`. |
 | `timeoutSeconds` | `long` | `3600` | No | Maximum execution time in seconds (default: 1 hour). |
 | `tags` | `String[]` | `{}` | No | Tags for filtering and categorization. |
 
@@ -108,6 +112,15 @@ public class MaintenanceService {
         // health check logic
     }
 
+    // Discard an outage backlog and resume at the next future cron time
+    @Recurring(
+        cron = "0 * * * * ?",
+        misfirePolicy = RecurringMisfirePolicy.Action.SKIP
+    )
+    public void refreshCache() {
+        // a single late occurrence still runs normally
+    }
+
     // Explicitly disabled
     @Recurring(
         cron = "0 0 3 * * ?",
@@ -124,7 +137,7 @@ public class MaintenanceService {
 
 1. At application startup, Ratchet scans CDI beans for `@Recurring` methods.
 2. For each annotated method, a recurring job definition is registered using the `id` as the business key.
-3. The scheduler creates individual job instances at each scheduled execution time.
+3. The scheduler creates individual job instances at each scheduled execution time, applying the persisted misfire policy when at least two occurrences are overdue.
 4. If a job with the same business key is already active (PENDING/RUNNING), it is replaced.
 
 ## @CircuitBreakerProtected

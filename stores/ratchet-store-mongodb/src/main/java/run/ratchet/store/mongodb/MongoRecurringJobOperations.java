@@ -38,7 +38,9 @@ import static run.ratchet.store.mongodb.MongoFieldNames.CRON_EXPR;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_TARGET;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IS_PAUSED;
+import static run.ratchet.store.mongodb.MongoFieldNames.MAX_CATCH_UP_EXECUTIONS;
 import static run.ratchet.store.mongodb.MongoFieldNames.MAX_RETRIES_FIELD;
+import static run.ratchet.store.mongodb.MongoFieldNames.MISFIRE_POLICY;
 import static run.ratchet.store.mongodb.MongoFieldNames.NEXT_FIRE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ON_FAILURE_PAYLOAD;
 import static run.ratchet.store.mongodb.MongoFieldNames.ON_SUCCESS_PAYLOAD;
@@ -294,6 +296,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                             d.onFailurePayload(), active, ProtectedSurface.ON_FAILURE_PAYLOAD, id)),
                     set(RESOURCE_NAME, d.resourceName()),
                     set(EXECUTION_TARGET, d.executionTarget()),
+                    set(MISFIRE_POLICY, d.misfirePolicy().action().name()),
+                    set(MAX_CATCH_UP_EXECUTIONS, d.misfirePolicy().maxCatchUpExecutions()),
                     set("encrypted_payload", active)),
                 new UpdateOptions().upsert(false));
     return r.getModifiedCount() > 0;

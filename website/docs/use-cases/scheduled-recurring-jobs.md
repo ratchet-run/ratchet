@@ -23,6 +23,7 @@ For schedules you know at build time, annotate a method on any CDI bean. At star
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.Recurring;
+import run.ratchet.api.RecurringMisfirePolicy;
 
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -41,6 +42,7 @@ public class MaintenanceService {
       priority = 8,
       maxRetries = 5,
       backoffPolicy = BackoffPolicy.EXPONENTIAL,
+      misfirePolicy = RecurringMisfirePolicy.Action.FIRE_ONCE,
       tags = {"health", "monitoring"})
   public void healthCheck(JobContext context) {
     context.logger().info("health check running");
@@ -48,7 +50,7 @@ public class MaintenanceService {
 }
 ```
 
-The method has to be `public`, live on a CDI bean, and take either nothing or a single `JobContext`. The return value is ignored. The cron string is a Quartz expression of six or seven fields (`second minute hour day-of-month month day-of-week [year]`), evaluated in the `zone` you name. That matters the two days a year that daylight saving moves the clock. Leave `zone` off and you get UTC.
+The method has to be `public`, live on a CDI bean, and take either nothing or a single `JobContext`. The return value is ignored. The cron string is a Quartz expression of six or seven fields (`second minute hour day-of-month month day-of-week [year]`), evaluated in the `zone` you name. During daylight-saving transitions, Ratchet skips a nonexistent wall-clock time and fires the first occurrence of a repeated time only. Leave `zone` off and you get UTC.
 
 The second method shows the knobs you would otherwise wire up by hand: a priority, a retry budget, exponential backoff, and tags you can filter on later. They are annotation attributes, not a separate configuration file.
 
@@ -69,6 +71,7 @@ import java.util.List;
 
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.RecurringMisfirePolicy;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -87,12 +90,37 @@ public class ReportScheduler {
             .withTimeout(Duration.ofMinutes(10)))
         .withTags(List.of("reports", "tenant:" + tenantId))
         .withBusinessKey("hourly-report-" + tenantId)
+        .withMisfirePolicy(RecurringMisfirePolicy.catchUp(3))
         .submit();
   }
 }
 ```
 
 The `withBusinessKey` here is doing real work. It scopes the recurring master per tenant, so re-running this method for the same tenant does not stack up a second schedule. The lambda is a method reference on a CDI bean. Ratchet serializes only the arguments (`tenantId`) and resolves the bean from CDI when the job runs, so injected dependencies are live at execution time, not captured at submission.
+
+## After downtime: misfire policies
+
+A misfire backlog exists when Ratchet claims a recurring master and at least two cron occurrences are already overdue. A single overdue occurrence still runs normally, under every policy. This keeps ordinary poll latency from being treated like an outage.
+
+Choose what happens to a backlog per schedule:
+
+- `CATCH_UP` creates overdue occurrences in scheduled order, up to a configured total. The default is 11 total occurrences, preserving Ratchet's previous behavior of creating the oldest occurrence plus as many as ten more.
+- `FIRE_ONCE` creates only the oldest overdue occurrence, discards the rest of the backlog, and resumes at the next future cron time.
+- `SKIP` discards the entire backlog and resumes at the next future cron time.
+
+The annotation form uses `misfirePolicy` and, for catch-up only, `maxCatchUpExecutions`:
+
+```java
+@Recurring(
+    cron = "0 * * * * ?",
+    misfirePolicy = RecurringMisfirePolicy.Action.CATCH_UP,
+    maxCatchUpExecutions = 3)
+public void importFeed() {
+  // At most three overdue hourly occurrences are created after downtime.
+}
+```
+
+The programmatic equivalent is `.withMisfirePolicy(RecurringMisfirePolicy.catchUp(3))`. Use `skip()` or `fireOnce()` for the other actions. Ratchet persists the policy with the recurring master, so every node applies the same decision after a restart. `maxCatchUpExecutions` has no effect when the annotation action is `SKIP` or `FIRE_ONCE`.
 
 ## One-shot, deferred
 
