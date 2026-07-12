@@ -345,43 +345,17 @@ WHERE terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
 
 ### Micrometer integration
 
-Wire the `MetricsCollector` SPI to Micrometer for dashboarding:
+Add the `ratchet-micrometer` module instead of maintaining a lifecycle-only collector:
 
-```java
-@ApplicationScoped
-public class MicrometerCollector implements MetricsCollector {
-
-  @Inject
-  MeterRegistry registry;
-
-  @Override
-  public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
-    registry.counter("ratchet.jobs.started",
-        "type", type.name(),
-        "priority", priority.name())
-        .increment();
-  }
-
-  @Override
-  public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
-    registry.counter("ratchet.jobs.completed",
-        "type", type.name())
-        .increment();
-
-    registry.timer("ratchet.jobs.duration",
-        "type", type.name())
-        .record(executionTimeMs, TimeUnit.MILLISECONDS);
-  }
-
-  @Override
-  public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
-    registry.counter("ratchet.jobs.failed",
-        "type", type.name(),
-        "exception", cause.getClass().getSimpleName())
-        .increment();
-  }
-}
+```xml
+<dependency>
+  <groupId>run.ratchet</groupId>
+  <artifactId>ratchet-micrometer</artifactId>
+  <version>${ratchet.version}</version>
+</dependency>
 ```
+
+The bundled adapter covers all 22 `MetricsCollector` callbacks, including store-finalization fallbacks, claim-breaker state, and encryption rollout signals. See [Monitoring](./monitoring.md#published-metrics) for the meter catalog and setup.
 
 ### Useful dashboard queries
 

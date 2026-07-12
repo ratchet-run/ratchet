@@ -40,12 +40,33 @@ The `MicrometerMetricsCollector` is annotated `@Alternative @Priority(1000)`, so
 
 | Metric | Type | Tags | Description |
 |--------|------|------|-------------|
-| `ratchet.jobs.started` | Counter | `type`, `priority` | Jobs that began execution |
-| `ratchet.jobs.completed` | Counter | `type` | Jobs that finished successfully |
-| `ratchet.jobs.failed` | Counter | `type`, `family` | Jobs that failed (exception-family classification as tag) |
-| `ratchet.jobs.duration` | Timer | `type` | Execution time per job |
+| `ratchet.jobs.started` | Counter | `type`, `priority` | Job execution attempts started |
+| `ratchet.jobs.completed` | Counter | `type` | Job execution attempts completed successfully |
+| `ratchet.jobs.failed` | Counter | `type`, `family` | Failed attempts, grouped by bounded exception family |
+| `ratchet.jobs.duration` | Timer | `type` | Wall-clock duration of successful attempts |
+| `ratchet.store.finalization.retries` | Counter | `type` | Transient conflicts while persisting a successful result |
+| `ratchet.store.finalization.minimal_success` | Counter | `type` | Full-result persistence was exhausted and Ratchet used the minimal success write |
+| `ratchet.store.finalization.stuck` | Counter | `type` | Both finalization paths were exhausted; the job remains `RUNNING` for recovery |
+| `ratchet.store.claim.transient_failures` | Counter | `execution_type` | Transient store conflicts on the claim path |
+| `ratchet.poller.claimed.jobs` | Counter | `execution_type` | Number of jobs claimed |
+| `ratchet.submission.gate.rejections` | Counter | `execution_type`, `gate_status` | Claimed jobs blocked by a local submission gate |
+| `ratchet.wakeup.local` | Counter | `source` | Direct local poller wakeups after new work |
+| `ratchet.execution.target.fallback` | Counter | `requested_target`, `effective_target` | Requested executor target was unavailable and Ratchet used a fallback pool |
+| `ratchet.wakeup.cluster.publish` | Counter | `transport`, `outcome` | Cluster wakeup publish attempts |
+| `ratchet.wakeup.cluster.receive` | Counter | `transport`, `outcome` | Cluster wakeup messages observed by a receiver |
+| `ratchet.callbacks.failed` | Counter | `type`, `family` | `onSuccess` or `onFailure` callback failures; these do not fail the parent job |
+| `ratchet.signal.waiting` | Counter | `type`, `signal_key` | Jobs created in `WAITING` for a signal |
+| `ratchet.signal.delivered` | Counter | `type`, `signal_key`, `outcome` | Signal deliveries that moved a job to `PENDING` |
+| `ratchet.signal.timed_out` | Counter | `type`, `signal_key` | Signal waits that expired |
+| `ratchet.signal.cancelled` | Counter | `type`, `signal_key` | Signal waits cancelled before delivery |
+| `ratchet.store.operation` | Timer | `store`, `operation`, `outcome` | Timed store operations on claim and execution hot paths |
+| `ratchet.poller.breaker.state` | Gauge | `breaker` | Poller claim-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.encryption.integrity.violations` | Counter | `surface` | A row marked as encrypted contained plaintext. The read succeeds, but the writer or rollout needs investigation. |
+| `ratchet.encryption.envelope.version_skew` | Counter | `version_gap` | A newer envelope reached this node. `next`, `multiple_versions_ahead`, and `not_newer` keep the diagnostic bounded; Ratchet releases valid newer jobs for an upgraded peer. |
 
 The `type` tag corresponds to `JobType` (`SINGLE`, `RECURRING`, `BATCH`, `CHAIN`, `WORKFLOW`, `SYSTEM`). The `priority` tag corresponds to `JobPriority` (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`). The `family` tag corresponds to `ExceptionFamily`, a coarse classification of the failure cause rather than the raw exception class name.
+
+`MicrometerMetricTagPolicy` keeps string-valued tags bounded. Framework values pass through, blanks become `UNKNOWN`, and unrecognized values become `OTHER`. Signal keys are application strings and collapse to `OTHER` unless you explicitly allowlist selected keys. See [Metrics Collection](../advanced/metrics-collection.md#published-metrics) for the tag-policy details.
 
 ### Grafana dashboard queries
 
@@ -72,7 +93,9 @@ topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 
 ### Custom `MetricsCollector`
 
-If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Beyond the three core job-lifecycle hooks (`jobStarted`, `jobCompleted`, `jobFailed`), the SPI also declares `successFinalizationRetried`/`successFinalizationMinimal`/`successFinalizationStuck`, `claimTransientFailure`, `jobsClaimed`, `gateRejected`, and `localWakeup`, plus default no-op hooks for cluster wakeup, callback failures, signal events, store operations, and poller circuit-breaker state. The simplest approach is to extend `NoOpMetricsCollector` and override only the callbacks you need:
+If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Its 22 callbacks cover job outcomes, success finalization, claims and gates, wakeups and executor routing, callback and signal events, store timing, the poller breaker, and encryption integrity/version signals.
+
+The example below is intentionally partial: it records two basic job outcomes and drops every other signal. Extending `NoOpMetricsCollector` is convenient when that is what you want. For a production replacement, review every callback in [Metrics Collection](../advanced/metrics-collection.md#metricscollector-spi) and either export it or delegate it to a complete collector.
 
 ```java
 public class MyMetricsCollector extends NoOpMetricsCollector {
@@ -219,6 +242,10 @@ Wire this into your alerting system. A non-zero DLQ count means something failed
 | Node heartbeat stale > 2min | **Critical** | Node may be down; check process health |
 | Pending CRITICAL jobs > 30s | **Critical** | Cluster may be overloaded |
 | Pending queue depth growing | **Warning** | Scale up nodes or increase thread pool |
+| `ratchet.store.finalization.stuck` > 0 | **Critical** | Check store health; successful work is waiting for recovery |
+| `ratchet.poller.breaker.state` remains `2` | **Critical** | Investigate claim-path store failures |
+| `ratchet.encryption.integrity.violations` > 0 | **Critical** | Investigate a downgrade, lagging writer, or encryption bug |
+| `ratchet.encryption.envelope.version_skew` persists after rollout | **Warning** | Find and upgrade the lagging node |
 
 ## See also
 

@@ -16,6 +16,7 @@
 package run.ratchet.micrometer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -28,8 +29,108 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.spi.ProtectedSurface;
 
 class MicrometerMetricsCollectorTest {
+
+  @Test
+  void encryptionIntegrityViolationPublishesEveryProtectedSurface() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+
+    for (ProtectedSurface surface : ProtectedSurface.values()) {
+      collector.encryptionIntegrityViolation(UUID.randomUUID(), surface.name());
+    }
+
+    for (ProtectedSurface surface : ProtectedSurface.values()) {
+      assertEquals(
+          1.0,
+          registry
+              .get("ratchet.encryption.integrity.violations")
+              .tag("surface", surface.name())
+              .counter()
+              .count());
+    }
+  }
+
+  @Test
+  void encryptionIntegrityViolationAppliesSurfaceTagPolicy() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+
+    collector.encryptionIntegrityViolation(UUID.randomUUID(), "customer-secret-column");
+
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.encryption.integrity.violations")
+            .tag("surface", "OTHER")
+            .counter()
+            .count());
+    assertNull(
+        registry
+            .find("ratchet.encryption.integrity.violations")
+            .tag("surface", "customer-secret-column")
+            .counter());
+  }
+
+  @Test
+  void encryptionIntegrityViolationAcceptsExplicitlyAllowlistedSurface() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricTagPolicy tagPolicy =
+        MicrometerMetricTagPolicy.builder().allowValue("surface", "CUSTOM_BLOB").build();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry, tagPolicy);
+
+    collector.encryptionIntegrityViolation(UUID.randomUUID(), "CUSTOM_BLOB");
+
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.encryption.integrity.violations")
+            .tag("surface", "CUSTOM_BLOB")
+            .counter()
+            .count());
+  }
+
+  @Test
+  void encryptionEnvelopeVersionSkewPublishesBoundedVersionGap() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+
+    collector.encryptionEnvelopeVersionSkew(UUID.randomUUID(), 2, 1);
+    collector.encryptionEnvelopeVersionSkew(UUID.randomUUID(), 10, 1);
+    collector.encryptionEnvelopeVersionSkew(UUID.randomUUID(), 1, 1);
+
+    var nextVersion =
+        registry
+            .find("ratchet.encryption.envelope.version_skew")
+            .tag("version_gap", "next")
+            .counter();
+    var multipleVersionsAhead =
+        registry
+            .find("ratchet.encryption.envelope.version_skew")
+            .tag("version_gap", "multiple_versions_ahead")
+            .counter();
+    var notNewer =
+        registry
+            .find("ratchet.encryption.envelope.version_skew")
+            .tag("version_gap", "not_newer")
+            .counter();
+    assertNotNull(nextVersion);
+    assertNotNull(multipleVersionsAhead);
+    assertNotNull(notNewer);
+    assertEquals(1.0, nextVersion.count());
+    assertEquals(1.0, multipleVersionsAhead.count());
+    assertEquals(1.0, notNewer.count());
+    assertEquals(3, registry.find("ratchet.encryption.envelope.version_skew").counters().size());
+    assertNull(
+        registry.find("ratchet.encryption.envelope.version_skew").tag("version", "2").counter());
+    assertNull(
+        registry
+            .find("ratchet.encryption.envelope.version_skew")
+            .tag("max_supported_version", "1")
+            .counter());
+  }
 
   @Test
   void jobFailedTagsByBoundedFamily() {

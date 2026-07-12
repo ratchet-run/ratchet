@@ -53,6 +53,8 @@ import run.ratchet.spi.MetricsCollector;
  *   <li>{@code ratchet.poller.claimed.jobs} — counter, tagged by execution type
  *   <li>{@code ratchet.submission.gate.rejections} — counter, tagged by execution type and gate
  *   <li>{@code ratchet.wakeup.local} — counter, tagged by source
+ *   <li>{@code ratchet.execution.target.fallback} — counter, tagged by requested and effective
+ *       execution targets
  *   <li>{@code ratchet.wakeup.cluster.publish} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.wakeup.cluster.receive} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception family
@@ -63,6 +65,9 @@ import run.ratchet.spi.MetricsCollector;
  *   <li>{@code ratchet.poller.breaker.state} — gauge, tagged by breaker; values are {@code 0} for
  *       closed/unknown, {@code 1} for half-open, and {@code 2} for open
  *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
+ *   <li>{@code ratchet.encryption.integrity.violations} — counter, tagged by protected surface
+ *   <li>{@code ratchet.encryption.envelope.version_skew} — counter, tagged by bounded version gap
+ *       ({@code next}, {@code multiple_versions_ahead}, or {@code not_newer})
  * </ul>
  *
  * <p>The signal counters also carry a {@code signal_key} tag, but the default {@link
@@ -359,6 +364,35 @@ public class MicrometerMetricsCollector implements MetricsCollector {
               return stateValue;
             });
     gaugeValue.set(toBreakerStateValue(state));
+  }
+
+  @Override
+  public void encryptionIntegrityViolation(UUID jobId, String surface) {
+    if (registry == null) {
+      return;
+    }
+    counter("ratchet.encryption.integrity.violations", "surface", tag("surface", surface))
+        .increment();
+  }
+
+  @Override
+  public void encryptionEnvelopeVersionSkew(UUID jobId, int version, int maxSupportedVersion) {
+    if (registry == null) {
+      return;
+    }
+    counter(
+            "ratchet.encryption.envelope.version_skew",
+            "version_gap",
+            tag("version_gap", envelopeVersionGap(version, maxSupportedVersion)))
+        .increment();
+  }
+
+  private static String envelopeVersionGap(int version, int maxSupportedVersion) {
+    long gap = (long) version - maxSupportedVersion;
+    if (gap == 1L) {
+      return "next";
+    }
+    return gap > 1L ? "multiple_versions_ahead" : "not_newer";
   }
 
   private Counter counter(String name, String... tags) {

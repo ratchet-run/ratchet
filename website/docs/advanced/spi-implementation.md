@@ -208,24 +208,17 @@ See [Circuit Breakers](./circuit-breakers.md) for detailed guidance.
 **Adapter module:** `ratchet-micrometer` provides `MicrometerMetricsCollector`
 **Annotation:** `@Incubating`
 
-Receives job lifecycle callbacks for monitoring.
+Receives 22 callbacks covering job outcomes, success finalization, claims and submission gates, wakeups and executor routing, callback and signal events, store timing, the poller breaker, and encryption integrity/version signals. The complete callback and meter catalog is in [Metrics Collection](./metrics-collection.md#metricscollector-spi).
 
-```java
-@Incubating
-public interface MetricsCollector {
-    void jobStarted(UUID jobId, JobType type, JobPriority priority);
-    void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
-    void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
-}
-```
+**Partial override:**
 
-**Override:**
+This abbreviated collector deliberately exports only the three basic job outcomes. Extend `NoOpMetricsCollector` when a partial view is intentional. A complete replacement should handle or delegate every callback listed in the catalog.
 
 ```java
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
-public class DatadogMetricsCollector implements MetricsCollector {
+public class DatadogMetricsCollector extends NoOpMetricsCollector {
 
     @Inject
     private StatsDClient statsd;
@@ -246,7 +239,7 @@ public class DatadogMetricsCollector implements MetricsCollector {
     @Override
     public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         statsd.incrementCounter("ratchet.jobs.failed",
-            "type:" + type, "exception:" + cause.getClass().getSimpleName());
+            "type:" + type, "family:" + ExceptionFamily.classify(cause).name());
     }
 }
 ```
