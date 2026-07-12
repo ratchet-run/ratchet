@@ -25,13 +25,30 @@ import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.eviction.EvictionStrategy;
 import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.remoting.transport.jgroups.JGroupsTransport;
 
 /**
  * Two-node embedded Infinispan cluster for tests. Both cache managers live in the same JVM and join
- * via JGroups TCP loopback — fast (no Docker, no real network), deterministic, and small enough
- * that a hundred test cases finish in under a minute.
+ * through JGroups' in-JVM shared-loopback transport — fast (no Docker or network sockets),
+ * deterministic, and small enough that a hundred test cases finish in under a minute.
  */
 public final class TwoNodeInfinispanCluster implements AutoCloseable {
+
+  private static final String SHARED_LOOPBACK_STACK =
+      """
+      <config xmlns="urn:org:jgroups">
+        <SHARED_LOOPBACK/>
+        <SHARED_LOOPBACK_PING/>
+        <MERGE3/>
+        <pbcast.NAKACK2/>
+        <UNICAST3/>
+        <pbcast.STABLE/>
+        <pbcast.GMS/>
+        <UFC/>
+        <MFC/>
+        <FRAG4/>
+      </config>
+      """;
 
   private final EmbeddedCacheManager managerA;
   private final EmbeddedCacheManager managerB;
@@ -42,14 +59,24 @@ public final class TwoNodeInfinispanCluster implements AutoCloseable {
     this.cacheName = cacheName;
     this.clusterName = "ratchet-tck-" + Long.toHexString(System.nanoTime());
     Configuration cacheConfig = newCacheConfig();
-    this.managerA = new DefaultCacheManager(newGlobalConfig());
-    this.managerA.defineConfiguration(cacheName, cacheConfig);
-    this.managerB = new DefaultCacheManager(newGlobalConfig());
-    this.managerB.defineConfiguration(cacheName, cacheConfig);
-    // Touch the caches so they start and join the cluster.
-    this.managerA.getCache(cacheName);
-    this.managerB.getCache(cacheName);
-    awaitClusterFormed();
+    EmbeddedCacheManager first = null;
+    EmbeddedCacheManager second = null;
+    try {
+      first = new DefaultCacheManager(newGlobalConfig());
+      first.defineConfiguration(cacheName, cacheConfig);
+      second = new DefaultCacheManager(newGlobalConfig());
+      second.defineConfiguration(cacheName, cacheConfig);
+      // Touch the caches so they start and join the cluster.
+      first.getCache(cacheName);
+      second.getCache(cacheName);
+      awaitClusterFormed(first, second);
+    } catch (RuntimeException e) {
+      safeStop(first);
+      safeStop(second);
+      throw e;
+    }
+    this.managerA = first;
+    this.managerB = second;
   }
 
   public EmbeddedCacheManager managerA() {
@@ -90,7 +117,8 @@ public final class TwoNodeInfinispanCluster implements AutoCloseable {
     }
   }
 
-  private void awaitClusterFormed() {
+  private static void awaitClusterFormed(
+      EmbeddedCacheManager managerA, EmbeddedCacheManager managerB) {
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
     while (System.nanoTime() < deadline) {
       if (managerA.getMembers() != null
@@ -115,7 +143,7 @@ public final class TwoNodeInfinispanCluster implements AutoCloseable {
         .transport()
         .clusterName(clusterName)
         .nodeName("node-" + Long.toHexString(System.nanoTime()))
-        .addProperty("jgroups.bind.address", "127.0.0.1");
+        .addProperty(JGroupsTransport.CONFIGURATION_XML, SHARED_LOOPBACK_STACK);
     return builder.build();
   }
 

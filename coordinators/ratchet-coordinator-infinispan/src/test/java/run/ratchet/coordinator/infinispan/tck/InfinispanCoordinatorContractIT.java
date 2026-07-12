@@ -21,7 +21,7 @@ import run.ratchet.tck.coordinator.CoordinatorTestHarness;
 
 /**
  * Runs the {@link AbstractClusterCoordinatorContract} against two embedded Infinispan cache
- * managers joined via JGroups TCP loopback.
+ * managers joined through JGroups' in-JVM shared-loopback transport.
  */
 class InfinispanCoordinatorContractIT extends AbstractClusterCoordinatorContract {
 

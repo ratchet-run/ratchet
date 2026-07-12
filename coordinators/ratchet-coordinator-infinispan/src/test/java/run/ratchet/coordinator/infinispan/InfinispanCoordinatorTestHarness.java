@@ -38,7 +38,7 @@ import run.ratchet.tck.coordinator.RecordingMetricsCollector;
 /**
  * Two-node Infinispan harness backed by {@link TwoNodeInfinispanCluster}. One cluster instance is
  * created per harness so each test starts with a clean slate — Infinispan cluster bring-up is fast
- * enough (sub-second on the JGroups TCP loopback transport) to keep the per-test cost acceptable.
+ * enough on JGroups' in-JVM shared-loopback transport to keep the per-test cost acceptable.
  *
  * <p>Raw-wire injection is unsupported: bypassing the codec requires writing a malformed value
  * directly to the cache, but the listener's null-guard and codec rejection are already covered by
