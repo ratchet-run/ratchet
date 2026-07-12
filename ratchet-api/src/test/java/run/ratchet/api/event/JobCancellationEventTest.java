@@ -16,6 +16,7 @@
 package run.ratchet.api.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -46,16 +47,11 @@ class JobCancellationEventTest {
 
   @Test
   void cancelledShortConstructorMapsAllCancellationFields() {
+    Instant before = Instant.now();
     JobCancelledEvent event =
         new JobCancelledEvent(
-            JOB_ID,
-            "business-key",
-            JobType.SINGLE,
-            JobPriority.HIGH,
-            "node-a",
-            TIMESTAMP,
-            "PENDING",
-            7L);
+            JOB_ID, "business-key", JobType.SINGLE, JobPriority.HIGH, "node-a", "PENDING", 7L);
+    Instant after = Instant.now();
 
     assertEquals(JOB_ID, event.getJobId());
     assertEquals("business-key", event.getBusinessKey());
@@ -64,7 +60,8 @@ class JobCancellationEventTest {
     assertEquals("node-a", event.getNodeId());
     assertEquals("PENDING", event.getPreviousStatus());
     assertEquals(7L, event.getExecutionTimeMs());
-    assertEquals(TIMESTAMP, event.getTimestamp());
+    assertFalse(event.getTimestamp().isBefore(before));
+    assertFalse(event.getTimestamp().isAfter(after));
   }
 
   private static void assertCancellationValues(AbstractJobCancellationEvent event) {
