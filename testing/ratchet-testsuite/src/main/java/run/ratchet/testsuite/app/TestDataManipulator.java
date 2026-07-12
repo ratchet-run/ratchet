@@ -23,5 +23,7 @@ public interface TestDataManipulator {
 
   void setJobUpdatedAt(UUID jobId, Instant updatedAt);
 
+  void setJobPickedAt(UUID jobId, Instant pickedAt);
+
   void setArchivedAt(UUID archiveId, Instant archivedAt);
 }
