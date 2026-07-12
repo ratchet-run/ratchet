@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vitepress dev docs",
     "start": "vitepress dev docs",
-    "build": "vitepress build docs",
+    "check:drain-docs": "node scripts/check-drain-docs.mjs",
+    "build": "npm run check:drain-docs && vitepress build docs",
     "preview": "vitepress preview docs",
     "serve": "vitepress preview docs",
     "a11y": "node a11y/scan.mjs"

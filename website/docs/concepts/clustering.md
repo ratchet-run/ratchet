@@ -270,17 +270,24 @@ int canceled = scheduler.cancelRecurringJobsByTag("deprecated-feature");
 int canceled = scheduler.cancelRecurringJobByBusinessKey("hourly-report");
 ```
 
-## Graceful Shutdown
+## Shutdown and rolling replacement
 
-`RatchetLifecycle` and `DrainController` coordinate graceful shutdown:
+Ratchet's CDI lifecycle performs an orderly, bounded shutdown:
 
-1. **Drain mode:** The `DrainController` signals the Poller to stop claiming new jobs
-2. **In-flight completion:** Already-running jobs are allowed to finish within a timeout
-3. **Cache cleanup:** `JobTask.clearCaches()` releases classloader references
-4. **Poller stop:** The Poller's scheduling loop terminates
-5. **Heartbeat stop:** Node heartbeat ceases
+1. **Stop new claims:** An internal drain flag makes subsequent poll cycles skip claiming jobs
+2. **Stop background work:** The node heartbeat, Poller, recurring scheduler, and maintenance timers stop
+3. **Cancel active executions:** The execution coordinator requests cancellation and briefly waits for workers to exit
+4. **Recover durable state:** If workers exit, remaining RUNNING rows owned by the node return to PENDING; otherwise orphan recovery handles them after the node disappears
+5. **Release resources:** Runtime caches and coordinator resources are cleared
 
-This prevents the "half-executed job" problem during rolling deployments. Kubernetes readiness probes can check the drain controller's status to remove the node from the load balancer before shutdown begins.
+This prevents new claims once shutdown starts, but it does not promise that every in-flight job
+finishes. Jobs should remain interruptible and idempotent because Ratchet provides at-least-once
+execution and may recover an interrupted RUNNING row on another node.
+
+`DrainController` is an internal implementation detail, not a public health-check API. Application
+readiness controls incoming request traffic; it does not control Ratchet's polling loop. For a
+rolling Kubernetes deployment, use an application-owned readiness signal and a preStop delay as
+shown in the [Kubernetes deployment guide](../deployment/kubernetes.md#rolling-termination).
 
 ## Consistency Guarantees
 

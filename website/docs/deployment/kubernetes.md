@@ -52,7 +52,8 @@ spec:
             path: /health/ready
             port: 8080
           initialDelaySeconds: 30
-          periodSeconds: 10
+          periodSeconds: 2
+          failureThreshold: 1
         livenessProbe:
           httpGet:
             path: /health/live
@@ -116,7 +117,8 @@ spec:
             path: /health/ready
             port: 8080
           initialDelaySeconds: 30
-          periodSeconds: 10
+          periodSeconds: 2
+          failureThreshold: 1
         livenessProbe:
           httpGet:
             path: /health/live
@@ -266,15 +268,18 @@ startupProbe:
 
 ### Readiness probe
 
-The readiness probe controls whether the pod receives traffic. It should verify that the Ratchet polling engine is running and the database is reachable:
+The readiness probe controls whether the pod receives request traffic. It should combine an
+application-owned traffic-acceptance signal with any dependencies required to serve requests, such
+as the Ratchet store. Ratchet does not ship a MicroProfile Health check or a public Poller-status
+API.
 
 ```yaml
 readinessProbe:
   httpGet:
     path: /health/ready
     port: 8080
-  periodSeconds: 10
-  failureThreshold: 3
+  periodSeconds: 2
+  failureThreshold: 1
 ```
 
 ### Liveness probe
@@ -292,30 +297,87 @@ livenessProbe:
 
 ### Custom health check
 
-Implement a Ratchet-specific health check:
+This example uses a file as the application's traffic-acceptance signal. The path is an application
+convention, not a file created or read by Ratchet. Use a writable in-container path (for example,
+an `emptyDir` mount) or expose an equivalent application-owned endpoint when the image has a
+read-only filesystem:
 
 ```java
 @Readiness
 @ApplicationScoped
 public class RatchetReadinessCheck implements HealthCheck {
 
+  private static final Path NOT_READY = Path.of("/tmp/ratchet-not-ready");
+
   @Resource(lookup = "java:/RatchetDS")
   DataSource dataSource;
 
   @Override
   public HealthCheckResponse call() {
-    try (Connection conn = dataSource.getConnection();
-         PreparedStatement ps = conn.prepareStatement("SELECT 1");
-         ResultSet rs = ps.executeQuery()) {
-      return HealthCheckResponse.up("ratchet-store").build();
+    if (Files.exists(NOT_READY)) {
+      return HealthCheckResponse.down("ratchet-application")
+          .withData("reason", "terminating")
+          .build();
+    }
+
+    try (Connection conn = dataSource.getConnection()) {
+      return conn.isValid(2)
+          ? HealthCheckResponse.up("ratchet-application").build()
+          : HealthCheckResponse.down("ratchet-application")
+              .withData("reason", "store validation failed")
+              .build();
     } catch (Exception e) {
-      return HealthCheckResponse.down("ratchet-store")
+      return HealthCheckResponse.down("ratchet-application")
           .withData("error", e.getMessage())
           .build();
     }
   }
 }
 ```
+
+### Rolling termination
+
+`DrainController` belongs to the reference implementation, is not exported as a supported
+application API, and has no built-in MicroProfile Health adapter. Its state changes as CDI shutdown
+begins, so it cannot be the signal that a preStop hook uses to remove request traffic first.
+
+Use a preStop hook to flip the same application-owned signal checked above, then wait long enough
+for readiness and any ingress or service-mesh routing state to converge. Kubernetes already marks a
+terminating Service endpoint as not ready; the explicit flag keeps the application's own health
+state consistent and also works for traffic paths that consult the health endpoint directly. See
+the Kubernetes documentation on [readiness probes](https://kubernetes.io/docs/concepts/workloads/pods/probes/#readiness-probe)
+and [container lifecycle hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/).
+
+```yaml
+spec:
+  terminationGracePeriodSeconds: 30
+  containers:
+  - name: app
+    image: myapp:latest
+    lifecycle:
+      preStop:
+        exec:
+          command:
+          - /bin/sh
+          - -c
+          - touch /tmp/ratchet-not-ready && sleep 10
+    readinessProbe:
+      httpGet:
+        path: /health/ready
+        port: 8080
+      periodSeconds: 2
+      failureThreshold: 1
+```
+
+The file flag does not switch Ratchet's internal drain mode. It only stops new request traffic.
+After preStop returns, Kubernetes sends the container its termination signal. The Jakarta runtime
+then destroys the application, and Ratchet's lifecycle stops new claims, stops its background
+services, and requests cancellation of active executions. Any job left RUNNING is recovered through
+the normal node-orphan path, so job code must remain safe for at-least-once execution.
+
+The termination grace period includes the preStop hook. Set it long enough for the routing delay and
+normal application-server teardown, but do not use it as a promise that arbitrary job runtimes will
+finish before shutdown.
 
 ## Database on Kubernetes
 

@@ -239,7 +239,10 @@ Pod names (`ratchet-scheduler-0`, `ratchet-scheduler-1`, `ratchet-scheduler-2`) 
 ### Scaling considerations
 
 - **Scaling up**: New nodes start polling and claiming jobs immediately. No manual intervention needed.
-- **Scaling down**: Ensure graceful shutdown to let running jobs complete. Set `terminationGracePeriodSeconds` to allow in-flight jobs to finish.
+- **Scaling down**: Use the [Kubernetes rolling-termination pattern](./kubernetes.md#rolling-termination)
+  so request traffic leaves the pod before its Jakarta runtime shuts down. Size
+  `terminationGracePeriodSeconds` for the preStop delay plus container/CDI teardown; Ratchet may
+  cancel active jobs and recover them on another node rather than waiting for arbitrary job runtimes.
 - **Pod disruption**: Use a `PodDisruptionBudget` to prevent too many nodes from being evicted simultaneously.
 
 ```yaml
