@@ -34,7 +34,8 @@ class OracleSchemaMigrationDiscoveryTest {
     SchemaMigrator.MigrationScript v001 = migrations.get(0);
 
     assertEquals(
-        List.of("001", "002"), migrations.stream().map(script -> script.version()).toList());
+        List.of("001", "002", "003", "004", "005"),
+        migrations.stream().map(script -> script.version()).toList());
     assertEquals(
         "2862e471ae72a3e9c6d5182b6d1819d1af9e9055fbac0ee405bbedd0277ef5a2", v001.checksum());
   }

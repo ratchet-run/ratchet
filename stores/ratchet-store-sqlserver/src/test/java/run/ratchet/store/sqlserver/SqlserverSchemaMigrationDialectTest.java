@@ -103,7 +103,8 @@ class SqlserverSchemaMigrationDialectTest {
     SchemaMigrator.MigrationScript v001 = migrations.get(0);
 
     assertEquals(
-        List.of("001", "002"), migrations.stream().map(script -> script.version()).toList());
+        List.of("001", "002", "003", "004", "005"),
+        migrations.stream().map(script -> script.version()).toList());
     assertEquals(
         "1dd8f2d437ef11447c7f74ef5601aa90d531475568d01349a12d56d4393fbd87", v001.checksum());
   }
