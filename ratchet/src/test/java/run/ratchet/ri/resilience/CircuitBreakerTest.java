@@ -93,7 +93,7 @@ class CircuitBreakerTest {
               if (newState == CircuitBreaker.State.OPEN) {
                 listenerEntered.countDown();
                 try {
-                  if (!releaseListener.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                  if (!releaseListener.await(2, TimeUnit.SECONDS)) {
                     throw new AssertionError("listener was not released");
                   }
                 } catch (InterruptedException e) {
@@ -105,14 +105,14 @@ class CircuitBreakerTest {
     ExecutorService executor = Executors.newFixedThreadPool(2);
     try {
       Future<?> opening = executor.submit(observed::transitionToOpen);
-      assertTrue(listenerEntered.await(1, java.util.concurrent.TimeUnit.SECONDS));
+      assertTrue(listenerEntered.await(1, TimeUnit.SECONDS));
 
       Future<?> resetting = executor.submit(observed::reset);
-      resetting.get(1, java.util.concurrent.TimeUnit.SECONDS);
+      resetting.get(1, TimeUnit.SECONDS);
       assertEquals(CircuitBreaker.State.CLOSED, observed.getState());
 
       releaseListener.countDown();
-      opening.get(1, java.util.concurrent.TimeUnit.SECONDS);
+      opening.get(1, TimeUnit.SECONDS);
       assertEquals(List.of(CircuitBreaker.State.OPEN, CircuitBreaker.State.CLOSED), transitions);
     } finally {
       releaseListener.countDown();
