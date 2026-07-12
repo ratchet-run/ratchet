@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **58 fixed keys**.
+This build exposes **57 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -35,7 +35,6 @@ This build exposes **58 fixed keys**.
 | `ratchet.thread-pool.size.batch-child` | `RATCHET_THREAD_POOL_SIZE_BATCH_CHILD` | `30` | `THREAD_POOL_SIZE_BATCH_CHILD` |
 | `ratchet.thread-pool.size.batch-parent` | `RATCHET_THREAD_POOL_SIZE_BATCH_PARENT` | `2` | `THREAD_POOL_SIZE_BATCH_PARENT` |
 | `ratchet.thread-pool.size.chain-step` | `RATCHET_THREAD_POOL_SIZE_CHAIN` | `10` | `THREAD_POOL_SIZE_CHAIN` |
-| `ratchet.thread-pool.size.dlq-alert` | `RATCHET_THREAD_POOL_SIZE_DLQ_ALERT` | `2` | `THREAD_POOL_SIZE_DLQ_ALERT` |
 | `ratchet.thread-pool.size.workflow-branch` | `RATCHET_THREAD_POOL_SIZE_WORKFLOW_BRANCH` | `10` | `THREAD_POOL_SIZE_WORKFLOW_BRANCH` |
 | `ratchet.thread-pool.size.workflow-join` | `RATCHET_THREAD_POOL_SIZE_WORKFLOW_JOIN` | `10` | `THREAD_POOL_SIZE_WORKFLOW_JOIN` |
 | `ratchet.node.id` | `RATCHET_NODE_ID` | `(empty string)` | `NODE_ID` |
