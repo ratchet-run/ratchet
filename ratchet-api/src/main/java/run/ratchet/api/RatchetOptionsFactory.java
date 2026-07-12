@@ -102,12 +102,6 @@ public final class RatchetOptionsFactory {
                     .logPurgeEnabled(config.get(RatchetConfigKeys.LOG_PURGE_ENABLED))
                     .logPurgeCron(config.get(RatchetConfigKeys.LOG_PURGE_CRON))
                     .logRetentionDays(config.get(RatchetConfigKeys.LOG_RETENTION_DAYS)))
-        .notifications(
-            notifications ->
-                notifications
-                    .enabled(config.get(RatchetConfigKeys.NOTIFICATIONS_ENABLED))
-                    .dlqAlertChannel(config.get(RatchetConfigKeys.DLQ_ALERT_CHANNEL))
-                    .timeoutAlertChannel(config.get(RatchetConfigKeys.TIMEOUT_ALERT_CHANNEL)))
         .schema(
             schema ->
                 schema
@@ -119,7 +113,6 @@ public final class RatchetOptionsFactory {
                 payload
                     .maxPayloadKb(config.get(RatchetConfigKeys.MAX_PAYLOAD_KB))
                     .maxResultBytes(config.get(RatchetConfigKeys.MAX_RESULT_BYTES)))
-        .metrics(metrics -> metrics.clustering(config.get(RatchetConfigKeys.METRICS_CLUSTERING)))
         .security(
             security ->
                 security

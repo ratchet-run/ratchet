@@ -19,15 +19,61 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.internal.DefaultRatchetConfig;
 import run.ratchet.api.internal.RatchetConfigKeys;
 import run.ratchet.spi.RatchetConfigSource;
 
 class RatchetOptionsFactoryTest {
+
+  @Test
+  void removedInertKeysAreAbsentFromCatalogAndFactoryLookup() {
+    Set<String> declaredKeyFields =
+        Arrays.stream(RatchetConfigKeys.class.getFields())
+            .map(field -> field.getName())
+            .collect(Collectors.toUnmodifiableSet());
+    Set<String> propertiesRead = new HashSet<>();
+    Set<String> environmentVariablesRead = new HashSet<>();
+
+    optionsFrom(
+        (propertyName, environmentVariable) -> {
+          propertiesRead.add(propertyName);
+          environmentVariablesRead.add(environmentVariable);
+          return Optional.empty();
+        });
+
+    assertTrue(
+        Set.of(
+                "NOTIFICATIONS_ENABLED",
+                "DLQ_ALERT_CHANNEL",
+                "TIMEOUT_ALERT_CHANNEL",
+                "METRICS_CLUSTERING")
+            .stream()
+            .noneMatch(declaredKeyFields::contains));
+    assertTrue(
+        Set.of(
+                "ratchet.notifications.enabled",
+                "ratchet.notifications.dlq-alert-channel",
+                "ratchet.notifications.timeout-alert-channel",
+                "ratchet.metrics.clustering")
+            .stream()
+            .noneMatch(propertiesRead::contains));
+    assertTrue(
+        Set.of(
+                "RATCHET_NOTIFICATIONS_ENABLED",
+                "RATCHET_DLQ_ALERT_CHANNEL",
+                "RATCHET_TIMEOUT_ALERT_CHANNEL",
+                "RATCHET_METRICS_CLUSTERING")
+            .stream()
+            .noneMatch(environmentVariablesRead::contains));
+  }
 
   @Test
   void usesEnvironmentVariableNameBeforePropertyNameWithinSource() {
@@ -125,15 +171,11 @@ class RatchetOptionsFactoryTest {
                     Map.entry("ratchet.logs.purge-enabled", "false"),
                     Map.entry("ratchet.logs.purge-cron", "0 0 5 * * ?"),
                     Map.entry("ratchet.logs.retention-days", "25"),
-                    Map.entry("ratchet.notifications.enabled", "false"),
-                    Map.entry("ratchet.notifications.dlq-alert-channel", "#dlq"),
-                    Map.entry("ratchet.notifications.timeout-alert-channel", "#timeout"),
                     Map.entry("ratchet.schema.auto-migrate", "true"),
                     Map.entry("ratchet.schema.migration-dialect", "postgresql"),
                     Map.entry("ratchet.schema.migration-prefix", "ddl/custom"),
                     Map.entry("ratchet.payload.max-payload-kb", "26"),
                     Map.entry("ratchet.jobs.max-result-bytes", "27"),
-                    Map.entry("ratchet.metrics.clustering", "node"),
                     Map.entry("ratchet.security.redact-emails", "false"),
                     Map.entry("ratchet.priority-boost-interval-minutes", "28"),
                     Map.entry("ratchet.circuit-breaker.enabled", "false"),
@@ -176,15 +218,11 @@ class RatchetOptionsFactoryTest {
     assertFalse(options.maintenance().logPurgeEnabled());
     assertEquals("0 0 5 * * ?", options.maintenance().logPurgeCron());
     assertEquals(25L, options.maintenance().logRetentionDays());
-    assertFalse(options.notifications().enabled());
-    assertEquals("#dlq", options.notifications().dlqAlertChannel());
-    assertEquals("#timeout", options.notifications().timeoutAlertChannel());
     assertTrue(options.schema().autoMigrate());
     assertEquals("postgresql", options.schema().migrationDialect());
     assertEquals("ddl/custom", options.schema().migrationPrefix());
     assertEquals(26, options.payload().maxPayloadKb());
     assertEquals(27L, options.payload().maxResultBytes());
-    assertEquals("node", options.metrics().clustering());
     assertFalse(options.security().redactEmails());
     assertEquals(28, options.store().priorityBoostIntervalMinutes());
     assertFalse(options.circuitBreaker().enabled());
@@ -343,10 +381,8 @@ class RatchetOptionsFactoryTest {
     assertEquals(defaults.retryBuffer(), options.retryBuffer());
     assertEquals(defaults.timeout(), options.timeout());
     assertEquals(defaults.maintenance(), options.maintenance());
-    assertEquals(defaults.notifications(), options.notifications());
     assertEquals(defaults.schema(), options.schema());
     assertEquals(defaults.payload(), options.payload());
-    assertEquals(defaults.metrics(), options.metrics());
     assertEquals(defaults.security(), options.security());
     assertEquals(defaults.store(), options.store());
     assertEquals(defaults.circuitBreaker(), options.circuitBreaker());
