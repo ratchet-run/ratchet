@@ -556,8 +556,9 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    return archives.archiveJobsBatch(jobsToArchive, reason, archivedBy);
+  public int archiveAndDeleteJobsBatch(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+    return archives.archiveAndDeleteJobsBatch(jobsToArchive, reason, archivedBy);
   }
 
   @Override

@@ -29,7 +29,6 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -39,7 +38,6 @@ import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
-import run.ratchet.store.spi.JobBulkStore;
 
 /**
  * Moves completed jobs older than the retention period to archive storage, then purges archived
@@ -60,7 +58,6 @@ public class DefaultJobArchivingService implements JobArchivingService {
   private static final String LEASE_NAME = "jobArchiver";
   private static final Duration LEASE_TTL = Duration.ofHours(2);
 
-  private final JobBulkStore jobBulkStore;
   private final ArchiveStore archiveStore;
   private final SingletonLeaseService singletonLeaseService;
   private final ExecutorProvider executorProvider;
@@ -75,7 +72,6 @@ public class DefaultJobArchivingService implements JobArchivingService {
   private volatile boolean stopped = false;
 
   protected DefaultJobArchivingService() {
-    this.jobBulkStore = null;
     this.archiveStore = null;
     this.singletonLeaseService = null;
     this.executorProvider = null;
@@ -83,22 +79,19 @@ public class DefaultJobArchivingService implements JobArchivingService {
   }
 
   public DefaultJobArchivingService(
-      JobBulkStore jobBulkStore,
       ArchiveStore archiveStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider) {
-    this(jobBulkStore, archiveStore, singletonLeaseService, executorProvider, Clock.systemUTC());
+    this(archiveStore, singletonLeaseService, executorProvider, Clock.systemUTC());
   }
 
   @Inject
   public DefaultJobArchivingService(
-      JobBulkStore jobBulkStore,
       Instance<ArchiveStore> archiveStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider,
       Clock clock) {
     this(
-        jobBulkStore,
         archiveStore.isResolvable() ? archiveStore.get() : null,
         singletonLeaseService,
         executorProvider,
@@ -106,12 +99,10 @@ public class DefaultJobArchivingService implements JobArchivingService {
   }
 
   DefaultJobArchivingService(
-      JobBulkStore jobBulkStore,
       ArchiveStore archiveStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider,
       Clock clock) {
-    this.jobBulkStore = jobBulkStore;
     this.archiveStore = archiveStore;
     this.singletonLeaseService = singletonLeaseService;
     this.executorProvider = executorProvider;
@@ -253,18 +244,13 @@ public class DefaultJobArchivingService implements JobArchivingService {
 
       try {
         int archivedCount =
-            archiveStore.archiveJobsBatch(batch, ARCHIVE_REASON_RETENTION, ARCHIVED_BY_SYSTEM);
+            archiveStore.archiveAndDeleteJobsBatch(
+                batch, ARCHIVE_REASON_RETENTION, ARCHIVED_BY_SYSTEM);
 
         if (archivedCount > 0) {
-          List<UUID> jobIds = batch.stream().limit(archivedCount).map(JobEntity::getId).toList();
-
-          int deletedCount = jobBulkStore.deleteJobsByIds(jobIds);
-
           totalArchived += archivedCount;
 
-          log.infof(
-              "Batch %s: Archived %s jobs, deleted %s from active table",
-              batchCount, archivedCount, deletedCount);
+          log.infof("Batch %s: Archived and deleted %s jobs", batchCount, archivedCount);
         }
 
         if (batch.size() < batchSize) {

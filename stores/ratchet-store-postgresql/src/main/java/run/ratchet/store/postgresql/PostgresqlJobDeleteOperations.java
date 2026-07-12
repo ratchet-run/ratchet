@@ -62,6 +62,26 @@ final class PostgresqlJobDeleteOperations {
     }
   }
 
+  int deleteTerminalJobsByIds(List<UUID> ids) {
+    if (ids.isEmpty()) {
+      return 0;
+    }
+    try {
+      reservations.deleteReservationsByOwners(ids);
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      // language=PostgreSQL
+      String sql =
+          "DELETE FROM scheduler_job WHERE job_id IN ("
+              + placeholders
+              + ") AND terminal_status IS NOT NULL";
+      Query jobDelete = ctx.em().createNativeQuery(sql);
+      bindUuidParameters(jobDelete, ids);
+      return jobDelete.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete terminal jobs by ids", e);
+    }
+  }
+
   int deleteDlqOlderThan(Instant cutoff) {
     try {
       // language=PostgreSQL

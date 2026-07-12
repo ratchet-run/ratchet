@@ -471,8 +471,8 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobs, String reason, String archivedBy) {
-    return fail("archiveJobsBatch");
+  public int archiveAndDeleteJobsBatch(List<JobEntity> jobs, String reason, String archivedBy) {
+    return fail("archiveAndDeleteJobsBatch");
   }
 
   @Override

@@ -559,8 +559,9 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    return archives.archiveJobsBatch(jobsToArchive, reason, archivedBy);
+  public int archiveAndDeleteJobsBatch(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+    return archives.archiveAndDeleteJobsBatch(jobsToArchive, reason, archivedBy);
   }
 
   @Override
@@ -818,11 +819,12 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     reservations = new PostgresqlBusinessKeyReservations(ctx);
     tags = new PostgresqlTagOperations(ctx);
     PostgresqlJobReadOperations reads = new PostgresqlJobReadOperations(ctx, tags);
+    PostgresqlJobDeleteOperations deletes = new PostgresqlJobDeleteOperations(ctx, reservations);
     jobs =
         new PostgresqlJobCrudOperations(
             reads,
             new PostgresqlJobCountOperations(ctx),
-            new PostgresqlJobDeleteOperations(ctx, reservations),
+            deletes,
             new PostgresqlJobWriteOperations(ctx, reservations, tags),
             tags);
     query = new PostgresqlJobQueryOperations(ctx, tags);
@@ -830,7 +832,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     claims = new PostgresqlJobClaimOperations(ctx, reads);
     lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches);
     nodeLocks = new PostgresqlNodeLockOperations(ctx);
-    archives = new PostgresqlArchiveOperations(ctx, reads);
+    archives = new PostgresqlArchiveOperations(ctx, reads, deletes);
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);
     signals = new PostgresqlSignalOperations(ctx);
     recurringJobs = new PostgresqlRecurringJobOperations(ctx, reservations);

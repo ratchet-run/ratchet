@@ -54,7 +54,9 @@ class PostgresqlExceptionTranslationTest {
     var ctx = new PostgresqlStoreContext(em);
     var tags = new PostgresqlTagOperations(ctx);
     var reads = new PostgresqlJobReadOperations(ctx, tags);
-    var archives = new PostgresqlArchiveOperations(ctx, reads);
+    var deletes =
+        new PostgresqlJobDeleteOperations(ctx, new PostgresqlBusinessKeyReservations(ctx));
+    var archives = new PostgresqlArchiveOperations(ctx, reads, deletes);
     JobEntity input = new JobEntity();
     input.setId(JOB_ID);
 
@@ -109,7 +111,9 @@ class PostgresqlExceptionTranslationTest {
     var ctx = new PostgresqlStoreContext(em);
     var tags = new PostgresqlTagOperations(ctx);
     var reads = new PostgresqlJobReadOperations(ctx, tags);
-    return new PostgresqlArchiveOperations(ctx, reads);
+    var deletes =
+        new PostgresqlJobDeleteOperations(ctx, new PostgresqlBusinessKeyReservations(ctx));
+    return new PostgresqlArchiveOperations(ctx, reads, deletes);
   }
 
   @Test

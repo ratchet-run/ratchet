@@ -568,8 +568,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobList, String reason, String archivedBy) {
-    return archives.archiveJobsBatch(jobList, reason, archivedBy);
+  public int archiveAndDeleteJobsBatch(List<JobEntity> jobList, String reason, String archivedBy) {
+    return archives.archiveAndDeleteJobsBatch(jobList, reason, archivedBy);
   }
 
   @Override

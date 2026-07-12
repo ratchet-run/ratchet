@@ -21,10 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -40,8 +37,6 @@ import run.ratchet.store.util.RowValues;
 
 final class PostgresqlArchiveOperations implements ArchiveStore {
 
-  private static final String MISSING_ARCHIVE_JOB_MESSAGE = "Job not found for archival: ";
-
   // language=PostgreSQL
   private static final String INSERT_ARCHIVE_SQL =
       """
@@ -54,10 +49,15 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlJobReadOperations reads;
+  private final PostgresqlJobDeleteOperations deletes;
 
-  PostgresqlArchiveOperations(PostgresqlStoreContext ctx, PostgresqlJobReadOperations reads) {
+  PostgresqlArchiveOperations(
+      PostgresqlStoreContext ctx,
+      PostgresqlJobReadOperations reads,
+      PostgresqlJobDeleteOperations deletes) {
     this.ctx = ctx;
     this.reads = reads;
+    this.deletes = deletes;
   }
 
   private static void prepareArchive(ArchivedJobEntity archive) {
@@ -92,31 +92,21 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     }
   }
 
-  /**
-   * Archives all supplied terminal jobs in the caller's store transaction using a single multi-row
-   * insert.
-   *
-   * @implNote TX: REQUIRED - joins the caller's active store transaction.
-   * @return number of archive rows inserted
-   */
+  /** Atomically archives and terminal-guard-deletes all supplied jobs. */
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+  public int archiveAndDeleteJobsBatch(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
     if (jobsToArchive.isEmpty()) {
       return 0;
     }
 
     try {
       List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
-      Map<UUID, JobEntity> hydratedById =
-          reads.findByIds(ids).stream()
-              .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
+      List<JobEntity> currentJobs =
+          ArchiveHelper.requireCurrentTerminalJobs(ids, reads.findByIds(ids));
       List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
       List<UUID> archiveIds = new ArrayList<>(jobsToArchive.size());
-      for (UUID id : ids) {
-        JobEntity hydrated = hydratedById.get(id);
-        if (hydrated == null) {
-          throw new IllegalStateException(MISSING_ARCHIVE_JOB_MESSAGE.concat(String.valueOf(id)));
-        }
+      for (JobEntity hydrated : currentJobs) {
         ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
         prepareArchive(archive);
         archives.add(archive);
@@ -145,9 +135,9 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
         parameter = ArchiveParameterBinder.bind(query, archive, parameter, id -> id);
       }
       query.executeUpdate();
-      return archives.size();
+      return ArchiveHelper.requireAllDeleted(ids, deletes.deleteTerminalJobsByIds(ids));
     } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("archive jobs batch", e);
+      throw ctx.translateTransientStoreException("archive and delete jobs batch", e);
     }
   }
 

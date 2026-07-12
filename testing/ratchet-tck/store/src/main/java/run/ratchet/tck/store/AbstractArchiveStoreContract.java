@@ -18,6 +18,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobExtensionStore;
 
 /** Base contract tests for {@code ArchiveStore}. */
 public abstract class AbstractArchiveStoreContract implements JobStoreContractFixture {
@@ -78,13 +80,89 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   }
 
   @Test
-  void archiveJobsBatch_archivesMultipleJobs() {
+  void archiveAndDeleteJobsBatch_movesMultipleJobs() {
     var job1 = completeJob(persist(newPendingJob()));
     var job2 = completeJob(persist(newPendingJob()));
 
-    int count = archiveStore().archiveJobsBatch(List.of(job1, job2), "batch-test", "tck");
+    int count = archiveStore().archiveAndDeleteJobsBatch(List.of(job1, job2), "batch-test", "tck");
 
-    assertEquals(2, count, "archiveJobsBatch should archive both jobs");
+    assertEquals(2, count, "archiveAndDeleteJobsBatch should move both jobs");
+    assertTrue(store().findById(job1.getId()).isEmpty(), "first active job should be deleted");
+    assertTrue(store().findById(job2.getId()).isEmpty(), "second active job should be deleted");
+  }
+
+  @Test
+  void archiveAndDeleteJobsBatch_staleMemberRollsBackWholeMove() {
+    var terminal = completeJob(persist(newPendingJob()));
+    var retried = failJob(persist(newPendingJob()));
+    var staleSnapshot = store().findById(retried.getId()).orElseThrow();
+    assertTrue(store().resetFailedToPending(retried.getId()), "retry precondition");
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            archiveStore()
+                .archiveAndDeleteJobsBatch(
+                    List.of(terminal, staleSnapshot), "stale-batch-test", "tck"));
+
+    assertTrue(store().findById(terminal.getId()).isPresent(), "terminal job should roll back");
+    assertEquals(
+        JobStatus.PENDING,
+        store().findById(retried.getId()).orElseThrow().getStatus(),
+        "retried job should survive");
+    assertTrue(
+        archiveStore().findArchivedJobs(null, null, null, null, 10).isEmpty(),
+        "failed batch must leave no archive rows");
+
+    var refreshedTerminal = store().findById(terminal.getId()).orElseThrow();
+    var completedRetry = completeJob(store().findById(retried.getId()).orElseThrow());
+    int retriedCount =
+        archiveStore()
+            .archiveAndDeleteJobsBatch(
+                List.of(refreshedTerminal, completedRetry), "retry-batch-test", "tck");
+
+    assertEquals(2, retriedCount, "a fresh retry should move the whole batch once");
+    assertTrue(store().findById(terminal.getId()).isEmpty(), "retried terminal job should move");
+    assertTrue(store().findById(retried.getId()).isEmpty(), "retried live job should move");
+    assertEquals(
+        2,
+        archiveStore().findArchivedJobs(null, null, null, null, 10).size(),
+        "retry should leave one archive row per job");
+  }
+
+  @Test
+  void archiveAndDeleteJobsBatch_preservesExtensionDataAndRemovesHotRows() {
+    var extensionCapability = store().capability(JobExtensionStore.class);
+    if (extensionCapability.isEmpty()) {
+      return;
+    }
+
+    var job = newPendingJob();
+    job.setBusinessKey("archive-extension-" + job.getId());
+    job = persist(job);
+    var extensions = extensionCapability.orElseThrow();
+    extensions.putProperty(job.getId(), "ratchet-tck.archive", "preserved");
+    extensions.initState(job.getId(), "ratchet-tck", "{\"step\":1}");
+    var terminal = completeJob(job);
+
+    archiveStore().archiveAndDeleteJobsBatch(List.of(terminal), "extension-batch-test", "tck");
+
+    var archived =
+        archiveStore().findArchivedJobs(null, terminal.getBusinessKey(), null, null, 10).get(0);
+    assertTrue(
+        archived.getProperties().contains("\"ratchet-tck.archive\"")
+            && archived.getProperties().contains("\"preserved\""),
+        () -> "archive should preserve extension properties: " + archived.getProperties());
+    assertTrue(
+        archived.getExtensionState().contains("\"namespace\"")
+            && archived.getExtensionState().contains("\"ratchet-tck\""),
+        () -> "archive should preserve extension state: " + archived.getExtensionState());
+    assertTrue(
+        extensions.getProperty(job.getId(), "ratchet-tck.archive").isEmpty(),
+        "hot extension properties should be removed");
+    assertTrue(
+        extensions.getState(job.getId(), "ratchet-tck").isEmpty(),
+        "hot extension state should be removed");
   }
 
   @Test
@@ -150,6 +228,12 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
     store()
         .markJobSucceeded(
             job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
+    return store().findById(job.getId()).orElseThrow();
+  }
+
+  private JobEntity failJob(JobEntity job) {
+    store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store().markJobFailedTerminal(job.getId(), "boom", 1);
     return store().findById(job.getId()).orElseThrow();
   }
 }

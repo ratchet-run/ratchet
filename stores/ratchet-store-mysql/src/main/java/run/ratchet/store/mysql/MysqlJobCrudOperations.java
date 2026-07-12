@@ -211,6 +211,10 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
     return deletes.deleteJobsByIds(ids);
   }
 
+  int deleteTerminalJobsByIds(List<UUID> ids) {
+    return deletes.deleteTerminalJobsByIds(ids);
+  }
+
   @Override
   public int deleteDlqOlderThan(Instant cutoff) {
     return deletes.deleteDlqOlderThan(cutoff);

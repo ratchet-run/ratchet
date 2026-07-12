@@ -54,7 +54,8 @@ class SqlserverExceptionTranslationTest {
     var ctx = new SqlserverStoreContext(em);
     var tags = new SqlserverTagOperations(ctx);
     var reads = new SqlserverJobReadOperations(ctx, tags);
-    var archives = new SqlserverArchiveOperations(ctx, reads);
+    var deletes = new SqlserverJobDeleteOperations(ctx, new SqlserverBusinessKeyReservations(ctx));
+    var archives = new SqlserverArchiveOperations(ctx, reads, deletes);
     JobEntity input = new JobEntity();
     input.setId(JOB_ID);
 
@@ -109,7 +110,8 @@ class SqlserverExceptionTranslationTest {
     var ctx = new SqlserverStoreContext(em);
     var tags = new SqlserverTagOperations(ctx);
     var reads = new SqlserverJobReadOperations(ctx, tags);
-    return new SqlserverArchiveOperations(ctx, reads);
+    var deletes = new SqlserverJobDeleteOperations(ctx, new SqlserverBusinessKeyReservations(ctx));
+    return new SqlserverArchiveOperations(ctx, reads, deletes);
   }
 
   @Test

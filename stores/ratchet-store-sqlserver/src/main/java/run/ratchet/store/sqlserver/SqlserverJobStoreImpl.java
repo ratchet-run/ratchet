@@ -559,8 +559,9 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    return archives.archiveJobsBatch(jobsToArchive, reason, archivedBy);
+  public int archiveAndDeleteJobsBatch(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+    return archives.archiveAndDeleteJobsBatch(jobsToArchive, reason, archivedBy);
   }
 
   @Override
@@ -831,11 +832,12 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     reservations = new SqlserverBusinessKeyReservations(ctx);
     tags = new SqlserverTagOperations(ctx);
     SqlserverJobReadOperations reads = new SqlserverJobReadOperations(ctx, tags);
+    SqlserverJobDeleteOperations deletes = new SqlserverJobDeleteOperations(ctx, reservations);
     jobs =
         new SqlserverJobCrudOperations(
             reads,
             new SqlserverJobCountOperations(ctx),
-            new SqlserverJobDeleteOperations(ctx, reservations),
+            deletes,
             new SqlserverJobWriteOperations(ctx, reservations, tags),
             tags);
     query = new SqlserverJobQueryOperations(ctx, tags);
@@ -843,7 +845,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     claims = new SqlserverJobClaimOperations(ctx, reads);
     lifecycle = new SqlserverJobLifecycleOperations(ctx, reservations, batches);
     nodeLocks = new SqlserverNodeLockOperations(ctx);
-    archives = new SqlserverArchiveOperations(ctx, reads);
+    archives = new SqlserverArchiveOperations(ctx, reads, deletes);
     auxiliary = new SqlserverAuxiliaryOperations(ctx);
     signals = new SqlserverSignalOperations(ctx);
     recurringJobs = new SqlserverRecurringJobOperations(ctx, reservations);
