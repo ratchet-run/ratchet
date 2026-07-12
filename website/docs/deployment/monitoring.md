@@ -36,6 +36,11 @@ public MeterRegistry meterRegistry() {
 
 The `MicrometerMetricsCollector` is annotated `@Alternative @Priority(1000)`, so it automatically overrides the default `NoOpMetricsCollector` when the module is on the classpath.
 
+You can install `ratchet-otel` beside `ratchet-micrometer`. In that combination, OpenTelemetry's
+priority-1100 adapter handles tracing while Micrometer continues to publish metrics. If both
+modules are present, Ratchet deliberately chooses direct OpenTelemetry tracing instead of the
+Micrometer tracing bridge. A custom tracing collector with a priority above 1100 overrides both.
+
 ### Published metrics
 
 | Metric | Type | Tags | Description |

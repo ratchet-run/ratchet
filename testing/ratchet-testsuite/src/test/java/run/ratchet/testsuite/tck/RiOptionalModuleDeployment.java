@@ -28,12 +28,20 @@ final class RiOptionalModuleDeployment {
     return create(artifact, new Package[0]);
   }
 
+  static WebArchive create(String firstArtifact, String secondArtifact) {
+    return create(new String[] {firstArtifact, secondArtifact}, new Package[0]);
+  }
+
   static WebArchive create(String artifact, Package[] packages, Class<?>... classes) {
+    return create(new String[] {artifact}, packages, classes);
+  }
+
+  private static WebArchive create(String[] artifacts, Package[] packages, Class<?>... classes) {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
     String profile = System.getProperty("testsuite.profile", "wildfly-managed");
 
     File[] optionalModuleJars =
-        Maven.resolver().loadPomFromFile("pom.xml").resolve(artifact).withTransitivity().asFile();
+        Maven.resolver().loadPomFromFile("pom.xml").resolve(artifacts).withTransitivity().asFile();
 
     RatchetArchiveBuilder builder =
         RatchetArchiveBuilder.create()

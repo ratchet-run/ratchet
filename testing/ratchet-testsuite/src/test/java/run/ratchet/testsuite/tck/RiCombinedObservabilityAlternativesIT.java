@@ -15,46 +15,52 @@
  */
 package run.ratchet.testsuite.tck;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.inject.Inject;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
+import run.ratchet.micrometer.MicrometerMetricsCollector;
 import run.ratchet.otel.OtelTracingCollector;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 
-/**
- * Verifies that {@link OtelTracingCollector} is selected over {@link
- * run.ratchet.ri.cdi.NoOpTracingCollector} when {@code ratchet-otel} is on the deployment
- * classpath.
- *
- * <p>{@code OtelTracingCollector} is annotated {@code @Alternative @Priority(1100)}, which globally
- * enables it per CDI 2.0+ spec without requiring a {@code beans.xml} entry. This test confirms the
- * CDI container honours the priority and selects the OTel implementation.
- *
- * <p>When no {@code OpenTelemetry} CDI bean is available (as in this test container), {@code
- * OtelTracingCollector} falls back to {@link io.opentelemetry.api.GlobalOpenTelemetry#get()}, which
- * returns a no-op instance. The test only verifies selection — not span emission.
- */
+/** Verifies deterministic adapter selection when both observability modules are installed. */
 @ExtendWith(ArquillianExtension.class)
-class RiOtelTracingAlternativeIT {
+class RiCombinedObservabilityAlternativesIT {
 
   @Inject private TracingCollector tracingCollector;
+  @Inject private MetricsCollector metricsCollector;
+  @Inject private MeterRegistry registry;
 
   @Deployment
   public static WebArchive createDeployment() {
-    return RiOptionalModuleDeployment.create("run.ratchet:ratchet-otel");
+    return RiOptionalModuleDeployment.create(
+        "run.ratchet:ratchet-otel", "run.ratchet:ratchet-micrometer");
   }
 
   @Test
-  void otelAlternativeSelectedOverNoOp() {
-    assertInstanceOf(
-        OtelTracingCollector.class,
-        tracingCollector,
-        "When ratchet-otel is on the deployment classpath, the @Alternative @Priority(1100) "
-            + "OtelTracingCollector must be selected over the default NoOpTracingCollector");
+  void otelTracingAndMicrometerMetricsAreSelectedTogether() {
+    assertInstanceOf(OtelTracingCollector.class, tracingCollector);
+    assertInstanceOf(MicrometerMetricsCollector.class, metricsCollector);
+
+    metricsCollector.jobStarted(new UUID(0L, 1L), JobType.SINGLE, JobPriority.NORMAL);
+
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.jobs.started")
+            .tag("type", "SINGLE")
+            .tag("priority", "NORMAL")
+            .counter()
+            .count());
   }
 }

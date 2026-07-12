@@ -66,9 +66,13 @@ import run.ratchet.spi.TracingCollector;
  * <p>MDC keys {@code traceId} and {@code spanId} are populated by the OTel SDK's MDC context
  * storage provider when a logging bridge (e.g. {@code opentelemetry-logback-appender} or {@code
  * opentelemetry-log4j2-appender}) is on the classpath.
+ *
+ * <p>The priority is intentionally higher than the Micrometer tracing adapter. Deployments may
+ * install both modules to use Micrometer metrics with direct OpenTelemetry tracing without creating
+ * an ambiguous {@link TracingCollector} injection point.
  */
 @Alternative
-@Priority(1000)
+@Priority(1100)
 @ApplicationScoped
 public class OtelTracingCollector implements TracingCollector {
 
