@@ -22,6 +22,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -50,6 +53,71 @@ class CircuitBreakerTest {
   @Test
   void startsInClosedState() {
     assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+  }
+
+  @Test
+  void reportsEachStateTransitionOnce() throws Exception {
+    List<CircuitBreaker.State> transitions = new ArrayList<>();
+    CircuitBreaker observed =
+        new CircuitBreaker(
+            "observed-service",
+            new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2),
+            clock,
+            transitions::add);
+
+    observed.transitionToOpen();
+    observed.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, observed.getState());
+    observed.execute(() -> "ok1");
+    observed.execute(() -> "ok2");
+
+    assertEquals(
+        List.of(
+            CircuitBreaker.State.OPEN, CircuitBreaker.State.HALF_OPEN, CircuitBreaker.State.CLOSED),
+        transitions);
+  }
+
+  @Test
+  void publishesStateChangesAfterReleasingTheStateLock() throws Exception {
+    CountDownLatch listenerEntered = new CountDownLatch(1);
+    CountDownLatch releaseListener = new CountDownLatch(1);
+    List<CircuitBreaker.State> transitions = new CopyOnWriteArrayList<>();
+    CircuitBreaker observed =
+        new CircuitBreaker(
+            "observed-service",
+            new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2),
+            clock,
+            newState -> {
+              transitions.add(newState);
+              if (newState == CircuitBreaker.State.OPEN) {
+                listenerEntered.countDown();
+                try {
+                  if (!releaseListener.await(2, java.util.concurrent.TimeUnit.SECONDS)) {
+                    throw new AssertionError("listener was not released");
+                  }
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  throw new AssertionError("listener was interrupted", e);
+                }
+              }
+            });
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> opening = executor.submit(observed::transitionToOpen);
+      assertTrue(listenerEntered.await(1, java.util.concurrent.TimeUnit.SECONDS));
+
+      Future<?> resetting = executor.submit(observed::reset);
+      resetting.get(1, java.util.concurrent.TimeUnit.SECONDS);
+      assertEquals(CircuitBreaker.State.CLOSED, observed.getState());
+
+      releaseListener.countDown();
+      opening.get(1, java.util.concurrent.TimeUnit.SECONDS);
+      assertEquals(List.of(CircuitBreaker.State.OPEN, CircuitBreaker.State.CLOSED), transitions);
+    } finally {
+      releaseListener.countDown();
+      executor.shutdownNow();
+    }
   }
 
   @Test

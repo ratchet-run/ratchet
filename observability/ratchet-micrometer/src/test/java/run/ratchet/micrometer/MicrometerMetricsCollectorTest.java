@@ -245,6 +245,82 @@ class MicrometerMetricsCollectorTest {
   }
 
   @Test
+  void resilienceCircuitBreakerStatePublishesPerServiceGauge() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricTagPolicy tagPolicy =
+        MicrometerMetricTagPolicy.builder().allowValue("service", "payments").build();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry, tagPolicy);
+
+    collector.circuitBreakerState("payments", "EXTERNAL_API", "OPEN");
+    assertEquals(
+        2.0,
+        registry
+            .get("ratchet.circuit.breaker.state")
+            .tag("service", "payments")
+            .tag("profile", "EXTERNAL_API")
+            .gauge()
+            .value());
+
+    collector.circuitBreakerState("payments", "EXTERNAL_API", "HALF_OPEN");
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.circuit.breaker.state")
+            .tag("service", "payments")
+            .tag("profile", "EXTERNAL_API")
+            .gauge()
+            .value());
+  }
+
+  @Test
+  void resilienceCircuitBreakerStateSkipsServicesOutsideTheAllowlist() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+
+    for (int tenant = 0; tenant < 100; tenant++) {
+      collector.circuitBreakerState("tenant-" + tenant, "EXTERNAL_API", "OPEN");
+    }
+
+    assertEquals(0, registry.find("ratchet.circuit.breaker.state").meters().size());
+    assertEquals(0, cacheSize(collector, "circuitBreakerStates"));
+  }
+
+  @Test
+  void replacementCollectorRebindsBreakerGauges() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricTagPolicy tagPolicy =
+        MicrometerMetricTagPolicy.builder().allowValue("service", "payments").build();
+    MicrometerMetricsCollector first = new MicrometerMetricsCollector(registry, tagPolicy);
+    first.circuitBreakerState("payments", "EXTERNAL_API", "OPEN");
+
+    MicrometerMetricsCollector replacement = new MicrometerMetricsCollector(registry, tagPolicy);
+    replacement.circuitBreakerState("payments", "EXTERNAL_API", "CLOSED");
+
+    assertEquals(
+        0.0,
+        registry
+            .get("ratchet.circuit.breaker.state")
+            .tag("service", "payments")
+            .tag("profile", "EXTERNAL_API")
+            .gauge()
+            .value());
+  }
+
+  @Test
+  void replacementCollectorRebindsPollerBreakerGauges() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector first = new MicrometerMetricsCollector(registry);
+    first.pollerBreakerState("store.claim", "OPEN");
+
+    MicrometerMetricsCollector replacement = new MicrometerMetricsCollector(registry);
+    replacement.pollerBreakerState("store.claim", "CLOSED");
+
+    assertEquals(
+        0.0,
+        registry.get("ratchet.poller.breaker.state").tag("breaker", "store.claim").gauge().value());
+  }
+
+  @Test
   void signalMetricsUseBoundedTypeAndOutcomeTags() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);

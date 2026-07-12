@@ -18,8 +18,11 @@ package run.ratchet.ri.resilience;
 import java.time.Clock;
 import java.util.Arrays;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 
 /**
@@ -54,8 +57,12 @@ public class CircuitBreaker {
   private final String name;
   private final CircuitBreakerConfiguration config;
   private final Clock clock;
+  private final Consumer<State> stateListener;
   private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
   private final ReentrantLock lock = new ReentrantLock();
+  private final ConcurrentLinkedQueue<State> pendingStateNotifications =
+      new ConcurrentLinkedQueue<>();
+  private final AtomicBoolean publishingStateNotifications = new AtomicBoolean();
   // Sliding window: ring buffer of outcomes (1 = success, 0 = failure, -1 = uninitialized)
   private final int[] window;
   private int windowIndex;
@@ -70,13 +77,23 @@ public class CircuitBreaker {
   private volatile long openedAtMs;
 
   public CircuitBreaker(String name, CircuitBreakerConfiguration config) {
-    this(name, config, Clock.systemUTC());
+    this(name, config, Clock.systemUTC(), ignored -> {});
   }
 
   public CircuitBreaker(String name, CircuitBreakerConfiguration config, Clock clock) {
+    this(name, config, clock, ignored -> {});
+  }
+
+  CircuitBreaker(String name, CircuitBreakerConfiguration config, Consumer<State> stateListener) {
+    this(name, config, Clock.systemUTC(), stateListener);
+  }
+
+  CircuitBreaker(
+      String name, CircuitBreakerConfiguration config, Clock clock, Consumer<State> stateListener) {
     this.name = name;
     this.config = config;
     this.clock = clock != null ? clock : Clock.systemUTC();
+    this.stateListener = stateListener != null ? stateListener : ignored -> {};
     this.window = new int[config.slidingWindowSize()];
     Arrays.fill(this.window, UNINITIALIZED);
   }
@@ -89,15 +106,21 @@ public class CircuitBreaker {
     State current = state.get();
     // Auto-transition from OPEN to HALF_OPEN if wait duration has elapsed
     if (current == State.OPEN && clock.millis() - openedAtMs >= config.waitDurationMs()) {
+      boolean transitioned = false;
       lock.lock();
       try {
         if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
           halfOpenGeneration++;
           halfOpenSuccesses = 0;
           halfOpenAttempts = 0;
+          queueStateNotification(State.HALF_OPEN);
+          transitioned = true;
         }
       } finally {
         lock.unlock();
+      }
+      if (transitioned) {
+        publishPendingStateNotifications();
       }
       return state.get();
     }
@@ -127,15 +150,20 @@ public class CircuitBreaker {
   }
 
   public void transitionToOpen() {
+    boolean transitioned;
     lock.lock();
     try {
-      transitionToOpenLocked();
+      transitioned = transitionToOpenUnderLock();
     } finally {
       lock.unlock();
+    }
+    if (transitioned) {
+      publishPendingStateNotifications();
     }
   }
 
   public void reset() {
+    boolean transitioned = false;
     lock.lock();
     try {
       openedAtMs = 0L;
@@ -146,9 +174,16 @@ public class CircuitBreaker {
       halfOpenAttempts = 0;
       halfOpenGeneration++;
       Arrays.fill(window, UNINITIALIZED);
-      state.set(State.CLOSED);
+      State previous = state.getAndSet(State.CLOSED);
+      if (previous != State.CLOSED) {
+        queueStateNotification(State.CLOSED);
+        transitioned = true;
+      }
     } finally {
       lock.unlock();
+    }
+    if (transitioned) {
+      publishPendingStateNotifications();
     }
   }
 
@@ -194,6 +229,7 @@ public class CircuitBreaker {
 
     try {
       T result = task.call();
+      boolean transitioned = false;
       lock.lock();
       try {
         if (isCurrentHalfOpenGeneration(admittedGeneration)) {
@@ -204,21 +240,30 @@ public class CircuitBreaker {
               failureCount = 0;
               windowIndex = 0;
               Arrays.fill(window, UNINITIALIZED);
+              queueStateNotification(State.CLOSED);
+              transitioned = true;
             }
           }
         }
       } finally {
         lock.unlock();
       }
+      if (transitioned) {
+        publishPendingStateNotifications();
+      }
       return result;
     } catch (Exception e) {
+      boolean transitioned = false;
       lock.lock();
       try {
         if (isCurrentHalfOpenGeneration(admittedGeneration)) {
-          transitionToOpenLocked();
+          transitioned = transitionToOpenUnderLock();
         }
       } finally {
         lock.unlock();
+      }
+      if (transitioned) {
+        publishPendingStateNotifications();
       }
       throw e;
     }
@@ -227,19 +272,6 @@ public class CircuitBreaker {
   // Must be called with lock held.
   private boolean isCurrentHalfOpenGeneration(long admittedGeneration) {
     return state.get() == State.HALF_OPEN && halfOpenGeneration == admittedGeneration;
-  }
-
-  // Must be called with lock held.
-  private void transitionToOpenLocked() {
-    State current = state.get();
-    if (current == State.OPEN) {
-      return;
-    }
-    // Write openedAtMs BEFORE the CAS so any thread that sees state==OPEN via getState()
-    // also sees a valid timestamp. The lock prevents a concurrent reset() from clearing
-    // openedAtMs between the write and the CAS.
-    openedAtMs = clock.millis();
-    state.compareAndSet(current, State.OPEN);
   }
 
   private void recordSuccess() {
@@ -252,14 +284,18 @@ public class CircuitBreaker {
   }
 
   private void recordFailure() {
+    boolean transitioned;
     lock.lock();
     try {
       recordOutcome(0);
       int snapshotTotal = Math.min(totalCalls, window.length);
       int snapshotFailures = failureCount;
-      evaluateThreshold(snapshotTotal, snapshotFailures);
+      transitioned = evaluateThreshold(snapshotTotal, snapshotFailures);
     } finally {
       lock.unlock();
+    }
+    if (transitioned) {
+      publishPendingStateNotifications();
     }
   }
 
@@ -287,14 +323,66 @@ public class CircuitBreaker {
     }
   }
 
-  private void evaluateThreshold(int total, int failures) {
+  private boolean evaluateThreshold(int total, int failures) {
     if (total < config.minimumCalls()) {
-      return;
+      return false;
     }
 
     float failureRate = (failures * 100.0f) / total;
     if (failureRate >= config.failureRateThreshold()) {
-      transitionToOpen();
+      return transitionToOpenUnderLock();
+    }
+    return false;
+  }
+
+  // Must be called with lock held.
+  private boolean transitionToOpenUnderLock() {
+    State current = state.get();
+    if (current == State.OPEN) {
+      return false;
+    }
+    // Write openedAtMs BEFORE the CAS so any thread that sees state==OPEN via getState()
+    // also sees a valid timestamp. The lock prevents a concurrent reset() from clearing
+    // openedAtMs between the write and the CAS.
+    openedAtMs = clock.millis();
+    if (state.compareAndSet(current, State.OPEN)) {
+      queueStateNotification(State.OPEN);
+      return true;
+    }
+    return false;
+  }
+
+  // Must be called with lock held so queue order matches state-transition order.
+  private void queueStateNotification(State newState) {
+    pendingStateNotifications.add(newState);
+  }
+
+  private void publishPendingStateNotifications() {
+    if (!publishingStateNotifications.compareAndSet(false, true)) {
+      return;
+    }
+
+    boolean continuePublishing;
+    do {
+      try {
+        State next;
+        while ((next = pendingStateNotifications.poll()) != null) {
+          notifyState(next);
+        }
+      } finally {
+        publishingStateNotifications.set(false);
+      }
+      continuePublishing =
+          !pendingStateNotifications.isEmpty()
+              && publishingStateNotifications.compareAndSet(false, true);
+    } while (continuePublishing);
+  }
+
+  private void notifyState(State newState) {
+    try {
+      stateListener.accept(newState);
+    } catch (RuntimeException ignored) {
+      // Observability must not change circuit-breaker behavior.
     }
   }
 
