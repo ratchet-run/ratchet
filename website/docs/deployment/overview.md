@@ -155,6 +155,7 @@ Before going to production:
 
 - [Installation & Setup](/deployment/installation) -- Step-by-step getting started
 - [Database Setup](/deployment/database-setup) -- Schema application for all stores
+- [Rolling Upgrades](/deployment/rolling-upgrades) -- Version coexistence boundaries and rollout order
 - [Configuration](/deployment/configuration) -- Full configuration reference
 - [Docker Deployment](/deployment/docker) -- Containerized deployments
 - [Kubernetes Deployment](/deployment/kubernetes) -- Orchestrated deployments

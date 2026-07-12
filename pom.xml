@@ -64,6 +64,7 @@
     <module>testing/ratchet-tck</module>
     <module>testing/ratchet-testsuite</module>
     <module>testing/ratchet-testsuite-jpms</module>
+    <module>testing/ratchet-version-compatibility</module>
     <module>testing/ratchet-loadtest</module>
     <module>testing/ratchet-showcase</module>
     <module>testing/ratchet-coverage</module>
@@ -930,6 +931,7 @@
               <excludeArtifacts>
                 <excludeArtifact>ratchet-testsuite</excludeArtifact>
                 <excludeArtifact>ratchet-testsuite-jpms</excludeArtifact>
+                <excludeArtifact>ratchet-version-compatibility</excludeArtifact>
                 <excludeArtifact>ratchet-loadtest</excludeArtifact>
                 <excludeArtifact>ratchet-showcase</excludeArtifact>
                 <excludeArtifact>ratchet-coverage</excludeArtifact>
