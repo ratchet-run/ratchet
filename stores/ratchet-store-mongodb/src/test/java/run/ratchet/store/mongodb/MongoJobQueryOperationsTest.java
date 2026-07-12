@@ -15,10 +15,18 @@
  */
 package run.ratchet.store.mongodb;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.mongodb.MongoClientSettings;
+import java.util.ArrayList;
+import java.util.List;
+import org.bson.BsonDocument;
+import org.bson.Document;
+import org.bson.conversions.Bson;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobPriority;
 
 class MongoJobQueryOperationsTest {
 
@@ -28,5 +36,21 @@ class MongoJobQueryOperationsTest {
     JobFilter filter = JobFilter.builder().includeArchived(true).build();
 
     assertThrows(IllegalArgumentException.class, () -> operations.searchJobs(filter, 1000, 1001));
+  }
+
+  @Test
+  void priorityFilterUsesStablePersistedCode() {
+    JobFilter filter = JobFilter.builder().priorities(JobPriority.HIGH).build();
+    List<Bson> conditions = new ArrayList<>();
+
+    MongoJobQueryOperations.appendPriorityCondition(filter, conditions);
+
+    BsonDocument condition =
+        conditions
+            .get(0)
+            .toBsonDocument(Document.class, MongoClientSettings.getDefaultCodecRegistry());
+    assertEquals(
+        JobPriority.HIGH.persistedCode(),
+        condition.getDocument("priority").getArray("$in").get(0).asInt32().getValue());
   }
 }

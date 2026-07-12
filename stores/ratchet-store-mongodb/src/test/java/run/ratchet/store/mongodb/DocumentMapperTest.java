@@ -91,6 +91,7 @@ class DocumentMapperTest {
     JobEntity reloaded = DocumentMapper.toJobEntity(doc);
 
     assertInstanceOf(String.class, doc.get("payload"));
+    assertEquals(JobPriority.NORMAL.persistedCode(), doc.getInteger("priority"));
     assertEquals(payload, reloaded.getPayload());
     assertEquals(job.getId(), reloaded.getId());
     assertEquals(JobStatus.PENDING, reloaded.getStatus());

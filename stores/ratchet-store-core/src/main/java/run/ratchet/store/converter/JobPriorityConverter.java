@@ -13,16 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.ri.core;
+package run.ratchet.store.converter;
 
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
 import run.ratchet.api.JobPriority;
 
-/** Maps stored recurring-job priority codes without failing hydration on an unknown value. */
-final class JobPriorityMapper {
+/** Persists {@link JobPriority} through its stable integer code. */
+@Converter
+public class JobPriorityConverter implements AttributeConverter<JobPriority, Integer> {
 
-  private JobPriorityMapper() {}
+  @Override
+  public Integer convertToDatabaseColumn(JobPriority attribute) {
+    return attribute == null ? null : attribute.persistedCode();
+  }
 
-  static JobPriority fromPersistedCode(int persistedCode) {
-    return JobPriority.findByPersistedCode(persistedCode).orElse(JobPriority.NORMAL);
+  @Override
+  public JobPriority convertToEntityAttribute(Integer dbData) {
+    return dbData == null ? null : JobPriority.fromPersistedCode(dbData);
   }
 }

@@ -115,18 +115,17 @@ public final class ArchiveRowMapper {
     if (value == null) {
       throw new IllegalStateException("Archive row column " + columnName + " must not be null");
     }
-    int ordinal = ((Number) value).intValue();
-    JobPriority[] priorities = JobPriority.values();
-    if (ordinal < 0 || ordinal >= priorities.length) {
+    int persistedCode = ((Number) value).intValue();
+    try {
+      return JobPriority.fromPersistedCode(persistedCode);
+    } catch (IllegalArgumentException e) {
       throw new IllegalStateException(
           "Archive row column "
               + columnName
-              + " has invalid JobPriority ordinal "
-              + ordinal
-              + "; expected 0.."
-              + (priorities.length - 1));
+              + " has invalid JobPriority persisted code "
+              + persistedCode,
+          e);
     }
-    return priorities[ordinal];
   }
 
   private static final class RowCursor {

@@ -15,14 +15,23 @@
  */
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 
-/** Maps stored recurring-job priority codes without failing hydration on an unknown value. */
-final class JobPriorityMapper {
+class JobPriorityMapperTest {
 
-  private JobPriorityMapper() {}
+  @Test
+  void mapsEveryKnownPersistedCode() {
+    for (JobPriority priority : JobPriority.values()) {
+      assertEquals(priority, JobPriorityMapper.fromPersistedCode(priority.persistedCode()));
+    }
+  }
 
-  static JobPriority fromPersistedCode(int persistedCode) {
-    return JobPriority.findByPersistedCode(persistedCode).orElse(JobPriority.NORMAL);
+  @Test
+  void fallsBackToNormalForUnknownPersistedCodes() {
+    assertEquals(JobPriority.NORMAL, JobPriorityMapper.fromPersistedCode(-1));
+    assertEquals(JobPriority.NORMAL, JobPriorityMapper.fromPersistedCode(99));
   }
 }

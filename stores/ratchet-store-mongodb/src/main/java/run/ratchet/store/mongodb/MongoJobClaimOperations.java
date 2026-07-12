@@ -222,7 +222,7 @@ final class MongoJobClaimOperations {
 
   private Object effectivePriorityExpression(String timeColumn, Date now) {
     Object priorityExpression =
-        new Document("$ifNull", List.of("$" + PRIORITY, JobPriority.NORMAL.ordinal()));
+        new Document("$ifNull", List.of("$" + PRIORITY, JobPriority.NORMAL.persistedCode()));
     int priorityBoostInterval = ctx.priorityBoostIntervalMinutes();
     if (priorityBoostInterval <= 0) {
       return priorityExpression;

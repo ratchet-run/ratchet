@@ -205,7 +205,7 @@ public class RecurringJobExecutor {
     child.setJobType(JobExecutionType.SINGLE);
     child.setStatus(JobStatus.PENDING);
     child.setScheduledTime(fireTs);
-    child.setPriority(JobPriorityMapper.fromOrdinal(master.priority()));
+    child.setPriority(JobPriorityMapper.fromPersistedCode(master.priority()));
     child.setMaxRetries(master.maxRetries());
     child.setBackoffPolicy(master.backoffPolicy());
     child.setBackoffParamMs(master.backoffParamMs());

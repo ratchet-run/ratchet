@@ -560,7 +560,7 @@ final class MysqlJobQueryOperations {
       return;
     }
     and(where, column + " IN (" + placeholders(priorities.size()) + ")");
-    priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+    priorities.stream().map(JobPriority::persistedCode).forEach(params::add);
   }
 
   private static Set<JobStatus> terminalStatuses(Set<JobStatus> statuses) {

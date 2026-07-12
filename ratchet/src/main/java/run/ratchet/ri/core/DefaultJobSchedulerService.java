@@ -793,7 +793,7 @@ public class DefaultJobSchedulerService
             jobId,
             def.businessKey(),
             run.ratchet.api.JobType.RECURRING,
-            JobPriorityMapper.fromOrdinal(def.priority()),
+            JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant(),
             previousStatus.name(),
@@ -897,7 +897,7 @@ public class DefaultJobSchedulerService
             jobId,
             def.businessKey(),
             run.ratchet.api.JobType.RECURRING,
-            JobPriorityMapper.fromOrdinal(def.priority()),
+            JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
     if (registerAfterCommit(() -> eventPublisher.publish(event))
@@ -912,7 +912,7 @@ public class DefaultJobSchedulerService
             jobId,
             def.businessKey(),
             run.ratchet.api.JobType.RECURRING,
-            JobPriorityMapper.fromOrdinal(def.priority()),
+            JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
     if (registerAfterCommit(() -> eventPublisher.publish(event))

@@ -45,7 +45,7 @@ class PostgresqlSignalOperationsTest {
   }
 
   @Test
-  void findTimedOutSignalJobsDefaultsInvalidPriorityOrdinal() {
+  void findTimedOutSignalJobsDefaultsInvalidPriorityPersistedCode() {
     var operations =
         new PostgresqlSignalOperations(
             contextReturning(row(OffsetDateTime.now(ZoneOffset.UTC), 99)));
@@ -82,14 +82,14 @@ class PostgresqlSignalOperationsTest {
     return new PostgresqlStoreContext(em);
   }
 
-  private static Object[] row(OffsetDateTime timeout, int priorityOrdinal) {
+  private static Object[] row(OffsetDateTime timeout, int priorityPersistedCode) {
     return new Object[] {
       JOB_ID,
       "approval",
       timeout,
       "WAITING",
       JobExecutionType.SINGLE.name(),
-      priorityOrdinal,
+      priorityPersistedCode,
       3,
       "business-key",
       BackoffPolicy.FIXED.name(),

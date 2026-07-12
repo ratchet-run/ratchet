@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobPriority;
 
 class MysqlJobCountOperationsTest {
 
@@ -48,6 +49,17 @@ class MysqlJobCountOperationsTest {
 
     assertEquals(3L, counts.countActiveNodes());
     assertEquals("SELECT COUNT(*) FROM scheduler_node", sql.get());
+  }
+
+  @Test
+  void countPendingJobsByPriorityBindsStablePersistedCode() {
+    AtomicReference<Object> parameter = new AtomicReference<>();
+    MysqlJobCountOperations counts =
+        new MysqlJobCountOperations(
+            new MysqlStoreContext(entityManagerCapturingParameter(parameter), null));
+
+    assertEquals(0L, counts.countPendingJobsByPriority(JobPriority.HIGH));
+    assertEquals(JobPriority.HIGH.persistedCode(), parameter.get());
   }
 
   @Test
@@ -130,6 +142,35 @@ class MysqlJobCountOperationsTest {
             (proxy, method, args) -> {
               if (method.getName().equals("createNativeQuery")) {
                 return percentileQuery;
+              }
+              throw new UnsupportedOperationException(method.getName());
+            });
+  }
+
+  private static EntityManager entityManagerCapturingParameter(AtomicReference<Object> parameter) {
+    Query query =
+        (Query)
+            Proxy.newProxyInstance(
+                Query.class.getClassLoader(),
+                new Class<?>[] {Query.class},
+                (proxy, method, args) -> {
+                  if (method.getName().equals("setParameter")) {
+                    parameter.set(args[1]);
+                    return proxy;
+                  }
+                  if (method.getName().equals("getSingleResult")) {
+                    return 0L;
+                  }
+                  throw new UnsupportedOperationException(method.getName());
+                });
+
+    return (EntityManager)
+        Proxy.newProxyInstance(
+            EntityManager.class.getClassLoader(),
+            new Class<?>[] {EntityManager.class},
+            (proxy, method, args) -> {
+              if (method.getName().equals("createNativeQuery")) {
+                return query;
               }
               throw new UnsupportedOperationException(method.getName());
             });

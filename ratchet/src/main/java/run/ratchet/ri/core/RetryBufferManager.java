@@ -72,7 +72,7 @@ class RetryBufferManager {
 
     Comparator<BufferedClaim> jobComparator =
         Comparator.comparing(
-                (BufferedClaim job) -> job.priority().ordinal(), Comparator.reverseOrder())
+                (BufferedClaim job) -> job.priority().persistedCode(), Comparator.reverseOrder())
             .thenComparing(BufferedClaim::scheduledTime);
 
     for (JobExecutionType jobType : JobExecutionType.values()) {

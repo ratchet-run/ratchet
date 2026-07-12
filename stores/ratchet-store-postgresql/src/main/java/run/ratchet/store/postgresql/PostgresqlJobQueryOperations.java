@@ -581,7 +581,7 @@ final class PostgresqlJobQueryOperations {
       return;
     }
     and(where, column + " IN (" + placeholders(priorities.size()) + ")");
-    priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+    priorities.stream().map(JobPriority::persistedCode).forEach(params::add);
   }
 
   private void appendUuidEq(String column, UUID value, StringBuilder where, List<Object> params) {

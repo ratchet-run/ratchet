@@ -42,7 +42,8 @@ class MongoClaimBoostBoundedBacklogIT extends BaseDocumentStoreIT {
     int boostInterval = RatchetOptions.defaults().store().priorityBoostIntervalMinutes();
     assumeTrue(boostInterval > 0, "priority boosting is disabled");
     return Instant.now()
-        .minus(Duration.ofMinutes((long) boostInterval * (JobPriority.CRITICAL.ordinal() + 1L)))
+        .minus(
+            Duration.ofMinutes((long) boostInterval * (JobPriority.CRITICAL.persistedCode() + 1L)))
         .minusSeconds(1);
   }
 

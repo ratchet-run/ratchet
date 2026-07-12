@@ -112,8 +112,8 @@ final class PostgresqlJobRowMapper extends AbstractJobRowMapper {
     return RowValues.uuidOrNull(value);
   }
 
-  static JobPriority safeJobPriority(int ordinal) {
-    return RowValues.safeJobPriority(ordinal);
+  static JobPriority safeJobPriority(int persistedCode) {
+    return RowValues.safeJobPriority(persistedCode);
   }
 
   static String payloadToJson(JobEntity job, boolean active) {

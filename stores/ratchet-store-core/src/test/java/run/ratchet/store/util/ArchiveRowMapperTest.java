@@ -44,7 +44,7 @@ class ArchiveRowMapperTest {
   }
 
   @Test
-  void mapRejectsInvalidPriorityOrdinal() {
+  void mapRejectsInvalidPriorityPersistedCode() {
     Object[] row = validRow();
     row[4] = 99;
 
@@ -53,7 +53,7 @@ class ArchiveRowMapperTest {
 
     assertTrue(ex.getMessage().contains("priority"));
     assertTrue(ex.getMessage().contains("99"));
-    assertTrue(ex.getMessage().contains("0..4"));
+    assertTrue(ex.getMessage().contains("persisted code"));
   }
 
   @Test
@@ -112,7 +112,7 @@ class ArchiveRowMapperTest {
     row[column++] = UUID.fromString("00000000-0000-0000-0000-000000000002");
     row[column++] = JobStatus.SUCCEEDED.name();
     row[column++] = JobExecutionType.SINGLE.name();
-    row[column++] = JobPriority.NORMAL.ordinal();
+    row[column++] = JobPriority.NORMAL.persistedCode();
     row[column++] = 1;
     row[column++] = 3;
     row[column++] = BackoffPolicy.NONE.name();

@@ -74,14 +74,15 @@ class RowValuesTest {
   }
 
   @Test
-  void safeJobPriorityReturnsNormalForOutOfRangeOrdinals() {
+  void safeJobPriorityReturnsNormalForUnknownPersistedCodes() {
     assertEquals(JobPriority.NORMAL, RowValues.safeJobPriority(-1));
-    assertEquals(JobPriority.NORMAL, RowValues.safeJobPriority(JobPriority.values().length));
+    assertEquals(JobPriority.NORMAL, RowValues.safeJobPriority(99));
   }
 
   @Test
-  void safeJobPriorityReturnsOrdinalValueWhenPresent() {
-    assertEquals(JobPriority.CRITICAL, RowValues.safeJobPriority(JobPriority.CRITICAL.ordinal()));
+  void safeJobPriorityReturnsMappedPersistedCode() {
+    assertEquals(
+        JobPriority.CRITICAL, RowValues.safeJobPriority(JobPriority.CRITICAL.persistedCode()));
   }
 
   @Test

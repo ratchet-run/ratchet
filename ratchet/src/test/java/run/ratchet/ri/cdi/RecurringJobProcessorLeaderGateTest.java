@@ -312,7 +312,7 @@ class RecurringJobProcessorLeaderGateTest {
         FIXED_NOW.plusSeconds(60),
         false,
         null,
-        options.priority().ordinal(),
+        options.priority().persistedCode(),
         options.maxRetries(),
         options.backoffPolicy(),
         (int) options.backoffParam().toMillis(),

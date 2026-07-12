@@ -620,7 +620,7 @@ class DefaultJobCreationService
             nextFire,
             /* paused */ false,
             /* pausedAt */ null,
-            options.priority().ordinal(),
+            options.priority().persistedCode(),
             options.maxRetries(),
             options.backoffPolicy(),
             (int) options.backoffParam().toMillis(),

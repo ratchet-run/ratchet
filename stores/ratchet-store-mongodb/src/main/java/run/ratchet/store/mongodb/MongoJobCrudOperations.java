@@ -306,7 +306,7 @@ final class MongoJobCrudOperations {
 
   long countPendingJobsByPriority(JobPriority priority) {
     return ctx.jobs()
-        .countDocuments(and(eq(STATUS, STATUS_PENDING), eq(PRIORITY, priority.ordinal())));
+        .countDocuments(and(eq(STATUS, STATUS_PENDING), eq(PRIORITY, priority.persistedCode())));
   }
 
   Map<JobPriority, Long> countPendingJobsByPriorities() {
@@ -317,17 +317,17 @@ final class MongoJobCrudOperations {
                 "$group",
                 new Document(ID, "$" + PRIORITY).append("count", new Document("$sum", 1))));
     Map<JobPriority, Long> counts = new EnumMap<>(JobPriority.class);
-    JobPriority[] values = JobPriority.values();
     for (Document doc : ctx.jobs().aggregate(pipeline)) {
       Object rawPriority = doc.get(ID);
       if (rawPriority instanceof Number priority) {
-        int ordinal = priority.intValue();
-        if (ordinal >= 0 && ordinal < values.length) {
-          Number count = numberField(doc, "count");
-          if (count != null) {
-            counts.put(values[ordinal], count.longValue());
-          }
-        }
+        JobPriority.findByPersistedCode(priority.intValue())
+            .ifPresent(
+                mappedPriority -> {
+                  Number count = numberField(doc, "count");
+                  if (count != null) {
+                    counts.put(mappedPriority, count.longValue());
+                  }
+                });
       }
     }
     return counts;

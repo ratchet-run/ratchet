@@ -119,7 +119,7 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
     assertEquals("0 30 9 * * ?", updated.cronExpr());
     assertEquals("America/New_York", updated.zoneId());
     assertEquals(Instant.parse("2026-05-27T13:30:00Z"), updated.nextFire());
-    assertEquals(JobPriority.HIGH.ordinal(), updated.priority());
+    assertEquals(JobPriority.HIGH.persistedCode(), updated.priority());
     assertEquals(3, updated.maxRetries());
     assertEquals(BackoffPolicy.FIXED, updated.backoffPolicy());
     assertEquals(5_000, updated.backoffParamMs());
@@ -243,7 +243,7 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
         nextFire,
         false,
         null,
-        options.priority().ordinal(),
+        options.priority().persistedCode(),
         options.maxRetries(),
         options.backoffPolicy(),
         (int) options.backoffParam().toMillis(),

@@ -375,7 +375,7 @@ class DefaultJobSchedulerServiceEventTest {
         FIXED_NOW.plusSeconds(60),
         paused,
         paused ? FIXED_NOW : null,
-        JobPriority.HIGH.ordinal(),
+        JobPriority.HIGH.persistedCode(),
         0,
         run.ratchet.api.BackoffPolicy.NONE,
         0,
