@@ -65,7 +65,7 @@ import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.EncryptionHolder;
-import run.ratchet.store.converter.PayloadSerializerHolder;
+import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -92,6 +92,7 @@ class DefaultJobCreationService
     implements JobSubmitter, BatchSubmitter, StreamingBatchSubmitter, RecurringJobSubmitter {
 
   private static final Logger log = Logger.getLogger(DefaultJobCreationService.class);
+  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
 
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobTerminalStore jobTerminalStore;
@@ -289,6 +290,15 @@ class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(JobBuilder builder) {
+    JOB_PAYLOAD_CONVERTER.beginPreparationScope();
+    try {
+      return submitPrepared(builder);
+    } finally {
+      JOB_PAYLOAD_CONVERTER.endPreparationScope();
+    }
+  }
+
+  private JobHandle submitPrepared(JobBuilder builder) {
     JobBuilderState state = (JobBuilderState) builder;
     String idempotencyKey = state.idempotencyKey();
     Optional<JobEntity> existingByKey = jobCrudStore.findByIdempotencyKey(idempotencyKey);
@@ -370,7 +380,7 @@ class DefaultJobCreationService
 
     JobEntity saved;
     try {
-      saved = jobCrudStore.create(job);
+      saved = createJob(job);
     } catch (DuplicateIdempotencyKeyException e) {
       // A concurrent submission with the same idempotency key won the race to insert. Converge on
       // the documented idempotent result: re-resolve and return the existing job rather than
@@ -432,11 +442,20 @@ class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(DefaultBatchBuilder builder) {
+    JOB_PAYLOAD_CONVERTER.beginPreparationScope();
+    try {
+      return submitPrepared(builder);
+    } finally {
+      JOB_PAYLOAD_CONVERTER.endPreparationScope();
+    }
+  }
+
+  private JobHandle submitPrepared(DefaultBatchBuilder builder) {
     requireBatchCapability();
     JobEntity parent = newBatchParent();
     parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
-    JobEntity savedParent = jobCrudStore.create(parent);
+    JobEntity savedParent = createJob(parent);
     UUID parentId = savedParent.getId();
 
     BatchEntity batch = new BatchEntity();
@@ -447,7 +466,7 @@ class DefaultJobCreationService
     if (builder.progressHook() != null) {
       batch.setProgressHook(payload(builder.progressHook()));
     }
-    batchStore.saveBatch(batch);
+    saveBatch(batch);
 
     if (builder.children().isEmpty()) {
       completeEmptyBatch(parentId);
@@ -473,7 +492,7 @@ class DefaultJobCreationService
       checkCreateAuthorization(childJob);
       childJobs.add(childJob);
     }
-    bulkStore().bulkInsert(childJobs);
+    bulkInsertJobs(childJobs);
 
     createWorkflowBranches(
         parentId,
@@ -500,13 +519,23 @@ class DefaultJobCreationService
   @Override
   @Transactional
   public <T extends Serializable> JobHandle submit(DefaultStreamingBatchBuilder<T> builder) {
+    JOB_PAYLOAD_CONVERTER.beginPreparationScope();
+    try {
+      return submitPrepared(builder);
+    } finally {
+      JOB_PAYLOAD_CONVERTER.endPreparationScope();
+    }
+  }
+
+  private <T extends Serializable> JobHandle submitPrepared(
+      DefaultStreamingBatchBuilder<T> builder) {
     requireBatchCapability();
     builder.validateReady();
 
     JobEntity parent = newBatchParent();
     parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
-    JobEntity savedParent = jobCrudStore.create(parent);
+    JobEntity savedParent = createJob(parent);
     UUID parentId = savedParent.getId();
 
     int totalItems = 0;
@@ -520,7 +549,7 @@ class DefaultJobCreationService
     if (builder.batchProgressHook() != null) {
       batch.setProgressHook(payload(builder.batchProgressHook()));
     }
-    batchStore.saveBatch(batch);
+    saveBatch(batch);
 
     try {
       var iterator = builder.stream().iterator();
@@ -569,6 +598,15 @@ class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(DefaultRecurringJobBuilder builder) {
+    JOB_PAYLOAD_CONVERTER.beginPreparationScope();
+    try {
+      return submitPrepared(builder);
+    } finally {
+      JOB_PAYLOAD_CONVERTER.endPreparationScope();
+    }
+  }
+
+  private JobHandle submitPrepared(DefaultRecurringJobBuilder builder) {
     if (recurringJobStore == null) {
       throw new UnsupportedOperationException(
           "Recurring job submission requires a store advertising the RecurringJobStore capability");
@@ -637,7 +675,12 @@ class DefaultJobCreationService
             builder.encryptedPayload(),
             builder.misfirePolicy());
 
-    RecurringJobDefinition saved = createOrReconcileRecurring(definition, builder.tags());
+    RecurringJobDefinition saved;
+    try {
+      saved = createOrReconcileRecurring(definition, builder.tags());
+    } finally {
+      discardPreparedPayloads(definition);
+    }
 
     log.infof(
         "Recurring job submitted (id=%s, cron=%s, zone=%s, nextFire=%s)",
@@ -807,7 +850,7 @@ class DefaultJobCreationService
       captureTraceContext(step);
       checkCreateAuthorization(step);
 
-      JobEntity savedStep = jobCrudStore.create(step);
+      JobEntity savedStep = createJob(step);
       prevId = savedStep.getId();
     }
   }
@@ -878,7 +921,7 @@ class DefaultJobCreationService
       checkCreateAuthorization(child);
       children.add(child);
     }
-    bulkStore().bulkInsert(children);
+    bulkInsertJobs(children);
     return children.size();
   }
 
@@ -929,7 +972,7 @@ class DefaultJobCreationService
     branchJob.setExecutionTarget(executionTarget);
     stampCallerPrincipal(branchJob);
     checkCreateAuthorization(branchJob);
-    JobEntity savedBranch = jobCrudStore.create(branchJob);
+    JobEntity savedBranch = createJob(branchJob);
 
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
     condition.setParentJobId(parentId);
@@ -944,16 +987,20 @@ class DefaultJobCreationService
           || expr instanceof JobInvocation) {
         JobPayload p =
             expr instanceof JobInvocation invocation
-                ? JobPayloadFactory.fromInvocation(invocation)
-                : JobPayloadFactory.fromLambda(expr);
+                ? validate(JobPayloadFactory.fromInvocation(invocation))
+                : validate(JobPayloadFactory.fromLambda(expr));
         // The predicate belongs to the parent job, binds the parent id, and follows the parent's
         // encryption opt-in: an opted-in workflow encrypts its predicate even when the global
         // switch is off.
-        condition.setConditionExpression(
-            PayloadEncryptor.encryptArgs(
-                PayloadSerializerHolder.get().serialize(p),
-                EncryptionHolder.encryptionActiveFor(parentEncrypted),
-                EncryptionTarget.predicate(parentId)));
+        try {
+          condition.setConditionExpression(
+              PayloadEncryptor.encryptArgs(
+                  JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(p),
+                  EncryptionHolder.encryptionActiveFor(parentEncrypted),
+                  EncryptionTarget.predicate(parentId)));
+        } finally {
+          JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(p);
+        }
       } else {
         condition.setConditionExpression(expr.toString());
       }
@@ -992,10 +1039,51 @@ class DefaultJobCreationService
         && !JobPayloadFactory.isCoordinationPlaceholder(payload)
         && !JobPayloadFactory.isRecurringDispatchShim(payload)
         && !classPolicy.isAllowed(payload.target())) {
+      JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(payload);
       throw new SecurityException(
           "Class " + payload.target() + " is not allowed for job execution.");
     }
     return payload;
+  }
+
+  private JobEntity createJob(JobEntity job) {
+    try {
+      return jobCrudStore.create(job);
+    } finally {
+      discardPreparedPayloads(job);
+    }
+  }
+
+  private void bulkInsertJobs(List<JobEntity> jobs) {
+    try {
+      bulkStore().bulkInsert(jobs);
+    } finally {
+      jobs.forEach(DefaultJobCreationService::discardPreparedPayloads);
+    }
+  }
+
+  private void saveBatch(BatchEntity batch) {
+    try {
+      batchStore.saveBatch(batch);
+    } finally {
+      discardPreparedPayload(batch.getProgressHook());
+    }
+  }
+
+  private static void discardPreparedPayloads(JobEntity job) {
+    discardPreparedPayload(job.getPayload());
+    discardPreparedPayload(job.getOnSuccessPayload());
+    discardPreparedPayload(job.getOnFailurePayload());
+  }
+
+  private static void discardPreparedPayloads(RecurringJobDefinition definition) {
+    discardPreparedPayload(definition.payload());
+    discardPreparedPayload(definition.onSuccessPayload());
+    discardPreparedPayload(definition.onFailurePayload());
+  }
+
+  private static void discardPreparedPayload(JobPayload payload) {
+    JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(payload);
   }
 
   private void stampCallerPrincipal(JobEntity job) {

@@ -17,16 +17,21 @@ package run.ratchet.store.converter;
 
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Objects;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobPayload;
 
 /**
  * JPA {@link AttributeConverter} that converts {@link JobPayload} to/from JSON for database
  * storage.
  *
- * <p>Routes through {@link PayloadSerializerHolder} so the framework's {@link
- * run.ratchet.spi.PayloadSerializer} SPI is the single JSON boundary. JPA converters are not
- * CDI-managed beans, so the holder's static registration pattern is used instead of field
- * injection.
+ * <p>Routes through {@link PayloadSerializerHolder} so the framework's {@link PayloadSerializer}
+ * SPI is the single JSON boundary. JPA converters are not CDI-managed beans, so the holder's static
+ * registration pattern is used instead of field injection.
  *
  * <p>This converter performs serialization only. Payload-args encryption is applied a layer up, in
  * the row mappers and document mapper, which alone see the whole row and can supply the job id and
@@ -36,16 +41,96 @@ import run.ratchet.store.entity.JobPayload;
 @Converter
 public class JobPayloadConverter implements AttributeConverter<JobPayload, String> {
 
+  private static final ThreadLocal<Deque<Map<JobPayload, String>>> PREPARED_SERIALIZATIONS =
+      new ThreadLocal<>();
+
+  /** Starts a synchronous submission scope on the current thread. Scopes may be nested. */
+  public void beginPreparationScope() {
+    Deque<Map<JobPayload, String>> scopes = PREPARED_SERIALIZATIONS.get();
+    if (scopes == null) {
+      scopes = new ArrayDeque<>();
+      PREPARED_SERIALIZATIONS.set(scopes);
+    }
+    scopes.push(new IdentityHashMap<>());
+  }
+
+  /** Ends the current synchronous submission scope and releases every staged payload in it. */
+  public void endPreparationScope() {
+    Deque<Map<JobPayload, String>> scopes = PREPARED_SERIALIZATIONS.get();
+    if (scopes == null || scopes.isEmpty()) {
+      return;
+    }
+    scopes.pop();
+    if (scopes.isEmpty()) {
+      PREPARED_SERIALIZATIONS.remove();
+    }
+  }
+
+  /**
+   * Stages the exact JSON accepted by creation-time validation for the synchronous persistence call
+   * on this thread.
+   *
+   * <p>The creation service surrounds submission with {@link #beginPreparationScope()} and {@link
+   * #endPreparationScope()}. Identity keys keep equal-but-distinct payloads independent within a
+   * batch.
+   */
+  public void prepareForPersistence(JobPayload payload, String serialized) {
+    Objects.requireNonNull(payload, "payload");
+    Objects.requireNonNull(serialized, "serialized");
+    Deque<Map<JobPayload, String>> scopes = PREPARED_SERIALIZATIONS.get();
+    if (scopes == null || scopes.isEmpty()) {
+      return;
+    }
+    scopes.peek().put(payload, serialized);
+  }
+
+  /** Clears a creation-time serialization staged in the current submission scope. */
+  public void discardPreparedSerialization(JobPayload payload) {
+    if (payload == null) {
+      return;
+    }
+    Deque<Map<JobPayload, String>> scopes = PREPARED_SERIALIZATIONS.get();
+    if (scopes == null) {
+      return;
+    }
+    if (!scopes.isEmpty()) {
+      scopes.peek().remove(payload);
+    }
+  }
+
+  /** Clears every creation-time serialization staged on the current thread. */
+  public void discardAllPreparedSerializations() {
+    PREPARED_SERIALIZATIONS.remove();
+  }
+
   @Override
   public String convertToDatabaseColumn(JobPayload attribute) {
     if (attribute == null) {
       return null;
     }
     try {
+      String prepared = preparedSerialization(attribute);
+      if (prepared != null) {
+        return prepared;
+      }
       return PayloadSerializerHolder.get().serialize(attribute);
     } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("JobPayload serialization error", e);
     }
+  }
+
+  private static String preparedSerialization(JobPayload payload) {
+    Deque<Map<JobPayload, String>> scopes = PREPARED_SERIALIZATIONS.get();
+    if (scopes == null) {
+      return null;
+    }
+    for (Map<JobPayload, String> prepared : scopes) {
+      String serialized = prepared.get(payload);
+      if (serialized != null) {
+        return serialized;
+      }
+    }
+    return null;
   }
 
   @Override

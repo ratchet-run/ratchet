@@ -19,6 +19,7 @@ import java.io.Serializable;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.Objects;
+import run.ratchet.api.exception.PayloadTooLargeException;
 
 /**
  * Fluent builder for batch job execution with progress monitoring, conditional branching, and
@@ -114,6 +115,9 @@ public interface BatchBuilder {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
    * only and do not participate in a transaction.
+   *
+   * @throws PayloadTooLargeException if a child, progress hook, or workflow payload exceeds the
+   *     configured serialized-payload limit
    */
   JobHandle submit();
 

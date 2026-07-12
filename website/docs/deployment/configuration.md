@@ -83,7 +83,7 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 | `node.orphanGraceSeconds(60)` | `60` | Grace period before reclaiming orphaned work |
 | `maintenance.jobRetentionDays(90)` | `90` | Completed-job retention before archiving |
 | `maintenance.logRetentionDays(30)` | `30` | Per-job log retention |
-| `payload.maxPayloadKb(100)` | `100` | Serialized job payload size cap |
+| `payload.maxPayloadKb(100)` | `100` | UTF-8 serialized job payload cap in 1024-byte units, before encryption/store overhead |
 | `payload.maxResultBytes(65536)` | `65536` | Persisted result JSON cap; `0` disables truncation |
 | `store.priorityBoostIntervalMinutes(15)` | `15` | Starvation-prevention priority boost interval |
 

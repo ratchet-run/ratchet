@@ -16,6 +16,7 @@
 package run.ratchet.tck.api;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 import run.ratchet.api.JobSchedulerService;
 
 /**
@@ -53,6 +54,15 @@ public interface RatchetTckRuntime {
    * Assumptions.assumeTrue(runtime.clock().isPresent())} to skip on wall-clock implementations.
    */
   Optional<TestClock> clock();
+
+  /**
+   * Configured maximum serialized job-payload size in UTF-8 bytes. Implementations that expose a
+   * limit return it so {@link AbstractPayloadSizeContract} can exercise rejection behavior.
+   * Implementations without a configurable limit return empty and skip that optional contract.
+   */
+  default OptionalLong maxPayloadBytes() {
+    return OptionalLong.empty();
+  }
 
   /**
    * Drains the scheduler so each test starts from a clean baseline. The contract is intentionally

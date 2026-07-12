@@ -21,8 +21,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import jakarta.json.bind.JsonbBuilder;
+import java.io.ObjectStreamClass;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobPayload;
 
@@ -68,6 +70,8 @@ class JobPayloadConverterTest {
     assertEquals("(Ljava/lang/String;)V", parsed.get("methodDescriptor"));
     assertEquals(true, parsed.get("isStatic"));
     assertEquals(List.of("hello"), parsed.get("args"));
+    assertEquals(
+        Set.of("target", "method", "methodDescriptor", "isStatic", "args"), parsed.keySet());
   }
 
   @Test
@@ -105,6 +109,102 @@ class JobPayloadConverterTest {
         converter.convertToEntityAttribute(converter.convertToDatabaseColumn(original));
 
     assertEquals(original.args(), restored.args());
+  }
+
+  @Test
+  void javaSerializationUid_matchesFormerRecordContract() {
+    assertEquals(0L, ObjectStreamClass.lookup(JobPayload.class).getSerialVersionUID());
+  }
+
+  @Test
+  void preparedSerialization_isReusedUntilExplicitlyDiscarded() {
+    JobPayload payload = samplePayload();
+    String normalJson = converter.convertToDatabaseColumn(payload);
+
+    converter.beginPreparationScope();
+    try {
+      converter.prepareForPersistence(payload, "validated-json");
+      assertEquals("validated-json", converter.convertToDatabaseColumn(payload));
+    } finally {
+      converter.endPreparationScope();
+    }
+
+    assertEquals(normalJson, converter.convertToDatabaseColumn(payload));
+  }
+
+  @Test
+  void preparedSerialization_usesPayloadIdentityRatherThanRecordEquality() {
+    JobPayload first = samplePayload();
+    JobPayload equalButDistinct = samplePayload();
+    String normalJson = converter.convertToDatabaseColumn(equalButDistinct);
+
+    converter.beginPreparationScope();
+    try {
+      converter.prepareForPersistence(first, "first-only");
+      assertEquals(normalJson, converter.convertToDatabaseColumn(equalButDistinct));
+    } finally {
+      converter.endPreparationScope();
+    }
+  }
+
+  @Test
+  void preparationOutsideSubmissionScope_isNotRetained() {
+    JobPayload payload = samplePayload();
+    String normalJson = converter.convertToDatabaseColumn(payload);
+
+    converter.prepareForPersistence(payload, "unscoped-json");
+
+    assertEquals(normalJson, converter.convertToDatabaseColumn(payload));
+  }
+
+  @Test
+  void preparationScopes_preserveOuterSubmissionAcrossNestedSubmission() {
+    JobPayload outer = samplePayload();
+    JobPayload inner = new JobPayload("com.example.Nested", "run", "()V", true, List.of());
+    String normalOuter = converter.convertToDatabaseColumn(outer);
+    String normalInner = converter.convertToDatabaseColumn(inner);
+
+    converter.beginPreparationScope();
+    try {
+      converter.prepareForPersistence(outer, "outer-json");
+      converter.beginPreparationScope();
+      try {
+        converter.prepareForPersistence(inner, "inner-json");
+        assertEquals("outer-json", converter.convertToDatabaseColumn(outer));
+        assertEquals("inner-json", converter.convertToDatabaseColumn(inner));
+      } finally {
+        converter.endPreparationScope();
+      }
+
+      assertEquals("outer-json", converter.convertToDatabaseColumn(outer));
+      assertEquals(normalInner, converter.convertToDatabaseColumn(inner));
+    } finally {
+      converter.endPreparationScope();
+    }
+
+    assertEquals(normalOuter, converter.convertToDatabaseColumn(outer));
+  }
+
+  @Test
+  void nestedRevalidationOfSamePayloadIdentity_preservesOuterSerialization() {
+    JobPayload payload = samplePayload();
+
+    converter.beginPreparationScope();
+    try {
+      converter.prepareForPersistence(payload, "outer-json");
+      converter.beginPreparationScope();
+      try {
+        converter.discardPreparedSerialization(payload);
+        converter.prepareForPersistence(payload, "inner-json");
+        assertEquals("inner-json", converter.convertToDatabaseColumn(payload));
+      } finally {
+        converter.endPreparationScope();
+      }
+
+      assertEquals("outer-json", converter.convertToDatabaseColumn(payload));
+    } finally {
+      converter.endPreparationScope();
+    }
   }
 
   private JobPayload samplePayload() {

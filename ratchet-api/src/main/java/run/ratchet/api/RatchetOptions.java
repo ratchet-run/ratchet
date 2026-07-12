@@ -531,7 +531,8 @@ public class RatchetOptions {
   /**
    * Limits on job payload and persisted result sizes.
    *
-   * @param maxPayloadKb maximum job payload size in kilobytes
+   * @param maxPayloadKb maximum UTF-8 size of each serialized job payload, in 1024-byte units;
+   *     measured before encryption framing or database-specific storage overhead
    * @param maxResultBytes maximum persisted job-result size in bytes
    */
   public record PayloadOptions(int maxPayloadKb, long maxResultBytes) {}
@@ -1182,6 +1183,10 @@ public class RatchetOptions {
 
     private PayloadBuilder() {}
 
+    /**
+     * Sets the maximum UTF-8 size of each serialized job payload in 1024-byte units. The active
+     * {@code PayloadSerializer} output is measured before encryption framing or store overhead.
+     */
     public PayloadBuilder maxPayloadKb(int maxPayloadKb) {
       this.maxPayloadKb = atLeast("maxPayloadKb", maxPayloadKb, 1);
       return this;

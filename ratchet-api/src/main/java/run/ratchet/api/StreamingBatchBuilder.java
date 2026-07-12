@@ -20,6 +20,8 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /**
  * Fluent builder for streaming batch jobs that process large datasets in chunks.
@@ -125,8 +127,10 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * Submits the configured streaming batch for execution.
    *
    * @return a {@link JobHandle} for the submitted batch job; never {@code null}
-   * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store is
-   *     temporarily unavailable while the batch is submitted
+   * @throws RatchetTransientStoreException if the backing store is temporarily unavailable while
+   *     the batch is submitted
+   * @throws PayloadTooLargeException if a child, progress hook, or workflow payload exceeds the
+   *     configured serialized-payload limit
    * @throws IllegalStateException if no input stream or processing action has been configured
    */
   JobHandle start();

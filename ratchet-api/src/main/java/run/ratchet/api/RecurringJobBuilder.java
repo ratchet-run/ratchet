@@ -17,6 +17,7 @@ package run.ratchet.api;
 
 import java.util.List;
 import java.util.Objects;
+import run.ratchet.api.exception.PayloadTooLargeException;
 
 /**
  * Fluent builder for configuring and submitting recurring jobs.
@@ -121,6 +122,9 @@ public interface RecurringJobBuilder {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
    * only and do not participate in a transaction.
+   *
+   * @throws PayloadTooLargeException if the serialized recurring payload exceeds the configured
+   *     limit
    */
   JobHandle submit();
 }

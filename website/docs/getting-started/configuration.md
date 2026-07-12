@@ -227,7 +227,7 @@ DDL, not a datasource.
 | `logPurgeEnabled(boolean)` | `true` | Enable job log purging |
 | `logPurgeCron(String)` | `0 30 2 * * ?` | Log purge schedule |
 | `logRetentionDays(long)` | `30` | Job log retention |
-| `payload.maxPayloadKb(int)` | `100` | Serialized job payload cap |
+| `payload.maxPayloadKb(int)` | `100` | UTF-8 serialized job payload cap in 1024-byte units, measured before encryption/store overhead |
 | `payload.maxResultBytes(long)` | `65536` | Persisted result cap; `0` disables truncation |
 
 ### Recurring, timeouts, and circuit breakers

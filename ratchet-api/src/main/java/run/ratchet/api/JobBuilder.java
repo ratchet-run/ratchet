@@ -18,6 +18,7 @@ package run.ratchet.api;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.api.exception.SignalTimeoutException;
 
 /**
@@ -114,6 +115,8 @@ public interface JobBuilder {
    * only and do not participate in a transaction.
    *
    * @return a handle to the persisted job
+   * @throws PayloadTooLargeException if the task or a persisted callback/branch exceeds the
+   *     configured serialized-payload limit
    */
   JobHandle submit();
 

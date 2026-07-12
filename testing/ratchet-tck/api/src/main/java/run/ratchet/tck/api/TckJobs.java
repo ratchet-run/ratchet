@@ -81,6 +81,11 @@ public final class TckJobs {
     Thread.yield();
   }
 
+  /** No-op task accepting a caller-supplied value for payload-boundary contracts. */
+  public static void acceptPayload(String value) {
+    Thread.yield();
+  }
+
   /** Always-failing task body. Used by retry / failure-path contracts. */
   public static void throwIntentional() {
     throw new IllegalStateException("intentional TCK failure");
