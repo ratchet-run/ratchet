@@ -87,11 +87,7 @@ final class MongoJobLifecycleOperations
   private final MongoJobQueryOperations query;
 
   MongoJobLifecycleOperations(MongoStoreContext ctx, MongoBatchOperations batches) {
-    this(
-        ctx,
-        batches,
-        new MongoBusinessKeyReservations(ctx),
-        new MongoJobQueryOperations(ctx));
+    this(ctx, batches, new MongoBusinessKeyReservations(ctx), new MongoJobQueryOperations(ctx));
   }
 
   MongoJobLifecycleOperations(
