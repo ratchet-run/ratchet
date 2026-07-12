@@ -32,6 +32,27 @@
       <artifactId>ratchet</artifactId>
     </dependency>
 
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-coordinator-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-coordinator-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-coordinator-jms</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-coordinator-infinispan</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-coordinator-hazelcast</artifactId>
+    </dependency>
+
     <!-- provided at runtime; needed for compilation -->
     <dependency>
       <groupId>jakarta.platform</groupId>
