@@ -64,6 +64,8 @@ public class CircuitBreaker {
   // HALF_OPEN state tracking
   private int halfOpenSuccesses;
   private int halfOpenAttempts;
+  // Identifies the probe round so late completions cannot update a newer round.
+  private long halfOpenGeneration;
   // OPEN state timing
   private volatile long openedAtMs;
 
@@ -90,6 +92,7 @@ public class CircuitBreaker {
       lock.lock();
       try {
         if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
+          halfOpenGeneration++;
           halfOpenSuccesses = 0;
           halfOpenAttempts = 0;
         }
@@ -104,7 +107,7 @@ public class CircuitBreaker {
   /**
    * Executes the task with circuit breaker protection.
    *
-   * @throws run.ratchet.api.exception.CircuitBreakerOpenException if the circuit is OPEN
+   * @throws CircuitBreakerOpenException if the circuit is OPEN
    * @throws Exception if the task throws
    */
   public <T> T execute(Callable<T> task) throws Exception {
@@ -126,15 +129,7 @@ public class CircuitBreaker {
   public void transitionToOpen() {
     lock.lock();
     try {
-      State current = state.get();
-      if (current == State.OPEN) {
-        return;
-      }
-      // Write openedAtMs BEFORE the CAS so any thread that sees state==OPEN via getState()
-      // also sees a valid timestamp. The lock prevents a concurrent reset() from clearing
-      // openedAtMs between the write and the CAS.
-      openedAtMs = clock.millis();
-      state.compareAndSet(current, State.OPEN);
+      transitionToOpenLocked();
     } finally {
       lock.unlock();
     }
@@ -149,6 +144,7 @@ public class CircuitBreaker {
       windowIndex = 0;
       halfOpenSuccesses = 0;
       halfOpenAttempts = 0;
+      halfOpenGeneration++;
       Arrays.fill(window, UNINITIALIZED);
       state.set(State.CLOSED);
     } finally {
@@ -179,13 +175,19 @@ public class CircuitBreaker {
   }
 
   private <T> T executeInHalfOpen(Callable<T> task) throws Exception {
+    long admittedGeneration;
     lock.lock();
     try {
+      if (state.get() != State.HALF_OPEN) {
+        throw new CircuitBreakerOpenException(
+            "Circuit breaker '" + name + "' is no longer accepting this HALF_OPEN trial call");
+      }
       int attempt = ++halfOpenAttempts;
       if (attempt > config.permittedCallsInHalfOpen()) {
         throw new CircuitBreakerOpenException(
             "Circuit breaker '" + name + "' is HALF_OPEN — trial calls exhausted");
       }
+      admittedGeneration = halfOpenGeneration;
     } finally {
       lock.unlock();
     }
@@ -194,13 +196,15 @@ public class CircuitBreaker {
       T result = task.call();
       lock.lock();
       try {
-        int successes = ++halfOpenSuccesses;
-        if (successes >= config.permittedCallsInHalfOpen()) {
-          if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
-            totalCalls = 0;
-            failureCount = 0;
-            windowIndex = 0;
-            Arrays.fill(window, UNINITIALIZED);
+        if (isCurrentHalfOpenGeneration(admittedGeneration)) {
+          int successes = ++halfOpenSuccesses;
+          if (successes >= config.permittedCallsInHalfOpen()) {
+            if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
+              totalCalls = 0;
+              failureCount = 0;
+              windowIndex = 0;
+              Arrays.fill(window, UNINITIALIZED);
+            }
           }
         }
       } finally {
@@ -208,9 +212,34 @@ public class CircuitBreaker {
       }
       return result;
     } catch (Exception e) {
-      transitionToOpen();
+      lock.lock();
+      try {
+        if (isCurrentHalfOpenGeneration(admittedGeneration)) {
+          transitionToOpenLocked();
+        }
+      } finally {
+        lock.unlock();
+      }
       throw e;
     }
+  }
+
+  // Must be called with lock held.
+  private boolean isCurrentHalfOpenGeneration(long admittedGeneration) {
+    return state.get() == State.HALF_OPEN && halfOpenGeneration == admittedGeneration;
+  }
+
+  // Must be called with lock held.
+  private void transitionToOpenLocked() {
+    State current = state.get();
+    if (current == State.OPEN) {
+      return;
+    }
+    // Write openedAtMs BEFORE the CAS so any thread that sees state==OPEN via getState()
+    // also sees a valid timestamp. The lock prevents a concurrent reset() from clearing
+    // openedAtMs between the write and the CAS.
+    openedAtMs = clock.millis();
+    state.compareAndSet(current, State.OPEN);
   }
 
   private void recordSuccess() {
