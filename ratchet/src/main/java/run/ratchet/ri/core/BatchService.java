@@ -40,6 +40,7 @@ import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -412,7 +413,7 @@ public class BatchService {
   private void publishBatchEvents(
       BatchEntity batch, JobEntity parent, boolean succeeded, Long totalDurationMs) {
     Runnable publish = () -> publishBatchEventsNow(batch, parent, succeeded, totalDurationMs);
-    if (!registerAfterCommit(publish)) {
+    if (registerAfterCommit(publish) == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       publish.run();
     }
   }
@@ -461,12 +462,12 @@ public class BatchService {
             parent.getAttempts()));
   }
 
-  private boolean registerAfterCommit(Runnable action) {
+  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
     return JobWakeupService.registerAfterCommit(
         resolveTxRegistry(),
         action,
         log,
-        "After-commit batch completing event registration failed; publishing immediately: %s");
+        "After-commit batch completing event registration failed; events suppressed: %s");
   }
 
   private TransactionSynchronizationRegistry resolveTxRegistry() {

@@ -54,6 +54,7 @@ import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
@@ -1011,17 +1012,18 @@ class DefaultJobCreationService
             null,
             signalKey,
             signalTimeout);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
 
-  private boolean registerAfterCommit(Runnable action) {
+  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
     return JobWakeupService.registerAfterCommit(
         resolveTxRegistry(),
         action,
         log,
-        "After-commit signal waiting event registration failed; publishing immediately: %s");
+        "After-commit signal waiting event registration failed; event suppressed: %s");
   }
 
   private TransactionSynchronizationRegistry resolveTxRegistry() {

@@ -52,6 +52,7 @@ import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -748,7 +749,8 @@ public class DefaultJobSchedulerService
    */
   private void publishBulkCancelledEvent(String tag, int count) {
     JobsBulkCancelledEvent event = new JobsBulkCancelledEvent(tag, count, effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -778,7 +780,8 @@ public class DefaultJobSchedulerService
                 null);
     // Defer publication until after the surrounding TX commits so a rollback does not produce a
     // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -795,7 +798,8 @@ public class DefaultJobSchedulerService
             effective().instant(),
             previousStatus.name(),
             null);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -816,7 +820,8 @@ public class DefaultJobSchedulerService
                   job.getLastError(),
                   1,
                   retryAt);
-      if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      if (registerAfterCommit(() -> eventPublisher.publish(event))
+          == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
         eventPublisher.publish(event);
       }
     }
@@ -865,7 +870,8 @@ public class DefaultJobSchedulerService
             job.getPriority(),
             job.getPickedBy(),
             effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -879,7 +885,8 @@ public class DefaultJobSchedulerService
             job.getPriority(),
             job.getPickedBy(),
             effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -893,7 +900,8 @@ public class DefaultJobSchedulerService
             JobPriorityMapper.fromOrdinal(def.priority()),
             null,
             effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -907,7 +915,8 @@ public class DefaultJobSchedulerService
             JobPriorityMapper.fromOrdinal(def.priority()),
             null,
             effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -935,12 +944,12 @@ public class DefaultJobSchedulerService
     return reg;
   }
 
-  private boolean registerAfterCommit(Runnable action) {
+  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
     return JobWakeupService.registerAfterCommit(
         resolveTxRegistry(),
         action,
         log,
-        "After-commit event registration failed; publishing immediately: %s");
+        "After-commit event registration failed; event suppressed: %s");
   }
 
   private int deliverSignalRaw(UUID jobId, Serializable payload) {
@@ -1102,7 +1111,8 @@ public class DefaultJobSchedulerService
       String rejectionReason) {
     JobsBulkSignaledEvent event =
         new JobsBulkSignaledEvent(signalKey, count, principal, outcome, rejectionReason, timestamp);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -1129,7 +1139,8 @@ public class DefaultJobSchedulerService
             principal,
             outcome,
             rejectionReason);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }

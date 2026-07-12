@@ -38,6 +38,7 @@ import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
+import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -413,17 +414,18 @@ public class JobTimeoutHandler {
             null,
             job.getSignalKey(),
             configuredTimeout);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
 
-  private boolean registerAfterCommit(Runnable action) {
+  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
     return JobWakeupService.registerAfterCommit(
         resolveTxRegistry(),
         action,
         log,
-        "After-commit signal timeout event registration failed; publishing immediately: %s");
+        "After-commit signal timeout event registration failed; event suppressed: %s");
   }
 
   private TransactionSynchronizationRegistry resolveTxRegistry() {

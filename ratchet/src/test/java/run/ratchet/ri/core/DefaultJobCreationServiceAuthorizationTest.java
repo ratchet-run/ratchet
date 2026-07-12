@@ -370,6 +370,50 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(eventPublisher).publish(any(JobSignalWaitingEvent.class));
   }
 
+  @Test
+  void signalWaitingEventIsSuppressedWhenTransactionRollsBack() {
+    service.setTxRegistryForTesting(txRegistry);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+                .awaitSignal("approval", Duration.ofSeconds(30));
+
+    service.submit(builder);
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+  }
+
+  @Test
+  void signalWaitingEventIsSuppressedWhenAfterCommitRegistrationFails() {
+    service.setTxRegistryForTesting(txRegistry);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doThrow(new IllegalStateException("boom"))
+        .when(txRegistry)
+        .registerInterposedSynchronization(any());
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+                .awaitSignal("approval", Duration.ofSeconds(30));
+
+    service.submit(builder);
+
+    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+  }
+
   // ---- streaming batch parent ----
 
   @Test
