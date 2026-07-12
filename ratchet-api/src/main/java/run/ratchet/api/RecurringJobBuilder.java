@@ -59,7 +59,13 @@ public interface RecurringJobBuilder {
    * PAUSED), no other job may share the same key. For {@link Recurring @Recurring} methods, the
    * annotation's {@link Recurring#id() id} is used automatically.
    *
+   * <p>After trimming, the key must contain at most 255 printable ASCII characters ({@code U+0020}
+   * through {@code U+007E}). Invalid keys are rejected rather than truncated or converted by a
+   * store.
+   *
    * @param key the business key, or null/blank for none
+   * @throws IllegalArgumentException if the normalized key is too long or contains a character
+   *     outside the portable subset
    */
   RecurringJobBuilder withBusinessKey(String key);
 

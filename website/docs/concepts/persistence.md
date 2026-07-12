@@ -153,6 +153,12 @@ The `scheduler_business_key_reservation` table owns active business-key
 uniqueness. Terminal rows keep their `business_key` for audit/search, but they
 do not block a future active job from using the same key.
 
+The physical column is wider in some stores, but the API contract is the portable minimum: after
+trimming, a business key may contain up to 255 printable ASCII characters. Oracle can count its
+`VARCHAR2(255)` limit in bytes, and SQL Server's indexed `VARCHAR` columns use the database
+collation's code page. Printable ASCII is one byte and round-trips unchanged in both, so Ratchet
+rejects other values before persistence rather than allowing store-specific conversion or failure.
+
 ### Indexes
 
 SQL stores define hot queue indexes for the Poller and supporting cold-table

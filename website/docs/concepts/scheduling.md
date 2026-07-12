@@ -191,6 +191,9 @@ scheduler.enqueue(() -> syncUser(userId))
 
 Business keys are enforced as unique only among active jobs (PENDING, RUNNING, PAUSED, WAITING). Once a job reaches a terminal state, the key is freed for reuse.
 
+For consistent behavior across stores, business keys are limited to 255 printable ASCII characters
+after trimming. Ratchet rejects longer or non-ASCII keys before persistence.
+
 | Mechanism | Scope | Lifetime | Use Case |
 |-----------|-------|----------|----------|
 | Idempotency Key | Globally unique | Forever | Webhook IDs, payment request IDs |

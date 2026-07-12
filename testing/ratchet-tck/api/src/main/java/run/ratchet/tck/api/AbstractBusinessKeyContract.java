@@ -17,6 +17,7 @@ package run.ratchet.tck.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -34,10 +35,12 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
  * Base contract for {@link run.ratchet.api.JobBuilder#withBusinessKey(String) withBusinessKey}
  * semantics.
  *
- * <p>The Ratchet API javadoc on {@code withBusinessKey} states only that the call "prevents
- * concurrent execution against the same entity" and that "multiple completed jobs may share the
- * same key; only active (PENDING/RUNNING) jobs are blocked." It deliberately does NOT lock the
- * rejection <em>mechanism</em>. A conformant implementation may either:
+ * <p>The Ratchet API requires a normalized business key to contain at most 255 printable ASCII
+ * characters. This deliberately does not promise arbitrary Unicode: Oracle can count its {@code
+ * VARCHAR2} limit in bytes, while SQL Server's indexed {@code VARCHAR} columns are
+ * code-page-dependent. Invalid keys must be rejected before submission. For duplicate
+ * <em>valid</em> keys, the contract deliberately does NOT lock the rejection mechanism. A
+ * conformant implementation may either:
  *
  * <ul>
  *   <li>throw an exception from {@code submit()} (the reference implementation does this), or
@@ -52,6 +55,33 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
  * withIdempotencyKey} permanent-merge semantics.
  */
 public abstract class AbstractBusinessKeyContract {
+
+  @Test
+  void maximumPortableBusinessKey_isAcceptedAndExecutes() {
+    String businessKey = "k".repeat(255);
+
+    JobHandle handle =
+        runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey(businessKey).submit();
+    runtime().probe().track(handle);
+
+    assertTrue(
+        runtime().probe().awaitCompleted(handle, defaultTimeout()),
+        "A 255-character portable business key must be accepted and execute");
+  }
+
+  @Test
+  void businessKeyLongerThanPortableLimit_isRejected() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey("k".repeat(256)));
+  }
+
+  @Test
+  void nonAsciiBusinessKey_isRejectedBeforeStoreConversion() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey("invoice-😀"));
+  }
 
   private static String uniqueKey(String label) {
     return label + '-' + UUID.randomUUID();

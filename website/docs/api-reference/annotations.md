@@ -40,7 +40,7 @@ Marks a method for cron-scheduled recurring execution. Annotated methods are aut
 |---|---|---|---|---|
 | `cron` | `String` | -- | **Yes** | Quartz cron expression (6-7 fields) |
 | `zone` | `String` | `"UTC"` | No | Timezone for cron evaluation. Must be a valid `ZoneId`. |
-| `id` | `String` | `""` | No | Stable recurring-job business key. If empty, defaults to fully qualified class + method name. This is not the persisted UUIDv7 job ID. |
+| `id` | `String` | `""` | No | Stable recurring-job business key. If empty, defaults to fully qualified class + method name. After trimming, it must contain at most 255 printable ASCII characters. This is not the persisted UUIDv7 job ID. |
 | `name` | `String` | `""` | No | Human-readable name for logs and monitoring. Defaults to method name. |
 | `enabled` | `boolean` | `true` | No | Whether the job is registered at startup. |
 | `priority` | `int` | `5` | No | Priority on a 1-10 scale. Mapped to `JobPriority` (see [mapping](./job-options#priority-in-recurring)). |

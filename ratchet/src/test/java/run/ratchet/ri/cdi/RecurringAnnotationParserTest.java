@@ -215,6 +215,28 @@ class RecurringAnnotationParserTest {
   }
 
   @Test
+  void generateJobId_rejectsExplicitIdOutsideThePortableContract() {
+    Recurring annotation = recurring("récurrent", "0 * * * * ?");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RecurringAnnotationParser.generateJobId(
+                annotation, "com.example.MyService", "myMethod"));
+  }
+
+  @Test
+  void generateJobId_rejectsOverlongDerivedId() {
+    Recurring annotation = recurring("", "0 * * * * ?");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RecurringAnnotationParser.generateJobId(
+                annotation, "com.example." + "a".repeat(240), "myMethod"));
+  }
+
+  @Test
   void isEnabled_defaultTrue() {
     Recurring annotation = recurring("", "0 * * * * ?");
     assertTrue(RecurringAnnotationParser.isEnabled(annotation));

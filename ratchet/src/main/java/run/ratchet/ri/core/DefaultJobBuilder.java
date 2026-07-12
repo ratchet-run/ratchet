@@ -38,6 +38,7 @@ import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.internal.BusinessKeyNormalizer;
 import run.ratchet.api.internal.JobBuilderState;
 
 /** Default {@link JobBuilder} implementation. */
@@ -171,7 +172,7 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
 
   @Override
   public JobBuilder withBusinessKey(String key) {
-    this.businessKey = (key != null && !key.isBlank()) ? key.trim() : null;
+    this.businessKey = BusinessKeyNormalizer.normalize(key);
     return this;
   }
 

@@ -189,7 +189,9 @@ JobBuilder withBusinessKey(String key)
 Sets a business key for preventing concurrent execution against the same entity. Unlike `withIdempotencyKey`, the business key allows multiple completed jobs with the same key over time -- it only blocks when an active (PENDING/RUNNING) job exists with the same key.
 
 **Parameters:**
-- `key` -- the business key. If null or blank, no concurrent execution blocking is applied.
+- `key` -- the business key. If null or blank, no concurrent execution blocking is applied. After
+  trimming, it may contain up to 255 printable ASCII characters (`U+0020` through `U+007E`). Ratchet
+  rejects longer or non-ASCII keys instead of leaving a store to truncate or convert them.
 
 ```java
 // Only one sync per user at a time, re-runs allowed after completion

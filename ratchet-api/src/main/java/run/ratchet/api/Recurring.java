@@ -69,7 +69,8 @@ public @interface Recurring {
 
   /**
    * Unique job identifier used as a business key. Defaults to fully-qualified class name + method
-   * name if not specified.
+   * name if not specified. After trimming, the identifier must contain at most 255 printable ASCII
+   * characters ({@code U+0020} through {@code U+007E}).
    */
   String id() default "";
 

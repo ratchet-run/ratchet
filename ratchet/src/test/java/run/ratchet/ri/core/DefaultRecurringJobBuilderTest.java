@@ -83,6 +83,18 @@ class DefaultRecurringJobBuilderTest {
     assertThrows(NullPointerException.class, () -> builder.withMisfirePolicy(null));
   }
 
+  @Test
+  void withBusinessKeyUsesThePortableContract() {
+    DefaultRecurringJobBuilder builder = newBuilder();
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, () -> builder.withBusinessKey("récurrent"));
+
+    assertEquals(
+        "Business key must contain only printable ASCII characters (U+0020-U+007E)",
+        exception.getMessage());
+  }
+
   private static DefaultRecurringJobBuilder newBuilder() {
     DefaultRecurringJobBuilder builder =
         new DefaultRecurringJobBuilder("* * * * * ?", ZoneId.of("UTC"), () -> {}, ignored -> null);

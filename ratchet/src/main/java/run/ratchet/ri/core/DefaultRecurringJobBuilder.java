@@ -24,6 +24,7 @@ import run.ratchet.api.JobOptions;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.api.internal.BusinessKeyNormalizer;
 
 /** {@inheritDoc} */
 class DefaultRecurringJobBuilder implements RecurringJobBuilder {
@@ -65,7 +66,7 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   @Override
   public RecurringJobBuilder withBusinessKey(String key) {
-    this.businessKey = (key != null && !key.isBlank()) ? key.trim() : null;
+    this.businessKey = BusinessKeyNormalizer.normalize(key);
     return this;
   }
 

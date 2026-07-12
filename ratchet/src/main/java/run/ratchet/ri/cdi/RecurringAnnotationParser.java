@@ -18,6 +18,7 @@ package run.ratchet.ri.cdi;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringMisfirePolicy;
+import run.ratchet.api.internal.BusinessKeyNormalizer;
 
 /**
  * Parses {@code @Recurring} annotation values: enabled flag, numeric-to-{@link JobPriority}
@@ -31,10 +32,11 @@ final class RecurringAnnotationParser {
 
   /** Returns the explicit annotation ID if set, otherwise {@code className.methodName}. */
   static String generateJobId(Recurring annotation, String className, String methodName) {
-    if (!annotation.id().isEmpty()) {
-      return annotation.id();
+    String explicitId = BusinessKeyNormalizer.normalize(annotation.id());
+    if (explicitId != null) {
+      return explicitId;
     }
-    return className + "." + methodName;
+    return BusinessKeyNormalizer.normalize(className + "." + methodName);
   }
 
   /** Returns true if the job should be registered. */

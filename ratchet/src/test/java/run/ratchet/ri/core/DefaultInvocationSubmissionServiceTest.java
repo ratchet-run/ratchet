@@ -171,6 +171,18 @@ class DefaultInvocationSubmissionServiceTest {
   }
 
   @Test
+  void invocationBuilderRejectsBusinessKeyOutsideThePortableContract() {
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> service.enqueueInvocation(sendInvoiceInvocation()).withBusinessKey("invoice-😀"));
+
+    assertEquals(
+        "Business key must contain only printable ASCII characters (U+0020-U+007E)",
+        exception.getMessage());
+  }
+
+  @Test
   void then_chainsASecondInvocationStep() {
     JobInvocation next =
         new JobInvocation(TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of("inv_2"));

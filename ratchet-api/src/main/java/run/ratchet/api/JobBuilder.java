@@ -217,8 +217,8 @@ public interface JobBuilder {
    *
    * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column, so it must be at most 36
    * characters. A longer key is rejected when the job is submitted. {@link
-   * #withBusinessKey(String)} carries no such limit. The auto-generated default is a 36-character
-   * UUID.
+   * #withBusinessKey(String)} accepts up to 255 printable ASCII characters. The auto-generated
+   * default is a 36-character UUID.
    *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
@@ -231,8 +231,15 @@ public interface JobBuilder {
    * <p>Unlike {@link #withIdempotencyKey(String)}, multiple completed jobs may share the same key;
    * only active (PENDING/RUNNING) jobs are blocked.
    *
+   * <p>After trimming, the key must contain at most 255 printable ASCII characters ({@code U+0020}
+   * through {@code U+007E}). The portable subset has the same byte width under Oracle's
+   * byte-counted columns and SQL Server's collation-dependent {@code VARCHAR} columns. Invalid keys
+   * are rejected rather than truncated or converted.
+   *
    * @param key if null or blank, no concurrent execution blocking is performed
    * @return this builder
+   * @throws IllegalArgumentException if the normalized key is too long or contains a character
+   *     outside the portable subset
    */
   JobBuilder withBusinessKey(String key);
 

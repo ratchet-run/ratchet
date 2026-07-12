@@ -484,6 +484,10 @@ RecurringJobBuilder withBusinessKey(String key)
 
 Sets the business key for active-unique identity. While the job is active (PENDING, RUNNING, PAUSED), no other job may share the same business key.
 
+After trimming, a business key may contain up to 255 printable ASCII characters (`U+0020` through
+`U+007E`). Ratchet rejects longer or non-ASCII keys instead of leaving a store to truncate or
+convert them.
+
 ### submit
 
 ```java
