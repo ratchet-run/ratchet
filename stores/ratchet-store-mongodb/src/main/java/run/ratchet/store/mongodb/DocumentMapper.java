@@ -593,6 +593,7 @@ public final class DocumentMapper {
     doc.append("condition_type", enumName(wc.getConditionType()));
     doc.append("condition_expression", wc.getConditionExpression());
     doc.append("condition_priority", wc.getConditionPriority());
+    doc.append("definition_order", wc.getDefinitionOrder());
     doc.append("created_at", toDate(wc.getCreatedAt()));
     return doc;
   }
@@ -608,6 +609,7 @@ public final class DocumentMapper {
     }
     wc.setConditionExpression(doc.getString("condition_expression"));
     wc.setConditionPriority(doc.getInteger("condition_priority"));
+    wc.setDefinitionOrder(doc.getInteger("definition_order", DEFAULT_COUNT));
     wc.setCreatedAt(toInstant(doc.getDate("created_at")));
     return wc;
   }

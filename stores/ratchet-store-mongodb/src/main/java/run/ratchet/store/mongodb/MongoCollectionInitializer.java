@@ -273,6 +273,13 @@ class MongoCollectionInitializer {
         Indexes.compoundIndex(
             Indexes.ascending(PARENT_JOB_ID), Indexes.ascending(CONDITION_PRIORITY)),
         "idx_wfc_parent_priority");
+    createIndex(
+        coll,
+        Indexes.compoundIndex(
+            Indexes.ascending(PARENT_JOB_ID),
+            Indexes.ascending(CONDITION_PRIORITY),
+            Indexes.ascending(DEFINITION_ORDER)),
+        "idx_wfc_evaluation_order");
     createIndex(coll, Indexes.ascending(CHILD_JOB_ID), "idx_wfc_child");
   }
 

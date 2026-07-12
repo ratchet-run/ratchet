@@ -474,10 +474,11 @@ class DefaultJobCreationService
     }
     bulkStore().bulkInsert(childJobs);
 
-    for (WorkflowBranch branch : builder.workflowBranches()) {
-      createWorkflowBranch(
-          parentId, branch, builder.executionTarget(), savedParent.isEncryptedPayload());
-    }
+    createWorkflowBranches(
+        parentId,
+        builder.workflowBranches(),
+        builder.executionTarget(),
+        savedParent.isEncryptedPayload());
 
     wakeupService.notifyIfNeeded(
         JobExecutionType.BATCH_PARENT,
@@ -542,10 +543,11 @@ class DefaultJobCreationService
     }
     batchStore.updateBatchTotalItems(parentId, totalItems);
 
-    for (WorkflowBranch branch : builder.workflowBranches()) {
-      createWorkflowBranch(
-          parentId, branch, builder.executionTarget(), savedParent.isEncryptedPayload());
-    }
+    createWorkflowBranches(
+        parentId,
+        builder.workflowBranches(),
+        builder.executionTarget(),
+        savedParent.isEncryptedPayload());
 
     wakeupService.notifyIfNeeded(
         JobExecutionType.BATCH_PARENT,
@@ -894,13 +896,22 @@ class DefaultJobCreationService
           "Workflow branch scheduling requires a store advertising the WorkflowConditionStore"
               + " capability");
     }
-    for (WorkflowBranch branch : branches) {
-      createWorkflowBranch(parentId, branch, executionTarget, parentEncrypted);
+    for (int definitionOrder = 0; definitionOrder < branches.size(); definitionOrder++) {
+      createWorkflowBranch(
+          parentId,
+          branches.get(definitionOrder),
+          definitionOrder,
+          executionTarget,
+          parentEncrypted);
     }
   }
 
   private void createWorkflowBranch(
-      UUID parentId, WorkflowBranch branch, String executionTarget, boolean parentEncrypted) {
+      UUID parentId,
+      WorkflowBranch branch,
+      int definitionOrder,
+      String executionTarget,
+      boolean parentEncrypted) {
     JobEntity branchJob = new JobEntity();
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
@@ -920,6 +931,7 @@ class DefaultJobCreationService
     condition.setChildJobId(savedBranch.getId());
     condition.setConditionType(branch.condition().type());
     condition.setConditionPriority(branch.condition().priority());
+    condition.setDefinitionOrder(definitionOrder);
     if (branch.condition().expression() != null) {
       Serializable expr = branch.condition().expression();
       if (expr instanceof SerializablePredicate<?>

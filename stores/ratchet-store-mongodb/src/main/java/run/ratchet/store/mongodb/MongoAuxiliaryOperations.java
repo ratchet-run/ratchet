@@ -34,6 +34,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.CHILD_JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.DEFINITION_ORDER;
 import static run.ratchet.store.mongodb.MongoFieldNames.DESCRIPTION;
 import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_HASH;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
@@ -71,6 +72,7 @@ import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.util.WorkflowConditionOrdering;
 
 /**
  * Catch-all for smaller collections: job executions, job logs, workflow conditions, DLQ alerts, and
@@ -162,11 +164,11 @@ final class MongoAuxiliaryOperations {
     for (Document doc :
         ctx.workflowConditions()
             .find(eq(PARENT_JOB_ID, parentJobId))
-            .sort(ascending(CONDITION_PRIORITY))) {
+            .sort(ascending(CONDITION_PRIORITY, DEFINITION_ORDER))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
       warnIfLargeConditionResult("parent job", parentJobId, results.size());
     }
-    return results;
+    return WorkflowConditionOrdering.sorted(results);
   }
 
   List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
@@ -174,11 +176,11 @@ final class MongoAuxiliaryOperations {
     for (Document doc :
         ctx.workflowConditions()
             .find(eq(CHILD_JOB_ID, childJobId))
-            .sort(ascending(CONDITION_PRIORITY))) {
+            .sort(ascending(CONDITION_PRIORITY, DEFINITION_ORDER))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
       warnIfLargeConditionResult("child job", childJobId, results.size());
     }
-    return results;
+    return WorkflowConditionOrdering.sorted(results);
   }
 
   List<WorkflowConditionEntity> findConditionsByType(
@@ -187,11 +189,11 @@ final class MongoAuxiliaryOperations {
     for (Document doc :
         ctx.workflowConditions()
             .find(and(eq(PARENT_JOB_ID, parentJobId), eq(CONDITION_TYPE, type.name())))
-            .sort(ascending(CONDITION_PRIORITY))) {
+            .sort(ascending(CONDITION_PRIORITY, DEFINITION_ORDER))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
       warnIfLargeConditionResult("parent job/type", parentJobId, results.size());
     }
-    return results;
+    return WorkflowConditionOrdering.sorted(results);
   }
 
   private static void warnIfLargeConditionResult(String query, UUID id, int resultSize) {

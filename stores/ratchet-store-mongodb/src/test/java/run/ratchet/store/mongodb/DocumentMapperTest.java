@@ -25,17 +25,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.ResourcePermitEntity;
+import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 
 class DocumentMapperTest {
@@ -145,6 +148,27 @@ class DocumentMapperTest {
     JobEntity reloaded = DocumentMapper.toJobEntity(DocumentMapper.toDocument(job));
 
     assertEquals(job.getTraceContext(), reloaded.getTraceContext());
+  }
+
+  @Test
+  void workflowConditionRoundTripsDefinitionOrderAndDefaultsLegacyDocumentsToZero() {
+    WorkflowConditionEntity condition = new WorkflowConditionEntity();
+    condition.setId(UuidV7Factory.create());
+    condition.setParentJobId(UUID.randomUUID());
+    condition.setChildJobId(UUID.randomUUID());
+    condition.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
+    condition.setConditionPriority(5);
+    condition.setDefinitionOrder(3);
+    condition.setCreatedAt(Instant.parse("2026-07-12T00:00:00Z"));
+
+    Document document = DocumentMapper.toDocument(condition);
+    assertEquals(3, DocumentMapper.toWorkflowConditionEntity(document).getDefinitionOrder());
+
+    document.remove("definition_order");
+    assertEquals(
+        0,
+        DocumentMapper.toWorkflowConditionEntity(document).getDefinitionOrder(),
+        "workflow documents written before definition order should use the legacy fallback");
   }
 
   @Test

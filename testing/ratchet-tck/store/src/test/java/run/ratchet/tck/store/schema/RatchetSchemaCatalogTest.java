@@ -95,13 +95,28 @@ class RatchetSchemaCatalogTest {
   }
 
   @Test
-  void currentVersionMatchesMaxDdlSchemaVersionInsert() {
+  void currentVersionTracksWorkflowDefinitionOrderSchemaRevision() {
     assertEquals(
-        11,
+        12,
         RatchetSchemaCatalog.CURRENT_VERSION,
-        "CURRENT_VERSION must match the highest ratchet_schema_version insert in the shipped DDL"
-            + " (currently '011'); bump both together when the schema advances so the catalog never"
-            + " lags the DDL again");
+        "CURRENT_VERSION must advance when workflow definition order is added to the schema"
+            + " catalog");
+  }
+
+  @Test
+  void workflowConditionsPersistDefinitionOrder() {
+    Table workflowConditions = table("scheduler_workflow_condition");
+
+    assertTrue(
+        workflowConditions.columns().stream()
+            .map(Column::name)
+            .toList()
+            .contains("definition_order"),
+        "workflow conditions should persist builder registration order");
+    assertEquals(
+        List.of("parent_job_id", "condition_priority", "definition_order"),
+        index(workflowConditions, "idx_workflow_evaluation_order").columns(),
+        "workflow evaluation index should follow the routing order");
   }
 
   private static List<String> signalColumns() {

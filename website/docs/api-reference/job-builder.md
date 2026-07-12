@@ -400,7 +400,7 @@ scheduler.enqueue(() -> processPayment(orderId))
     SerializableCheckedRunnable next)
 ```
 
-Schedules a job to execute when a custom condition is met. The condition receives the full [`JobResult<T>`](./job-result) of the current job.
+Schedules a job to execute when a custom condition is met. The condition receives the full [`JobResult<T>`](./job-result) of the current job. Workflow routing is exclusive: the first matching branch runs and all remaining sibling branches are canceled. Equal priorities preserve registration order.
 
 **Type Parameters:**
 - `T` -- the type of the job result.
@@ -436,7 +436,7 @@ Custom workflow predicates are analyzed at submission time and stored as `JobPay
     int priority)
 ```
 
-Same as `when()` but with an explicit evaluation priority. Lower priority numbers are evaluated first.
+Same as `when()` but with an explicit evaluation priority. Lower priority numbers are evaluated first, equal priorities preserve registration order, and only the first matching branch runs.
 
 **Parameters:**
 - `condition` -- predicate evaluated against the `JobResult`.
@@ -458,7 +458,7 @@ scheduler.enqueue(() -> processOrder())
     SerializableCheckedRunnable next)
 ```
 
-Schedules a job based on the **return value** of the current job. The condition function receives only the value, not the full `JobResult`.
+Schedules a job based on the **return value** of the current job. The condition function receives only the value, not the full `JobResult`. As with `when()`, only the first matching branch runs; the scheduler cancels its siblings.
 
 **Type Parameters:**
 - `T` -- the type of the job's return value.
@@ -497,7 +497,7 @@ JobBuilder branch(WorkflowCondition condition,
                   String description)
 ```
 
-Adds a workflow branch with an explicit [`WorkflowCondition`](./workflow-condition) and a human-readable description for monitoring and debugging.
+Adds a workflow branch with an explicit [`WorkflowCondition`](./workflow-condition) and a human-readable description for monitoring and debugging. Branches are evaluated by lower-numbered priority first and then by registration order. The first match runs and all remaining siblings are canceled.
 
 **Parameters:**
 - `condition` -- the workflow condition determining when this branch fires.

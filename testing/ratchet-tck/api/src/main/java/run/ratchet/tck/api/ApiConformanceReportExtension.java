@@ -48,6 +48,7 @@ public class ApiConformanceReportExtension extends AbstractConformanceReportExte
                   "AbstractBusinessKeyContract",
                   "AbstractIdempotencyContract",
                   "AbstractSimpleWorkflowContract",
+                  "AbstractExclusiveWorkflowContract",
                   "AbstractResilienceStrategyContract",
                   "AbstractJobAuthorizationContract",
                   "AbstractSignalDecisionContract",

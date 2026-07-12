@@ -403,6 +403,7 @@ CREATE TABLE scheduler_workflow_condition
     condition_type       VARCHAR(32)      NOT NULL,
     condition_expression NVARCHAR(MAX),
     condition_priority   INT              NOT NULL DEFAULT 0,
+    definition_order     INT              NOT NULL DEFAULT 0,
     created_at           DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT pk_scheduler_workflow_condition PRIMARY KEY (id),
     CONSTRAINT fk_workflow_parent FOREIGN KEY (parent_job_id) REFERENCES scheduler_job (job_id),
@@ -416,6 +417,7 @@ CREATE TABLE scheduler_workflow_condition
 CREATE INDEX idx_workflow_parent ON scheduler_workflow_condition (parent_job_id);
 CREATE INDEX idx_workflow_child ON scheduler_workflow_condition (child_job_id);
 CREATE INDEX idx_workflow_priority ON scheduler_workflow_condition (parent_job_id, condition_priority);
+CREATE INDEX idx_workflow_evaluation_order ON scheduler_workflow_condition (parent_job_id, condition_priority, definition_order);
 
 -- 12. scheduler_dlq_alerts
 CREATE TABLE scheduler_dlq_alerts

@@ -140,6 +140,10 @@ db.scheduler_workflow_condition.createIndex(
   { parent_job_id: 1, condition_priority: 1 },
   { name: "idx_wfc_parent_priority" }
 );
+db.scheduler_workflow_condition.createIndex(
+  { parent_job_id: 1, condition_priority: 1, definition_order: 1 },
+  { name: "idx_wfc_evaluation_order" }
+);
 db.scheduler_workflow_condition.createIndex({ child_job_id: 1 }, { name: "idx_wfc_child" });
 
 // ── scheduler_dlq_alerts ─────────────────────────────────────────────────────

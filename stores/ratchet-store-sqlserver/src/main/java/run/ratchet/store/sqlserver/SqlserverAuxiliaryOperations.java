@@ -36,6 +36,7 @@ import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.WorkflowConditionOrdering;
 
 final class SqlserverAuxiliaryOperations
     implements JobAuditStore, WorkflowConditionStore, DlqAlertStore, ResourcePermitStore {
@@ -56,7 +57,8 @@ final class SqlserverAuxiliaryOperations
     condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
     condition.setConditionExpression(row[4] == null ? null : row[4].toString());
     condition.setConditionPriority(((Number) row[5]).intValue());
-    condition.setCreatedAt(RowValues.instantOrNull(row[6]));
+    condition.setDefinitionOrder(((Number) row[6]).intValue());
+    condition.setCreatedAt(RowValues.instantOrNull(row[7]));
     return condition;
   }
 
@@ -129,9 +131,9 @@ final class SqlserverAuxiliaryOperations
     String sql =
         """
         MERGE scheduler_workflow_condition WITH (HOLDLOCK) AS tgt
-        USING (VALUES (?, ?, ?, ?, ?, ?, ?))
+        USING (VALUES (?, ?, ?, ?, ?, ?, ?, ?))
           AS src(id, parent_job_id, child_job_id, condition_type, condition_expression,
-                 condition_priority, created_at)
+                 condition_priority, definition_order, created_at)
           ON tgt.id = src.id
         WHEN MATCHED THEN UPDATE SET
           parent_job_id = src.parent_job_id,
@@ -139,12 +141,14 @@ final class SqlserverAuxiliaryOperations
           condition_type = src.condition_type,
           condition_expression = src.condition_expression,
           condition_priority = src.condition_priority,
+          definition_order = src.definition_order,
           created_at = src.created_at
         WHEN NOT MATCHED THEN INSERT
           (id, parent_job_id, child_job_id, condition_type, condition_expression,
-           condition_priority, created_at)
+           condition_priority, definition_order, created_at)
           VALUES (src.id, src.parent_job_id, src.child_job_id, src.condition_type,
-                  src.condition_expression, src.condition_priority, src.created_at);
+                  src.condition_expression, src.condition_priority, src.definition_order,
+                  src.created_at);
         """;
     ctx.em()
         .createNativeQuery(sql)
@@ -154,7 +158,8 @@ final class SqlserverAuxiliaryOperations
         .setParameter(4, condition.getConditionType().name())
         .setParameter(5, condition.getConditionExpression())
         .setParameter(6, condition.getConditionPriority())
-        .setParameter(7, Timestamp.from(condition.getCreatedAt()))
+        .setParameter(7, condition.getDefinitionOrder())
+        .setParameter(8, Timestamp.from(condition.getCreatedAt()))
         .executeUpdate();
     return condition;
   }
@@ -165,7 +170,7 @@ final class SqlserverAuxiliaryOperations
         findConditions(
             "WHERE id = ?",
             List.of(UuidByteArrayConverter.toBytes(id)),
-            "ORDER BY condition_priority ASC");
+            "ORDER BY condition_priority ASC, definition_order ASC");
     return results.isEmpty() ? null : results.get(0);
   }
 
@@ -174,7 +179,7 @@ final class SqlserverAuxiliaryOperations
     return findConditions(
         "WHERE parent_job_id = ?",
         List.of(UuidByteArrayConverter.toBytes(parentJobId)),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -182,7 +187,7 @@ final class SqlserverAuxiliaryOperations
     return findConditions(
         "WHERE child_job_id = ?",
         List.of(UuidByteArrayConverter.toBytes(childJobId)),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -191,7 +196,7 @@ final class SqlserverAuxiliaryOperations
     return findConditions(
         "WHERE parent_job_id = ? AND condition_type = ?",
         List.of(UuidByteArrayConverter.toBytes(parentJobId), type.name()),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -454,14 +459,16 @@ final class SqlserverAuxiliaryOperations
     String sqlPrefix =
         """
         SELECT id, parent_job_id, child_job_id, condition_type, condition_expression,
-               condition_priority, created_at
+               condition_priority, definition_order, created_at
         FROM scheduler_workflow_condition
         """;
     Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
     for (int i = 0; i < params.size(); i++) {
       query.setParameter(i + 1, params.get(i));
     }
-    return ((List<Object[]>) query.getResultList())
-        .stream().map(SqlserverAuxiliaryOperations::mapCondition).toList();
+    List<WorkflowConditionEntity> conditions =
+        ((List<Object[]>) query.getResultList())
+            .stream().map(SqlserverAuxiliaryOperations::mapCondition).toList();
+    return WorkflowConditionOrdering.sorted(conditions);
   }
 }

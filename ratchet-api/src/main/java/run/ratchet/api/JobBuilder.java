@@ -70,6 +70,10 @@ public interface JobBuilder {
   /**
    * Adds a workflow branch with a human-readable description for monitoring.
    *
+   * <p>Workflow routing is exclusive: branches are evaluated by condition priority (lower numbers
+   * first), then by registration order. The first matching branch is scheduled and all remaining
+   * sibling branches are canceled.
+   *
    * @param condition predicate evaluated against the parent job result
    * @param next task scheduled when {@code condition} is satisfied
    * @param description human-readable label surfaced in monitoring views
@@ -140,6 +144,9 @@ public interface JobBuilder {
   /**
    * Schedules a job when a predicate on {@link JobResult} is true.
    *
+   * <p>If multiple registered conditions match, only the first eligible branch is scheduled and its
+   * siblings are canceled. Equal-priority branches retain registration order.
+   *
    * @param <T> the result type expected by {@code condition}
    * @param condition predicate evaluated against the parent job result
    * @param next task scheduled when {@code condition} is satisfied
@@ -151,10 +158,14 @@ public interface JobBuilder {
   /**
    * Schedules a job when a predicate on {@link JobResult} is true.
    *
+   * <p>If multiple registered conditions match, only the first match in lowest-numbered-priority
+   * order is scheduled. Equal-priority branches retain registration order; every remaining sibling
+   * is canceled.
+   *
    * @param <T> the result type expected by {@code condition}
    * @param condition predicate evaluated against the parent job result
    * @param next task scheduled when {@code condition} is satisfied
-   * @param priority evaluation order when multiple conditions overlap (lower = first)
+   * @param priority evaluation order when multiple conditions overlap (lower numbers first)
    * @return this builder
    */
   <T> JobBuilder when(
@@ -164,6 +175,9 @@ public interface JobBuilder {
 
   /**
    * Schedules a job based on the job's return value.
+   *
+   * <p>If multiple registered conditions match, only the first eligible branch is scheduled and its
+   * siblings are canceled. Equal-priority branches retain registration order.
    *
    * @param <T> the return value type expected by {@code condition}
    * @param condition predicate evaluated against the parent job's return value
@@ -176,10 +190,14 @@ public interface JobBuilder {
   /**
    * Schedules a job based on the job's return value.
    *
+   * <p>If multiple registered conditions match, only the first match in lowest-numbered-priority
+   * order is scheduled. Equal-priority branches retain registration order; every remaining sibling
+   * is canceled.
+   *
    * @param <T> the return value type expected by {@code condition}
    * @param condition predicate evaluated against the parent job's return value
    * @param next task scheduled when {@code condition} returns {@code true}
-   * @param priority evaluation order when multiple conditions overlap (lower = first)
+   * @param priority evaluation order when multiple conditions overlap (lower numbers first)
    * @return this builder
    */
   <T> JobBuilder whenResult(

@@ -37,6 +37,7 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.WorkflowConditionOrdering;
 
 final class MysqlAuxiliaryOperations
     implements JobAuditStore, WorkflowConditionStore, DlqAlertStore, ResourcePermitStore {
@@ -57,7 +58,8 @@ final class MysqlAuxiliaryOperations
     condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
     condition.setConditionExpression(row[4] == null ? null : row[4].toString());
     condition.setConditionPriority(((Number) row[5]).intValue());
-    condition.setCreatedAt(RowValues.instantOrNull(row[6]));
+    condition.setDefinitionOrder(((Number) row[6]).intValue());
+    condition.setCreatedAt(RowValues.instantOrNull(row[7]));
     return condition;
   }
 
@@ -126,14 +128,15 @@ final class MysqlAuxiliaryOperations
         """
         INSERT INTO scheduler_workflow_condition
           (id, parent_job_id, child_job_id, condition_type, condition_expression,
-           condition_priority, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+           condition_priority, definition_order, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           parent_job_id = VALUES(parent_job_id),
           child_job_id = VALUES(child_job_id),
           condition_type = VALUES(condition_type),
           condition_expression = VALUES(condition_expression),
           condition_priority = VALUES(condition_priority),
+          definition_order = VALUES(definition_order),
           created_at = VALUES(created_at)
         """;
     ctx.em()
@@ -144,7 +147,8 @@ final class MysqlAuxiliaryOperations
         .setParameter(4, condition.getConditionType().name())
         .setParameter(5, condition.getConditionExpression())
         .setParameter(6, condition.getConditionPriority())
-        .setParameter(7, Timestamp.from(condition.getCreatedAt()))
+        .setParameter(7, condition.getDefinitionOrder())
+        .setParameter(8, Timestamp.from(condition.getCreatedAt()))
         .executeUpdate();
     return condition;
   }
@@ -155,7 +159,7 @@ final class MysqlAuxiliaryOperations
         findConditions(
             "WHERE id = ?",
             List.of(UuidByteArrayConverter.toBytes(id)),
-            "ORDER BY condition_priority ASC",
+            "ORDER BY condition_priority ASC, definition_order ASC",
             1);
     return results.isEmpty() ? null : results.get(0);
   }
@@ -165,7 +169,7 @@ final class MysqlAuxiliaryOperations
     return findConditions(
         "WHERE parent_job_id = ?",
         List.of(UuidByteArrayConverter.toBytes(parentJobId)),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -173,7 +177,7 @@ final class MysqlAuxiliaryOperations
     return findConditions(
         "WHERE child_job_id = ?",
         List.of(UuidByteArrayConverter.toBytes(childJobId)),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -182,7 +186,7 @@ final class MysqlAuxiliaryOperations
     return findConditions(
         "WHERE parent_job_id = ? AND condition_type = ?",
         List.of(UuidByteArrayConverter.toBytes(parentJobId), type.name()),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -419,7 +423,7 @@ final class MysqlAuxiliaryOperations
     String sqlPrefix =
         """
         SELECT id, parent_job_id, child_job_id, condition_type, condition_expression,
-               condition_priority, created_at
+               condition_priority, definition_order, created_at
         FROM scheduler_workflow_condition
         """;
     Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
@@ -429,7 +433,9 @@ final class MysqlAuxiliaryOperations
     if (maxResults > 0) {
       query.setMaxResults(maxResults);
     }
-    return ((List<Object[]>) query.getResultList())
-        .stream().map(MysqlAuxiliaryOperations::mapCondition).toList();
+    List<WorkflowConditionEntity> conditions =
+        ((List<Object[]>) query.getResultList())
+            .stream().map(MysqlAuxiliaryOperations::mapCondition).toList();
+    return WorkflowConditionOrdering.sorted(conditions);
   }
 }

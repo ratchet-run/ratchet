@@ -439,6 +439,7 @@ CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
     condition_type       TEXT   NOT NULL,
     condition_expression TEXT,
     condition_priority   INT    NOT NULL DEFAULT 0,
+    definition_order     INT    NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_workflow_condition PRIMARY KEY (id),
     CONSTRAINT fk_workflow_parent FOREIGN KEY (parent_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
@@ -452,6 +453,7 @@ CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
 CREATE INDEX IF NOT EXISTS idx_workflow_parent ON scheduler_workflow_condition (parent_job_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_child ON scheduler_workflow_condition (child_job_id);
 CREATE INDEX IF NOT EXISTS idx_workflow_priority ON scheduler_workflow_condition (parent_job_id, condition_priority);
+CREATE INDEX IF NOT EXISTS idx_workflow_evaluation_order ON scheduler_workflow_condition (parent_job_id, condition_priority, definition_order);
 
 -- 12. scheduler_dlq_alerts
 CREATE TABLE IF NOT EXISTS scheduler_dlq_alerts

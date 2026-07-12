@@ -184,7 +184,7 @@ When the job method returns normally:
 5. Post-execution handler triggers:
    - For batch children: updates parent batch progress
    - For chain steps: schedules next step
-   - For workflow branches: evaluates conditions and schedules matching branches
+   - For workflow branches: evaluates conditions and schedules the first matching branch
 6. Success callback (`onSuccess`) is invoked if configured
 
 ### RUNNING to FAILED (with Retry)

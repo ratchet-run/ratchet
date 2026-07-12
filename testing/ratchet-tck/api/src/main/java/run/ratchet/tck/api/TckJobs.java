@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import run.ratchet.api.JobContext;
+import run.ratchet.api.JobResult;
 import run.ratchet.api.SignalDecision;
 
 /**
@@ -60,6 +61,8 @@ public final class TckJobs {
   private static final AtomicReference<CountDownLatch> STARTED_LATCH = new AtomicReference<>();
   private static final AtomicReference<CountDownLatch> RELEASE_LATCH = new AtomicReference<>();
   private static final ConcurrentLinkedQueue<String> CHAIN_EVENTS = new ConcurrentLinkedQueue<>();
+  private static final ConcurrentLinkedQueue<String> WORKFLOW_BRANCH_EVENTS =
+      new ConcurrentLinkedQueue<>();
   private static final ConcurrentLinkedQueue<String> SIGNAL_DECISIONS =
       new ConcurrentLinkedQueue<>();
   private static final ConcurrentLinkedQueue<String> RAW_SIGNAL_PAYLOADS =
@@ -126,6 +129,20 @@ public final class TckJobs {
     CHAIN_EVENTS.add("step-C");
   }
 
+  /** Always-matching workflow predicate for exclusive-branch contracts. */
+  public static boolean workflowConditionMatches(JobResult<?> ignored) {
+    return true;
+  }
+
+  /** Preferred and sibling branch bodies for {@link AbstractExclusiveWorkflowContract}. */
+  public static void recordPreferredWorkflowBranch() {
+    WORKFLOW_BRANCH_EVENTS.add("preferred");
+  }
+
+  public static void recordSiblingWorkflowBranch() {
+    WORKFLOW_BRANCH_EVENTS.add("sibling");
+  }
+
   /** Signal-waiting task body that records the delivered decision visible through JobContext. */
   public static void recordSignalDecision() {
     SignalDecision decision = JobContext.current().signalPayload(SignalDecision.class);
@@ -190,6 +207,11 @@ public final class TckJobs {
     return List.copyOf(CHAIN_EVENTS);
   }
 
+  /** Snapshot of workflow branch bodies invoked in observation order. */
+  public static List<String> workflowBranchEvents() {
+    return List.copyOf(WORKFLOW_BRANCH_EVENTS);
+  }
+
   /** Snapshot of recorded signal decisions in observation order. */
   public static List<String> signalDecisions() {
     return List.copyOf(SIGNAL_DECISIONS);
@@ -200,6 +222,7 @@ public final class TckJobs {
     STARTED_LATCH.set(null);
     RELEASE_LATCH.set(null);
     CHAIN_EVENTS.clear();
+    WORKFLOW_BRANCH_EVENTS.clear();
     SIGNAL_DECISIONS.clear();
     RAW_SIGNAL_PAYLOADS.clear();
   }

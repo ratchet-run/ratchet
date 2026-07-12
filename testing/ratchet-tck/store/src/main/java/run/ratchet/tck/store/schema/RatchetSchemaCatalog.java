@@ -48,7 +48,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 11;
+  public static final int CURRENT_VERSION = 12;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -415,6 +415,7 @@ public final class RatchetSchemaCatalog {
         .column(required("condition_type", TEXT))
         .column(nullable("condition_expression", TEXT))
         .column(required("condition_priority", INT32))
+        .column(required("definition_order", INT32))
         .column(required("created_at", TIMESTAMP_TZ))
         .primaryKey("id")
         .foreignKey(
@@ -434,6 +435,12 @@ public final class RatchetSchemaCatalog {
         .index(Index.of("idx_workflow_parent", "parent_job_id"))
         .index(Index.of("idx_workflow_child", "child_job_id"))
         .index(Index.of("idx_workflow_priority", "parent_job_id", "condition_priority"))
+        .index(
+            Index.of(
+                "idx_workflow_evaluation_order",
+                "parent_job_id",
+                "condition_priority",
+                "definition_order"))
         .build();
   }
 

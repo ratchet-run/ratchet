@@ -29,9 +29,9 @@ import org.junit.jupiter.api.Test;
  * through the Java initializer, so the script gets no container coverage; this string check keeps
  * an operator running it by hand from ending up with a different index set.
  *
- * <p>It asserts every index the initializer marks required (each {@code createRequiredIndex} call)
- * is named in the script, plus the {@code unique} flag on {@code uk_rec_business_key} that stops
- * two recurring masters from registering under the same business key.
+ * <p>It asserts every contract-critical index is named in the script, plus the {@code unique} flag
+ * on {@code uk_rec_business_key} that stops two recurring masters from registering under the same
+ * business key.
  */
 class MongoInitScriptConformanceTest {
 
@@ -45,6 +45,7 @@ class MongoInitScriptConformanceTest {
     MongoIndexHints.RECURRING_JOB_CLAIM,
     "uk_rec_business_key",
     "idx_dlq_job_hash",
+    "idx_wfc_evaluation_order",
   };
 
   private static String readInitScript() throws IOException {

@@ -434,11 +434,13 @@ CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
     condition_type       VARCHAR(32)     NOT NULL,
     condition_expression TEXT            NULL,
     condition_priority   INT             NOT NULL DEFAULT 0,
+    definition_order     INT             NOT NULL DEFAULT 0,
     created_at           DATETIME(6)     NOT NULL,
     PRIMARY KEY (id),
     INDEX idx_workflow_parent (parent_job_id),
     INDEX idx_workflow_child (child_job_id),
     INDEX idx_workflow_priority (parent_job_id, condition_priority),
+    INDEX idx_workflow_evaluation_order (parent_job_id, condition_priority, definition_order),
     CONSTRAINT fk_workflow_parent FOREIGN KEY (parent_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
     CONSTRAINT fk_workflow_child FOREIGN KEY (child_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
     CONSTRAINT chk_condition_type CHECK (condition_type IN

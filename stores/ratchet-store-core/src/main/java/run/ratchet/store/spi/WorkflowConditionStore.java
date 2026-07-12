@@ -26,7 +26,10 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 @Incubating
 public interface WorkflowConditionStore {
 
-  /** Saves one workflow condition. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Saves one workflow condition, including its zero-based workflow definition order. Transaction
+   * attribute: {@code REQUIRED}.
+   */
   WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition);
 
   /**
@@ -42,9 +45,12 @@ public interface WorkflowConditionStore {
   @Nullable WorkflowConditionEntity findConditionById(UUID id);
 
   /**
-   * Returns every condition for the parent job, ordered by store-defined workflow priority.
-   * Workflow routing needs the complete condition set, so this is intentionally not paged; callers
-   * should keep workflow graphs bounded at scheduling time.
+   * Returns every condition for the parent job, ordered by condition priority and then definition
+   * order, both ascending. Rows created before definition order was persisted use canonical
+   * condition UUID text as a stable final tie-break; this fallback is deterministic but cannot
+   * reconstruct their original registration order. Workflow routing needs the complete condition
+   * set, so this is intentionally not paged; callers should keep workflow graphs bounded at
+   * scheduling time.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
    */
@@ -53,7 +59,8 @@ public interface WorkflowConditionStore {
   /**
    * Returns every condition pointing at the child job. This is intentionally not paged because the
    * result represents the complete stored workflow graph for the child. Results are ordered by
-   * condition priority ascending.
+   * condition priority and definition order ascending, followed by the canonical UUID fallback
+   * described on {@link #findConditionsByParentJobId(UUID)}.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
    */
@@ -62,7 +69,8 @@ public interface WorkflowConditionStore {
   /**
    * Returns every condition of the requested type for the parent job. This is intentionally not
    * paged because workflow routing evaluates the complete matching set. Results are ordered by
-   * condition priority ascending.
+   * condition priority and definition order ascending, followed by the canonical UUID fallback
+   * described on {@link #findConditionsByParentJobId(UUID)}.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
    */

@@ -21,11 +21,14 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_PRIORITY;
+import static run.ratchet.store.mongodb.MongoFieldNames.DEFINITION_ORDER;
 import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_HASH;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
+import static run.ratchet.store.mongodb.MongoFieldNames.PARENT_JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
@@ -152,6 +155,16 @@ class MongoIndexConformanceTest {
         "idx_dlq_job_hash",
         new Document(JOB_ID, 1).append(ERROR_HASH, 1),
         true,
+        null);
+  }
+
+  @Test
+  void workflowConditions_haveEvaluationOrderIndex() {
+    assertIndex(
+        "scheduler_workflow_condition",
+        "idx_wfc_evaluation_order",
+        new Document(PARENT_JOB_ID, 1).append(CONDITION_PRIORITY, 1).append(DEFINITION_ORDER, 1),
+        false,
         null);
   }
 
