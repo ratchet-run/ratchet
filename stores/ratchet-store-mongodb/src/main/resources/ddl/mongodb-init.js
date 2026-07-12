@@ -49,6 +49,14 @@ db.scheduler_job.createIndex({ terminated_at: 1 }, { name: "idx_job_terminated_a
 db.scheduler_job.createIndex({ job_type: 1 }, { name: "idx_job_type" });
 db.scheduler_job.createIndex({ superseded_by: 1 }, { name: "idx_job_superseded_by" });
 
+// ── scheduler_business_key_reservation ───────────────────────────────────────
+// _id is the business key and supplies the global unique constraint across queue jobs and
+// recurring masters. owner_job_id is indexed for terminal/cancel cleanup.
+db.scheduler_business_key_reservation.createIndex(
+  { owner_job_id: 1 },
+  { name: "idx_bk_owner" }
+);
+
 // Dashboard query indexes
 db.scheduler_job.createIndex(
   { "trace_context.traceparent": 1 },

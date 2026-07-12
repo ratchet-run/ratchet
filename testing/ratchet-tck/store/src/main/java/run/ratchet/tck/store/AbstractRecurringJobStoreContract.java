@@ -21,17 +21,21 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.store.entity.JobEntity;
@@ -41,6 +45,7 @@ import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.spi.TagStore;
+import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /**
  * TCK contract for {@link RecurringJobStore} — the dedicated recurring-master store.
@@ -53,7 +58,7 @@ import run.ratchet.store.spi.TagStore;
  *   <li>Catch-up correctness — bounded overdue runs spawn before {@code next_fire} is updated.
  *   <li>Pause / resume isolation + concurrent-admin idempotency.
  *   <li>Cancel / archive atomicity — snapshot row appears iff live row disappears.
- *   <li>Business-key reservation orphan absence post-cancel.
+ *   <li>Business-key uniqueness across recurring masters and queue jobs, including release.
  *   <li>Child lineage via {@code recurring_master_id}.
  * </ol>
  *
@@ -284,11 +289,11 @@ public abstract class AbstractRecurringJobStoreContract {
   /**
    * TCK 7 — child lineage (master half): the recurring master's id round-trips so the executor has
    * the value it needs to stamp onto every spawned child's {@code recurring_master_id} column. The
-   * child-side half of this contract — actually writing a {@link
-   * run.ratchet.store.entity.JobEntity} with {@code recurringMasterId} set and re-reading it
-   * through the cold-table mapper — lives in {@link #create_persistsRecurringMasterIdOnChildJob}:
-   * it needs both this capability (to create the master the child's foreign key references) and the
-   * core {@code create}/{@code findById} round-trip.
+   * child-side half of this contract — actually writing a {@link JobEntity} with {@code
+   * recurringMasterId} set and re-reading it through the cold-table mapper — lives in {@link
+   * #create_persistsRecurringMasterIdOnChildJob}: it needs both this capability (to create the
+   * master the child's foreign key references) and the core {@code create}/{@code findById}
+   * round-trip.
    */
   @Test
   void getRecurring_returnsCompleteDefinitionForChildLineage() {
@@ -352,10 +357,9 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   /**
-   * Business-key uniqueness: two concurrent {@code createRecurring} calls with the same business
-   * key must not both succeed. SQL stores enforce via {@code scheduler_business_key_reservation};
-   * MongoDB enforces via a unique partial index on {@code scheduler_recurring_job.business_key}.
-   * The contract is store-agnostic: the second create raises.
+   * TCK 7c — two concurrent {@code createRecurring} calls with the same business key must not both
+   * succeed. Stores enforce through their shared {@code scheduler_business_key_reservation}
+   * structure; the contract is store-agnostic: the second create raises.
    */
   @Test
   void createRecurring_rejectsDuplicateActiveBusinessKey() {
@@ -372,6 +376,109 @@ public abstract class AbstractRecurringJobStoreContract {
                     definitionWithBusinessKey(
                         UuidV7Factory.create(), key, "0 * * * * ?", Instant.now())),
         "second createRecurring with the same active business key must be rejected");
+  }
+
+  /**
+   * TCK 7d — queue jobs and recurring masters share one active business-key namespace. A queue job
+   * that already owns a key must prevent a recurring master from claiming the same key.
+   */
+  @Test
+  void createRecurring_rejectsBusinessKeyHeldByActiveQueueJob() {
+    String key = "tck-queue-to-recurring-" + UUID.randomUUID();
+    jobFixture().persist(queueJobWithBusinessKey(key));
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            recurringStore()
+                .createRecurring(
+                    definitionWithBusinessKey(
+                        UuidV7Factory.create(), key, "0 * * * * ?", Instant.now())),
+        "an active queue job and recurring master must not share a business key");
+  }
+
+  /**
+   * TCK 7e — the shared active business-key namespace is symmetric. A recurring master that already
+   * owns a key must prevent a queue job from claiming it.
+   */
+  @Test
+  void createQueueJob_rejectsBusinessKeyHeldByRecurringMaster() {
+    String key = "tck-recurring-to-queue-" + UUID.randomUUID();
+    recurringStore()
+        .createRecurring(
+            definitionWithBusinessKey(UuidV7Factory.create(), key, "0 * * * * ?", Instant.now()));
+
+    assertThrows(
+        RuntimeException.class,
+        () -> jobFixture().persist(queueJobWithBusinessKey(key)),
+        "a recurring master and active queue job must not share a business key");
+  }
+
+  /** TCK 7f — a terminal queue job releases its key for a recurring master. */
+  @Test
+  void terminalQueueJob_releasesBusinessKeyForRecurringMaster() {
+    String key = "tck-terminal-to-recurring-" + UUID.randomUUID();
+    JobEntity queueJob = jobFixture().persist(queueJobWithBusinessKey(key));
+    assertTrue(
+        jobFixture()
+            .store()
+            .compareAndSwapStatus(queueJob.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    Instant now = Instant.now();
+    assertTrue(jobFixture().store().markJobSucceededMinimal(queueJob.getId(), now, now, 0L, 0L));
+
+    UUID recurringId = UuidV7Factory.create();
+    assertEquals(
+        recurringId,
+        recurringStore()
+            .createRecurring(
+                definitionWithBusinessKey(recurringId, key, "0 * * * * ?", Instant.now())));
+  }
+
+  /** TCK 7g — canceling a recurring master releases its key for a queue job. */
+  @Test
+  void canceledRecurringMaster_releasesBusinessKeyForQueueJob() {
+    String key = "tck-canceled-to-queue-" + UUID.randomUUID();
+    UUID recurringId = UuidV7Factory.create();
+    recurringStore()
+        .createRecurring(definitionWithBusinessKey(recurringId, key, "0 * * * * ?", Instant.now()));
+    assertTrue(recurringStore().cancelRecurringAndArchive(recurringId, ArchiveReason.CANCELED));
+
+    assertEquals(key, jobFixture().persist(queueJobWithBusinessKey(key)).getBusinessKey());
+  }
+
+  /**
+   * TCK 7h — simultaneous queue and recurring creates for one key must serialize through the same
+   * reservation primitive. Exactly one contender succeeds; the other observes a duplicate-key
+   * failure, with no interval in which both active owners become durable.
+   */
+  @Test
+  void concurrentQueueAndRecurringCreate_exactlyOneOwnsBusinessKey() {
+    String key = "tck-cross-type-race-" + UUID.randomUUID();
+    AtomicInteger successes = new AtomicInteger();
+
+    List<Throwable> results =
+        ConcurrentTestRunner.runAll(
+            Duration.ofSeconds(15),
+            () -> {
+              jobFixture().persist(queueJobWithBusinessKey(key));
+              successes.incrementAndGet();
+            },
+            () -> {
+              recurringStore()
+                  .createRecurring(
+                      definitionWithBusinessKey(
+                          UuidV7Factory.create(), key, "0 * * * * ?", Instant.now()));
+              successes.incrementAndGet();
+            });
+
+    assertEquals(1, successes.get(), "exactly one cross-type create must succeed");
+    assertEquals(
+        1L,
+        results.stream().filter(Objects::nonNull).count(),
+        "the losing cross-type create must report one duplicate-key failure");
+    boolean queueOwns = jobFixture().store().findActiveByBusinessKey(key).isPresent();
+    boolean recurringOwns = recurringStore().findRecurringByBusinessKey(key).isPresent();
+    assertTrue(queueOwns ^ recurringOwns, "exactly one active owner must remain durable");
   }
 
   /**
@@ -545,6 +652,12 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         false,
         RecurringMisfirePolicy.defaults());
+  }
+
+  private JobEntity queueJobWithBusinessKey(String businessKey) {
+    JobEntity job = jobFixture().newPendingJob();
+    job.setBusinessKey(businessKey);
+    return job;
   }
 
   private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {

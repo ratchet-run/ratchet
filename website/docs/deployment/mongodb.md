@@ -12,11 +12,17 @@ Ratchet on MongoDB 6.0+.
 
 - MongoDB 6.0 or later
 - WiredTiger storage engine (default since MongoDB 3.2)
+- A replica set or sharded cluster
 
-Ratchet's MongoDB store uses atomic single-document operations for job claiming and state
-transitions. A standalone MongoDB server is acceptable for the store. Use a replica set or sharded
-cluster when your application has separate requirements for multi-document transactions or high
-availability.
+Ratchet's MongoDB store uses atomic single-document operations for job claiming. State changes that
+also update a cross-collection invariant use MongoDB transactions, including active business-key
+ownership shared by queue jobs and recurring masters. Standalone `mongod` deployments do not
+support those transactions.
+
+Lifecycle/status methods enter that transaction before changing the owner document, including for
+jobs without a business key; determining that no reservation exists outside the transaction would
+open a race with a concurrent save. Moving to this store version therefore requires a replica set
+or sharded cluster even when an application does not currently assign business keys.
 
 ## Maven Dependency
 
@@ -41,6 +47,7 @@ operation is idempotent and safe to run on every boot.
 | Collection | Purpose |
 |-----------|---------|
 | `scheduler_job` | Main job store: status, payload, scheduling, priority |
+| `scheduler_business_key_reservation` | Shared active business-key ownership for queue jobs and recurring masters |
 | `scheduler_recurring_job` | Recurring job master records (cron/interval definitions) |
 | `scheduler_recurring_job_archive` | Archived recurring job definitions |
 | `scheduler_batch` | Batch parent records and progress state |
@@ -66,9 +73,16 @@ The initializer creates these indexes for query performance:
 | `idx_job_claim_exec` | `status`, `job_type`, `priority` DESC, `scheduled_time`, `_id` | Executable claim candidate filtering |
 | `idx_job_poll_composite` | `status`, `priority` DESC, `scheduled_time` | General due-job lookup |
 | `idx_job_idempotency_key` | `idempotency_key` | **Unique** (global dedup) |
-| `idx_job_active_business_key` | `business_key` | **Unique partial** (PENDING/RUNNING/PAUSED/WAITING only) |
+| `idx_job_active_business_key` | `business_key` | **Unique partial** defense within queue jobs (PENDING/RUNNING/PAUSED/WAITING only) |
 | `idx_job_tags` | `tags` | Multikey index for tag-based queries |
 | `idx_job_picked_by` | `picked_by` | Find jobs claimed by a specific node |
+
+### scheduler_business_key_reservation
+
+The reservation document's `_id` is the business key, so MongoDB's built-in `_id_` index is the
+single unique serialization point across queue jobs and recurring masters. `idx_bk_owner` indexes
+`owner_job_id` for terminal and cancel cleanup. Reservation and owner changes commit in the same
+transaction.
 
 ### scheduler_lock
 
@@ -163,6 +177,14 @@ public MongoDatabase mongoDatabase(
 Required unique indexes are created at startup. If Ratchet cannot create the idempotency,
 active-business-key, or DLQ deduplication indexes, startup fails so duplicate scheduling semantics
 are not silently weakened.
+
+When upgrading an existing database, startup backfills reservations for active queue jobs and live
+recurring masters. If the old data already contains the same business key in both collections,
+startup fails and reports the conflicting owners; resolve that conflict before retrying. Perform a
+quiescent, coordinated upgrade: stop scheduler writes from all old nodes, let one upgraded node
+complete initialization, and then start the remaining upgraded nodes. Do not run old and new
+Ratchet versions together, because old MongoDB store code does not write the shared reservation
+collection.
 
 ## Monitoring
 

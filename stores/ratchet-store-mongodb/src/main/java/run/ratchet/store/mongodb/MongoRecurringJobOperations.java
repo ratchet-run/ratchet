@@ -52,6 +52,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TIMEOUT_SEC;
 import static run.ratchet.store.mongodb.MongoFieldNames.ZONE_ID;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.model.UpdateOptions;
@@ -77,8 +78,8 @@ import run.ratchet.store.util.JobEncryption;
  * scheduler_recurring_job} and {@code scheduler_recurring_job_archive} collections.
  *
  * <p>Single-document atomicity replaces {@code FOR UPDATE SKIP LOCKED}: claim and advance use
- * {@code findOneAndUpdate} per row. Cancel + archive uses a transaction when the cluster supports
- * one; otherwise relies on Mongo's at-most-one-document atomic guarantees.
+ * {@code findOneAndUpdate} per row. Create and cancel use transactions to keep the shared
+ * business-key reservation atomic with the recurring owner document.
  */
 final class MongoRecurringJobOperations implements RecurringJobStore {
 
@@ -95,9 +96,11 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   private static final Date UNCLAIMED = new Date(0L);
 
   private final MongoStoreContext ctx;
+  private final MongoBusinessKeyReservations reservations;
 
-  MongoRecurringJobOperations(MongoStoreContext ctx) {
+  MongoRecurringJobOperations(MongoStoreContext ctx, MongoBusinessKeyReservations reservations) {
     this.ctx = ctx;
+    this.reservations = reservations;
   }
 
   @Override
@@ -208,7 +211,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     // archive and a mid-flight crash can't leave the archive without its live counterpart.
     // Requires a replica set or sharded cluster (standalone mongod does not support sessions);
     // production deployments must use one.
-    try (com.mongodb.client.ClientSession session = ctx.startSession()) {
+    try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
             Document doc = ctx.recurringJobs().find(session, eq(ID, id)).first();
@@ -216,6 +219,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
               return Boolean.FALSE;
             }
             archive(session, doc, reason);
+            reservations.releaseByOwner(session, id);
             ctx.recurringJobs().deleteOne(session, eq(ID, id));
             return Boolean.TRUE;
           });
@@ -253,7 +257,18 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   public UUID createRecurring(RecurringJobDefinition d) {
     Document doc = toDocument(d);
     try {
-      ctx.recurringJobs().insertOne(doc);
+      if (d.businessKey() == null) {
+        ctx.recurringJobs().insertOne(doc);
+      } else {
+        try (ClientSession session = ctx.startSession()) {
+          session.withTransaction(
+              () -> {
+                reservations.reserveRecurring(session, d.businessKey(), d.id());
+                ctx.recurringJobs().insertOne(session, doc);
+                return null;
+              });
+        }
+      }
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException(
@@ -328,7 +343,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     // Bulk cancel must satisfy the same atomicity contract as the single-id path: archive
     // every matched doc and delete every matched doc, or neither, with no possibility of a
     // partial commit. Wrap both writes in a Mongo transaction.
-    try (com.mongodb.client.ClientSession session = ctx.startSession()) {
+    try (ClientSession session = ctx.startSession()) {
       Integer result =
           session.withTransaction(
               () -> {
@@ -348,6 +363,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                   }
                 }
                 if (!ids.isEmpty()) {
+                  reservations.releaseByOwners(session, ids);
                   ctx.recurringJobs().deleteMany(session, in(ID, ids));
                 }
                 return docs.size();
@@ -356,8 +372,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     }
   }
 
-  private void archive(
-      com.mongodb.client.ClientSession session, Document live, ArchiveReason reason) {
+  private void archive(ClientSession session, Document live, ArchiveReason reason) {
     ctx.recurringJobArchive().insertOne(session, archiveSnapshot(live, reason));
   }
 

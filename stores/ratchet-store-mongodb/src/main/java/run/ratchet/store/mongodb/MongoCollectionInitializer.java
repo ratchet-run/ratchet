@@ -15,6 +15,10 @@
  */
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.Filters.ne;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
 
 import com.mongodb.MongoCommandException;
@@ -22,11 +26,15 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
+import com.mongodb.client.model.UpdateOptions;
+import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
+import run.ratchet.store.util.BusinessKeyReservations;
 
 /** Creates MongoDB collections and indexes required by the Ratchet scheduler at startup. */
 class MongoCollectionInitializer {
@@ -72,7 +80,9 @@ class MongoCollectionInitializer {
   void initialize() {
     log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
+    createBusinessKeyReservationIndexes();
     createRecurringJobIndexes();
+    backfillBusinessKeyReservations();
     createRecurringJobArchiveIndexes();
     createBatchIndexes();
     createBatchMetricsIndexes();
@@ -87,6 +97,125 @@ class MongoCollectionInitializer {
     createResourcePermitIndexes();
     createJobPropertiesIndexes();
     createJobExtensionStateIndexes();
+  }
+
+  private void createBusinessKeyReservationIndexes() {
+    var coll = database.getCollection("scheduler_business_key_reservation");
+    // _id is the globally unique business key. This owner lookup makes terminal/cancel cleanup
+    // efficient without weakening the single cross-type serialization point.
+    createRequiredIndex(
+        coll, Indexes.ascending(OWNER_JOB_ID), new IndexOptions().name("idx_bk_owner"));
+  }
+
+  private void backfillBusinessKeyReservations() {
+    // Existing deployments predate the shared reservation collection. Populate it before this
+    // store instance becomes available so every already-active owner participates in the new
+    // cross-type uniqueness invariant. Each upsert targets the shared _id and then verifies the
+    // stored owner, so concurrent startup is idempotent for the same owner while a conflicting
+    // owner fails startup instead of choosing a winner silently.
+    removeStaleBusinessKeyReservations();
+    for (Document job :
+        database
+            .getCollection("scheduler_job")
+            .find(and(in(STATUS, MongoStoreContext.ACTIVE_STATUSES), ne(BUSINESS_KEY, null)))
+            .projection(new Document(ID, 1).append(BUSINESS_KEY, 1))) {
+      reserveExisting(
+          job.getString(BUSINESS_KEY),
+          job.get(ID, UUID.class),
+          BusinessKeyReservations.OWNER_TABLE_QUEUE);
+    }
+    for (Document recurring :
+        database
+            .getCollection("scheduler_recurring_job")
+            .find(ne(BUSINESS_KEY, null))
+            .projection(new Document(ID, 1).append(BUSINESS_KEY, 1))) {
+      reserveExisting(
+          recurring.getString(BUSINESS_KEY),
+          recurring.get(ID, UUID.class),
+          BusinessKeyReservations.OWNER_TABLE_RECURRING);
+    }
+  }
+
+  private void removeStaleBusinessKeyReservations() {
+    var reservations = database.getCollection("scheduler_business_key_reservation");
+    for (Document reservation : reservations.find()) {
+      String businessKey = reservation.getString(ID);
+      UUID ownerJobId = reservation.get(OWNER_JOB_ID, UUID.class);
+      String ownerTable = reservation.getString(OWNER_TABLE);
+      if (businessKey == null
+          || ownerJobId == null
+          || !ownerIsActive(businessKey, ownerJobId, ownerTable)) {
+        reservations.deleteOne(
+            and(eq(ID, businessKey), eq(OWNER_JOB_ID, ownerJobId), eq(OWNER_TABLE, ownerTable)));
+      }
+    }
+  }
+
+  private boolean ownerIsActive(String businessKey, UUID ownerJobId, String ownerTable) {
+    if (BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(ownerTable)) {
+      return database
+              .getCollection("scheduler_job")
+              .countDocuments(
+                  and(
+                      eq(ID, ownerJobId),
+                      eq(BUSINESS_KEY, businessKey),
+                      in(STATUS, MongoStoreContext.ACTIVE_STATUSES)))
+          > 0;
+    }
+    if (BusinessKeyReservations.OWNER_TABLE_RECURRING.equals(ownerTable)) {
+      return database
+              .getCollection("scheduler_recurring_job")
+              .countDocuments(and(eq(ID, ownerJobId), eq(BUSINESS_KEY, businessKey)))
+          > 0;
+    }
+    return false;
+  }
+
+  private void reserveExisting(String businessKey, UUID ownerJobId, String ownerTable) {
+    if (businessKey == null || ownerJobId == null) {
+      return;
+    }
+    Bson insert =
+        new Document(
+            "$setOnInsert",
+            new Document(ID, businessKey)
+                .append(OWNER_JOB_ID, ownerJobId)
+                .append(OWNER_TABLE, ownerTable)
+                .append(RESERVED_AT, new Date()));
+    RuntimeException duplicateUpsert = null;
+    try {
+      database
+          .getCollection("scheduler_business_key_reservation")
+          .updateOne(eq(ID, businessKey), insert, new UpdateOptions().upsert(true));
+    } catch (RuntimeException e) {
+      if (!new MongoConstraintDetector().isDuplicateKey(e)) {
+        throw e;
+      }
+      // Two nodes may concurrently backfill the same missing _id. Read the winner below: an
+      // identical owner is idempotent, while a different owner is a real upgrade conflict.
+      duplicateUpsert = e;
+    }
+    Document reserved =
+        database
+            .getCollection("scheduler_business_key_reservation")
+            .find(eq(ID, businessKey))
+            .first();
+    if (reserved != null
+        && ownerJobId.equals(reserved.get(OWNER_JOB_ID, UUID.class))
+        && ownerTable.equals(reserved.getString(OWNER_TABLE))) {
+      return;
+    }
+    throw new IllegalStateException(
+        "Business key "
+            + businessKey
+            + " is active for multiple MongoDB owners; existing reservation="
+            + reserved
+            + ", conflicting owner="
+            + ownerJobId
+            + " ("
+            + ownerTable
+            + ")",
+        duplicateUpsert);
   }
 
   private void createJobPropertiesIndexes() {
@@ -192,10 +321,9 @@ class MongoCollectionInitializer {
         coll,
         Indexes.compoundIndex(Indexes.ascending(IS_PAUSED), Indexes.ascending(NEXT_FIRE)),
         new IndexOptions().name(MongoIndexHints.RECURRING_JOB_CLAIM));
-    // business_key uniqueness mirrors the SQL stores' UNIQUE index on
-    // scheduler_recurring_job.business_key, so concurrent createRecurring calls with the same key
-    // collide instead of silently double-registering. partialFilterExpression excludes nulls so
-    // anonymous masters still coexist.
+    // Defense in depth within the recurring collection. Cross-type uniqueness is authoritative in
+    // scheduler_business_key_reservation; this local guard still rejects duplicate masters if a
+    // reservation write is ever bypassed. The partial filter lets anonymous masters coexist.
     createRequiredIndex(
         coll,
         Indexes.ascending(BUSINESS_KEY),

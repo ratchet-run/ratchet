@@ -48,6 +48,9 @@ final class MongoFieldNames {
   // Keys
   static final String BUSINESS_KEY = "business_key";
   static final String IDEMPOTENCY_KEY = "idempotency_key";
+  static final String OWNER_JOB_ID = "owner_job_id";
+  static final String OWNER_TABLE = "owner_table";
+  static final String RESERVED_AT = "reserved_at";
   // Workflow linkage
   static final String DEPENDS_ON = "depends_on";
   static final String TAGS = "tags";

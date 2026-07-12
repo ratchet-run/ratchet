@@ -164,6 +164,10 @@ final class MongoStoreContext extends AbstractStoreContext {
     return database.getCollection("scheduler_recurring_job");
   }
 
+  MongoCollection<Document> businessKeyReservations() {
+    return database.getCollection("scheduler_business_key_reservation");
+  }
+
   MongoCollection<Document> recurringJobArchive() {
     return database.getCollection("scheduler_recurring_job_archive");
   }

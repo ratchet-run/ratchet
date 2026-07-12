@@ -313,6 +313,7 @@ MongoDB does not require a DDL file; the store module creates collections and in
 use ratchet;
 
 db.createCollection("scheduler_job");
+db.createCollection("scheduler_business_key_reservation");
 db.createCollection("scheduler_batch");
 db.createCollection("scheduler_batch_metrics");
 db.createCollection("scheduler_job_execution");
@@ -343,6 +344,7 @@ db.scheduler_job.createIndex(
   }
 );
 db.scheduler_job.createIndex({ tags: 1 }, { name: "idx_job_tags" });
+db.scheduler_business_key_reservation.createIndex({ owner_job_id: 1 }, { name: "idx_bk_owner" });
 db.scheduler_job_archive.createIndex({ original_job_id: 1 }, { name: "idx_archive_original_job_id" });
 db.scheduler_job_execution.createIndex({ job_id: 1 }, { name: "idx_execution_job_id" });
 db.scheduler_node.createIndex({ heartbeat_ts: 1 }, { name: "idx_node_heartbeat" });

@@ -149,9 +149,9 @@ claim path can populate lightweight claim DTOs from one hot table.
 | `scheduler_job_queue.signal_key` / `signal_timeout` | `VARCHAR` / `TIMESTAMP` | Signal-wait key and timeout for WAITING jobs |
 | `scheduler_job_queue.signal_payload` / metadata | `TEXT` / `VARCHAR` | Delivered signal payload, decision metadata, and delivery id |
 
-The `scheduler_business_key_reservation` table owns active business-key
-uniqueness. Terminal rows keep their `business_key` for audit/search, but they
-do not block a future active job from using the same key.
+The `scheduler_business_key_reservation` table (or MongoDB collection) owns active business-key
+uniqueness across queue jobs and recurring masters. Terminal rows keep their `business_key` for
+audit/search, but they do not block a future active job from using the same key.
 
 The physical column is wider in some stores, but the API contract is the portable minimum: after
 trimming, a business key may contain up to 255 printable ASCII characters. Oracle can count its
