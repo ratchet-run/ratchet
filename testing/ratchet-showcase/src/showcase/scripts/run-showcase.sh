@@ -393,6 +393,62 @@ wait_for_showcase_http() {
   done
 }
 
+run_showcase_smoke() {
+  local port="$1"
+  local base_url
+  base_url="$(showcase_url "$port")"
+  base_url="${base_url%/}"
+
+  local runtime
+  runtime="$(curl -fsS "$base_url/api/runtime")"
+  if ! grep -Eq '"serverProfile"[[:space:]]*:[[:space:]]*"wildfly"' <<<"$runtime"; then
+    echo "Showcase smoke expected the WildFly runtime profile: $runtime" >&2
+    return 1
+  fi
+  if ! grep -Eq '"dbProfile"[[:space:]]*:[[:space:]]*"postgresql"' <<<"$runtime"; then
+    echo "Showcase smoke expected the PostgreSQL database profile: $runtime" >&2
+    return 1
+  fi
+
+  curl -fsS "$base_url/" >/dev/null
+
+  local submission
+  submission="$(
+    curl -fsS \
+      -H 'Content-Type: application/json' \
+      -d '{"count":3,"seed":12345}' \
+      "$base_url/api/scenarios/import-burst"
+  )"
+  if ! grep -Eq '"batchJobId"[[:space:]]*:[[:space:]]*"[^"]+"' <<<"$submission"; then
+    echo "Showcase smoke did not receive a batch job id: $submission" >&2
+    return 1
+  fi
+
+  local dashboard=""
+  local observed_job=false
+  for _ in {1..60}; do
+    dashboard="$(curl -fsS "$base_url/api/dashboard")"
+    if grep -Eq '"recentJobs"[[:space:]]*:[[:space:]]*\[[[:space:]]*\{' <<<"$dashboard"; then
+      observed_job=true
+      break
+    fi
+    sleep 0.5
+  done
+  if [[ "$observed_job" != "true" ]]; then
+    echo "Showcase smoke submitted work but the live dashboard never observed a job: $dashboard" >&2
+    return 1
+  fi
+
+  local metrics
+  metrics="$(curl -fsS "$base_url/metrics")"
+  if ! grep -q '^ratchet_showcase_orders' <<<"$metrics"; then
+    echo "Showcase smoke did not observe showcase metrics." >&2
+    return 1
+  fi
+
+  echo "Ratchet Showcase smoke passed: WildFly/PostgreSQL boot, API submission, job visibility, and metrics."
+}
+
 prepare_wildfly_run_home() {
   local source_home="$1"
   local port="$2"
@@ -689,6 +745,10 @@ EOF
     --controller=127.0.0.1:"$management_port" \
     --command="deploy $war --force --name=ratchet-showcase.war --runtime-name=$runtime_name"
   wait_for_showcase_http "$port" "$context"
+  if [[ "${SHOWCASE_SMOKE:-false}" == "true" ]]; then
+    run_showcase_smoke "$port"
+    return 0
+  fi
   local status=0
   wait "$server_pid" || status=$?
   # Drop the WildFly-specific handlers but keep an EXIT trap so an embedded

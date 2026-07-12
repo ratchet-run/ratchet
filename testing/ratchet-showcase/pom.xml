@@ -26,6 +26,7 @@
     <showcase.datasource.jndi>java:jboss/datasources/RatchetDS</showcase.datasource.jndi>
     <showcase.http.port>8080</showcase.http.port>
     <showcase.java.home></showcase.java.home>
+    <showcase.smoke>false</showcase.smoke>
     <wildfly.management.port>9990</wildfly.management.port>
     <wildfly.https.port>18443</wildfly.https.port>
     <exec-maven-plugin.version>3.5.0</exec-maven-plugin.version>
@@ -152,6 +153,7 @@
                 <SHOWCASE_DATASOURCE_JNDI>${showcase.datasource.jndi}</SHOWCASE_DATASOURCE_JNDI>
                 <SHOWCASE_HTTP_PORT>${showcase.http.port}</SHOWCASE_HTTP_PORT>
                 <SHOWCASE_JAVA_HOME>${showcase.java.home}</SHOWCASE_JAVA_HOME>
+                <SHOWCASE_SMOKE>${showcase.smoke}</SHOWCASE_SMOKE>
                 <SHOWCASE_VERSION>${project.version}</SHOWCASE_VERSION>
                 <WILDFLY_HOME>${wildfly.home}</WILDFLY_HOME>
                 <WILDFLY_MANAGEMENT_PORT>${wildfly.management.port}</WILDFLY_MANAGEMENT_PORT>
