@@ -48,6 +48,7 @@ import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
@@ -608,7 +609,12 @@ public class JobTask implements Callable<Void> {
       }
       String outcomeStr = jobEntity.getSignalOutcome();
       if (outcomeStr != null) {
-        SignalDecision.Outcome outcome = SignalDecision.Outcome.valueOf(outcomeStr);
+        SignalDecision.Outcome outcome;
+        try {
+          outcome = SignalDecision.Outcome.valueOf(outcomeStr);
+        } catch (IllegalArgumentException e) {
+          throw new SignalOutcomeHydrationException(jobId, outcomeStr, e);
+        }
         return new SignalDecision(outcome, innerPayload, jobEntity.getSignalRejectionReason());
       }
     } else if (rawSignalPayload != null && payloadSerializer != null) {

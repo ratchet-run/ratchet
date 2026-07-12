@@ -63,6 +63,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
@@ -1181,6 +1182,39 @@ class JobTaskTest {
     signalTask.call();
 
     Assertions.assertEquals(decision, OBSERVED_SIGNAL_DECISION.get());
+  }
+
+  @Test
+  void call_invalidPersistedSignalOutcomeFailsWithJobContext() throws Exception {
+    JobEntity job = createTestJob();
+    job.setSignalPayloadType(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION);
+    job.setSignalOutcome("UNKNOWN");
+    jobTask.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    DoNotRetryPolicy realPolicy = new DoNotRetryPolicy();
+    when(validationFacade.shouldNotRetry(any()))
+        .thenAnswer(inv -> realPolicy.shouldNotRetry(inv.getArgument(0)));
+    when(errorSanitizer.sanitize(any())).thenReturn("safe invalid signal outcome");
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
+    verify(observabilityFacade).recordJobFailure(eq(job), failure.capture(), eq(0));
+    SignalOutcomeHydrationException exception =
+        Assertions.assertInstanceOf(SignalOutcomeHydrationException.class, failure.getValue());
+    Assertions.assertEquals(
+        "Failed to hydrate signal outcome for job "
+            + JOB_UUID
+            + ": persisted value 'UNKNOWN' is not a recognized SignalDecision.Outcome",
+        exception.getMessage());
+    Assertions.assertEquals(JOB_UUID, exception.getJobId());
+    Assertions.assertEquals("UNKNOWN", exception.getPersistedOutcome());
+    Assertions.assertInstanceOf(IllegalArgumentException.class, exception.getCause());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(lifecycleFacade).moveToDlq(eq(job), eq(exception));
   }
 
   @Test
