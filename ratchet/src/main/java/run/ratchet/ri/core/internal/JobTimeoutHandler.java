@@ -40,6 +40,7 @@ import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
+import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -281,7 +282,7 @@ public class JobTimeoutHandler {
         () -> applyHardTimeoutTransition(jobId, timeoutEx, timeoutSec, observedElapsedTime));
   }
 
-  private Optional<JobEntity> applyHardTimeoutTransition(
+  private Optional<TerminalTimeoutTransition> applyHardTimeoutTransition(
       UUID jobId, TimeoutException timeoutEx, long timeoutSec, Duration observedElapsedTime) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -331,9 +332,9 @@ public class JobTimeoutHandler {
     job.setAttempts(newAttempts);
     job.setStatus(JobStatus.FAILED);
     job.setLastError(timeoutEx.getMessage());
-    publishHardTimeoutFailureEvents(
-        job, timeoutEx.getMessage(), newAttempts, timeoutSec, observedElapsedTime);
-    return Optional.of(job);
+    return Optional.of(
+        terminalHardTimeoutTransition(
+            job, timeoutEx.getMessage(), newAttempts, timeoutSec, observedElapsedTime));
   }
 
   void processSignalTimeout(JobEntity job, Instant now) {
@@ -344,7 +345,7 @@ public class JobTimeoutHandler {
         timeoutEx, true, () -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
-  private Optional<JobEntity> applySignalTimeoutTransition(
+  private Optional<TerminalTimeoutTransition> applySignalTimeoutTransition(
       UUID jobId, Instant now, String message) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -394,8 +395,7 @@ public class JobTimeoutHandler {
     job.setAttempts(newAttempts);
     job.setLastError(message);
     job.setStatus(JobStatus.FAILED);
-    publishSignalTimeoutFailureEvents(job, message, newAttempts, now);
-    return Optional.of(job);
+    return Optional.of(terminalSignalTimeoutTransition(job, message, newAttempts, now));
   }
 
   private Clock effective() {
@@ -411,13 +411,13 @@ public class JobTimeoutHandler {
     return effective().instant().plusSeconds(timeoutSec).plusMillis(jitterMs);
   }
 
-  private void publishSignalTimeoutFailureEvents(
+  private TerminalTimeoutTransition terminalSignalTimeoutTransition(
       JobEntity job, String errorMessage, int retryAttempt, Instant timestamp) {
     if (metricsCollector != null) {
       metricsCollector.signalTimedOut(job.getId(), job.getPublicJobType(), job.getSignalKey());
     }
     if (eventPublisher == null) {
-      return;
+      return new TerminalTimeoutTransition(job, List.of());
     }
     Duration configuredTimeout =
         job.getCreatedAt() != null && job.getSignalTimeout() != null
@@ -443,11 +443,7 @@ public class JobTimeoutHandler {
             timestamp,
             errorMessage,
             retryAttempt);
-    publishAfterCommit(
-        () -> {
-          eventPublisher.publish(event);
-          eventPublisher.publish(failedEvent);
-        });
+    return new TerminalTimeoutTransition(job, List.of(event, failedEvent));
   }
 
   private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
@@ -493,10 +489,10 @@ public class JobTimeoutHandler {
         });
   }
 
-  private void publishHardTimeoutFailureEvents(
+  private TerminalTimeoutTransition terminalHardTimeoutTransition(
       JobEntity job, String errorMessage, int retryAttempt, long timeoutSec, Duration elapsedTime) {
     if (eventPublisher == null) {
-      return;
+      return new TerminalTimeoutTransition(job, List.of());
     }
     Instant timestamp = effective().instant();
     JobExecutionTimedOutEvent timedOutEvent =
@@ -511,11 +507,7 @@ public class JobTimeoutHandler {
             timestamp,
             errorMessage,
             retryAttempt);
-    publishAfterCommit(
-        () -> {
-          eventPublisher.publish(timedOutEvent);
-          eventPublisher.publish(failedEvent);
-        });
+    return new TerminalTimeoutTransition(job, List.of(timedOutEvent, failedEvent));
   }
 
   private JobExecutionTimedOutEvent executionTimedOutEvent(

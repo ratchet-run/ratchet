@@ -21,15 +21,19 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.Transactional.TxType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.SingletonLease;
@@ -174,11 +178,33 @@ public class DeadLetterService {
    * terminal status transition, so event delivery must not be suppressed if later batch or workflow
    * bookkeeping rolls back.
    */
-  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  @Transactional(TxType.REQUIRES_NEW)
   public void recordDlqTransition(JobEntity job, Throwable cause) {
     String persistedError = job.getLastError();
     recordCallerOwnedTransition(
-        job, persistedError != null ? persistedError : sanitizeSafely(cause));
+        job, persistedError != null ? persistedError : sanitizeSafely(cause), List.of());
+  }
+
+  /**
+   * Registers one ordered terminal timeout event sequence on the caller's active transaction.
+   *
+   * <p>The timeout transition, its typed timeout event, {@link JobFailedEvent}, and {@link
+   * JobDlqEvent} must share one commit outcome. A single after-commit callback publishes {@code
+   * eventsBeforeDlq} in order and the DLQ event last, so a later batch/workflow bookkeeping failure
+   * suppresses the complete sequence on rollback.
+   *
+   * <p><b>Transaction attribute:</b> {@code MANDATORY}. Timeout lifecycle routing already runs in
+   * {@link PostExecutionHandler}'s independent transaction; starting another transaction here would
+   * publish the DLQ event before that outer transition commits.
+   */
+  @Transactional(TxType.MANDATORY)
+  public void recordDlqTransitionInCurrentTransaction(
+      JobEntity job, Throwable cause, List<? extends AbstractJobSchedulerEvent> eventsBeforeDlq) {
+    String persistedError = job.getLastError();
+    recordCallerOwnedTransition(
+        job,
+        persistedError != null ? persistedError : sanitizeSafely(cause),
+        Objects.requireNonNull(eventsBeforeDlq, "eventsBeforeDlq must not be null"));
   }
 
   private String sanitizeSafely(Throwable cause) {
@@ -205,9 +231,10 @@ public class DeadLetterService {
     log.warnf("Job %s moved to DLQ", job.getId());
   }
 
-  private void recordCallerOwnedTransition(JobEntity job, String sanitized) {
+  private void recordCallerOwnedTransition(
+      JobEntity job, String sanitized, List<? extends AbstractJobSchedulerEvent> eventsBeforeDlq) {
     job.setLastError(sanitized);
-    publishDlqEvent(job, sanitized);
+    publishDlqEvent(job, sanitized, eventsBeforeDlq);
 
     log.warnf("Job %s moved to DLQ", job.getId());
   }
@@ -245,10 +272,14 @@ public class DeadLetterService {
         });
   }
 
-  private void publishDlqEvent(JobEntity job, String sanitizedError) {
+  private void publishDlqEvent(
+      JobEntity job,
+      String sanitizedError,
+      List<? extends AbstractJobSchedulerEvent> eventsBeforeDlq) {
     if (eventPublisher == null) {
       return;
     }
+    List<AbstractJobSchedulerEvent> orderedEvents = List.copyOf(eventsBeforeDlq);
     JobDlqEvent event =
         new JobDlqEvent(
             job.getId(),
@@ -259,7 +290,11 @@ public class DeadLetterService {
             effective().instant(),
             sanitizedError,
             Math.max(0, job.getAttempts()));
-    publishAfterCommit(() -> eventPublisher.publish(event));
+    publishAfterCommit(
+        () -> {
+          orderedEvents.forEach(eventPublisher::publish);
+          eventPublisher.publish(event);
+        });
   }
 
   private void publishAfterCommit(Runnable action) {

@@ -46,6 +46,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
@@ -60,7 +61,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
@@ -231,6 +234,169 @@ class DeadLetterServiceTest {
 
     assertNotNull(transactional);
     assertEquals(Transactional.TxType.REQUIRES_NEW, transactional.value());
+  }
+
+  @Test
+  void timeoutDlqSequenceRequiresTheCallersTransaction() throws NoSuchMethodException {
+    Transactional transactional =
+        DeadLetterService.class
+            .getMethod(
+                "recordDlqTransitionInCurrentTransaction",
+                JobEntity.class,
+                Throwable.class,
+                List.class)
+            .getAnnotation(Transactional.class);
+
+    assertNotNull(transactional);
+    assertEquals(Transactional.TxType.MANDATORY, transactional.value());
+  }
+
+  @Test
+  void terminalHardTimeoutPublishesOneOrderedSequenceAfterTheAmbientTransactionCommits() {
+    JobEntity job = jobWithAttempts(2);
+    job.setLastError("Hard timeout exceeded (30s)");
+    Instant timestamp = FIXED_NOW.minusSeconds(1);
+    JobExecutionTimedOutEvent timedOut =
+        new JobExecutionTimedOutEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            timestamp,
+            Duration.ofSeconds(30),
+            Duration.ofSeconds(31),
+            2);
+    JobFailedEvent failed =
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            timestamp,
+            job.getLastError(),
+            2);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    service.setTxRegistryForTesting(txRegistry);
+    ArgumentCaptor<Synchronization> synchronization =
+        ArgumentCaptor.forClass(Synchronization.class);
+
+    service.recordDlqTransitionInCurrentTransaction(
+        job, new RuntimeException(), List.of(timedOut, failed));
+
+    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    verify(eventPublisher, never()).publish(any());
+    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(3)).publish(events.capture());
+    assertEquals(List.of(timedOut, failed), events.getAllValues().subList(0, 2));
+    assertTrue(events.getAllValues().get(2) instanceof JobDlqEvent);
+  }
+
+  @Test
+  void terminalSignalTimeoutSuppressesTheWholeSequenceWhenTheAmbientTransactionRollsBack() {
+    JobEntity job = jobWithAttempts(1);
+    job.setLastError("Signal timeout exceeded for key: approval");
+    JobSignalTimedOutEvent timedOut =
+        new JobSignalTimedOutEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            FIXED_NOW,
+            "approval",
+            Duration.ofSeconds(30));
+    JobFailedEvent failed =
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            FIXED_NOW,
+            job.getLastError(),
+            1);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    service.setTxRegistryForTesting(txRegistry);
+    ArgumentCaptor<Synchronization> synchronization =
+        ArgumentCaptor.forClass(Synchronization.class);
+
+    service.recordDlqTransitionInCurrentTransaction(
+        job, new RuntimeException(), List.of(timedOut, failed));
+    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+
+    synchronization.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void terminalTimeoutSuppressesTheWholeSequenceWhenAfterCommitRegistrationFails() {
+    JobEntity job = jobWithAttempts(1);
+    job.setLastError("Hard timeout exceeded (30s)");
+    JobFailedEvent failed =
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            FIXED_NOW,
+            job.getLastError(),
+            1);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doThrow(new IllegalStateException("registration failed"))
+        .when(txRegistry)
+        .registerInterposedSynchronization(any(Synchronization.class));
+    service.setTxRegistryForTesting(txRegistry);
+
+    service.recordDlqTransitionInCurrentTransaction(job, new RuntimeException(), List.of(failed));
+
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void terminalSignalTimeoutPublishesOneOrderedSequenceAfterTheAmbientTransactionCommits() {
+    JobEntity job = jobWithAttempts(1);
+    job.setLastError("Signal timeout exceeded for key: approval");
+    JobSignalTimedOutEvent timedOut =
+        new JobSignalTimedOutEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            FIXED_NOW,
+            "approval",
+            Duration.ofSeconds(30));
+    JobFailedEvent failed =
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            FIXED_NOW,
+            job.getLastError(),
+            1);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    service.setTxRegistryForTesting(txRegistry);
+    ArgumentCaptor<Synchronization> synchronization =
+        ArgumentCaptor.forClass(Synchronization.class);
+
+    service.recordDlqTransitionInCurrentTransaction(
+        job, new RuntimeException(), List.of(timedOut, failed));
+    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+
+    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(3)).publish(events.capture());
+    assertEquals(List.of(timedOut, failed), events.getAllValues().subList(0, 2));
+    assertTrue(events.getAllValues().get(2) instanceof JobDlqEvent);
   }
 
   @Test
