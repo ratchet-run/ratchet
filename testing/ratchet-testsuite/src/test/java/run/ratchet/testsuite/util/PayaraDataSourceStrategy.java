@@ -15,6 +15,7 @@
  */
 package run.ratchet.testsuite.util;
 
+import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 
@@ -36,6 +37,11 @@ public class PayaraDataSourceStrategy implements DataSourceStrategy {
   @Override
   public void configureArchive(WebArchive archive, JdbcDatabaseConfig config) {
     GlassFishResources.addResources(archive, config, DOCTYPE);
+  }
+
+  @Override
+  public void configureEnterpriseArchive(EnterpriseArchive ear, JdbcDatabaseConfig config) {
+    GlassFishResources.addEarResources(ear, config, DOCTYPE);
   }
 
   @Override

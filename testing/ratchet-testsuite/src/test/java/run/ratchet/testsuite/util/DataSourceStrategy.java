@@ -15,6 +15,7 @@
  */
 package run.ratchet.testsuite.util;
 
+import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 
@@ -33,6 +34,18 @@ public interface DataSourceStrategy {
    * @param config the database connection details
    */
   void configureArchive(WebArchive archive, JdbcDatabaseConfig config);
+
+  /**
+   * Configures an EAR-level datasource for servers that reject {@code java:app}-scoped resources
+   * declared inside a WAR submodule of an EAR, such as Payara and GlassFish.
+   *
+   * <p>The default is a no-op because WildFly uses a server-level {@code -ds.xml} descriptor and
+   * Open Liberty uses a server configuration drop-in.
+   *
+   * @param ear the enterprise archive to configure
+   * @param config the database connection details
+   */
+  default void configureEnterpriseArchive(EnterpriseArchive ear, JdbcDatabaseConfig config) {}
 
   /**
    * Returns the JTA datasource name that should be written into {@code persistence.xml}.

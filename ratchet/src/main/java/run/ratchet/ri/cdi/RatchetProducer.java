@@ -25,6 +25,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
+import jakarta.security.enterprise.SecurityContext;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.util.EnumMap;
@@ -52,6 +53,7 @@ import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
+import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
@@ -355,6 +357,19 @@ public class RatchetProducer {
           "ClassPolicy allowedPackages is empty and RatchetOptions allows it. ALL job targets will be rejected.");
     }
     return policy;
+  }
+
+  /**
+   * Produces the default {@link CallerPrincipalProvider} bean that resolves the caller principal
+   * from {@link jakarta.security.enterprise.SecurityContext}. Users can override by providing their
+   * own {@code @Alternative @Priority(APPLICATION) CallerPrincipalProvider} bean.
+   */
+  @Produces
+  @Default
+  @ApplicationScoped
+  public CallerPrincipalProvider callerPrincipalProvider(
+      Instance<SecurityContext> securityContexts) {
+    return new CallerPrincipalProvider(securityContexts);
   }
 
   /**

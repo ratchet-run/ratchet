@@ -21,6 +21,8 @@ public class MyCustomRetryPolicy implements RetryPolicy {
 
 Ensure CDI auto-discovery is enabled or register in `beans.xml`.
 
+For EAR deployments, package `@Alternative` SPI overrides in the EAR library directory (`EAR/lib`) alongside the Ratchet jars. Alternatives packaged inside an EJB-jar or other subdeployment are not visible to Ratchet's injection points under spec-compliant CDI bean-archive accessibility rules.
+
 ## RetryPolicy
 
 Controls retry and backoff decisions. The default RI implementation (`DefaultRetryPolicy`) is a passthrough that defers to the job's configured `BackoffPolicy` and `maxRetries`.

@@ -16,6 +16,7 @@
 package run.ratchet.testsuite.util;
 
 import org.jboss.shrinkwrap.api.asset.StringAsset;
+import org.jboss.shrinkwrap.api.spec.EnterpriseArchive;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
@@ -30,6 +31,17 @@ final class GlassFishResources {
     archive.addAsWebInfResource(
         new StringAsset(resourcesXml(config, doctype)), "glassfish-resources.xml");
     archive.addAsLibraries(
+        Maven.configureResolver()
+            .loadPomFromFile("pom.xml", config.dbType())
+            .resolve(driverCoordinates(config.dbType()))
+            .withTransitivity()
+            .asFile());
+  }
+
+  static void addEarResources(EnterpriseArchive ear, JdbcDatabaseConfig config, String doctype) {
+    ear.addAsManifestResource(
+        new StringAsset(resourcesXml(config, doctype)), "glassfish-resources.xml");
+    ear.addAsLibraries(
         Maven.configureResolver()
             .loadPomFromFile("pom.xml", config.dbType())
             .resolve(driverCoordinates(config.dbType()))
