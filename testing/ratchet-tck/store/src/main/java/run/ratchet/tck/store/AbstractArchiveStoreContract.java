@@ -28,7 +28,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.JobExtensionStore;
 
 /** Base contract tests for {@code ArchiveStore}. */
 public abstract class AbstractArchiveStoreContract implements JobStoreContractFixture {
@@ -132,15 +131,13 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
 
   @Test
   void archiveAndDeleteJobsBatch_preservesExtensionDataAndRemovesHotRows() {
-    var extensionCapability = store().capability(JobExtensionStore.class);
-    if (extensionCapability.isEmpty()) {
-      return;
-    }
+    // The probe-backed accessor aborts (conformance N/A) when the store does not
+    // advertise JobExtensionStore; a plain return would report a vacuous PASS.
+    var extensions = extensionStore();
 
     var job = newPendingJob();
     job.setBusinessKey("archive-extension-" + job.getId());
     job = persist(job);
-    var extensions = extensionCapability.orElseThrow();
     extensions.putProperty(job.getId(), "ratchet-tck.archive", "preserved");
     extensions.initState(job.getId(), "ratchet-tck", "{\"step\":1}");
     var terminal = completeJob(job);
