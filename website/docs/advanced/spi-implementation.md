@@ -208,7 +208,7 @@ See [Circuit Breakers](./circuit-breakers.md) for detailed guidance.
 **Adapter module:** `ratchet-micrometer` provides `MicrometerMetricsCollector`
 **Annotation:** `@Incubating`
 
-Receives 22 callbacks covering job outcomes, success finalization, claims and submission gates, wakeups and executor routing, callback and signal events, store timing, the poller breaker, and encryption integrity/version signals. The complete callback and meter catalog is in [Metrics Collection](./metrics-collection.md#metricscollector-spi).
+Receives callbacks covering job outcomes, success finalization, claims and submission gates, wakeups and executor routing, callback and signal events, store timing, circuit breakers, and encryption integrity/version signals. The complete callback and meter catalog is in [Metrics Collection](./metrics-collection.md#metricscollector-spi).
 
 **Partial override:**
 
