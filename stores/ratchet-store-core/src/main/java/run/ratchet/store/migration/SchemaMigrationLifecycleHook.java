@@ -145,7 +145,8 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
    * hook never infers a dialect from the JDBC product name.
    */
   private SchemaMigrationDialect resolveDialect(RatchetOptions.SchemaOptions schemaOptions) {
-    if (dialectLookup == null || dialectLookup.isUnsatisfied()) {
+    Instance<SchemaMigrationDialect> dialects = dialectLookup;
+    if (dialects == null || dialects.isUnsatisfied()) {
       throw new SchemaInitializationException(
           "ratchet.schema.auto-migrate=true but the deployed store provides no"
               + " SchemaMigrationDialect. Managed migration is JDBC-only and requires a SQL store"
@@ -157,7 +158,7 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
     String configured = schemaOptions.migrationDialect();
     if (configured != null && !configured.isBlank()) {
       String wanted = configured.trim().toLowerCase(Locale.ROOT);
-      for (SchemaMigrationDialect candidate : dialectLookup) {
+      for (SchemaMigrationDialect candidate : dialects) {
         if (candidate.id().equals(wanted)) {
           return candidate;
         }
@@ -166,24 +167,24 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
           "ratchet.schema.migration-dialect="
               + configured
               + " but no deployed SchemaMigrationDialect advertises that id. Available: "
-              + availableIds()
+              + availableIds(dialects)
               + ".");
     }
 
-    if (dialectLookup.isAmbiguous()) {
+    if (dialects.isAmbiguous()) {
       throw new SchemaInitializationException(
           "Multiple SchemaMigrationDialect beans are available ("
-              + availableIds()
+              + availableIds(dialects)
               + "); set ratchet.schema.migration-dialect (RATCHET_SCHEMA_MIGRATION_DIALECT) to"
               + " select one.");
     }
 
-    return dialectLookup.get();
+    return dialects.get();
   }
 
-  private String availableIds() {
+  private static String availableIds(Iterable<SchemaMigrationDialect> dialects) {
     List<String> ids = new ArrayList<>();
-    for (SchemaMigrationDialect candidate : dialectLookup) {
+    for (SchemaMigrationDialect candidate : dialects) {
       ids.add(candidate.id());
     }
     Collections.sort(ids);

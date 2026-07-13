@@ -93,12 +93,14 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
     assertEquals(
         0, StubJobAuthorizationPolicy.getCreateCount(), "Pre-condition: no create calls yet");
 
-    jobService.enqueueNow(SimpleJob::execute);
+    JobHandle handle = jobService.enqueueNow(SimpleJob::execute);
 
     assertEquals(
         1,
         StubJobAuthorizationPolicy.getCreateCount(),
         "checkCreate must be called exactly once for a single job submission");
+
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
   }
 
   @Test
@@ -205,15 +207,18 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
   @Test
   void checkCreate_isCalledForEachJobInBatch() {
     int batchSize = 3;
-    jobService
-        .enqueueBatch("test-batch")
-        .forEach(List.of("a", "b", "c"), item -> SimpleJob.execute())
-        .submit();
+    JobHandle handle =
+        jobService
+            .enqueueBatch("test-batch")
+            .forEach(List.of("a", "b", "c"), item -> SimpleJob.execute())
+            .submit();
 
     // Batch parent + 3 children = 4 checkCreate calls
     assertEquals(
         batchSize + 1,
         StubJobAuthorizationPolicy.getCreateCount(),
         "checkCreate must be called for the batch parent and each child job");
+
+    JobAssertions.assertBatchSucceeded(jobCrudStore, handle, Duration.ofSeconds(30));
   }
 }
