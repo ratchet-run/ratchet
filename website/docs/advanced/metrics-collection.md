@@ -10,7 +10,7 @@ Ratchet provides a `MetricsCollector` SPI that receives callbacks during the job
 
 ## MetricsCollector SPI
 
-`MetricsCollector` covers the job lifecycle and the scheduler paths operators need when work is not progressing normally. It currently declares 23 callbacks:
+`MetricsCollector` covers the job lifecycle and the scheduler paths operators need when work is not progressing normally:
 
 | Area | Callbacks |
 |------|-----------|
@@ -19,8 +19,8 @@ Ratchet provides a `MetricsCollector` SPI that receives callbacks during the job
 | Claim and admission | `claimTransientFailure`, `jobsClaimed`, `gateRejected` |
 | Wakeups and routing | `localWakeup`, `executionTargetFallback`, `clusterWakeupPublished`, `clusterWakeupReceived` |
 | Callbacks and signals | `callbackFailed`, `signalWaiting`, `signalDelivered`, `signalTimedOut`, `signalCancelled` |
-| Store health | `storeOperation`, `pollerBreakerState` |
-| Application resilience | `circuitBreakerState` |
+| Store health | `storeOperation` |
+| Circuit breakers | `pollerBreakerState`, `circuitBreakerState` |
 | Payload encryption | `encryptionIntegrityViolation`, `encryptionEnvelopeVersionSkew` |
 
 The first ten methods are required for a direct implementation. The remaining methods have default no-op bodies so the incubating SPI can grow without breaking existing implementations. Treat those defaults as a compatibility mechanism, not a claim that the signals are unimportant. A complete monitoring adapter should make an explicit decision about every callback.
@@ -75,7 +75,7 @@ public class MetricsProducer {
 
 ### Published Metrics
 
-The Micrometer adapter publishes the following 24 meters:
+The Micrometer adapter publishes the following meters:
 
 | Metric Name | Type | Tags | Description |
 |-------------|------|------|-------------|

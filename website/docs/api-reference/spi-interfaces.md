@@ -565,8 +565,8 @@ This interface is marked `@Incubating` and may change. Additional lifecycle call
 | Claim and admission | `claimTransientFailure(String)`, `jobsClaimed(String, int)`, `gateRejected(String, String)` |
 | Wakeups and routing | `localWakeup(String)`, `executionTargetFallback(String, String)`, `clusterWakeupPublished(String, String)`, `clusterWakeupReceived(String, String)` |
 | Callbacks and signals | `callbackFailed(UUID, JobType, Throwable, int)`, `signalWaiting(UUID, JobType, String)`, `signalDelivered(UUID, JobType, String, SignalDecision.Outcome)`, `signalTimedOut(UUID, JobType, String)`, `signalCancelled(UUID, JobType, String)` |
-| Store health | `storeOperation(String, String, String, long)`, `pollerBreakerState(String, String)` |
-| Application resilience | `circuitBreakerState(String, String, String)` |
+| Store health | `storeOperation(String, String, String, long)` |
+| Circuit breakers | `pollerBreakerState(String, String)`, `circuitBreakerState(String, String, String)` |
 | Payload encryption | `encryptionIntegrityViolation(UUID, String)`, `encryptionEnvelopeVersionSkew(UUID, int, int)` |
 
 The first ten callbacks are required for direct implementations; the rest have default no-op bodies for compatibility. See [Metrics Collection](../advanced/metrics-collection.md#metricscollector-spi) for callback semantics and the complete Micrometer meter catalog.

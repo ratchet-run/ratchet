@@ -69,13 +69,14 @@ public interface JobRetryStore {
    * The whole selected batch commits or rolls back together, including business-key reservation
    * writes.
    *
+   * <p>Transaction attribute: {@code REQUIRED}.
+   *
    * @param filter selection criteria; never {@code null}
    * @param limit maximum jobs to reset, from 1 through 1000
    * @return number of jobs reset to PENDING
    * @throws IllegalArgumentException when {@code limit} is outside 1 through 1000
    * @throws NullPointerException when {@code filter} is {@code null}
    * @throws UnsupportedOperationException if the store does not provide bulk recovery
-   *     <p>Transaction attribute: {@code REQUIRED}.
    */
   default int resetFailedToPending(JobFilter filter, int limit) {
     Objects.requireNonNull(filter, "filter");

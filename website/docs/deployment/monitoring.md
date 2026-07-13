@@ -66,6 +66,7 @@ Micrometer tracing bridge. A custom tracing collector with a priority above 1100
 | `ratchet.signal.cancelled` | Counter | `type`, `signal_key` | Signal waits cancelled before delivery |
 | `ratchet.store.operation` | Timer | `store`, `operation`, `outcome` | Timed store operations on claim and execution hot paths |
 | `ratchet.poller.breaker.state` | Gauge | `breaker` | Poller claim-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.circuit.breaker.state` | Gauge | `service`, `profile` | Application circuit-breaker state: `0` closed/unknown, `1` half-open, `2` open |
 | `ratchet.encryption.integrity.violations` | Counter | `surface` | A row marked as encrypted contained plaintext. The read succeeds, but the writer or rollout needs investigation. |
 | `ratchet.encryption.envelope.version_skew` | Counter | `version_gap` | A newer envelope reached this node. `next`, `multiple_versions_ahead`, and `not_newer` keep the diagnostic bounded; Ratchet releases valid newer jobs for an upgraded peer. |
 
@@ -98,7 +99,7 @@ topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 
 ### Custom `MetricsCollector`
 
-If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Its 23 callbacks cover job outcomes, success finalization, claims and gates, wakeups and executor routing, callback and signal events, store timing, poller and application circuit breakers, and encryption integrity/version signals.
+If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Its callbacks cover job outcomes, success finalization, claims and gates, wakeups and executor routing, callback and signal events, store timing, poller and application circuit breakers, and encryption integrity/version signals.
 
 The example below is intentionally partial: it records two basic job outcomes and drops every other signal. Extending `NoOpMetricsCollector` is convenient when that is what you want. For a production replacement, review every callback in [Metrics Collection](../advanced/metrics-collection.md#metricscollector-spi) and either export it or delegate it to a complete collector.
 
