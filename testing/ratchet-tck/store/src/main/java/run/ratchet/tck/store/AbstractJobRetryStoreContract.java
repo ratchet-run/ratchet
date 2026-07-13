@@ -29,6 +29,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 
 /** Base contract tests for {@code JobRetryStore}. */
@@ -224,8 +225,9 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     JobEntity savedOwner = persist(activeOwner);
 
     assertThrows(
-        RuntimeException.class,
-        () -> store().resetFailedToPending(JobFilter.builder().tags(tag).build(), 10));
+        RatchetTransientStoreException.class,
+        () -> store().resetFailedToPending(JobFilter.builder().tags(tag).build(), 10),
+        "a business-key conflict is recoverable and must surface as the documented transient type");
 
     assertEquals(
         JobStatus.FAILED,

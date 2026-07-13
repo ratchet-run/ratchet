@@ -497,6 +497,10 @@ final class MysqlJobTerminalOperations {
       bindIds(reserveSql, ids).executeUpdate();
       return ids.size();
     } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Cannot bulk-resurrect jobs: business key already held", e);
+      }
       throw ctx.translateTransientStoreException("bulk reset failed jobs to pending", e);
     }
   }
