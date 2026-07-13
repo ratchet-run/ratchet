@@ -32,14 +32,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.internal.DefaultPollerScheduler;
-import run.ratchet.ri.core.internal.Poller;
+import run.ratchet.ri.core.internal.PollerCycleExecutor;
 import run.ratchet.spi.ExecutorProvider;
 
 @ExtendWith(MockitoExtension.class)
 class PollerSchedulerTest {
 
   @Mock private ExecutorProvider executorProvider;
-  @Mock private Poller poller;
+  @Mock private PollerCycleExecutor pollerCycleExecutor;
   @Mock private ScheduledExecutorService executor;
   @Mock private ScheduledFuture<Object> handle;
 
@@ -55,7 +55,8 @@ class PollerSchedulerTest {
     doReturn(handle)
         .when(executor)
         .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
-    DefaultPollerScheduler scheduler = new DefaultPollerScheduler(executorProvider, poller);
+    DefaultPollerScheduler scheduler =
+        new DefaultPollerScheduler(executorProvider, pollerCycleExecutor);
     schedulerRef.set(scheduler);
 
     assertDoesNotThrow(scheduler::start);
