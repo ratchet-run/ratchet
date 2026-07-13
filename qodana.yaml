@@ -55,6 +55,8 @@ exclude:
     paths:
       # The TCK polls a public observable effect because chained child handles are not returned.
       - testing/ratchet-tck/api/src/main/java/run/ratchet/tck/api/AbstractSimpleWorkflowContract.java
+      # Retry re-execution has no callback or returned child handle, so the TCK polls its probe.
+      - testing/ratchet-tck/api/src/main/java/run/ratchet/tck/api/AbstractJobControlReturnContract.java
       # Sleep inside the reconnect retry loop is exponential backoff with jitter, not polling.
       - coordinators/ratchet-coordinator-jms/src/main/java/run/ratchet/coordinator/jms/JmsConnectionLifecycle.java
 
