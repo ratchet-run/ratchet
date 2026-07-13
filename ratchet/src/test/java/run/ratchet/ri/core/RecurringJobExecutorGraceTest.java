@@ -441,6 +441,27 @@ class RecurringJobExecutorGraceTest {
     return children.getValue().stream().map(JobEntity::getScheduledTime).toList();
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void exhaustedMasterIsArchivedAndFinalChildIsBulkInserted() {
+    state.markRegistrationComplete(Set.of("known-key"));
+
+    RecurringJobDefinition exhausted =
+        recurringMasterWithFire(19L, "known-key", "0 0 12 12 5 ? 2026", FIXED_NOW);
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(exhausted));
+
+    int fired = executor.process(10, "node-A");
+
+    assertEquals(1, fired);
+    verify(recurringJobStore).cancelRecurringAndArchive(exhausted.id(), ArchiveReason.EXHAUSTED);
+    verify(recurringJobStore, never()).advanceNextFire(eq(exhausted.id()), any(Instant.class));
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(1, childrenCaptor.getValue().size());
+    assertEquals(exhausted.id(), childrenCaptor.getValue().get(0).getRecurringMasterId());
+  }
+
   private static RecurringJobDefinition recurringMaster(long id, String businessKey) {
     return recurringMasterWithFire(id, businessKey, "0 0 12 * * ?", FIXED_NOW.plusSeconds(60));
   }

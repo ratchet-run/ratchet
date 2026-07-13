@@ -35,6 +35,7 @@ class JobCancellationEventTest {
         new JobCancelledEvent(
             JOB_ID,
             "business-key",
+            null,
             JobType.SINGLE,
             JobPriority.HIGH,
             "node-a",
@@ -50,7 +51,14 @@ class JobCancellationEventTest {
     Instant before = Instant.now();
     JobCancelledEvent event =
         new JobCancelledEvent(
-            JOB_ID, "business-key", JobType.SINGLE, JobPriority.HIGH, "node-a", "PENDING", 7L);
+            JOB_ID,
+            "business-key",
+            null,
+            JobType.SINGLE,
+            JobPriority.HIGH,
+            "node-a",
+            "PENDING",
+            7L);
     Instant after = Instant.now();
 
     assertEquals(JOB_ID, event.getJobId());

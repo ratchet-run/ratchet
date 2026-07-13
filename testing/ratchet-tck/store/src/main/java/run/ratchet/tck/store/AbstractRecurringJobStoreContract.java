@@ -242,11 +242,9 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   /**
-   * TCK 5b — archive snapshot correctness: the row that lands in the archive carries the same
-   * identifying state the live row had. The implementor projects every column relevant to a
-   * post-mortem (id, businessKey, cron, archive reason, principal). The contract verifies the
-   * smallest visible projection: businessKey survives the archive write, and a re-create with the
-   * same businessKey succeeds because the bkres slot is freed by the same cancel.
+   * TCK 5b — archive snapshot correctness: the row that lands in the archive exposes the original
+   * business key and archive reason through the correlation read API. Re-creating the same key also
+   * proves the bkres slot is freed by the same cancel.
    */
   @Test
   void cancelRecurringAndArchive_archivedRowMatchesLiveSnapshot() {
@@ -258,6 +256,10 @@ public abstract class AbstractRecurringJobStoreContract {
 
     assertTrue(recurringStore().cancelRecurringAndArchive(first, ArchiveReason.CANCELED));
     assertTrue(recurringStore().findRecurringByBusinessKey(key).isEmpty());
+    var archived = recurringStore().findArchivedRecurring(first).orElseThrow();
+    assertEquals(first, archived.id());
+    assertEquals(key, archived.businessKey());
+    assertEquals(ArchiveReason.CANCELED, archived.archiveReason());
 
     // Re-registering the same key on a fresh id must succeed because the archive snapshot
     // does NOT keep the bkres slot occupied — that's the whole point of moving the row off the
@@ -266,6 +268,12 @@ public abstract class AbstractRecurringJobStoreContract {
     assertNotNull(
         recurringStore()
             .createRecurring(definitionWithBusinessKey(second, key, "0 0 * * * ?", Instant.now())));
+  }
+
+  /** TCK 5c — archive lookup of an unknown master id is empty. */
+  @Test
+  void findArchivedRecurring_unknownIdReturnsEmpty() {
+    assertTrue(recurringStore().findArchivedRecurring(UuidV7Factory.create()).isEmpty());
   }
 
   /** TCK 6 — orphan-absence: the bkres entry is removed in the same cancel transaction. */
@@ -291,9 +299,9 @@ public abstract class AbstractRecurringJobStoreContract {
    * TCK 7 — child lineage (master half): the recurring master's id round-trips so the executor has
    * the value it needs to stamp onto every spawned child's {@code recurring_master_id} column. The
    * child-side half of this contract — actually writing a {@link JobEntity} with {@code
-   * recurringMasterId} set and re-reading it through the cold-table mapper — lives in {@link
-   * #create_persistsRecurringMasterIdOnChildJob}: it needs both this capability (to create the
-   * master the child's foreign key references) and the core {@code create}/{@code findById}
+   * recurringMasterId} set after the master is archived, then re-reading it through the cold-table
+   * mapper — lives in {@link #bulkInsert_preservesRecurringMasterIdAfterMasterIsArchived}. It needs
+   * both the recurring archive capability and the core {@code bulkInsert}/{@code findById}
    * round-trip.
    */
   @Test
@@ -642,22 +650,22 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   /**
-   * A child job created with a {@code recurringMasterId} must persist that link and read it back.
-   * The child references a live master through a foreign key on SQL stores, so this contract
-   * belongs to the recurring capability rather than the core CRUD contract — it needs both a
-   * created master and the core {@code create}/{@code findById} round-trip.
+   * A child job created after its recurring master is archived must retain the durable lineage id.
+   * This mirrors natural cron exhaustion: the executor archives the exhausted master before it
+   * bulk-inserts the final child occurrence.
    */
   @Test
-  void create_persistsRecurringMasterIdOnChildJob() {
+  void bulkInsert_preservesRecurringMasterIdAfterMasterIsArchived() {
     UUID masterId = UuidV7Factory.create();
     recurringStore()
         .createRecurring(definition(masterId, "0 * * * * ?", Instant.now().plusSeconds(3600)));
+    assertTrue(recurringStore().cancelRecurringAndArchive(masterId, ArchiveReason.EXHAUSTED));
 
     JobEntity child = jobFixture().newPendingJob();
     child.setRecurringMasterId(masterId);
-    JobEntity created = jobFixture().store().create(child);
+    jobFixture().store().bulkInsert(List.of(child));
 
-    JobEntity reread = jobFixture().store().findById(created.getId()).orElseThrow();
+    JobEntity reread = jobFixture().store().findById(child.getId()).orElseThrow();
     assertEquals(
         masterId,
         reread.getRecurringMasterId(),

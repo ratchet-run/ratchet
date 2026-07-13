@@ -39,12 +39,13 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
   public JobCompletedEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }
 
@@ -60,11 +61,12 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
   public JobCompletedEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
     this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }
 

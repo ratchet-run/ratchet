@@ -175,8 +175,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     job_result JSONB,
     result_type           VARCHAR(100),
     -- Recurring-child lineage pointer. Set for child rows spawned by a recurring master; NULL
-    -- elsewhere. ON DELETE SET NULL so cancel of a master does not cascade-delete in-flight
-    -- children.
+    -- elsewhere. Intentionally unconstrained so the lineage id survives master cancellation or
+    -- exhaustion and remains resolvable through scheduler_recurring_job_archive.
     recurring_master_id   uuid,
     -- Per-row payload-encryption metadata (cleartext by design). encrypted_payload marks whether
     -- this row's protected surfaces are ciphertext; encryption_key_id records the key the
@@ -191,9 +191,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
                                     'CHAIN_STEP', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
-    CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
-    CONSTRAINT fk_job_recurring_master FOREIGN KEY (recurring_master_id)
-        REFERENCES scheduler_recurring_job (id) ON DELETE SET NULL
+    CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED'))
 );
 
 -- 4a. Hot authoritative queue state for executable jobs.

@@ -438,6 +438,7 @@ public class BatchService {
         new BatchCompletingEvent(
             batch.getId(),
             parent.getBusinessKey(),
+            parent.getRecurringMasterId(),
             parent.getPublicJobType(),
             parent.getPriority(),
             parent.getPickedBy(),
@@ -448,6 +449,7 @@ public class BatchService {
         new BatchCompletedEvent(
             batch.getId(),
             parent.getBusinessKey(),
+            parent.getRecurringMasterId(),
             parent.getPublicJobType(),
             parent.getPriority(),
             parent.getPickedBy(),
@@ -459,6 +461,7 @@ public class BatchService {
           new JobCompletedEvent(
               parent.getId(),
               parent.getBusinessKey(),
+              parent.getRecurringMasterId(),
               parent.getPublicJobType(),
               parent.getPriority(),
               parent.getPickedBy(),
@@ -471,6 +474,7 @@ public class BatchService {
         new JobFailedEvent(
             parent.getId(),
             parent.getBusinessKey(),
+            parent.getRecurringMasterId(),
             parent.getPublicJobType(),
             parent.getPriority(),
             parent.getPickedBy(),

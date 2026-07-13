@@ -51,6 +51,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
   public JobSignaledEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -59,6 +60,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
     this(
         jobId,
         businessKey,
+        recurringMasterId,
         jobType,
         priority,
         nodeId,
@@ -80,6 +82,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
   public JobSignaledEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -88,7 +91,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
       String signalDeliveredBy,
       SignalDecision.Outcome outcome,
       String rejectionReason) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.signalKey = EventContract.requireNonBlank(signalKey, "signalKey");
     this.signalDeliveredBy = EventContract.requireNonBlank(signalDeliveredBy, "signalDeliveredBy");
     this.outcome = EventContract.requireNonNull(outcome, "outcome");
@@ -110,6 +113,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
   public JobSignaledEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -120,6 +124,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
     this(
         jobId,
         businessKey,
+        recurringMasterId,
         jobType,
         priority,
         nodeId,

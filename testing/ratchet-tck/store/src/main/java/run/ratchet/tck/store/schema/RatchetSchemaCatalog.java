@@ -116,13 +116,6 @@ public final class RatchetSchemaCatalog {
         .column(required("encrypted_payload", BOOLEAN))
         .column(nullable("encryption_key_id", TEXT))
         .primaryKey("job_id")
-        .foreignKey(
-            new ForeignKey(
-                "fk_job_recurring_master",
-                "recurring_master_id",
-                "scheduler_recurring_job",
-                "id",
-                OnDeleteAction.SET_NULL))
         .index(Index.unique("uk_idempotency_key", "idempotency_key"))
         .index(Index.of("idx_job_depends_on", "depends_on"))
         .index(Index.of("idx_job_superseded_by", "superseded_by"))

@@ -85,18 +85,9 @@ class RatchetSchemaCatalogTest {
         columns.contains("trace_context"),
         "scheduler_job should declare trace_context (W3C TraceContext captured at enqueue)");
 
-    ForeignKey fk =
-        job.foreignKeys().stream()
-            .filter(f -> f.name().equals("fk_job_recurring_master"))
-            .findFirst()
-            .orElseThrow();
-    assertEquals("recurring_master_id", fk.column());
-    assertEquals("scheduler_recurring_job", fk.refTable());
-    assertEquals("id", fk.refColumn());
-    assertEquals(
-        OnDeleteAction.SET_NULL,
-        fk.onDelete(),
-        "recurring-master FK must be ON DELETE SET NULL to match the DDL");
+    assertTrue(
+        job.foreignKeys().stream().noneMatch(f -> f.column().equals("recurring_master_id")),
+        "recurring_master_id must remain unconstrained so lineage survives master archival");
 
     assertEquals(
         List.of("recurring_master_id"),

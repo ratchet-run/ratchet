@@ -43,6 +43,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
   public JobRetryingEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -50,7 +51,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
       String errorMessage,
       int retryAttempt,
       Instant scheduledTime) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.errorMessage = errorMessage;
     this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
     this.scheduledTime = EventContract.requireNonNull(scheduledTime, "scheduledTime");
@@ -70,13 +71,14 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
   public JobRetryingEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       String errorMessage,
       int retryAttempt,
       Instant scheduledTime) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
     this.errorMessage = errorMessage;
     this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
     this.scheduledTime = EventContract.requireNonNull(scheduledTime, "scheduledTime");

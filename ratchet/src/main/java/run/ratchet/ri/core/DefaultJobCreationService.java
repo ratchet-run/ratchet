@@ -871,6 +871,7 @@ class DefaultJobCreationService
               new BatchChunkFailureEvent(
                   parentId,
                   null,
+                  null,
                   JobType.BATCH,
                   JobPriority.NORMAL,
                   null,
@@ -1112,6 +1113,7 @@ class DefaultJobCreationService
         new JobSignalWaitingEvent(
             saved.getId(),
             saved.getBusinessKey(),
+            saved.getRecurringMasterId(),
             saved.getPublicJobType(),
             saved.getPriority(),
             null,

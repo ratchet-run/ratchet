@@ -38,16 +38,22 @@ public class JobStartedEvent extends AbstractJobSchedulerEvent {
   public JobStartedEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
   }
 
   /** Creates a start event using the current system clock instant. */
   public JobStartedEvent(
-      UUID jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+      UUID jobId,
+      String businessKey,
+      UUID recurringMasterId,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId) {
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
   }
 }

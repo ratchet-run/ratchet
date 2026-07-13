@@ -69,6 +69,7 @@ import org.bson.conversions.Bson;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.util.JobEncryption;
@@ -224,6 +225,12 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
             return Boolean.TRUE;
           });
     }
+  }
+
+  @Override
+  public Optional<ArchivedRecurringJob> findArchivedRecurring(UUID id) {
+    Document doc = ctx.recurringJobArchive().find(eq(ID, id)).first();
+    return doc == null ? Optional.empty() : Optional.of(hydrateArchived(doc));
   }
 
   @Override
@@ -402,5 +409,18 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
 
   private static RecurringJobDefinition hydrate(Document doc) {
     return DocumentMapper.toRecurringJobDefinition(doc);
+  }
+
+  private static ArchivedRecurringJob hydrateArchived(Document doc) {
+    return new ArchivedRecurringJob(
+        doc.get(ID, UUID.class),
+        doc.getString(BUSINESS_KEY),
+        doc.getString(CRON_EXPR),
+        doc.getString(ZONE_ID),
+        doc.getString(EXECUTION_TARGET),
+        doc.getString(CALLER_PRINCIPAL),
+        DocumentMapper.toInstant(doc.getDate(CREATED_AT)),
+        DocumentMapper.toInstant(doc.getDate(ARCHIVED_AT)),
+        ArchiveReason.valueOf(doc.getString(ARCHIVE_REASON)));
   }
 }

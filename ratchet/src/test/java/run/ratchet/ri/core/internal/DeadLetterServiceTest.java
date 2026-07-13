@@ -260,6 +260,7 @@ class DeadLetterServiceTest {
         new JobExecutionTimedOutEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -271,6 +272,7 @@ class DeadLetterServiceTest {
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -303,6 +305,7 @@ class DeadLetterServiceTest {
         new JobSignalTimedOutEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -313,6 +316,7 @@ class DeadLetterServiceTest {
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -341,6 +345,7 @@ class DeadLetterServiceTest {
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -366,6 +371,7 @@ class DeadLetterServiceTest {
         new JobSignalTimedOutEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -376,6 +382,7 @@ class DeadLetterServiceTest {
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),

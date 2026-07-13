@@ -128,6 +128,17 @@ public interface RecurringJobStore {
   boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason);
 
   /**
+   * Resolves an archived recurring definition by its durable master id. Archived definitions remain
+   * available after cancellation or natural exhaustion so fired child jobs can retain a stable
+   * lineage reference. Transaction attribute: {@code SUPPORTS}.
+   *
+   * @param id recurring master id to resolve; never {@code null}
+   * @return the archived recurring definition, or {@link Optional#empty()} when {@code id} has not
+   *     been archived
+   */
+  Optional<ArchivedRecurringJob> findArchivedRecurring(UUID id);
+
+  /**
    * Node-startup cleanup. Cancels (with reason {@link ArchiveReason#CANCELED}) every recurring
    * master whose {@code business_key} no longer appears in the supplied {@code knownBusinessKeys}
    * set AND was created before {@code nodeStartTime}. Used to retire {@code @Recurring} annotation

@@ -788,9 +788,9 @@ public class DefaultJobSchedulerService
 
   /**
    * Publishes a {@link JobCancelledEvent} for a successful cancellation CAS. Uses the pre-CAS
-   * entity snapshot to populate businessKey / jobType / priority / nodeId on the event so
-   * downstream observers (audit logs, monitoring) get the same shape for each cancellable source
-   * state.
+   * entity snapshot to populate businessKey / recurringMasterId / jobType / priority / nodeId on
+   * the event so downstream observers (audit logs, monitoring) get the same shape for each
+   * cancellable source state.
    */
   private void publishCancelledEvent(UUID jobId, JobStatus previousStatus, JobEntity job) {
     Instant timestamp = effective().instant();
@@ -799,10 +799,11 @@ public class DefaultJobSchedulerService
             // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers
             // at least know the cancellation happened.
             ? new JobCancelledEvent(
-                jobId, null, null, null, null, timestamp, previousStatus.name(), null)
+                jobId, null, null, null, null, null, timestamp, previousStatus.name(), null)
             : new JobCancelledEvent(
                 jobId,
                 job.getBusinessKey(),
+                job.getRecurringMasterId(),
                 job.getPublicJobType(),
                 job.getPriority(),
                 job.getPickedBy(),
@@ -823,6 +824,7 @@ public class DefaultJobSchedulerService
         new JobCancelledEvent(
             jobId,
             def.businessKey(),
+            null,
             run.ratchet.api.JobType.RECURRING,
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
@@ -840,10 +842,11 @@ public class DefaultJobSchedulerService
     if (eventPublisher != null) {
       JobRetryingEvent event =
           job == null
-              ? new JobRetryingEvent(jobId, null, null, null, null, retryAt, null, 1, retryAt)
+              ? new JobRetryingEvent(jobId, null, null, null, null, null, retryAt, null, 1, retryAt)
               : new JobRetryingEvent(
                   jobId,
                   job.getBusinessKey(),
+                  job.getRecurringMasterId(),
                   job.getPublicJobType(),
                   job.getPriority(),
                   job.getPickedBy(),
@@ -897,6 +900,7 @@ public class DefaultJobSchedulerService
         new JobPausedEvent(
             jobId,
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -912,6 +916,7 @@ public class DefaultJobSchedulerService
         new JobResumedEvent(
             jobId,
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -927,6 +932,7 @@ public class DefaultJobSchedulerService
         new JobPausedEvent(
             jobId,
             def.businessKey(),
+            null,
             run.ratchet.api.JobType.RECURRING,
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
@@ -942,6 +948,7 @@ public class DefaultJobSchedulerService
         new JobResumedEvent(
             jobId,
             def.businessKey(),
+            null,
             run.ratchet.api.JobType.RECURRING,
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
@@ -1162,6 +1169,7 @@ public class DefaultJobSchedulerService
         new JobSignaledEvent(
             jobId,
             job != null ? job.getBusinessKey() : null,
+            job != null ? job.getRecurringMasterId() : null,
             job != null ? job.getPublicJobType() : null,
             job != null ? job.getPriority() : null,
             null,

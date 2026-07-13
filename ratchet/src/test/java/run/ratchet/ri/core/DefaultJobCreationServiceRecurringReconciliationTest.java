@@ -43,6 +43,7 @@ import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
@@ -407,6 +408,11 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
 
     @Override
     public boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<ArchivedRecurringJob> findArchivedRecurring(UUID id) {
       throw new UnsupportedOperationException();
     }
 

@@ -45,6 +45,7 @@ import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JobPriorityConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.id.UuidV7EntityListener;
+import run.ratchet.store.spi.RecurringJobStore;
 
 /** Persisted record of a scheduled task. @see JobStatus @see JobExecutionType */
 @Entity
@@ -195,8 +196,9 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   private UUID supersededBy;
 
   /**
-   * Set on child rows spawned by a recurring master. Points to the master's id in {@code
-   * scheduler_recurring_job} via FK with {@code ON DELETE SET NULL}.
+   * Durable lineage reference set on child rows spawned by a recurring master. The value
+   * intentionally survives master cancellation or exhaustion and remains resolvable through {@link
+   * RecurringJobStore#findArchivedRecurring(UUID)} after the live master ends.
    */
   @Column(name = "recurring_master_id")
   private UUID recurringMasterId;

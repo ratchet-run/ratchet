@@ -27,6 +27,7 @@ import java.util.UUID;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
@@ -49,6 +50,11 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
           + " on_success_payload::text, on_failure_payload::text, business_key, resource_name,"
           + " execution_target, created_at, caller_principal, encrypted_payload,"
           + " misfire_policy, max_catch_up_executions";
+
+  // language=PostgreSQL
+  private static final String ARCHIVE_SELECT_COLUMNS =
+      "id, business_key, cron_expr, zone_id, execution_target, caller_principal, created_at,"
+          + " archived_at, archive_reason";
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlBusinessKeyReservations reservations;
@@ -144,6 +150,19 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
   @Override
   public boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason) {
     return archiveAndDelete(List.of(id), reason) > 0;
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public Optional<ArchivedRecurringJob> findArchivedRecurring(UUID id) {
+    // language=PostgreSQL
+    String sql =
+        "SELECT " + ARCHIVE_SELECT_COLUMNS + " FROM scheduler_recurring_job_archive WHERE id = ?";
+    List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
+    if (rows.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.of(RecurringJobRows.hydrateArchived(rows.get(0)));
   }
 
   @Override

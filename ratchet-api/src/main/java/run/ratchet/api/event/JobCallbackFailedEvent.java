@@ -41,6 +41,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
   public JobCallbackFailedEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -49,7 +50,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
       String errorMessage,
       String causeClassName,
       int callbackAttempt) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.callbackType = EventContract.requireNonNull(callbackType, "callbackType");
     this.errorMessage = errorMessage;
     this.causeClassName = EventContract.requireNonBlank(causeClassName, "causeClassName");
@@ -65,6 +66,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
   public JobCallbackFailedEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -72,7 +74,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
       String errorMessage,
       String causeClassName,
       int callbackAttempt) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
     this.callbackType = EventContract.requireNonNull(callbackType, "callbackType");
     this.errorMessage = errorMessage;
     this.causeClassName = EventContract.requireNonBlank(causeClassName, "causeClassName");

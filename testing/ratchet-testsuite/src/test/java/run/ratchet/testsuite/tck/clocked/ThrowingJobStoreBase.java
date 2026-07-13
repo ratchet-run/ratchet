@@ -38,6 +38,7 @@ import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
@@ -755,6 +756,11 @@ public abstract class ThrowingJobStoreBase
   public boolean cancelRecurringAndArchive(
       UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
     return fail("cancelRecurringAndArchive");
+  }
+
+  @Override
+  public Optional<ArchivedRecurringJob> findArchivedRecurring(UUID id) {
+    return fail("findArchivedRecurring");
   }
 
   @Override

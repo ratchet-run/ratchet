@@ -27,8 +27,9 @@ import run.ratchet.api.JobType;
  * Base class for per-job lifecycle events published by Ratchet.
  *
  * <p>Subclasses carry a snapshot of public job metadata at the time the event is created. Fields
- * such as {@code businessKey}, {@code jobType}, {@code priority}, and {@code nodeId} may be {@code
- * null} when Ratchet can no longer load the job row after a successful state transition.
+ * such as {@code businessKey}, {@code recurringMasterId}, {@code jobType}, {@code priority}, and
+ * {@code nodeId} may be {@code null} when Ratchet can no longer load the job row after a successful
+ * state transition.
  */
 @Incubating
 public abstract class AbstractJobSchedulerEvent implements Serializable {
@@ -37,6 +38,7 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
 
   private final UUID jobId;
   private final String businessKey;
+  private final UUID recurringMasterId;
   private final JobType jobType;
   private final JobPriority priority;
   private final String nodeId;
@@ -45,12 +47,14 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
   protected AbstractJobSchedulerEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp) {
     this.jobId = EventContract.requireNonNull(jobId, "jobId");
     this.businessKey = businessKey;
+    this.recurringMasterId = recurringMasterId;
     this.jobType = jobType;
     this.priority = priority;
     this.nodeId = nodeId;
@@ -64,8 +68,13 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
    * constructor that accepts an explicit {@link Instant}.
    */
   protected AbstractJobSchedulerEvent(
-      UUID jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
-    this(jobId, businessKey, jobType, priority, nodeId, Instant.now());
+      UUID jobId,
+      String businessKey,
+      UUID recurringMasterId,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId) {
+    this(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, Instant.now());
   }
 
   /** Returns the job id affected by this event. */
@@ -76,6 +85,17 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
   /** Returns the business key captured for the job, or {@code null} when unavailable. */
   public String getBusinessKey() {
     return businessKey;
+  }
+
+  /**
+   * Returns the recurring master id that owns this job's lineage, or {@code null} for jobs that
+   * were not fired from a recurring definition or when lineage metadata was unavailable.
+   *
+   * <p>The id remains usable after the recurring definition is canceled or exhausted and can be
+   * resolved through the recurring-job archive.
+   */
+  public UUID getRecurringMasterId() {
+    return recurringMasterId;
   }
 
   /** Returns the public job type captured for the job, or {@code null} when unavailable. */

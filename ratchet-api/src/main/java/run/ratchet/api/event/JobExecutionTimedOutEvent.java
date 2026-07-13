@@ -50,6 +50,7 @@ public class JobExecutionTimedOutEvent extends AbstractJobSchedulerEvent {
   public JobExecutionTimedOutEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -57,7 +58,7 @@ public class JobExecutionTimedOutEvent extends AbstractJobSchedulerEvent {
       Duration executionTimeout,
       Duration elapsedTime,
       int retryAttempt) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.executionTimeout = EventContract.requirePositive(executionTimeout, "executionTimeout");
     this.elapsedTime = EventContract.requireNonNegative(elapsedTime, "elapsedTime");
     this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
@@ -73,6 +74,7 @@ public class JobExecutionTimedOutEvent extends AbstractJobSchedulerEvent {
   public JobExecutionTimedOutEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -82,6 +84,7 @@ public class JobExecutionTimedOutEvent extends AbstractJobSchedulerEvent {
     this(
         jobId,
         businessKey,
+        recurringMasterId,
         jobType,
         priority,
         nodeId,
