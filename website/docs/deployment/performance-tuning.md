@@ -355,7 +355,7 @@ Add the `ratchet-micrometer` module instead of maintaining a lifecycle-only coll
 </dependency>
 ```
 
-The bundled adapter covers all 22 `MetricsCollector` callbacks, including store-finalization fallbacks, claim-breaker state, and encryption rollout signals. See [Monitoring](./monitoring.md#published-metrics) for the meter catalog and setup.
+The bundled adapter covers the full `MetricsCollector` surface, including store-finalization fallbacks, claim and application circuit-breaker state, and encryption rollout signals. See [Monitoring](./monitoring.md#published-metrics) for the meter catalog and setup.
 
 ### Useful dashboard queries
 
