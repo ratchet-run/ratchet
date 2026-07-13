@@ -159,42 +159,59 @@ public abstract class AbstractBusinessKeyContract {
    * must occur.
    */
   @Test
-  void concurrentSubmitsWithSameBusinessKey_executeOnce() {
+  void concurrentSubmitsWithSameBusinessKey_executeOnce() throws InterruptedException {
     String businessKey = uniqueKey("concurrent-dup");
+    CountDownLatch winnerStarted = TckJobs.beginBlocking();
     AtomicReference<JobHandle> handleA = new AtomicReference<>();
     AtomicReference<JobHandle> handleB = new AtomicReference<>();
 
-    List<Throwable> outcomes =
-        ConcurrentTestRunner.runAll(
-            defaultTimeout().plus(Duration.ofSeconds(2)),
-            () -> {
-              JobHandle h =
-                  runtime()
-                      .scheduler()
-                      .enqueue(TckJobs::noop)
-                      .withBusinessKey(businessKey)
-                      .submit();
-              handleA.set(h);
-              runtime().probe().track(h);
-            },
-            () -> {
-              JobHandle h =
-                  runtime()
-                      .scheduler()
-                      .enqueue(TckJobs::noop)
-                      .withBusinessKey(businessKey)
-                      .submit();
-              handleB.set(h);
-              runtime().probe().track(h);
-            });
+    JobHandle survivor;
+    try {
+      List<Throwable> outcomes =
+          ConcurrentTestRunner.runAll(
+              defaultTimeout().plus(Duration.ofSeconds(2)),
+              () -> {
+                JobHandle h =
+                    runtime()
+                        .scheduler()
+                        .enqueue(TckJobs::blockUntilReleased)
+                        .withBusinessKey(businessKey)
+                        .submit();
+                handleA.set(h);
+                runtime().probe().track(h);
+              },
+              () -> {
+                JobHandle h =
+                    runtime()
+                        .scheduler()
+                        .enqueue(TckJobs::blockUntilReleased)
+                        .withBusinessKey(businessKey)
+                        .submit();
+                handleB.set(h);
+                runtime().probe().track(h);
+              });
 
-    long submitWinners = outcomes.stream().filter(t -> t == null).count();
-    assertTrue(
-        submitWinners >= 1,
-        "At least one of two concurrent submitters must succeed; outcomes=" + outcomes);
+      long submitWinners = outcomes.stream().filter(t -> t == null).count();
+      assertTrue(
+          submitWinners >= 1,
+          "At least one of two concurrent submitters must succeed; outcomes=" + outcomes);
 
-    JobHandle survivor = handleA.get() != null ? handleA.get() : handleB.get();
-    assertNotNull(survivor, "Surviving handle must be observable");
+      if (handleA.get() != null && handleB.get() != null) {
+        assertEquals(
+            handleA.get().id(),
+            handleB.get().id(),
+            "Two successful submitters must observe the same active job");
+      }
+
+      survivor = handleA.get() != null ? handleA.get() : handleB.get();
+      assertNotNull(survivor, "Surviving handle must be observable");
+      assertTrue(
+          winnerStarted.await(defaultTimeout().toMillis(), TimeUnit.MILLISECONDS),
+          "Surviving job must start while its business key is still reserved");
+    } finally {
+      TckJobs.release();
+    }
+
     Duration completionTimeout = defaultTimeout().plus(Duration.ofSeconds(10));
     assertTrue(
         runtime().probe().awaitCompleted(survivor, completionTimeout),
