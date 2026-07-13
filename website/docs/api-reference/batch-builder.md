@@ -40,6 +40,34 @@ List<Long> orderIds = List.of(1L, 2L, 3L, 4L, 5L);
 
 scheduler.enqueueBatch("Process Orders")
     .forEach(orderIds, orderId -> orderService.process(orderId))
+    .withMaxRetries(3)
+    .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
+    .submit();
+```
+
+### withMaxRetries
+
+```java
+BatchBuilder withMaxRetries(int retries)
+```
+
+Sets the number of retry attempts for every child job. The default is `0`, so a child runs once unless retries are explicitly enabled. A negative value throws `IllegalArgumentException`.
+
+The setting belongs to the whole builder and applies even when called after `forEach`. It does not apply to the no-op batch parent or workflow branches.
+
+### withBackoff
+
+```java
+BatchBuilder withBackoff(BackoffPolicy policy, Duration param)
+```
+
+Sets the backoff policy and base delay used between child retry attempts. Both arguments are required. This does not enable retries by itself; set `withMaxRetries` to a positive value as well. The setting applies to the whole builder, regardless of call order.
+
+```java
+scheduler.enqueueBatch("Process Orders")
+    .forEach(orderIds, orderId -> orderService.process(orderId))
+    .withMaxRetries(3)
+    .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
     .submit();
 ```
 
@@ -233,6 +261,15 @@ Obtained from [`JobSchedulerService.streamingBatch()`](./job-scheduler-service#s
 
 Framework extensions that build invocations directly (rather than serializing lambdas) have mirrored builders — `InvocationBatchBuilder` and `InvocationStreamingBatchBuilder<T>` — on the [`InvocationSubmissionService`](./spi-interfaces#invocationsubmissionservice) SPI.
 
+`StreamingBatchBuilder` exposes the same child retry methods as `BatchBuilder`:
+
+```java
+StreamingBatchBuilder<T> withMaxRetries(int retries)
+StreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param)
+```
+
+The invocation-typed mirrors expose the same methods and persist the same child retry options.
+
 ### fromStream
 
 ```java
@@ -354,6 +391,8 @@ JobHandle handle = scheduler.<Long>streamingBatch("Full Migration")
     .fromStream(repository.streamAll())
     .process(id -> migrationService.migrate(id))
     .withChunkSize(1000)
+    .withMaxRetries(3)
+    .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
     .onProgress(ctx -> log.info("Streamed {} items", ctx.processedItems()))
     .thenOnBatchSuccess(() -> log.info("Migration complete"))
     .thenOnBatchFailure(() -> alertService.migrationFailed())

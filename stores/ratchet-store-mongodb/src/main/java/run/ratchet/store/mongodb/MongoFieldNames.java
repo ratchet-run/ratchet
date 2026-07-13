@@ -48,6 +48,9 @@ final class MongoFieldNames {
   // Keys
   static final String BUSINESS_KEY = "business_key";
   static final String IDEMPOTENCY_KEY = "idempotency_key";
+  static final String OWNER_JOB_ID = "owner_job_id";
+  static final String OWNER_TABLE = "owner_table";
+  static final String RESERVED_AT = "reserved_at";
   // Workflow linkage
   static final String DEPENDS_ON = "depends_on";
   static final String TAGS = "tags";
@@ -105,9 +108,7 @@ final class MongoFieldNames {
   static final String CHILD_JOB_ID = "child_job_id";
   static final String CONDITION_TYPE = "condition_type";
   static final String CONDITION_PRIORITY = "condition_priority";
-  // DLQ alert
-  static final String ERROR_HASH = "error_hash";
-  static final String ALERT_SENT_AT = "alert_sent_at";
+  static final String DEFINITION_ORDER = "definition_order";
   // Observability
   static final String TRACE_CONTEXT = "trace_context";
   // Resource permit / limit
@@ -133,6 +134,8 @@ final class MongoFieldNames {
   static final String BACKOFF_POLICY = "backoff_policy";
   static final String BACKOFF_PARAM_MS = "backoff_param_ms";
   static final String TIMEOUT_SEC = "timeout_sec";
+  static final String MISFIRE_POLICY = "misfire_policy";
+  static final String MAX_CATCH_UP_EXECUTIONS = "max_catch_up_executions";
 
   // Signal-waiting jobs
   static final String SIGNAL_KEY = "signal_key";

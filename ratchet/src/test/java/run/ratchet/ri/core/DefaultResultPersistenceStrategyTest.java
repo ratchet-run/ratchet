@@ -49,9 +49,11 @@ class DefaultResultPersistenceStrategyTest {
 
     SerializedJobResult result = strategy.serialize(new UUID(0L, 42L), "éé");
 
-    assertEquals(String.class.getName(), result.type());
+    assertEquals(SerializedJobResult.TRUNCATED_RESULT_TYPE, result.type());
     assertTrue(result.json().contains("\"_truncated\":true"));
     assertTrue(result.json().contains("\"_originalSize\":6"));
+    assertTrue(result.json().contains("\"_maxAllowed\":5"));
+    assertTrue(result.json().contains("\"_resultType\":\"java.lang.String\""));
   }
 
   @Test
@@ -117,6 +119,27 @@ class DefaultResultPersistenceStrategyTest {
         "\"top-secret-result\"",
         PayloadEncryptor.decryptJsonColumn(
             result.json(), EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId)));
+  }
+
+  @Test
+  void truncatedResultKeepsItsStateVisibleWhileEncryptingMarkerMetadata() {
+    EncryptionTestKit.install(true);
+    UUID jobId = new UUID(0L, 100L);
+    DefaultResultPersistenceStrategy strategy =
+        strategy(RatchetOptions.builder().payload(payload -> payload.maxResultBytes(5)).build());
+
+    SerializedJobResult result = strategy.serialize(jobId, "top-secret-result");
+
+    assertEquals(SerializedJobResult.TRUNCATED_RESULT_TYPE, result.type());
+    assertFalse(result.json().contains("_truncated"));
+    assertFalse(result.json().contains("top-secret-result"));
+    String marker =
+        PayloadEncryptor.decryptJsonColumn(
+            result.json(), EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId));
+    assertTrue(marker.contains("\"_truncated\":true"));
+    assertTrue(marker.contains("\"_originalSize\":19"));
+    assertTrue(marker.contains("\"_maxAllowed\":5"));
+    assertTrue(marker.contains("\"_resultType\":\"java.lang.String\""));
   }
 
   private static DefaultResultPersistenceStrategy strategy(RatchetOptions options) {

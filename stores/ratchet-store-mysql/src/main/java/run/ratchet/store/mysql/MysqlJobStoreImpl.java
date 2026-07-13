@@ -39,7 +39,6 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -379,6 +378,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
+  }
+
+  @Override
   public boolean resetRunningJob(UUID id, String nodeId) {
     return lifecycle.resetRunningJob(id, nodeId);
   }
@@ -556,8 +560,9 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    return archives.archiveJobsBatch(jobsToArchive, reason, archivedBy);
+  public int archiveAndDeleteJobsBatch(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+    return archives.archiveAndDeleteJobsBatch(jobsToArchive, reason, archivedBy);
   }
 
   @Override
@@ -688,16 +693,6 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    return auxiliary.saveDlqAlert(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    return auxiliary.existsRecentDlqAlert(jobId, errorHash, cutoff);
-  }
-
-  @Override
   public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     return auxiliary.tryAcquirePermit(resource, jobId, nodeId);
   }
@@ -825,7 +820,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     query = new MysqlJobQueryOperations(ctx, mapper, tags);
     batches = new MysqlBatchOperations(ctx);
     claims = new MysqlJobClaimOperations(ctx, jobs);
-    lifecycle = new MysqlJobLifecycleOperations(ctx, reservations, batches);
+    lifecycle = new MysqlJobLifecycleOperations(ctx, reservations, batches, query);
     nodeLocks = new MysqlNodeLockOperations(ctx);
     archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
     auxiliary = new MysqlAuxiliaryOperations(ctx);

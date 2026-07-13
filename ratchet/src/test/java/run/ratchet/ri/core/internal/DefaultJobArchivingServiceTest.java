@@ -58,7 +58,6 @@ import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
-import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.LockStore;
 
 @ExtendWith(MockitoExtension.class)
@@ -72,7 +71,6 @@ class DefaultJobArchivingServiceTest {
   // Fires once a day — a valid Quartz cron used to satisfy init() without real scheduling
   private static final String DAILY_CRON = "0 0 2 * * ?";
 
-  @Mock private JobBulkStore jobBulkStore;
   @Mock private ArchiveStore archiveStore;
   @Mock private SingletonLeaseService singletonLeaseService;
   @Mock private ExecutorProvider executorProvider;
@@ -100,7 +98,7 @@ class DefaultJobArchivingServiceTest {
   void setUp() {
     service =
         new DefaultJobArchivingService(
-            jobBulkStore, archiveStore, singletonLeaseService, executorProvider, FIXED_CLOCK);
+            archiveStore, singletonLeaseService, executorProvider, FIXED_CLOCK);
 
     lenient().when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     lenient()
@@ -117,8 +115,7 @@ class DefaultJobArchivingServiceTest {
     verify(singletonLeaseService, never()).tryAcquire(anyString(), any(Duration.class));
     verify(archiveStore, never()).countJobsForArchiving(any());
     verify(archiveStore, never()).findJobsForArchiving(any(), anyInt());
-    verify(archiveStore, never()).archiveJobsBatch(any(), anyString(), anyString());
-    verify(jobBulkStore, never()).deleteJobsByIds(any());
+    verify(archiveStore, never()).archiveAndDeleteJobsBatch(any(), anyString(), anyString());
   }
 
   @Test
@@ -132,8 +129,7 @@ class DefaultJobArchivingServiceTest {
 
     verify(archiveStore, never()).countJobsForArchiving(any());
     verify(archiveStore, never()).findJobsForArchiving(any(), anyInt());
-    verify(archiveStore, never()).archiveJobsBatch(any(), anyString(), anyString());
-    verify(jobBulkStore, never()).deleteJobsByIds(any());
+    verify(archiveStore, never()).archiveAndDeleteJobsBatch(any(), anyString(), anyString());
   }
 
   @Test
@@ -181,12 +177,11 @@ class DefaultJobArchivingServiceTest {
     service.run();
 
     verify(archiveStore, never()).findJobsForArchiving(any(), anyInt());
-    verify(archiveStore, never()).archiveJobsBatch(any(), anyString(), anyString());
-    verify(jobBulkStore, never()).deleteJobsByIds(any());
+    verify(archiveStore, never()).archiveAndDeleteJobsBatch(any(), anyString(), anyString());
   }
 
   @Test
-  void run_archivesAndDeletesJobs_happyPathSingleBatch() {
+  void run_movesJobsAtomically_happyPathSingleBatch() {
     int batchSize = 50;
     service.init(true, 7, batchSize, parsedCron());
 
@@ -197,16 +192,14 @@ class DefaultJobArchivingServiceTest {
 
     when(archiveStore.countJobsForArchiving(any())).thenReturn(2L);
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
-    when(archiveStore.archiveJobsBatch(eq(batch), eq("retention_policy"), eq("system")))
+    when(archiveStore.archiveAndDeleteJobsBatch(eq(batch), eq("retention_policy"), eq("system")))
         .thenReturn(2);
-    when(jobBulkStore.deleteJobsByIds(List.of(new UUID(0L, 1L), new UUID(0L, 2L)))).thenReturn(2);
     when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
 
     service.run();
 
     verify(archiveStore).findJobsForArchiving(any(), eq(batchSize));
-    verify(archiveStore).archiveJobsBatch(eq(batch), eq("retention_policy"), eq("system"));
-    verify(jobBulkStore).deleteJobsByIds(List.of(new UUID(0L, 1L), new UUID(0L, 2L)));
+    verify(archiveStore).archiveAndDeleteJobsBatch(eq(batch), eq("retention_policy"), eq("system"));
     verify(archiveStore).purgeArchivedJobs(any());
   }
 
@@ -222,8 +215,8 @@ class DefaultJobArchivingServiceTest {
 
     when(archiveStore.countJobsForArchiving(any())).thenReturn(3L);
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(smallBatch);
-    when(archiveStore.archiveJobsBatch(eq(smallBatch), anyString(), anyString())).thenReturn(3);
-    when(jobBulkStore.deleteJobsByIds(any())).thenReturn(3);
+    when(archiveStore.archiveAndDeleteJobsBatch(eq(smallBatch), anyString(), anyString()))
+        .thenReturn(3);
     when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
 
     service.run();
@@ -244,34 +237,15 @@ class DefaultJobArchivingServiceTest {
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize)))
         .thenReturn(fullBatch)
         .thenReturn(List.of());
-    when(archiveStore.archiveJobsBatch(eq(fullBatch), anyString(), anyString())).thenReturn(2);
-    when(jobBulkStore.deleteJobsByIds(any())).thenReturn(2);
+    when(archiveStore.archiveAndDeleteJobsBatch(eq(fullBatch), anyString(), anyString()))
+        .thenReturn(2);
     when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
 
     service.run();
 
     verify(archiveStore, times(2)).findJobsForArchiving(any(), eq(batchSize));
-    verify(archiveStore, times(1)).archiveJobsBatch(eq(fullBatch), anyString(), anyString());
-  }
-
-  @Test
-  void run_deletesOnlyArchivedRowsWhenStoreArchivesPartialBatch() {
-    int batchSize = 50;
-    service.init(true, 7, batchSize, parsedCron());
-
-    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
-        .thenReturn(acquiredLease());
-
-    List<JobEntity> batch = List.of(jobEntity(30L), jobEntity(31L), jobEntity(32L));
-    when(archiveStore.countJobsForArchiving(any())).thenReturn(3L);
-    when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
-    when(archiveStore.archiveJobsBatch(eq(batch), anyString(), anyString())).thenReturn(2);
-    when(jobBulkStore.deleteJobsByIds(any())).thenReturn(2);
-    when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
-
-    service.run();
-
-    verify(jobBulkStore).deleteJobsByIds(List.of(new UUID(0L, 30L), new UUID(0L, 31L)));
+    verify(archiveStore, times(1))
+        .archiveAndDeleteJobsBatch(eq(fullBatch), anyString(), anyString());
   }
 
   @Test
@@ -285,8 +259,7 @@ class DefaultJobArchivingServiceTest {
     List<JobEntity> batch = List.of(jobEntity(1L));
     when(archiveStore.countJobsForArchiving(any())).thenReturn(1L);
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
-    when(archiveStore.archiveJobsBatch(eq(batch), anyString(), anyString())).thenReturn(1);
-    when(jobBulkStore.deleteJobsByIds(any())).thenReturn(1);
+    when(archiveStore.archiveAndDeleteJobsBatch(eq(batch), anyString(), anyString())).thenReturn(1);
     when(archiveStore.purgeArchivedJobs(any())).thenReturn(5);
 
     service.run();
@@ -314,7 +287,7 @@ class DefaultJobArchivingServiceTest {
   }
 
   @Test
-  void run_doesNotDeleteRows_whenBatchArchiveFails() {
+  void run_stopsCurrentPass_whenAtomicMoveFails() {
     int batchSize = 2;
     service.init(true, 7, batchSize, parsedCron());
 
@@ -326,13 +299,13 @@ class DefaultJobArchivingServiceTest {
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize)))
         .thenReturn(batch)
         .thenReturn(List.of());
-    when(archiveStore.archiveJobsBatch(eq(batch), anyString(), anyString()))
+    when(archiveStore.archiveAndDeleteJobsBatch(eq(batch), anyString(), anyString()))
         .thenThrow(new IllegalStateException("archive failed"));
     when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
 
     service.run();
 
-    verify(jobBulkStore, never()).deleteJobsByIds(any());
+    verify(archiveStore, times(1)).findJobsForArchiving(any(), eq(batchSize));
   }
 
   @Test
@@ -347,8 +320,7 @@ class DefaultJobArchivingServiceTest {
     List<JobEntity> batch = List.of(jobEntity(99L));
     when(archiveStore.countJobsForArchiving(any())).thenReturn(1L);
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
-    when(archiveStore.archiveJobsBatch(eq(batch), anyString(), anyString())).thenReturn(1);
-    when(jobBulkStore.deleteJobsByIds(any())).thenReturn(1);
+    when(archiveStore.archiveAndDeleteJobsBatch(eq(batch), anyString(), anyString())).thenReturn(1);
     when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
 
     service.run();

@@ -42,7 +42,7 @@ import run.ratchet.api.JobQuerySortField;
  *
  * <ul>
  *   <li>{@code CREATED_AT, SCHEDULED_TIME, UPDATED_AT}: ISO-8601 {@link Instant} string
- *   <li>{@code PRIORITY}: decimal integer ordinal
+ *   <li>{@code PRIORITY}: decimal integer persisted code
  *   <li>{@code STATUS}: enum name string
  * </ul>
  */

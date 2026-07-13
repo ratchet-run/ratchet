@@ -6,6 +6,12 @@
   "scripts": {
     "dev": "vitepress dev docs",
     "start": "vitepress dev docs",
+    "check:tck-docs": "node scripts/check-docs.mjs",
+    "check:drain-docs": "node scripts/check-drain-docs.mjs",
+    "check:operator-docs": "node scripts/check-operator-docs.mjs",
+    "check:docs": "npm run check:tck-docs && npm run check:drain-docs && npm run check:operator-docs",
+    "docs:sync-config-reference": "node scripts/check-operator-docs.mjs --write",
+    "prebuild": "npm run check:docs",
     "build": "vitepress build docs",
     "preview": "vitepress preview docs",
     "serve": "vitepress preview docs",

@@ -39,12 +39,10 @@ import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
-import run.ratchet.ri.core.internal.JobTask;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
-import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -285,8 +283,6 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       stopService("cluster coordinator", clusterCoordinator::close);
     }
 
-    JobTask.clearCaches();
-    JobPayloadFactory.clearCaches();
     notifyHooks("afterStop", beforeStopSucceeded, SchedulerLifecycleHook::afterStop, false);
     destroyHooks();
   }

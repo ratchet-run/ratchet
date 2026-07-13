@@ -187,7 +187,7 @@ scheduler.enqueue(() -> classifyDocument(docId))
     .submit();
 ```
 
-Lower priority values are evaluated first. Branches with the same priority are evaluated in definition order. The first matching branch fires; all remaining branch jobs are canceled. This is exclusive routing, not fan-out.
+Lower priority values are evaluated first. Branches with the same priority are evaluated in builder registration order. The first matching branch fires; all remaining branch jobs are canceled. This is exclusive routing, not fan-out.
 
 ## WorkflowCondition types
 
@@ -280,7 +280,7 @@ scheduler.enqueueBatch("Migration")
 When a job completes, the `WorkflowScheduler`:
 
 1. Loads all `WorkflowConditionEntity` rows linked to the job
-2. Sorts conditions by priority (lower first)
+2. Sorts conditions by priority (lower numbers first), then by builder registration order
 3. Evaluates each condition against the job's result or batch context
 4. For the first matching condition, releases the pre-created WORKFLOW_BRANCH job (sets its `scheduled_time = now`) and cancels all other branch jobs
 5. If no conditions match and the job has chain dependents, falls back to linear chain scheduling

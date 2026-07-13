@@ -18,28 +18,30 @@ package run.ratchet.ri.core.internal;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import jakarta.transaction.Transactional.TxType;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.HexFormat;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.AbstractJobSchedulerEvent;
+import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.SingletonLease;
+import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
 /**
@@ -57,17 +59,16 @@ public class DeadLetterService {
 
   private static final String LEASE_NAME = "dlqPurger";
   private static final Duration LEASE_TTL = Duration.ofMinutes(10);
-  private static final Duration ALERT_DEDUP_WINDOW = Duration.ofHours(1);
 
   private final ExecutorProvider executorProvider;
-  private final JobCrudStore jobCrudStore;
   private final JobBulkStore jobBulkStore;
   private final JobTerminalStore jobTerminalStore;
   private final SingletonLeaseService singletonLeaseService;
-  private final DlqAlertStore dlqAlertStore;
   private final InternalEventPublisher eventPublisher;
   private final ErrorSanitizer errorSanitizer;
   private final Clock clock;
+
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   private Duration purgeAfter;
   private Cron cron;
@@ -77,11 +78,9 @@ public class DeadLetterService {
 
   protected DeadLetterService() {
     this.executorProvider = null;
-    this.jobCrudStore = null;
     this.jobBulkStore = null;
     this.jobTerminalStore = null;
     this.singletonLeaseService = null;
-    this.dlqAlertStore = null;
     this.eventPublisher = null;
     this.errorSanitizer = null;
     this.clock = null;
@@ -89,64 +88,50 @@ public class DeadLetterService {
 
   public DeadLetterService(
       ExecutorProvider executorProvider,
-      JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
       JobTerminalStore jobTerminalStore,
       SingletonLeaseService singletonLeaseService,
-      DlqAlertStore dlqAlertStore,
-      InternalEventPublisher eventPublisher,
       ErrorSanitizer errorSanitizer) {
     this(
         executorProvider,
-        jobCrudStore,
         jobBulkStore,
         jobTerminalStore,
         singletonLeaseService,
-        dlqAlertStore,
-        eventPublisher,
+        null,
         errorSanitizer,
         Clock.systemUTC());
+  }
+
+  public DeadLetterService(
+      ExecutorProvider executorProvider,
+      JobBulkStore jobBulkStore,
+      JobTerminalStore jobTerminalStore,
+      SingletonLeaseService singletonLeaseService,
+      ErrorSanitizer errorSanitizer,
+      Clock clock) {
+    this(
+        executorProvider,
+        jobBulkStore,
+        jobTerminalStore,
+        singletonLeaseService,
+        null,
+        errorSanitizer,
+        clock);
   }
 
   @Inject
   public DeadLetterService(
       ExecutorProvider executorProvider,
-      JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
       JobTerminalStore jobTerminalStore,
       SingletonLeaseService singletonLeaseService,
-      Instance<DlqAlertStore> dlqAlertStore,
-      InternalEventPublisher eventPublisher,
-      ErrorSanitizer errorSanitizer,
-      Clock clock) {
-    this(
-        executorProvider,
-        jobCrudStore,
-        jobBulkStore,
-        jobTerminalStore,
-        singletonLeaseService,
-        dlqAlertStore.isResolvable() ? dlqAlertStore.get() : null,
-        eventPublisher,
-        errorSanitizer,
-        clock);
-  }
-
-  DeadLetterService(
-      ExecutorProvider executorProvider,
-      JobCrudStore jobCrudStore,
-      JobBulkStore jobBulkStore,
-      JobTerminalStore jobTerminalStore,
-      SingletonLeaseService singletonLeaseService,
-      DlqAlertStore dlqAlertStore,
       InternalEventPublisher eventPublisher,
       ErrorSanitizer errorSanitizer,
       Clock clock) {
     this.executorProvider = executorProvider;
-    this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
     this.jobTerminalStore = jobTerminalStore;
     this.singletonLeaseService = singletonLeaseService;
-    this.dlqAlertStore = dlqAlertStore;
     this.eventPublisher = eventPublisher;
     this.errorSanitizer = errorSanitizer;
     this.clock = clock;
@@ -155,20 +140,193 @@ public class DeadLetterService {
   /**
    * Moves a job to the terminal DLQ state.
    *
+   * <p>Because this method owns the terminal transition, a winning call publishes the ordered
+   * terminal event pair {@link JobFailedEvent} then {@link JobDlqEvent}. Both events are deferred
+   * until the transition transaction commits.
+   *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
    * Transactional}.
+   *
+   * @return {@code true} when this call moved the live job to FAILED, or {@code false} when another
+   *     path had already moved it out of RUNNING
    */
-  public void moveToDlq(JobEntity job, Throwable cause) {
+  public boolean moveToDlq(JobEntity job, Throwable cause) {
     // Post hot/cold-split: setStatus(FAILED)+save() is rejected by the MySQL store's hot-mutation
     // guard. The terminal transition (DELETE hot + UPDATE cold to FAILED + DELETE bkres) is now
     // a single explicit store call that captures total_attempts atomically.
-    String sanitized = errorSanitizer.sanitize(cause);
-    jobTerminalStore.markJobFailedTerminal(job.getId(), sanitized, job.getAttempts());
-    job.setLastError(sanitized);
+    String sanitized = sanitizeSafely(cause);
+    boolean transitioned =
+        jobTerminalStore.markJobFailedTerminal(job.getId(), sanitized, job.getAttempts());
+    if (!transitioned) {
+      log.debugf("Job %s was already outside RUNNING; DLQ transition skipped", job.getId());
+      return false;
+    }
 
-    recordDlqAlert(job, cause);
+    recordServiceOwnedTransition(job, sanitized);
+    return true;
+  }
+
+  /**
+   * Records a DLQ transition that the caller has already applied with a successful status CAS.
+   *
+   * <p>This path deliberately does not repeat the terminal store mutation. It publishes only the
+   * after-commit {@link JobDlqEvent}, because callers that own the successful status CAS also own
+   * the preceding {@link JobFailedEvent}. It is reserved for callers that can prove they won the
+   * transition race.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRES_NEW}. The caller has already committed the
+   * terminal status transition, so event delivery must not be suppressed if later batch or workflow
+   * bookkeeping rolls back.
+   */
+  @Transactional(TxType.REQUIRES_NEW)
+  public void recordDlqTransition(JobEntity job, Throwable cause) {
+    String persistedError = job.getLastError();
+    recordCallerOwnedTransition(
+        job, persistedError != null ? persistedError : sanitizeSafely(cause), List.of());
+  }
+
+  /**
+   * Registers one ordered terminal timeout event sequence on the caller's active transaction.
+   *
+   * <p>The timeout transition, its typed timeout event, {@link JobFailedEvent}, and {@link
+   * JobDlqEvent} must share one commit outcome. A single after-commit callback publishes {@code
+   * eventsBeforeDlq} in order and the DLQ event last, so a later batch/workflow bookkeeping failure
+   * suppresses the complete sequence on rollback.
+   *
+   * <p><b>Transaction attribute:</b> {@code MANDATORY}. Timeout lifecycle routing already runs in
+   * {@link PostExecutionHandler}'s independent transaction; starting another transaction here would
+   * publish the DLQ event before that outer transition commits.
+   */
+  @Transactional(TxType.MANDATORY)
+  public void recordDlqTransitionInCurrentTransaction(
+      JobEntity job, Throwable cause, List<? extends AbstractJobSchedulerEvent> eventsBeforeDlq) {
+    String persistedError = job.getLastError();
+    recordCallerOwnedTransition(
+        job,
+        persistedError != null ? persistedError : sanitizeSafely(cause),
+        Objects.requireNonNull(eventsBeforeDlq, "eventsBeforeDlq must not be null"));
+  }
+
+  private String sanitizeSafely(Throwable cause) {
+    try {
+      String sanitized = errorSanitizer.sanitize(cause);
+      return sanitized != null ? sanitized : fallbackError(cause);
+    } catch (Throwable sanitizerError) {
+      log.warnf(
+          sanitizerError,
+          "Error sanitizer failed while preparing DLQ metadata; using exception class fallback");
+      return fallbackError(cause);
+    }
+  }
+
+  private static String fallbackError(Throwable cause) {
+    return cause == null ? "null" : cause.getClass().getName();
+  }
+
+  private void recordServiceOwnedTransition(JobEntity job, String sanitized) {
+    job.setStatus(JobStatus.FAILED);
+    job.setLastError(sanitized);
+    publishTerminalEvents(job, sanitized);
 
     log.warnf("Job %s moved to DLQ", job.getId());
+  }
+
+  private void recordCallerOwnedTransition(
+      JobEntity job, String sanitized, List<? extends AbstractJobSchedulerEvent> eventsBeforeDlq) {
+    job.setLastError(sanitized);
+    publishDlqEvent(job, sanitized, eventsBeforeDlq);
+
+    log.warnf("Job %s moved to DLQ", job.getId());
+  }
+
+  private void publishTerminalEvents(JobEntity job, String sanitizedError) {
+    if (eventPublisher == null) {
+      return;
+    }
+    Instant timestamp = effective().instant();
+    int attempts = Math.max(0, job.getAttempts());
+    JobFailedEvent failedEvent =
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            timestamp,
+            sanitizedError,
+            attempts);
+    JobDlqEvent dlqEvent =
+        new JobDlqEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            timestamp,
+            sanitizedError,
+            attempts);
+    publishAfterCommit(
+        () -> {
+          eventPublisher.publish(failedEvent);
+          eventPublisher.publish(dlqEvent);
+        });
+  }
+
+  private void publishDlqEvent(
+      JobEntity job,
+      String sanitizedError,
+      List<? extends AbstractJobSchedulerEvent> eventsBeforeDlq) {
+    if (eventPublisher == null) {
+      return;
+    }
+    List<AbstractJobSchedulerEvent> orderedEvents = List.copyOf(eventsBeforeDlq);
+    JobDlqEvent event =
+        new JobDlqEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            effective().instant(),
+            sanitizedError,
+            Math.max(0, job.getAttempts()));
+    publishAfterCommit(
+        () -> {
+          orderedEvents.forEach(eventPublisher::publish);
+          eventPublisher.publish(event);
+        });
+  }
+
+  private void publishAfterCommit(Runnable action) {
+    if (registerAfterCommit(action) == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+      action.run();
+    }
+  }
+
+  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
+    return JobWakeupService.registerAfterCommit(
+        resolveTxRegistry(),
+        action,
+        log,
+        "After-commit DLQ event registration failed; events suppressed: %s");
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry reg = txRegistry;
+    if (reg == null) {
+      synchronized (this) {
+        reg = txRegistry;
+        if (reg == null) {
+          reg = JobWakeupService.lookupTxRegistry(log);
+          txRegistry = reg;
+        }
+      }
+    }
+    return reg;
+  }
+
+  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
+    this.txRegistry = txRegistry;
   }
 
   /**
@@ -245,43 +403,6 @@ public class DeadLetterService {
       scheduleNext();
     } catch (RuntimeException e) {
       log.warnf(e, "DLQ purge reschedule failed");
-    }
-  }
-
-  private void recordDlqAlert(JobEntity job, Throwable cause) {
-    if (dlqAlertStore == null) {
-      // No DlqAlertStore capability: dead-letter alert dedup/recording is disabled. DLQ purging
-      // (backed by the core JobBulkStore) is unaffected.
-      return;
-    }
-    try {
-      String errorHash = hashError(cause);
-      Instant now = effective().instant();
-      Instant cutoff = now.minus(ALERT_DEDUP_WINDOW);
-
-      if (dlqAlertStore.existsRecentDlqAlert(job.getId(), errorHash, cutoff)) {
-        log.debugf("DLQ alert suppressed for job %s (duplicate within window)", job.getId());
-        return;
-      }
-
-      DlqAlertEntity alert = new DlqAlertEntity();
-      alert.setJobId(job.getId());
-      alert.setErrorHash(errorHash);
-      alert.setAlertSentAt(now);
-      alert.setAlertChannel("system");
-      dlqAlertStore.saveDlqAlert(alert);
-    } catch (Exception e) {
-      log.warnf(e, "DLQ alert error for job %s", job.getId());
-    }
-  }
-
-  private String hashError(Throwable cause) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] hash = md.digest(cause.toString().getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash, 0, 8);
-    } catch (Exception e) {
-      return cause.getClass().getSimpleName();
     }
   }
 

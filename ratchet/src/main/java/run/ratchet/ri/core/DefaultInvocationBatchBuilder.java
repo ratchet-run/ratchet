@@ -16,8 +16,10 @@
 package run.ratchet.ri.core;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.function.Function;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.InvocationBatchBuilder;
@@ -71,6 +73,18 @@ final class DefaultInvocationBatchBuilder implements InvocationBatchBuilder {
   @Override
   public InvocationBatchBuilder platform() {
     delegate.platform();
+    return this;
+  }
+
+  @Override
+  public InvocationBatchBuilder withBackoff(BackoffPolicy policy, Duration param) {
+    delegate.withBackoff(policy, param);
+    return this;
+  }
+
+  @Override
+  public InvocationBatchBuilder withMaxRetries(int retries) {
+    delegate.withMaxRetries(retries);
     return this;
   }
 

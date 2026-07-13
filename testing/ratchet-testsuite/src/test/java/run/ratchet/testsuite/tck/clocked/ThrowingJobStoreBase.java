@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
@@ -30,7 +31,6 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -39,7 +39,6 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobQueryStore;
@@ -70,8 +69,7 @@ public abstract class ThrowingJobStoreBase
         ArchiveStore,
         JobQueryStore,
         JobAnalyticsStore,
-        JobAuditStore,
-        DlqAlertStore {
+        JobAuditStore {
 
   private static <T> T fail(String method) {
     throw new UnsupportedOperationException(
@@ -290,6 +288,11 @@ public abstract class ThrowingJobStoreBase
     return fail("resetFailedToPending");
   }
 
+  @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return fail("resetFailedToPending(filter, limit)");
+  }
+
   // ----- JobPauseStore -----
 
   @Override
@@ -471,8 +474,8 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobs, String reason, String archivedBy) {
-    return fail("archiveJobsBatch");
+  public int archiveAndDeleteJobsBatch(List<JobEntity> jobs, String reason, String archivedBy) {
+    return fail("archiveAndDeleteJobsBatch");
   }
 
   @Override
@@ -635,18 +638,6 @@ public abstract class ThrowingJobStoreBase
   @Override
   public void updateBatchMetricsChildCount(UUID batchId, int childCount) {
     fail("updateBatchMetricsChildCount");
-  }
-
-  // ----- DlqAlertStore -----
-
-  @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    return fail("saveDlqAlert");
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    return fail("existsRecentDlqAlert");
   }
 
   // ----- ResourcePermitStore -----

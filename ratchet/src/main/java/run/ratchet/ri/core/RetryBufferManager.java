@@ -32,7 +32,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
-import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -51,8 +51,8 @@ class RetryBufferManager {
 
   private static final Logger log = Logger.getLogger(RetryBufferManager.class);
 
-  private final DeadLetterService deadLetterService;
   private final JobStateManager jobStateManager;
+  private final PostExecutionHandler lifecycleFacade;
 
   private final Map<JobExecutionType, Queue<BufferedClaim>> retryBuffers =
       new EnumMap<>(JobExecutionType.class);
@@ -61,18 +61,18 @@ class RetryBufferManager {
       new EnumMap<>(JobExecutionType.class);
 
   protected RetryBufferManager() {
-    this.deadLetterService = null;
     this.jobStateManager = null;
+    this.lifecycleFacade = null;
   }
 
   @Inject
-  public RetryBufferManager(DeadLetterService deadLetterService, JobStateManager jobStateManager) {
-    this.deadLetterService = deadLetterService;
+  public RetryBufferManager(JobStateManager jobStateManager, PostExecutionHandler lifecycleFacade) {
     this.jobStateManager = jobStateManager;
+    this.lifecycleFacade = lifecycleFacade;
 
     Comparator<BufferedClaim> jobComparator =
         Comparator.comparing(
-                (BufferedClaim job) -> job.priority().ordinal(), Comparator.reverseOrder())
+                (BufferedClaim job) -> job.priority().persistedCode(), Comparator.reverseOrder())
             .thenComparing(BufferedClaim::scheduledTime);
 
     for (JobExecutionType jobType : JobExecutionType.values()) {
@@ -93,6 +93,7 @@ class RetryBufferManager {
     job.setBusinessKey(claim.businessKey());
     job.setAttempts(claim.attempts());
     job.setMaxRetries(claim.maxRetries());
+    job.setDependsOn(claim.dependsOn());
     job.setStatus(JobStatus.RUNNING);
     return job;
   }
@@ -288,10 +289,11 @@ class RetryBufferManager {
             + "This indicates sustained system failure - investigate immediately.",
         HARD_CAP_PER_TYPE, claim.jobType(), claim.jobId());
     try {
-      deadLetterService.moveToDlq(
-          toDlqJob(claim),
+      JobEntity job = toDlqJob(claim);
+      IllegalStateException overflow =
           new IllegalStateException(
-              "Retry buffer hard cap exceeded for job type " + claim.jobType()));
+              "Retry buffer hard cap exceeded for job type " + claim.jobType());
+      lifecycleFacade.moveToDlqAndHandlePermanentFailure(job, overflow);
       return false;
     } catch (Exception e) {
       log.errorf(
@@ -333,7 +335,8 @@ class RetryBufferManager {
       String businessKey,
       int attempts,
       int maxRetries,
-      String executionTarget) {
+      String executionTarget,
+      UUID dependsOn) {
 
     static BufferedClaim from(JobEntity job) {
       return new BufferedClaim(
@@ -347,7 +350,8 @@ class RetryBufferManager {
           job.getBusinessKey(),
           job.getAttempts(),
           job.getMaxRetries(),
-          job.getExecutionTarget());
+          job.getExecutionTarget(),
+          job.getDependsOn());
     }
 
     static BufferedClaim from(JobClaimDto claim) {
@@ -362,7 +366,8 @@ class RetryBufferManager {
           claim.businessKey(),
           claim.attempts(),
           claim.maxRetries(),
-          claim.executionTarget());
+          claim.executionTarget(),
+          claim.dependsOn());
     }
 
     JobClaimDto toClaimDto() {
@@ -379,7 +384,8 @@ class RetryBufferManager {
           businessKey,
           attempts,
           maxRetries,
-          executionTarget);
+          executionTarget,
+          dependsOn);
     }
   }
 }

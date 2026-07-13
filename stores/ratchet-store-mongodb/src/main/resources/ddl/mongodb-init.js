@@ -11,7 +11,6 @@ db.counters.insertOne({ _id: "scheduler_job_execution", seq: NumberLong(0) });
 db.counters.insertOne({ _id: "scheduler_job_log", seq: NumberLong(0) });
 db.counters.insertOne({ _id: "scheduler_job_archive", seq: NumberLong(0) });
 db.counters.insertOne({ _id: "scheduler_workflow_condition", seq: NumberLong(0) });
-db.counters.insertOne({ _id: "scheduler_dlq_alerts", seq: NumberLong(0) });
 db.counters.insertOne({ _id: "scheduler_resource_permit", seq: NumberLong(0) });
 
 // ── scheduler_job ────────────────────────────────────────────────────────────
@@ -48,6 +47,14 @@ db.scheduler_job.createIndex({ updated_at: 1 }, { name: "idx_job_updated_at" });
 db.scheduler_job.createIndex({ terminated_at: 1 }, { name: "idx_job_terminated_at" });
 db.scheduler_job.createIndex({ job_type: 1 }, { name: "idx_job_type" });
 db.scheduler_job.createIndex({ superseded_by: 1 }, { name: "idx_job_superseded_by" });
+
+// ── scheduler_business_key_reservation ───────────────────────────────────────
+// _id is the business key and supplies the global unique constraint across queue jobs and
+// recurring masters. owner_job_id is indexed for terminal/cancel cleanup.
+db.scheduler_business_key_reservation.createIndex(
+  { owner_job_id: 1 },
+  { name: "idx_bk_owner" }
+);
 
 // Dashboard query indexes
 db.scheduler_job.createIndex(
@@ -140,14 +147,11 @@ db.scheduler_workflow_condition.createIndex(
   { parent_job_id: 1, condition_priority: 1 },
   { name: "idx_wfc_parent_priority" }
 );
-db.scheduler_workflow_condition.createIndex({ child_job_id: 1 }, { name: "idx_wfc_child" });
-
-// ── scheduler_dlq_alerts ─────────────────────────────────────────────────────
-db.scheduler_dlq_alerts.createIndex(
-  { job_id: 1, error_hash: 1 },
-  { name: "idx_dlq_job_hash", unique: true }
+db.scheduler_workflow_condition.createIndex(
+  { parent_job_id: 1, condition_priority: 1, definition_order: 1 },
+  { name: "idx_wfc_evaluation_order" }
 );
-db.scheduler_dlq_alerts.createIndex({ alert_sent_at: 1 }, { name: "idx_dlq_sent_at" });
+db.scheduler_workflow_condition.createIndex({ child_job_id: 1 }, { name: "idx_wfc_child" });
 
 // ── scheduler_resource_permit ────────────────────────────────────────────────
 db.scheduler_resource_permit.createIndex({ resource_name: 1 }, { name: "idx_permit_resource" });

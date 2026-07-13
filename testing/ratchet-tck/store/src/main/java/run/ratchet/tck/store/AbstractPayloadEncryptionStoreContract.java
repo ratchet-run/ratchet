@@ -36,6 +36,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.PayloadEncryptionException;
 import run.ratchet.spi.EncryptionContext;
@@ -152,7 +153,8 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
             null,
             Instant.now(),
             null,
-            true);
+            true,
+            RecurringMisfirePolicy.defaults());
 
     recurringStore().createRecurring(master);
     RecurringJobDefinition reloaded = recurringStore().getRecurring(id).orElseThrow();

@@ -24,6 +24,8 @@ public sealed interface DeprecatedArtifact {
 
   int sinceVersion();
 
+  record DroppedTable(String table, int sinceVersion) implements DeprecatedArtifact {}
+
   record DroppedColumn(String table, String column, int sinceVersion)
       implements DeprecatedArtifact {}
 

@@ -45,21 +45,22 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.id.UuidV7EntityListener;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 
 /**
  * MongoDB implementation of the {@link MongoJobStore} API.
  *
- * <p>Uses the MongoDB sync driver directly (no ODM). All state transitions use atomic {@code
- * findOneAndUpdate} operations. Tags are embedded in the job document as an array. IDs are UUIDv7
- * values assigned by {@link run.ratchet.store.id.UuidV7EntityListener} on persist.
+ * <p>Uses the MongoDB sync driver directly (no ODM). State transitions use atomic filters, with
+ * MongoDB transactions when a transition also changes a cross-collection invariant. Tags are
+ * embedded in the job document as an array. IDs are UUIDv7 values assigned by {@link
+ * UuidV7EntityListener} on persist.
  */
 @ApplicationScoped
 class MongoJobStoreImpl implements MongoJobStore {
@@ -118,17 +119,18 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.ctx =
         new MongoStoreContext(
             client, database, metricsCollector, options.store().priorityBoostIntervalMinutes());
+    MongoBusinessKeyReservations reservations = new MongoBusinessKeyReservations(ctx);
     this.tags = new MongoTagOperations(ctx);
-    this.crud = new MongoJobCrudOperations(ctx);
+    this.crud = new MongoJobCrudOperations(ctx, reservations);
     this.batches = new MongoBatchOperations(ctx);
     this.claims = new MongoJobClaimOperations(ctx);
-    this.lifecycle = new MongoJobLifecycleOperations(ctx, batches);
+    this.query = new MongoJobQueryOperations(ctx);
+    this.lifecycle = new MongoJobLifecycleOperations(ctx, batches, reservations, query);
     this.nodeLocks = new MongoNodeLockOperations(ctx);
     this.archives = new MongoArchiveOperations(ctx);
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
-    this.query = new MongoJobQueryOperations(ctx);
     this.signals = new MongoSignalOperations(ctx);
-    this.recurringJobs = new MongoRecurringJobOperations(ctx);
+    this.recurringJobs = new MongoRecurringJobOperations(ctx, reservations);
     this.extensions = new MongoExtensionOperations(ctx);
   }
 
@@ -424,6 +426,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
+  }
+
+  @Override
   public boolean transitionToPaused(UUID id, JobStatus expected) {
     return lifecycle.transitionToPaused(id, expected);
   }
@@ -565,8 +572,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobList, String reason, String archivedBy) {
-    return archives.archiveJobsBatch(jobList, reason, archivedBy);
+  public int archiveAndDeleteJobsBatch(List<JobEntity> jobList, String reason, String archivedBy) {
+    return archives.archiveAndDeleteJobsBatch(jobList, reason, archivedBy);
   }
 
   @Override
@@ -719,16 +726,6 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public void updateBatchMetricsChildCount(UUID batchId, int childCount) {
     batches.updateBatchMetricsChildCount(batchId, childCount);
-  }
-
-  @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    return auxiliary.saveDlqAlert(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    return auxiliary.existsRecentDlqAlert(jobId, errorHash, cutoff);
   }
 
   @Override

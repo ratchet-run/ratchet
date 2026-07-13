@@ -64,6 +64,7 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
     try {
       String resultJson = payloadSerializer.serialize(result);
       String resultType = result.getClass().getName();
+      boolean truncated = false;
       long maxBytes = options.payload().maxResultBytes();
       int resultBytes = resultJson.getBytes(StandardCharsets.UTF_8).length;
       if (maxBytes > 0 && resultBytes > maxBytes) {
@@ -78,10 +79,12 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
                 + ",\"_resultType\":\""
                 + resultType.replace("\"", "\\\"")
                 + "\"}";
+        truncated = true;
       }
       // Encrypt last: the size cap above measures plaintext bytes, and job_result is a JSON/JSONB
-      // column, so the engine output is wrapped as a valid-JSON string envelope. resultType stays
-      // cleartext — it is a separate column and names the deserialization target on read.
+      // column, so the engine output is wrapped as a valid-JSON string envelope. Result type/state
+      // stays cleartext in its separate column: ordinary values name their deserialization target,
+      // while truncated values use a reserved non-class sentinel.
       //
       // The result is written after creation, so the per-job opt-in is not in scope here; we read
       // it back from the row (one indexed lookup) so an opted-in job's result is protected even
@@ -94,7 +97,9 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
       resultJson =
           PayloadEncryptor.encryptJsonColumn(
               resultJson, active, EncryptionTarget.rowBound(ProtectedSurface.RESULT, jobId));
-      return new SerializedJobResult(resultJson, resultType);
+      return truncated
+          ? SerializedJobResult.truncated(resultJson)
+          : new SerializedJobResult(resultJson, resultType);
     } catch (Exception e) {
       log.warnf(e, "Result serialization error for job %s", jobId);
       throw new IllegalStateException("Result serialization failed for job " + jobId, e);

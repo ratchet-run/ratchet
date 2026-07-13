@@ -15,14 +15,20 @@
  */
 package run.ratchet.store.mysql;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -48,7 +54,8 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
           .withUsername("ratchet")
           .withPassword("ratchet")
           .withUrlParam("connectionTimeZone", "UTC")
-          .withUrlParam("serverTimezone", "UTC");
+          .withUrlParam("serverTimezone", "UTC")
+          .withUrlParam("allowMultiQueries", "true");
 
   @BeforeAll
   static void start() {
@@ -80,6 +87,61 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
       s.setString(2, version);
       s.executeUpdate();
     }
+  }
+
+  private void installReleasedV001(SchemaMigrator.MigrationScript script) throws Exception {
+    try (Connection connection = newJdbcConnection()) {
+      executeSqlScript(connection, script.sql());
+      try (PreparedStatement statement =
+          connection.prepareStatement(dialect().recordVersionSql())) {
+        statement.setString(1, script.version());
+        statement.setString(2, script.description());
+        statement.setString(3, script.checksum());
+        statement.executeUpdate();
+      }
+    }
+  }
+
+  private void installConsolidatedSchema() throws Exception {
+    String resourceName = "ddl/mysql-schema.sql";
+    try (Connection connection = newJdbcConnection()) {
+      executeSqlScript(connection, readClasspathResource(resourceName));
+    }
+  }
+
+  private static void executeSqlScript(Connection connection, String sql) throws SQLException {
+    try (Statement statement = connection.createStatement()) {
+      statement.execute(sql);
+    }
+  }
+
+  private static String readClasspathResource(String resourceName) throws IOException {
+    ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+    try (InputStream input = classLoader.getResourceAsStream(resourceName)) {
+      if (input == null) {
+        throw new IOException("Missing classpath resource " + resourceName);
+      }
+      return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+    }
+  }
+
+  private boolean columnExists(String tableName, String columnName) throws SQLException {
+    try (Connection connection = newJdbcConnection();
+        ResultSet columns =
+            connection.getMetaData().getColumns(null, null, tableName, columnName)) {
+      return columns.next();
+    }
+  }
+
+  private void assertExtensionSchemaExists() throws SQLException {
+    assertTrue(tableExists("scheduler_job_properties"));
+    assertTrue(tableExists("scheduler_job_extension_state"));
+    assertTrue(columnExists("scheduler_job_archive", "properties"));
+    assertTrue(columnExists("scheduler_job_archive", "extension_state"));
+  }
+
+  private static List<String> versions(List<SchemaMigrator.MigrationScript> scripts) {
+    return scripts.stream().map(SchemaMigrator.MigrationScript::version).toList();
   }
 
   @Override
@@ -114,5 +176,37 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
             () -> new SchemaMigrator(dataSource(), new MysqlSchemaMigrationDialect()).migrate());
     assertTrue(ex.getMessage().contains("Checksum mismatch"), () -> "got: " + ex.getMessage());
     assertTrue(ex.getMessage().contains(firstVersion), () -> "got: " + ex.getMessage());
+  }
+
+  @Test
+  void upgradesReleasedV001LedgerToCurrentSchema() throws Exception {
+    resetDatabase();
+    SchemaMigrator migrator = newMigrator();
+    SchemaMigrator.MigrationScript releasedV001 = migrator.discoverMigrations().get(0);
+    assertEquals(
+        "0b339e555cddc589c0844184a04e2eff8f803bc7d1ef18a695b02dacb1224112",
+        releasedV001.checksum());
+    installReleasedV001(releasedV001);
+
+    SchemaMigrator.MigrationResult result = migrator.migrate();
+
+    assertEquals(List.of("002", "003", "004", "005"), versions(result.applied()));
+    assertEquals(List.of("001"), versions(result.skipped()));
+    assertExtensionSchemaExists();
+    assertSchemaVersionRowsMatch(migrator.discoverMigrations());
+  }
+
+  @Test
+  void migratesConsolidatedSchemaWithoutLedgerRows() throws Exception {
+    resetDatabase();
+    installConsolidatedSchema();
+    SchemaMigrator migrator = newMigrator();
+
+    SchemaMigrator.MigrationResult result = migrator.migrate();
+
+    assertEquals(List.of("001", "002", "003", "004", "005"), versions(result.applied()));
+    assertEquals(List.of(), result.skipped());
+    assertExtensionSchemaExists();
+    assertSchemaVersionRowsMatch(migrator.discoverMigrations());
   }
 }

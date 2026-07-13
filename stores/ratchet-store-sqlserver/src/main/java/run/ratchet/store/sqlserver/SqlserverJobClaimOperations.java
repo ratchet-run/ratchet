@@ -251,11 +251,16 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
                     row.businessKey(),
                     row.attempts(),
                     row.maxRetries(),
-                    row.executionTarget()));
+                    row.executionTarget(),
+                    row.dependsOn()));
           }
           return claims;
         },
         claims -> claims.isEmpty() ? "miss" : "updated");
+  }
+
+  static String claimSelectClause() {
+    return CLAIM_SELECT_COLUMNS;
   }
 
   private void markPendingClaimsRunning(List<UUID> ids, String nodeId, Instant now) {
@@ -297,7 +302,8 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     BUSINESS_KEY("business_key"),
     ATTEMPTS("attempts"),
     MAX_RETRIES("max_retries"),
-    EXECUTION_TARGET("execution_target");
+    EXECUTION_TARGET("execution_target"),
+    DEPENDS_ON("depends_on");
 
     private final String sqlName;
 
@@ -306,10 +312,22 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     }
 
     static String selectClause() {
-      return Arrays.stream(values()).map(ClaimColumn::sqlName).collect(Collectors.joining(", "));
+      return Arrays.stream(values())
+          .map(ClaimColumn::selectExpression)
+          .collect(Collectors.joining(", "));
     }
 
     String sqlName() {
+      return sqlName;
+    }
+
+    String selectExpression() {
+      if (this == DEPENDS_ON) {
+        // UPDLOCK/READPAST remain scoped to scheduler_job_queue; cold metadata is a non-locking
+        // scalar lookup by the scheduler_job primary key.
+        return "(SELECT cold_job.depends_on FROM scheduler_job cold_job"
+            + " WHERE cold_job.job_id = scheduler_job_queue.job_id) AS depends_on";
+      }
       return sqlName;
     }
   }
@@ -349,6 +367,10 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
 
     String executionTarget() {
       return (String) value(ClaimColumn.EXECUTION_TARGET);
+    }
+
+    UUID dependsOn() {
+      return SqlserverJobRowMapper.uuidOrNull(value(ClaimColumn.DEPENDS_ON));
     }
 
     int attempts() {

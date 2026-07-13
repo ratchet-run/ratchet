@@ -19,7 +19,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.OptionalLong;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.tck.api.RatchetTckProbe;
@@ -52,6 +54,7 @@ public class RiRatchetTckRuntime implements RatchetTckRuntime {
   @Inject private DrainController drainController;
   @Inject private JobExecutorService executor;
   @Inject private TestCleanupStrategy cleanupStrategy;
+  @Inject private RatchetOptions options;
 
   @Override
   public JobSchedulerService scheduler() {
@@ -66,6 +69,16 @@ public class RiRatchetTckRuntime implements RatchetTckRuntime {
   @Override
   public Optional<TestClock> clock() {
     return Optional.empty();
+  }
+
+  @Override
+  public OptionalLong maxPayloadBytes() {
+    return OptionalLong.of(Math.multiplyExact((long) options.payload().maxPayloadKb(), 1024L));
+  }
+
+  @Override
+  public boolean supportsCallerTransactionRollback() {
+    return !"mongodb".equals(System.getProperty("ratchet.test.db.type", ""));
   }
 
   @Override

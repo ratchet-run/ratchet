@@ -55,6 +55,8 @@ import javax.sql.DataSource;
  */
 public final class SchemaMigrator {
 
+  private static final String SINGLE_STATEMENT_DIRECTIVE = "-- ratchet:single-statement";
+
   public static final String DEFAULT_MIGRATION_PREFIX = "ddl/migrations";
 
   private static final Pattern SCRIPT_NAME = Pattern.compile("V(\\d+)__(.+)\\.sql");
@@ -111,6 +113,21 @@ public final class SchemaMigrator {
   }
 
   private static List<String> splitStatements(String sql) {
+    String stripped = sql.stripLeading();
+    if (stripped.startsWith(SINGLE_STATEMENT_DIRECTIVE)) {
+      int directiveEnd = stripped.indexOf('\n');
+      if (directiveEnd < 0) {
+        throw new SchemaMigrationException(
+            "Single-statement migration directive must be followed by SQL");
+      }
+      String statement = stripped.substring(directiveEnd + 1).strip();
+      if (statement.isEmpty()) {
+        throw new SchemaMigrationException(
+            "Single-statement migration directive must be followed by SQL");
+      }
+      return List.of(statement);
+    }
+
     List<String> statements = new ArrayList<>();
     StringBuilder current = new StringBuilder();
     boolean singleQuoted = false;

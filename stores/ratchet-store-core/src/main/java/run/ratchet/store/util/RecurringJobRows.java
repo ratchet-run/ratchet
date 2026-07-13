@@ -18,6 +18,7 @@ package run.ratchet.store.util;
 import java.time.Instant;
 import java.util.UUID;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.entity.JobPayload;
@@ -64,6 +65,10 @@ public final class RecurringJobRows {
     String executionTarget = (String) row[16];
     Instant createdAt = RowValues.instantOrNull(row[17]);
     String callerPrincipal = (String) row[18];
+    RecurringMisfirePolicy misfirePolicy =
+        new RecurringMisfirePolicy(
+            RecurringMisfirePolicy.Action.valueOf(RowValues.stringOrNull(row[20])),
+            ((Number) row[21]).intValue());
 
     return new RecurringJobDefinition(
         id,
@@ -85,7 +90,8 @@ public final class RecurringJobRows {
         executionTarget,
         createdAt,
         callerPrincipal,
-        encryptedPayload);
+        encryptedPayload,
+        misfirePolicy);
   }
 
   /**

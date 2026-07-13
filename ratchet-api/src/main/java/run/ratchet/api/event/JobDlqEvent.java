@@ -35,7 +35,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
    * Creates an event with an explicit timestamp.
    *
    * @param errorMessage sanitized final failure message
-   * @param retryAttempt final recorded retry attempt count before DLQ
+   * @param retryAttempt final recorded retry count before DLQ; zero means no retry was consumed
    */
   public JobDlqEvent(
       UUID jobId,
@@ -58,7 +58,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
    * {@link Instant}.
    *
    * @param errorMessage sanitized final failure message
-   * @param retryAttempt final recorded retry attempt count before DLQ
+   * @param retryAttempt final recorded retry count before DLQ; zero means no retry was consumed
    */
   public JobDlqEvent(
       UUID jobId,
@@ -78,7 +78,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
     return errorMessage;
   }
 
-  /** Returns the final 1-based execution attempt count before DLQ. */
+  /** Returns the final recorded retry count before DLQ; zero means no retry was consumed. */
   public int getRetryAttempt() {
     return retryAttempt;
   }

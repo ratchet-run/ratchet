@@ -54,7 +54,8 @@ class SqlserverExceptionTranslationTest {
     var ctx = new SqlserverStoreContext(em);
     var tags = new SqlserverTagOperations(ctx);
     var reads = new SqlserverJobReadOperations(ctx, tags);
-    var archives = new SqlserverArchiveOperations(ctx, reads);
+    var deletes = new SqlserverJobDeleteOperations(ctx, new SqlserverBusinessKeyReservations(ctx));
+    var archives = new SqlserverArchiveOperations(ctx, reads, deletes);
     JobEntity input = new JobEntity();
     input.setId(JOB_ID);
 
@@ -109,7 +110,8 @@ class SqlserverExceptionTranslationTest {
     var ctx = new SqlserverStoreContext(em);
     var tags = new SqlserverTagOperations(ctx);
     var reads = new SqlserverJobReadOperations(ctx, tags);
-    return new SqlserverArchiveOperations(ctx, reads);
+    var deletes = new SqlserverJobDeleteOperations(ctx, new SqlserverBusinessKeyReservations(ctx));
+    return new SqlserverArchiveOperations(ctx, reads, deletes);
   }
 
   @Test
@@ -312,7 +314,7 @@ class SqlserverExceptionTranslationTest {
     Instant now = Instant.parse("2026-05-12T14:30:00Z");
     row[0] = JOB_ID;
     row[1] = JobExecutionType.SINGLE.name();
-    row[2] = JobPriority.NORMAL.ordinal();
+    row[2] = JobPriority.NORMAL.persistedCode();
     row[3] = 3;
     row[4] = BackoffPolicy.NONE.name();
     row[5] = 0;

@@ -21,12 +21,9 @@ sqlplus ratchet/secret@//localhost:1521/FREEPDB1 \
   @stores/ratchet-store-oracle/src/main/resources/ddl/oracle-schema.sql
 ```
 
-The DDL is also bundled inside the store JAR at `ddl/oracle-schema.sql`:
-
-```bash
-jar xf ratchet-store-oracle-0.1.1-SNAPSHOT.jar ddl/oracle-schema.sql
-sqlplus ratchet/secret@//localhost:1521/FREEPDB1 @ddl/oracle-schema.sql
-```
+The Oracle store was added after the `0.1.1` release, so there is no published store JAR to
+extract at that version. Build the current source tree and use the DDL path above. Starting with
+`0.1.2`, the store JAR also contains the file at `ddl/oracle-schema.sql`.
 
 Or copy it into your migration tool's versioned scripts:
 
@@ -41,7 +38,7 @@ flyway migrate
 SELECT table_name FROM user_tables WHERE table_name LIKE 'SCHEDULER\_%' ESCAPE '\' ORDER BY table_name;
 ```
 
-You should see the same core tables as the other SQL stores: `scheduler_job`, `scheduler_job_queue`, `scheduler_business_key_reservation`, `scheduler_job_tag`, `scheduler_job_execution`, `scheduler_job_log`, `scheduler_job_archive`, `scheduler_batch`, `scheduler_batch_metrics`, `scheduler_node`, `scheduler_lock`, `scheduler_resource_limit`, `scheduler_resource_permit`, `scheduler_workflow_condition`, `scheduler_dlq_alerts`, `scheduler_recurring_job`, and `scheduler_recurring_job_archive`, plus the `ratchet_schema_version` ledger.
+You should see the same core tables as the other SQL stores: `scheduler_job`, `scheduler_job_queue`, `scheduler_business_key_reservation`, `scheduler_job_tag`, `scheduler_job_execution`, `scheduler_job_log`, `scheduler_job_archive`, `scheduler_batch`, `scheduler_batch_metrics`, `scheduler_node`, `scheduler_lock`, `scheduler_resource_limit`, `scheduler_resource_permit`, `scheduler_workflow_condition`, `scheduler_recurring_job`, and `scheduler_recurring_job_archive`, plus the `ratchet_schema_version` ledger.
 
 ## Configuration
 
@@ -64,7 +61,6 @@ Point a JTA data source at your Oracle instance and list the Ratchet entities in
   <class>run.ratchet.store.entity.WorkflowConditionEntity</class>
   <class>run.ratchet.store.entity.ArchivedJobEntity</class>
   <class>run.ratchet.store.entity.NodeEntity</class>
-  <class>run.ratchet.store.entity.DlqAlertEntity</class>
   <class>run.ratchet.store.entity.JobLogEntity</class>
   <class>run.ratchet.store.entity.ResourcePermitEntity</class>
   <class>run.ratchet.store.entity.BatchEntity</class>
@@ -148,4 +144,4 @@ Like the other SQL stores, the bundled startup migrator supports Oracle. Set `ra
 - [PostgreSQL Deployment](/deployment/postgresql)
 - [MySQL Deployment](/deployment/mysql)
 - [Database Setup](/deployment/database-setup)
-- [Installation](/deployment/installation)
+- [Runtime setup](/deployment/installation)

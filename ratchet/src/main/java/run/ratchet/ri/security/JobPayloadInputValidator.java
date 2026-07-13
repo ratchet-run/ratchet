@@ -16,6 +16,7 @@
 package run.ratchet.ri.security;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -23,6 +24,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.JobPayload;
 
 /**
@@ -36,12 +41,16 @@ import run.ratchet.store.entity.JobPayload;
 @ApplicationScoped
 public class JobPayloadInputValidator {
 
+  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
+
   private static final Logger log = Logger.getLogger(JobPayloadInputValidator.class);
   private static final int MAX_CLASS_NAME_LENGTH = 512;
   private static final Pattern CLASS_NAME =
       Pattern.compile(
           "[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*"
               + "(\\.[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)*");
+
+  private final long maxPayloadBytes;
 
   /** Map of primitive types to their corresponding wrapper types. */
   private static final Map<Class<?>, Class<?>> PRIMITIVE_TO_WRAPPER =
@@ -55,6 +64,17 @@ public class JobPayloadInputValidator {
           float.class, Float.class,
           double.class, Double.class);
 
+  /** Creates a validator using Ratchet's default payload limit. */
+  public JobPayloadInputValidator() {
+    this(RatchetOptions.defaults());
+  }
+
+  /** Creates a validator using the configured serialized-payload limit. */
+  @Inject
+  public JobPayloadInputValidator(RatchetOptions options) {
+    this.maxPayloadBytes = Math.multiplyExact((long) options.payload().maxPayloadKb(), 1024L);
+  }
+
   public void validateAtCreation(JobPayload payload) {
     if (payload == null) {
       throw new IllegalArgumentException("Job payload cannot be null");
@@ -66,6 +86,48 @@ public class JobPayloadInputValidator {
     validateMethodDescriptor(payload, errors);
     validateSignatureIfPossible(payload, targetClass, errors);
     throwIfErrors(errors, payload);
+    validateSerializedSize(payload);
+  }
+
+  private void validateSerializedSize(JobPayload payload) {
+    // Revalidation replaces, rather than layers over, a prior attempt. Clear first so a serializer
+    // failure or a newly-oversized representation cannot leave older accepted JSON staged.
+    JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(payload);
+    String serialized = PayloadSerializerHolder.get().serialize(payload);
+    if (serialized == null) {
+      throw new IllegalArgumentException(
+          "PayloadSerializer returned null for a non-null JobPayload");
+    }
+    long actualBytes = utf8Length(serialized);
+    if (actualBytes > maxPayloadBytes) {
+      throw new PayloadTooLargeException(actualBytes, maxPayloadBytes);
+    }
+    JOB_PAYLOAD_CONVERTER.prepareForPersistence(payload, serialized);
+  }
+
+  /** Returns the byte length produced by Java's UTF-8 encoder without allocating a byte array. */
+  private static long utf8Length(String value) {
+    long bytes = 0;
+    for (int i = 0; i < value.length(); i++) {
+      char current = value.charAt(i);
+      if (current <= 0x7f) {
+        bytes++;
+      } else if (current <= 0x7ff) {
+        bytes += 2;
+      } else if (Character.isHighSurrogate(current)
+          && i + 1 < value.length()
+          && Character.isLowSurrogate(value.charAt(i + 1))) {
+        bytes += 4;
+        i++;
+      } else if (Character.isSurrogate(current)) {
+        // String#getBytes(UTF_8) replaces an unpaired UTF-16 surrogate with the one-byte '?'
+        // replacement used by the JDK encoder.
+        bytes++;
+      } else {
+        bytes += 3;
+      }
+    }
+    return bytes;
   }
 
   private boolean isNullOrEmpty(String value) {

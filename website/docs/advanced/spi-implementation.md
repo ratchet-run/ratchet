@@ -9,11 +9,10 @@ description: Complete guide to implementing Ratchet SPI interfaces for custom ex
 Ratchet is designed around a set of Service Provider Interfaces (SPIs) that decouple the core engine from specific implementations. Major extension points -- configuration, invocation resolution, result persistence, resilience, metrics, logging, storage, security, and cluster coordination -- are expressed as SPI interfaces that you can replace with your own implementation.
 
 This guide covers the CDI wiring pattern, the complete SPI inventory, and Ratchet conformance tiers.
-The TCK is split into four submodules: `ratchet-tck-store` (store SPI), `ratchet-tck-api`
-(public-API, container-free), `ratchet-tck-jakarta` (Jakarta-EE conformance via Arquillian), and
-`ratchet-tck-util` (shared JUnit helpers). Each earns a distinct compatibility label; see the
-[README's tiered-conformance section](https://github.com/ratchet-run/ratchet#custom-store-implementation)
-for the full matrix.
+The compatibility tiers use `ratchet-tck-store` (store SPI), `ratchet-tck-api` (public API,
+container-neutral), and `ratchet-tck-jakarta` (Jakarta EE conformance via Arquillian), with shared
+JUnit support in `ratchet-tck-util`. See [Adopting the TCK](/conformance/adopting-the-tck) for the
+public extension seams, Maven setup, report generation, and the integration work each tier requires.
 
 ## The CDI @Alternative Pattern
 
@@ -208,7 +207,7 @@ See [Circuit Breakers](./circuit-breakers.md) for detailed guidance.
 **Adapter module:** `ratchet-micrometer` provides `MicrometerMetricsCollector`
 **Annotation:** `@Incubating`
 
-Receives callbacks covering job outcomes, success finalization, claims and submission gates, wakeups and executor routing, callback and signal events, store timing, circuit breakers, and encryption integrity/version signals. The complete callback and meter catalog is in [Metrics Collection](./metrics-collection.md#metricscollector-spi).
+Receives callbacks covering job outcomes, success finalization, claims and submission gates, wakeups and executor routing, callback and signal events, store timing, poller and application circuit breakers, and encryption integrity/version signals. The complete callback and meter catalog is in [Metrics Collection](./metrics-collection.md#metricscollector-spi).
 
 **Partial override:**
 
@@ -683,8 +682,53 @@ A store advertises each of these by implementing the interface; the engine probe
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
 | `JobAnalyticsStore` | Aggregate counts, rates, and percentiles | `countJobsByStatus()`, `getQueueWaitTimePercentile()` |
 | `JobAuditStore` | Execution history and per-job logs | `saveExecution()`, `findExecutionsByJobId()`, `appendLog()` |
-| `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `existsRecentDlqAlert()` |
 | `JobExtensionStore` | Indexed job properties and per-namespace extension state | `putProperty()`, `getPropertiesByPrefix()`, `initState()`, `updateState()` |
+
+### LockStore is a best-effort lease
+
+`LockStore` coordinates cluster work with expiring leases. It is not a strict-exclusive lock and it
+does not issue fencing tokens. Every implementation and caller must preserve these rules:
+
+- Acquisition for one lease name is atomic. While a lease is live, at most one racing caller may
+  observe success. An expired lease must be reclaimable without cooperation from the old holder.
+- `unlock()` must verify ownership and must be a no-op for a stale or different owner.
+- `renewLock()` must verify ownership atomically with the expiry update. A `false` result means the
+  caller has lost the lease and must stop the protected work.
+- A previous holder can still commit after its lease expires and another node acquires it. Callers
+  must therefore make protected writes idempotent under overlap with a later holder.
+- Implementations should derive expiry from the store's server-side clock, not a client clock that
+  can drift, and must be thread-safe.
+
+`AbstractLockStoreContract` verifies acquisition, ownership, renewal, and expiry behavior. It does
+not turn the lease into a fencing primitive; applications that require stale-writer exclusion need
+a monotonic token checked atomically by every protected write, which is outside this SPI.
+
+### Transaction boundaries are part of the store contract
+
+Persistence methods on the mandatory and optional store interfaces state a transaction attribute
+in their Javadoc. Do not infer the boundary from the method name:
+
+| Attribute | Implementor obligation |
+|-----------|------------------------|
+| `SUPPORTS` | A read may join an existing transaction and must not require a new write transaction. A concrete provider may use a stronger boundary when needed for safe connection lifecycle, provided the observable read contract is preserved. |
+| `REQUIRED` | The mutation and all related statements must be atomic. It joins a caller transaction when the persistence model supports that, or starts the store's equivalent unit of work. |
+
+A separate JPA conformance profile strengthens six cluster-liveness methods. A JPA store must have
+a class-level `@Transactional(REQUIRED)` default and put `@Transactional(REQUIRES_NEW)` on:
+
+- `tryLock`, `unlock`, and `renewLock`;
+- `upsertHeartbeat`;
+- `deleteInactiveNodesSince`; and
+- `deleteInactiveNodesByIds`.
+
+For a JPA-backed store, this concrete profile is the requirement to follow even though the general
+SPI descriptions classify these mutations as `REQUIRED`.
+
+Those operations must commit independently so another node sees lease and heartbeat changes as
+soon as the call returns, and an outer rollback cannot undo liveness state. The conditional
+`AbstractJobStoreTransactionBoundaryContract` checks the annotations for JPA stores. A document
+store that provides the same independent-commit behavior through one atomic operation is exempt
+from that annotation contract.
 
 ### Implementing a Custom Store
 
@@ -864,11 +908,13 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractJobAnalyticsStoreContract` | Analytics/aggregation queries |
 | `AbstractTagStoreContract` | Tag-based job queries |
 | `AbstractWorkflowConditionStoreContract` | Workflow condition evaluation |
-| `AbstractDlqAlertStoreContract` | DLQ alert lifecycle |
 | `AbstractResourcePermitStoreContract` | Permit acquire and release |
 | `AbstractDualWriteInvariantContract` | Cross-store invariants for dual hot/cold write paths |
 
-Run all contract suites against your store implementation. All tests must pass before the store earns the "Ratchet Store Compatible" label. API and Jakarta-runtime compatibility are separate conformance tiers, validated by `ratchet-tck-api` and `ratchet-tck-jakarta` respectively.
+Run every required contract and every conditional contract that applies to the store. The generated
+report must have no failed or missing required contract before the store earns the "Ratchet Store
+Compatible" label. API and Jakarta-runtime compatibility are separate tiers; follow
+[Adopting the TCK](/conformance/adopting-the-tck) for their runtime bridge and deployment seams.
 
 ### Adding the TCK Dependency
 
@@ -876,7 +922,7 @@ Run all contract suites against your store implementation. All tests must pass b
 <dependency>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-tck-store</artifactId>
-    <version>${ratchet.version}</version>
+    <version>0.1.1</version>
     <scope>test</scope>
 </dependency>
 ```

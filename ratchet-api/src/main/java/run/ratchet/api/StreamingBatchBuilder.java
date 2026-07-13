@@ -16,8 +16,12 @@
 package run.ratchet.api;
 
 import java.io.Serializable;
+import java.time.Duration;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
+import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /**
  * Fluent builder for streaming batch jobs that process large datasets in chunks.
@@ -86,11 +90,47 @@ public interface StreamingBatchBuilder<T extends Serializable> {
   StreamingBatchBuilder<T> platform();
 
   /**
+   * Sets the retry backoff policy and base delay for every child job in this batch.
+   *
+   * <p>The setting applies to the whole builder regardless of call order. It does not apply to the
+   * no-op batch parent or workflow branches.
+   *
+   * @param policy the backoff strategy applied between child attempts
+   * @param param policy-specific base delay
+   * @throws NullPointerException if {@code policy} or {@code param} is null
+   * @throws UnsupportedOperationException if the builder does not support child retry settings
+   */
+  default StreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param) {
+    Objects.requireNonNull(policy, "policy");
+    Objects.requireNonNull(param, "param");
+    throw new UnsupportedOperationException("Streaming batch child retry backoff is not supported");
+  }
+
+  /**
+   * Sets the maximum number of retry attempts for every child job in this batch.
+   *
+   * <p>The default is {@code 0} for compatibility. The setting applies to the whole builder
+   * regardless of call order. It does not apply to the no-op batch parent or workflow branches.
+   *
+   * @param retries maximum child retry attempts; {@code 0} disables retries
+   * @throws IllegalArgumentException if {@code retries} is negative
+   * @throws UnsupportedOperationException if the builder does not support child retry settings
+   */
+  default StreamingBatchBuilder<T> withMaxRetries(int retries) {
+    if (retries < 0) {
+      throw new IllegalArgumentException("retries must be at least 0");
+    }
+    throw new UnsupportedOperationException("Streaming batch child retries are not supported");
+  }
+
+  /**
    * Submits the configured streaming batch for execution.
    *
    * @return a {@link JobHandle} for the submitted batch job; never {@code null}
-   * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store is
-   *     temporarily unavailable while the batch is submitted
+   * @throws RatchetTransientStoreException if the backing store is temporarily unavailable while
+   *     the batch is submitted
+   * @throws PayloadTooLargeException if a child, progress hook, or workflow payload exceeds the
+   *     configured serialized-payload limit
    * @throws IllegalStateException if no input stream or processing action has been configured
    */
   JobHandle start();

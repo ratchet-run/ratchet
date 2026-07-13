@@ -18,7 +18,6 @@ package run.ratchet.store.mongodb;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.expr;
-import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Sorts.ascending;
@@ -28,14 +27,13 @@ import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.setOnInsert;
 import static run.ratchet.store.mongodb.MongoFieldNames.ACTIVE_COUNT;
-import static run.ratchet.store.mongodb.MongoFieldNames.ALERT_SENT_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CHILD_JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.DEFINITION_ORDER;
 import static run.ratchet.store.mongodb.MongoFieldNames.DESCRIPTION;
-import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_HASH;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.MAX_CONCURRENT;
@@ -65,16 +63,16 @@ import java.util.UUID;
 import org.bson.Document;
 import org.jboss.logging.Logger;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.util.WorkflowConditionOrdering;
 
 /**
- * Catch-all for smaller collections: job executions, job logs, workflow conditions, DLQ alerts, and
- * resource permits/limits. Each is independent — none needs any of the other op classes.
+ * Catch-all for smaller collections: job executions, job logs, workflow conditions, and resource
+ * permits/limits. Each is independent — none needs any of the other op classes.
  *
  * <p>The resource-permit flow is the subtle one: {@code tryAcquirePermit} uses a {@code \$expr}
  * predicate to compare {@code active_count} against {@code max_concurrent} in the same document,
@@ -162,11 +160,11 @@ final class MongoAuxiliaryOperations {
     for (Document doc :
         ctx.workflowConditions()
             .find(eq(PARENT_JOB_ID, parentJobId))
-            .sort(ascending(CONDITION_PRIORITY))) {
+            .sort(ascending(CONDITION_PRIORITY, DEFINITION_ORDER))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
       warnIfLargeConditionResult("parent job", parentJobId, results.size());
     }
-    return results;
+    return WorkflowConditionOrdering.sorted(results);
   }
 
   List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
@@ -174,11 +172,11 @@ final class MongoAuxiliaryOperations {
     for (Document doc :
         ctx.workflowConditions()
             .find(eq(CHILD_JOB_ID, childJobId))
-            .sort(ascending(CONDITION_PRIORITY))) {
+            .sort(ascending(CONDITION_PRIORITY, DEFINITION_ORDER))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
       warnIfLargeConditionResult("child job", childJobId, results.size());
     }
-    return results;
+    return WorkflowConditionOrdering.sorted(results);
   }
 
   List<WorkflowConditionEntity> findConditionsByType(
@@ -187,11 +185,11 @@ final class MongoAuxiliaryOperations {
     for (Document doc :
         ctx.workflowConditions()
             .find(and(eq(PARENT_JOB_ID, parentJobId), eq(CONDITION_TYPE, type.name())))
-            .sort(ascending(CONDITION_PRIORITY))) {
+            .sort(ascending(CONDITION_PRIORITY, DEFINITION_ORDER))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
       warnIfLargeConditionResult("parent job/type", parentJobId, results.size());
     }
-    return results;
+    return WorkflowConditionOrdering.sorted(results);
   }
 
   private static void warnIfLargeConditionResult(String query, UUID id, int resultSize) {
@@ -216,25 +214,6 @@ final class MongoAuxiliaryOperations {
 
   long countConditionsByParentJobId(UUID parentJobId) {
     return ctx.workflowConditions().countDocuments(eq(PARENT_JOB_ID, parentJobId));
-  }
-
-  DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    if (alert.getId() == null) {
-      alert.setId(UuidV7Factory.create());
-    }
-    Document doc = DocumentMapper.toDocument(alert);
-    ctx.dlqAlerts().replaceOne(eq(ID, alert.getId()), doc, new ReplaceOptions().upsert(true));
-    return alert;
-  }
-
-  boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    return ctx.dlqAlerts()
-            .countDocuments(
-                and(
-                    eq(JOB_ID, jobId),
-                    eq(ERROR_HASH, errorHash),
-                    gte(ALERT_SENT_AT, DocumentMapper.toDate(cutoff))))
-        > 0;
   }
 
   boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {

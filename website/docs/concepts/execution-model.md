@@ -97,7 +97,13 @@ When a wakeup signal arrives (from `ClusterCoordinator.notifyNewWork()` or a loc
 
 ### Drain Mode
 
-During graceful shutdown, the `DrainController` signals the Poller to stop claiming new jobs. Already-running jobs are allowed to complete, but no new work is picked up. This prevents half-executed jobs during deployment.
+During CDI shutdown, an internal `DrainController` makes subsequent poll cycles skip new claims
+before the Poller stops. The execution coordinator then requests cancellation of active work;
+unfinished RUNNING rows remain durable and are handled by normal shutdown reset or orphan recovery.
+
+`DrainController` is not a public health or lifecycle API. An application's readiness endpoint
+must own its traffic-acceptance state rather than inject an RI implementation type. See the
+[Kubernetes rolling-termination pattern](../deployment/kubernetes.md#rolling-termination).
 
 ## Job Execution Coordinator
 

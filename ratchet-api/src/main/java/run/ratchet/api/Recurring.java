@@ -69,12 +69,26 @@ public @interface Recurring {
 
   /**
    * Unique job identifier used as a business key. Defaults to fully-qualified class name + method
-   * name if not specified.
+   * name if not specified. After trimming, the identifier must contain at most 255 printable ASCII
+   * characters ({@code U+0020} through {@code U+007E}).
    */
   String id() default "";
 
   /** Maximum number of retry attempts on failure. */
   int maxRetries() default 3;
+
+  /**
+   * Action applied when more than one cron occurrence is overdue. The default preserves Ratchet's
+   * existing bounded catch-up behavior. {@link #maxCatchUpExecutions()} is read only for {@code
+   * CATCH_UP}; it has no effect for {@code SKIP} or {@code FIRE_ONCE}.
+   */
+  RecurringMisfirePolicy.Action misfirePolicy() default RecurringMisfirePolicy.Action.CATCH_UP;
+
+  /**
+   * Maximum total overdue occurrences created by {@link RecurringMisfirePolicy.Action#CATCH_UP}.
+   * Ignored for {@code SKIP} and {@code FIRE_ONCE}; changing it has no effect for those actions.
+   */
+  int maxCatchUpExecutions() default RecurringMisfirePolicy.DEFAULT_MAX_CATCH_UP_EXECUTIONS;
 
   /** Display name for monitoring and logs; defaults to the method name if not specified. */
   String name() default "";

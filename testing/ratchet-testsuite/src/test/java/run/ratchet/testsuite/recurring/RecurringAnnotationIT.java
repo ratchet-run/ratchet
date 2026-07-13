@@ -27,6 +27,7 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
@@ -91,6 +92,7 @@ class RecurringAnnotationIT extends BaseRatchetIT {
             .orElseThrow();
     assertEquals(TestRecurringJobs.EVERY_FIVE_SECONDS_JOB_ID, def.businessKey());
     assertNotNull(def.nextFire());
+    assertEquals(RecurringMisfirePolicy.defaults(), def.misfirePolicy());
   }
 
   @Override

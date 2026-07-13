@@ -117,7 +117,7 @@ public class OrphanRecoveryTimer {
     leaseTtl = Duration.ofMinutes(Math.max(2, intervalMinutes));
     handle =
         executor.scheduleAtFixedRate(
-            this::recoverOrphans, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
+            this::recoverNow, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
     log.infof(
         "Initialized orphan recovery timer — scanning every %smin (grace=%ss)",
         intervalMinutes, orphanGraceSeconds);
@@ -131,7 +131,13 @@ public class OrphanRecoveryTimer {
     }
   }
 
-  void recoverOrphans() {
+  /**
+   * Runs one recovery scan immediately through the same path used by the scheduled timer.
+   *
+   * @apiNote Internal orchestration seam for deterministic runtime diagnostics and integration
+   *     tests. Applications must not invoke this method.
+   */
+  public void recoverNow() {
     try {
       if (singletonLeaseService != null) {
         Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);

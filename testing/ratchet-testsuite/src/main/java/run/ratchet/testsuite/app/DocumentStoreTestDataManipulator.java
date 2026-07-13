@@ -75,6 +75,20 @@ public class DocumentStoreTestDataManipulator implements TestDataManipulator {
   }
 
   @Override
+  public void setJobPickedAt(UUID jobId, Instant pickedAt) {
+    UpdateResult result =
+        mongoDb
+            .getCollection("scheduler_job")
+            .updateOne(eq("_id", jobId), set("picked_at", Date.from(pickedAt)));
+    if (!result.wasAcknowledged()) {
+      throw new IllegalStateException("MongoDB did not acknowledge picked_at update for " + jobId);
+    }
+    if (result.getMatchedCount() != 1) {
+      throw new IllegalStateException("Expected one scheduler_job document for " + jobId);
+    }
+  }
+
+  @Override
   public void setArchivedAt(UUID archiveId, Instant archivedAt) {
     UpdateResult result =
         mongoDb

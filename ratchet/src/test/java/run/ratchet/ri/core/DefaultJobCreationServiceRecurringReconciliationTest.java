@@ -36,6 +36,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
@@ -118,11 +119,39 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
     assertEquals("0 30 9 * * ?", updated.cronExpr());
     assertEquals("America/New_York", updated.zoneId());
     assertEquals(Instant.parse("2026-05-27T13:30:00Z"), updated.nextFire());
-    assertEquals(JobPriority.HIGH.ordinal(), updated.priority());
+    assertEquals(JobPriority.HIGH.persistedCode(), updated.priority());
     assertEquals(3, updated.maxRetries());
     assertEquals(BackoffPolicy.FIXED, updated.backoffPolicy());
     assertEquals(5_000, updated.backoffParamMs());
     assertEquals(30, updated.timeoutSec());
+  }
+
+  @Test
+  void submitRecurringPersistsAndReconcilesMisfirePolicyWithoutResettingSchedule() {
+    FakeRecurringJobStore store = new FakeRecurringJobStore();
+    MutableClock clock = new MutableClock(START);
+    DefaultJobCreationService service = newService(store, clock);
+
+    submit(
+        service,
+        "0 * * * * ?",
+        ZoneOffset.UTC,
+        JobOptions.defaults(),
+        BUSINESS_KEY,
+        RecurringMisfirePolicy.skip());
+    Instant originalNextFire = store.onlyDefinition().nextFire();
+
+    submit(
+        service,
+        "0 * * * * ?",
+        ZoneOffset.UTC,
+        JobOptions.defaults(),
+        BUSINESS_KEY,
+        RecurringMisfirePolicy.fireOnce());
+
+    assertEquals(RecurringMisfirePolicy.fireOnce(), store.onlyDefinition().misfirePolicy());
+    assertEquals(originalNextFire, store.onlyDefinition().nextFire());
+    assertEquals(1, store.updateCount());
   }
 
   @Test
@@ -161,11 +190,22 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
       ZoneId zone,
       JobOptions options,
       String businessKey) {
+    return submit(service, cron, zone, options, businessKey, RecurringMisfirePolicy.defaults());
+  }
+
+  private static JobHandle submit(
+      DefaultJobCreationService service,
+      String cron,
+      ZoneId zone,
+      JobOptions options,
+      String businessKey,
+      RecurringMisfirePolicy misfirePolicy) {
     DefaultRecurringJobBuilder builder =
         new DefaultRecurringJobBuilder(
             cron, zone, DefaultJobCreationServiceRecurringReconciliationTest::noopTask, service);
     builder.withOptions(options);
     builder.withBusinessKey(businessKey);
+    builder.withMisfirePolicy(misfirePolicy);
     return builder.submit();
   }
 
@@ -203,7 +243,7 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
         nextFire,
         false,
         null,
-        options.priority().ordinal(),
+        options.priority().persistedCode(),
         options.maxRetries(),
         options.backoffPolicy(),
         (int) options.backoffParam().toMillis(),
@@ -221,7 +261,8 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
         null,
         START,
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 
   private static final class NoopJobWakeupService extends JobWakeupService {

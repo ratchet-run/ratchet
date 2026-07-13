@@ -86,6 +86,28 @@ public abstract class AbstractSchemaConformanceContract {
   }
 
   @Test
+  void deprecatedTablesAbsent() throws SQLException {
+    try (Connection c = openConnection()) {
+      Set<String> introspected = introspectTableNames(c);
+      List<String> violations = new ArrayList<>();
+      for (DeprecatedArtifact artifact : expectedSchema().deprecated()) {
+        if (artifact instanceof DeprecatedArtifact.DroppedTable droppedTable
+            && expectedSchema().version() >= droppedTable.sinceVersion()
+            && introspected.contains(droppedTable.table().toLowerCase(Locale.ROOT))) {
+          violations.add(
+              droppedTable.table() + " (dropped in v" + droppedTable.sinceVersion() + ")");
+        }
+      }
+      if (!violations.isEmpty()) {
+        fail(
+            mapper().dialectName()
+                + " carries tables the catalog marked as dropped: "
+                + violations);
+      }
+    }
+  }
+
+  @Test
   void allRequiredColumnsPresent_withAcceptableTypes() throws SQLException {
     try (Connection c = openConnection()) {
       for (Table t : expectedSchema().tables()) {

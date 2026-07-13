@@ -58,6 +58,7 @@ import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ExtensionArchiveJson;
 
 /**
@@ -120,16 +121,21 @@ final class MongoArchiveOperations implements ArchiveStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobList, String reason, String archivedBy) {
+  public int archiveAndDeleteJobsBatch(List<JobEntity> jobList, String reason, String archivedBy) {
     if (jobList.isEmpty()) {
       return 0;
     }
+    List<UUID> ids = jobList.stream().map(JobEntity::getId).toList();
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
-            int archived = archiveJobsBatch(session, jobList, reason, archivedBy);
+            List<JobEntity> currentJobs = new ArrayList<>(ids.size());
+            for (Document doc : ctx.jobs().find(session, in(ID, ids))) {
+              currentJobs.add(DocumentMapper.toJobEntity(doc));
+            }
+            currentJobs = ArchiveHelper.requireCurrentTerminalJobs(ids, currentJobs);
+            int archived = insertArchiveDocuments(session, currentJobs, reason, archivedBy);
             if (archived > 0) {
-              List<UUID> ids = jobList.stream().limit(archived).map(JobEntity::getId).toList();
               // Guard the delete on terminal status: a job reset to PENDING (e.g. a dashboard
               // retry)
               // between findJobsForArchiving and this transaction must not be deleted, or the retry
@@ -154,11 +160,11 @@ final class MongoArchiveOperations implements ArchiveStore {
             return archived;
           });
     } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("archive jobs batch", e);
+      throw ctx.translateTransientStoreException("archive and delete jobs batch", e);
     }
   }
 
-  int archiveJobsBatch(
+  int insertArchiveDocuments(
       ClientSession session, List<JobEntity> jobList, String reason, String archivedBy) {
     if (jobList.isEmpty()) {
       return 0;

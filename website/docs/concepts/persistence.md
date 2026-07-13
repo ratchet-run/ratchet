@@ -16,9 +16,9 @@ metadata table (`scheduler_job`) and a hot executable queue table
 history; the hot table exists only while a job is live and owns claim/poll
 state. MongoDB maps the same logical model to collections. Supporting entities
 handle batches, executions, workflow conditions, locks, nodes, structured logs,
-resource limits, DLQ alerts, and archived jobs.
+resource limits, and archived jobs.
 
-<div class="docs-diagram persistence-model-diagram" role="img" aria-label="Ratchet persistence model with scheduler_job as cold metadata, scheduler_job_queue as hot live state, and supporting tables for tags, executions, batches, workflow conditions, locks, nodes, logs, resources, alerts, and archive rows.">
+<div class="docs-diagram persistence-model-diagram" role="img" aria-label="Ratchet persistence model with scheduler_job as cold metadata, scheduler_job_queue as hot live state, and supporting tables for tags, executions, batches, workflow conditions, locks, nodes, logs, resources, and archive rows.">
   <div class="docs-diagram-table docs-diagram-card--primary">
     <div class="docs-diagram-table-header">
       <strong>scheduler_job</strong>
@@ -107,10 +107,6 @@ resource limits, DLQ alerts, and archived jobs.
       <small>Resource capacity and active permits.</small>
     </div>
     <div class="docs-diagram-card">
-      <strong>scheduler_dlq_alerts</strong>
-      <small>DLQ alert audit and deduplication.</small>
-    </div>
-    <div class="docs-diagram-card">
       <strong>scheduler_job_archive</strong>
       <small>Archived terminal jobs.</small>
     </div>
@@ -149,9 +145,15 @@ claim path can populate lightweight claim DTOs from one hot table.
 | `scheduler_job_queue.signal_key` / `signal_timeout` | `VARCHAR` / `TIMESTAMP` | Signal-wait key and timeout for WAITING jobs |
 | `scheduler_job_queue.signal_payload` / metadata | `TEXT` / `VARCHAR` | Delivered signal payload, decision metadata, and delivery id |
 
-The `scheduler_business_key_reservation` table owns active business-key
-uniqueness. Terminal rows keep their `business_key` for audit/search, but they
-do not block a future active job from using the same key.
+The `scheduler_business_key_reservation` table (or MongoDB collection) owns active business-key
+uniqueness across queue jobs and recurring masters. Terminal rows keep their `business_key` for
+audit/search, but they do not block a future active job from using the same key.
+
+The physical column is wider in some stores, but the API contract is the portable minimum: after
+trimming, a business key may contain up to 255 printable ASCII characters. Oracle can count its
+`VARCHAR2(255)` limit in bytes, and SQL Server's indexed `VARCHAR` columns use the database
+collation's code page. Printable ASCII is one byte and round-trips unchanged in both, so Ratchet
+rejects other values before persistence rather than allowing store-specific conversion or failure.
 
 ### Indexes
 
@@ -288,7 +290,6 @@ public interface JobStore
 | `JobQueryStore` | Read-only list/detail/queue-health queries and tag lookups |
 | `JobAnalyticsStore` | Aggregate counts, rate statistics, and percentile metrics |
 | `JobAuditStore` | Execution history recording and structured job log storage |
-| `DlqAlertStore` | DLQ alert audit trail and deduplication |
 | `JobExtensionStore` | Indexed job properties (`scheduler_job_properties`) and mutable per-namespace extension state with optimistic CAS (`scheduler_job_extension_state`), used by framework extensions; archiving copies both onto the archive row as denormalized JSON |
 
 ### Why a Core-Plus-Capabilities Split?

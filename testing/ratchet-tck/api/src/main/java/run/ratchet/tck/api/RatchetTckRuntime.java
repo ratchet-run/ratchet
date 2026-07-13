@@ -16,6 +16,7 @@
 package run.ratchet.tck.api;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 import run.ratchet.api.JobSchedulerService;
 
 /**
@@ -29,6 +30,7 @@ import run.ratchet.api.JobSchedulerService;
  *   <li>a {@link RatchetTckProbe} that observes lifecycle events for that scheduler,
  *   <li>optionally a {@link TestClock} when the implementation can drive its scheduler from a
  *       controllable clock,
+ *   <li>whether the backing store participates in caller transaction rollback,
  *   <li>a non-destructive {@link #clear() drain} so tests are isolated from each other.
  * </ul>
  *
@@ -53,6 +55,26 @@ public interface RatchetTckRuntime {
    * Assumptions.assumeTrue(runtime.clock().isPresent())} to skip on wall-clock implementations.
    */
   Optional<TestClock> clock();
+
+  /**
+   * Configured maximum serialized job-payload size in UTF-8 bytes. Implementations that expose a
+   * limit return it so {@link AbstractPayloadSizeContract} can exercise rejection behavior.
+   * Implementations without a configurable limit return empty and skip that optional contract.
+   */
+  default OptionalLong maxPayloadBytes() {
+    return OptionalLong.empty();
+  }
+
+  /**
+   * Returns whether scheduler writes participate in rollback of the caller's Jakarta transaction.
+   *
+   * <p>The default is {@code true}. Runtimes backed by a non-JTA store should return {@code false}
+   * so rollback-specific Jakarta contracts report {@code N/A} without teaching the neutral TCK
+   * about implementation or store names.
+   */
+  default boolean supportsCallerTransactionRollback() {
+    return true;
+  }
 
   /**
    * Drains the scheduler so each test starts from a clean baseline. The contract is intentionally

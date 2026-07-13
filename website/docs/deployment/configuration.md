@@ -83,7 +83,7 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 | `node.orphanGraceSeconds(60)` | `60` | Grace period before reclaiming orphaned work |
 | `maintenance.jobRetentionDays(90)` | `90` | Completed-job retention before archiving |
 | `maintenance.logRetentionDays(30)` | `30` | Per-job log retention |
-| `payload.maxPayloadKb(100)` | `100` | Serialized job payload size cap |
+| `payload.maxPayloadKb(100)` | `100` | UTF-8 serialized job payload cap in 1024-byte units, before encryption/store overhead |
 | `payload.maxResultBytes(65536)` | `65536` | Persisted result JSON cap; `0` disables truncation |
 | `store.priorityBoostIntervalMinutes(15)` | `15` | Starvation-prevention priority boost interval |
 
@@ -137,7 +137,7 @@ public class PlatformRatchetConfigSource implements RatchetConfigSource {
 }
 ```
 
-The env lookup recognizes canonical `RATCHET_*` environment variable names and `ratchet.*` property names, such as `ratchet.poller.batch-size`.
+The env lookup recognizes canonical `RATCHET_*` environment variable names and `ratchet.*` property names, such as `ratchet.poller.batch-size`. See the source-derived [Configuration reference](/deployment/configuration-reference) for the complete catalog and defaults.
 
 ## SPI Overrides
 
@@ -154,5 +154,6 @@ Security and behavior extension points are CDI beans, not class names in propert
 ## See also
 
 - [Getting Started configuration](/getting-started/configuration)
-- [Installation](/deployment/installation)
+- [Configuration reference](/deployment/configuration-reference)
+- [Runtime setup](/deployment/installation)
 - [Troubleshooting](/troubleshooting/common-issues)

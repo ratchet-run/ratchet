@@ -48,6 +48,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
@@ -510,6 +511,65 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_persistsChildRetryOptionsConfiguredAfterForEach() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withMaxRetries(3).withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2));
+
+    service.submit(builder);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    JobEntity child = childrenCaptor.getValue().get(0);
+    assertEquals(3, child.getMaxRetries());
+    assertEquals(BackoffPolicy.EXPONENTIAL, child.getBackoffPolicy());
+    assertEquals(2_000, child.getBackoffParamMs());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_doesNotApplyChildRetriesToParentOrBranches() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder
+        .withMaxRetries(3)
+        .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(1))
+        .thenOnBatchSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask);
+
+    service.submit(builder);
+
+    ArgumentCaptor<JobEntity> createdCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore, times(2)).create(createdCaptor.capture());
+    List<JobEntity> created = createdCaptor.getAllValues();
+    assertEquals(0, created.get(0).getMaxRetries(), "batch parent must not inherit child retries");
+    assertEquals(
+        0, created.get(1).getMaxRetries(), "workflow branch must not inherit child retries");
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(3, childrenCaptor.getValue().get(0).getMaxRetries());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_defaultsChildrenToNoRetries() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder defaults = new DefaultBatchBuilder("default-batch", service);
+    defaults.forEach(List.of("two"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    service.submit(defaults);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(0, childrenCaptor.getValue().get(0).getMaxRetries());
+  }
+
+  @Test
   void batchSubmit_withoutBulkStoreThrowsClearException() {
     DefaultJobCreationService serviceWithoutBulkStore = serviceWithoutAuthorizationPolicy();
     when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
@@ -543,6 +603,63 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(jobBulkStore, times(2)).bulkInsert(childrenCaptor.capture());
     assertEquals(2, childrenCaptor.getAllValues().get(0).size());
     assertEquals(1, childrenCaptor.getAllValues().get(1).size());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void streamingBatchSubmit_persistsChildRetryOptionsConfiguredAfterProcess() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("test-batch", service);
+    builder.fromStream(Stream.of("one"));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withMaxRetries(2).withBackoff(BackoffPolicy.FIXED, Duration.ofMillis(750));
+
+    service.submit(builder);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    JobEntity child = childrenCaptor.getValue().get(0);
+    assertEquals(2, child.getMaxRetries());
+    assertEquals(BackoffPolicy.FIXED, child.getBackoffPolicy());
+    assertEquals(750, child.getBackoffParamMs());
+  }
+
+  @Test
+  void batchBuilders_reuseJobOptionsValidationForChildRetries() {
+    DefaultJobBuilder job =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
+    DefaultBatchBuilder batch = new DefaultBatchBuilder("batch", service);
+    DefaultStreamingBatchBuilder<String> streaming =
+        new DefaultStreamingBatchBuilder<>("streaming", service);
+
+    IllegalArgumentException retriesError =
+        assertThrows(IllegalArgumentException.class, () -> job.withMaxRetries(-1));
+    assertEquals(
+        retriesError.getMessage(),
+        assertThrows(IllegalArgumentException.class, () -> batch.withMaxRetries(-1)).getMessage());
+    assertEquals(
+        retriesError.getMessage(),
+        assertThrows(IllegalArgumentException.class, () -> streaming.withMaxRetries(-1))
+            .getMessage());
+
+    NullPointerException policyError =
+        assertThrows(NullPointerException.class, () -> job.withBackoff(null, Duration.ZERO));
+    assertEquals(
+        policyError.getMessage(),
+        assertThrows(NullPointerException.class, () -> batch.withBackoff(null, Duration.ZERO))
+            .getMessage());
+
+    NullPointerException paramError =
+        assertThrows(NullPointerException.class, () -> job.withBackoff(BackoffPolicy.FIXED, null));
+    assertEquals(
+        paramError.getMessage(),
+        assertThrows(
+                NullPointerException.class, () -> streaming.withBackoff(BackoffPolicy.FIXED, null))
+            .getMessage());
   }
 
   @Test

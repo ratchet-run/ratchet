@@ -24,21 +24,20 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourceLimitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.WorkflowConditionOrdering;
 
 final class OracleAuxiliaryOperations
-    implements JobAuditStore, WorkflowConditionStore, DlqAlertStore, ResourcePermitStore {
+    implements JobAuditStore, WorkflowConditionStore, ResourcePermitStore {
 
   private static final int PERMIT_CLEANUP_CHUNK_SIZE = 500;
 
@@ -56,7 +55,8 @@ final class OracleAuxiliaryOperations
     condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
     condition.setConditionExpression(RowValues.stringOrNull(row[4]));
     condition.setConditionPriority(((Number) row[5]).intValue());
-    condition.setCreatedAt(RowValues.instantOrNull(row[6]));
+    condition.setDefinitionOrder(((Number) row[6]).intValue());
+    condition.setCreatedAt(RowValues.instantOrNull(row[7]));
     return condition;
   }
 
@@ -115,7 +115,7 @@ final class OracleAuxiliaryOperations
     // language=JPAQL
     String jpql = "DELETE FROM JobLogEntity l WHERE l.ts < :cutoff";
     // ts is TIMESTAMP(6); floor the cutoff to microseconds so the boundary matches the column
-    // precision rather than Oracle's nanosecond-precision bind (see existsRecentDlqAlert).
+    // precision rather than Oracle's nanosecond-precision bind.
     return ctx.em()
         .createQuery(jpql)
         .setParameter("cutoff", OracleTimestamps.floorMicros(cutoff))
@@ -130,7 +130,8 @@ final class OracleAuxiliaryOperations
         """
         MERGE INTO scheduler_workflow_condition d
         USING (SELECT ? AS id, ? AS parent_job_id, ? AS child_job_id, ? AS condition_type,
-                      ? AS condition_expression, ? AS condition_priority, ? AS created_at
+                      ? AS condition_expression, ? AS condition_priority, ? AS definition_order,
+                      ? AS created_at
                FROM dual) s
         ON (d.id = s.id)
         WHEN MATCHED THEN UPDATE SET
@@ -139,12 +140,13 @@ final class OracleAuxiliaryOperations
           d.condition_type = s.condition_type,
           d.condition_expression = s.condition_expression,
           d.condition_priority = s.condition_priority,
+          d.definition_order = s.definition_order,
           d.created_at = s.created_at
         WHEN NOT MATCHED THEN INSERT
           (id, parent_job_id, child_job_id, condition_type, condition_expression,
-           condition_priority, created_at)
+           condition_priority, definition_order, created_at)
           VALUES (s.id, s.parent_job_id, s.child_job_id, s.condition_type,
-                  s.condition_expression, s.condition_priority, s.created_at)
+                  s.condition_expression, s.condition_priority, s.definition_order, s.created_at)
         """;
     ctx.em()
         .createNativeQuery(sql)
@@ -154,7 +156,8 @@ final class OracleAuxiliaryOperations
         .setParameter(4, condition.getConditionType().name())
         .setParameter(5, condition.getConditionExpression())
         .setParameter(6, condition.getConditionPriority())
-        .setParameter(7, Timestamp.from(condition.getCreatedAt()))
+        .setParameter(7, condition.getDefinitionOrder())
+        .setParameter(8, Timestamp.from(condition.getCreatedAt()))
         .executeUpdate();
     return condition;
   }
@@ -165,7 +168,7 @@ final class OracleAuxiliaryOperations
         findConditions(
             "WHERE id = ?",
             List.of(UuidRawConverter.toBytes(id)),
-            "ORDER BY condition_priority ASC",
+            "ORDER BY condition_priority ASC, definition_order ASC",
             1);
     return results.isEmpty() ? null : results.get(0);
   }
@@ -175,7 +178,7 @@ final class OracleAuxiliaryOperations
     return findConditions(
         "WHERE parent_job_id = ?",
         List.of(UuidRawConverter.toBytes(parentJobId)),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -183,7 +186,7 @@ final class OracleAuxiliaryOperations
     return findConditions(
         "WHERE child_job_id = ?",
         List.of(UuidRawConverter.toBytes(childJobId)),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -192,7 +195,7 @@ final class OracleAuxiliaryOperations
     return findConditions(
         "WHERE parent_job_id = ? AND condition_type = ?",
         List.of(UuidRawConverter.toBytes(parentJobId), type.name()),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -228,39 +231,6 @@ final class OracleAuxiliaryOperations
             .setParameter(1, UuidRawConverter.toBytes(parentJobId))
             .getSingleResult();
     return ((Number) result).longValue();
-  }
-
-  @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    if (alert.getId() == null) {
-      ctx.em().persist(alert);
-      return alert;
-    }
-    return ctx.em().merge(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    // language=JPAQL
-    String jpql =
-        """
-        SELECT COUNT(a) FROM DlqAlertEntity a
-        WHERE a.jobId = :jid AND a.errorHash = :hash AND a.alertSentAt >= :cutoff
-        """;
-    // alert_sent_at is TIMESTAMP(6), so a persisted Instant is floored to microsecond
-    // precision. Oracle's JDBC binds an Instant parameter at full nanosecond precision and
-    // compares it literally, so an unmodified cutoff equal to a stored alert time fails the
-    // `>=` boundary by the sub-microsecond remainder (the MySQL/PG drivers floor the bind for
-    // us, which is why this only surfaces on Oracle, and only on a nanosecond-resolution clock).
-    // Floor the cutoff to match the column precision.
-    Long count =
-        ctx.em()
-            .createQuery(jpql, Long.class)
-            .setParameter("jid", jobId)
-            .setParameter("hash", errorHash)
-            .setParameter("cutoff", OracleTimestamps.floorMicros(cutoff))
-            .getSingleResult();
-    return count > 0;
   }
 
   @Override
@@ -455,7 +425,7 @@ final class OracleAuxiliaryOperations
     String sqlPrefix =
         """
         SELECT id, parent_job_id, child_job_id, condition_type, condition_expression,
-               condition_priority, created_at
+               condition_priority, definition_order, created_at
         FROM scheduler_workflow_condition
         """;
     Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
@@ -465,7 +435,9 @@ final class OracleAuxiliaryOperations
     if (maxResults > 0) {
       query.setMaxResults(maxResults);
     }
-    return ((List<Object[]>) query.getResultList())
-        .stream().map(OracleAuxiliaryOperations::mapCondition).toList();
+    List<WorkflowConditionEntity> conditions =
+        ((List<Object[]>) query.getResultList())
+            .stream().map(OracleAuxiliaryOperations::mapCondition).toList();
+    return WorkflowConditionOrdering.sorted(conditions);
   }
 }

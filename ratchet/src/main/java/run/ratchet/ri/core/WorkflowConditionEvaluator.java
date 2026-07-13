@@ -34,11 +34,13 @@ import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.payload.ArgumentCoercion;
+import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -282,6 +284,7 @@ public class WorkflowConditionEvaluator {
       Class<?> cls =
           Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
       Method method = findMethod(cls, payload);
+      payload = ArgumentMaterializer.materialize(payload, payloadSerializer, classPolicy);
       Object target;
       Object[] args;
       if (payload.isStatic()) {
@@ -372,6 +375,12 @@ public class WorkflowConditionEvaluator {
     if (jobResultJson == null) {
       return null;
     }
+    if (SerializedJobResult.isTruncatedType(resultType)) {
+      throw new WorkflowConditionConfigurationException(
+          "Job "
+              + jobId
+              + " result was truncated; value-based workflow conditions cannot be evaluated");
+    }
     // Decrypt at rest before deserializing; marker-driven, so plaintext passes through.
     jobResultJson =
         PayloadEncryptor.decryptJsonColumn(
@@ -392,6 +401,10 @@ public class WorkflowConditionEvaluator {
   }
 
   private static final class WorkflowConditionConfigurationException extends IllegalStateException {
+    private WorkflowConditionConfigurationException(String message) {
+      super(message);
+    }
+
     private WorkflowConditionConfigurationException(String message, Throwable cause) {
       super(message, cause);
     }

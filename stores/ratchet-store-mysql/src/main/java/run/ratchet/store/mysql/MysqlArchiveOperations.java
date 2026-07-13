@@ -21,10 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -98,30 +95,21 @@ final class MysqlArchiveOperations implements ArchiveStore {
     }
   }
 
-  /**
-   * Archives all supplied terminal jobs in the caller's store transaction using a single multi-row
-   * insert.
-   *
-   * @return number of archive rows inserted
-   */
+  /** Atomically archives and terminal-guard-deletes all supplied jobs. */
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+  public int archiveAndDeleteJobsBatch(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
     try {
       if (jobsToArchive.isEmpty()) {
         return 0;
       }
 
       List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
-      Map<UUID, JobEntity> hydratedById =
-          jobs.findByIds(ids).stream()
-              .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
+      List<JobEntity> currentJobs =
+          ArchiveHelper.requireCurrentTerminalJobs(ids, jobs.findByIds(ids));
       List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
       List<UUID> archiveIds = new ArrayList<>(jobsToArchive.size());
-      for (UUID id : ids) {
-        JobEntity hydrated = hydratedById.get(id);
-        if (hydrated == null) {
-          throw new IllegalStateException("Job not found for archival: " + id);
-        }
+      for (JobEntity hydrated : currentJobs) {
         ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
         prepareArchive(archive);
         archives.add(archive);
@@ -151,9 +139,9 @@ final class MysqlArchiveOperations implements ArchiveStore {
             ArchiveParameterBinder.bind(query, archive, parameter, UuidByteArrayConverter::toBytes);
       }
       query.executeUpdate();
-      return archives.size();
+      return ArchiveHelper.requireAllDeleted(ids, jobs.deleteTerminalJobsByIds(ids));
     } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("archive jobs batch", e);
+      throw ctx.translateTransientStoreException("archive and delete jobs batch", e);
     }
   }
 

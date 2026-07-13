@@ -15,6 +15,8 @@
  */
 package run.ratchet.api;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Collections;
@@ -103,7 +105,10 @@ public record JobFilter(
     boolean skipCount,
     boolean includeArchived,
     String cursor,
-    Map<String, Set<String>> propertyFilters) {
+    Map<String, Set<String>> propertyFilters)
+    implements Serializable {
+
+  @Serial private static final long serialVersionUID = 1L;
 
   public JobFilter {
     statuses = copyOrNull(statuses);

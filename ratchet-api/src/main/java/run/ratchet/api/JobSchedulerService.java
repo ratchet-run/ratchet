@@ -19,9 +19,13 @@ import java.io.Serializable;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
+import run.ratchet.api.event.JobRetryingEvent;
+import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.spi.JobAuthorizationPolicy;
 
 /**
  * Primary entry point for scheduling background jobs.
@@ -199,7 +203,8 @@ public interface JobSchedulerService {
    * <ul>
    *   <li><b>Job lifecycle:</b> {@code JobStartedEvent}, {@code JobCompletedEvent}, {@code
    *       JobFailedEvent}, {@code JobCancelledEvent}, {@code JobsBulkCancelledEvent}, {@code
-   *       JobPausedEvent}, {@code JobResumedEvent}, {@code JobRetryingEvent}
+   *       JobPausedEvent}, {@code JobResumedEvent}, {@code JobRetryingEvent}, {@code
+   *       JobsBulkRetriedEvent}, {@code JobExecutionTimedOutEvent}
    *   <li><b>Batch:</b> {@code BatchCompletingEvent}, {@code BatchCompletedEvent}
    *   <li><b>Chain/Workflow:</b> {@code ChainStartedEvent}, {@code ChainCompletedEvent}, {@code
    *       ChainFailedEvent}, {@code WorkflowBranchTriggeredEvent}
@@ -267,6 +272,46 @@ public interface JobSchedulerService {
    * @return true if the job was successfully reset to PENDING, false if not found or not FAILED
    */
   boolean retryJob(UUID jobId);
+
+  /**
+   * Retries a bounded set of failed jobs selected by {@code filter}.
+   *
+   * <p>The filter is intersected with {@link JobStatus#FAILED}; an explicit status set that does
+   * not contain {@code FAILED} therefore matches nothing. Archived rows are never eligible because
+   * the archive does not retain the executable payload needed for another attempt. All other {@link
+   * JobFilter} criteria and ordering are honored by the backing store.
+   *
+   * <p>The operation resets each selected job exactly as {@link #retryJob(UUID)} does: status
+   * becomes {@code PENDING}, attempts and error information are cleared, and scheduled time becomes
+   * now. Implementations MUST select and reset the batch atomically. SQL stores use set-based
+   * statements in one transaction; document stores use one transaction around the bounded selection
+   * and bulk update. If a selected business key cannot be re-reserved, the entire call fails and no
+   * selected job is retried.
+   *
+   * <p>To prevent an accidentally unbounded recovery transaction, {@code limit} must be between 1
+   * and 1000 inclusive. Repeat the call to drain a larger incident in bounded batches.
+   *
+   * <p>Like {@link #cancelJobsByTag(String)}, this administrative bulk operation is not subject to
+   * per-job {@link JobAuthorizationPolicy} checks. Use {@link #retryJob(UUID)} when per-job
+   * authorization is required. A successful call publishes one {@link JobsBulkRetriedEvent}, not
+   * one {@link JobRetryingEvent} per selected job, and issues one scheduler wakeup.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}.
+   *
+   * @param filter selection criteria; never {@code null}
+   * @param limit maximum jobs to retry, from 1 through 1000
+   * @return number of failed jobs reset to {@code PENDING}
+   * @throws IllegalArgumentException if {@code limit} is outside 1 through 1000
+   * @throws NullPointerException if {@code filter} is {@code null}
+   * @throws UnsupportedOperationException if the scheduler does not provide bulk recovery
+   */
+  default int retryJobs(JobFilter filter, int limit) {
+    Objects.requireNonNull(filter, "filter");
+    if (limit < 1 || limit > 1000) {
+      throw new IllegalArgumentException("limit must be between 1 and 1000");
+    }
+    throw new UnsupportedOperationException("Bulk job retry is not supported by this scheduler");
+  }
 
   /**
    * Delivers a signal to the specific WAITING job identified by {@code jobId}, transitioning it to

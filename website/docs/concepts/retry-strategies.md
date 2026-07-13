@@ -223,6 +223,11 @@ When a retry is decided:
 3. **Event:** `JobRetryingEvent` is published with the attempt count and next scheduled time
 4. **Wakeup:** If the delay is non-zero, a delayed wakeup is scheduled so the poller knows to check at the right time
 
+When the retry was caused by the hard execution-timeout watchdog, Ratchet publishes a
+`JobExecutionTimedOutEvent` immediately before the `JobRetryingEvent`. Signal-wait retries retain
+their existing `JobSignalTimedOutEvent` terminal-only contract and publish the generic
+`JobRetryingEvent` when they are rescheduled.
+
 ```java
 // What happens internally:
 long backoff = retryPolicy.getDelay(attempt).isZero()

@@ -18,7 +18,7 @@ The Bill of Materials (BOM) ensures all Ratchet modules use the same version. Im
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.1.2-SNAPSHOT</version>
+      <version>0.1.1</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -61,11 +61,16 @@ Ratchet is split into focused modules so you only pull in what you need.
 
 You need exactly one store module matching your database:
 
+The `0.1.1` release predates the Oracle and SQL Server modules. Those two stores are available
+from the source tree and become Maven Central artifacts in `0.1.2`; when using the `0.1.1` BOM,
+build them from source instead of adding an unpublished coordinate.
+
 | Module | Database | Notes |
 |--------|----------|-------|
 | `ratchet-store-postgresql` | PostgreSQL 14+ | Uses JSONB columns, partial indexes, and `FOR UPDATE SKIP LOCKED` for efficient job claiming |
 | `ratchet-store-mysql` | MySQL 8+ | Uses JSON columns and `SELECT ... FOR UPDATE SKIP LOCKED` |
-| `ratchet-store-oracle` | Oracle 23ai+ | RAW(16) UUIDs, CLOB JSON read via `JSON_VALUE`, two-phase `FETCH FIRST` + `FOR UPDATE SKIP LOCKED` claim |
+| `ratchet-store-oracle` | Oracle 23ai+ | Source build on 0.1.1; published in 0.1.2+. RAW(16) UUIDs, CLOB JSON read via `JSON_VALUE`, two-phase `FETCH FIRST` + `FOR UPDATE SKIP LOCKED` claim |
+| `ratchet-store-sqlserver` | SQL Server 2022+ | Source build on 0.1.1; published in 0.1.2+. BINARY(16) UUIDs, row-versioned reads, and `UPDLOCK, READPAST` for concurrent claiming |
 | `ratchet-store-mongodb` | MongoDB 6+ | Document-based store with TTL indexes |
 
 ### Optional modules
@@ -74,8 +79,11 @@ You need exactly one store module matching your database:
 |--------|---------|---------------------|
 | `ratchet-micrometer` | Micrometer metrics adapter implementing `MetricsCollector` SPI | You want to export scheduler metrics to Prometheus, Datadog, or any Micrometer-supported backend |
 | `ratchet-tck-store` | Store SPI conformance contracts (CRUD, claiming, archiving, batches, locks). | You're validating a custom `JobStore` for "Ratchet Store Compatible". |
-| `ratchet-tck-api` | Public-API conformance contracts (submit / cancel / retry / idempotency / workflow / delayed scheduling). Container-free, pure-JVM JUnit. | You're validating a custom `JobSchedulerService` for "Ratchet API Compatible". |
-| `ratchet-tck-jakarta` | Jakarta-EE conformance contracts (CDI injection, CDI events, JTA enqueue) driven by Arquillian. | You're validating a runtime for "Ratchet Jakarta Runtime Compatible". |
+| `ratchet-tck-api` | Container-neutral public-API contracts (submit / cancel / retry / idempotency / workflow / delayed scheduling). The adopter supplies the runtime bridge and bootstraps the implementation in its required environment. | You're validating a custom `JobSchedulerService` for "Ratchet API Compatible". |
+| `ratchet-tck-jakarta` | Jakarta EE conformance contracts (CDI injection, CDI events, JTA enqueue) driven by Arquillian. The adopter supplies the server adapter and deployment. | You're validating a runtime for "Ratchet Jakarta Runtime Compatible". |
+
+See [Adopting the TCK](/conformance/adopting-the-tck) for the fixture and runtime-adapter steps,
+the complete-report requirement, and the limits of each compatibility claim.
 
 ## Choosing your modules
 
@@ -159,7 +167,7 @@ Ratchet keeps its dependency footprint small:
 | `ratchet-api` | `jakarta.enterprise.cdi-api` (for `@InterceptorBinding` on `@CircuitBreakerProtected`) |
 | `ratchet` | ASM 9.8 (lambda bytecode analysis), cron-utils 9.2.1 (cron expression parsing), JBoss Logging; Jakarta EE APIs are provided by the runtime |
 | `ratchet-store-core` | Jakarta Persistence / JSON APIs, ASM, JBoss Logging |
-| `ratchet-store-mysql` / `ratchet-store-postgresql` / `ratchet-store-oracle` | SQL store logic; JDBC drivers are supplied by the application server or your deployment |
+| `ratchet-store-mysql` / `ratchet-store-postgresql` / `ratchet-store-oracle` / `ratchet-store-sqlserver` | SQL store logic; JDBC drivers are supplied by the application server or your deployment |
 | `ratchet-store-mongodb` | MongoDB sync driver |
 | `ratchet-micrometer` | Micrometer Core 1.14 |
 
@@ -174,6 +182,8 @@ The SQL files are located in each SQL store module's resources:
 ```
 stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
+stores/ratchet-store-oracle/src/main/resources/ddl/oracle-schema.sql
+stores/ratchet-store-sqlserver/src/main/resources/ddl/sqlserver-schema.sql
 ```
 
 ### Applying the schema
@@ -245,7 +255,8 @@ non-container deployments.
 
 ## What's next
 
-With your dependencies in place and the schema applied, you're ready to write your first job:
+With your dependencies in place and the schema applied, complete [Runtime setup](/deployment/installation) before booting the application. Ratchet intentionally fails startup until the deployment provides both `RatchetOptions` and a non-empty `ClassPolicy` allowlist.
 
+- [Runtime setup](/deployment/installation) -- Required CDI beans, security policy, and container resources
 - [Quick Start](./quickstart.md) -- Minimal working example in under 5 minutes
 - [Your First Job](./first-job.md) -- Complete walkthrough with retries, callbacks, and monitoring

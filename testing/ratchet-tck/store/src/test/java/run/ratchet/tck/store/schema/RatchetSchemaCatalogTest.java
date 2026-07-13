@@ -64,6 +64,16 @@ class RatchetSchemaCatalogTest {
   }
 
   @Test
+  void schedulerRecurringJobIncludesPersistedMisfirePolicy() {
+    List<String> columns =
+        table("scheduler_recurring_job").columns().stream().map(Column::name).toList();
+
+    assertTrue(
+        columns.containsAll(List.of("misfire_policy", "max_catch_up_executions")),
+        "scheduler_recurring_job should persist the complete misfire policy");
+  }
+
+  @Test
   void schedulerJobDeclaresRecurringMasterAndTraceContext() {
     Table job = table("scheduler_job");
     List<String> columns = job.columns().stream().map(Column::name).toList();
@@ -95,13 +105,43 @@ class RatchetSchemaCatalogTest {
   }
 
   @Test
-  void currentVersionMatchesMaxDdlSchemaVersionInsert() {
+  void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        11,
+        12,
         RatchetSchemaCatalog.CURRENT_VERSION,
-        "CURRENT_VERSION must match the highest ratchet_schema_version insert in the shipped DDL"
-            + " (currently '011'); bump both together when the schema advances so the catalog never"
-            + " lags the DDL again");
+        "catalog version should track the combined workflow, recurring, and DLQ schema revision");
+  }
+
+  @Test
+  void workflowConditionsPersistDefinitionOrder() {
+    Table workflowConditions = table("scheduler_workflow_condition");
+
+    assertTrue(
+        workflowConditions.columns().stream()
+            .map(Column::name)
+            .toList()
+            .contains("definition_order"),
+        "workflow conditions should persist builder registration order");
+    assertEquals(
+        List.of("parent_job_id", "condition_priority", "definition_order"),
+        index(workflowConditions, "idx_workflow_evaluation_order").columns(),
+        "workflow evaluation index should follow the routing order");
+  }
+
+  @Test
+  void dlqAlertLedgerIsRemovedAtMigrationVersionFive() {
+    assertTrue(
+        RatchetSchemaCatalog.CURRENT.tables().stream()
+            .noneMatch(table -> table.name().equals("scheduler_dlq_alerts")),
+        "the dead DLQ alert ledger must not remain in the current schema");
+    assertTrue(
+        RatchetSchemaCatalog.CURRENT.deprecated().stream()
+            .anyMatch(
+                artifact ->
+                    artifact instanceof DeprecatedArtifact.DroppedTable droppedTable
+                        && droppedTable.table().equals("scheduler_dlq_alerts")
+                        && droppedTable.sinceVersion() == 5),
+        "migration V005 must mark scheduler_dlq_alerts as removed");
   }
 
   private static List<String> signalColumns() {

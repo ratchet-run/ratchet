@@ -31,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -144,6 +145,7 @@ class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
         null,
         Instant.now(),
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 }

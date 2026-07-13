@@ -286,7 +286,8 @@ final class OracleJobClaimOperations implements JobClaimStore {
                     row.businessKey(),
                     row.attempts(),
                     row.maxRetries(),
-                    row.executionTarget()));
+                    row.executionTarget(),
+                    row.dependsOn()));
           }
           return claims;
         },
@@ -299,6 +300,10 @@ final class OracleJobClaimOperations implements JobClaimStore {
 
   static Map<String, Integer> claimSelectColumnIndexes() {
     return ClaimColumn.indexesByName();
+  }
+
+  static String claimSelectClause() {
+    return CLAIM_SELECT_COLUMNS;
   }
 
   private enum ClaimColumn {
@@ -314,7 +319,8 @@ final class OracleJobClaimOperations implements JobClaimStore {
     BUSINESS_KEY("business_key"),
     ATTEMPTS("attempts"),
     MAX_RETRIES("max_retries"),
-    EXECUTION_TARGET("execution_target");
+    EXECUTION_TARGET("execution_target"),
+    DEPENDS_ON("depends_on");
 
     private final String sqlName;
 
@@ -323,7 +329,9 @@ final class OracleJobClaimOperations implements JobClaimStore {
     }
 
     static String selectClause() {
-      return Arrays.stream(values()).map(ClaimColumn::sqlName).collect(Collectors.joining(", "));
+      return Arrays.stream(values())
+          .map(ClaimColumn::selectExpression)
+          .collect(Collectors.joining(", "));
     }
 
     static List<String> names() {
@@ -339,6 +347,16 @@ final class OracleJobClaimOperations implements JobClaimStore {
     }
 
     String sqlName() {
+      return sqlName;
+    }
+
+    String selectExpression() {
+      if (this == DEPENDS_ON) {
+        // Phase A intentionally does not lock cold metadata. Project the immutable parent pointer
+        // without adding a nonexistent column to scheduler_job_queue.
+        return "(SELECT cold_job.depends_on FROM scheduler_job cold_job"
+            + " WHERE cold_job.job_id = scheduler_job_queue.job_id) AS depends_on";
+      }
       return sqlName;
     }
   }
@@ -378,6 +396,10 @@ final class OracleJobClaimOperations implements JobClaimStore {
 
     String executionTarget() {
       return (String) value(ClaimColumn.EXECUTION_TARGET);
+    }
+
+    UUID dependsOn() {
+      return OracleJobRowMapper.uuidOrNull(value(ClaimColumn.DEPENDS_ON));
     }
 
     int attempts() {

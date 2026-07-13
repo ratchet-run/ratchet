@@ -63,6 +63,26 @@ final class OracleJobDeleteOperations {
     }
   }
 
+  int deleteTerminalJobsByIds(List<UUID> ids) {
+    try {
+      if (ids.isEmpty()) {
+        return 0;
+      }
+      reservations.deleteReservationsByOwners(ids);
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      // language=Oracle
+      String jobSql =
+          "DELETE FROM scheduler_job WHERE job_id IN ("
+              + placeholders
+              + ") AND terminal_status IS NOT NULL";
+      Query jobDelete = ctx.em().createNativeQuery(jobSql);
+      bindUuidList(jobDelete, ids, 1);
+      return jobDelete.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete terminal jobs by ids", e);
+    }
+  }
+
   int deleteDlqOlderThan(Instant cutoff) {
     /*
      * Transaction contract: this method is reached through OracleJobStoreImpl's REQUIRED boundary.

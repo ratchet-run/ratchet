@@ -102,12 +102,6 @@ public final class RatchetOptionsFactory {
                     .logPurgeEnabled(config.get(RatchetConfigKeys.LOG_PURGE_ENABLED))
                     .logPurgeCron(config.get(RatchetConfigKeys.LOG_PURGE_CRON))
                     .logRetentionDays(config.get(RatchetConfigKeys.LOG_RETENTION_DAYS)))
-        .notifications(
-            notifications ->
-                notifications
-                    .enabled(config.get(RatchetConfigKeys.NOTIFICATIONS_ENABLED))
-                    .dlqAlertChannel(config.get(RatchetConfigKeys.DLQ_ALERT_CHANNEL))
-                    .timeoutAlertChannel(config.get(RatchetConfigKeys.TIMEOUT_ALERT_CHANNEL)))
         .schema(
             schema ->
                 schema
@@ -119,7 +113,6 @@ public final class RatchetOptionsFactory {
                 payload
                     .maxPayloadKb(config.get(RatchetConfigKeys.MAX_PAYLOAD_KB))
                     .maxResultBytes(config.get(RatchetConfigKeys.MAX_RESULT_BYTES)))
-        .metrics(metrics -> metrics.clustering(config.get(RatchetConfigKeys.METRICS_CLUSTERING)))
         .security(
             security ->
                 security
@@ -199,7 +192,6 @@ public final class RatchetOptionsFactory {
         .maxConcurrency("BATCH_CHILD", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_BATCH_CHILD))
         .maxConcurrency("BATCH_PARENT", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_BATCH_PARENT))
         .maxConcurrency("CHAIN_STEP", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_CHAIN))
-        .maxConcurrency("DLQ_ALERT", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_DLQ_ALERT))
         .maxConcurrency(
             "WORKFLOW_BRANCH", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_WORKFLOW_BRANCH))
         .maxConcurrency(
@@ -212,7 +204,6 @@ public final class RatchetOptionsFactory {
           "BATCH_CHILD",
           "BATCH_PARENT",
           "CHAIN_STEP",
-          "DLQ_ALERT",
           "WORKFLOW_BRANCH",
           "WORKFLOW_JOIN"
         }) {

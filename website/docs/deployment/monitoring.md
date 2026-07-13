@@ -18,7 +18,7 @@ Add the Micrometer module:
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-micrometer</artifactId>
-  <version>0.1.2-SNAPSHOT</version>
+  <version>0.1.1</version>
 </dependency>
 ```
 
@@ -99,7 +99,7 @@ topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 
 ### Custom `MetricsCollector`
 
-If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Its callbacks cover job outcomes, success finalization, claims and gates, wakeups and executor routing, callback and signal events, store timing, circuit breakers, and encryption integrity/version signals.
+If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Its callbacks cover job outcomes, success finalization, claims and gates, wakeups and executor routing, callback and signal events, store timing, poller and application circuit breakers, and encryption integrity/version signals.
 
 The example below is intentionally partial: it records two basic job outcomes and drops every other signal. Extending `NoOpMetricsCollector` is convenient when that is what you want. For a production replacement, review every callback in [Metrics Collection](../advanced/metrics-collection.md#metricscollector-spi) and either export it or delegate it to a complete collector.
 
@@ -149,6 +149,12 @@ public class JobMonitor {
             event.getJobId(), event.getRetryAttempt(), event.getErrorMessage());
     }
 
+    public void onExecutionTimeout(@Observes JobExecutionTimedOutEvent event) {
+        // Dispatch external alerts on an application-managed executor: observers are synchronous.
+        timeoutAlertExecutor.execute(() -> alertOps(
+            "Job " + event.getJobId() + " exceeded " + event.getExecutionTimeout()));
+    }
+
     public void onDlq(@Observes JobDlqEvent event) {
         // Alert: job exhausted all retries
         alertOps("Job " + event.getJobId() + " moved to DLQ: " + event.getErrorMessage());
@@ -177,9 +183,10 @@ For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI 
 |-------|-----------|
 | `JobStartedEvent` | Worker begins executing a job |
 | `JobCompletedEvent` | Job finished successfully |
-| `JobFailedEvent` | Job threw an exception |
+| `JobFailedEvent` | Job reached terminal `FAILED` state |
 | `JobRetryingEvent` | Job failed but will be retried |
-| `JobDlqEvent` | Job exhausted retries, moved to dead-letter queue |
+| `JobDlqEvent` | Job entered terminal dead-letter/FAILED handling |
+| `JobExecutionTimedOutEvent` | Running job exceeded its configured execution timeout |
 | `JobCancelledEvent` | Job was cancelled via API |
 | `BatchCompletingEvent` | All children in a batch have finished |
 | `ChainStartedEvent` | A chained job was triggered by its parent |
@@ -233,10 +240,13 @@ Alert if `CRITICAL` or `HIGH` jobs have been pending for more than a few seconds
 Jobs in the dead-letter queue need human attention:
 
 ```sql
-SELECT COUNT(*) FROM scheduler_dlq_alerts;
+SELECT COUNT(*)
+FROM scheduler_job
+WHERE terminal_status = 'FAILED';
 ```
 
-Wire this into your alerting system. A non-zero DLQ count means something failed permanently.
+Wire this into your alerting system. The durable `scheduler_job` row remains the source of truth
+after its live `scheduler_job_queue` row is removed.
 
 ## Alerting recommendations
 

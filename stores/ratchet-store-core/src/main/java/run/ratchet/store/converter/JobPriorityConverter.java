@@ -13,33 +13,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.store.oracle;
+package run.ratchet.store.converter;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractDlqAlertStoreContract;
+import jakarta.persistence.AttributeConverter;
+import jakarta.persistence.Converter;
+import run.ratchet.api.JobPriority;
 
-class OracleDlqAlertStoreContractTest extends AbstractDlqAlertStoreContract {
-
-  private final OracleTestFixture fixture = new OracleTestFixture();
+/** Persists {@link JobPriority} through its stable integer code. */
+@Converter
+public class JobPriorityConverter implements AttributeConverter<JobPriority, Integer> {
 
   @Override
-  public JobStore store() {
-    return fixture.store();
+  public Integer convertToDatabaseColumn(JobPriority attribute) {
+    return attribute == null ? null : attribute.persistedCode();
   }
 
   @Override
-  public JobEntity newPendingJob() {
-    return fixture.newPendingJob();
-  }
-
-  @Override
-  public JobEntity newBatchParentJob() {
-    return fixture.newBatchParentJob();
-  }
-
-  @Override
-  public void cleanupStore() {
-    fixture.cleanupStore();
+  public JobPriority convertToEntityAttribute(Integer dbData) {
+    return dbData == null ? null : JobPriority.fromPersistedCode(dbData);
   }
 }

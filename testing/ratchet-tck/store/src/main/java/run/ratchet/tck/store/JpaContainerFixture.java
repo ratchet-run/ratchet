@@ -41,7 +41,6 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobExtensionStore;
@@ -277,7 +276,6 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
               JobQueryStore.class,
               JobAnalyticsStore.class,
               JobAuditStore.class,
-              DlqAlertStore.class,
               JobExtensionStore.class
             },
             (proxy, method, args) -> {

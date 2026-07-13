@@ -93,8 +93,6 @@ public final class RatchetConfigKeys {
           "ratchet.thread-pool.size.batch-parent", "RATCHET_THREAD_POOL_SIZE_BATCH_PARENT", 2, 0);
   public static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_CHAIN =
       intKey("ratchet.thread-pool.size.chain-step", "RATCHET_THREAD_POOL_SIZE_CHAIN", 10, 0);
-  public static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_DLQ_ALERT =
-      intKey("ratchet.thread-pool.size.dlq-alert", "RATCHET_THREAD_POOL_SIZE_DLQ_ALERT", 2, 0);
   public static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_WORKFLOW_BRANCH =
       intKey(
           "ratchet.thread-pool.size.workflow-branch",
@@ -191,19 +189,6 @@ public final class RatchetConfigKeys {
   public static final RatchetConfigKey<Long> LOG_RETENTION_DAYS =
       longKey("ratchet.logs.retention-days", "RATCHET_LOG_RETENTION_DAYS", 30L, 0L);
 
-  public static final RatchetConfigKey<Boolean> NOTIFICATIONS_ENABLED =
-      boolKey("ratchet.notifications.enabled", "RATCHET_NOTIFICATIONS_ENABLED", true);
-  public static final RatchetConfigKey<String> DLQ_ALERT_CHANNEL =
-      stringKey(
-          "ratchet.notifications.dlq-alert-channel",
-          "RATCHET_DLQ_ALERT_CHANNEL",
-          "#job-scheduler-dlq");
-  public static final RatchetConfigKey<String> TIMEOUT_ALERT_CHANNEL =
-      stringKey(
-          "ratchet.notifications.timeout-alert-channel",
-          "RATCHET_TIMEOUT_ALERT_CHANNEL",
-          "#ops-alerts");
-
   public static final RatchetConfigKey<Boolean> SCHEMA_AUTO_MIGRATE =
       boolKey("ratchet.schema.auto-migrate", "RATCHET_SCHEMA_AUTO_MIGRATE", false);
   public static final RatchetConfigKey<String> SCHEMA_MIGRATION_DIALECT =
@@ -216,8 +201,6 @@ public final class RatchetConfigKeys {
       intKey("ratchet.payload.max-payload-kb", "RATCHET_MAX_PAYLOAD_KB", 100, 1);
   public static final RatchetConfigKey<Long> MAX_RESULT_BYTES =
       longKey("ratchet.jobs.max-result-bytes", "RATCHET_JOB_RESULT_MAX_BYTES", 65536L, 0L);
-  public static final RatchetConfigKey<String> METRICS_CLUSTERING =
-      stringKey("ratchet.metrics.clustering", "RATCHET_METRICS_CLUSTERING", "none");
   public static final RatchetConfigKey<Boolean> ALLOW_EMPTY_CLASS_POLICY =
       boolKey("ratchet.allow-empty-class-policy", "RATCHET_ALLOW_EMPTY_CLASS_POLICY", false);
   public static final RatchetConfigKey<Boolean> REDACT_EMAILS =

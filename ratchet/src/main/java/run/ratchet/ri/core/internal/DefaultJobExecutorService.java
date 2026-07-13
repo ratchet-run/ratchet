@@ -41,8 +41,6 @@ import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.ResourcePermitService;
-import run.ratchet.spi.BeanResolver;
-import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -76,11 +74,11 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final NodeIdentityProvider nodeIdProvider;
   private final ExecutionObserver executionObserver;
   private final PreExecutionValidator preExecutionValidator;
-  private final BeanResolver beanResolver;
+  private final JobPayloadInvoker payloadInvoker;
+  private final JobSuccessFinalizer successFinalizer;
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
   private final ErrorSanitizer errorSanitizer;
-  private final ClassPolicy classPolicy;
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final JobAuthorizationPolicy authorizationPolicy;
@@ -102,11 +100,11 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.nodeIdProvider = null;
     this.executionObserver = null;
     this.preExecutionValidator = null;
-    this.beanResolver = null;
+    this.payloadInvoker = null;
+    this.successFinalizer = null;
     this.retryPolicy = null;
     this.resilienceStrategy = null;
     this.errorSanitizer = null;
-    this.classPolicy = null;
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
     this.authorizationPolicy = null;
@@ -127,11 +125,11 @@ public class DefaultJobExecutorService implements JobExecutorService {
       NodeIdentityProvider nodeIdProvider,
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
-      BeanResolver beanResolver,
+      JobPayloadInvoker payloadInvoker,
+      JobSuccessFinalizer successFinalizer,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
       ErrorSanitizer errorSanitizer,
-      ClassPolicy classPolicy,
       PollerScheduler pollerScheduler,
       JobLoggerFactory jobLoggerFactory,
       ResultPersistenceStrategy resultPersistenceStrategy,
@@ -148,11 +146,11 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.nodeIdProvider = nodeIdProvider;
     this.executionObserver = executionObserver;
     this.preExecutionValidator = preExecutionValidator;
-    this.beanResolver = beanResolver;
+    this.payloadInvoker = payloadInvoker;
+    this.successFinalizer = successFinalizer;
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
     this.errorSanitizer = errorSanitizer;
-    this.classPolicy = classPolicy;
     this.pollerScheduler = pollerScheduler;
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
@@ -313,11 +311,11 @@ public class DefaultJobExecutorService implements JobExecutorService {
         nodeIdProvider,
         executionObserver,
         preExecutionValidator,
-        beanResolver,
+        payloadInvoker,
+        successFinalizer,
         retryPolicy,
         resilienceStrategy,
         errorSanitizer,
-        classPolicy,
         jobLoggerFactory,
         resultPersistenceStrategy,
         authorizationPolicy,

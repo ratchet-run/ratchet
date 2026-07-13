@@ -32,6 +32,7 @@ import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.store.entity.JobEntity;
@@ -47,9 +48,6 @@ import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 public class RecurringJobExecutor {
 
   private static final Logger log = Logger.getLogger(RecurringJobExecutor.class);
-
-  // Caps catch-up executions per recurring job to prevent thundering herd after downtime.
-  private static final int MAX_CATCHUP_COUNT = 10;
 
   private final JobBulkStore jobBulkStore;
   private final RecurringJobStore recurringJobStore;
@@ -109,7 +107,7 @@ public class RecurringJobExecutor {
 
   /**
    * Claims due recurring masters, creates child jobs, advances each master's next-fire timestamp,
-   * and returns the number of children scheduled.
+   * and returns the number of masters processed.
    *
    * <p>Runs with the class-level Jakarta Transactions {@code REQUIRED} behavior.
    */
@@ -120,7 +118,7 @@ public class RecurringJobExecutor {
         recurringJobStore.claimDueRecurring(batchLimit, nodeId, tagFilter);
     Instant now = effective().instant();
     List<JobEntity> children = new ArrayList<>();
-    int firedCount = 0;
+    int processedCount = 0;
     for (RecurringJobDefinition master : masters) {
       // Startup grace gate: during the first ratchet.recurring.startup-grace-seconds after this
       // node finished its @Recurring registration pass, refuse to fire any master whose business
@@ -150,33 +148,45 @@ public class RecurringJobExecutor {
       ExecutionTime execTime = ExecutionTime.forCron(cron);
 
       Instant baseTime = master.nextFire() != null ? master.nextFire() : now;
-
-      children.add(createChildFromMaster(master, baseTime));
-      firedCount++;
-
       Optional<Instant> nextOpt =
           execTime.nextExecution(baseTime.atZone(zone)).map(ZonedDateTime::toInstant);
+      boolean hasBacklog = nextOpt.isPresent() && nextOpt.get().isBefore(now);
+      RecurringMisfirePolicy policy = master.misfirePolicy();
+      int scheduledCount = 0;
 
-      int catchupCount = 0;
-      while (nextOpt.isPresent()
-          && nextOpt.get().isBefore(now)
-          && catchupCount < MAX_CATCHUP_COUNT) {
-        children.add(createChildFromMaster(master, nextOpt.get()));
-        catchupCount++;
-        nextOpt = execTime.nextExecution(nextOpt.get().atZone(zone)).map(ZonedDateTime::toInstant);
+      if (!hasBacklog || policy.action() != RecurringMisfirePolicy.Action.SKIP) {
+        children.add(createChildFromMaster(master, baseTime));
+        scheduledCount++;
       }
 
-      if (catchupCount > 0) {
-        log.infof("Recurring job %s caught up on %s missed executions", master.id(), catchupCount);
+      if (hasBacklog && policy.action() == RecurringMisfirePolicy.Action.CATCH_UP) {
+        while (nextOpt.isPresent()
+            && nextOpt.get().isBefore(now)
+            && scheduledCount < policy.maxCatchUpExecutions()) {
+          children.add(createChildFromMaster(master, nextOpt.get()));
+          scheduledCount++;
+          nextOpt =
+              execTime.nextExecution(nextOpt.get().atZone(zone)).map(ZonedDateTime::toInstant);
+        }
+      }
+
+      if (hasBacklog) {
+        log.infof(
+            "Recurring job %s applied misfire policy %s; scheduled=%s",
+            master.id(), policy.action(), scheduledCount);
       }
 
       if (nextOpt.isPresent() && nextOpt.get().isBefore(now)) {
         nextOpt = execTime.nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
       }
 
+      processedCount++;
+
       if (nextOpt.isPresent()) {
         recurringJobStore.advanceNextFire(master.id(), nextOpt.get());
-        log.infof("Recurring job %s fired; next=%s", master.id(), nextOpt.get());
+        log.infof(
+            "Recurring job %s processed; scheduled=%s; next=%s",
+            master.id(), scheduledCount, nextOpt.get());
       } else {
         // Cron exhausted — atomic archive + live-delete + bkres-cleanup.
         recurringJobStore.cancelRecurringAndArchive(master.id(), ArchiveReason.EXHAUSTED);
@@ -186,7 +196,7 @@ public class RecurringJobExecutor {
     if (!children.isEmpty()) {
       jobBulkStore.bulkInsert(children);
     }
-    return firedCount;
+    return processedCount;
   }
 
   private JobEntity createChildFromMaster(RecurringJobDefinition master, Instant fireTs) {
@@ -195,7 +205,7 @@ public class RecurringJobExecutor {
     child.setJobType(JobExecutionType.SINGLE);
     child.setStatus(JobStatus.PENDING);
     child.setScheduledTime(fireTs);
-    child.setPriority(JobPriorityMapper.fromOrdinal(master.priority()));
+    child.setPriority(JobPriorityMapper.fromPersistedCode(master.priority()));
     child.setMaxRetries(master.maxRetries());
     child.setBackoffPolicy(master.backoffPolicy());
     child.setBackoffParamMs(master.backoffParamMs());

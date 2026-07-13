@@ -61,7 +61,7 @@ public final class ArchiveParameterBinder {
     query.setParameter(parameter++, idEncoder.apply(archive.getOriginalJobId()));
     query.setParameter(parameter++, archive.getFinalStatus().name());
     query.setParameter(parameter++, archive.getJobType().name());
-    query.setParameter(parameter++, archive.getPriority().ordinal());
+    query.setParameter(parameter++, archive.getPriority().persistedCode());
     query.setParameter(parameter++, archive.getTotalAttempts());
     query.setParameter(parameter++, archive.getMaxRetries());
     query.setParameter(parameter++, archive.getBackoffPolicy().name());

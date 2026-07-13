@@ -41,7 +41,8 @@ class MysqlJobClaimOperationsTest {
             "business_key",
             "attempts",
             "max_retries",
-            "execution_target"),
+            "execution_target",
+            "depends_on"),
         columns);
     assertEquals(
         Map.ofEntries(
@@ -57,7 +58,20 @@ class MysqlJobClaimOperationsTest {
             Map.entry("business_key", 9),
             Map.entry("attempts", 10),
             Map.entry("max_retries", 11),
-            Map.entry("execution_target", 12)),
+            Map.entry("execution_target", 12),
+            Map.entry("depends_on", 13)),
         MysqlJobClaimOperations.claimSelectColumnIndexes());
+  }
+
+  @Test
+  void claimSelectProjectsDependsOnFromColdMetadata() {
+    assertEquals(expectedClaimSelectClause(), MysqlJobClaimOperations.claimSelectClause());
+  }
+
+  private static String expectedClaimSelectClause() {
+    return "job_id, status, job_type, priority, scheduled_time, version, timeout_sec, picked_by,"
+        + " picked_at, business_key, attempts, max_retries, execution_target,"
+        + " (SELECT cold_job.depends_on FROM scheduler_job cold_job"
+        + " WHERE cold_job.job_id = scheduler_job_queue.job_id) AS depends_on";
   }
 }

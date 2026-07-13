@@ -18,14 +18,18 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 
 /** Base contract tests for {@code JobRetryStore}. */
 public abstract class AbstractJobRetryStoreContract implements JobStoreContractFixture {
@@ -149,5 +153,106 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
         store().resetFailedToPending(pending.getId()),
         "resetFailedToPending should only reset FAILED jobs");
     assertFalse(store().resetFailedToPending(new UUID(0L, Long.MAX_VALUE)));
+  }
+
+  @Test
+  void resetFailedToPending_bulkHonorsFilterAndLimit() {
+    JobEntity first = failedJob("bulk-recover");
+    JobEntity second = failedJob("bulk-recover");
+    JobEntity other = failedJob("leave-failed");
+
+    int reset = store().resetFailedToPending(JobFilter.builder().tags("bulk-recover").build(), 1);
+
+    assertEquals(1, reset, "the explicit bulk limit must bound the atomic reset");
+    List<JobEntity> matching =
+        List.of(
+            store().findById(first.getId()).orElseThrow(),
+            store().findById(second.getId()).orElseThrow());
+    assertEquals(
+        1,
+        matching.stream().filter(job -> job.getStatus() == JobStatus.PENDING).count(),
+        "exactly one matching FAILED job should become PENDING");
+    assertEquals(
+        1,
+        matching.stream().filter(job -> job.getStatus() == JobStatus.FAILED).count(),
+        "the other matching job must remain FAILED for a later bounded call");
+
+    JobEntity retried =
+        matching.stream()
+            .filter(job -> job.getStatus() == JobStatus.PENDING)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(0, retried.getAttempts(), "bulk retry must reset the attempt counter");
+    assertNull(retried.getLastError(), "bulk retry must clear the terminal error");
+    assertEquals(
+        JobStatus.FAILED,
+        store().getJobStatus(other.getId()),
+        "jobs outside the filter must not be changed");
+  }
+
+  @Test
+  void resetFailedToPending_bulkIntersectsExplicitStatusesWithFailed() {
+    JobEntity failed = failedJob("status-filter");
+
+    int reset =
+        store().resetFailedToPending(JobFilter.builder().statuses(JobStatus.PENDING).build(), 10);
+
+    assertEquals(0, reset);
+    assertEquals(JobStatus.FAILED, store().getJobStatus(failed.getId()));
+  }
+
+  @Test
+  void resetFailedToPending_bulkRollsBackWholeSelectionOnBusinessKeyConflict() {
+    String tag = "bulk-retry-rollback";
+    String businessKey = "bulk-retry-conflict-" + UUID.randomUUID();
+    JobEntity safe = failedJob(tag);
+
+    JobEntity conflicted = newPendingJob(tag);
+    conflicted.setBusinessKey(businessKey);
+    JobEntity savedConflict = persist(conflicted);
+    assertTrue(
+        store()
+            .compareAndSwapStatus(
+                savedConflict.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    assertTrue(
+        store()
+            .compareAndSwapStatus(
+                savedConflict.getId(), JobStatus.RUNNING, JobStatus.FAILED, "failed owner"));
+
+    JobEntity activeOwner = newPendingJob();
+    activeOwner.setBusinessKey(businessKey);
+    JobEntity savedOwner = persist(activeOwner);
+
+    assertThrows(
+        RuntimeException.class,
+        () -> store().resetFailedToPending(JobFilter.builder().tags(tag).build(), 10));
+
+    assertEquals(
+        JobStatus.FAILED,
+        store().getJobStatus(safe.getId()),
+        "an unrelated selected job must roll back with the conflicting job");
+    assertEquals(JobStatus.FAILED, store().getJobStatus(savedConflict.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(savedOwner.getId()));
+  }
+
+  @Test
+  void resetFailedToPending_bulkRejectsUnboundedLimits() {
+    JobFilter allJobs = JobFilter.builder().build();
+
+    assertThrows(NullPointerException.class, () -> store().resetFailedToPending(null, 1));
+    assertThrows(IllegalArgumentException.class, () -> store().resetFailedToPending(allJobs, 0));
+    assertThrows(IllegalArgumentException.class, () -> store().resetFailedToPending(allJobs, 1001));
+  }
+
+  private JobEntity failedJob(String tag) {
+    JobEntity saved = persist(newPendingJob(tag));
+    assertTrue(
+        store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId()));
+    assertTrue(
+        store()
+            .compareAndSwapStatus(
+                saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "bulk retry fixture"));
+    return saved;
   }
 }

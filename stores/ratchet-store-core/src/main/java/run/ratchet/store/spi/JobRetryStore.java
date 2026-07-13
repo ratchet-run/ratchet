@@ -16,8 +16,10 @@
 package run.ratchet.store.spi;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.JobFilter;
 
 /** Retry and backoff-scheduling operations for jobs. */
 @Incubating
@@ -58,4 +60,29 @@ public interface JobRetryStore {
    * @return {@code true} when the row was FAILED and was reset to PENDING, {@code false} otherwise
    */
   boolean resetFailedToPending(UUID id);
+
+  /**
+   * Atomically resets a bounded set of FAILED jobs matching {@code filter} to PENDING.
+   *
+   * <p>The filter is intersected with FAILED and archive inclusion is disabled. Implementations
+   * MUST perform one bounded selection and set-based bulk mutation, not one transaction per job.
+   * The whole selected batch commits or rolls back together, including business-key reservation
+   * writes.
+   *
+   * <p>Transaction attribute: {@code REQUIRED}.
+   *
+   * @param filter selection criteria; never {@code null}
+   * @param limit maximum jobs to reset, from 1 through 1000
+   * @return number of jobs reset to PENDING
+   * @throws IllegalArgumentException when {@code limit} is outside 1 through 1000
+   * @throws NullPointerException when {@code filter} is {@code null}
+   * @throws UnsupportedOperationException if the store does not provide bulk recovery
+   */
+  default int resetFailedToPending(JobFilter filter, int limit) {
+    Objects.requireNonNull(filter, "filter");
+    if (limit < 1 || limit > 1000) {
+      throw new IllegalArgumentException("limit must be between 1 and 1000");
+    }
+    throw new UnsupportedOperationException("Bulk job retry is not supported by this store");
+  }
 }

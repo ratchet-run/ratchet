@@ -17,6 +17,7 @@ package run.ratchet.tck.jakarta;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import jakarta.inject.Inject;
 import jakarta.transaction.UserTransaction;
@@ -38,11 +39,10 @@ import run.ratchet.tck.api.TckJobs;
  *       executed.
  * </ul>
  *
- * <p>This contract is a conformance grade, not a universal hard requirement. Non-JTA stores are
- * permitted; implementations whose store cannot participate in JTA (e.g., MongoDB without a
- * session) are not "Ratchet Jakarta Runtime Compatible" with respect to transactional enqueue. Such
- * implementations should mark their concrete subclass with {@code @Disabled("Store does not
- * participate in JTA")}.
+ * <p>This contract is a conformance grade, not a universal hard requirement. A runtime whose store
+ * does not participate in caller transactions returns {@code false} from {@link
+ * RatchetTckRuntime#supportsCallerTransactionRollback()}. Its rollback-only case then reports
+ * {@code N/A}; the commit-visible case still runs and must pass.
  *
  * <p>Subclasses provide an Arquillian {@code @Deployment} that bundles this contract package and
  * the implementation's {@link RatchetTckRuntime} adapter.
@@ -71,8 +71,17 @@ public abstract class AbstractTxEnqueueContract {
             + "deferring to commit, breaking caller atomicity.");
   }
 
+  /**
+   * @apiNote Intentionally {@code protected} so a runtime-specific subclass may attach a
+   *     runner-level skip annotation when its test harness cannot translate an in-container
+   *     assumption into a skipped test. Such an override must delegate to {@code super} and must
+   *     not replace the assertion body.
+   */
   @Test
-  void rollbackSuppressesEnqueuedJob() throws Exception {
+  protected void rollbackSuppressesEnqueuedJob() throws Exception {
+    assumeTrue(
+        runtime().supportsCallerTransactionRollback(),
+        "The runtime reports that its store does not participate in caller transaction rollback");
     tx.begin();
     JobHandle handle = runtime().scheduler().enqueueNow(TckJobs::noop);
     runtime().probe().track(handle);

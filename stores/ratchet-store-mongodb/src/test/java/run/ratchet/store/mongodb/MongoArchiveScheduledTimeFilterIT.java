@@ -42,7 +42,7 @@ class MongoArchiveScheduledTimeFilterIT extends BaseDocumentStoreIT {
     job.setScheduledTime(scheduled);
     job = complete(store().save(job));
 
-    int archived = store().archiveJobsBatch(List.of(job), "retention", "system");
+    int archived = store().archiveAndDeleteJobsBatch(List.of(job), "retention", "system");
     assertEquals(1, archived);
     assertTrue(store().findById(job.getId()).isEmpty(), "live job should be gone after archiving");
 

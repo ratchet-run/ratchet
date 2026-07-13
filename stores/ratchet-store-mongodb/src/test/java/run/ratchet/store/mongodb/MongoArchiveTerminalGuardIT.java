@@ -26,10 +26,9 @@ import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 
 /**
- * Retention archiving snapshots terminal jobs, then deletes them in a later transaction. If a job
- * is reset to PENDING in that window (e.g. a dashboard retry), the delete must not remove the
- * now-live job, or the retry silently vanishes. The delete is guarded on terminal status and the
- * batch rolls back when the snapshot no longer matches.
+ * Retention selection happens before the atomic move. If a job is reset to PENDING in that window
+ * (e.g. a dashboard retry), the move must not remove the now-live job, or the retry silently
+ * vanishes. The operation re-reads the batch and guards its delete on terminal status.
  */
 class MongoArchiveTerminalGuardIT extends BaseDocumentStoreIT {
 
@@ -47,7 +46,7 @@ class MongoArchiveTerminalGuardIT extends BaseDocumentStoreIT {
     // Archiving the stale FAILED snapshot must not delete the now-PENDING live job.
     assertThrows(
         RuntimeException.class,
-        () -> store().archiveJobsBatch(List.of(staleSnapshot), "retention", "system"));
+        () -> store().archiveAndDeleteJobsBatch(List.of(staleSnapshot), "retention", "system"));
 
     JobEntity reloaded = store().findById(job.getId()).orElseThrow();
     assertEquals(JobStatus.PENDING, reloaded.getStatus(), "resurrected job must survive");

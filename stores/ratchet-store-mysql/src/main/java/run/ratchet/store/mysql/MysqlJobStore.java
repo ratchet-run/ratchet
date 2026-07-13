@@ -17,7 +17,6 @@ package run.ratchet.store.mysql;
 
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobExtensionStore;
@@ -52,5 +51,4 @@ public interface MysqlJobStore
         JobQueryStore,
         JobAnalyticsStore,
         JobAuditStore,
-        DlqAlertStore,
         JobExtensionStore {}

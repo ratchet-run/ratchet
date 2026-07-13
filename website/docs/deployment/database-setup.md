@@ -39,7 +39,7 @@ The DDL file is at `stores/ratchet-store-postgresql/src/main/resources/ddl/postg
 psql -U ratchet -d ratchet -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 
 # Or extract from the JAR
-jar xf ratchet-store-postgresql-0.1.2-SNAPSHOT.jar ddl/postgresql-schema.sql
+jar xf ratchet-store-postgresql-0.1.1.jar ddl/postgresql-schema.sql
 psql -U ratchet -d ratchet -f ddl/postgresql-schema.sql
 ```
 
@@ -83,7 +83,6 @@ You should see these scheduler tables plus `ratchet_schema_version`:
 | `scheduler_resource_limit` | Resource concurrency config |
 | `scheduler_resource_permit` | Active resource permits |
 | `scheduler_workflow_condition` | Workflow branching conditions |
-| `scheduler_dlq_alerts` | DLQ alert tracking |
 | `ratchet_schema_version` | Applied schema migration/checksum tracking |
 
 ### DataSource Configuration
@@ -163,7 +162,7 @@ FLUSH PRIVILEGES;
 mysql -u ratchet -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 
 # Or extract from the JAR
-jar xf ratchet-store-mysql-0.1.2-SNAPSHOT.jar ddl/mysql-schema.sql
+jar xf ratchet-store-mysql-0.1.1.jar ddl/mysql-schema.sql
 mysql -u ratchet -p ratchet < ddl/mysql-schema.sql
 ```
 
@@ -246,11 +245,11 @@ GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE TO ratchet;
 # From the source tree
 sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 \
   @stores/ratchet-store-oracle/src/main/resources/ddl/oracle-schema.sql
-
-# Or extract from the JAR
-jar xf ratchet-store-oracle-0.1.1-SNAPSHOT.jar ddl/oracle-schema.sql
-sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 @ddl/oracle-schema.sql
 ```
+
+The Oracle store was added after `0.1.1`, so that release has no store JAR to extract. Build the
+current source tree and use the DDL path above; the JAR contains `ddl/oracle-schema.sql` starting
+with `0.1.2`.
 
 ### Verify Installation
 
@@ -313,6 +312,7 @@ MongoDB does not require a DDL file; the store module creates collections and in
 use ratchet;
 
 db.createCollection("scheduler_job");
+db.createCollection("scheduler_business_key_reservation");
 db.createCollection("scheduler_batch");
 db.createCollection("scheduler_batch_metrics");
 db.createCollection("scheduler_job_execution");
@@ -323,7 +323,6 @@ db.createCollection("scheduler_recurring_job_archive");
 db.createCollection("scheduler_node");
 db.createCollection("scheduler_lock");
 db.createCollection("scheduler_workflow_condition");
-db.createCollection("scheduler_dlq_alerts");
 db.createCollection("scheduler_resource_permit");
 db.createCollection("scheduler_resource_limit");
 
@@ -343,6 +342,7 @@ db.scheduler_job.createIndex(
   }
 );
 db.scheduler_job.createIndex({ tags: 1 }, { name: "idx_job_tags" });
+db.scheduler_business_key_reservation.createIndex({ owner_job_id: 1 }, { name: "idx_bk_owner" });
 db.scheduler_job_archive.createIndex({ original_job_id: 1 }, { name: "idx_archive_original_job_id" });
 db.scheduler_job_execution.createIndex({ job_id: 1 }, { name: "idx_execution_job_id" });
 db.scheduler_node.createIndex({ heartbeat_ts: 1 }, { name: "idx_node_heartbeat" });

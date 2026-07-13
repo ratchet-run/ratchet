@@ -15,13 +15,23 @@
  */
 package run.ratchet.store.postgresql;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrator;
@@ -59,6 +69,61 @@ class PostgresqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
         CONTAINER.getJdbcUrl(), CONTAINER.getUsername(), CONTAINER.getPassword());
   }
 
+  private void installReleasedV001(SchemaMigrator.MigrationScript script) throws Exception {
+    try (Connection connection = newJdbcConnection()) {
+      executeSqlScript(connection, script.sql());
+      try (PreparedStatement statement =
+          connection.prepareStatement(dialect().recordVersionSql())) {
+        statement.setString(1, script.version());
+        statement.setString(2, script.description());
+        statement.setString(3, script.checksum());
+        statement.executeUpdate();
+      }
+    }
+  }
+
+  private void installConsolidatedSchema() throws Exception {
+    String resourceName = "ddl/postgresql-schema.sql";
+    try (Connection connection = newJdbcConnection()) {
+      executeSqlScript(connection, readClasspathResource(resourceName));
+    }
+  }
+
+  private static void executeSqlScript(Connection connection, String sql) throws SQLException {
+    try (Statement statement = connection.createStatement()) {
+      statement.execute(sql);
+    }
+  }
+
+  private static String readClasspathResource(String resourceName) throws IOException {
+    ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+    try (InputStream input = classLoader.getResourceAsStream(resourceName)) {
+      if (input == null) {
+        throw new IOException("Missing classpath resource " + resourceName);
+      }
+      return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+    }
+  }
+
+  private boolean columnExists(String tableName, String columnName) throws SQLException {
+    try (Connection connection = newJdbcConnection();
+        ResultSet columns =
+            connection.getMetaData().getColumns(null, null, tableName, columnName)) {
+      return columns.next();
+    }
+  }
+
+  private void assertExtensionSchemaExists() throws SQLException {
+    assertTrue(tableExists("scheduler_job_properties"));
+    assertTrue(tableExists("scheduler_job_extension_state"));
+    assertTrue(columnExists("scheduler_job_archive", "properties"));
+    assertTrue(columnExists("scheduler_job_archive", "extension_state"));
+  }
+
+  private static List<String> versions(List<SchemaMigrator.MigrationScript> scripts) {
+    return scripts.stream().map(SchemaMigrator.MigrationScript::version).toList();
+  }
+
   @Override
   protected SchemaMigrationDialect dialect() {
     return new PostgresqlSchemaMigrationDialect();
@@ -77,5 +142,37 @@ class PostgresqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
       s.execute("DROP SCHEMA public CASCADE");
       s.execute("CREATE SCHEMA public");
     }
+  }
+
+  @Test
+  void upgradesReleasedV001LedgerToCurrentSchema() throws Exception {
+    resetDatabase();
+    SchemaMigrator migrator = newMigrator();
+    SchemaMigrator.MigrationScript releasedV001 = migrator.discoverMigrations().get(0);
+    assertEquals(
+        "de49b983ef0b9110af22f59047a9e91fd1b37efdf7a790241b8297f82c857160",
+        releasedV001.checksum());
+    installReleasedV001(releasedV001);
+
+    SchemaMigrator.MigrationResult result = migrator.migrate();
+
+    assertEquals(List.of("002", "003", "004", "005"), versions(result.applied()));
+    assertEquals(List.of("001"), versions(result.skipped()));
+    assertExtensionSchemaExists();
+    assertSchemaVersionRowsMatch(migrator.discoverMigrations());
+  }
+
+  @Test
+  void migratesConsolidatedSchemaWithoutLedgerRows() throws Exception {
+    resetDatabase();
+    installConsolidatedSchema();
+    SchemaMigrator migrator = newMigrator();
+
+    SchemaMigrator.MigrationResult result = migrator.migrate();
+
+    assertEquals(List.of("001", "002", "003", "004", "005"), versions(result.applied()));
+    assertEquals(List.of(), result.skipped());
+    assertExtensionSchemaExists();
+    assertSchemaVersionRowsMatch(migrator.discoverMigrations());
   }
 }

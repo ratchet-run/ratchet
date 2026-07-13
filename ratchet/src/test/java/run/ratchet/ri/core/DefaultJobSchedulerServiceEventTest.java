@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -40,13 +41,16 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
+import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.spi.MetricsCollector;
@@ -292,6 +296,41 @@ class DefaultJobSchedulerServiceEventTest {
   }
 
   @Test
+  void retryJobsDelegatesOneBoundedOperationAndWakesOnce() {
+    JobFilter filter = JobFilter.builder().tags("billing").build();
+    when(jobRetryStore.resetFailedToPending(filter, 25)).thenReturn(7);
+
+    assertEquals(7, service.retryJobs(filter, 25));
+
+    verify(jobRetryStore).resetFailedToPending(filter, 25);
+    verify(wakeupService).notify(JobPriority.NORMAL, true, null);
+    JobsBulkRetriedEvent event = published(JobsBulkRetriedEvent.class);
+    assertEquals(filter, event.getFilter());
+    assertEquals(25, event.getLimit());
+    assertEquals(7, event.getCount());
+    assertEquals(FIXED_NOW, event.getRetriedAt());
+    verify(eventPublisher, never()).publish(any(JobRetryingEvent.class));
+  }
+
+  @Test
+  void retryJobsDoesNotWakeWhenNothingMatches() {
+    JobFilter filter = JobFilter.builder().tags("billing").build();
+
+    assertEquals(0, service.retryJobs(filter, 25));
+
+    verify(wakeupService, never()).notify(any(), eq(true), any());
+  }
+
+  @Test
+  void retryJobsRejectsLimitsOutsideTheBoundBeforeCallingTheStore() {
+    JobFilter filter = JobFilter.builder().build();
+
+    assertThrows(IllegalArgumentException.class, () -> service.retryJobs(filter, 0));
+    assertThrows(IllegalArgumentException.class, () -> service.retryJobs(filter, 1001));
+    verify(jobRetryStore, never()).resetFailedToPending(any(), any(Integer.class));
+  }
+
+  @Test
   void pauseJobPendingPublishesPausedEvent() {
     JobEntity job = job(JobStatus.PENDING, JobExecutionType.SINGLE);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
@@ -374,7 +413,7 @@ class DefaultJobSchedulerServiceEventTest {
         FIXED_NOW.plusSeconds(60),
         paused,
         paused ? FIXED_NOW : null,
-        JobPriority.HIGH.ordinal(),
+        JobPriority.HIGH.persistedCode(),
         0,
         run.ratchet.api.BackoffPolicy.NONE,
         0,
@@ -387,7 +426,8 @@ class DefaultJobSchedulerServiceEventTest {
         null,
         FIXED_NOW,
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 
   private static JobEntity job(JobStatus status, JobExecutionType type) {

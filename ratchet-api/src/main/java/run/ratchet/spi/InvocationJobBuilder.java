@@ -64,7 +64,10 @@ public interface InvocationJobBuilder {
   /** Sets the idempotency key. */
   InvocationJobBuilder withIdempotencyKey(String key);
 
-  /** Sets the business key. */
+  /**
+   * Sets the business key under the portable contract documented by {@link
+   * JobBuilder#withBusinessKey(String)}.
+   */
   InvocationJobBuilder withBusinessKey(String key);
 
   /** Gates execution on a named resource permit. */

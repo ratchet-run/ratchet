@@ -263,7 +263,7 @@ public class PiiSanitizer implements ErrorSanitizer {
 
 ## PayloadMaskingPolicy
 
-Decides which payload fields are masked before a payload leaves the framework on a read or observability path (for example the `params` map on a job detail when `maskPayloads` is enabled). The durable store payload and anything a worker needs to execute are never altered. The built-in policy matches a fixed set of common credential and PII field names (`password`, `token`, `ssn`, ...); deployers produce their own implementation to change the field set.
+Decides which fields are masked in `JobDetail` read APIs when `ratchet.security.mask-payloads` or `RATCHET_MASK_PAYLOADS` is enabled. Ratchet applies it to detail parameters, trace context, and a structured result. This does not change the stored payload or the values handed to a worker, and it is not a general logging filter; applications must still avoid logging raw payloads. The built-in policy matches common credential and PII field names (`password`, `token`, `ssn`, ...). Provide a CDI alternative to use a domain-specific field set.
 
 ```java
 @Incubating

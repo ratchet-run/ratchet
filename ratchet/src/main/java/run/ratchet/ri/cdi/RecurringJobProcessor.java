@@ -512,6 +512,7 @@ public class RecurringJobProcessor {
 
     builder.withOptions(options);
     builder.withBusinessKey(jobId);
+    builder.withMisfirePolicy(RecurringAnnotationParser.misfirePolicy(annotation));
 
     String signature =
         className + "#" + methodName + "(" + (hasJobContextParam ? "JobContext" : "") + ")";

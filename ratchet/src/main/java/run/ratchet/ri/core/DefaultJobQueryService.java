@@ -221,7 +221,10 @@ class DefaultJobQueryService implements JobQueryService {
         yield toInstantString(t);
       }
       case PRIORITY ->
-          String.valueOf(last.getPriority() != null ? last.getPriority().ordinal() : 0);
+          String.valueOf(
+              last.getPriority() != null
+                  ? last.getPriority().persistedCode()
+                  : JobPriority.LOWEST.persistedCode());
       case STATUS -> last.getStatus() != null ? last.getStatus().name() : JobStatus.PENDING.name();
     };
   }
@@ -504,7 +507,7 @@ class DefaultJobQueryService implements JobQueryService {
         def.id(),
         def.paused() ? JobStatus.PAUSED : JobStatus.PENDING,
         JobType.RECURRING,
-        JobPriorityMapper.fromOrdinal(def.priority()),
+        JobPriorityMapper.fromPersistedCode(def.priority()),
         def.businessKey(),
         /* idempotencyKey */ null,
         payload != null ? payload.target() : null,

@@ -42,6 +42,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.store.converter.JobPriorityConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.id.UuidV7EntityListener;
 
@@ -90,7 +91,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "job_type", nullable = false, length = 16)
   private JobExecutionType jobType;
 
-  @Enumerated(EnumType.ORDINAL)
+  @Convert(converter = JobPriorityConverter.class)
   @Column(nullable = false)
   private JobPriority priority = JobPriority.NORMAL;
 

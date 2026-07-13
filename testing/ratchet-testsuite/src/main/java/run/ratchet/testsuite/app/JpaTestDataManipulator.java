@@ -70,6 +70,21 @@ public class JpaTestDataManipulator implements TestDataManipulator {
 
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public void setJobPickedAt(UUID jobId, Instant pickedAt) {
+    // language=SQL
+    String sql = "UPDATE scheduler_job_queue SET picked_at = ?1 WHERE job_id = ?2";
+    int updated =
+        em().createNativeQuery(sql)
+            .setParameter(1, Timestamp.from(pickedAt))
+            .setParameter(2, jobIdParam(jobId))
+            .executeUpdate();
+    if (updated != 1) {
+      throw new IllegalStateException("Expected one scheduler_job_queue row for " + jobId);
+    }
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void setArchivedAt(UUID archiveId, Instant archivedAt) {
     Timestamp ts = Timestamp.from(archivedAt);
 

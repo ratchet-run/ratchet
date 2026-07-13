@@ -23,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.store.entity.JobPayload;
@@ -47,8 +46,6 @@ class JobPayloadFactoryTest {
 
   @Test
   void reflectionLookupsAreCachedAcrossRepeatedConversions() throws Exception {
-    clearCache("VISIBILITY_CACHE");
-    clearCache("FUNCTIONAL_INTERFACE_METHOD_CACHE");
     StringFunction target = PayloadTarget::uppercase;
     StringFunction wrapper = value -> target.apply("cached");
 
@@ -58,8 +55,8 @@ class JobPayloadFactoryTest {
     assertEquals(PayloadTarget.class.getName(), first.target());
     assertEquals(List.of("cached"), first.args());
     assertEquals(List.of("cached"), second.args());
-    assertEquals(1, cacheSize("VISIBILITY_CACHE"));
-    assertEquals(1, cacheSize("FUNCTIONAL_INTERFACE_METHOD_CACHE"));
+    assertInstanceOf(ClassValue.class, cache("VISIBILITY_CACHE"));
+    assertInstanceOf(ClassValue.class, cache("FUNCTIONAL_INTERFACE_METHOD_CACHE"));
   }
 
   @Test
@@ -75,19 +72,10 @@ class JobPayloadFactoryTest {
     assertInstanceOf(ClassCastException.class, thrown.getCause());
   }
 
-  @SuppressWarnings("unchecked")
-  private static Map<?, ?> cache(String name) throws ReflectiveOperationException {
+  private static Object cache(String name) throws ReflectiveOperationException {
     Field field = JobPayloadFactory.class.getDeclaredField(name);
     field.setAccessible(true);
-    return (Map<?, ?>) field.get(null);
-  }
-
-  private static int cacheSize(String name) throws ReflectiveOperationException {
-    return cache(name).size();
-  }
-
-  private static void clearCache(String name) throws ReflectiveOperationException {
-    cache(name).clear();
+    return field.get(null);
   }
 
   @FunctionalInterface

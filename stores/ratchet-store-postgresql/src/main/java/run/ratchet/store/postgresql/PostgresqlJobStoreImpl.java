@@ -39,7 +39,6 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -382,6 +381,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
+  }
+
+  @Override
   public boolean resetRunningJob(UUID id, String nodeId) {
     return lifecycle.resetRunningJob(id, nodeId);
   }
@@ -559,8 +563,9 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    return archives.archiveJobsBatch(jobsToArchive, reason, archivedBy);
+  public int archiveAndDeleteJobsBatch(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+    return archives.archiveAndDeleteJobsBatch(jobsToArchive, reason, archivedBy);
   }
 
   @Override
@@ -691,16 +696,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    return auxiliary.saveDlqAlert(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    return auxiliary.existsRecentDlqAlert(jobId, errorHash, cutoff);
-  }
-
-  @Override
   public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     return auxiliary.tryAcquirePermit(resource, jobId, nodeId);
   }
@@ -818,19 +813,20 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     reservations = new PostgresqlBusinessKeyReservations(ctx);
     tags = new PostgresqlTagOperations(ctx);
     PostgresqlJobReadOperations reads = new PostgresqlJobReadOperations(ctx, tags);
+    PostgresqlJobDeleteOperations deletes = new PostgresqlJobDeleteOperations(ctx, reservations);
     jobs =
         new PostgresqlJobCrudOperations(
             reads,
             new PostgresqlJobCountOperations(ctx),
-            new PostgresqlJobDeleteOperations(ctx, reservations),
+            deletes,
             new PostgresqlJobWriteOperations(ctx, reservations, tags),
             tags);
     query = new PostgresqlJobQueryOperations(ctx, tags);
     batches = new PostgresqlBatchOperations(ctx);
     claims = new PostgresqlJobClaimOperations(ctx, reads);
-    lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches);
+    lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches, query);
     nodeLocks = new PostgresqlNodeLockOperations(ctx);
-    archives = new PostgresqlArchiveOperations(ctx, reads);
+    archives = new PostgresqlArchiveOperations(ctx, reads, deletes);
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);
     signals = new PostgresqlSignalOperations(ctx);
     recurringJobs = new PostgresqlRecurringJobOperations(ctx, reservations);

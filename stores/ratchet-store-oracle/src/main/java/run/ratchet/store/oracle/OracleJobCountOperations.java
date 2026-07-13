@@ -129,7 +129,7 @@ final class OracleJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE status = 'PENDING' AND priority = ?
         """;
-    return ctx.countByNative(sql, priority.ordinal());
+    return ctx.countByNative(sql, priority.persistedCode());
   }
 
   @SuppressWarnings("unchecked")
@@ -144,12 +144,10 @@ final class OracleJobCountOperations {
         """;
     List<Object[]> rows = ctx.em().createNativeQuery(sql).getResultList();
     Map<JobPriority, Long> counts = new EnumMap<>(JobPriority.class);
-    JobPriority[] values = JobPriority.values();
     for (Object[] row : rows) {
-      int ordinal = ((Number) row[0]).intValue();
-      if (ordinal >= 0 && ordinal < values.length) {
-        counts.put(values[ordinal], ((Number) row[1]).longValue());
-      }
+      int persistedCode = ((Number) row[0]).intValue();
+      JobPriority.findByPersistedCode(persistedCode)
+          .ifPresent(priority -> counts.put(priority, ((Number) row[1]).longValue()));
     }
     return counts;
   }
