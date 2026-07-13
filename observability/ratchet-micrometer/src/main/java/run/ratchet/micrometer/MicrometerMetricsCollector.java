@@ -104,6 +104,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   private final Map<String, AtomicInteger> pollerBreakerStates = new ConcurrentHashMap<>();
   private final Map<CircuitBreakerMeterKey, AtomicInteger> circuitBreakerStates =
       new ConcurrentHashMap<>();
+  private final Object gaugeRegistrationLock = new Object();
 
   // Required by CDI proxy. The CDI proxy never invokes business methods on this instance —
   // every real call goes to the @Inject constructor below. We still guard the field below
@@ -428,7 +429,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   private void replaceGauge(String name, AtomicInteger stateValue, String... tags) {
-    synchronized (registry) {
+    synchronized (gaugeRegistrationLock) {
       Gauge existing = registry.find(name).tags(tags).gauge();
       if (existing != null) {
         registry.remove(existing);
