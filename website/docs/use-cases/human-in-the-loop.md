@@ -14,7 +14,7 @@ Ratchet gives the job a waiting state instead. It parks in `WAITING`, holds no t
 The [durable LLM workflows](./durable-llm-workflows.md#pause-for-a-human-then-resume) page reaches for this same mechanism to gate an agent's actions. This page is the mechanism itself: how a job waits, how a decision reaches it, and what happens when nobody decides.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.1.2-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a store that advertises the `SignalStore` capability.
+The Java on this page compiles against `ratchet-api` `0.2.0-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a store that advertises the `SignalStore` capability.
 :::
 
 ## Park, decide, resume

@@ -249,7 +249,7 @@ sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 \
 
 The Oracle store was added after `0.1.1`, so that release has no store JAR to extract. Build the
 current source tree and use the DDL path above; the JAR contains `ddl/oracle-schema.sql` starting
-with `0.1.2`.
+with `0.2.0`.
 
 ### Verify Installation
 

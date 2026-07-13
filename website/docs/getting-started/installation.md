@@ -62,15 +62,15 @@ Ratchet is split into focused modules so you only pull in what you need.
 You need exactly one store module matching your database:
 
 The `0.1.1` release predates the Oracle and SQL Server modules. Those two stores are available
-from the source tree and become Maven Central artifacts in `0.1.2`; when using the `0.1.1` BOM,
+from the source tree and become Maven Central artifacts in `0.2.0`; when using the `0.1.1` BOM,
 build them from source instead of adding an unpublished coordinate.
 
 | Module | Database | Notes |
 |--------|----------|-------|
 | `ratchet-store-postgresql` | PostgreSQL 14+ | Uses JSONB columns, partial indexes, and `FOR UPDATE SKIP LOCKED` for efficient job claiming |
 | `ratchet-store-mysql` | MySQL 8+ | Uses JSON columns and `SELECT ... FOR UPDATE SKIP LOCKED` |
-| `ratchet-store-oracle` | Oracle 23ai+ | Source build on 0.1.1; published in 0.1.2+. RAW(16) UUIDs, CLOB JSON read via `JSON_VALUE`, two-phase `FETCH FIRST` + `FOR UPDATE SKIP LOCKED` claim |
-| `ratchet-store-sqlserver` | SQL Server 2022+ | Source build on 0.1.1; published in 0.1.2+. BINARY(16) UUIDs, row-versioned reads, and `UPDLOCK, READPAST` for concurrent claiming |
+| `ratchet-store-oracle` | Oracle 23ai+ | Source build on 0.1.1; published in 0.2.0+. RAW(16) UUIDs, CLOB JSON read via `JSON_VALUE`, two-phase `FETCH FIRST` + `FOR UPDATE SKIP LOCKED` claim |
+| `ratchet-store-sqlserver` | SQL Server 2022+ | Source build on 0.1.1; published in 0.2.0+. BINARY(16) UUIDs, row-versioned reads, and `UPDLOCK, READPAST` for concurrent claiming |
 | `ratchet-store-mongodb` | MongoDB 6+ | Document-based store with TTL indexes |
 
 ### Optional modules
