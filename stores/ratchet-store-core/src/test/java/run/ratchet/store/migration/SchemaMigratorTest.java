@@ -29,6 +29,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.inject.Instance;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -143,6 +145,23 @@ class SchemaMigratorTest {
     assertEquals(1, blocks.size());
     assertTrue(blocks.get(0).contains("EXECUTE IMMEDIATE 'SELECT 1 FROM dual';"));
     assertTrue(blocks.get(0).endsWith("END;"));
+  }
+
+  @Test
+  void singleStatementDirectiveRejectsMissingSql() throws Exception {
+    Method splitStatements =
+        SchemaMigrator.class.getDeclaredMethod("splitStatements", String.class);
+    splitStatements.setAccessible(true);
+
+    InvocationTargetException thrown =
+        assertThrows(
+            InvocationTargetException.class,
+            () -> splitStatements.invoke(null, "-- ratchet:single-statement"));
+
+    assertTrue(thrown.getCause() instanceof SchemaMigrationException);
+    assertEquals(
+        "Single-statement migration directive must be followed by SQL",
+        thrown.getCause().getMessage());
   }
 
   @Test
