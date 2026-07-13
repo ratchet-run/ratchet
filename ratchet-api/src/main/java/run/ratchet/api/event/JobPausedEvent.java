@@ -31,15 +31,21 @@ public class JobPausedEvent extends AbstractJobSchedulerEvent {
   public JobPausedEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
   }
 
   public JobPausedEvent(
-      UUID jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+      UUID jobId,
+      String businessKey,
+      UUID recurringMasterId,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId) {
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
   }
 }

@@ -282,6 +282,7 @@ public class JobTask implements Callable<Void> {
           new JobStartedEvent(
               jobEntity.getId(),
               jobEntity.getBusinessKey(),
+              jobEntity.getRecurringMasterId(),
               jobEntity.getPublicJobType(),
               jobEntity.getPriority(),
               jobEntity.getPickedBy(),
@@ -800,6 +801,7 @@ public class JobTask implements Callable<Void> {
         new JobCompletedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -888,6 +890,7 @@ public class JobTask implements Callable<Void> {
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -906,6 +909,7 @@ public class JobTask implements Callable<Void> {
           new JobFailedEvent(
               job.getId(),
               job.getBusinessKey(),
+              job.getRecurringMasterId(),
               job.getPublicJobType(),
               job.getPriority(),
               job.getPickedBy(),
@@ -953,6 +957,7 @@ public class JobTask implements Callable<Void> {
             new JobCallbackFailedEvent(
                 job.getId(),
                 job.getBusinessKey(),
+                job.getRecurringMasterId(),
                 job.getPublicJobType(),
                 job.getPriority(),
                 job.getPickedBy(),
@@ -1058,6 +1063,7 @@ public class JobTask implements Callable<Void> {
           new JobRetryingEvent(
               job.getId(),
               job.getBusinessKey(),
+              job.getRecurringMasterId(),
               job.getPublicJobType(),
               job.getPriority(),
               job.getPickedBy(),

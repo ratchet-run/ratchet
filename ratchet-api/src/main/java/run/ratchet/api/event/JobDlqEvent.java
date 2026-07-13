@@ -40,13 +40,14 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
   public JobDlqEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp,
       String errorMessage,
       int retryAttempt) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.errorMessage = errorMessage;
     this.retryAttempt = EventContract.requireNonNegative(retryAttempt, "retryAttempt");
   }
@@ -63,12 +64,13 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
   public JobDlqEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       String errorMessage,
       int retryAttempt) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
     this.errorMessage = errorMessage;
     this.retryAttempt = EventContract.requireNonNegative(retryAttempt, "retryAttempt");
   }

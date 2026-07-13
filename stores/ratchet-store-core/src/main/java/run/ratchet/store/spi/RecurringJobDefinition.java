@@ -50,7 +50,9 @@ import run.ratchet.store.entity.JobPayload;
  * @param onSuccessPayload optional success-callback payload, or {@code null} when none configured
  * @param onFailurePayload optional failure-callback payload, or {@code null} when none configured
  * @param businessKey active-unique identity of the recurring master, or {@code null} when none
- *     configured; fired child jobs do not inherit it
+ *     configured; fired child jobs do not inherit it. Children reference the master through {@code
+ *     recurringMasterId}, which lifecycle events publish and callers can resolve after the master
+ *     ends through {@link RecurringJobStore#findArchivedRecurring(UUID)}
  * @param resourceName resource permit name required by fired child jobs, or {@code null} when no
  *     resource gate applies
  * @param executionTarget execution-target label copied to fired child jobs, or {@code null} to

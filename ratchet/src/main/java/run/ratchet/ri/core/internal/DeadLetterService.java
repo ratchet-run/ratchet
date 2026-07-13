@@ -249,6 +249,7 @@ public class DeadLetterService {
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -259,6 +260,7 @@ public class DeadLetterService {
         new JobDlqEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -284,6 +286,7 @@ public class DeadLetterService {
         new JobDlqEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),

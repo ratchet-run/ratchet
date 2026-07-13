@@ -183,8 +183,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     result_type           VARCHAR(100)                                                                                                        NULL,
     -- Recurring-child lineage pointer. Set for child rows spawned by a recurring master; NULL
     -- for all other rows. depends_on is reserved for chain / batch / workflow same-table parent
-    -- pointers. ON DELETE SET NULL so cancel of the master does not cascade-delete in-flight
-    -- children.
+    -- pointers. Intentionally unconstrained so the lineage id survives master cancellation or
+    -- exhaustion and remains resolvable through scheduler_recurring_job_archive.
     recurring_master_id   BINARY(16)                                                                                                          NULL,
     -- Per-row payload-encryption metadata (cleartext by design). encrypted_payload marks whether
     -- this row's protected surfaces are ciphertext; encryption_key_id records the key the
@@ -195,7 +195,6 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     PRIMARY KEY (job_id),
     UNIQUE KEY uk_idempotency_key (idempotency_key),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
-    CONSTRAINT fk_job_recurring_master FOREIGN KEY (recurring_master_id) REFERENCES scheduler_recurring_job (id) ON DELETE SET NULL,
     -- Lookup/relationship indexes.
     INDEX idx_job_depends_on (depends_on),
     INDEX idx_job_superseded_by (superseded_by),

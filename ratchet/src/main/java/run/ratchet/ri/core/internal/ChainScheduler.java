@@ -195,6 +195,7 @@ public class ChainScheduler {
         new ChainStartedEvent(
             child.getId(),
             child.getBusinessKey(),
+            child.getRecurringMasterId(),
             child.getPublicJobType(),
             child.getPriority(),
             child.getPickedBy(),
@@ -209,6 +210,7 @@ public class ChainScheduler {
         new ChainCompletedEvent(
             finished.getId(),
             finished.getBusinessKey(),
+            finished.getRecurringMasterId(),
             finished.getPublicJobType(),
             finished.getPriority(),
             finished.getPickedBy(),
@@ -223,6 +225,7 @@ public class ChainScheduler {
         new ChainFailedEvent(
             failed.getId(),
             failed.getBusinessKey(),
+            failed.getRecurringMasterId(),
             failed.getPublicJobType(),
             failed.getPriority(),
             failed.getPickedBy(),

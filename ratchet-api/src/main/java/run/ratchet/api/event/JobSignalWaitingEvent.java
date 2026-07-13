@@ -40,13 +40,14 @@ public class JobSignalWaitingEvent extends AbstractJobSchedulerEvent {
   public JobSignalWaitingEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp,
       String signalKey,
       Duration signalTimeout) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.signalKey = EventContract.requireNonBlank(signalKey, "signalKey");
     this.signalTimeout = signalTimeout;
   }
@@ -54,12 +55,22 @@ public class JobSignalWaitingEvent extends AbstractJobSchedulerEvent {
   public JobSignalWaitingEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       String signalKey,
       Duration signalTimeout) {
-    this(jobId, businessKey, jobType, priority, nodeId, Instant.now(), signalKey, signalTimeout);
+    this(
+        jobId,
+        businessKey,
+        recurringMasterId,
+        jobType,
+        priority,
+        nodeId,
+        Instant.now(),
+        signalKey,
+        signalTimeout);
   }
 
   /** Returns the signal key the job is waiting on. */

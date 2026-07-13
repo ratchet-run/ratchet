@@ -52,6 +52,7 @@ import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7EntityListener;
+import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 
 /**
@@ -887,6 +888,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   public boolean cancelRecurringAndArchive(
       UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
     return recurringJobs.cancelRecurringAndArchive(id, reason);
+  }
+
+  @Override
+  public Optional<ArchivedRecurringJob> findArchivedRecurring(UUID id) {
+    return recurringJobs.findArchivedRecurring(id);
   }
 
   @Override

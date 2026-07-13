@@ -44,6 +44,7 @@ public class BatchChunkFailureEvent extends AbstractJobSchedulerEvent {
   public BatchChunkFailureEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -51,7 +52,7 @@ public class BatchChunkFailureEvent extends AbstractJobSchedulerEvent {
       int chunkIndex,
       int chunkSize,
       String failureReason) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.chunkIndex = chunkIndex;
     this.chunkSize = chunkSize;
     this.failureReason = failureReason;
@@ -60,13 +61,14 @@ public class BatchChunkFailureEvent extends AbstractJobSchedulerEvent {
   public BatchChunkFailureEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       int chunkIndex,
       int chunkSize,
       String failureReason) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
     this.chunkIndex = chunkIndex;
     this.chunkSize = chunkSize;
     this.failureReason = failureReason;

@@ -316,6 +316,7 @@ public class WorkflowScheduler extends ChainScheduler {
         new WorkflowBranchTriggeredEvent(
             parentJob.getId(),
             parentJob.getBusinessKey(),
+            parentJob.getRecurringMasterId(),
             parentJob.getPublicJobType(),
             parentJob.getPriority(),
             parentJob.getPickedBy(),

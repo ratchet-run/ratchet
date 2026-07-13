@@ -35,6 +35,7 @@ public class JobCancelledEvent extends AbstractJobCancellationEvent {
   public JobCancelledEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
@@ -42,17 +43,34 @@ public class JobCancelledEvent extends AbstractJobCancellationEvent {
       String previousStatus,
       Long executionTimeMs) {
     super(
-        jobId, businessKey, jobType, priority, nodeId, timestamp, previousStatus, executionTimeMs);
+        jobId,
+        businessKey,
+        recurringMasterId,
+        jobType,
+        priority,
+        nodeId,
+        timestamp,
+        previousStatus,
+        executionTimeMs);
   }
 
   public JobCancelledEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       String previousStatus,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId, previousStatus, executionTimeMs);
+    super(
+        jobId,
+        businessKey,
+        recurringMasterId,
+        jobType,
+        priority,
+        nodeId,
+        previousStatus,
+        executionTimeMs);
   }
 }

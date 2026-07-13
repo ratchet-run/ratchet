@@ -209,6 +209,7 @@ class JobCascadeService {
         new JobPausedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -224,6 +225,7 @@ class JobCascadeService {
         new JobResumedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),

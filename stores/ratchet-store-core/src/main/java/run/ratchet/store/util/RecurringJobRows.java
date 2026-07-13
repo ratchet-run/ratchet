@@ -22,12 +22,13 @@ import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 
 /**
- * Shared hydration of {@link RecurringJobDefinition} from a {@code scheduler_recurring_job}
- * projection. The column order matches {@code SELECT_COLUMNS} in the per-store recurring
- * operations.
+ * Shared hydration of recurring definitions from live and archive projections. Column order matches
+ * the corresponding select-column constants in the per-store recurring operations.
  */
 public final class RecurringJobRows {
 
@@ -92,6 +93,24 @@ public final class RecurringJobRows {
         callerPrincipal,
         encryptedPayload,
         misfirePolicy);
+  }
+
+  /**
+   * Maps a recurring archive correlation projection in this order: id, business key, cron
+   * expression, zone id, execution target, caller principal, created time, archived time, archive
+   * reason.
+   */
+  public static ArchivedRecurringJob hydrateArchived(Object[] row) {
+    return new ArchivedRecurringJob(
+        RowValues.uuidOrNull(row[0]),
+        RowValues.stringOrNull(row[1]),
+        RowValues.stringOrNull(row[2]),
+        RowValues.stringOrNull(row[3]),
+        RowValues.stringOrNull(row[4]),
+        RowValues.stringOrNull(row[5]),
+        RowValues.instantOrNull(row[6]),
+        RowValues.instantOrNull(row[7]),
+        ArchiveReason.valueOf(RowValues.stringOrNull(row[8])));
   }
 
   /**

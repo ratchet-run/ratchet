@@ -34,13 +34,14 @@ public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerE
   protected AbstractJobCancellationEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp,
       String previousStatus,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.previousStatus = EventContract.requireNonBlank(previousStatus, "previousStatus");
     this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }
@@ -54,12 +55,13 @@ public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerE
   protected AbstractJobCancellationEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       String previousStatus,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
     this.previousStatus = EventContract.requireNonBlank(previousStatus, "previousStatus");
     this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }

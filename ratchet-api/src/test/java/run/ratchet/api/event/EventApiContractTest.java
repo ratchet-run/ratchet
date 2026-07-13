@@ -32,6 +32,8 @@ class EventApiContractTest {
 
   private static final UUID JOB_ID = UUID.fromString("018f0000-0000-7000-8000-000000000001");
   private static final UUID NEXT_JOB_ID = UUID.fromString("018f0000-0000-7000-8000-000000000002");
+  private static final UUID RECURRING_MASTER_ID =
+      UUID.fromString("018f0000-0000-7000-8000-000000000003");
   private static final Instant TIMESTAMP = Instant.parse("2026-05-10T12:00:00Z");
 
   @Test
@@ -59,6 +61,7 @@ class EventApiContractTest {
         new JobExecutionTimedOutEvent(
             JOB_ID,
             "business-key",
+            null,
             JobType.SINGLE,
             JobPriority.HIGH,
             "node-a",
@@ -79,6 +82,7 @@ class EventApiContractTest {
         new JobDlqEvent(
             JOB_ID,
             "business-key",
+            null,
             JobType.SINGLE,
             JobPriority.NORMAL,
             "node-a",
@@ -95,16 +99,20 @@ class EventApiContractTest {
   void perJobEventsRequireJobIdAndTimestamp() {
     assertThrows(
         NullPointerException.class,
-        () -> new JobStartedEvent(null, "business-key", JobType.SINGLE, JobPriority.NORMAL, null));
+        () ->
+            new JobStartedEvent(
+                null, "business-key", null, JobType.SINGLE, JobPriority.NORMAL, null));
     assertThrows(
         NullPointerException.class,
         () ->
             new JobStartedEvent(
-                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, null, null));
+                JOB_ID, "business-key", null, JobType.SINGLE, JobPriority.NORMAL, null, null));
 
-    JobStartedEvent event = new JobStartedEvent(JOB_ID, null, null, null, null, TIMESTAMP);
+    JobStartedEvent event =
+        new JobStartedEvent(JOB_ID, null, RECURRING_MASTER_ID, null, null, null, TIMESTAMP);
 
     assertEquals(JOB_ID, event.getJobId());
+    assertEquals(RECURRING_MASTER_ID, event.getRecurringMasterId());
     assertEquals(TIMESTAMP, event.getTimestamp());
   }
 
@@ -114,6 +122,7 @@ class EventApiContractTest {
         new JobSignalWaitingEvent(
             JOB_ID,
             "business-key",
+            null,
             JobType.SINGLE,
             JobPriority.NORMAL,
             "node-a",
@@ -124,6 +133,7 @@ class EventApiContractTest {
         new JobSignalTimedOutEvent(
             JOB_ID,
             "business-key",
+            null,
             JobType.SINGLE,
             JobPriority.NORMAL,
             "node-a",
@@ -134,6 +144,7 @@ class EventApiContractTest {
         new JobSignaledEvent(
             JOB_ID,
             "business-key",
+            null,
             JobType.SINGLE,
             JobPriority.NORMAL,
             "node-a",
@@ -154,13 +165,14 @@ class EventApiContractTest {
         NullPointerException.class,
         () ->
             new ChainStartedEvent(
-                JOB_ID, "business-key", JobType.CHAIN, JobPriority.NORMAL, "node-a", null));
+                JOB_ID, "business-key", null, JobType.CHAIN, JobPriority.NORMAL, "node-a", null));
     assertThrows(
         IllegalArgumentException.class,
         () ->
             new ChainFailedEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.CHAIN,
                 JobPriority.NORMAL,
                 "node-a",
@@ -172,6 +184,7 @@ class EventApiContractTest {
             new WorkflowBranchTriggeredEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.WORKFLOW,
                 JobPriority.NORMAL,
                 "node-a",
@@ -183,6 +196,7 @@ class EventApiContractTest {
             new WorkflowBranchTriggeredEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.WORKFLOW,
                 JobPriority.NORMAL,
                 "node-a",
@@ -192,13 +206,21 @@ class EventApiContractTest {
         IllegalArgumentException.class,
         () ->
             new JobSignalWaitingEvent(
-                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", " ", null));
+                JOB_ID,
+                "business-key",
+                null,
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                " ",
+                null));
     assertThrows(
         NullPointerException.class,
         () ->
             new JobSignalTimedOutEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -210,6 +232,7 @@ class EventApiContractTest {
             new JobExecutionTimedOutEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -222,6 +245,7 @@ class EventApiContractTest {
             new JobExecutionTimedOutEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -234,6 +258,7 @@ class EventApiContractTest {
             new JobExecutionTimedOutEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -244,7 +269,14 @@ class EventApiContractTest {
         IllegalArgumentException.class,
         () ->
             new JobCancelledEvent(
-                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", " ", null));
+                JOB_ID,
+                "business-key",
+                null,
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                " ",
+                null));
   }
 
   @Test
@@ -253,15 +285,38 @@ class EventApiContractTest {
         IllegalArgumentException.class,
         () ->
             new BatchCompletedEvent(
-                JOB_ID, "business-key", JobType.BATCH, JobPriority.NORMAL, "node-a", 0, 0, 0));
+                JOB_ID,
+                "business-key",
+                null,
+                JobType.BATCH,
+                JobPriority.NORMAL,
+                "node-a",
+                0,
+                0,
+                0));
     assertThrows(
         IllegalArgumentException.class,
         () ->
             new BatchCompletingEvent(
-                JOB_ID, "business-key", JobType.BATCH, JobPriority.NORMAL, "node-a", 3, 2, 2));
+                JOB_ID,
+                "business-key",
+                null,
+                JobType.BATCH,
+                JobPriority.NORMAL,
+                "node-a",
+                3,
+                2,
+                2));
     JobFailedEvent firstAttemptFailure =
         new JobFailedEvent(
-            JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", "failed", 0);
+            JOB_ID,
+            "business-key",
+            null,
+            JobType.SINGLE,
+            JobPriority.NORMAL,
+            "node-a",
+            "failed",
+            0);
     assertEquals(0, firstAttemptFailure.getRetryAttempt());
     assertThrows(
         IllegalArgumentException.class,
@@ -269,6 +324,7 @@ class EventApiContractTest {
             new JobFailedEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -280,6 +336,7 @@ class EventApiContractTest {
             new JobCallbackFailedEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -293,6 +350,7 @@ class EventApiContractTest {
             new JobRetryingEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -303,7 +361,7 @@ class EventApiContractTest {
         IllegalArgumentException.class,
         () ->
             new JobCompletedEvent(
-                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", -1L));
+                JOB_ID, "business-key", null, JobType.SINGLE, JobPriority.NORMAL, "node-a", -1L));
     assertThrows(
         IllegalArgumentException.class, () -> new JobsBulkCancelledEvent("tag-a", 0, TIMESTAMP));
     assertThrows(
@@ -321,6 +379,7 @@ class EventApiContractTest {
             new JobSignaledEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -334,6 +393,7 @@ class EventApiContractTest {
             new JobSignaledEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -347,6 +407,7 @@ class EventApiContractTest {
             new JobSignaledEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -360,6 +421,7 @@ class EventApiContractTest {
             new JobSignaledEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -373,6 +435,7 @@ class EventApiContractTest {
             new JobSignaledEvent(
                 JOB_ID,
                 "business-key",
+                null,
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
@@ -385,6 +448,7 @@ class EventApiContractTest {
         new JobSignaledEvent(
             JOB_ID,
             "business-key",
+            null,
             JobType.SINGLE,
             JobPriority.NORMAL,
             "node-a",
@@ -464,6 +528,7 @@ class EventApiContractTest {
         WorkflowBranchTriggeredEvent.class.getConstructor(
             UUID.class,
             String.class,
+            UUID.class,
             JobType.class,
             JobPriority.class,
             String.class,
@@ -475,6 +540,7 @@ class EventApiContractTest {
         constructor.newInstance(
             JOB_ID,
             "business-key",
+            null,
             JobType.WORKFLOW,
             JobPriority.HIGH,
             "node-a",

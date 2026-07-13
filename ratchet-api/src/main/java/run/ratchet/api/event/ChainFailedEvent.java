@@ -40,13 +40,14 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
   public ChainFailedEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp,
       UUID parentJobId,
       String errorMessage) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.parentJobId = EventContract.requireNonNull(parentJobId, "parentJobId");
     this.errorMessage = EventContract.requireNonBlank(errorMessage, "errorMessage");
   }
@@ -60,12 +61,13 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
   public ChainFailedEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       UUID parentJobId,
       String errorMessage) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
     this.parentJobId = EventContract.requireNonNull(parentJobId, "parentJobId");
     this.errorMessage = EventContract.requireNonBlank(errorMessage, "errorMessage");
   }

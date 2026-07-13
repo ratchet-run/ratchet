@@ -481,6 +481,7 @@ public class JobTimeoutHandler {
         new JobSignalTimedOutEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -491,6 +492,7 @@ public class JobTimeoutHandler {
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -529,6 +531,7 @@ public class JobTimeoutHandler {
         new JobRetryingEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -555,6 +558,7 @@ public class JobTimeoutHandler {
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
@@ -569,6 +573,7 @@ public class JobTimeoutHandler {
     return new JobExecutionTimedOutEvent(
         job.getId(),
         job.getBusinessKey(),
+        job.getRecurringMasterId(),
         job.getPublicJobType(),
         job.getPriority(),
         job.getPickedBy(),
@@ -587,6 +592,7 @@ public class JobTimeoutHandler {
         new JobRetryingEvent(
             job.getId(),
             job.getBusinessKey(),
+            job.getRecurringMasterId(),
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),

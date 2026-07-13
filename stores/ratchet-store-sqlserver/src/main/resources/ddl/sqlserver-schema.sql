@@ -187,9 +187,7 @@ CREATE TABLE scheduler_job
                                     'CHAIN_STEP', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
-    CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
-    CONSTRAINT fk_job_recurring_master FOREIGN KEY (recurring_master_id)
-        REFERENCES scheduler_recurring_job (id) ON DELETE SET NULL
+    CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED'))
 );
 
 -- 4a. Hot authoritative queue state for executable jobs.

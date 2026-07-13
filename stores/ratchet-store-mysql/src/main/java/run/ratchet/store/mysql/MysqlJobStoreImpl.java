@@ -45,6 +45,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.util.IsolationCheck;
@@ -846,6 +847,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   public boolean cancelRecurringAndArchive(
       UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
     return recurringJobs.cancelRecurringAndArchive(id, reason);
+  }
+
+  @Override
+  public Optional<ArchivedRecurringJob> findArchivedRecurring(UUID id) {
+    return recurringJobs.findArchivedRecurring(id);
   }
 
   // cancelOrphanedRecurringAnnotationJobs / cancelRecurringJobsByTag /

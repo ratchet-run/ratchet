@@ -45,13 +45,14 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
   public WorkflowBranchTriggeredEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp,
       String branchCondition,
       UUID nextJobId) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId, timestamp);
     this.branchCondition = EventContract.requireNonBlank(branchCondition, "branchCondition");
     this.nextJobId = EventContract.requireNonNull(nextJobId, "nextJobId");
   }
@@ -65,12 +66,13 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
   public WorkflowBranchTriggeredEvent(
       UUID jobId,
       String businessKey,
+      UUID recurringMasterId,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       String branchCondition,
       UUID nextJobId) {
-    super(jobId, businessKey, jobType, priority, nodeId);
+    super(jobId, businessKey, recurringMasterId, jobType, priority, nodeId);
     this.branchCondition = EventContract.requireNonBlank(branchCondition, "branchCondition");
     this.nextJobId = EventContract.requireNonNull(nextJobId, "nextJobId");
   }

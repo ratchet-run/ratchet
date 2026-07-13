@@ -936,6 +936,8 @@ class JobTaskTest {
       throws Exception {
     JobTask fixedClockTask = newJobTaskWithClock(FIXED_CLOCK);
     JobEntity job = createTestJob();
+    UUID recurringMasterId = UUID.fromString("019c1f33-09c0-7000-8000-000000000125");
+    job.setRecurringMasterId(recurringMasterId);
     job.setOnSuccessPayload(
         new JobPayload(JobTaskTest.class.getName(), "failingCallback", "()V", true, List.of()));
     initJobTaskWithDefaultStubs(fixedClockTask, job);
@@ -951,6 +953,12 @@ class JobTaskTest {
 
     ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
     verify(observabilityFacade, atLeastOnce()).publishEvent(eventCaptor.capture());
+    JobStartedEvent startedEvent =
+        eventCaptor.getAllValues().stream()
+            .filter(JobStartedEvent.class::isInstance)
+            .map(JobStartedEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
     JobCompletedEvent completedEvent =
         eventCaptor.getAllValues().stream()
             .filter(JobCompletedEvent.class::isInstance)
@@ -964,6 +972,9 @@ class JobTaskTest {
             .findFirst()
             .orElseThrow();
 
+    Assertions.assertEquals(recurringMasterId, startedEvent.getRecurringMasterId());
+    Assertions.assertEquals(recurringMasterId, completedEvent.getRecurringMasterId());
+    Assertions.assertEquals(recurringMasterId, callbackEvent.getRecurringMasterId());
     Assertions.assertEquals(FIXED_NOW, completedEvent.getTimestamp());
     Assertions.assertEquals(FIXED_NOW, callbackEvent.getTimestamp());
     Assertions.assertEquals(1, callbackEvent.getCallbackAttempt());
