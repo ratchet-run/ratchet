@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,6 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +37,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.KeyNotFoundException;
@@ -47,6 +50,8 @@ import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.EncryptionKey;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.ResultPersistenceStrategy;
+import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -74,6 +79,18 @@ class WorkflowConditionEvaluatorTest {
       return result.isSuccess();
     }
 
+    public static boolean isUnapproved(BranchDecision result) {
+      return !result.approved;
+    }
+
+    public static boolean customSawUnapproved(JobResult<BranchDecision> result) {
+      return result.getValue() != null && !result.getValue().approved;
+    }
+
+    public static boolean hasUserTruncationFlag(BranchDecision result) {
+      return result._truncated && result.approved;
+    }
+
     public static boolean throwsDuringEvaluation(JobResult<?> result) {
       throw new IllegalStateException("predicate failed");
     }
@@ -82,6 +99,24 @@ class WorkflowConditionEvaluatorTest {
   public static final class BeanCondition {
     public boolean hasExpectedFailureCount(BatchContext ctx) {
       return ctx.failedItems() == 2;
+    }
+  }
+
+  public static final class BranchDecision {
+    private static final AtomicInteger DEFAULT_CONSTRUCTIONS = new AtomicInteger();
+
+    public boolean _truncated;
+    public boolean approved;
+    public String explanation;
+
+    public BranchDecision() {
+      DEFAULT_CONSTRUCTIONS.incrementAndGet();
+    }
+
+    BranchDecision(boolean truncated, boolean approved, String explanation) {
+      this._truncated = truncated;
+      this.approved = approved;
+      this.explanation = explanation;
     }
   }
 
@@ -132,6 +167,34 @@ class WorkflowConditionEvaluatorTest {
 
   private String serializeCondition(Serializable predicate) {
     return payloadSerializer.serialize(JobPayloadFactory.fromLambda(predicate));
+  }
+
+  private WorkflowConditionEvaluator evaluatorAllowingBranchDecision() {
+    ClassPolicy allowBranchDecision =
+        new ClassPolicy() {
+          @Override
+          public boolean isAllowed(String className) {
+            return true;
+          }
+
+          @Override
+          public boolean isAllowedForResultType(String className) {
+            return BranchDecision.class.getName().equals(className);
+          }
+        };
+    return new WorkflowConditionEvaluator(
+        batchStore, beanResolver, allowBranchDecision, payloadSerializer);
+  }
+
+  private SerializedJobResult persistOversizedBranchDecision(JobEntity parent) {
+    DefaultResultPersistenceStrategy strategy =
+        new DefaultResultPersistenceStrategy(
+            RatchetOptions.builder().payload(payload -> payload.maxResultBytes(8)).build(),
+            payloadSerializer,
+            null);
+    return strategy.serialize(
+        parent.getId(),
+        new BranchDecision(false, true, "This explanation is intentionally oversized"));
   }
 
   @BeforeEach
@@ -476,6 +539,108 @@ class WorkflowConditionEvaluatorTest {
         evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.RESULT_VALUE, expression),
             parent));
+  }
+
+  @Test
+  void resultValue_truncatedAllowedCustomResultFailsClosedBeforeTypedDeserialization() {
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    SerializedJobResult persisted = persistOversizedBranchDecision(parent);
+    parent.setJobResult(persisted.json());
+    parent.setResultType(persisted.type());
+    String expression =
+        serializeCondition((SerializablePredicate<BranchDecision>) TestConditions::isUnapproved);
+    BranchDecision.DEFAULT_CONSTRUCTIONS.set(0);
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                evaluatorAllowingBranchDecision()
+                    .evaluate(
+                        conditionWithExpression(
+                            WorkflowCondition.ConditionType.RESULT_VALUE, expression),
+                        parent));
+
+    assertTrue(failure.getMessage().contains("truncated"));
+    assertTrue(failure.getMessage().contains(parent.getId().toString()));
+    assertEquals(0, BranchDecision.DEFAULT_CONSTRUCTIONS.get());
+  }
+
+  @Test
+  void custom_truncatedAllowedCustomResultFailsClosedBeforeTypedDeserialization() {
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    SerializedJobResult persisted = persistOversizedBranchDecision(parent);
+    parent.setJobResult(persisted.json());
+    parent.setResultType(persisted.type());
+    String expression =
+        serializeCondition(
+            (SerializablePredicate<JobResult<BranchDecision>>) TestConditions::customSawUnapproved);
+    BranchDecision.DEFAULT_CONSTRUCTIONS.set(0);
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                evaluatorAllowingBranchDecision()
+                    .evaluate(
+                        conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
+                        parent));
+
+    assertTrue(failure.getMessage().contains("truncated"));
+    assertTrue(failure.getMessage().contains(parent.getId().toString()));
+    assertEquals(0, BranchDecision.DEFAULT_CONSTRUCTIONS.get());
+  }
+
+  @Test
+  void resultValue_encryptedTruncationFailsClosedWithoutDecryptingMarker() {
+    EncryptionTestKit.install(true);
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    SerializedJobResult persisted = persistOversizedBranchDecision(parent);
+    parent.setJobResult(persisted.json());
+    parent.setResultType(persisted.type());
+    String expression =
+        serializeCondition((SerializablePredicate<BranchDecision>) TestConditions::isUnapproved);
+    EncryptionHolder.install(
+        List.of(new EncryptionTestKit.AesGcmEngine()),
+        EncryptionTestKit.ALGORITHM_ID,
+        new TransientKeyProvider(),
+        true);
+    BranchDecision.DEFAULT_CONSTRUCTIONS.set(0);
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                evaluatorAllowingBranchDecision()
+                    .evaluate(
+                        conditionWithExpression(
+                            WorkflowCondition.ConditionType.RESULT_VALUE, expression),
+                        parent));
+
+    assertTrue(failure.getMessage().contains("truncated"));
+    assertEquals(0, BranchDecision.DEFAULT_CONSTRUCTIONS.get());
+  }
+
+  @Test
+  void resultValue_userJsonWithTruncationFlagDoesNotCollideWithReservedState() {
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    BranchDecision userResult = new BranchDecision(true, true, "user-owned marker-like field");
+    ResultPersistenceStrategy customStrategy =
+        (jobId, result) ->
+            new SerializedJobResult(
+                payloadSerializer.serialize(result), BranchDecision.class.getName());
+    SerializedJobResult persisted = customStrategy.serialize(parent.getId(), userResult);
+    parent.setJobResult(persisted.json());
+    parent.setResultType(persisted.type());
+    String expression =
+        serializeCondition(
+            (SerializablePredicate<BranchDecision>) TestConditions::hasUserTruncationFlag);
+
+    assertTrue(
+        evaluatorAllowingBranchDecision()
+            .evaluate(
+                conditionWithExpression(WorkflowCondition.ConditionType.RESULT_VALUE, expression),
+                parent));
   }
 
   /**

@@ -69,6 +69,7 @@ class SubmissionGateCheckerTest {
         null,
         0,
         0,
+        null,
         null);
   }
 

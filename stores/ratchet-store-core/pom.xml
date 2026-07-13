@@ -85,4 +85,51 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <!--
+            Ratchet is pre-1.0 and intentionally permits breaking API changes. Generate the report
+            with -Dratchet.store.compatibility. Once a release is chosen as a stability baseline,
+            add -Dratchet.store.compatibility.enforce=true to turn incompatibilities into failures.
+        -->
+        <profile>
+            <id>store-api-compatibility</id>
+            <activation>
+                <property>
+                    <name>ratchet.store.compatibility</name>
+                </property>
+            </activation>
+            <properties>
+                <ratchet.store.compatibility.enforce>false</ratchet.store.compatibility.enforce>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.siom79.japicmp</groupId>
+                        <artifactId>japicmp-maven-plugin</artifactId>
+                        <version>0.26.1</version>
+                        <configuration>
+                            <parameter>
+                                <oldVersionPattern>\d+\.\d+\.\d+</oldVersionPattern>
+                                <includeSnapshots>false</includeSnapshots>
+                                <onlyModified>true</onlyModified>
+                                <accessModifier>public</accessModifier>
+                                <breakBuildOnBinaryIncompatibleModifications>${ratchet.store.compatibility.enforce}</breakBuildOnBinaryIncompatibleModifications>
+                                <breakBuildOnSourceIncompatibleModifications>${ratchet.store.compatibility.enforce}</breakBuildOnSourceIncompatibleModifications>
+                            </parameter>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>report-public-store-compatibility</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>cmp</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

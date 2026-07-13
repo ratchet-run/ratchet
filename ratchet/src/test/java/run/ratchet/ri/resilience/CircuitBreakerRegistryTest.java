@@ -18,10 +18,13 @@ package run.ratchet.ri.resilience;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.NoOpMetricsCollector;
 
 class CircuitBreakerRegistryTest {
 
@@ -67,6 +70,25 @@ class CircuitBreakerRegistryTest {
     assertEquals(CircuitBreaker.State.OPEN, registry.getBreakerState("maintenance-service"));
   }
 
+  @Test
+  void reportsServiceProfileAndInitialStateToMetricsCollector() {
+    RecordingMetricsCollector metrics = new RecordingMetricsCollector();
+    CircuitBreakerRegistry registry =
+        new CircuitBreakerRegistry(
+            new DefaultCircuitBreakerConfigProvider(RatchetOptions.defaults()), metrics);
+
+    registry.getBreaker("payments", CircuitBreakerProfile.EXTERNAL_API);
+    registry.openBreaker("payments", CircuitBreakerProfile.EXTERNAL_API);
+    registry.resetBreaker("payments", CircuitBreakerProfile.EXTERNAL_API);
+
+    assertEquals(
+        List.of(
+            "payments:EXTERNAL_API:CLOSED",
+            "payments:EXTERNAL_API:OPEN",
+            "payments:EXTERNAL_API:CLOSED"),
+        metrics.transitions);
+  }
+
   @SuppressWarnings("unchecked")
   private static Map<Object, CircuitBreaker> registryKeyMap(CircuitBreakerRegistry registry)
       throws NoSuchFieldException, IllegalAccessException {
@@ -78,5 +100,14 @@ class CircuitBreakerRegistryTest {
   private static CircuitBreakerRegistry defaultRegistry() {
     return new CircuitBreakerRegistry(
         new DefaultCircuitBreakerConfigProvider(RatchetOptions.defaults()));
+  }
+
+  private static final class RecordingMetricsCollector extends NoOpMetricsCollector {
+    private final List<String> transitions = new ArrayList<>();
+
+    @Override
+    public void circuitBreakerState(String serviceName, String profile, String state) {
+      transitions.add(serviceName + ":" + profile + ":" + state);
+    }
   }
 }

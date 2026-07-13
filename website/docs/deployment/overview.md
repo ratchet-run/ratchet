@@ -42,7 +42,7 @@ All versions are managed through the `ratchet-bom`:
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.1.2-SNAPSHOT</version>
+      <version>0.1.1</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -108,7 +108,6 @@ The SQL schema creates these primary tables. MongoDB uses analogous collections 
 | `scheduler_resource_limit` | Resource concurrency configuration |
 | `scheduler_resource_permit` | Active resource permits for concurrency control |
 | `scheduler_workflow_condition` | Workflow branching conditions |
-| `scheduler_dlq_alerts` | Dead letter queue alert tracking |
 
 ## Configuration
 
@@ -154,8 +153,9 @@ Before going to production:
 
 ## Next steps
 
-- [Installation & Setup](/deployment/installation) -- Step-by-step getting started
+- [Runtime setup](/deployment/installation) -- CDI, security policy, and container resources
 - [Database Setup](/deployment/database-setup) -- Schema application for all stores
+- [Rolling Upgrades](/deployment/rolling-upgrades) -- Version coexistence boundaries and rollout order
 - [Configuration](/deployment/configuration) -- Full configuration reference
 - [Docker Deployment](/deployment/docker) -- Containerized deployments
 - [Kubernetes Deployment](/deployment/kubernetes) -- Orchestrated deployments

@@ -263,7 +263,7 @@ public class PiiSanitizer implements ErrorSanitizer {
 
 ## PayloadMaskingPolicy
 
-Decides which payload fields are masked before a payload leaves the framework on a read or observability path (for example the `params` map on a job detail when `maskPayloads` is enabled). The durable store payload and anything a worker needs to execute are never altered. The built-in policy matches a fixed set of common credential and PII field names (`password`, `token`, `ssn`, ...); deployers produce their own implementation to change the field set.
+Decides which fields are masked in `JobDetail` read APIs when `ratchet.security.mask-payloads` or `RATCHET_MASK_PAYLOADS` is enabled. Ratchet applies it to detail parameters, trace context, and a structured result. This does not change the stored payload or the values handed to a worker, and it is not a general logging filter; applications must still avoid logging raw payloads. The built-in policy matches common credential and PII field names (`password`, `token`, `ssn`, ...). Provide a CDI alternative to use a domain-specific field set.
 
 ```java
 @Incubating
@@ -558,45 +558,27 @@ Emits job lifecycle metrics for integration with monitoring systems (Micrometer,
 This interface is marked `@Incubating` and may change. Additional lifecycle callbacks may be added in future releases.
 :::
 
-```java
-@Incubating
-public interface MetricsCollector {
-    void jobStarted(UUID jobId, JobType type, JobPriority priority);
-    void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
-    void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
-}
-```
+| Area | Callbacks |
+|------|-----------|
+| Job execution | `jobStarted(UUID, JobType, JobPriority)`, `jobCompleted(UUID, JobType, long)`, `jobFailed(UUID, JobType, Throwable, int)` |
+| Success finalization | `successFinalizationRetried(UUID, JobType)`, `successFinalizationMinimal(UUID, JobType)`, `successFinalizationStuck(UUID, JobType)` |
+| Claim and admission | `claimTransientFailure(String)`, `jobsClaimed(String, int)`, `gateRejected(String, String)` |
+| Wakeups and routing | `localWakeup(String)`, `executionTargetFallback(String, String)`, `clusterWakeupPublished(String, String)`, `clusterWakeupReceived(String, String)` |
+| Callbacks and signals | `callbackFailed(UUID, JobType, Throwable, int)`, `signalWaiting(UUID, JobType, String)`, `signalDelivered(UUID, JobType, String, SignalDecision.Outcome)`, `signalTimedOut(UUID, JobType, String)`, `signalCancelled(UUID, JobType, String)` |
+| Store health | `storeOperation(String, String, String, long)` |
+| Circuit breakers | `pollerBreakerState(String, String)`, `circuitBreakerState(String, String, String)` |
+| Payload encryption | `encryptionIntegrityViolation(UUID, String)`, `encryptionEnvelopeVersionSkew(UUID, int, int)` |
 
-### jobStarted
+The first ten callbacks are required for direct implementations; the rest have default no-op bodies for compatibility. See [Metrics Collection](../advanced/metrics-collection.md#metricscollector-spi) for callback semantics and the complete Micrometer meter catalog.
 
-```java
-void jobStarted(UUID jobId, JobType type, JobPriority priority)
-```
+### Partial example
 
-Called when a job begins execution.
-
-### jobCompleted
-
-```java
-void jobCompleted(UUID jobId, JobType type, long executionTimeMs)
-```
-
-Called when a job completes successfully.
-
-### jobFailed
-
-```java
-void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt)
-```
-
-Called when a job fails. The `attempt` parameter is 1-based and includes the failure being reported.
-
-### Example
+This example deliberately records only the three basic job outcomes. It extends `NoOpMetricsCollector` so that omission is explicit and the code remains compatible with the full SPI. A production replacement for the built-in Micrometer adapter should handle or delegate every callback.
 
 ```java
 @Alternative @Priority(APPLICATION)
 @ApplicationScoped
-public class MicrometerMetricsCollector implements MetricsCollector {
+public class PartialMicrometerMetricsCollector extends NoOpMetricsCollector {
 
     @Inject MeterRegistry registry;
 
@@ -616,7 +598,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         registry.counter("ratchet.jobs.failed",
             "type", type.name(),
-            "exception", cause.getClass().getSimpleName()).increment();
+            "family", ExceptionFamily.classify(cause).name()).increment();
     }
 }
 ```

@@ -48,10 +48,8 @@ public class RatchetOptions {
   private final RetryBufferOptions retryBuffer;
   private final TimeoutOptions timeout;
   private final MaintenanceOptions maintenance;
-  private final NotificationOptions notifications;
   private final SchemaOptions schema;
   private final PayloadOptions payload;
-  private final MetricsOptions metrics;
   private final SecurityOptions security;
   private final StoreOptions store;
   private final CircuitBreakerOptions circuitBreaker;
@@ -71,20 +69,14 @@ public class RatchetOptions {
     this.retryBuffer = null;
     this.timeout = null;
     this.maintenance = null;
-    this.notifications = null;
     this.schema = null;
     this.payload = null;
-    this.metrics = null;
     this.security = null;
     this.store = null;
     this.circuitBreaker = null;
     this.encryption = null;
   }
 
-  /**
-   * Backward-compatible overload that defaults encryption to disabled. Delegates to the canonical
-   * 15-argument constructor.
-   */
   public RatchetOptions(
       PollingOptions polling,
       ExecutionOptions execution,
@@ -93,43 +85,8 @@ public class RatchetOptions {
       RetryBufferOptions retryBuffer,
       TimeoutOptions timeout,
       MaintenanceOptions maintenance,
-      NotificationOptions notifications,
       SchemaOptions schema,
       PayloadOptions payload,
-      MetricsOptions metrics,
-      SecurityOptions security,
-      StoreOptions store,
-      CircuitBreakerOptions circuitBreaker) {
-    this(
-        polling,
-        execution,
-        node,
-        recurring,
-        retryBuffer,
-        timeout,
-        maintenance,
-        notifications,
-        schema,
-        payload,
-        metrics,
-        security,
-        store,
-        circuitBreaker,
-        new EncryptionOptions(false, null));
-  }
-
-  public RatchetOptions(
-      PollingOptions polling,
-      ExecutionOptions execution,
-      NodeOptions node,
-      RecurringOptions recurring,
-      RetryBufferOptions retryBuffer,
-      TimeoutOptions timeout,
-      MaintenanceOptions maintenance,
-      NotificationOptions notifications,
-      SchemaOptions schema,
-      PayloadOptions payload,
-      MetricsOptions metrics,
       SecurityOptions security,
       StoreOptions store,
       CircuitBreakerOptions circuitBreaker,
@@ -141,10 +98,8 @@ public class RatchetOptions {
     this.retryBuffer = Objects.requireNonNull(retryBuffer, "retryBuffer must not be null");
     this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
     this.maintenance = Objects.requireNonNull(maintenance, "maintenance must not be null");
-    this.notifications = Objects.requireNonNull(notifications, "notifications must not be null");
     this.schema = Objects.requireNonNull(schema, "schema must not be null");
     this.payload = Objects.requireNonNull(payload, "payload must not be null");
-    this.metrics = Objects.requireNonNull(metrics, "metrics must not be null");
     this.security = Objects.requireNonNull(security, "security must not be null");
     this.store = Objects.requireNonNull(store, "store must not be null");
     this.circuitBreaker = Objects.requireNonNull(circuitBreaker, "circuitBreaker must not be null");
@@ -168,7 +123,6 @@ public class RatchetOptions {
     defaults.put("BATCH_CHILD", 30);
     defaults.put("BATCH_PARENT", 2);
     defaults.put("CHAIN_STEP", 10);
-    defaults.put("DLQ_ALERT", 2);
     defaults.put("WORKFLOW_BRANCH", 10);
     defaults.put("WORKFLOW_JOIN", 10);
     return defaults;
@@ -284,11 +238,6 @@ public class RatchetOptions {
     return maintenance;
   }
 
-  /** Returns the notification configuration. */
-  public NotificationOptions notifications() {
-    return notifications;
-  }
-
   /** Returns the schema migration configuration. */
   public SchemaOptions schema() {
     return schema;
@@ -297,11 +246,6 @@ public class RatchetOptions {
   /** Returns the payload configuration. */
   public PayloadOptions payload() {
     return payload;
-  }
-
-  /** Returns the metrics configuration. */
-  public MetricsOptions metrics() {
-    return metrics;
   }
 
   /** Returns the security configuration. */
@@ -572,17 +516,6 @@ public class RatchetOptions {
       long logRetentionDays) {}
 
   /**
-   * Notification-channel routing for DLQ and timeout alerts. Channel strings are interpreted by the
-   * application's notification adapter (Slack-style channels are the convention).
-   *
-   * @param enabled {@code true} to publish notifications at all
-   * @param dlqAlertChannel channel identifier for DLQ alerts
-   * @param timeoutAlertChannel channel identifier for timeout alerts
-   */
-  public record NotificationOptions(
-      boolean enabled, String dlqAlertChannel, String timeoutAlertChannel) {}
-
-  /**
    * Schema-migration configuration for SQL stores. See {@code SchemaMigrator} for behavior; this
    * record controls whether migration runs and where the dialect-specific scripts are loaded from.
    *
@@ -598,25 +531,19 @@ public class RatchetOptions {
   /**
    * Limits on job payload and persisted result sizes.
    *
-   * @param maxPayloadKb maximum job payload size in kilobytes
+   * @param maxPayloadKb maximum UTF-8 size of each serialized job payload, in 1024-byte units;
+   *     measured before encryption framing or database-specific storage overhead
    * @param maxResultBytes maximum persisted job-result size in bytes
    */
   public record PayloadOptions(int maxPayloadKb, long maxResultBytes) {}
-
-  /**
-   * Metrics emission configuration.
-   *
-   * @param clustering clustering-strategy identifier passed to the metrics collector (for example
-   *     {@code none}); values are lowercased
-   */
-  public record MetricsOptions(String clustering) {}
 
   /**
    * Security toggles for the scheduler runtime.
    *
    * @param allowEmptyClassPolicy {@code true} to permit running without a configured {@code
    *     ClassPolicy}; {@code false} (default) fails fast at startup when no policy is bound
-   * @param redactEmails {@code true} to redact email-shaped strings from observability output
+   * @param redactEmails {@code true} to redact email-shaped strings from sanitized exception text
+   *     before persistence or lifecycle-event publication
    * @param maskPayloads {@code true} to mask sensitive fields in structured payloads returned from
    *     a read API — the {@code params} map and trace context on a job detail, plus the serialized
    *     job result; {@code false} (default) leaves them unmasked. Map masking is key-based and
@@ -713,10 +640,8 @@ public class RatchetOptions {
     private final RetryBufferBuilder retryBuffer = new RetryBufferBuilder();
     private final TimeoutBuilder timeout = new TimeoutBuilder();
     private final MaintenanceBuilder maintenance = new MaintenanceBuilder();
-    private final NotificationBuilder notifications = new NotificationBuilder();
     private final SchemaBuilder schema = new SchemaBuilder();
     private final PayloadBuilder payload = new PayloadBuilder();
-    private final MetricsBuilder metrics = new MetricsBuilder();
     private final SecurityBuilder security = new SecurityBuilder();
     private final StoreBuilder store = new StoreBuilder();
     private final CircuitBreakerBuilder circuitBreaker = new CircuitBreakerBuilder();
@@ -759,11 +684,6 @@ public class RatchetOptions {
       return this;
     }
 
-    public Builder notifications(Consumer<NotificationBuilder> customizer) {
-      customizer.accept(notifications);
-      return this;
-    }
-
     public Builder schema(Consumer<SchemaBuilder> customizer) {
       customizer.accept(schema);
       return this;
@@ -771,11 +691,6 @@ public class RatchetOptions {
 
     public Builder payload(Consumer<PayloadBuilder> customizer) {
       customizer.accept(payload);
-      return this;
-    }
-
-    public Builder metrics(Consumer<MetricsBuilder> customizer) {
-      customizer.accept(metrics);
       return this;
     }
 
@@ -810,10 +725,8 @@ public class RatchetOptions {
           retryBuffer.build(),
           timeout.build(),
           maintenance.build(),
-          notifications.build(),
           schema.build(),
           payload.build(),
-          metrics.build(),
           security.build(),
           store.build(),
           circuitBreaker.build(),
@@ -1238,33 +1151,6 @@ public class RatchetOptions {
     }
   }
 
-  public static final class NotificationBuilder {
-    private boolean enabled = true;
-    private String dlqAlertChannel = "#job-scheduler-dlq";
-    private String timeoutAlertChannel = "#ops-alerts";
-
-    private NotificationBuilder() {}
-
-    public NotificationBuilder enabled(boolean enabled) {
-      this.enabled = enabled;
-      return this;
-    }
-
-    public NotificationBuilder dlqAlertChannel(String dlqAlertChannel) {
-      this.dlqAlertChannel = requireText("dlqAlertChannel", dlqAlertChannel);
-      return this;
-    }
-
-    public NotificationBuilder timeoutAlertChannel(String timeoutAlertChannel) {
-      this.timeoutAlertChannel = requireText("timeoutAlertChannel", timeoutAlertChannel);
-      return this;
-    }
-
-    private NotificationOptions build() {
-      return new NotificationOptions(enabled, dlqAlertChannel, timeoutAlertChannel);
-    }
-  }
-
   public static final class SchemaBuilder {
     private boolean autoMigrate;
     private String migrationDialect = "";
@@ -1298,6 +1184,10 @@ public class RatchetOptions {
 
     private PayloadBuilder() {}
 
+    /**
+     * Sets the maximum UTF-8 size of each serialized job payload in 1024-byte units. The active
+     * {@code PayloadSerializer} output is measured before encryption framing or store overhead.
+     */
     public PayloadBuilder maxPayloadKb(int maxPayloadKb) {
       this.maxPayloadKb = atLeast("maxPayloadKb", maxPayloadKb, 1);
       return this;
@@ -1310,21 +1200,6 @@ public class RatchetOptions {
 
     private PayloadOptions build() {
       return new PayloadOptions(maxPayloadKb, maxResultBytes);
-    }
-  }
-
-  public static final class MetricsBuilder {
-    private String clustering = "none";
-
-    private MetricsBuilder() {}
-
-    public MetricsBuilder clustering(String clustering) {
-      this.clustering = requireText("clustering", clustering).toLowerCase(Locale.ROOT);
-      return this;
-    }
-
-    private MetricsOptions build() {
-      return new MetricsOptions(clustering);
     }
   }
 

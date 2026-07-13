@@ -50,6 +50,7 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.payload.JobPayloadFactory;
@@ -311,7 +312,7 @@ class RecurringJobProcessorLeaderGateTest {
         FIXED_NOW.plusSeconds(60),
         false,
         null,
-        options.priority().ordinal(),
+        options.priority().persistedCode(),
         options.maxRetries(),
         options.backoffPolicy(),
         (int) options.backoffParam().toMillis(),
@@ -324,7 +325,8 @@ class RecurringJobProcessorLeaderGateTest {
         null,
         FIXED_NOW,
         null,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 
   @SuppressWarnings("unchecked")

@@ -16,6 +16,8 @@
 package run.ratchet.api;
 
 import java.util.List;
+import java.util.Objects;
+import run.ratchet.api.exception.PayloadTooLargeException;
 
 /**
  * Fluent builder for configuring and submitting recurring jobs.
@@ -58,9 +60,31 @@ public interface RecurringJobBuilder {
    * PAUSED), no other job may share the same key. For {@link Recurring @Recurring} methods, the
    * annotation's {@link Recurring#id() id} is used automatically.
    *
+   * <p>After trimming, the key must contain at most 255 printable ASCII characters ({@code U+0020}
+   * through {@code U+007E}). Invalid keys are rejected rather than truncated or converted by a
+   * store.
+   *
    * @param key the business key, or null/blank for none
+   * @throws IllegalArgumentException if the normalized key is too long or contains a character
+   *     outside the portable subset
    */
   RecurringJobBuilder withBusinessKey(String key);
+
+  /**
+   * Sets the policy used when more than one cron occurrence is overdue after downtime.
+   *
+   * <p>The default is {@link RecurringMisfirePolicy#defaults()}, which preserves Ratchet's existing
+   * bounded catch-up behavior. The policy is stored with the recurring master so every node applies
+   * the same decision after restart.
+   *
+   * @param policy non-null misfire policy
+   * @throws NullPointerException if {@code policy} is null
+   * @throws UnsupportedOperationException if the builder does not support persisted misfire policy
+   */
+  default RecurringJobBuilder withMisfirePolicy(RecurringMisfirePolicy policy) {
+    Objects.requireNonNull(policy, "policy");
+    throw new UnsupportedOperationException("Recurring misfire policies are not supported");
+  }
 
   /**
    * Routes occurrences created from this recurring job to the virtual executor pool ({@link
@@ -98,6 +122,9 @@ public interface RecurringJobBuilder {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
    * only and do not participate in a transaction.
+   *
+   * @throws PayloadTooLargeException if the serialized recurring payload exceeds the configured
+   *     limit
    */
   JobHandle submit();
 }

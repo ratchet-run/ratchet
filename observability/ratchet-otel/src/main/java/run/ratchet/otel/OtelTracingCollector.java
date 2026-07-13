@@ -48,6 +48,12 @@ import run.ratchet.spi.TracingCollector;
  *   <li>{@code ratchet.job.priority} — job priority at execution time
  *   <li>{@code ratchet.outcome} — {@code success}, {@code failure}, or {@code abandoned}
  *   <li>{@code ratchet.attempt} — attempt number (failure path only)
+ *   <li>{@code ratchet.signal.key} — signal key (signal-waiting jobs only)
+ *   <li>{@code ratchet.signal.outcome} — signal decision when recorded
+ *   <li>{@code ratchet.signal.delivered_by.present} — {@code true} when Ratchet recorded a
+ *       delivering principal, without publishing that identity
+ *   <li>{@code ratchet.signal.wait_ms} — signal wait time in milliseconds when both timestamps are
+ *       available
  * </ul>
  *
  * <p>W3C {@code traceparent} context captured at enqueue time is restored as the parent span when
@@ -60,9 +66,13 @@ import run.ratchet.spi.TracingCollector;
  * <p>MDC keys {@code traceId} and {@code spanId} are populated by the OTel SDK's MDC context
  * storage provider when a logging bridge (e.g. {@code opentelemetry-logback-appender} or {@code
  * opentelemetry-log4j2-appender}) is on the classpath.
+ *
+ * <p>The priority is intentionally higher than the Micrometer tracing adapter. Deployments may
+ * install both modules to use Micrometer metrics with direct OpenTelemetry tracing without creating
+ * an ambiguous {@link TracingCollector} injection point.
  */
 @Alternative
-@Priority(1000)
+@Priority(1100)
 @ApplicationScoped
 public class OtelTracingCollector implements TracingCollector {
 
@@ -79,6 +89,10 @@ public class OtelTracingCollector implements TracingCollector {
         openTelemetryInstance.isResolvable()
             ? openTelemetryInstance.get()
             : GlobalOpenTelemetry.get();
+  }
+
+  OtelTracingCollector(OpenTelemetry openTelemetry) {
+    this.openTelemetry = openTelemetry;
   }
 
   @Override
@@ -115,11 +129,10 @@ public class OtelTracingCollector implements TracingCollector {
    * {@inheritDoc}
    *
    * <p>Entries in {@code attributes} are attached to the span as additional OTel attributes
-   * verbatim. The RI publishes scheduler-side metadata keys here — notably {@code ratchet.node}
-   * (originating node identity), {@code ratchet.tag.affinity} (worker-tag affinity match), and
-   * {@code ratchet.queue.depth} (queue depth at dispatch time). Unknown keys are passed through
-   * unchanged so the framework can extend the published metadata without requiring a collector
-   * change.
+   * verbatim. The RI currently supplies signal metadata when available: {@code ratchet.signal.key},
+   * {@code ratchet.signal.outcome}, {@code ratchet.signal.delivered_by.present}, and {@code
+   * ratchet.signal.wait_ms}. Other keys are passed through unchanged so callers can add metadata
+   * without requiring a collector change.
    */
   @Override
   public ExecutionScope jobExecutionStarted(

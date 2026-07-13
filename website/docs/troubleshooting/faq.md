@@ -233,7 +233,9 @@ If serialization fails (e.g., the return type is not JSON-serializable), a warni
 
 ## What is the maximum payload size?
 
-The default maximum payload size is 100 KB, controlled by `RatchetOptions.builder().payload(p -> p.maxPayloadKb(...))`. The payload includes the serialized lambda descriptor (target class, method name, method descriptor, arguments).
+The default maximum payload size is 100 KB, controlled by `RatchetOptions.builder().payload(p -> p.maxPayloadKb(...))`. Each unit is 1024 bytes. Ratchet measures the UTF-8 bytes returned by the active `PayloadSerializer` before encryption framing or database-specific overhead. The payload includes the serialized lambda descriptor (target class, method name, method descriptor, arguments); task, callback, branch, batch-child, and recurring payloads are checked independently.
+
+Submission fails with `PayloadTooLargeException` before the oversized payload is written.
 
 If you need to pass large data to a job, pass a reference (e.g., a database ID or S3 key) rather than the data itself:
 

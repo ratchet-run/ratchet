@@ -22,7 +22,9 @@ import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.RecurringJobBuilder;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.api.internal.BusinessKeyNormalizer;
 
 /** {@inheritDoc} */
 class DefaultRecurringJobBuilder implements RecurringJobBuilder {
@@ -35,6 +37,7 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
   private JobOptions options = JobOptions.defaults();
   private List<String> tags = List.of();
   private String businessKey;
+  private RecurringMisfirePolicy misfirePolicy = RecurringMisfirePolicy.defaults();
   private String executionTarget;
   private boolean encryptedPayload;
 
@@ -63,7 +66,13 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   @Override
   public RecurringJobBuilder withBusinessKey(String key) {
-    this.businessKey = (key != null && !key.isBlank()) ? key.trim() : null;
+    this.businessKey = BusinessKeyNormalizer.normalize(key);
+    return this;
+  }
+
+  @Override
+  public RecurringJobBuilder withMisfirePolicy(RecurringMisfirePolicy policy) {
+    this.misfirePolicy = Objects.requireNonNull(policy, "policy must not be null");
     return this;
   }
 
@@ -112,6 +121,10 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   String businessKey() {
     return businessKey;
+  }
+
+  RecurringMisfirePolicy misfirePolicy() {
+    return misfirePolicy;
   }
 
   String executionTarget() {

@@ -27,9 +27,12 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.migration.SchemaMigrationException;
+import run.ratchet.store.migration.SchemaMigrator;
 
 class MysqlSchemaMigrationDialectTest {
 
@@ -102,5 +105,22 @@ class MysqlSchemaMigrationDialectTest {
     assertTrue(dialect.createVersionTableSql().contains("ENGINE = InnoDB"));
     assertTrue(dialect.recordVersionSql().startsWith("INSERT INTO ratchet_schema_version"));
     assertTrue(dialect.recordVersionSql().contains("ON DUPLICATE KEY UPDATE"));
+  }
+
+  @Test
+  void preservesReleasedV001Checksum() throws Exception {
+    List<SchemaMigrator.MigrationScript> migrations =
+        new SchemaMigrator(mock(DataSource.class), dialect).discoverMigrations();
+    SchemaMigrator.MigrationScript v001 =
+        migrations.stream()
+            .filter(script -> script.version().equals("001"))
+            .findFirst()
+            .orElseThrow();
+
+    assertEquals(
+        List.of("001", "002", "003", "004", "005"),
+        migrations.stream().map(script -> script.version()).toList());
+    assertEquals(
+        "0b339e555cddc589c0844184a04e2eff8f803bc7d1ef18a695b02dacb1224112", v001.checksum());
   }
 }

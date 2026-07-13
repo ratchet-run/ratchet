@@ -21,12 +21,10 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.function.Function;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 import run.ratchet.ri.payload.AsmLambdaAnalyzer.InspectionResult;
@@ -70,13 +68,11 @@ public final class JobPayloadFactory {
   private static final JobPayload NOOP =
       new JobPayload(COORDINATION_PLACEHOLDER_TARGET, "noop", "()V", true, List.of());
 
-  private static final int REFLECTION_CACHE_MAX_ENTRIES = 512;
+  private static final ClassValue<ConcurrentMap<MethodLookupKey, VisibilityVerdict>>
+      VISIBILITY_CACHE = reflectionCache();
 
-  private static final Map<MethodLookupKey, VisibilityVerdict> VISIBILITY_CACHE =
-      boundedReflectionCache();
-
-  private static final Map<MethodLookupKey, Boolean> FUNCTIONAL_INTERFACE_METHOD_CACHE =
-      boundedReflectionCache();
+  private static final ClassValue<ConcurrentMap<MethodLookupKey, Boolean>>
+      FUNCTIONAL_INTERFACE_METHOD_CACHE = reflectionCache();
 
   /**
    * Maximum depth for unwrapping nested functional-interface adapter lambdas (e.g. a {@code
@@ -87,17 +83,6 @@ public final class JobPayloadFactory {
   private static final int MAX_FUNCTIONAL_ADAPTER_UNWRAP_DEPTH = 4;
 
   private JobPayloadFactory() {}
-
-  /**
-   * Drops cached reflection results. The cache keys hold strong references to {@link ClassLoader}
-   * instances; in redeployable EE containers (WildFly, Payara) the old loader and its classes
-   * remain reachable across hot redeploys until evicted by LRU, preventing GC of the previous
-   * deployment. Called from the scheduler shutdown path alongside {@code JobTask.clearCaches()}.
-   */
-  public static void clearCaches() {
-    VISIBILITY_CACHE.clear();
-    FUNCTIONAL_INTERFACE_METHOD_CACHE.clear();
-  }
 
   /** Creates a {@link JobPayload} from a lambda. */
   public static JobPayload fromLambda(Serializable lambda) {
@@ -200,13 +185,22 @@ public final class JobPayloadFactory {
 
   private static void rejectNonPublicMethod(InvocationStep step) {
     String className = internalNameToFqcn(step.ownerInternalName());
-    MethodLookupKey key =
-        new MethodLookupKey(
-            className,
-            step.methodName(),
-            step.methodDescriptor(),
-            Thread.currentThread().getContextClassLoader());
-    VisibilityVerdict verdict = cached(VISIBILITY_CACHE, key, JobPayloadFactory::resolveVisibility);
+    Class<?> targetClass;
+    try {
+      targetClass = Class.forName(className, false, Thread.currentThread().getContextClassLoader());
+    } catch (ClassNotFoundException e) {
+      // Target class cannot be loaded from this context — we cannot verify visibility, but we do
+      // not want to block scheduling on a reflective lookup miss. The invocation path will surface
+      // a clearer error at execution time if the class is genuinely missing.
+      log.debugf(e, "Cannot load %s for visibility check; skipping", className);
+      return;
+    }
+
+    MethodLookupKey key = new MethodLookupKey(step.methodName(), step.methodDescriptor());
+    VisibilityVerdict verdict =
+        VISIBILITY_CACHE
+            .get(targetClass)
+            .computeIfAbsent(key, ignored -> resolveVisibility(targetClass, key));
 
     if (!verdict.publicOrUnknown()) {
       throw new IllegalArgumentException(
@@ -222,35 +216,25 @@ public final class JobPayloadFactory {
     }
   }
 
-  private static VisibilityVerdict resolveVisibility(MethodLookupKey key) {
-    try {
-      Class<?> clazz = Class.forName(key.className(), false, key.classLoader());
+  private static VisibilityVerdict resolveVisibility(Class<?> targetClass, MethodLookupKey key) {
+    Method matched =
+        Arrays.stream(targetClass.getDeclaredMethods())
+            .filter(
+                method ->
+                    method.getName().equals(key.methodName())
+                        && Type.getMethodDescriptor(method).equals(key.methodDescriptor()))
+            .findFirst()
+            .orElse(null);
 
-      Method matched =
-          Arrays.stream(clazz.getDeclaredMethods())
-              .filter(
-                  m ->
-                      m.getName().equals(key.methodName())
-                          && Type.getMethodDescriptor(m).equals(key.methodDescriptor()))
-              .findFirst()
-              .orElse(null);
-
-      if (matched == null || Modifier.isPublic(matched.getModifiers())) {
-        return VisibilityVerdict.PUBLIC_OR_UNKNOWN;
-      }
-
-      String visibility =
-          Modifier.isPrivate(matched.getModifiers())
-              ? "private"
-              : Modifier.isProtected(matched.getModifiers()) ? "protected" : "package-private";
-      return new VisibilityVerdict(false, visibility);
-    } catch (ClassNotFoundException e) {
-      // Target class cannot be loaded from this context — we cannot verify visibility, but we do
-      // not want to block scheduling on a reflective lookup miss. The invocation path will surface
-      // a clearer error at execution time if the class is genuinely missing.
-      log.debugf(e, "Cannot load %s for visibility check; skipping", key.className());
+    if (matched == null || Modifier.isPublic(matched.getModifiers())) {
       return VisibilityVerdict.PUBLIC_OR_UNKNOWN;
     }
+
+    String visibility =
+        Modifier.isPrivate(matched.getModifiers())
+            ? "private"
+            : Modifier.isProtected(matched.getModifiers()) ? "protected" : "package-private";
+    return new VisibilityVerdict(false, visibility);
   }
 
   private static InvocationStep resolveNestedFunctionalInvocation(InvocationStep initialStep) {
@@ -343,78 +327,58 @@ public final class JobPayloadFactory {
 
   private static boolean isSerializableFunctionalInterfaceMethod(InvocationStep step) {
     String ownerClassName = internalNameToFqcn(step.ownerInternalName());
-    MethodLookupKey key =
-        new MethodLookupKey(
-            ownerClassName,
-            step.methodName(),
-            step.methodDescriptor(),
-            Thread.currentThread().getContextClassLoader());
-
-    return cached(
-        FUNCTIONAL_INTERFACE_METHOD_CACHE,
-        key,
-        JobPayloadFactory::resolveSerializableFunctionalInterfaceMethod);
-  }
-
-  private static boolean resolveSerializableFunctionalInterfaceMethod(MethodLookupKey key) {
+    Class<?> ownerClass;
     try {
-      Class<?> ownerClass = Class.forName(key.className(), false, key.classLoader());
-
-      if (!ownerClass.isInterface() || !Serializable.class.isAssignableFrom(ownerClass)) {
-        return false;
-      }
-
-      int matchingAbstractMethods = 0;
-      for (Method method : ownerClass.getMethods()) {
-        if (method.getDeclaringClass() == Object.class
-            || !Modifier.isAbstract(method.getModifiers())) {
-          continue;
-        }
-        if (method.getName().equals(key.methodName())
-            && Type.getMethodDescriptor(method).equals(key.methodDescriptor())) {
-          matchingAbstractMethods++;
-        }
-      }
-
-      return matchingAbstractMethods == 1;
+      ownerClass =
+          Class.forName(ownerClassName, false, Thread.currentThread().getContextClassLoader());
     } catch (ClassNotFoundException e) {
       return false;
     }
+    MethodLookupKey key = new MethodLookupKey(step.methodName(), step.methodDescriptor());
+    return FUNCTIONAL_INTERFACE_METHOD_CACHE
+        .get(ownerClass)
+        .computeIfAbsent(
+            key, ignored -> resolveSerializableFunctionalInterfaceMethod(ownerClass, key));
   }
 
-  private record MethodLookupKey(
-      String className, String methodName, String methodDescriptor, ClassLoader classLoader) {}
+  private static boolean resolveSerializableFunctionalInterfaceMethod(
+      Class<?> ownerClass, MethodLookupKey key) {
+    if (!ownerClass.isInterface() || !Serializable.class.isAssignableFrom(ownerClass)) {
+      return false;
+    }
+
+    int matchingAbstractMethods = 0;
+    for (Method method : ownerClass.getMethods()) {
+      if (method.getDeclaringClass() == Object.class
+          || !Modifier.isAbstract(method.getModifiers())) {
+        continue;
+      }
+      if (method.getName().equals(key.methodName())
+          && Type.getMethodDescriptor(method).equals(key.methodDescriptor())) {
+        matchingAbstractMethods++;
+      }
+    }
+
+    return matchingAbstractMethods == 1;
+  }
+
+  private record MethodLookupKey(String methodName, String methodDescriptor) {}
 
   private record VisibilityVerdict(boolean publicOrUnknown, String visibility) {
     private static final VisibilityVerdict PUBLIC_OR_UNKNOWN = new VisibilityVerdict(true, null);
   }
 
-  private static <V> Map<MethodLookupKey, V> boundedReflectionCache() {
-    return Collections.synchronizedMap(
-        new LinkedHashMap<>(64, 0.75f, true) {
-          @Override
-          protected boolean removeEldestEntry(Map.Entry<MethodLookupKey, V> eldest) {
-            return size() > REFLECTION_CACHE_MAX_ENTRIES;
-          }
-        });
-  }
-
-  // All callers pass either VISIBILITY_CACHE or FUNCTIONAL_INTERFACE_METHOD_CACHE — both static
-  // final fields — so the parameter holds a stable identity. External sync is required because
-  // the LinkedHashMap LRU promotion in get() makes get-then-put non-atomic on the underlying
-  // synchronizedMap.
-  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
-  private static <V> V cached(
-      Map<MethodLookupKey, V> cache, MethodLookupKey key, Function<MethodLookupKey, V> resolver) {
-    synchronized (cache) {
-      V cached = cache.get(key);
-      if (cached != null) {
-        return cached;
+  /**
+   * Creates a cache whose entries are tied to the defining class without strongly retaining its
+   * deployment classloader.
+   */
+  private static <V> ClassValue<ConcurrentMap<MethodLookupKey, V>> reflectionCache() {
+    return new ClassValue<>() {
+      @Override
+      protected ConcurrentMap<MethodLookupKey, V> computeValue(Class<?> type) {
+        return new ConcurrentHashMap<>();
       }
-      V resolved = resolver.apply(key);
-      cache.put(key, resolved);
-      return resolved;
-    }
+    };
   }
 
   private static SerializedLambda tryToSerializedLambda(Serializable value) {

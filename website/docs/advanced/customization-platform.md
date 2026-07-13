@@ -74,7 +74,7 @@ public class TenantAwareExecutionTuning implements ExecutionTuningProvider {
     public int maxConcurrency(String executionTypeName, int defaultValue) {
         return switch (executionTypeName) {
             case "BATCH_CHILD" -> 80;
-            case "DLQ_ALERT" -> 4;
+            case "WORKFLOW_BRANCH" -> 40;
             default -> defaultValue;
         };
     }

@@ -31,7 +31,7 @@ import run.ratchet.spi.TracingCollector;
  * run.ratchet.ri.cdi.NoOpTracingCollector} when {@code ratchet-otel} is on the deployment
  * classpath.
  *
- * <p>{@code OtelTracingCollector} is annotated {@code @Alternative @Priority(1000)}, which globally
+ * <p>{@code OtelTracingCollector} is annotated {@code @Alternative @Priority(1100)}, which globally
  * enables it per CDI 2.0+ spec without requiring a {@code beans.xml} entry. This test confirms the
  * CDI container honours the priority and selects the OTel implementation.
  *
@@ -54,7 +54,7 @@ class RiOtelTracingAlternativeIT {
     assertInstanceOf(
         OtelTracingCollector.class,
         tracingCollector,
-        "When ratchet-otel is on the deployment classpath, the @Alternative @Priority(1000) "
+        "When ratchet-otel is on the deployment classpath, the @Alternative @Priority(1100) "
             + "OtelTracingCollector must be selected over the default NoOpTracingCollector");
   }
 }

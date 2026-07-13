@@ -31,7 +31,8 @@ import java.util.UUID;
  * @param params stored job parameters, or null if none were persisted
  * @param traceContext stored trace context carrier entries, or null if none were persisted
  * @param jobResult serialized job result, or null if the job has not produced one
- * @param resultType fully-qualified result class name, or null when no result is available
+ * @param resultType fully-qualified result class name, Ratchet's reserved truncation-state
+ *     sentinel, or null when no result is available
  * @param executionStartTime when the current or last execution attempt started, or null if
  *     unstarted
  * @param executionEndTime when the current or last execution attempt ended, or null if still

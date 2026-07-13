@@ -34,7 +34,8 @@
       surefire forks; without these deps, rules whose subject is a coordinator
       or store-impl package match zero classes and pass vacuously. The
       per-rule subject-count assertions in each test class are the second
-      line of defense, but this dep set is the primary one.
+      line of defense, but this dep set is the primary one. The reactor-derived
+      completeness test fails when a new store module is not added here.
     -->
     <dependency>
       <groupId>run.ratchet</groupId>
@@ -59,6 +60,16 @@
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-store-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-oracle</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-sqlserver</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

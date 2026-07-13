@@ -62,7 +62,7 @@ class OracleJobRowMapperTest {
     Instant now = Instant.parse("2026-05-12T14:30:00Z");
     row[0] = JOB_ID.toString();
     row[1] = JobExecutionType.SINGLE.name();
-    row[2] = JobPriority.NORMAL.ordinal();
+    row[2] = JobPriority.NORMAL.persistedCode();
     row[3] = 3;
     row[4] = BackoffPolicy.NONE.name();
     row[5] = 0;

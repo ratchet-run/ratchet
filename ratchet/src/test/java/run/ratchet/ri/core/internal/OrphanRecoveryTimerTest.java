@@ -89,7 +89,7 @@ class OrphanRecoveryTimerTest {
     staleNode.setId("node-1");
     when(nodeStore.findInactiveNodesSince(any(Instant.class))).thenReturn(List.of(staleNode));
 
-    timer.recoverOrphans();
+    timer.recoverNow();
 
     Instant cutoff = FIXED_NOW.minusSeconds(60);
     verify(jobBulkStore).resetOrphanJobsBefore(cutoff);

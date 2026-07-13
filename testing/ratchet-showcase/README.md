@@ -42,6 +42,11 @@ mvn -pl :ratchet-showcase \
 Open `http://127.0.0.1:4176/app/`. Stop with Ctrl-C; the server and the
 database container both shut down.
 
+To run the same finite live smoke used by CI, add `-Dshowcase.smoke=true`. The launcher boots
+WildFly and PostgreSQL, checks the runtime and static dashboard, submits a small batch, waits for
+the job to appear in the live dashboard, checks the metrics endpoint, and then shuts everything
+down.
+
 > Don't add `-am` to the run command: `exec:exec@run-showcase` would then also
 > fire on the parent reactor module, which has no executable configured, and the
 > build fails. Use `mvn install` (above) to refresh siblings instead.

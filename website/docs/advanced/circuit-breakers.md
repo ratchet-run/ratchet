@@ -340,6 +340,11 @@ try {
 
 **Share breakers across related operations.** If multiple methods call the same downstream service, use the same `service` name so failures in any method contribute to tripping the circuit. This prevents sending traffic to a service that is already known to be failing.
 
-**Monitor state transitions.** Inject `CircuitBreakerRegistry` and periodically check breaker states for operational visibility. Consider exposing breaker state via a health check endpoint.
+**Monitor state transitions.** The Micrometer adapter publishes `ratchet.circuit.breaker.state` as
+a gauge tagged by service name and breaker profile (`0` closed, `1` half-open, `2` open). Add each
+application service name to the `service` allowlist in `MicrometerMetricTagPolicy`; unknown service
+names are not exported, because combining independent breaker states under an `OTHER` tag would be
+misleading. A custom `MetricsCollector` can observe the initial state and subsequent transitions
+through `circuitBreakerState(...)`.
 
 **Prefer manual reset sparingly.** The `resetBreaker()` method forces a circuit back to CLOSED. Use this only for operational recovery (e.g., after confirming a downstream service is restored), not as part of normal application flow.

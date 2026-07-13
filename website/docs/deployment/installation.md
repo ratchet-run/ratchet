@@ -1,150 +1,50 @@
 ---
-title: Installation & Setup
+title: Runtime setup
+description: Configure CDI, runtime options, ClassPolicy, and container resources after adding Ratchet dependencies
 ---
 
-# Installation & Setup
+# Runtime setup
+
+This page starts after Ratchet is on your classpath and its database schema is available. For Maven coordinates, module selection, and released-version guidance, use the canonical [Installation guide](/getting-started/installation). Keeping dependency setup in one place prevents the two deployment paths from drifting apart.
 
 ## Prerequisites
 
-- **Java**: 17 or later
-- **Jakarta EE**: 10/11 with CDI, JPA, Interceptors, and Jakarta Concurrency for the default RI runtime
-- **Database**: MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+
-- **Maven**: 3.8+
+- Java 17 or later
+- A Jakarta EE 10 or 11 runtime with CDI, Persistence, Interceptors, and Jakarta Concurrency
+- One supported store: MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+
+- The selected store's resources and schema, as described in [Database setup](/deployment/database-setup)
 
-## Step 1: Add Dependencies
+## 1. Enable CDI discovery
 
-### BOM Import
-
-Add the Ratchet BOM to your `dependencyManagement`:
-
-```xml
-<dependencyManagement>
-  <dependencies>
-    <dependency>
-      <groupId>run.ratchet</groupId>
-      <artifactId>ratchet-bom</artifactId>
-      <version>0.1.2-SNAPSHOT</version>
-      <type>pom</type>
-      <scope>import</scope>
-    </dependency>
-  </dependencies>
-</dependencyManagement>
-```
-
-### Core Dependencies
-
-Add to your `dependencies`:
-
-```xml
-<!-- API and reference implementation -->
-<dependency>
-  <groupId>run.ratchet</groupId>
-  <artifactId>ratchet-api</artifactId>
-</dependency>
-
-<dependency>
-  <groupId>run.ratchet</groupId>
-  <artifactId>ratchet</artifactId>
-</dependency>
-
-<!-- Pick your store -->
-<dependency>
-  <groupId>run.ratchet</groupId>
-  <artifactId>ratchet-store-postgresql</artifactId>
-</dependency>
-
-<!-- Optional: Micrometer metrics -->
-<dependency>
-  <groupId>run.ratchet</groupId>
-  <artifactId>ratchet-micrometer</artifactId>
-</dependency>
-```
-
-## Step 2: Apply the Database Schema
-
-SQL stores ship DDL as plain SQL files. No Flyway dependency required.
-
-### PostgreSQL
-
-```bash
-# From stores/ratchet-store-postgresql/src/main/resources/ddl/
-psql -U ratchet -d mydb -f postgresql-schema.sql
-```
-
-Or copy into your migration tool (Liquibase, Flyway, etc.):
-
-```bash
-# Copy DDL into Flyway migration directory
-cp postgresql-schema.sql src/main/resources/db/migration/V1__ratchet_schema.sql
-flyway migrate
-```
-
-### MySQL
-
-```bash
-mysql -u ratchet -p mydb < mysql-schema.sql
-```
-
-MySQL stores UUIDv7 job IDs as `BINARY(16)`. Add the store-local mapping file
-to your persistence unit so non-Hibernate JPA providers bind UUID fields as
-16 bytes:
-
-```xml
-<mapping-file>META-INF/orm-mysql.xml</mapping-file>
-```
-
-:::caution
-MySQL requires `READ COMMITTED` isolation. Set `transaction-isolation=TRANSACTION_READ_COMMITTED` on your DataSource or append `?sessionVariables=transaction_isolation='READ-COMMITTED'` to the JDBC URL.
-:::
-
-### MongoDB
-
-MongoDB collections and indexes are created automatically by the store module on startup. No manual schema application is needed. The supplied `MongoClient` must use `UuidRepresentation.STANDARD`; prefer `MongoClientFactory.create(...)` when constructing it.
-
-## Step 3: Configure CDI Wiring
-
-Ratchet integrates via CDI. Create or update your `beans.xml`:
+Ratchet's beans use annotated discovery. CDI 4 normally discovers them without a descriptor. If your deployment uses `beans.xml`, keep discovery mode at `annotated` or `all`:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
-<beans
-    xmlns="https://jakarta.ee/xml/ns/jakartaee"
-    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
-                        https://jakarta.ee/xml/ns/jakartaee/beans_4_0.xsd"
-    version="4.0"
-    bean-discovery-mode="annotated">
+<beans xmlns="https://jakarta.ee/xml/ns/jakartaee"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+                           https://jakarta.ee/xml/ns/jakartaee/beans_4_0.xsd"
+       version="4.0"
+       bean-discovery-mode="annotated">
 </beans>
 ```
 
-## Step 4: Inject JobSchedulerService
+Place the descriptor in `WEB-INF/beans.xml` for a WAR or `META-INF/beans.xml` for a bean archive.
 
-In any CDI bean, inject and use:
+## 2. Produce RatchetOptions
 
-```java
-@ApplicationScoped
-public class MyService {
-  
-  @Inject
-  JobSchedulerService scheduler;
-  
-  public void scheduleWork() {
-    scheduler.enqueueNow(() -> doWork());
-  }
-  
-  public void doWork() {
-    System.out.println("Running in Ratchet!");
-  }
-}
-```
+Every running Ratchet deployment must produce exactly one unqualified, application-scoped `RatchetOptions` bean. Without it, CDI fails deployment with `UnsatisfiedResolutionException`; Ratchet does not silently start with ambient defaults.
 
-## Step 5: Configuration (required)
-
-Produce a single `@ApplicationScoped RatchetOptions` bean; the scheduler refuses to start without it. The smallest viable producer reads `RATCHET_*` environment variables and MicroProfile Config:
+The smallest environment-driven producer is:
 
 ```java
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptionsFactory;
+
 @ApplicationScoped
-public class RatchetConfig {
+public class RatchetConfiguration {
 
     @Produces
     @ApplicationScoped
@@ -154,56 +54,85 @@ public class RatchetConfig {
 }
 ```
 
-See [Configuration](/getting-started/configuration) for the programmatic builder alternative and custom sources. Common knobs:
+Use the [Configuration guide](/getting-started/configuration) for a programmatic producer and the [Configuration reference](/deployment/configuration-reference) for every property, environment variable, and default.
 
-| Setting | Default | Purpose |
-|---------|---------|---------|
-| `polling.batchSize(...)` | `50` | Jobs claimed per poll cycle |
-| `polling.minDelayMs(...)` | `2000` | Minimum poll interval |
-| `execution.maxConcurrency("SINGLE", ...)` | `20` | Worker threads for one-off jobs |
-| `maintenance.jobRetentionDays(...)` | `90` | Completed-job retention before archiving |
+## 3. Provide a ClassPolicy
 
-SPI customizations such as `ClassPolicy`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `ExecutorProvider`, `RatchetEntityManagerProvider`, and `ErrorSanitizer` are overridden with CDI `@Alternative` beans, not string property names. See [Configuration](/getting-started/configuration).
+Ratchet also refuses to start while the default `ClassPolicy` allowlist is empty. Jobs execute application methods reconstructed from durable payloads, so the allowlist is a required security boundary rather than optional hardening.
 
-## Step 6: Verify
-
-Start your application and verify Ratchet initialized:
-
-```
-INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet starting
-INFO [run.ratchet.ri.core.internal.DefaultNodeIdentityProvider] Scheduler nodeId=...
-INFO [run.ratchet.ri.core.internal.Poller] Poller initialized (batch=50)
-INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet started
-```
-
-Submit a simple job:
+Install a CDI alternative that admits only your job-target packages:
 
 ```java
-scheduler.enqueueNow(() -> System.out.println("It works!"));
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Alternative;
+import jakarta.interceptor.Interceptor;
+import run.ratchet.spi.ClassPolicy;
+
+@Alternative
+@Priority(Interceptor.Priority.APPLICATION)
+@ApplicationScoped
+public class ApplicationClassPolicy implements ClassPolicy {
+
+    @Override
+    public boolean isAllowed(String className) {
+        return className.startsWith("com.example.jobs.");
+    }
+}
 ```
 
-Check your database:
+Do not allow broad namespaces such as `java.`, `jakarta.`, or an entire organization's root package. Include each package that contains a scheduled target. Typed workflow-result deserialization uses the separate, narrower `isAllowedForResultType` check, which defaults to deny.
+
+For demos and tests only, `RatchetOptions.builder().security(s -> s.allowEmptyClassPolicy(true)).build()` bypasses the startup guard. It does not make the default policy permissive: jobs remain rejected until a real allowlist is installed.
+
+## 4. Configure store and concurrency resources
+
+SQL stores need the selected Jakarta Persistence unit and datasource; MongoDB needs a `MongoDatabase` using `UuidRepresentation.STANDARD`. The database-specific pages cover provider and isolation requirements.
+
+By default, Ratchet looks up the Jakarta Concurrency resources below:
+
+| Purpose | Default JNDI name | Configuration key |
+|---|---|---|
+| Job execution | `java:comp/DefaultManagedExecutorService` | `ratchet.worker.job-executor-jndi` |
+| Scheduled maintenance | `java:comp/DefaultManagedScheduledExecutorService` | `ratchet.worker.scheduled-executor-jndi` |
+| Coordinator threads | `java:comp/DefaultManagedThreadFactory` | `ratchet.coordinator.thread-factory-jndi` |
+
+Override these only when the application server binds managed resources under different names. Ratchet never creates unmanaged worker threads as a fallback.
+
+## 5. Verify startup
+
+Deploy the application and confirm all four stages appear without a ClassPolicy or CDI error:
+
+```text
+INFO  Ratchet starting
+INFO  Scheduler nodeId=...
+INFO  Poller initialized (batch=50)
+INFO  Ratchet started
+```
+
+Then submit one job and verify that its cold row exists:
+
+```java
+scheduler.enqueueNow(() -> workService.runOnce());
+```
 
 ```sql
-SELECT COUNT(*) FROM scheduler_job;
+SELECT job_id, terminal_status, created_at
+FROM scheduler_job
+ORDER BY created_at DESC;
 ```
-
-## Next steps
-
-- [Getting Started](/getting-started/introduction)
-- [Configuration](/deployment/configuration)
-- [Concepts](/concepts/overview)
 
 ## Troubleshooting
 
-**JobSchedulerService injection fails**
-- Ensure `beans.xml` exists and is in `src/main/resources/META-INF/`
-- Verify your runtime supports CDI (WildFly, Open Liberty, Payara)
+- `RatchetOptions` is unsatisfied: add the producer above and ensure its method is `@ApplicationScoped`.
+- `ClassPolicy allowedPackages is empty`: install the application alternative; do not use the demo escape hatch in production.
+- `JobSchedulerService` is unsatisfied: verify CDI discovery and that `ratchet` is packaged with exactly one store implementation.
+- Managed executor lookup fails: compare the server's JNDI bindings with the three keys above.
+- Store startup fails: follow the selected database page and verify schema, datasource, transaction isolation, and UUID mapping.
 
-**Database connection error**
-- Check data source configuration
-- Verify schema was applied
+## Next steps
 
-**Jobs not executing**
-- Check for `Ratchet started` and `Poller initialized (...)` in the logs
-- Verify executor thread count > 0
+- [Configuration](/getting-started/configuration)
+- [Database setup](/deployment/database-setup)
+- [Clustering](/deployment/clustering)
+- [Monitoring](/deployment/monitoring)

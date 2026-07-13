@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core.internal;
 
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
@@ -30,6 +31,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
 import run.ratchet.api.event.ChainStartedEvent;
+import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
@@ -57,6 +59,8 @@ public class ChainScheduler {
   protected final JobTerminalStore jobTerminalStore;
   protected final InternalEventPublisher eventPublisher;
   private final Clock clock;
+
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected ChainScheduler() {
     this.jobCrudStore = null;
@@ -187,7 +191,7 @@ public class ChainScheduler {
         || finished.getJobType() == JobExecutionType.CHAIN_STEP) {
       return;
     }
-    eventPublisher.publish(
+    publishAfterCommit(
         new ChainStartedEvent(
             child.getId(),
             child.getBusinessKey(),
@@ -201,7 +205,7 @@ public class ChainScheduler {
     if (eventPublisher == null) {
       return;
     }
-    eventPublisher.publish(
+    publishAfterCommit(
         new ChainCompletedEvent(
             finished.getId(),
             finished.getBusinessKey(),
@@ -215,7 +219,7 @@ public class ChainScheduler {
     if (eventPublisher == null) {
       return;
     }
-    eventPublisher.publish(
+    publishAfterCommit(
         new ChainFailedEvent(
             failed.getId(),
             failed.getBusinessKey(),
@@ -224,6 +228,44 @@ public class ChainScheduler {
             failed.getPickedBy(),
             findRootJobId(failed),
             failed.getLastError()));
+  }
+
+  /**
+   * Publishes a chain or workflow state-change event only after the surrounding transaction
+   * commits. Subclasses use the same seam so branch events cannot escape a rolled-back chain
+   * mutation.
+   */
+  protected void publishAfterCommit(Object event) {
+    if (eventPublisher == null) {
+      return;
+    }
+    Runnable publish = () -> eventPublisher.publish(event);
+    if (JobWakeupService.registerAfterCommit(
+            resolveTxRegistry(),
+            publish,
+            log,
+            "After-commit chain/workflow event registration failed; event suppressed: %s")
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+      publish.run();
+    }
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry registry = txRegistry;
+    if (registry == null) {
+      synchronized (this) {
+        registry = txRegistry;
+        if (registry == null) {
+          registry = JobWakeupService.lookupTxRegistry(log);
+          txRegistry = registry;
+        }
+      }
+    }
+    return registry;
+  }
+
+  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
+    this.txRegistry = txRegistry;
   }
 
   private UUID findRootJobId(JobEntity job) {

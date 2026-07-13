@@ -49,11 +49,6 @@
         <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="batchId"/>
     </entity>
 
-    <entity class="run.ratchet.store.entity.DlqAlertEntity">
-        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
-        <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="jobId"/>
-    </entity>
-
     <entity class="run.ratchet.store.entity.JobExecutionEntity">
         <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="id"/>
         <convert converter="run.ratchet.store.oracle.converter.UuidRawConverter" attribute-name="jobId"/>

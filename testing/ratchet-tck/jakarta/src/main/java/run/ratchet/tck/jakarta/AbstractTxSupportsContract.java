@@ -25,14 +25,15 @@ import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobSchedulerService;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TckJobs;
 
 /**
- * TCK contract: builder-factory operations on {@link run.ratchet.api.JobSchedulerService}
- * documented as transaction attribute {@code SUPPORTS} MUST NOT initiate a transaction. Their
- * terminal {@code submit()} call is {@code REQUIRED} and MUST participate in the caller's
- * transaction when one is active, or open its own when none is present.
+ * TCK contract: builder-factory operations on {@link JobSchedulerService} documented as transaction
+ * attribute {@code SUPPORTS} MUST NOT initiate a transaction. Their terminal {@code submit()} call
+ * is {@code REQUIRED} and MUST participate in the caller's transaction when one is active, or open
+ * its own when none is present.
  *
  * <ul>
  *   <li>{@code submit()} inside a committed caller TX → job executes.
@@ -40,12 +41,13 @@ import run.ratchet.tck.api.TckJobs;
  *   <li>{@code submit()} without a caller TX → job executes (submit opens its own TX).
  * </ul>
  *
- * <p>Covers the {@link run.ratchet.api.JobSchedulerService#enqueue} and {@link
- * run.ratchet.api.JobSchedulerService#schedule} builder paths. Batch and streaming-batch builders
- * follow the same rule but are omitted here to keep the contract focused.
+ * <p>Covers the {@link JobSchedulerService#enqueue} and {@link JobSchedulerService#schedule}
+ * builder paths. Batch and streaming-batch builders follow the same rule but are omitted here to
+ * keep the contract focused.
  *
- * <p>Implementations backed by a non-JTA store (e.g. MongoDB) should annotate their concrete
- * subclass with {@code @Disabled("Store does not participate in JTA")}.
+ * <p>Implementations backed by a non-JTA store return {@code false} from {@link
+ * RatchetTckRuntime#supportsCallerTransactionRollback()}. Only the rollback cases report {@code
+ * N/A}; commit-visible cases still run and must pass.
  */
 public abstract class AbstractTxSupportsContract {
 
@@ -91,16 +93,16 @@ public abstract class AbstractTxSupportsContract {
   }
 
   /**
-   * @apiNote Intentionally {@code protected} so runtime-specific TCK subclasses (e.g. the RI
-   *     test-suite under {@code ratchet-testsuite}) can override this test to attach
-   *     deployment-specific annotations such as {@code @DisabledIfSystemProperty}. Overriders MUST
-   *     delegate to {@code super}; replacing the body silently suppresses the contract.
+   * @apiNote Intentionally {@code protected} so a runtime-specific subclass may attach a
+   *     runner-level skip annotation when its test harness cannot translate an in-container
+   *     assumption into a skipped test. Such an override must delegate to {@code super} and must
+   *     not replace the assertion body.
    */
   @Test
   protected void enqueueSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
     assumeTrue(
-        !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
-        "MongoDB does not participate in JTA rollback");
+        runtime().supportsCallerTransactionRollback(),
+        "The runtime reports that its store does not participate in caller transaction rollback");
     tx.begin();
     JobHandle handle = runtime().scheduler().enqueue(TckJobs::noop).submit();
     runtime().probe().track(handle);
@@ -114,16 +116,16 @@ public abstract class AbstractTxSupportsContract {
   }
 
   /**
-   * @apiNote Intentionally {@code protected} so runtime-specific TCK subclasses (e.g. the RI
-   *     test-suite under {@code ratchet-testsuite}) can override this test to attach
-   *     deployment-specific annotations such as {@code @DisabledIfSystemProperty}. Overriders MUST
-   *     delegate to {@code super}; replacing the body silently suppresses the contract.
+   * @apiNote Intentionally {@code protected} so a runtime-specific subclass may attach a
+   *     runner-level skip annotation when its test harness cannot translate an in-container
+   *     assumption into a skipped test. Such an override must delegate to {@code super} and must
+   *     not replace the assertion body.
    */
   @Test
   protected void scheduleSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
     assumeTrue(
-        !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
-        "MongoDB does not participate in JTA rollback");
+        runtime().supportsCallerTransactionRollback(),
+        "The runtime reports that its store does not participate in caller transaction rollback");
     tx.begin();
     JobHandle handle =
         runtime().scheduler().schedule(Duration.ofMillis(100), TckJobs::noop).submit();

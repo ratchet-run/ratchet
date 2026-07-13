@@ -20,9 +20,42 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class RatchetOptionsTest {
+
+  @Test
+  void publicOptionGroupsMatchRuntimeBackedSurface() {
+    Set<String> optionGroups =
+        Arrays.stream(RatchetOptions.class.getDeclaredMethods())
+            .filter(method -> Modifier.isPublic(method.getModifiers()))
+            .filter(method -> method.getParameterCount() == 0)
+            .filter(method -> method.getReturnType().getEnclosingClass() == RatchetOptions.class)
+            .filter(method -> method.getReturnType().getSimpleName().endsWith("Options"))
+            .map(method -> method.getName())
+            .collect(Collectors.toUnmodifiableSet());
+
+    assertEquals(
+        Set.of(
+            "circuitBreaker",
+            "encryption",
+            "execution",
+            "maintenance",
+            "node",
+            "payload",
+            "polling",
+            "recurring",
+            "retryBuffer",
+            "schema",
+            "security",
+            "store",
+            "timeout"),
+        optionGroups);
+  }
 
   @Test
   void defaultsMatchRuntimeDefaults() {
@@ -57,7 +90,7 @@ class RatchetOptionsTest {
                         .defaultThreadingMode(RatchetOptions.ThreadingMode.VIRTUAL)
                         .coordinatorThreadFactoryJndi(
                             "java:jboss/ee/concurrency/factory/RatchetCoordinator")
-                        .maxConcurrency("dlq-alert", 4)
+                        .maxConcurrency("workflow-branch", 4)
                         .virtualThreadLimit("workflow-join", 19)
                         .rateLimitPerMinute("single", 50))
             .recurring(recurring -> recurring.batchLimit(40))
@@ -76,7 +109,7 @@ class RatchetOptionsTest {
     assertEquals(
         "java:jboss/ee/concurrency/factory/RatchetCoordinator",
         options.execution().coordinatorThreadFactoryJndi());
-    assertEquals(4, options.execution().maxConcurrency("DLQ_ALERT", -1));
+    assertEquals(4, options.execution().maxConcurrency("WORKFLOW_BRANCH", -1));
     assertEquals(19, options.execution().virtualThreadLimit("WORKFLOW_JOIN", -1));
     assertEquals(50, options.execution().rateLimitPerMinute("SINGLE"));
     assertEquals(40, options.recurring().batchLimit());
@@ -195,15 +228,5 @@ class RatchetOptionsTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> RatchetOptions.builder().maintenance(maintenance -> maintenance.logPurgeCron(" ")));
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            RatchetOptions.builder()
-                .notifications(notifications -> notifications.dlqAlertChannel(" ")));
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            RatchetOptions.builder()
-                .notifications(notifications -> notifications.timeoutAlertChannel(" ")));
   }
 }

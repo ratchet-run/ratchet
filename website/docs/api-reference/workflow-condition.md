@@ -273,7 +273,7 @@ WorkflowCondition earlyWarning = WorkflowCondition.batchCustom(
 
 ## Priority System
 
-When multiple workflow branches have conditions that evaluate to `true`, they are executed in priority order (lower values first). Branches with the same priority execute in definition order.
+Workflow routing is exclusive. Ratchet evaluates lower priority numbers first and preserves registration order when priorities are equal. The first matching branch runs; every remaining sibling branch is canceled, even if its condition would also evaluate to `true`.
 
 ```java
 // Conditions with multi-step logic live in a helper — the framework stores method refs as JSON
@@ -341,7 +341,7 @@ Creates a branch without a description.
 public int getPriority()
 ```
 
-Returns the priority from the underlying condition. Used for ordering when multiple branches match.
+Returns the priority from the underlying condition. Ratchet uses it to decide evaluation order before applying registration order as the tie-break.
 
 ### Usage
 

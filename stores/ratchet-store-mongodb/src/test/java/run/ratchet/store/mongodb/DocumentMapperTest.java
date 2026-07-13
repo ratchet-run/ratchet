@@ -25,18 +25,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RecurringMisfirePolicy;
+import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.ResourcePermitEntity;
+import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.RecurringJobDefinition;
 
 class DocumentMapperTest {
 
@@ -86,6 +91,7 @@ class DocumentMapperTest {
     JobEntity reloaded = DocumentMapper.toJobEntity(doc);
 
     assertInstanceOf(String.class, doc.get("payload"));
+    assertEquals(JobPriority.NORMAL.persistedCode(), doc.getInteger("priority"));
     assertEquals(payload, reloaded.getPayload());
     assertEquals(job.getId(), reloaded.getId());
     assertEquals(JobStatus.PENDING, reloaded.getStatus());
@@ -148,6 +154,27 @@ class DocumentMapperTest {
   }
 
   @Test
+  void workflowConditionRoundTripsDefinitionOrderAndDefaultsLegacyDocumentsToZero() {
+    WorkflowConditionEntity condition = new WorkflowConditionEntity();
+    condition.setId(UuidV7Factory.create());
+    condition.setParentJobId(UUID.randomUUID());
+    condition.setChildJobId(UUID.randomUUID());
+    condition.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
+    condition.setConditionPriority(5);
+    condition.setDefinitionOrder(3);
+    condition.setCreatedAt(Instant.parse("2026-07-12T00:00:00Z"));
+
+    Document document = DocumentMapper.toDocument(condition);
+    assertEquals(3, DocumentMapper.toWorkflowConditionEntity(document).getDefinitionOrder());
+
+    document.remove("definition_order");
+    assertEquals(
+        0,
+        DocumentMapper.toWorkflowConditionEntity(document).getDefinitionOrder(),
+        "workflow documents written before definition order should use the legacy fallback");
+  }
+
+  @Test
   void readsLegacyDocumentJobPayloads() {
     JobEntity job = job(null);
     JobPayload payload = payload("com.example.LegacyJob", "execute");
@@ -167,6 +194,30 @@ class DocumentMapperTest {
 
     assertNull(DocumentMapper.toJobEntity(missing).getPayload());
     assertNull(DocumentMapper.toJobEntity(empty).getPayload());
+  }
+
+  @Test
+  void roundTripsRecurringMisfirePolicy() {
+    RecurringJobDefinition definition = recurringDefinition(RecurringMisfirePolicy.catchUp(4));
+
+    Document doc = DocumentMapper.toRecurringDocument(definition);
+    RecurringJobDefinition reloaded = DocumentMapper.toRecurringJobDefinition(doc);
+
+    assertEquals("CATCH_UP", doc.getString("misfire_policy"));
+    assertEquals(4, doc.getInteger("max_catch_up_executions"));
+    assertEquals(definition.misfirePolicy(), reloaded.misfirePolicy());
+  }
+
+  @Test
+  void readsLegacyRecurringDocumentWithDefaultMisfirePolicy() {
+    Document doc =
+        DocumentMapper.toRecurringDocument(recurringDefinition(RecurringMisfirePolicy.skip()));
+    doc.remove("misfire_policy");
+    doc.remove("max_catch_up_executions");
+
+    RecurringJobDefinition reloaded = DocumentMapper.toRecurringJobDefinition(doc);
+
+    assertEquals(RecurringMisfirePolicy.defaults(), reloaded.misfirePolicy());
   }
 
   @Test
@@ -287,5 +338,30 @@ class DocumentMapperTest {
     assertEquals(permit.getJobId(), reloaded.getJobId());
     assertEquals(permit.getNodeId(), reloaded.getNodeId());
     assertEquals(permit.getAcquiredAt(), reloaded.getAcquiredAt());
+  }
+
+  private static RecurringJobDefinition recurringDefinition(RecurringMisfirePolicy misfirePolicy) {
+    return new RecurringJobDefinition(
+        UuidV7Factory.create(),
+        "0 * * * * ?",
+        "UTC",
+        Instant.parse("2026-01-01T01:00:00Z"),
+        false,
+        null,
+        JobPriority.NORMAL.persistedCode(),
+        0,
+        BackoffPolicy.NONE,
+        0,
+        0,
+        payload("com.example.RecurringJob", "run"),
+        null,
+        null,
+        "recurring-mapper-test",
+        null,
+        null,
+        Instant.parse("2026-01-01T00:00:00Z"),
+        null,
+        false,
+        misfirePolicy);
   }
 }

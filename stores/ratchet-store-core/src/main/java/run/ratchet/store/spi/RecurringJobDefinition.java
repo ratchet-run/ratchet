@@ -16,9 +16,11 @@
 package run.ratchet.store.spi;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.store.entity.JobPayload;
 
 /**
@@ -47,8 +49,8 @@ import run.ratchet.store.entity.JobPayload;
  * @param payload payload template for fired child jobs; never {@code null}
  * @param onSuccessPayload optional success-callback payload, or {@code null} when none configured
  * @param onFailurePayload optional failure-callback payload, or {@code null} when none configured
- * @param businessKey business key carried into fired child jobs, or {@code null} when none
- *     configured
+ * @param businessKey active-unique identity of the recurring master, or {@code null} when none
+ *     configured; fired child jobs do not inherit it
  * @param resourceName resource permit name required by fired child jobs, or {@code null} when no
  *     resource gate applies
  * @param executionTarget execution-target label copied to fired child jobs, or {@code null} to
@@ -59,6 +61,8 @@ import run.ratchet.store.entity.JobPayload;
  * @param encryptedPayload whether this master opted into payload encryption; fired child jobs
  *     inherit it, and the master's own {@code payload}/{@code on_success_payload}/{@code
  *     on_failure_payload} templates are encrypted at rest when it (or the global switch) is on
+ * @param misfirePolicy persisted policy for handling a backlog of missed cron occurrences; never
+ *     {@code null}
  */
 @Incubating
 public record RecurringJobDefinition(
@@ -81,4 +85,10 @@ public record RecurringJobDefinition(
     String executionTarget,
     Instant createdAt,
     String callerPrincipal,
-    boolean encryptedPayload) {}
+    boolean encryptedPayload,
+    RecurringMisfirePolicy misfirePolicy) {
+
+  public RecurringJobDefinition {
+    Objects.requireNonNull(misfirePolicy, "misfirePolicy must not be null");
+  }
+}

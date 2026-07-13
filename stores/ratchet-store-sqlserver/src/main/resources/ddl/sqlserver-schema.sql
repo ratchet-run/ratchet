@@ -102,9 +102,15 @@ CREATE TABLE scheduler_recurring_job
     created_at         DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
     caller_principal   VARCHAR(255),
     encrypted_payload  BIT              NOT NULL DEFAULT 0,
+    misfire_policy     VARCHAR(16)      NOT NULL DEFAULT 'CATCH_UP',
+    max_catch_up_executions INT          NOT NULL DEFAULT 11,
     CONSTRAINT pk_scheduler_recurring_job PRIMARY KEY (id),
     CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
-    CONSTRAINT chk_rec_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
+    CONSTRAINT chk_rec_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
+    CONSTRAINT chk_rec_misfire_policy CHECK (
+        (misfire_policy = 'CATCH_UP' AND max_catch_up_executions >= 1)
+        OR (misfire_policy IN ('SKIP', 'FIRE_ONCE') AND max_catch_up_executions = 0)
+    )
 );
 
 -- Claim index: filtered on unpaused rows for claim-scan efficiency.
@@ -178,7 +184,7 @@ CREATE TABLE scheduler_job
     CONSTRAINT uk_idempotency_key UNIQUE (idempotency_key),
     CONSTRAINT chk_job_type CHECK (job_type IN
                                    ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
-                                    'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
+                                    'CHAIN_STEP', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
     CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
@@ -218,7 +224,7 @@ CREATE TABLE scheduler_job_queue
     CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING')),
     CONSTRAINT chk_queue_job_type CHECK (job_type IN
                                          ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
-                                          'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
+                                          'CHAIN_STEP', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
     CONSTRAINT chk_queue_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_queue_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING', 'RUNNING', 'PAUSED')),
     CONSTRAINT fk_job_queue_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
@@ -376,7 +382,7 @@ CREATE TABLE scheduler_job_archive
     CONSTRAINT chk_archive_status CHECK (final_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
     CONSTRAINT chk_archive_job_type CHECK (job_type IN
                                            ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
-                                            'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
+                                           'CHAIN_STEP', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
     CONSTRAINT chk_archive_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_archive_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
 );
@@ -403,6 +409,7 @@ CREATE TABLE scheduler_workflow_condition
     condition_type       VARCHAR(32)      NOT NULL,
     condition_expression NVARCHAR(MAX),
     condition_priority   INT              NOT NULL DEFAULT 0,
+    definition_order     INT              NOT NULL DEFAULT 0,
     created_at           DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT pk_scheduler_workflow_condition PRIMARY KEY (id),
     CONSTRAINT fk_workflow_parent FOREIGN KEY (parent_job_id) REFERENCES scheduler_job (job_id),
@@ -416,23 +423,9 @@ CREATE TABLE scheduler_workflow_condition
 CREATE INDEX idx_workflow_parent ON scheduler_workflow_condition (parent_job_id);
 CREATE INDEX idx_workflow_child ON scheduler_workflow_condition (child_job_id);
 CREATE INDEX idx_workflow_priority ON scheduler_workflow_condition (parent_job_id, condition_priority);
+CREATE INDEX idx_workflow_evaluation_order ON scheduler_workflow_condition (parent_job_id, condition_priority, definition_order);
 
--- 12. scheduler_dlq_alerts
-CREATE TABLE scheduler_dlq_alerts
-(
-    id            BINARY(16) NOT NULL,
-    job_id        BINARY(16) NOT NULL,
-    error_hash    VARCHAR(64)      NOT NULL,
-    alert_sent_at DATETIME2(6),
-    alert_channel VARCHAR(100),
-    CONSTRAINT pk_scheduler_dlq_alerts PRIMARY KEY (id),
-    CONSTRAINT uk_job_error_hash UNIQUE (job_id, error_hash),
-    CONSTRAINT fk_dlq_alert_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_dlq_sent_at ON scheduler_dlq_alerts (alert_sent_at);
-
--- 13. scheduler_resource_permit
+-- 12. scheduler_resource_permit
 CREATE TABLE scheduler_resource_permit
 (
     id            BINARY(16) NOT NULL,
@@ -447,7 +440,7 @@ CREATE TABLE scheduler_resource_permit
 CREATE INDEX idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
 CREATE INDEX idx_resource_permit_job ON scheduler_resource_permit (job_id);
 
--- 14. scheduler_job_properties (write-once indexed scalars; plaintext by design — no secrets)
+-- 13. scheduler_job_properties (write-once indexed scalars; plaintext by design — no secrets)
 -- property_key/value are non-unicode VARCHAR so the (property_key, value) index key fits SQL
 -- Server's 1700-byte nonclustered-index limit (255 + 1024 = 1279 < 1700); block metadata is ASCII.
 CREATE TABLE scheduler_job_properties
@@ -461,7 +454,7 @@ CREATE TABLE scheduler_job_properties
 
 CREATE INDEX idx_property_kv ON scheduler_job_properties (property_key, value);
 
--- 15. scheduler_job_extension_state (mutable per-namespace blobs with per-row CAS; encrypted at rest
+-- 14. scheduler_job_extension_state (mutable per-namespace blobs with per-row CAS; encrypted at rest
 -- when payload encryption is configured — state holds ciphertext, encrypted_state/encryption_key_id
 -- mirror the scheduler_job payload-encryption metadata columns)
 CREATE TABLE scheduler_job_extension_state

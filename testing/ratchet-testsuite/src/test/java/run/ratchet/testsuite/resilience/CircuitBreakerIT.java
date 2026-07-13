@@ -46,6 +46,8 @@ import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.NoOpMetricsCollector;
 import run.ratchet.testsuite.app.CircuitBreakerTestService;
 
 /**
@@ -90,7 +92,9 @@ public class CircuitBreakerIT {
             CircuitBreaker.class,
             CircuitBreakerConfiguration.class,
             CircuitBreakerRegistry.class,
-            CircuitBreakerOpenException.class)
+            CircuitBreakerOpenException.class,
+            MetricsCollector.class,
+            NoOpMetricsCollector.class)
         .addAsLibraries(
             Maven.configureResolver()
                 .loadPomFromFile("pom.xml")

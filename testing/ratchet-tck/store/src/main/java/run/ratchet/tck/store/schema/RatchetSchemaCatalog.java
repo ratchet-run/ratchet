@@ -28,6 +28,7 @@ import static run.ratchet.tck.store.schema.LogicalType.UUID;
 import java.util.List;
 import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedColumn;
 import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
+import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedTable;
 
 /**
  * Canonical schema definition covering every persistent table in the Ratchet scheduler schema. The
@@ -48,7 +49,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 11;
+  public static final int CURRENT_VERSION = 12;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -69,7 +70,6 @@ public final class RatchetSchemaCatalog {
               schedulerJobLog(),
               schedulerJobArchive(),
               schedulerWorkflowCondition(),
-              schedulerDlqAlerts(),
               schedulerResourcePermit(),
               schedulerJobProperties(),
               schedulerJobExtensionState()),
@@ -231,6 +231,8 @@ public final class RatchetSchemaCatalog {
         .column(required("created_at", TIMESTAMP_TZ))
         .column(nullable("caller_principal", TEXT))
         .column(required("encrypted_payload", BOOLEAN))
+        .column(required("misfire_policy", TEXT))
+        .column(required("max_catch_up_executions", INT32))
         .primaryKey("id")
         .index(Index.of("idx_rec_business_key", "business_key"))
         .build();
@@ -415,6 +417,7 @@ public final class RatchetSchemaCatalog {
         .column(required("condition_type", TEXT))
         .column(nullable("condition_expression", TEXT))
         .column(required("condition_priority", INT32))
+        .column(required("definition_order", INT32))
         .column(required("created_at", TIMESTAMP_TZ))
         .primaryKey("id")
         .foreignKey(
@@ -434,22 +437,12 @@ public final class RatchetSchemaCatalog {
         .index(Index.of("idx_workflow_parent", "parent_job_id"))
         .index(Index.of("idx_workflow_child", "child_job_id"))
         .index(Index.of("idx_workflow_priority", "parent_job_id", "condition_priority"))
-        .build();
-  }
-
-  private static Table schedulerDlqAlerts() {
-    return Table.builder("scheduler_dlq_alerts")
-        .column(required("id", UUID))
-        .column(required("job_id", UUID))
-        .column(required("error_hash", TEXT))
-        .column(nullable("alert_sent_at", TIMESTAMP_TZ))
-        .column(nullable("alert_channel", TEXT))
-        .primaryKey("id")
-        .foreignKey(
-            new ForeignKey(
-                "fk_dlq_alert_job", "job_id", "scheduler_job", "job_id", OnDeleteAction.CASCADE))
-        .index(Index.unique("uk_job_error_hash", "job_id", "error_hash"))
-        .index(Index.of("idx_dlq_sent_at", "alert_sent_at"))
+        .index(
+            Index.of(
+                "idx_workflow_evaluation_order",
+                "parent_job_id",
+                "condition_priority",
+                "definition_order"))
         .build();
   }
 
@@ -517,6 +510,7 @@ public final class RatchetSchemaCatalog {
    */
   private static List<DeprecatedArtifact> v005Drops() {
     return List.of(
+        new DroppedTable("scheduler_dlq_alerts", 5),
         // scheduler_job hot columns moved to scheduler_job_queue
         new DroppedColumn("scheduler_job", "status", 5),
         new DroppedColumn("scheduler_job", "paused_from_status", 5),

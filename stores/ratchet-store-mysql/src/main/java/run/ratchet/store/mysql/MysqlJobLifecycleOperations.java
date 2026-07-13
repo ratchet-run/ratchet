@@ -16,12 +16,15 @@
 package run.ratchet.store.mysql;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.util.BulkRetryFilters;
 
 final class MysqlJobLifecycleOperations
     implements JobBatchStatusStore, JobRetryStore, JobTerminalStore, JobPauseStore {
@@ -29,14 +32,17 @@ final class MysqlJobLifecycleOperations
   private final MysqlJobStatusTransitions transitions;
   private final MysqlJobTerminalOperations terminals;
   private final MysqlJobRecurringAndResetOperations recurring;
+  private final MysqlJobQueryOperations query;
 
   MysqlJobLifecycleOperations(
       MysqlStoreContext ctx,
       MysqlBusinessKeyReservations reservations,
-      MysqlBatchOperations batches) {
+      MysqlBatchOperations batches,
+      MysqlJobQueryOperations query) {
     this.transitions = new MysqlJobStatusTransitions(ctx);
     this.terminals = new MysqlJobTerminalOperations(ctx, reservations, batches);
     this.recurring = new MysqlJobRecurringAndResetOperations(ctx, reservations);
+    this.query = query;
   }
 
   @Override
@@ -126,6 +132,16 @@ final class MysqlJobLifecycleOperations
   @Override
   public boolean resetFailedToPending(UUID id) {
     return terminals.resetFailedToPending(id);
+  }
+
+  @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    JobFilter failed = BulkRetryFilters.normalize(filter, limit);
+    if (failed == null) {
+      return 0;
+    }
+    List<UUID> ids = query.searchJobs(failed, limit, 0).stream().map(job -> job.getId()).toList();
+    return terminals.resetFailedToPending(ids);
   }
 
   @Override

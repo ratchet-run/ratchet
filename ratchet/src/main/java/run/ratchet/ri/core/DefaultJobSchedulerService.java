@@ -25,6 +25,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -34,6 +35,7 @@ import javax.naming.NamingException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.JobBuilder;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
@@ -49,9 +51,11 @@ import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
+import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -680,6 +684,34 @@ public class DefaultJobSchedulerService
    * {@inheritDoc}
    *
    * <p><strong>Authorization note:</strong> this bulk operation is not subject to per-job {@link
+   * JobAuthorizationPolicy} checks. Use {@link #retryJob(UUID)} for authorization-gated recovery.
+   */
+  @Override
+  @Transactional
+  public int retryJobs(JobFilter filter, int limit) {
+    Objects.requireNonNull(filter, "filter");
+    if (limit < 1 || limit > 1000) {
+      throw new IllegalArgumentException("limit must be between 1 and 1000");
+    }
+    int count = jobRetryStore.resetFailedToPending(filter, limit);
+    if (count > 0) {
+      JobsBulkRetriedEvent event =
+          new JobsBulkRetriedEvent(filter, limit, count, effective().instant());
+      if (registerAfterCommit(() -> eventPublisher.publish(event))
+          == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+        eventPublisher.publish(event);
+      }
+      if (wakeupService != null) {
+        wakeupService.notify(JobPriority.NORMAL, true, null);
+      }
+    }
+    return count;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p><strong>Authorization note:</strong> this bulk operation is not subject to per-job {@link
    * JobAuthorizationPolicy} checks. Use {@link #cancelJob(UUID)} for authorization-gated single-job
    * cancellation.
    */
@@ -748,7 +780,8 @@ public class DefaultJobSchedulerService
    */
   private void publishBulkCancelledEvent(String tag, int count) {
     JobsBulkCancelledEvent event = new JobsBulkCancelledEvent(tag, count, effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -778,7 +811,8 @@ public class DefaultJobSchedulerService
                 null);
     // Defer publication until after the surrounding TX commits so a rollback does not produce a
     // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -790,12 +824,13 @@ public class DefaultJobSchedulerService
             jobId,
             def.businessKey(),
             run.ratchet.api.JobType.RECURRING,
-            JobPriorityMapper.fromOrdinal(def.priority()),
+            JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant(),
             previousStatus.name(),
             null);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -816,7 +851,8 @@ public class DefaultJobSchedulerService
                   job.getLastError(),
                   1,
                   retryAt);
-      if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      if (registerAfterCommit(() -> eventPublisher.publish(event))
+          == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
         eventPublisher.publish(event);
       }
     }
@@ -865,7 +901,8 @@ public class DefaultJobSchedulerService
             job.getPriority(),
             job.getPickedBy(),
             effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -879,7 +916,8 @@ public class DefaultJobSchedulerService
             job.getPriority(),
             job.getPickedBy(),
             effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -890,10 +928,11 @@ public class DefaultJobSchedulerService
             jobId,
             def.businessKey(),
             run.ratchet.api.JobType.RECURRING,
-            JobPriorityMapper.fromOrdinal(def.priority()),
+            JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -904,10 +943,11 @@ public class DefaultJobSchedulerService
             jobId,
             def.businessKey(),
             run.ratchet.api.JobType.RECURRING,
-            JobPriorityMapper.fromOrdinal(def.priority()),
+            JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -935,12 +975,12 @@ public class DefaultJobSchedulerService
     return reg;
   }
 
-  private boolean registerAfterCommit(Runnable action) {
+  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
     return JobWakeupService.registerAfterCommit(
         resolveTxRegistry(),
         action,
         log,
-        "After-commit event registration failed; publishing immediately: %s");
+        "After-commit event registration failed; event suppressed: %s");
   }
 
   private int deliverSignalRaw(UUID jobId, Serializable payload) {
@@ -1102,7 +1142,8 @@ public class DefaultJobSchedulerService
       String rejectionReason) {
     JobsBulkSignaledEvent event =
         new JobsBulkSignaledEvent(signalKey, count, principal, outcome, rejectionReason, timestamp);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -1129,7 +1170,8 @@ public class DefaultJobSchedulerService
             principal,
             outcome,
             rejectionReason);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }

@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -42,6 +43,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
@@ -50,6 +52,8 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.BeanResolver;
@@ -76,6 +80,7 @@ class BatchServiceTest {
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private MetricsCollector metricsCollector;
   @Mock private InternalEventPublisher eventPublisher;
+  @Mock private DeadLetterService deadLetterService;
   @Mock private WorkflowScheduler workflowScheduler;
   @Mock private ClassPolicy classPolicy;
   @Mock private BeanResolver beanResolver;
@@ -93,6 +98,7 @@ class BatchServiceTest {
             jobTerminalStore,
             metricsCollector,
             eventPublisher,
+            deadLetterService,
             workflowScheduler,
             classPolicy,
             beanResolver,
@@ -232,6 +238,23 @@ class BatchServiceTest {
     assertEquals(3, completingEvent.getTotalItems());
     assertEquals(2, completingEvent.getCompletedItems());
     assertEquals(1, completingEvent.getFailedItems());
+    JobFailedEvent failedEvent =
+        event.getAllValues().stream()
+            .filter(JobFailedEvent.class::isInstance)
+            .map(JobFailedEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(parentId, failedEvent.getJobId());
+    assertEquals("Batch completed with 1 failed children", failedEvent.getErrorMessage());
+    assertEquals(0, failedEvent.getRetryAttempt());
+    assertEquals("Batch completed with 1 failed children", parent.getLastError());
+    assertEquals(0, parent.getAttempts());
+
+    InOrder terminalOrder = inOrder(eventPublisher, deadLetterService);
+    terminalOrder.verify(eventPublisher).publish(any(BatchCompletingEvent.class));
+    terminalOrder.verify(eventPublisher).publish(any(BatchCompletedEvent.class));
+    terminalOrder.verify(eventPublisher).publish(any(JobFailedEvent.class));
+    terminalOrder.verify(deadLetterService).recordDlqTransition(parent, null);
   }
 
   @Test
@@ -269,6 +292,76 @@ class BatchServiceTest {
     synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
 
     verify(eventPublisher).publish(any(BatchCompletingEvent.class));
+  }
+
+  @Test
+  void failedBatchDelegatesDlqOnlyAfterCommitAndAfterJobFailed() {
+    batchService.setTxRegistryForTesting(txRegistry);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+    JobEntity parent = parent(parentId);
+
+    when(batchStore.incrementFailedAtomic(parentId))
+        .thenReturn(new BatchProgress(parentId, 1, 0, 1, null));
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 0, 1)));
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(
+            parentId, "Batch completed with 1 failed children", 0))
+        .thenReturn(true);
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+
+    batchService.markChildFailed(child);
+
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    verify(eventPublisher, never()).publish(any());
+    verify(deadLetterService, never()).recordDlqTransition(any(), any());
+
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    InOrder terminalOrder = inOrder(eventPublisher, deadLetterService);
+    terminalOrder.verify(eventPublisher).publish(any(BatchCompletingEvent.class));
+    terminalOrder.verify(eventPublisher).publish(any(BatchCompletedEvent.class));
+    terminalOrder.verify(eventPublisher).publish(any(JobFailedEvent.class));
+    terminalOrder.verify(deadLetterService).recordDlqTransition(parent, null);
+  }
+
+  @Test
+  void failedBatchRollbackSuppressesFailureAndDlqEvents() {
+    batchService.setTxRegistryForTesting(txRegistry);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+    JobEntity parent = parent(parentId);
+
+    when(batchStore.incrementFailedAtomic(parentId))
+        .thenReturn(new BatchProgress(parentId, 1, 0, 1, null));
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 0, 1)));
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(
+            parentId, "Batch completed with 1 failed children", 0))
+        .thenReturn(true);
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+
+    batchService.markChildFailed(child);
+
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verify(eventPublisher, never()).publish(any());
+    verify(deadLetterService, never()).recordDlqTransition(any(), any());
   }
 
   @Test
@@ -311,6 +404,7 @@ class BatchServiceTest {
     assertEquals(3, completingEvent.getTotalItems());
     assertEquals(2, completingEvent.getCompletedItems());
     assertEquals(1, completingEvent.getFailedItems());
+    verify(deadLetterService).recordDlqTransition(parent, null);
   }
 
   @Test
@@ -338,6 +432,7 @@ class BatchServiceTest {
     verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt());
     verify(batchStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
+    verify(deadLetterService, never()).recordDlqTransition(any(), any());
     verify(workflowScheduler, never()).scheduleNext(any());
     verify(batchStore).findBatchById(parentId);
   }

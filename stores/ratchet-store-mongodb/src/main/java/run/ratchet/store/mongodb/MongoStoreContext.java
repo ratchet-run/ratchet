@@ -148,10 +148,6 @@ final class MongoStoreContext extends AbstractStoreContext {
     return database.getCollection("scheduler_workflow_condition");
   }
 
-  MongoCollection<Document> dlqAlerts() {
-    return database.getCollection("scheduler_dlq_alerts");
-  }
-
   MongoCollection<Document> resourceLimits() {
     return database.getCollection("scheduler_resource_limit");
   }
@@ -162,6 +158,10 @@ final class MongoStoreContext extends AbstractStoreContext {
 
   MongoCollection<Document> recurringJobs() {
     return database.getCollection("scheduler_recurring_job");
+  }
+
+  MongoCollection<Document> businessKeyReservations() {
+    return database.getCollection("scheduler_business_key_reservation");
   }
 
   MongoCollection<Document> recurringJobArchive() {

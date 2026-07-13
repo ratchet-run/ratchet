@@ -15,9 +15,9 @@
     <entity class="run.ratchet.store.entity.WorkflowConditionEntity"/>
     <entity class="run.ratchet.store.entity.ArchivedJobEntity"/>
     <entity class="run.ratchet.store.entity.BatchMetricsEntity"/>
-    <entity class="run.ratchet.store.entity.DlqAlertEntity"/>
 
     <converter class="run.ratchet.store.converter.JobPayloadConverter"/>
+    <converter class="run.ratchet.store.converter.JobPriorityConverter"/>
     <converter class="run.ratchet.store.converter.JsonMapConverter"/>
     <converter class="run.ratchet.store.converter.JsonObjectMapConverter"/>
     <converter class="run.ratchet.store.converter.JsonListConverter"/>

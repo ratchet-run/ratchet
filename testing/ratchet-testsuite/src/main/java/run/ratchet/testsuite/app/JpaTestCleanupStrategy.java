@@ -42,7 +42,6 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
   private static final List<String> TABLES_BEFORE_HOT_STATE =
       List.of(
           "scheduler_workflow_condition",
-          "scheduler_dlq_alerts",
           "scheduler_job_log",
           "scheduler_job_execution",
           "scheduler_resource_permit",

@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core.internal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -30,7 +31,9 @@ import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.jboss.logging.Logger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +43,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -50,6 +54,7 @@ class JobWakeupServiceTest {
 
   private static final String NODE_ID = "node-test";
   private static final NodeIdentity NODE_IDENTITY = new NodeIdentity(NODE_ID);
+  private static final Logger LOG = Logger.getLogger(JobWakeupServiceTest.class);
 
   @Mock private ClusterCoordinator clusterCoordinator;
   @Mock private Instance<PollerScheduler> pollerSchedulerInstance;
@@ -116,6 +121,36 @@ class JobWakeupServiceTest {
   }
 
   @Test
+  void notify_suppressesWakeupWhenTransactionRollsBack() {
+    AtomicReference<Synchronization> synchronization = new AtomicReference<>();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doAnswer(
+            invocation -> {
+              synchronization.set(invocation.getArgument(0));
+              return null;
+            })
+        .when(txRegistry)
+        .registerInterposedSynchronization(ArgumentMatchers.any());
+    wakeupService =
+        new JobWakeupService(
+            clusterCoordinator,
+            pollerSchedulerInstance,
+            metricsCollector,
+            nodeIdentityProvider,
+            txRegistry);
+
+    wakeupService.notify(JobPriority.CRITICAL, true, null);
+    synchronization.get().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verifyNoInteractions(
+        clusterCoordinator,
+        pollerSchedulerInstance,
+        pollerScheduler,
+        metricsCollector,
+        nodeIdentityProvider);
+  }
+
+  @Test
   void notify_doesNothingWhenImmediateFlagIsFalse() {
     wakeupService.notify(JobPriority.NORMAL, false, null);
 
@@ -124,11 +159,7 @@ class JobWakeupServiceTest {
   }
 
   @Test
-  void notify_fallsBackToImmediateWhenAfterCommitRegistrationFails() {
-    when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
-    when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
-
+  void notify_suppressesWakeupWhenAfterCommitRegistrationFails() {
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     doThrow(new IllegalStateException("boom"))
         .when(txRegistry)
@@ -143,9 +174,75 @@ class JobWakeupServiceTest {
 
     wakeupService.notify(JobPriority.HIGH, true, null);
 
-    verify(metricsCollector).localWakeup("job_submit");
-    verify(pollerScheduler).wakeup();
-    verify(clusterCoordinator).notifyNewWork(JobPriority.HIGH, NODE_IDENTITY, null);
+    verifyNoInteractions(
+        clusterCoordinator,
+        pollerSchedulerInstance,
+        pollerScheduler,
+        metricsCollector,
+        nodeIdentityProvider);
+  }
+
+  @Test
+  void registerAfterCommit_reportsNoActiveTransactionWithoutRegistry() {
+    AtomicInteger actions = new AtomicInteger();
+
+    AfterCommitRegistrationResult result =
+        JobWakeupService.registerAfterCommit(null, actions::incrementAndGet, LOG, "%s");
+
+    assertEquals(AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION, result);
+    assertEquals(0, actions.get());
+  }
+
+  @Test
+  void registerAfterCommit_reportsRegisteredAndRunsOnlyAfterCommit() {
+    AtomicInteger actions = new AtomicInteger();
+    AtomicReference<Synchronization> synchronization = new AtomicReference<>();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doAnswer(
+            invocation -> {
+              synchronization.set(invocation.getArgument(0));
+              return null;
+            })
+        .when(txRegistry)
+        .registerInterposedSynchronization(ArgumentMatchers.any());
+
+    AfterCommitRegistrationResult result =
+        JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s");
+
+    assertEquals(AfterCommitRegistrationResult.REGISTERED, result);
+    assertEquals(0, actions.get());
+
+    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
+
+    assertEquals(1, actions.get());
+  }
+
+  @Test
+  void registerAfterCommit_reportsFailureWhenActiveRegistrationThrows() {
+    AtomicInteger actions = new AtomicInteger();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doThrow(new IllegalStateException("boom"))
+        .when(txRegistry)
+        .registerInterposedSynchronization(ArgumentMatchers.any());
+
+    AfterCommitRegistrationResult result =
+        JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s");
+
+    assertEquals(AfterCommitRegistrationResult.ACTIVE_TRANSACTION_REGISTRATION_FAILED, result);
+    assertEquals(0, actions.get());
+  }
+
+  @Test
+  void registerAfterCommit_suppressesFallbackWhenTransactionIsMarkedRollback() {
+    AtomicInteger actions = new AtomicInteger();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_MARKED_ROLLBACK);
+
+    AfterCommitRegistrationResult result =
+        JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s");
+
+    assertEquals(AfterCommitRegistrationResult.ACTIVE_TRANSACTION_REGISTRATION_FAILED, result);
+    assertEquals(0, actions.get());
+    verify(txRegistry, never()).registerInterposedSynchronization(any());
   }
 
   @Test

@@ -16,6 +16,8 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
@@ -23,12 +25,57 @@ import org.junit.jupiter.api.Test;
 class DefaultJobBuilderTest {
 
   @Test
+  void withBusinessKeyAcceptsMaximumPortableKeyWithoutTruncation() {
+    DefaultJobBuilder builder = newBuilder();
+    String key = "k".repeat(255);
+
+    builder.withBusinessKey(key);
+
+    assertEquals(key, builder.businessKey());
+  }
+
+  @Test
+  void withBusinessKeyRejectsKeyLongerThanPortableLimit() {
+    DefaultJobBuilder builder = newBuilder();
+
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> builder.withBusinessKey("k".repeat(256)));
+
+    assertEquals("Business key must be at most 255 characters, got 256", exception.getMessage());
+  }
+
+  @Test
+  void withBusinessKeyRejectsUnicodeInsteadOfLeavingConversionToTheStore() {
+    DefaultJobBuilder builder = newBuilder();
+
+    IllegalArgumentException exception =
+        assertThrows(IllegalArgumentException.class, () -> builder.withBusinessKey("invoice-😀"));
+
+    assertEquals(
+        "Business key must contain only printable ASCII characters (U+0020-U+007E)",
+        exception.getMessage());
+  }
+
+  @Test
+  void withBusinessKeyTreatsAKeyEmptiedByTrimmingAsAbsent() {
+    DefaultJobBuilder builder = newBuilder();
+
+    builder.withBusinessKey("\u0000");
+
+    assertNull(builder.businessKey());
+  }
+
+  @Test
   void whenResultStoresExplicitPriority() {
-    DefaultJobBuilder builder =
-        (DefaultJobBuilder) DefaultJobBuilder.create(ignored -> null, () -> {}, Duration.ZERO);
+    DefaultJobBuilder builder = newBuilder();
 
     builder.whenResult(value -> true, () -> {}, 7);
 
     assertEquals(7, builder.workflowBranches().get(0).condition().priority());
+  }
+
+  private static DefaultJobBuilder newBuilder() {
+    return (DefaultJobBuilder) DefaultJobBuilder.create(ignored -> null, () -> {}, Duration.ZERO);
   }
 }

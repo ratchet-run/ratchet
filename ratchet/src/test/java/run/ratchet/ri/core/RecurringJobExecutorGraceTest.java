@@ -16,7 +16,8 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -27,6 +28,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
@@ -41,6 +43,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBulkStore;
@@ -106,6 +109,24 @@ class RecurringJobExecutorGraceTest {
     verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
     assertEquals(FIXED_NOW.plusSeconds(60), childrenCaptor.getValue().get(0).getScheduledTime());
     verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void childOccurrenceDoesNotInheritMasterBusinessKey() {
+    state.markRegistrationComplete(Set.of("recurring-master-key"));
+
+    RecurringJobDefinition known = recurringMaster(21L, "recurring-master-key");
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(known));
+
+    executor.process(10, "node-A");
+
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(children.capture());
+    assertNull(
+        children.getValue().get(0).getBusinessKey(),
+        "the master's active-unique key must not collide with a fired child");
   }
 
   @Test
@@ -242,7 +263,7 @@ class RecurringJobExecutorGraceTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void longDowntimeCatchupAdvancesDirectlyToNextFutureFire() {
+  void defaultMisfirePolicyPreservesElevenExecutionCatchUp() {
     state.markRegistrationComplete(Set.of("known-key"));
 
     RecurringJobDefinition stale =
@@ -260,7 +281,164 @@ class RecurringJobExecutorGraceTest {
         .cancelRecurringAndArchive(eq(stale.id()), eq(ArchiveReason.EXHAUSTED));
     ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
     verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
-    assertNotNull(next.getValue());
+    assertTrue(next.getValue().isAfter(FIXED_NOW));
+  }
+
+  @Test
+  void skipMisfireDiscardsBacklogAndAdvancesToFuture() {
+    state.markRegistrationComplete(Set.of("known-key"));
+
+    RecurringJobDefinition stale =
+        recurringMasterWithMisfirePolicy(
+            15L,
+            "known-key",
+            "0/1 * * * * ?",
+            FIXED_NOW.minusSeconds(3600),
+            RecurringMisfirePolicy.skip());
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(stale));
+
+    int processed = executor.process(10, "node-A");
+
+    assertEquals(1, processed);
+    verify(jobBulkStore, never()).bulkInsert(any());
+    ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
+    verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
+    assertTrue(next.getValue().isAfter(FIXED_NOW));
+    verify(recurringJobStore, never())
+        .cancelRecurringAndArchive(eq(stale.id()), eq(ArchiveReason.EXHAUSTED));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void fireOnceMisfireCreatesOnlyOldestDueOccurrence() {
+    state.markRegistrationComplete(Set.of("known-key"));
+    Instant oldestDue = FIXED_NOW.minusSeconds(3600);
+    RecurringJobDefinition stale =
+        recurringMasterWithMisfirePolicy(
+            16L, "known-key", "0/1 * * * * ?", oldestDue, RecurringMisfirePolicy.fireOnce());
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(stale));
+
+    int processed = executor.process(10, "node-A");
+
+    assertEquals(1, processed);
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(children.capture());
+    assertEquals(1, children.getValue().size());
+    assertEquals(oldestDue, children.getValue().get(0).getScheduledTime());
+    ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
+    verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
+    assertTrue(next.getValue().isAfter(FIXED_NOW));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void boundedCatchUpHonorsConfiguredTotalLimit() {
+    state.markRegistrationComplete(Set.of("known-key"));
+    Instant oldestDue = FIXED_NOW.minusSeconds(3600);
+    RecurringJobDefinition stale =
+        recurringMasterWithMisfirePolicy(
+            19L, "known-key", "0/1 * * * * ?", oldestDue, RecurringMisfirePolicy.catchUp(3));
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(stale));
+
+    int processed = executor.process(10, "node-A");
+
+    assertEquals(1, processed);
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(children.capture());
+    assertEquals(3, children.getValue().size());
+    assertEquals(oldestDue, children.getValue().get(0).getScheduledTime());
+    assertEquals(oldestDue.plusSeconds(1), children.getValue().get(1).getScheduledTime());
+    assertEquals(oldestDue.plusSeconds(2), children.getValue().get(2).getScheduledTime());
+    ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
+    verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
+    assertTrue(next.getValue().isAfter(FIXED_NOW));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void skipPolicyStillRunsOneDueOccurrenceWithoutBacklog() {
+    state.markRegistrationComplete(Set.of("known-key"));
+    Instant onlyDue = FIXED_NOW.minusSeconds(10);
+    RecurringJobDefinition stale =
+        recurringMasterWithMisfirePolicy(
+            20L, "known-key", "0 * * * * ?", onlyDue, RecurringMisfirePolicy.skip());
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(stale));
+
+    int processed = executor.process(10, "node-A");
+
+    assertEquals(1, processed);
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(children.capture());
+    assertEquals(1, children.getValue().size());
+    assertEquals(onlyDue, children.getValue().get(0).getScheduledTime());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void springDstGapSkipsNonexistentWallClockOccurrence() {
+    Instant now = Instant.parse("2026-03-08T12:00:00Z");
+    executor =
+        new RecurringJobExecutor(
+            jobBulkStore,
+            recurringJobStore,
+            state,
+            () -> NodeTagFilter.NONE,
+            Clock.fixed(now, ZoneOffset.UTC));
+    state.markRegistrationComplete(Set.of("known-key"));
+    RecurringJobDefinition master =
+        recurringMasterInZone(
+            22L,
+            "known-key",
+            "0 30 2 * * ?",
+            "America/New_York",
+            Instant.parse("2026-03-07T07:30:00Z"));
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(master));
+
+    executor.process(10, "node-A");
+
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(children.capture());
+    assertEquals(List.of(Instant.parse("2026-03-07T07:30:00Z")), scheduledTimes(children));
+    verify(recurringJobStore).advanceNextFire(master.id(), Instant.parse("2026-03-09T06:30:00Z"));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void fallDstOverlapFiresFirstWallClockOccurrenceOnly() {
+    Instant now = Instant.parse("2026-11-01T07:00:00Z");
+    executor =
+        new RecurringJobExecutor(
+            jobBulkStore,
+            recurringJobStore,
+            state,
+            () -> NodeTagFilter.NONE,
+            Clock.fixed(now, ZoneOffset.UTC));
+    state.markRegistrationComplete(Set.of("known-key"));
+    RecurringJobDefinition master =
+        recurringMasterInZone(
+            23L,
+            "known-key",
+            "0 30 1 * * ?",
+            "America/New_York",
+            Instant.parse("2026-11-01T05:30:00Z"));
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(master));
+
+    executor.process(10, "node-A");
+
+    ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(children.capture());
+    assertEquals(List.of(Instant.parse("2026-11-01T05:30:00Z")), scheduledTimes(children));
+    verify(recurringJobStore).advanceNextFire(master.id(), Instant.parse("2026-11-02T06:30:00Z"));
+  }
+
+  private static List<Instant> scheduledTimes(ArgumentCaptor<List<JobEntity>> children) {
+    return children.getValue().stream().map(JobEntity::getScheduledTime).toList();
   }
 
   private static RecurringJobDefinition recurringMaster(long id, String businessKey) {
@@ -320,6 +498,64 @@ class RecurringJobExecutorGraceTest {
         executionTarget,
         FIXED_NOW,
         callerPrincipal,
-        false);
+        false,
+        RecurringMisfirePolicy.defaults());
+  }
+
+  private static RecurringJobDefinition recurringMasterWithMisfirePolicy(
+      long id,
+      String businessKey,
+      String cron,
+      Instant nextFire,
+      RecurringMisfirePolicy misfirePolicy) {
+    return new RecurringJobDefinition(
+        new UUID(0L, id),
+        cron,
+        "UTC",
+        nextFire,
+        false,
+        null,
+        2,
+        0,
+        BackoffPolicy.NONE,
+        0,
+        0,
+        null,
+        null,
+        null,
+        businessKey,
+        null,
+        null,
+        FIXED_NOW,
+        null,
+        false,
+        misfirePolicy);
+  }
+
+  private static RecurringJobDefinition recurringMasterInZone(
+      long id, String businessKey, String cron, String zoneId, Instant nextFire) {
+    ZoneId.of(zoneId);
+    return new RecurringJobDefinition(
+        new UUID(0L, id),
+        cron,
+        zoneId,
+        nextFire,
+        false,
+        null,
+        2,
+        0,
+        BackoffPolicy.NONE,
+        0,
+        0,
+        null,
+        null,
+        null,
+        businessKey,
+        null,
+        null,
+        FIXED_NOW,
+        null,
+        false,
+        RecurringMisfirePolicy.defaults());
   }
 }

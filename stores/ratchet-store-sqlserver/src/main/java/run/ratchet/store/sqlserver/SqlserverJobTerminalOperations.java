@@ -16,6 +16,7 @@
 package run.ratchet.store.sqlserver;
 
 import jakarta.persistence.NoResultException;
+import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -412,6 +413,84 @@ final class SqlserverJobTerminalOperations {
       return true;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("reset failed job to pending", e);
+    }
+  }
+
+  int resetFailedToPending(List<UUID> ids) {
+    if (ids.isEmpty()) {
+      return 0;
+    }
+    try {
+      String placeholders = "?,".repeat(ids.size() - 1) + "?";
+      // language=SQL Server
+      String clearTerminalSql =
+          """
+          UPDATE scheduler_job
+          SET terminal_status = NULL, terminal_error = NULL,
+              job_result = NULL, result_type = NULL,
+              execution_start_time = NULL, execution_end_time = NULL,
+              execution_duration_ms = NULL, queue_wait_ms = NULL,
+              total_attempts = NULL, terminated_at = NULL
+          WHERE terminal_status = 'FAILED' AND job_id IN (%s)
+          """
+              .formatted(placeholders);
+      int cleared = bindIds(clearTerminalSql, ids).executeUpdate();
+      requireCompleteBulkSelection(ids, cleared);
+
+      // language=SQL Server
+      String insertHotSql =
+          """
+          INSERT INTO scheduler_job_queue
+            (job_id, status, job_type, priority, scheduled_time, business_key,
+             timeout_sec, max_retries, attempts, version, updated_at, execution_target)
+          SELECT job_id, 'PENDING', job_type, priority, SYSUTCDATETIME(), business_key,
+                 timeout_sec, max_retries, 0, 0, SYSUTCDATETIME(), execution_target
+          FROM scheduler_job
+          WHERE job_id IN (%s)
+          """
+              .formatted(placeholders);
+      int inserted = bindIds(insertHotSql, ids).executeUpdate();
+      if (inserted != ids.size()) {
+        throw new IllegalStateException(
+            "Bulk retry inserted " + inserted + " queue rows for " + ids.size() + " jobs");
+      }
+
+      // language=SQL Server
+      String reserveSql =
+          """
+          INSERT INTO scheduler_business_key_reservation
+            (business_key, owner_job_id, owner_table, reserved_at)
+          SELECT business_key, job_id, 'QUEUE', SYSUTCDATETIME()
+          FROM scheduler_job
+          WHERE business_key IS NOT NULL AND job_id IN (%s)
+          """
+              .formatted(placeholders);
+      bindIds(reserveSql, ids).executeUpdate();
+      return ids.size();
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Cannot bulk-resurrect jobs: business key already held", e);
+      }
+      throw ctx.translateTransientStoreException("bulk reset failed jobs to pending", e);
+    }
+  }
+
+  private Query bindIds(String sql, List<UUID> ids) {
+    Query query = ctx.em().createNativeQuery(sql);
+    for (int i = 0; i < ids.size(); i++) {
+      query.setParameter(i + 1, UuidByteArrayConverter.toBytes(ids.get(i)));
+    }
+    return query;
+  }
+
+  private static void requireCompleteBulkSelection(List<UUID> ids, int cleared) {
+    if (cleared != ids.size()) {
+      throw new RatchetTransientStoreException(
+          "Bulk retry selection changed concurrently: selected "
+              + ids.size()
+              + " jobs but reset "
+              + cleared);
     }
   }
 

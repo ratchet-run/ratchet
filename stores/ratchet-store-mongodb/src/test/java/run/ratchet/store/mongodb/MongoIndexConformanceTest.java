@@ -21,11 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
-import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_HASH;
+import static run.ratchet.store.mongodb.MongoFieldNames.CONDITION_PRIORITY;
+import static run.ratchet.store.mongodb.MongoFieldNames.DEFINITION_ORDER;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
-import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
+import static run.ratchet.store.mongodb.MongoFieldNames.PARENT_JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
@@ -40,6 +41,7 @@ import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.bson.Document;
@@ -48,6 +50,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.mongodb.MongoDBContainer;
+import run.ratchet.store.util.BusinessKeyReservations;
+import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /**
  * Verifies that {@link MongoCollectionInitializer} creates the required named indexes on {@code
@@ -146,12 +150,121 @@ class MongoIndexConformanceTest {
   }
 
   @Test
-  void schedulerDlqAlerts_hasJobHashUniqueIndex() {
+  void schedulerBusinessKeyReservation_hasOwnerLookupIndex() {
     assertIndex(
-        "scheduler_dlq_alerts",
-        "idx_dlq_job_hash",
-        new Document(JOB_ID, 1).append(ERROR_HASH, 1),
-        true,
+        "scheduler_business_key_reservation",
+        "idx_bk_owner",
+        new Document("owner_job_id", 1),
+        false,
+        null);
+  }
+
+  @Test
+  void initialize_backfillsExistingActiveOwnersIntoSharedBusinessKeyNamespace() {
+    UUID queueId = UUID.randomUUID();
+    UUID recurringId = UUID.randomUUID();
+    database
+        .getCollection("scheduler_job")
+        .insertOne(
+            new Document(ID, queueId)
+                .append(STATUS, "PENDING")
+                .append(BUSINESS_KEY, "existing-queue"));
+    database
+        .getCollection("scheduler_recurring_job")
+        .insertOne(new Document(ID, recurringId).append(BUSINESS_KEY, "existing-recurring"));
+
+    new MongoCollectionInitializer(database).initialize();
+    new MongoCollectionInitializer(database).initialize();
+
+    assertEquals(
+        2L,
+        database.getCollection("scheduler_business_key_reservation").countDocuments(),
+        "repeated initialization must not duplicate backfilled reservations");
+
+    Document queueReservation =
+        database
+            .getCollection("scheduler_business_key_reservation")
+            .find(new Document(ID, "existing-queue"))
+            .first();
+    assertNotNull(queueReservation);
+    assertEquals(queueId, queueReservation.get("owner_job_id", UUID.class));
+    assertEquals(
+        BusinessKeyReservations.OWNER_TABLE_QUEUE, queueReservation.getString("owner_table"));
+
+    Document recurringReservation =
+        database
+            .getCollection("scheduler_business_key_reservation")
+            .find(new Document(ID, "existing-recurring"))
+            .first();
+    assertNotNull(recurringReservation);
+    assertEquals(recurringId, recurringReservation.get("owner_job_id", UUID.class));
+    assertEquals(
+        BusinessKeyReservations.OWNER_TABLE_RECURRING,
+        recurringReservation.getString("owner_table"));
+  }
+
+  @Test
+  void initialize_concurrentlyBackfillsSameOwnerIdempotently() {
+    UUID queueId = UUID.randomUUID();
+    String key = "concurrent-existing-queue";
+    database
+        .getCollection("scheduler_job")
+        .insertOne(new Document(ID, queueId).append(STATUS, "PENDING").append(BUSINESS_KEY, key));
+
+    List<Throwable> failures =
+        ConcurrentTestRunner.runAll(
+            Duration.ofSeconds(15),
+            () -> new MongoCollectionInitializer(database).initialize(),
+            () -> new MongoCollectionInitializer(database).initialize());
+
+    assertTrue(
+        failures.stream().allMatch(Objects::isNull),
+        "concurrent startup should accept the same backfilled owner: " + failures);
+    assertEquals(
+        1L,
+        database
+            .getCollection("scheduler_business_key_reservation")
+            .countDocuments(new Document(ID, key)));
+  }
+
+  @Test
+  void initialize_failsWhenExistingQueueAndRecurringOwnersShareBusinessKey() {
+    String key = "preexisting-cross-type-conflict";
+    UUID queueId = UUID.randomUUID();
+    UUID recurringId = UUID.randomUUID();
+    database
+        .getCollection("scheduler_job")
+        .insertOne(new Document(ID, queueId).append(STATUS, "PENDING").append(BUSINESS_KEY, key));
+    database
+        .getCollection("scheduler_recurring_job")
+        .insertOne(new Document(ID, recurringId).append(BUSINESS_KEY, key));
+
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () -> new MongoCollectionInitializer(database).initialize());
+
+    assertTrue(thrown.getMessage().contains(key));
+    assertTrue(thrown.getMessage().contains("multiple MongoDB owners"));
+
+    database.getCollection("scheduler_job").deleteOne(new Document(ID, queueId));
+    new MongoCollectionInitializer(database).initialize();
+    Document recovered =
+        database
+            .getCollection("scheduler_business_key_reservation")
+            .find(new Document(ID, key))
+            .first();
+    assertNotNull(recovered);
+    assertEquals(recurringId, recovered.get("owner_job_id", UUID.class));
+  }
+
+  @Test
+  void workflowConditions_haveEvaluationOrderIndex() {
+    assertIndex(
+        "scheduler_workflow_condition",
+        "idx_wfc_evaluation_order",
+        new Document(PARENT_JOB_ID, 1).append(CONDITION_PRIORITY, 1).append(DEFINITION_ORDER, 1),
+        false,
         null);
   }
 

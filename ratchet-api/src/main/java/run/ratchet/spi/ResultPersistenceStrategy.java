@@ -21,6 +21,11 @@ import run.ratchet.api.Incubating;
 /**
  * Serializes job return values before they are stored on the job row.
  *
+ * <p>Implementations that replace an oversized value with metadata should return {@link
+ * SerializedJobResult#truncated(String)}. This lets value-based workflow conditions distinguish
+ * state metadata from user JSON without relying on marker-shaped fields that user results may also
+ * contain.
+ *
  * @since 0.1
  */
 @Incubating

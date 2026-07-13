@@ -138,7 +138,8 @@ class MongoExceptionTranslationTest {
             });
     MongoStoreContext ctx = contextWithJobs(jobs);
     MongoJobLifecycleOperations lifecycle =
-        new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx));
+        new MongoJobLifecycleOperations(
+            ctx, new MongoBatchOperations(ctx), new MongoJobQueryOperations(ctx));
 
     RatchetTransientStoreException thrown =
         assertThrows(
@@ -175,7 +176,8 @@ class MongoExceptionTranslationTest {
             });
     MongoStoreContext ctx = contextWithJobsAndSession(jobs, session);
     MongoJobLifecycleOperations lifecycle =
-        new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx));
+        new MongoJobLifecycleOperations(
+            ctx, new MongoBatchOperations(ctx), new MongoJobQueryOperations(ctx));
 
     assertThrows(
         RatchetTransientStoreException.class,
@@ -405,7 +407,15 @@ class MongoExceptionTranslationTest {
   }
 
   private static MongoStoreContext contextWithJobs(MongoCollection<Document> jobs) {
-    return contextWithJobsAndSession(jobs, null);
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) {
+                return ((TransactionBody<?>) args[0]).execute();
+              }
+              return defaultValue(method);
+            });
+    return contextWithJobsAndSession(jobs, session);
   }
 
   private static MongoStoreContext contextWithJobsAndSession(

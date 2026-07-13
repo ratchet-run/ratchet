@@ -28,14 +28,17 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.Serializable;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -50,6 +53,7 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCompletedEvent;
@@ -60,11 +64,13 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
@@ -85,6 +91,7 @@ import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
@@ -102,6 +109,7 @@ class JobTaskTest {
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, java.time.ZoneOffset.UTC);
   private static final ThreadLocal<SignalDecision> OBSERVED_SIGNAL_DECISION = new ThreadLocal<>();
   private static final ThreadLocal<String> OBSERVED_SIGNAL_STRING = new ThreadLocal<>();
+  private static final ThreadLocal<CustomArgument> OBSERVED_CUSTOM_ARGUMENT = new ThreadLocal<>();
 
   private final ClassPolicy classPolicy = className -> true;
   @Mock private JobStore jobStore;
@@ -134,6 +142,10 @@ class JobTaskTest {
     throw new IllegalStateException("callback boom");
   }
 
+  public static void captureCustomArgument(CustomArgument argument) {
+    OBSERVED_CUSTOM_ARGUMENT.set(argument);
+  }
+
   @Test
   void constructorRejectsNullClock() {
     Assertions.assertThrows(
@@ -146,11 +158,11 @@ class JobTaskTest {
                 nodeIdProvider,
                 observabilityFacade,
                 validationFacade,
-                beanResolver,
+                new JobPayloadInvoker(beanResolver, classPolicy),
+                new JobSuccessFinalizer(jobStore, observabilityFacade),
                 retryPolicy,
                 resilienceStrategy,
                 errorSanitizer,
-                classPolicy,
                 context -> null,
                 null,
                 null,
@@ -182,6 +194,7 @@ class JobTaskTest {
   @BeforeEach
   void setUp() {
     OBSERVED_SIGNAL_DECISION.remove();
+    OBSERVED_CUSTOM_ARGUMENT.remove();
     JsonbTestPayloadSerializer serializer = new JsonbTestPayloadSerializer();
     jobTask =
         new JobTask(
@@ -191,11 +204,11 @@ class JobTaskTest {
             nodeIdProvider,
             observabilityFacade,
             validationFacade,
-            beanResolver,
+            new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobSuccessFinalizer(jobStore, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
             errorSanitizer,
-            classPolicy,
             context -> new JBossLoggingJobLogger(context.jobId(), null),
             new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
@@ -209,7 +222,36 @@ class JobTaskTest {
   void tearDown() {
     OBSERVED_SIGNAL_DECISION.remove();
     OBSERVED_SIGNAL_STRING.remove();
+    OBSERVED_CUSTOM_ARGUMENT.remove();
     EncryptionHolder.disable();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_restoresCustomArgumentTypeAfterPersistenceRoundTrip() throws Exception {
+    CustomArgument argument = new CustomArgument("invoice-42", 3);
+    JobPayload scheduled =
+        JobPayloadFactory.fromLambda(
+            (SerializableCheckedRunnable) () -> captureCustomArgument(argument));
+    JobPayloadConverter converter = new JobPayloadConverter();
+    JobPayload reloaded =
+        converter.convertToEntityAttribute(converter.convertToDatabaseColumn(scheduled));
+    Assertions.assertInstanceOf(Map.class, reloaded.args().get(0));
+
+    JobEntity job = createTestJob();
+    job.setPayload(reloaded);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(invocation -> ((Callable<?>) invocation.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    Assertions.assertEquals(argument, OBSERVED_CUSTOM_ARGUMENT.get());
   }
 
   @Test
@@ -440,6 +482,13 @@ class JobTaskTest {
     when(jobStore.incrementRetryAttempt(JOB_UUID))
         .thenAnswer(inv -> running.get() == 1 ? attempts.incrementAndGet() : -1);
     when(jobStore.findById(JOB_UUID)).thenReturn(Optional.of(job));
+    when(lifecycleFacade.handleTimeoutTransition(any(), eq(false), any(Supplier.class)))
+        .thenAnswer(
+            invocation -> {
+              Optional<?> terminalJob =
+                  (Optional<?>) invocation.getArgument(2, Supplier.class).get();
+              return terminalJob.isPresent();
+            });
 
     JobTimeoutHandler timeoutHandler =
         new JobTimeoutHandler(
@@ -450,7 +499,6 @@ class JobTaskTest {
             80,
             60L,
             FIXED_CLOCK,
-            null,
             null,
             null,
             null,
@@ -513,7 +561,6 @@ class JobTaskTest {
             null,
             null,
             null,
-            null,
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
 
     JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
@@ -536,28 +583,127 @@ class JobTaskTest {
   }
 
   @Test
-  void call_hydrationDecryptPoison_movesToDlqWithoutRetry() {
+  void call_hydrationDecryptPoison_delegatesAtomicTerminalHandlingWithoutRetry() {
     // A claimed RUNNING job whose payload fails to decrypt during hydration is poison: the
     // ciphertext cannot be recovered by re-running. It must be dead-lettered, not swallowed and
     // left to stall until lease recovery (the regression this guards).
-    JobClaimDto claim = claimForNode("node-1");
+    JobClaimDto claim =
+        new JobClaimDto(
+            JOB_UUID,
+            JobStatus.RUNNING,
+            JobExecutionType.SINGLE,
+            JobPriority.HIGH,
+            Instant.EPOCH,
+            1,
+            30,
+            "node-1",
+            Instant.EPOCH,
+            "poisoned-job",
+            2,
+            3,
+            null,
+            null);
     jobTask.initFromClaim(claim);
     when(jobStore.findById(JOB_UUID))
         .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
-    when(errorSanitizer.sanitize(any())).thenReturn("decryption failed");
-    when(jobStore.compareAndSwapStatus(
-            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(PayloadDecryptionException.class)))
         .thenReturn(true);
 
     jobTask.call();
 
-    // Routed through the controlled DLQ path: terminal FAILED + a DLQ event.
-    verify(jobStore)
+    ArgumentCaptor<JobEntity> dlqJob = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(
+            dlqJob.capture(), any(PayloadDecryptionException.class));
+    Assertions.assertEquals("poisoned-job", dlqJob.getValue().getBusinessKey());
+    Assertions.assertEquals(JobExecutionType.SINGLE, dlqJob.getValue().getJobType());
+    Assertions.assertEquals(JobPriority.HIGH, dlqJob.getValue().getPriority());
+    Assertions.assertEquals("node-1", dlqJob.getValue().getPickedBy());
+    Assertions.assertEquals(2, dlqJob.getValue().getAttempts());
+    Assertions.assertEquals(3, dlqJob.getValue().getMaxRetries());
+    Assertions.assertEquals(JobStatus.RUNNING, dlqJob.getValue().getStatus());
+    verify(jobStore, never())
         .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
-    verify(observabilityFacade).publishEvent(any(JobDlqEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
     // Non-retryable: never rescheduled, never increments the attempt counter.
     verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+  }
+
+  @Test
+  void call_hydrationDecryptPoison_lostTransitionRacePublishesNoTerminalEvents() {
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+
+    jobTask.call();
+
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(PayloadDecryptionException.class));
+    verify(jobStore, never())
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
+  }
+
+  @Test
+  void call_hydrationDecryptPoison_updatesBatchChildFailureProgress() {
+    UUID parentId = UUID.randomUUID();
+    JobClaimDto claim =
+        new JobClaimDto(
+            JOB_UUID,
+            JobStatus.RUNNING,
+            JobExecutionType.BATCH_CHILD,
+            JobPriority.NORMAL,
+            Instant.EPOCH,
+            1,
+            30,
+            "node-1",
+            Instant.EPOCH,
+            null,
+            0,
+            0,
+            null,
+            parentId);
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(PayloadDecryptionException.class)))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    ArgumentCaptor<JobEntity> failedChild = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(
+            failedChild.capture(), any(PayloadDecryptionException.class));
+    Assertions.assertEquals(JOB_UUID, failedChild.getValue().getId());
+    Assertions.assertEquals(parentId, failedChild.getValue().getDependsOn());
+  }
+
+  @Test
+  void call_hydrationDecryptPoison_compositeFailureLeavesRecoveryToStaleRunningPath() {
+    JobClaimDto claim = claimForNode("node-1");
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+    doThrow(new IllegalStateException("batch store unavailable"))
+        .when(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(PayloadDecryptionException.class));
+
+    jobTask.call();
+
+    verify(jobStore, never())
+        .compareAndSwapStatus(eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any());
+    verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(observabilityFacade, never()).publishEvent(any(JobFailedEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
   }
 
   @Test
@@ -660,8 +806,9 @@ class JobTaskTest {
     RuntimeException error = new RuntimeException("do not retry");
     when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(true);
+    when(errorSanitizer.sanitize(error)).thenReturn("safe do not retry");
     when(jobStore.compareAndSwapStatus(
-            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), eq("safe do not retry")))
         .thenReturn(true);
 
     jobTask.call();
@@ -670,13 +817,15 @@ class JobTaskTest {
     verify(retryPolicy, never()).shouldRetry(anyInt(), any());
     verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(observabilityFacade).recordJobFailure(job, error, 2);
+    verify(errorSanitizer, times(1)).sanitize(error);
+    Assertions.assertEquals("safe do not retry", job.getLastError());
     verify(lifecycleFacade).moveToDlq(eq(job), eq(error));
     verify(lifecycleFacade).scheduleNext(job);
   }
 
   @Test
   @SuppressWarnings("unchecked")
-  void handleFailureFallbackPublishesTerminalEventsWhenFailureHandlingThrows() throws Exception {
+  void handleFailureFallbackPublishesFailureEventAndDelegatesDlqEvent() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
@@ -697,8 +846,9 @@ class JobTaskTest {
     jobTask.call();
 
     verify(observabilityFacade).publishEvent(any(JobFailedEvent.class));
-    verify(observabilityFacade).publishEvent(any(JobDlqEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
     verify(lifecycleFacade).moveToDlq(job, error);
+    Assertions.assertEquals(1, job.getAttempts());
   }
 
   @Test
@@ -1002,11 +1152,11 @@ class JobTaskTest {
             nodeIdProvider,
             observabilityFacade,
             validationFacade,
-            beanResolver,
+            new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobSuccessFinalizer(jobStore, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
             errorSanitizer,
-            classPolicy,
             context -> noopLogger(),
             resultPersistenceStrategy,
             null,
@@ -1041,6 +1191,39 @@ class JobTaskTest {
   }
 
   @Test
+  void call_invalidPersistedSignalOutcomeFailsWithJobContext() throws Exception {
+    JobEntity job = createTestJob();
+    job.setSignalPayloadType(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION);
+    job.setSignalOutcome("UNKNOWN");
+    jobTask.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    DoNotRetryPolicy realPolicy = new DoNotRetryPolicy();
+    when(validationFacade.shouldNotRetry(any()))
+        .thenAnswer(inv -> realPolicy.shouldNotRetry(inv.getArgument(0)));
+    when(errorSanitizer.sanitize(any())).thenReturn("safe invalid signal outcome");
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
+    verify(observabilityFacade).recordJobFailure(eq(job), failure.capture(), eq(0));
+    SignalOutcomeHydrationException exception =
+        Assertions.assertInstanceOf(SignalOutcomeHydrationException.class, failure.getValue());
+    Assertions.assertEquals(
+        "Failed to hydrate signal outcome for job "
+            + JOB_UUID
+            + ": persisted value 'UNKNOWN' is not a recognized SignalDecision.Outcome",
+        exception.getMessage());
+    Assertions.assertEquals(JOB_UUID, exception.getJobId());
+    Assertions.assertEquals("UNKNOWN", exception.getPersistedOutcome());
+    Assertions.assertInstanceOf(IllegalArgumentException.class, exception.getCause());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(lifecycleFacade).moveToDlq(eq(job), eq(exception));
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void call_deserializesRawSerializableSignalIntoJobContext() throws Exception {
     // Real Yasson: deserializing to Serializable.class (the old form) throws because the abstract
@@ -1057,11 +1240,11 @@ class JobTaskTest {
             nodeIdProvider,
             observabilityFacade,
             validationFacade,
-            beanResolver,
+            new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobSuccessFinalizer(jobStore, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
             errorSanitizer,
-            classPolicy,
             context -> noopLogger(),
             resultPersistenceStrategy,
             null,
@@ -1156,11 +1339,11 @@ class JobTaskTest {
             nodeIdProvider,
             observabilityFacade,
             validationFacade,
-            beanResolver,
+            new JobPayloadInvoker(beanResolver, classPolicy),
+            new JobSuccessFinalizer(jobStore, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
             errorSanitizer,
-            classPolicy,
             context -> new JBossLoggingJobLogger(context.jobId(), null),
             new DefaultResultPersistenceStrategy(RatchetOptions.defaults(), serializer, null),
             null,
@@ -1218,6 +1401,7 @@ class JobTaskTest {
         null,
         0,
         3,
+        null,
         null);
   }
 
@@ -1250,11 +1434,11 @@ class JobTaskTest {
         nodeIdProvider,
         observabilityFacade,
         validationFacade,
-        beanResolver,
+        new JobPayloadInvoker(beanResolver, classPolicy),
+        new JobSuccessFinalizer(jobStore, observabilityFacade),
         retryPolicy,
         resilienceStrategy,
         errorSanitizer,
-        classPolicy,
         context -> noopLogger(),
         resultPersistenceStrategy,
         null,
@@ -1274,11 +1458,11 @@ class JobTaskTest {
         nodeIdProvider,
         observabilityFacade,
         validationFacade,
-        beanResolver,
+        new JobPayloadInvoker(beanResolver, classPolicy),
+        new JobSuccessFinalizer(jobStore, observabilityFacade),
         retryPolicy,
         resilienceStrategy,
         errorSanitizer,
-        classPolicy,
         context -> noopLogger(),
         resultPersistenceStrategy,
         null,
@@ -1315,4 +1499,6 @@ class JobTaskTest {
       return "done";
     }
   }
+
+  public record CustomArgument(String reference, int attempt) implements Serializable {}
 }

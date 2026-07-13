@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -23,9 +24,11 @@ import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.jboss.logging.Logger;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.SerializableCheckedConsumer;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
@@ -46,6 +49,7 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
   private final StreamingBatchSubmitter submitter;
 
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
+  private final BatchChildRetryOptions childRetryOptions = new BatchChildRetryOptions();
   private Stream<T> stream;
   private SerializableCheckedConsumer<T> action;
   private int chunkSize = DEFAULT_CHUNK_SIZE;
@@ -100,6 +104,18 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
   @Override
   public StreamingBatchBuilder<T> platform() {
     this.executionTarget = ExecutorTargets.PLATFORM;
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param) {
+    childRetryOptions.withBackoff(policy, param);
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> withMaxRetries(int retries) {
+    childRetryOptions.withMaxRetries(retries);
     return this;
   }
 
@@ -202,6 +218,10 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
 
   String executionTarget() {
     return executionTarget;
+  }
+
+  JobOptions childOptions() {
+    return childRetryOptions.value();
   }
 
   List<WorkflowBranch> workflowBranches() {

@@ -140,20 +140,22 @@ public class CustomErrorSanitizer implements ErrorSanitizer {
 
 ## Dead Letter Queue (DLQ)
 
-When a job permanently fails (exhausts retries, `@DoNotRetry`, or `RetryPolicy` rejects), it moves to the DLQ. The DLQ is not a separate table; it's the set of jobs with `status = FAILED` and no remaining retries.
+When a job permanently fails (retry exhaustion, `@DoNotRetry`, poison data, or a protective
+runtime limit), it enters terminal dead-letter handling. The DLQ is not a separate table; it is
+represented by durable jobs with `status = FAILED` that were routed through that terminal path.
 
 ### What Happens on DLQ Entry
 
-1. **Status update:** The job transitions from RUNNING to FAILED via compare-and-swap
-2. **Error recording:** The sanitized error message is stored in `last_error`
-3. **Alert recording:** A `DlqAlertEntity` is created for audit trail
-4. **Deduplication:** If the same job+error hash combination was recorded within the last hour, the alert is suppressed to prevent notification storms
-5. **Event publishing:** A `JobDlqEvent` is published
-6. **Downstream handling:**
+1. **Status update:** The live queue row is removed and the durable job row is marked with `terminal_status = 'FAILED'`
+2. **Error recording:** The sanitized error and final retry count are stored on the durable job row
+3. **Event publishing:** `JobFailedEvent` is published before one centrally owned `JobDlqEvent`,
+   after the terminal transition commits, for application-defined alerting and audit handling.
+   These notifications are not replayed; the durable FAILED job row is the source of truth
+4. **Downstream handling:**
    - For batch children: parent batch progress is updated (as failure)
    - For chain steps: downstream steps may receive failure notification
    - For workflow branches: FAILURE-condition branches may fire
-7. **Failure callback:** The `onFailure` callback is invoked if configured
+5. **Failure callback:** The `onFailure` callback is invoked if configured
 
 ### Observing DLQ Events
 
@@ -174,6 +176,22 @@ scheduler.retryJob(jobId);
 ```
 
 This resets the attempt counter to 0, clears error information, sets `scheduled_time` to now, and transitions the job from FAILED to PENDING. The job becomes immediately eligible for polling.
+
+For incident recovery, retry a filtered batch instead of issuing one transaction per job:
+
+```java
+JobFilter outageFailures = JobFilter.builder()
+    .tags("payment-provider")
+    .createdAfter(outageStarted)
+    .build();
+
+int recovered = scheduler.retryJobs(outageFailures, 250);
+```
+
+Each call handles at most 1000 jobs and commits the selected set atomically. Repeat it until the
+returned count is smaller than your chosen limit. Filters are always narrowed to `FAILED`, and
+archived jobs cannot be retried because their executable payload is no longer retained. A
+business-key conflict rolls back the full batch; none of the selected jobs are reset.
 
 ### Automatic Purge
 
@@ -204,6 +222,7 @@ The failure callback is invoked **only on permanent failure** (DLQ entry), not o
 | Event | When | Key Fields |
 |-------|------|------------|
 | `JobRetryingEvent` | Each retry attempt | `jobId`, `errorMessage`, `retryAttempt`, `scheduledTime` |
+| `JobExecutionTimedOutEvent` | A hard execution timeout successfully triggers a retry or terminal transition | `jobId`, `executionTimeout`, `elapsedTime`, `retryAttempt` |
 | `JobDlqEvent` | Permanent failure (DLQ entry) | `jobId`, `errorMessage`, `retryAttempt` |
 | `JobFailedEvent` | Terminal failure only (job reaches FAILED state) -- not fired on retryable attempts | `jobId`, `errorMessage`, `retryAttempt` |
 

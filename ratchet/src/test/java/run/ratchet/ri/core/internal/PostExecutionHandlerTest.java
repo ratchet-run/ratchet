@@ -15,21 +15,30 @@
  */
 package run.ratchet.ri.core.internal;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Transactional;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 
@@ -40,6 +49,7 @@ class PostExecutionHandlerTest {
   @Mock private WorkflowScheduler workflowScheduler;
   @Mock private DeadLetterService deadLetterService;
   @Mock private PollerScheduler pollerScheduler;
+  @Mock private Supplier<Optional<TerminalTimeoutTransition>> timeoutTransition;
 
   private PostExecutionHandler handler;
 
@@ -119,7 +129,6 @@ class PostExecutionHandlerTest {
         List.of(
             JobExecutionType.RECURRING,
             JobExecutionType.BATCH_PARENT,
-            JobExecutionType.DLQ_ALERT,
             JobExecutionType.WORKFLOW_JOIN)) {
       handler.handleJobSuccess(job(jobType));
     }
@@ -128,7 +137,71 @@ class PostExecutionHandlerTest {
   }
 
   @Test
-  void handlePermanentFailure_batchChildWithoutCompletedBatch_doesNotWakePollerOrDlq() {
+  void transitionOwningDlqCompositeUsesRequiresNewAndRollsBackOnCheckedExceptions() {
+    Transactional transactional = PostExecutionHandler.class.getAnnotation(Transactional.class);
+
+    assertTrue(transactional != null);
+    assertTrue(transactional.value() == Transactional.TxType.REQUIRES_NEW);
+    assertTrue(Arrays.asList(transactional.rollbackOn()).contains(Exception.class));
+  }
+
+  @Test
+  void moveToDlqAndHandlePermanentFailureTransitionsBeforeBatchBookkeeping() {
+    JobEntity job = job(JobExecutionType.BATCH_CHILD);
+    RuntimeException failure = new RuntimeException("boom");
+    when(deadLetterService.moveToDlq(job, failure)).thenReturn(true);
+
+    assertTrue(handler.moveToDlqAndHandlePermanentFailure(job, failure));
+
+    InOrder order = inOrder(deadLetterService, batchService);
+    order.verify(deadLetterService).moveToDlq(job, failure);
+    order.verify(batchService).markChildFailed(job);
+  }
+
+  @Test
+  void moveToDlqAndHandlePermanentFailureSkipsBookkeepingWhenTransitionLosesRace() {
+    JobEntity job = job(JobExecutionType.BATCH_CHILD);
+    RuntimeException failure = new RuntimeException("boom");
+
+    assertFalse(handler.moveToDlqAndHandlePermanentFailure(job, failure));
+
+    verify(deadLetterService).moveToDlq(job, failure);
+    verify(batchService, never()).markChildFailed(job);
+  }
+
+  @Test
+  void moveToDlqAndHandlePermanentFailurePropagatesBookkeepingFailureForRollback() {
+    JobEntity job = job(JobExecutionType.BATCH_CHILD);
+    RuntimeException failure = new RuntimeException("boom");
+    when(deadLetterService.moveToDlq(job, failure)).thenReturn(true);
+    when(batchService.markChildFailed(job))
+        .thenThrow(new IllegalStateException("batch store unavailable"));
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> handler.moveToDlqAndHandlePermanentFailure(job, failure));
+
+    verify(deadLetterService).moveToDlq(job, failure);
+    verify(batchService).markChildFailed(job);
+    verify(pollerScheduler, never()).wakeup();
+  }
+
+  @Test
+  void moveToDlqAndHandlePermanentFailureAppliesWorkflowBookkeepingAndWakeup() {
+    JobEntity job = job(JobExecutionType.WORKFLOW_BRANCH);
+    RuntimeException failure = new RuntimeException("boom");
+    when(deadLetterService.moveToDlq(job, failure)).thenReturn(true);
+    when(workflowScheduler.scheduleNext(job)).thenReturn(true);
+
+    assertTrue(handler.moveToDlqAndHandlePermanentFailure(job, failure));
+
+    verify(workflowScheduler).scheduleNext(job);
+    verify(batchService, never()).markChildFailed(job);
+    verify(pollerScheduler).wakeup();
+  }
+
+  @Test
+  void handlePermanentFailure_batchChildWithoutCompletedBatch_recordsDlqWithoutWakingPoller() {
     JobEntity job = job(JobExecutionType.BATCH_CHILD);
     RuntimeException failure = new RuntimeException("boom");
     when(batchService.markChildFailed(job)).thenReturn(false);
@@ -136,7 +209,7 @@ class PostExecutionHandlerTest {
     handler.handlePermanentFailure(job, failure);
 
     verify(batchService).markChildFailed(job);
-    verify(deadLetterService, never()).moveToDlq(job, failure);
+    verify(deadLetterService).recordDlqTransition(job, failure);
     verify(workflowScheduler, never()).scheduleNext(job);
     verify(pollerScheduler, never()).wakeup();
   }
@@ -150,7 +223,7 @@ class PostExecutionHandlerTest {
     handler.handlePermanentFailure(job, failure);
 
     verify(batchService).markChildFailed(job);
-    verify(deadLetterService, never()).moveToDlq(job, failure);
+    verify(deadLetterService).recordDlqTransition(job, failure);
     verify(pollerScheduler).wakeup();
   }
 
@@ -162,7 +235,7 @@ class PostExecutionHandlerTest {
 
     handler.handlePermanentFailure(job, failure);
 
-    verify(deadLetterService).moveToDlq(job, failure);
+    verify(deadLetterService).recordDlqTransition(job, failure);
     verify(workflowScheduler).scheduleNext(job);
     verify(pollerScheduler, never()).wakeup();
   }
@@ -175,7 +248,7 @@ class PostExecutionHandlerTest {
 
     handler.handlePermanentFailure(job, failure);
 
-    verify(deadLetterService).moveToDlq(job, failure);
+    verify(deadLetterService).recordDlqTransition(job, failure);
     verify(workflowScheduler).scheduleNext(job);
     verify(pollerScheduler).wakeup();
   }
@@ -188,7 +261,7 @@ class PostExecutionHandlerTest {
 
     handler.handlePermanentFailure(job, failure);
 
-    verify(deadLetterService).moveToDlq(job, failure);
+    verify(deadLetterService).recordDlqTransition(job, failure);
     verify(workflowScheduler).scheduleNext(job);
     verify(batchService, never()).markChildFailed(job);
     verify(pollerScheduler).wakeup();
@@ -201,7 +274,7 @@ class PostExecutionHandlerTest {
 
     handler.handlePermanentFailure(job, failure);
 
-    verify(deadLetterService).moveToDlq(job, failure);
+    verify(deadLetterService).recordDlqTransition(job, failure);
     verify(workflowScheduler, never()).scheduleNext(job);
     verify(pollerScheduler, never()).wakeup();
   }
@@ -213,7 +286,7 @@ class PostExecutionHandlerTest {
 
     handler.handlePermanentFailure(job, failure);
 
-    verify(deadLetterService).moveToDlq(job, failure);
+    verify(deadLetterService).recordDlqTransition(job, failure);
     verify(workflowScheduler, never()).scheduleNext(job);
     verify(batchService, never()).markChildFailed(job);
     verify(pollerScheduler, never()).wakeup();
@@ -223,17 +296,64 @@ class PostExecutionHandlerTest {
   void handlePermanentFailure_defaultJobTypesMoveToDlqOnly() {
     RuntimeException failure = new RuntimeException("boom");
     JobEntity batchParent = job(JobExecutionType.BATCH_PARENT);
-    JobEntity dlqAlert = job(JobExecutionType.DLQ_ALERT);
     JobEntity workflowJoin = job(JobExecutionType.WORKFLOW_JOIN);
 
     handler.handlePermanentFailure(batchParent, failure);
-    handler.handlePermanentFailure(dlqAlert, failure);
     handler.handlePermanentFailure(workflowJoin, failure);
 
-    verify(deadLetterService).moveToDlq(batchParent, failure);
-    verify(deadLetterService).moveToDlq(dlqAlert, failure);
-    verify(deadLetterService).moveToDlq(workflowJoin, failure);
+    verify(deadLetterService).recordDlqTransition(batchParent, failure);
+    verify(deadLetterService).recordDlqTransition(workflowJoin, failure);
     verifyNoInteractions(batchService, workflowScheduler, pollerScheduler);
+  }
+
+  @Test
+  void handleTimeoutTransition_nonTerminalOutcomeDoesNotRunFailureLifecycle() {
+    RuntimeException failure = new RuntimeException("boom");
+    when(timeoutTransition.get()).thenReturn(Optional.empty());
+
+    handler.handleTimeoutTransition(failure, true, timeoutTransition);
+
+    verify(timeoutTransition).get();
+    verifyNoInteractions(batchService, workflowScheduler, deadLetterService, pollerScheduler);
+  }
+
+  @Test
+  void handleTimeoutTransition_terminalHardTimeoutRoutesFailureInSameBoundary() {
+    JobEntity job = job(JobExecutionType.SINGLE);
+    RuntimeException failure = new RuntimeException("boom");
+    TerminalTimeoutTransition outcome = new TerminalTimeoutTransition(job, List.of());
+    when(timeoutTransition.get()).thenReturn(Optional.of(outcome));
+    when(workflowScheduler.scheduleNext(job)).thenReturn(false);
+
+    boolean terminal = handler.handleTimeoutTransition(failure, false, timeoutTransition);
+
+    assertTrue(terminal);
+    InOrder order = inOrder(timeoutTransition, deadLetterService, workflowScheduler);
+    order.verify(timeoutTransition).get();
+    order
+        .verify(deadLetterService)
+        .recordDlqTransitionInCurrentTransaction(job, failure, List.of());
+    order.verify(workflowScheduler).scheduleNext(job);
+    verify(workflowScheduler, never()).cancelChain(job);
+  }
+
+  @Test
+  void handleTimeoutTransition_terminalSignalTimeoutCancelsChainAfterFailureRouting() {
+    JobEntity job = job(JobExecutionType.SINGLE);
+    RuntimeException failure = new RuntimeException("boom");
+    TerminalTimeoutTransition outcome = new TerminalTimeoutTransition(job, List.of());
+    when(timeoutTransition.get()).thenReturn(Optional.of(outcome));
+    when(workflowScheduler.scheduleNext(job)).thenReturn(false);
+
+    handler.handleTimeoutTransition(failure, true, timeoutTransition);
+
+    InOrder order = inOrder(timeoutTransition, deadLetterService, workflowScheduler);
+    order.verify(timeoutTransition).get();
+    order
+        .verify(deadLetterService)
+        .recordDlqTransitionInCurrentTransaction(job, failure, List.of());
+    order.verify(workflowScheduler).scheduleNext(job);
+    order.verify(workflowScheduler).cancelChain(job);
   }
 
   @Test

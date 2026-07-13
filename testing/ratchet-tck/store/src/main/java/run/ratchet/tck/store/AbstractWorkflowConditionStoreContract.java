@@ -44,6 +44,7 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var child = persist(newPendingJob());
 
     WorkflowConditionEntity condition = newCondition(parent.getId(), child.getId());
+    condition.setDefinitionOrder(7);
 
     var saved = workflowConditionStore().saveCondition(condition);
     assertNotNull(saved.getId(), "Saved condition should have an assigned ID");
@@ -53,6 +54,7 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     assertEquals(saved.getId(), reloaded.getId());
     assertEquals(parent.getId(), reloaded.getParentJobId());
     assertEquals(child.getId(), reloaded.getChildJobId());
+    assertEquals(7, reloaded.getDefinitionOrder());
   }
 
   @Test
@@ -110,6 +112,58 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
         List.of(highPriorityChild.getId(), middlePriorityChild.getId(), lowPriorityChild.getId()),
         orderedChildIds,
         "parent condition scans should evaluate lower priority numbers first");
+  }
+
+  @Test
+  void findConditionsByParentJobId_ordersEqualPriorityByDefinitionOrder() {
+    var parent = persist(newPendingJob());
+    var firstChild = persist(newPendingJob());
+    var secondChild = persist(newPendingJob());
+    var thirdChild = persist(newPendingJob());
+
+    workflowConditionStore().saveCondition(newCondition(parent.getId(), thirdChild.getId(), 5, 2));
+    workflowConditionStore().saveCondition(newCondition(parent.getId(), secondChild.getId(), 5, 1));
+    workflowConditionStore().saveCondition(newCondition(parent.getId(), firstChild.getId(), 5, 0));
+
+    var orderedChildIds =
+        workflowConditionStore().findConditionsByParentJobId(parent.getId()).stream()
+            .map(WorkflowConditionEntity::getChildJobId)
+            .toList();
+
+    assertEquals(
+        List.of(firstChild.getId(), secondChild.getId(), thirdChild.getId()),
+        orderedChildIds,
+        "equal-priority parent conditions should follow workflow definition order");
+  }
+
+  @Test
+  void legacyEqualPriorityConditions_useCanonicalIdAsStableFallback() {
+    var parent = persist(newPendingJob());
+    var firstChild = persist(newPendingJob());
+    var secondChild = persist(newPendingJob());
+    Instant sameTimestamp = Instant.parse("2026-07-12T00:00:00Z");
+    UUID firstId = new UUID(0L, 1L);
+    UUID secondId = new UUID(0L, 2L);
+
+    WorkflowConditionEntity second = newCondition(parent.getId(), secondChild.getId());
+    second.setId(secondId);
+    second.setCreatedAt(sameTimestamp);
+    workflowConditionStore().saveCondition(second);
+
+    WorkflowConditionEntity first = newCondition(parent.getId(), firstChild.getId());
+    first.setId(firstId);
+    first.setCreatedAt(sameTimestamp);
+    workflowConditionStore().saveCondition(first);
+
+    var orderedConditionIds =
+        workflowConditionStore().findConditionsByParentJobId(parent.getId()).stream()
+            .map(WorkflowConditionEntity::getId)
+            .toList();
+
+    assertEquals(
+        List.of(firstId, secondId),
+        orderedConditionIds,
+        "legacy definition_order=0 rows should use canonical UUID text as a stable fallback");
   }
 
   @Test
@@ -175,6 +229,28 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
   }
 
   @Test
+  void findConditionsByChildJobId_ordersEqualPriorityByDefinitionOrder() {
+    var firstParent = persist(newPendingJob());
+    var secondParent = persist(newPendingJob());
+    var thirdParent = persist(newPendingJob());
+    var child = persist(newPendingJob());
+
+    workflowConditionStore().saveCondition(newCondition(thirdParent.getId(), child.getId(), 5, 2));
+    workflowConditionStore().saveCondition(newCondition(secondParent.getId(), child.getId(), 5, 1));
+    workflowConditionStore().saveCondition(newCondition(firstParent.getId(), child.getId(), 5, 0));
+
+    var orderedParentIds =
+        workflowConditionStore().findConditionsByChildJobId(child.getId()).stream()
+            .map(WorkflowConditionEntity::getParentJobId)
+            .toList();
+
+    assertEquals(
+        List.of(firstParent.getId(), secondParent.getId(), thirdParent.getId()),
+        orderedParentIds,
+        "equal-priority child condition scans should follow definition order");
+  }
+
+  @Test
   void findConditionsByType_filtersCorrectly() {
     var parent = persist(newPendingJob());
     var childA = persist(newPendingJob());
@@ -228,6 +304,30 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
         List.of(highPriorityChild.getId(), lowPriorityChild.getId()),
         orderedChildIds,
         "type condition scans should evaluate lower priority numbers first");
+  }
+
+  @Test
+  void findConditionsByType_ordersEqualPriorityByDefinitionOrder() {
+    var parent = persist(newPendingJob());
+    var firstChild = persist(newPendingJob());
+    var secondChild = persist(newPendingJob());
+    var thirdChild = persist(newPendingJob());
+
+    workflowConditionStore().saveCondition(newCondition(parent.getId(), thirdChild.getId(), 5, 2));
+    workflowConditionStore().saveCondition(newCondition(parent.getId(), secondChild.getId(), 5, 1));
+    workflowConditionStore().saveCondition(newCondition(parent.getId(), firstChild.getId(), 5, 0));
+
+    var orderedChildIds =
+        workflowConditionStore()
+            .findConditionsByType(parent.getId(), WorkflowCondition.ConditionType.SUCCESS)
+            .stream()
+            .map(WorkflowConditionEntity::getChildJobId)
+            .toList();
+
+    assertEquals(
+        List.of(firstChild.getId(), secondChild.getId(), thirdChild.getId()),
+        orderedChildIds,
+        "equal-priority type condition scans should follow definition order");
   }
 
   @Test
@@ -300,6 +400,15 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     condition.setConditionType(conditionType);
     condition.setConditionPriority(conditionPriority);
     condition.setCreatedAt(Instant.now());
+    return condition;
+  }
+
+  private WorkflowConditionEntity newCondition(
+      UUID parentJobId, UUID childJobId, int conditionPriority, int definitionOrder) {
+    WorkflowConditionEntity condition =
+        newCondition(
+            parentJobId, childJobId, WorkflowCondition.ConditionType.SUCCESS, conditionPriority);
+    condition.setDefinitionOrder(definitionOrder);
     return condition;
   }
 }

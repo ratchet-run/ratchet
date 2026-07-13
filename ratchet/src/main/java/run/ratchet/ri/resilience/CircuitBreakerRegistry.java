@@ -22,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.NoOpMetricsCollector;
 
 /**
  * Registry for managing circuit breaker instances by service name.
@@ -38,14 +40,22 @@ public class CircuitBreakerRegistry {
   private final Map<CircuitBreakerKey, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final Map<String, CircuitBreakerConfiguration> configs = new ConcurrentHashMap<>();
   private final CircuitBreakerConfigProvider configProvider;
+  private final MetricsCollector metricsCollector;
 
   protected CircuitBreakerRegistry() {
     this.configProvider = null;
+    this.metricsCollector = new NoOpMetricsCollector();
+  }
+
+  public CircuitBreakerRegistry(CircuitBreakerConfigProvider configProvider) {
+    this(configProvider, new NoOpMetricsCollector());
   }
 
   @Inject
-  public CircuitBreakerRegistry(CircuitBreakerConfigProvider configProvider) {
+  public CircuitBreakerRegistry(
+      CircuitBreakerConfigProvider configProvider, MetricsCollector metricsCollector) {
     this.configProvider = configProvider;
+    this.metricsCollector = metricsCollector;
     registerDefaultConfigs();
   }
 
@@ -59,7 +69,7 @@ public class CircuitBreakerRegistry {
     CircuitBreakerConfiguration config =
         configs.getOrDefault(
             configKey, CircuitBreakerConfiguration.fromSpi(configProvider.configFor(profile)));
-    return breakers.computeIfAbsent(key, k -> createBreaker(serviceName, config));
+    return breakers.computeIfAbsent(key, k -> createBreaker(k.serviceName(), k.profile(), config));
   }
 
   public CircuitBreaker.State getBreakerState(String serviceName) {
@@ -103,10 +113,23 @@ public class CircuitBreakerRegistry {
     log.debugf("Registered circuit breaker config: %s", name);
   }
 
-  private CircuitBreaker createBreaker(String serviceName, CircuitBreakerConfiguration config) {
-    CircuitBreaker breaker = new CircuitBreaker(serviceName, config);
+  private CircuitBreaker createBreaker(
+      String serviceName, CircuitBreakerProfile profile, CircuitBreakerConfiguration config) {
+    CircuitBreaker breaker =
+        new CircuitBreaker(serviceName, config, state -> reportState(serviceName, profile, state));
+    reportState(serviceName, profile, CircuitBreaker.State.CLOSED);
     log.debugf("Created circuit breaker for service: %s", serviceName);
     return breaker;
+  }
+
+  private void reportState(
+      String serviceName, CircuitBreakerProfile profile, CircuitBreaker.State state) {
+    try {
+      metricsCollector.circuitBreakerState(serviceName, profile.name(), state.name());
+    } catch (RuntimeException e) {
+      log.debugf(
+          e, "Metrics collector rejected circuit breaker state for service: %s", serviceName);
+    }
   }
 
   private void registerDefaultConfigs() {

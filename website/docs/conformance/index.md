@@ -6,20 +6,29 @@ sidebar_label: TCK Conformance
 
 # TCK Conformance
 
-Ratchet defines three conformance tiers. Each tier is independently verifiable by third-party
-implementors. A store author does not need to satisfy Jakarta Runtime contracts to claim Store
+Ratchet defines three product/runtime conformance tiers. Each tier exposes public abstract
+contracts that another implementation can run. The API and Jakarta tiers require an
+implementation-specific runtime bridge, and the Jakarta tier also requires an Arquillian
+deployment. A store author does not need to satisfy Jakarta Runtime contracts to claim Store
 compatibility.
+
+The separate `ratchet-tck-coordinator` artifact tests `ClusterCoordinator` implementations. It is a
+component-level contract suite, not another step in the Store -> API -> Jakarta tier stack.
 
 ## Conformance Tiers
 
 | Tier | Module | What it proves |
 |------|--------|----------------|
-| **Store Compatible** | `ratchet-tck-store` | The `JobStore` SPI implementation correctly persists, queries, and manages job state across 11 required core contracts, plus 15 optional capability contracts reported `N/A` when the store does not advertise the capability, covering CRUD, lifecycle, locking, archival, signals, analytics, and schema conformance |
-| **API Compatible** | `ratchet-tck-api` | The `JobSchedulerService` API implementation correctly handles job submission, lifecycle, retry, cancel, delayed scheduling, and idempotency without a Jakarta EE container |
+| **Store Compatible** | `ratchet-tck-store` | The `JobStore` SPI implementation passes every required contract and every applicable conditional contract in the source registry. Unsupported capabilities and persistence-model-specific profiles are reported `N/A`. |
+| **API Compatible** | `ratchet-tck-api` | The `JobSchedulerService` implementation passes the container-neutral API contracts. The adopter chooses how to bootstrap the implementation, which may still require its normal runtime environment. |
 | **Jakarta Runtime Compatible** | `ratchet-tck-api` + `ratchet-tck-jakarta` | The runtime passes both API contracts and CDI injection, CDI event, and JTA transaction contracts in a live Jakarta EE container |
 
 **Ratchet RI Verified** is the project's own claim: the reference implementation passes all three
-tiers on a published matrix of servers and databases.
+tiers on a published matrix of servers and databases. It is not a fourth third-party tier and has
+no separate TCK artifact.
+
+See [Adopting the TCK](./adopting-the-tck) for the dependencies, fixtures, runtime adapters,
+Arquillian packaging, report paths, and current limits of third-party self-certification.
 
 ## Store Conformance Reports
 
@@ -64,10 +73,11 @@ mvn verify -P wildfly-managed,mysql -pl :ratchet-testsuite -am
 
 ## Implementing a Conformant Store
 
-To claim **Ratchet Store Compatible**, add `ratchet-tck-store` as a test dependency and extend
-every abstract contract class. The `ConformanceReportExtension` listener activates automatically
-and writes `target/tck-conformance-report.md` at the end of each test run. Inject your store
-name so the report header is meaningful:
+To claim **Ratchet Store Compatible**, add `ratchet-tck-store` as a test dependency, implement
+`JobStoreContractFixture`, and extend every required and applicable abstract contract class. The
+`ConformanceReportExtension` listener activates automatically and writes
+`target/tck-conformance-report.md` at the end of each recognized test run. Inject your store name
+so the report header is meaningful:
 
 ```xml
 <plugin>
@@ -80,3 +90,6 @@ name so the report header is meaningful:
   </configuration>
 </plugin>
 ```
+
+The complete adapter map and the distinction between `MISSING` and `N/A` are in
+[Adopting the TCK](./adopting-the-tck#store-compatible).

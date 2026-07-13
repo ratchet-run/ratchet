@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 #
-# sync-version.sh — set every non-pom reference to the Ratchet artifact version.
+# sync-version.sh — sync project and published Ratchet version references.
 #
 # The Maven poms carry the canonical version (managed by `mvn versions:set`).
-# A scattering of docs, the loadtest Dockerfile, and the bug-report template
-# repeat that version by hand, so they drift the moment a release bumps the
-# poms. This script rewrites those hand-written copies to whatever version you
-# pass in, so the two can never disagree again.
+# Development references (project-status prose, verified-against notes, the
+# loadtest Dockerfile, and the bug-report template) follow that version. Public
+# dependency and JAR snippets follow the latest published release instead: a
+# -SNAPSHOT coordinate is not copy-pasteable from Maven Central.
 #
 # Usage:
 #   scripts/sync-version.sh <version>
-#   scripts/sync-version.sh 0.1.1-SNAPSHOT
+#   scripts/sync-version.sh 0.1.2-SNAPSHOT
+#   RELEASE_VERSION=0.1.1 scripts/sync-version.sh 0.1.2-SNAPSHOT
 #
-# It is idempotent: it SETS each reference to <version> regardless of the value
-# already there, so you never need to know the old version. Running it twice
-# with the same argument produces no diff.
+# A non-SNAPSHOT argument is both the project and public version. For a
+# -SNAPSHOT argument, public references change only when RELEASE_VERSION names
+# the release that was just published. The release workflow already exports
+# that variable before it creates the next-development bump PR. Without it,
+# public references stay unchanged.
 #
 # It only touches the Ratchet artifact version. Replacements are anchored to
 # Ratchet context (a run.ratchet dependency block, a ratchet-* jar/war
@@ -30,6 +33,29 @@ fi
 
 VERSION="$1"
 
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+  echo "invalid Ratchet version: $VERSION" >&2
+  exit 2
+fi
+
+PUBLIC_VERSION=""
+if [[ "$VERSION" != *-SNAPSHOT ]]; then
+  PUBLIC_VERSION="$VERSION"
+elif [[ -n "${RELEASE_VERSION:-}" ]]; then
+  PUBLIC_VERSION="$RELEASE_VERSION"
+fi
+
+if [[ -n "$PUBLIC_VERSION" ]]; then
+  if [[ ! "$PUBLIC_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+    echo "invalid published Ratchet version: $PUBLIC_VERSION" >&2
+    exit 2
+  fi
+  if [[ "$PUBLIC_VERSION" == *-SNAPSHOT ]]; then
+    echo "published Ratchet version must not be a SNAPSHOT: $PUBLIC_VERSION" >&2
+    exit 2
+  fi
+fi
+
 # Resolve repo root so the script works from any cwd.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -39,6 +65,7 @@ cd "$ROOT"
 # without knowing it. It deliberately does NOT match bare "8" / "17" style
 # numbers used for Java/MySQL/etc.
 VER_RE='[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.]+)?'
+PUBLIC_REF_RE='(?:[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.]+)?|\$\{ratchet\.version\})'
 
 changed_files=()
 
@@ -50,7 +77,8 @@ apply() {
   [[ -f "$file" ]] || { echo "skip (missing): $file" >&2; return; }
   local before after
   before="$(cat "$file")"
-  VERSION="$VERSION" VER_RE="$VER_RE" perl -0777 -i -pe "$subst" "$file"
+  VERSION="$VERSION" PUBLIC_VERSION="$PUBLIC_VERSION" VER_RE="$VER_RE" \
+    PUBLIC_REF_RE="$PUBLIC_REF_RE" perl -0777 -i -pe "$subst" "$file"
   after="$(cat "$file")"
   if [[ "$before" != "$after" ]]; then
     echo "  changed [$label]: $file"
@@ -58,12 +86,12 @@ apply() {
   fi
 }
 
-# 1. Maven dependency snippets: a <version>…</version> line whose immediately
+# 1. Public Maven dependency snippets: a <version>…</version> line whose immediately
 #    preceding artifactId is a Ratchet artifact under groupId run.ratchet.
 #    Anchored on "run.ratchet" so non-Ratchet dependency blocks are untouched.
-#    Files: README, getting-started + deployment install/quickstart/overview,
-#    plus the per-module snippets (store-mongodb, micrometer).
-MAVEN_FILES=(
+#    These coordinates must resolve from Maven Central, so a development bump
+#    leaves them alone unless RELEASE_VERSION identifies the release just cut.
+PUBLIC_MAVEN_FILES=(
   "README.md"                                 # ratchet-bom quick-start snippet
   "website/docs/getting-started/installation.md"  # ratchet-bom
   "website/docs/getting-started/quickstart.md"     # ratchet-bom
@@ -71,25 +99,40 @@ MAVEN_FILES=(
   "website/docs/deployment/overview.md"            # ratchet-bom
   "website/docs/deployment/mongodb.md"             # ratchet-store-mongodb
   "website/docs/deployment/monitoring.md"          # ratchet-micrometer
+  "website/docs/deployment/performance-tuning.md"  # ratchet-micrometer
   "website/docs/use-cases/durable-llm-workflows.md"   # ratchet + ratchet-store-postgresql
-  "website/docs/use-cases/scheduled-recurring-jobs.md" # (no deps today; future-proofed)
+  "website/docs/advanced/metrics-collection.md"     # ratchet-micrometer
+  "website/docs/advanced/spi-implementation.md"     # ratchet-tck-store
+  "website/docs/concepts/overview.md"               # ratchet-bom
+  "website/docs/conformance/adopting-the-tck.md"    # ratchet-bom
 )
-for f in "${MAVEN_FILES[@]}"; do
-  apply "$f" "maven-version" \
-    's{(<groupId>run\.ratchet</groupId>\s*<artifactId>ratchet[A-Za-z0-9-]*</artifactId>\s*<version>)$ENV{VER_RE}(</version>)}{$1$ENV{VERSION}$2}g'
-done
+if [[ -n "$PUBLIC_VERSION" ]]; then
+  for f in "${PUBLIC_MAVEN_FILES[@]}"; do
+    apply "$f" "published-maven-version" \
+      's{(<groupId>run\.ratchet</groupId>\s*<artifactId>ratchet[A-Za-z0-9-]*</artifactId>\s*<version>)$ENV{PUBLIC_REF_RE}(</version>)}{$1$ENV{PUBLIC_VERSION}$2}g'
+  done
+fi
 
-# 2. ratchet-* jar/war filenames (extract-the-DDL snippets + the loadtest
-#    Dockerfile artifact path). Anchored on the "ratchet-<artifact>-" prefix.
-JAR_FILES=(
-  "website/docs/deployment/database-setup.md"  # jar xf ratchet-store-*-VER.jar (x2)
+# 2. Published ratchet-* JAR filenames used by extract-the-DDL snippets.
+#    Oracle and SQL Server are included so future release references cannot
+#    drift when their bundled-JAR instructions are present.
+PUBLIC_JAR_FILES=(
+  "website/docs/deployment/database-setup.md"
   "website/docs/deployment/docker.md"          # jar xf ratchet-store-postgresql-VER.jar
-  "infra/loadtest/Dockerfile"                  # ratchet-loadtest-VER.war COPY path
+  "website/docs/deployment/oracle.md"
+  "website/docs/deployment/sqlserver.md"
 )
-for f in "${JAR_FILES[@]}"; do
-  apply "$f" "jar-war-filename" \
-    's{(ratchet-[A-Za-z0-9-]*?-)$ENV{VER_RE}(\.(?:jar|war))}{$1$ENV{VERSION}$2}g'
-done
+if [[ -n "$PUBLIC_VERSION" ]]; then
+  for f in "${PUBLIC_JAR_FILES[@]}"; do
+    apply "$f" "published-jar-filename" \
+      's{(ratchet-[A-Za-z0-9-]*?-)$ENV{VER_RE}(\.jar)}{$1$ENV{PUBLIC_VERSION}$2}g'
+  done
+fi
+
+# 2b. The loadtest WAR is built from this checkout, so it follows the project
+#     version even during next-development bumps.
+apply "infra/loadtest/Dockerfile" "project-war-filename" \
+  's{(ratchet-loadtest-)$ENV{VER_RE}(\.war)}{$1$ENV{VERSION}$2}g'
 
 # 3. Prose "version" sentences (bold **VER**). Anchored on the leading phrase so
 #    only the project-status sentence is touched, never some other bold number.
@@ -120,7 +163,13 @@ apply ".github/ISSUE_TEMPLATE/bug_report.yml" "issue-placeholder" \
 
 echo ""
 if [[ ${#changed_files[@]} -eq 0 ]]; then
-  echo "sync-version: all references already at $VERSION (no changes)."
+  echo "sync-version: all selected references already match (no changes)."
 else
-  echo "sync-version: set ${#changed_files[@]} file(s) to $VERSION."
+  echo "sync-version: updated ${#changed_files[@]} file(s)."
+fi
+echo "  project version: $VERSION"
+if [[ -n "$PUBLIC_VERSION" ]]; then
+  echo "  published version: $PUBLIC_VERSION"
+else
+  echo "  published version: unchanged (RELEASE_VERSION not set)"
 fi

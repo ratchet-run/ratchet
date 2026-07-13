@@ -16,8 +16,10 @@
 package run.ratchet.ri.core;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
@@ -65,6 +67,18 @@ final class DefaultInvocationStreamingBatchBuilder<T extends Serializable>
   @Override
   public InvocationStreamingBatchBuilder<T> platform() {
     state.platform();
+    return this;
+  }
+
+  @Override
+  public InvocationStreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param) {
+    state.withBackoff(policy, param);
+    return this;
+  }
+
+  @Override
+  public InvocationStreamingBatchBuilder<T> withMaxRetries(int retries) {
+    state.withMaxRetries(retries);
     return this;
   }
 

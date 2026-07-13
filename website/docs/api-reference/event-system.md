@@ -116,7 +116,8 @@ public void onCompleted(@Observes JobCompletedEvent event) {
 
 ### JobFailedEvent
 
-Fired when a job fails after its final attempt (all retries exhausted, or marked `@DoNotRetry`).
+Fired when a job reaches terminal `FAILED` state. This includes execution failures that exhaust
+retry handling and terminal timeout transitions; retryable per-attempt failures do not publish it.
 
 ```java
 public class JobFailedEvent extends AbstractJobSchedulerEvent {
@@ -161,6 +162,39 @@ public void onRetrying(@Observes JobRetryingEvent event) {
         event.getJobId(), event.getRetryAttempt(), event.getScheduledTime());
 }
 ```
+
+### JobExecutionTimedOutEvent
+
+Fired after a `RUNNING` job exceeds its configured execution timeout and Ratchet successfully
+applies the resulting retry or terminal-failure transition. It is not fired for the soft warning
+threshold or when another path wins the transition race.
+
+```java
+public class JobExecutionTimedOutEvent extends AbstractJobSchedulerEvent {
+    public Duration getExecutionTimeout()
+    public Duration getElapsedTime()
+    public int getRetryAttempt()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getExecutionTimeout()` | `Duration` | Configured maximum execution duration that was exceeded |
+| `getElapsedTime()` | `Duration` | Observed execution duration when the watchdog fired |
+| `getRetryAttempt()` | `int` | 1-based failed-attempt count recorded by the transition |
+
+A retrying timeout also publishes `JobRetryingEvent`. A terminal timeout also publishes
+`JobFailedEvent` and follows the normal dead-letter path. Observe this event when the application
+needs timeout-specific handling without parsing a generic failure message:
+
+```java
+public void onExecutionTimeout(@Observes JobExecutionTimedOutEvent event) {
+    timeoutAlertExecutor.execute(() -> alertService.notifyTimeout(event));
+}
+```
+
+Event delivery is synchronous, so observers must offload network calls and other blocking work.
+Ratchet does not select an alert channel; that remains application configuration.
 
 ### JobCancelledEvent
 
@@ -212,6 +246,33 @@ public void onBulkCancelled(@Observes JobsBulkCancelledEvent event) {
 }
 ```
 
+### JobsBulkRetriedEvent
+
+Fired exactly once when `retryJobs(JobFilter, int)` resets at least one failed job. Bulk retry does
+not publish a `JobRetryingEvent` for each selected job.
+
+```java
+public class JobsBulkRetriedEvent implements Serializable {
+    public JobFilter getFilter()
+    public int getLimit()
+    public int getCount()
+    public Instant getRetriedAt()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getFilter()` | `JobFilter` | Selection requested by the caller |
+| `getLimit()` | `int` | Maximum jobs allowed in the recovery batch |
+| `getCount()` | `int` | Number of failed jobs reset to pending |
+| `getRetriedAt()` | `Instant` | When the bulk operation completed |
+
+```java
+public void onBulkRetried(@Observes JobsBulkRetriedEvent event) {
+    log.info("Recovered {} failed jobs", event.getCount());
+}
+```
+
 ### JobPausedEvent
 
 Fired when a job is paused.
@@ -234,7 +295,9 @@ No additional fields.
 
 ### JobDlqEvent
 
-Fired when a job is moved to the Dead Letter Queue after exhausting all retries.
+Fired when a job enters terminal dead-letter handling. This can follow retry exhaustion, a
+non-retryable failure such as poison data, or a protective runtime limit such as the retry-buffer
+hard cap.
 
 ```java
 public class JobDlqEvent extends AbstractJobSchedulerEvent {
@@ -246,7 +309,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
 | Method | Return Type | Description |
 |---|---|---|
 | `getErrorMessage()` | `String` | Error from the final failure |
-| `getRetryAttempt()` | `int` | Total retry attempts before DLQ |
+| `getRetryAttempt()` | `int` | Final recorded retry count before DLQ; zero means no retry was consumed |
 
 ```java
 public void onDlq(@Observes JobDlqEvent event) {
@@ -491,6 +554,8 @@ public class JobsBulkSignaledEvent implements Serializable {
 ### JobSignalTimedOutEvent
 
 Fired when a `WAITING` job's signal timeout elapses and it is transitioned to `FAILED`.
+The same terminal transition publishes `JobFailedEvent` immediately after this timeout-specific
+event.
 
 ```java
 public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {
@@ -536,6 +601,10 @@ public class SchedulerMonitoring {
         metrics.counter("jobs.failed", "type", e.getJobType().name()).increment();
     }
 
+    public void onExecutionTimeout(@Observes JobExecutionTimedOutEvent e) {
+        metrics.counter("jobs.execution.timeout", "type", e.getJobType().name()).increment();
+    }
+
     public void onDlq(@Observes JobDlqEvent e) {
         metrics.counter("jobs.dlq", "type", e.getJobType().name()).increment();
         alerts.notify("Job " + e.getJobId() + " moved to DLQ: " + e.getErrorMessage());
@@ -549,6 +618,10 @@ public class SchedulerMonitoring {
     public void onBulkCancelled(@Observes JobsBulkCancelledEvent e) {
         metrics.counter("jobs.cancelled.bulk", "tag", e.getTag())
             .increment(e.getCount());
+    }
+
+    public void onBulkRetried(@Observes JobsBulkRetriedEvent e) {
+        metrics.counter("jobs.retried.bulk").increment(e.getCount());
     }
 }
 ```

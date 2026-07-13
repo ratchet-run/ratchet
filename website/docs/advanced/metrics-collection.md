@@ -10,79 +10,24 @@ Ratchet provides a `MetricsCollector` SPI that receives callbacks during the job
 
 ## MetricsCollector SPI
 
-The SPI defines three core lifecycle callbacks plus an optional callback-failure hook:
+`MetricsCollector` covers the job lifecycle and the scheduler paths operators need when work is not progressing normally:
 
-```java
-package run.ratchet.spi;
+| Area | Callbacks |
+|------|-----------|
+| Job execution | `jobStarted`, `jobCompleted`, `jobFailed` |
+| Success finalization | `successFinalizationRetried`, `successFinalizationMinimal`, `successFinalizationStuck` |
+| Claim and admission | `claimTransientFailure`, `jobsClaimed`, `gateRejected` |
+| Wakeups and routing | `localWakeup`, `executionTargetFallback`, `clusterWakeupPublished`, `clusterWakeupReceived` |
+| Callbacks and signals | `callbackFailed`, `signalWaiting`, `signalDelivered`, `signalTimedOut`, `signalCancelled` |
+| Store health | `storeOperation` |
+| Circuit breakers | `pollerBreakerState`, `circuitBreakerState` |
+| Payload encryption | `encryptionIntegrityViolation`, `encryptionEnvelopeVersionSkew` |
 
-@Incubating
-public interface MetricsCollector {
-
-    /**
-     * Notifies that a job has started execution.
-     *
-     * @param jobId    the unique job identifier
-     * @param type     the job type (SINGLE, RECURRING, BATCH, etc.)
-     * @param priority the job priority level
-     */
-    void jobStarted(UUID jobId, JobType type, JobPriority priority);
-
-    /**
-     * Notifies that a job has completed successfully.
-     *
-     * @param jobId           the unique job identifier
-     * @param type            the job type
-     * @param executionTimeMs the execution time of the completed attempt in milliseconds
-     */
-    void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
-
-    /**
-     * Notifies that a job has failed.
-     *
-     * @param jobId   the unique job identifier
-     * @param type    the job type
-     * @param cause   the exception that caused the failure
-     * @param attempt the 1-based attempt number, including the failed attempt
-     */
-    void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
-
-    /**
-     * Notifies that an onSuccess/onFailure callback threw an exception.
-     */
-    default void callbackFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
-        // No-op
-    }
-}
-```
-
-This interface is marked `@Incubating` -- additional lifecycle callbacks (retry, timeout, DLQ) may be added in future releases.
+The first ten methods are required for a direct implementation. The remaining methods have default no-op bodies so the incubating SPI can grow without breaking existing implementations. Treat those defaults as a compatibility mechanism, not a claim that the signals are unimportant. A complete monitoring adapter should make an explicit decision about every callback.
 
 ## Default No-Op Collector
 
-When no monitoring integration is configured, the `NoOpMetricsCollector` satisfies the injection point with empty method bodies:
-
-```java
-@ApplicationScoped
-public class NoOpMetricsCollector implements MetricsCollector {
-
-    @Override
-    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
-        // No-op
-    }
-
-    @Override
-    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
-        // No-op
-    }
-
-    @Override
-    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
-        // No-op
-    }
-}
-```
-
-Ratchet runs without a metrics dependency on the classpath.
+When no monitoring integration is configured, `NoOpMetricsCollector` satisfies the injection point without publishing anything. It implements the required callbacks and inherits or retains no-op behavior for the optional ones, so Ratchet runs without a metrics dependency on the classpath.
 
 ## Micrometer Integration
 
@@ -94,7 +39,7 @@ The `ratchet-micrometer` module provides a Micrometer adapter that publishes job
 <dependency>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-micrometer</artifactId>
-    <version>${ratchet.version}</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 
@@ -130,21 +75,34 @@ public class MetricsProducer {
 
 ### Published Metrics
 
-The Micrometer adapter publishes the following metrics:
+The Micrometer adapter publishes the following meters:
 
-#### Counters
-
-| Metric Name | Tags | Description |
-|-------------|------|-------------|
-| `ratchet.jobs.started` | `type`, `priority` | Incremented each time a job begins execution |
-| `ratchet.jobs.completed` | `type` | Incremented each time a job completes successfully |
-| `ratchet.jobs.failed` | `type`, `family` | Incremented each time a job fails. The `family` tag contains the `ExceptionFamily` classification of the causing exception (`TRANSIENT`, `TIMEOUT`, `VALIDATION`, `BUSINESS`, or `UNKNOWN`). |
-
-#### Timers
-
-| Metric Name | Tags | Description |
-|-------------|------|-------------|
-| `ratchet.jobs.duration` | `type` | Records the execution time of completed jobs. Provides count, total time, max, and histogram data. |
+| Metric Name | Type | Tags | Description |
+|-------------|------|------|-------------|
+| `ratchet.jobs.started` | Counter | `type`, `priority` | Job execution attempts started |
+| `ratchet.jobs.completed` | Counter | `type` | Job execution attempts completed successfully |
+| `ratchet.jobs.failed` | Counter | `type`, `family` | Failed attempts, classified as `TRANSIENT`, `TIMEOUT`, `VALIDATION`, `BUSINESS`, or `UNKNOWN` |
+| `ratchet.jobs.duration` | Timer | `type` | Wall-clock duration of successful attempts |
+| `ratchet.store.finalization.retries` | Counter | `type` | Transient conflicts while persisting a successful result |
+| `ratchet.store.finalization.minimal_success` | Counter | `type` | Full-result persistence was exhausted and Ratchet used the minimal terminal-success write |
+| `ratchet.store.finalization.stuck` | Counter | `type` | Both full and minimal finalization were exhausted; the job remains `RUNNING` for recovery |
+| `ratchet.store.claim.transient_failures` | Counter | `execution_type` | Transient store conflicts on the claim path |
+| `ratchet.poller.claimed.jobs` | Counter | `execution_type` | Number of jobs claimed, incremented by the claimed batch size |
+| `ratchet.submission.gate.rejections` | Counter | `execution_type`, `gate_status` | Claimed jobs blocked by a local submission gate |
+| `ratchet.wakeup.local` | Counter | `source` | Direct local poller wakeups after new work |
+| `ratchet.execution.target.fallback` | Counter | `requested_target`, `effective_target` | Requested executor target was unavailable and Ratchet used a fallback pool |
+| `ratchet.wakeup.cluster.publish` | Counter | `transport`, `outcome` | Cluster wakeup publish attempts |
+| `ratchet.wakeup.cluster.receive` | Counter | `transport`, `outcome` | Cluster wakeup messages observed by a receiver |
+| `ratchet.callbacks.failed` | Counter | `type`, `family` | `onSuccess` or `onFailure` callback failures; these do not fail the parent job |
+| `ratchet.signal.waiting` | Counter | `type`, `signal_key` | Jobs created in `WAITING` for a signal |
+| `ratchet.signal.delivered` | Counter | `type`, `signal_key`, `outcome` | Signal deliveries that moved a job to `PENDING` |
+| `ratchet.signal.timed_out` | Counter | `type`, `signal_key` | Signal waits that expired |
+| `ratchet.signal.cancelled` | Counter | `type`, `signal_key` | Signal waits cancelled before delivery |
+| `ratchet.store.operation` | Timer | `store`, `operation`, `outcome` | Timed store operations on claim and execution hot paths |
+| `ratchet.poller.breaker.state` | Gauge | `breaker` | Poller claim-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.circuit.breaker.state` | Gauge | `service`, `profile` | Application circuit-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.encryption.integrity.violations` | Counter | `surface` | A row marked as encrypted contained unframed plaintext. The read succeeds, but this signals a downgrade, lagging writer, or bug. |
+| `ratchet.encryption.envelope.version_skew` | Counter | `version_gap` | A job used a newer envelope than this node can read. `next` is one version ahead, `multiple_versions_ahead` is more than one, and `not_newer` flags an unexpected callback. Ratchet releases valid newer jobs for an upgraded peer; a persistent rate identifies a lagging node. |
 
 #### Tag Values
 
@@ -158,6 +116,8 @@ The `type` tag corresponds to `JobType` enum values:
 - `SYSTEM` -- Scheduler-managed system work, not user-creatable
 
 The `priority` tag corresponds to `JobPriority` enum values (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`).
+
+String-valued tags pass through `MicrometerMetricTagPolicy`. Framework-defined bounded values are retained; blank values become `UNKNOWN`, and unrecognized values become `OTHER`. Protected-surface values are derived from the `ProtectedSurface` enum, so adding a framework surface automatically updates the default policy. Application signal keys are unbounded and therefore collapse to `OTHER` by default. If you deliberately want selected signal keys or extension values as dimensions, provide a policy that allowlists them and account for the extra time series.
 
 ### Prometheus Scrape Endpoint Example
 
@@ -210,14 +170,15 @@ ratchet_jobs_started_total
 
 ## Implementing a Custom MetricsCollector
 
-For monitoring systems without Micrometer support, or when you need custom metric shapes, implement the SPI directly.
+For monitoring systems without Micrometer support, or when you need custom metric shapes, implement the SPI directly. The abbreviated examples below deliberately export only the three basic job outcomes. They are partial collectors, not replacements for the full operational surface listed above. For production parity, handle every callback or delegate the callbacks you do not customize to another complete collector.
 
 ### MicroProfile Metrics Example
 
 ```java
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
-import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.ExceptionFamily;
+import run.ratchet.spi.NoOpMetricsCollector;
 import org.eclipse.microprofile.metrics.Counter;
 import org.eclipse.microprofile.metrics.MetricRegistry;
 import org.eclipse.microprofile.metrics.Timer;
@@ -232,7 +193,7 @@ import java.time.Duration;
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
-public class MicroProfileMetricsCollector implements MetricsCollector {
+public class MicroProfileMetricsCollector extends NoOpMetricsCollector {
 
     @Inject
     private MetricRegistry registry;
@@ -260,8 +221,8 @@ public class MicroProfileMetricsCollector implements MetricsCollector {
     public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         Counter counter = registry.counter("ratchet_jobs_failed",
             new org.eclipse.microprofile.metrics.Tag("type", type.name()),
-            new org.eclipse.microprofile.metrics.Tag("exception",
-                cause.getClass().getSimpleName()));
+            new org.eclipse.microprofile.metrics.Tag("family",
+                ExceptionFamily.classify(cause).name()));
         counter.inc();
     }
 }
@@ -274,7 +235,7 @@ For simpler deployments where structured logs feed into a log aggregation system
 ```java
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
-import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.NoOpMetricsCollector;
 
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -285,7 +246,7 @@ import java.util.logging.Logger;
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
-public class LoggingMetricsCollector implements MetricsCollector {
+public class LoggingMetricsCollector extends NoOpMetricsCollector {
 
     private static final Logger log = Logger.getLogger("ratchet.metrics");
 
@@ -323,6 +284,10 @@ Use the metrics to set up alerts for common operational issues:
 | P95 execution time > 2x baseline | Warning: job execution slowdown |
 | No jobs started in 15 minutes (when expected) | Critical: scheduler may be stalled |
 | `ratchet.jobs.failed` with a specific `family` tag spikes | Investigate the failing exception family |
+| `ratchet.store.finalization.stuck` is non-zero | Page an operator; successful work is waiting for recovery |
+| `ratchet.poller.breaker.state` remains `2` | Investigate store availability and claim latency |
+| `ratchet.encryption.integrity.violations` is non-zero | Investigate an encryption downgrade or un-upgraded writer |
+| `ratchet.encryption.envelope.version_skew` persists after a rollout | Find and upgrade the lagging node |
 
 ## Best practices
 
@@ -334,9 +299,9 @@ Prefer `ratchet.jobs.started{type=SINGLE}` over `ratchet.single_jobs.started`. T
 
 The Micrometer adapter classifies failures into the `ExceptionFamily` enum (`TRANSIENT`, `TIMEOUT`, `VALIDATION`, `BUSINESS`, `UNKNOWN`) for the `family` tag, so cardinality stays fixed. A custom collector that tags by exception class name can produce high-cardinality metrics if your application throws many dynamically-generated exception types. Normalize exception names in that case.
 
-### Monitor attempt counts
+### Monitor finalization fallbacks
 
-A spike in `attempt > 1` failures means retries are being consumed. Pair this with retry policy metrics to understand whether jobs are eventually succeeding or exhausting their retry budget.
+Alert on `ratchet.store.finalization.stuck`. Track `ratchet.store.finalization.retries` and `ratchet.store.finalization.minimal_success` as earlier warnings that terminal writes are contending or failing.
 
 ### Set baselines before alerting
 

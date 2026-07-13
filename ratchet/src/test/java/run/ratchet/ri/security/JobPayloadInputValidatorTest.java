@@ -20,12 +20,19 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.entity.JobPayload;
 
 class JobPayloadInputValidatorTest {
 
   private final JobPayloadInputValidator validator = new JobPayloadInputValidator();
+
+  @AfterEach
+  void discardPreparedSerializations() {
+    new JobPayloadConverter().discardAllPreparedSerializations();
+  }
 
   @Test
   void nullPayloadThrows() {

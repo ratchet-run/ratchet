@@ -23,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -44,11 +43,12 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
-import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -58,7 +58,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 @ExtendWith(MockitoExtension.class)
 class RetryBufferManagerTest {
 
-  @Mock private DeadLetterService deadLetterService;
+  @Mock private PostExecutionHandler lifecycleFacade;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private NodeIdentityProvider nodeIdentityProvider;
 
@@ -82,7 +82,7 @@ class RetryBufferManagerTest {
   void setUp() {
     JobStateManager jobStateManager =
         new JobStateManager(jobBatchStatusStore, nodeIdentityProvider);
-    manager = new RetryBufferManager(deadLetterService, jobStateManager);
+    manager = new RetryBufferManager(jobStateManager, lifecycleFacade);
   }
 
   @Test
@@ -282,8 +282,60 @@ class RetryBufferManagerTest {
     }
 
     JobEntity overflow = standardJob(99999L);
+    overflow.setAttempts(3);
     assertFalse(manager.forceOffer(overflow));
-    verify(deadLetterService).moveToDlq(eq(overflow), any(IllegalStateException.class));
+    ArgumentCaptor<JobEntity> dlqJob = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(dlqJob.capture(), any(IllegalStateException.class));
+    assertEquals(3, dlqJob.getValue().getAttempts());
+  }
+
+  @Test
+  void forceOffer_batchChildAtHardCapPreservesParentAndUpdatesBatchProgress() {
+    for (int i = 0; i < RetryBufferManager.HARD_CAP_PER_TYPE; i++) {
+      manager.forceOffer(
+          job(i, JobExecutionType.BATCH_CHILD, JobPriority.NORMAL, Instant.EPOCH.plusSeconds(i)));
+    }
+    UUID parentId = UUID.randomUUID();
+    JobEntity overflow =
+        job(99999L, JobExecutionType.BATCH_CHILD, JobPriority.NORMAL, Instant.now());
+    overflow.setDependsOn(parentId);
+    overflow.setAttempts(4);
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(
+            any(JobEntity.class), any(IllegalStateException.class)))
+        .thenReturn(true);
+
+    assertFalse(manager.forceOffer(overflow));
+
+    ArgumentCaptor<JobEntity> dlqJob = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(dlqJob.capture(), any(IllegalStateException.class));
+    assertEquals(parentId, dlqJob.getValue().getDependsOn());
+    assertEquals(4, dlqJob.getValue().getAttempts());
+  }
+
+  @Test
+  void forceOffer_batchChildBookkeepingFailureRollsBackAndKeepsClaimBuffered() {
+    for (int i = 0; i < RetryBufferManager.HARD_CAP_PER_TYPE; i++) {
+      manager.forceOffer(
+          job(i, JobExecutionType.BATCH_CHILD, JobPriority.NORMAL, Instant.EPOCH.plusSeconds(i)));
+    }
+    UUID parentId = UUID.randomUUID();
+    JobEntity overflow =
+        job(99999L, JobExecutionType.BATCH_CHILD, JobPriority.NORMAL, Instant.now());
+    overflow.setDependsOn(parentId);
+    doThrow(new IllegalStateException("batch store unavailable"))
+        .when(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(any(JobEntity.class), any(IllegalStateException.class));
+
+    assertTrue(manager.forceOffer(overflow));
+
+    assertEquals(RetryBufferManager.HARD_CAP_PER_TYPE + 1, manager.totalSize());
+    assertTrue(
+        manager.getBuffer(JobExecutionType.BATCH_CHILD).stream()
+            .anyMatch(
+                claim ->
+                    overflow.getId().equals(claim.jobId()) && parentId.equals(claim.dependsOn())));
   }
 
   @Test
@@ -292,13 +344,14 @@ class RetryBufferManagerTest {
       manager.forceOffer(standardJob(i));
     }
     doThrow(new RuntimeException("dlq unavailable"))
-        .when(deadLetterService)
-        .moveToDlq(any(JobEntity.class), any(IllegalStateException.class));
+        .when(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(any(JobEntity.class), any(IllegalStateException.class));
 
     JobEntity overflow = standardJob(99999L);
     assertTrue(manager.forceOffer(overflow));
 
-    verify(deadLetterService).moveToDlq(any(JobEntity.class), any(IllegalStateException.class));
+    verify(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(any(JobEntity.class), any(IllegalStateException.class));
     assertEquals(RetryBufferManager.HARD_CAP_PER_TYPE + 1, manager.totalSize());
     assertTrue(
         manager.getBuffer(JobExecutionType.SINGLE).stream()
@@ -317,10 +370,10 @@ class RetryBufferManagerTest {
             invocation -> {
               dlqEntered.countDown();
               assertTrue(releaseDlq.await(5, TimeUnit.SECONDS));
-              return null;
+              return true;
             })
-        .when(deadLetterService)
-        .moveToDlq(any(JobEntity.class), any(IllegalStateException.class));
+        .when(lifecycleFacade)
+        .moveToDlqAndHandlePermanentFailure(any(JobEntity.class), any(IllegalStateException.class));
 
     ExecutorService executor = Executors.newFixedThreadPool(2);
     try {

@@ -81,8 +81,14 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     created_at            DATETIME(6)                                                       NOT NULL,
     caller_principal      VARCHAR(255)                                                      NULL,
     encrypted_payload     BOOLEAN                                                           NOT NULL DEFAULT FALSE,
+    misfire_policy        ENUM ('SKIP','FIRE_ONCE','CATCH_UP')                              NOT NULL DEFAULT 'CATCH_UP',
+    max_catch_up_executions INT                                                             NOT NULL DEFAULT 11,
     PRIMARY KEY (id),
     CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
+    CONSTRAINT chk_rec_misfire_policy CHECK (
+        (misfire_policy = 'CATCH_UP' AND max_catch_up_executions >= 1)
+        OR (misfire_policy IN ('SKIP', 'FIRE_ONCE') AND max_catch_up_executions = 0)
+    ),
     -- Claim index: filter unpaused rows first, then order by next_fire.
     INDEX idx_rec_claim (is_paused, next_fire),
     INDEX idx_rec_business_key (business_key),
@@ -126,7 +132,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 (
     job_id                BINARY(16)      NOT NULL,
     -- Immutable job-shape fields (duplicated on scheduler_job_queue per §duplication rule).
-    job_type              ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
+    job_type              ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority              TINYINT UNSIGNED                                                                                                    NOT NULL DEFAULT 2,
     max_retries           INT                                                                                                                 NOT NULL DEFAULT 0,
     backoff_policy        ENUM ('NONE','FIXED','EXPONENTIAL')                                                                                 NOT NULL DEFAULT 'NONE',
@@ -223,7 +229,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
     job_id             BINARY(16)      NOT NULL,
     status             ENUM ('PENDING','RUNNING','PAUSED','WAITING')                                                                      NOT NULL DEFAULT 'PENDING',
-    job_type           ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
+    job_type           ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority           TINYINT UNSIGNED                                                                                                    NOT NULL DEFAULT 2,
     scheduled_time     DATETIME(6)                                                                                                         NOT NULL,
     business_key       VARCHAR(255)                                                                                                        NULL,
@@ -380,7 +386,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     archive_id              BINARY(16)      NOT NULL,
     original_job_id         BINARY(16)                                                                                                          NOT NULL,
     final_status            ENUM ('SUCCEEDED','FAILED','CANCELED')                                                                                 NOT NULL,
-    job_type                ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
+    job_type                ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority                TINYINT UNSIGNED                                                                                                    NOT NULL,
     total_attempts          INT                                                                                                                 NOT NULL DEFAULT 0,
     max_retries             INT                                                                                                                 NOT NULL,
@@ -434,11 +440,13 @@ CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
     condition_type       VARCHAR(32)     NOT NULL,
     condition_expression TEXT            NULL,
     condition_priority   INT             NOT NULL DEFAULT 0,
+    definition_order     INT             NOT NULL DEFAULT 0,
     created_at           DATETIME(6)     NOT NULL,
     PRIMARY KEY (id),
     INDEX idx_workflow_parent (parent_job_id),
     INDEX idx_workflow_child (child_job_id),
     INDEX idx_workflow_priority (parent_job_id, condition_priority),
+    INDEX idx_workflow_evaluation_order (parent_job_id, condition_priority, definition_order),
     CONSTRAINT fk_workflow_parent FOREIGN KEY (parent_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
     CONSTRAINT fk_workflow_child FOREIGN KEY (child_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
     CONSTRAINT chk_condition_type CHECK (condition_type IN
@@ -449,23 +457,7 @@ CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
 
--- 12. DLQ alert records
-CREATE TABLE IF NOT EXISTS scheduler_dlq_alerts
-(
-    id            BINARY(16)      NOT NULL,
-    job_id        BINARY(16)      NOT NULL,
-    error_hash    VARCHAR(64)     NOT NULL,
-    alert_sent_at DATETIME(6)     NULL,
-    alert_channel VARCHAR(100)    NULL,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_job_error_hash (job_id, error_hash),
-    INDEX idx_dlq_sent_at (alert_sent_at),
-    CONSTRAINT fk_dlq_alert_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
-) ENGINE = InnoDB
-  DEFAULT CHARSET = utf8mb4
-  COLLATE = utf8mb4_unicode_ci;
-
--- 13. Active resource permits
+-- 12. Active resource permits
 CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 (
     id            BINARY(16)      NOT NULL,
@@ -481,7 +473,7 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_permit
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
 
--- 14. Per-job extension properties (write-once indexed scalars; plaintext by design — no secrets)
+-- 13. Per-job extension properties (write-once indexed scalars; plaintext by design — no secrets)
 CREATE TABLE IF NOT EXISTS scheduler_job_properties
 (
     job_id       BINARY(16)    NOT NULL,
@@ -494,7 +486,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_properties
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
 
--- 15. Per-job extension state (mutable per-namespace blobs with per-row CAS; encrypted at rest when
+-- 14. Per-job extension state (mutable per-namespace blobs with per-row CAS; encrypted at rest when
 -- payload encryption is configured — state holds ciphertext, encrypted_state/encryption_key_id
 -- mirror the scheduler_job payload-encryption metadata columns)
 CREATE TABLE IF NOT EXISTS scheduler_job_extension_state

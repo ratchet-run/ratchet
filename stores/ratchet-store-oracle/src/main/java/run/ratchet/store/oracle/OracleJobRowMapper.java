@@ -72,8 +72,8 @@ final class OracleJobRowMapper extends AbstractJobRowMapper {
     return StatusClassifier.isPollerExecutable(jobType);
   }
 
-  static JobPriority safeJobPriority(int ordinal) {
-    return RowValues.safeJobPriority(ordinal);
+  static JobPriority safeJobPriority(int persistedCode) {
+    return RowValues.safeJobPriority(persistedCode);
   }
 
   static String stringOrNull(Object val) {

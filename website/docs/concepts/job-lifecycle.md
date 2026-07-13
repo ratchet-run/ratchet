@@ -184,7 +184,7 @@ When the job method returns normally:
 5. Post-execution handler triggers:
    - For batch children: updates parent batch progress
    - For chain steps: schedules next step
-   - For workflow branches: evaluates conditions and schedules matching branches
+   - For workflow branches: evaluates conditions and schedules the first matching branch
 6. Success callback (`onSuccess`) is invoked if configured
 
 ### RUNNING to FAILED (with Retry)
@@ -200,12 +200,15 @@ When the job throws an exception and retries remain:
 
 ### RUNNING to FAILED (Terminal -- DLQ)
 
-When retries are exhausted or `@DoNotRetry` applies:
+When retries are exhausted, `@DoNotRetry` applies, poison data is detected, or a protective
+runtime limit forces terminal handling:
 
 1. Status transitions RUNNING -> FAILED via compare-and-swap
 2. Error message is sanitized via `ErrorSanitizer` SPI
-3. `DeadLetterService.moveToDlq()` records the alert with deduplication
-4. `JobDlqEvent` is published
+3. The durable job row records terminal FAILED status, the sanitized error, and the final retry
+   count; there is no separate alert or deduplication ledger
+4. `JobFailedEvent` is followed by one centrally published `JobDlqEvent` after the terminal commit.
+   `JobDlqEvent` is a non-replayable notification; the durable FAILED row is the source of truth
 5. For batch children: parent batch progress is updated (failure)
 6. For chain/workflow: downstream evaluation occurs (FAILURE branches may fire)
 7. Failure callback (`onFailure`) is invoked if configured
@@ -239,6 +242,17 @@ This:
 4. Transitions FAILED -> PENDING
 
 Only FAILED jobs can be retried. The job becomes immediately eligible for polling.
+
+To recover multiple failures from one incident, use a bounded `JobFilter` operation:
+
+```java
+int retried = scheduler.retryJobs(
+    JobFilter.builder().tags("billing").build(),
+    250);
+```
+
+The selected jobs move from FAILED to PENDING atomically. The 1 to 1000 limit keeps each recovery
+transaction bounded; repeat the call for larger DLQs.
 
 ### Cancellation
 

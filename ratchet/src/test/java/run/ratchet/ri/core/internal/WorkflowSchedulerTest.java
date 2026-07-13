@@ -24,11 +24,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -36,6 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -65,6 +72,7 @@ class WorkflowSchedulerTest {
   @Mock private WorkflowConditionStore conditionStore;
   @Mock private WorkflowConditionEvaluator conditionEvaluator;
   @Mock private InternalEventPublisher eventPublisher;
+  @Mock private TransactionSynchronizationRegistry txRegistry;
 
   private WorkflowScheduler scheduler;
 
@@ -206,6 +214,65 @@ class WorkflowSchedulerTest {
     assertEquals(parent.getId(), event.getJobId());
     assertEquals("result.ok == true", event.getBranchCondition());
     assertEquals(child.getId(), event.getNextJobId());
+  }
+
+  @Test
+  void scheduleNext_workflowBranchEventPublishesExactlyOnceAfterCommit() {
+    scheduler = eventPublishingScheduler();
+    scheduler.setTxRegistryForTesting(txRegistry);
+    AtomicReference<Synchronization> synchronization = activeTransaction();
+    JobEntity parent = job(new UUID(0L, 180L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 190L), JobStatus.PENDING);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(eventPublisher, never()).publish(any(WorkflowBranchTriggeredEvent.class));
+
+    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
+
+    verify(eventPublisher, times(1)).publish(any(WorkflowBranchTriggeredEvent.class));
+  }
+
+  @Test
+  void scheduleNext_workflowBranchEventIsSuppressedOnRollback() {
+    scheduler = eventPublishingScheduler();
+    scheduler.setTxRegistryForTesting(txRegistry);
+    AtomicReference<Synchronization> synchronization = activeTransaction();
+    JobEntity parent = job(new UUID(0L, 181L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 191L), JobStatus.PENDING);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+
+    assertTrue(scheduler.scheduleNext(parent));
+    synchronization.get().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verify(eventPublisher, never()).publish(any(WorkflowBranchTriggeredEvent.class));
+  }
+
+  @Test
+  void scheduleNext_workflowBranchEventIsSuppressedWhenAfterCommitRegistrationFails() {
+    scheduler = eventPublishingScheduler();
+    scheduler.setTxRegistryForTesting(txRegistry);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doThrow(new IllegalStateException("boom"))
+        .when(txRegistry)
+        .registerInterposedSynchronization(any());
+    JobEntity parent = job(new UUID(0L, 182L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 192L), JobStatus.PENDING);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(eventPublisher, never()).publish(any(WorkflowBranchTriggeredEvent.class));
   }
 
   @Test
@@ -461,5 +528,28 @@ class WorkflowSchedulerTest {
     scheduler.cancelChain(parent);
 
     verify(jobTerminalStore).cancelJob(child.getId());
+  }
+
+  private WorkflowScheduler eventPublishingScheduler() {
+    return new WorkflowScheduler(
+        jobCrudStore,
+        jobTerminalStore,
+        conditionStore,
+        conditionEvaluator,
+        FIXED_CLOCK,
+        eventPublisher);
+  }
+
+  private AtomicReference<Synchronization> activeTransaction() {
+    AtomicReference<Synchronization> synchronization = new AtomicReference<>();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doAnswer(
+            invocation -> {
+              synchronization.set(invocation.getArgument(0));
+              return null;
+            })
+        .when(txRegistry)
+        .registerInterposedSynchronization(any());
+    return synchronization;
   }
 }

@@ -15,6 +15,7 @@
  */
 package run.ratchet.api.event;
 
+import java.time.Duration;
 import java.util.Objects;
 
 final class EventContract {
@@ -42,6 +43,22 @@ final class EventContract {
 
   static int requireNonNegative(int value, String name) {
     if (value < 0) {
+      throw new IllegalArgumentException(name + " must not be negative");
+    }
+    return value;
+  }
+
+  static Duration requirePositive(Duration value, String name) {
+    Objects.requireNonNull(value, name);
+    if (value.isZero() || value.isNegative()) {
+      throw new IllegalArgumentException(name + " must be positive");
+    }
+    return value;
+  }
+
+  static Duration requireNonNegative(Duration value, String name) {
+    Objects.requireNonNull(value, name);
+    if (value.isNegative()) {
       throw new IllegalArgumentException(name + " must not be negative");
     }
     return value;

@@ -126,14 +126,14 @@ final class MongoJobQueryOperations {
 
   // ── Filter builders ─────────────────────────────────────────────────────
 
-  private static void appendPriorityCondition(JobFilter filter, List<Bson> conditions) {
+  static void appendPriorityCondition(JobFilter filter, List<Bson> conditions) {
     Set<JobPriority> priorities = filter.priorities();
     if (priorities == null || priorities.isEmpty()) {
       return;
     }
-    List<Integer> ordinals =
-        priorities.stream().map(JobPriority::ordinal).collect(Collectors.toList());
-    conditions.add(in(MongoFieldNames.PRIORITY, ordinals));
+    List<Integer> persistedCodes =
+        priorities.stream().map(JobPriority::persistedCode).collect(Collectors.toList());
+    conditions.add(in(MongoFieldNames.PRIORITY, persistedCodes));
   }
 
   private static void appendParentJobId(JobFilter filter, List<Bson> conditions) {
@@ -305,7 +305,11 @@ final class MongoJobQueryOperations {
               Comparator.comparing(
                   JobEntity::getUpdatedAt, Comparator.nullsLast(Comparator.naturalOrder()));
           case PRIORITY ->
-              Comparator.comparing(e -> e.getPriority() != null ? e.getPriority().ordinal() : 0);
+              Comparator.comparing(
+                  e ->
+                      e.getPriority() != null
+                          ? e.getPriority().persistedCode()
+                          : JobPriority.LOWEST.persistedCode());
           case STATUS ->
               Comparator.comparing(e -> e.getStatus() != null ? e.getStatus().name() : "");
         };
@@ -381,8 +385,7 @@ final class MongoJobQueryOperations {
     return searchLive(null, filter, limit, offset);
   }
 
-  private List<JobEntity> searchLive(
-      ClientSession session, JobFilter filter, int limit, int offset) {
+  List<JobEntity> searchLive(ClientSession session, JobFilter filter, int limit, int offset) {
     Bson query = buildFilter(filter);
     Bson sort = buildSort(filter);
     List<JobEntity> result = new ArrayList<>(limit);

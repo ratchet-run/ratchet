@@ -15,12 +15,16 @@
  */
 package run.ratchet.store.postgresql;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobPriority;
 
 class PostgresqlJobCountOperationsTest {
 
@@ -36,6 +40,17 @@ class PostgresqlJobCountOperationsTest {
     assertTrue(thrown.getMessage().contains("[0.0, 1.0]"));
   }
 
+  @Test
+  void countPendingJobsByPriorityBindsStablePersistedCode() {
+    AtomicReference<Object> parameter = new AtomicReference<>();
+    PostgresqlJobCountOperations operations =
+        new PostgresqlJobCountOperations(
+            new PostgresqlStoreContext(entityManagerCapturingParameter(parameter)));
+
+    assertEquals(0L, operations.countPendingJobsByPriority(JobPriority.HIGH));
+    assertEquals(JobPriority.HIGH.persistedCode(), parameter.get());
+  }
+
   private static EntityManager entityManagerThatMustNotRun() {
     return (EntityManager)
         Proxy.newProxyInstance(
@@ -43,6 +58,35 @@ class PostgresqlJobCountOperationsTest {
             new Class<?>[] {EntityManager.class},
             (proxy, method, args) -> {
               throw new AssertionError("EntityManager should not be called");
+            });
+  }
+
+  private static EntityManager entityManagerCapturingParameter(AtomicReference<Object> parameter) {
+    Query query =
+        (Query)
+            Proxy.newProxyInstance(
+                Query.class.getClassLoader(),
+                new Class<?>[] {Query.class},
+                (proxy, method, args) -> {
+                  if (method.getName().equals("setParameter")) {
+                    parameter.set(args[1]);
+                    return proxy;
+                  }
+                  if (method.getName().equals("getSingleResult")) {
+                    return 0L;
+                  }
+                  throw new UnsupportedOperationException(method.getName());
+                });
+
+    return (EntityManager)
+        Proxy.newProxyInstance(
+            EntityManager.class.getClassLoader(),
+            new Class<?>[] {EntityManager.class},
+            (proxy, method, args) -> {
+              if (method.getName().equals("createNativeQuery")) {
+                return query;
+              }
+              throw new UnsupportedOperationException(method.getName());
             });
   }
 }

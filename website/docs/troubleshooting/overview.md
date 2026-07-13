@@ -60,6 +60,9 @@ public void enableDiagnostics() {
         } else if (event instanceof JobRetryingEvent retrying) {
             log.warn("Job {} retrying (attempt {}), next at: {}",
                 retrying.getJobId(), retrying.getRetryAttempt(), retrying.getScheduledTime());
+        } else if (event instanceof JobExecutionTimedOutEvent timedOut) {
+            log.warn("Job {} exceeded its {} execution timeout after {}",
+                timedOut.getJobId(), timedOut.getExecutionTimeout(), timedOut.getElapsedTime());
         } else if (event instanceof JobDlqEvent dlq) {
             log.error("Job {} moved to DLQ after {} attempts: {}",
                 dlq.getJobId(), dlq.getRetryAttempt(), dlq.getErrorMessage());
@@ -99,7 +102,8 @@ public class JobDiagnosticObserver {
 | `JobStartedEvent` | Job begins execution on a worker thread |
 | `JobCompletedEvent` | Job finishes successfully |
 | `JobRetryingEvent` | Job failed but will be retried (includes next scheduled time) |
-| `JobDlqEvent` | Job exhausted retries and moved to dead letter queue |
+| `JobDlqEvent` | Job entered terminal dead-letter/FAILED handling |
+| `JobExecutionTimedOutEvent` | Running job exceeded its configured execution timeout |
 | `JobCancelledEvent` | Job successfully canceled |
 | `JobPausedEvent` | Job paused via `pauseJob()` |
 | `JobResumedEvent` | Job resumed via `resumeJob()` |

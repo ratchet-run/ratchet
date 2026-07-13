@@ -53,6 +53,8 @@ import run.ratchet.spi.MetricsCollector;
  *   <li>{@code ratchet.poller.claimed.jobs} — counter, tagged by execution type
  *   <li>{@code ratchet.submission.gate.rejections} — counter, tagged by execution type and gate
  *   <li>{@code ratchet.wakeup.local} — counter, tagged by source
+ *   <li>{@code ratchet.execution.target.fallback} — counter, tagged by requested and effective
+ *       execution targets
  *   <li>{@code ratchet.wakeup.cluster.publish} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.wakeup.cluster.receive} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception family
@@ -62,7 +64,12 @@ import run.ratchet.spi.MetricsCollector;
  *   <li>{@code ratchet.signal.cancelled} — counter, tagged by type
  *   <li>{@code ratchet.poller.breaker.state} — gauge, tagged by breaker; values are {@code 0} for
  *       closed/unknown, {@code 1} for half-open, and {@code 2} for open
+ *   <li>{@code ratchet.circuit.breaker.state} — gauge, tagged by service and profile, with the same
+ *       numeric state values
  *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
+ *   <li>{@code ratchet.encryption.integrity.violations} — counter, tagged by protected surface
+ *   <li>{@code ratchet.encryption.envelope.version_skew} — counter, tagged by bounded version gap
+ *       ({@code next}, {@code multiple_versions_ahead}, or {@code not_newer})
  * </ul>
  *
  * <p>The signal counters also carry a {@code signal_key} tag, but the default {@link
@@ -95,6 +102,9 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   private final Map<MeterKey, Counter> counters = new ConcurrentHashMap<>();
   private final Map<MeterKey, Timer> timers = new ConcurrentHashMap<>();
   private final Map<String, AtomicInteger> pollerBreakerStates = new ConcurrentHashMap<>();
+  private final Map<CircuitBreakerMeterKey, AtomicInteger> circuitBreakerStates =
+      new ConcurrentHashMap<>();
+  private final Object gaugeRegistrationLock = new Object();
 
   // Required by CDI proxy. The CDI proxy never invokes business methods on this instance —
   // every real call goes to the @Inject constructor below. We still guard the field below
@@ -348,17 +358,84 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null || breakerName == null || breakerName.isBlank()) {
       return;
     }
+    String breakerTag = tag("breaker", breakerName);
     AtomicInteger gaugeValue =
         pollerBreakerStates.computeIfAbsent(
-            breakerName,
+            breakerTag,
             key -> {
               AtomicInteger stateValue = new AtomicInteger();
-              Gauge.builder("ratchet.poller.breaker.state", stateValue, AtomicInteger::get)
-                  .tag("breaker", tag("breaker", key))
-                  .register(registry);
+              replaceGauge("ratchet.poller.breaker.state", stateValue, "breaker", key);
               return stateValue;
             });
     gaugeValue.set(toBreakerStateValue(state));
+  }
+
+  @Override
+  public void encryptionIntegrityViolation(UUID jobId, String surface) {
+    if (registry == null) {
+      return;
+    }
+    counter("ratchet.encryption.integrity.violations", "surface", tag("surface", surface))
+        .increment();
+  }
+
+  @Override
+  public void encryptionEnvelopeVersionSkew(UUID jobId, int version, int maxSupportedVersion) {
+    if (registry == null) {
+      return;
+    }
+    counter(
+            "ratchet.encryption.envelope.version_skew",
+            "version_gap",
+            tag("version_gap", envelopeVersionGap(version, maxSupportedVersion)))
+        .increment();
+  }
+
+  private static String envelopeVersionGap(int version, int maxSupportedVersion) {
+    long gap = (long) version - maxSupportedVersion;
+    if (gap == 1L) {
+      return "next";
+    }
+    return gap > 1L ? "multiple_versions_ahead" : "not_newer";
+  }
+
+  @Override
+  public void circuitBreakerState(String serviceName, String profile, String state) {
+    if (registry == null
+        || serviceName == null
+        || serviceName.isBlank()
+        || profile == null
+        || profile.isBlank()
+        || !tagPolicy.explicitlyAllows("service", serviceName)
+        || !tagPolicy.explicitlyAllows("profile", profile)) {
+      return;
+    }
+    CircuitBreakerMeterKey key = new CircuitBreakerMeterKey(serviceName, profile);
+    AtomicInteger gaugeValue =
+        circuitBreakerStates.computeIfAbsent(
+            key,
+            ignored -> {
+              AtomicInteger stateValue = new AtomicInteger();
+              replaceGauge(
+                  "ratchet.circuit.breaker.state",
+                  stateValue,
+                  "service",
+                  key.serviceName(),
+                  "profile",
+                  key.profile());
+              return stateValue;
+            });
+    gaugeValue.set(toBreakerStateValue(state));
+  }
+
+  private void replaceGauge(String name, AtomicInteger stateValue, String... tags) {
+    synchronized (gaugeRegistrationLock) {
+      Gauge existing = registry.find(name).tags(tags).gauge();
+      if (existing != null) {
+        registry.remove(existing);
+      }
+      Gauge.builder(name, stateValue, AtomicInteger::get).tags(tags).register(registry);
+    }
   }
 
   private Counter counter(String name, String... tags) {
@@ -436,4 +513,6 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return new MeterKey(name, List.of(tags));
     }
   }
+
+  private record CircuitBreakerMeterKey(String serviceName, String profile) {}
 }

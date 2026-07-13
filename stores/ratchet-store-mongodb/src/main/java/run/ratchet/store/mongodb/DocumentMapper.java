@@ -27,15 +27,16 @@ import org.bson.Document;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -53,11 +54,12 @@ import run.ratchet.store.util.PayloadEncryptor;
 /** Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents. */
 public final class DocumentMapper {
 
+  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
+
   private static final JobStatus DEFAULT_JOB_STATUS = JobStatus.PENDING;
   private static final JobPriority DEFAULT_JOB_PRIORITY = JobPriority.NORMAL;
   private static final String DEFAULT_CRON_EXPR = "";
   private static final String DEFAULT_ZONE_ID = "UTC";
-  private static final JobPriority[] JOB_PRIORITY_VALUES = JobPriority.values();
   private static final int DEFAULT_COUNT = 0;
   private static final int DEFAULT_VERSION = 0;
   private static final long DEFAULT_DURATION_MS = 0L;
@@ -84,7 +86,7 @@ public final class DocumentMapper {
     doc.append("paused_from_status", enumName(job.getPausedFromStatus()));
     doc.append("scheduled_time", toDate(job.getScheduledTime()));
     doc.append("job_type", job.getJobType().name());
-    doc.append("priority", job.getPriority().ordinal());
+    doc.append("priority", job.getPriority().persistedCode());
     doc.append("attempts", job.getAttempts());
     doc.append("max_retries", job.getMaxRetries());
     doc.append("backoff_policy", job.getBackoffPolicy().name());
@@ -169,7 +171,7 @@ public final class DocumentMapper {
     }
     job.setScheduledTime(toInstant(doc.getDate("scheduled_time")));
     job.setJobType(requiredEnumValue(doc, "job_type", JobExecutionType.class));
-    job.setPriority(jobPriorityFromOrdinal(doc.getInteger("priority")));
+    job.setPriority(jobPriorityFromPersistedCode(doc.getInteger("priority")));
     job.setAttempts(doc.getInteger("attempts", DEFAULT_COUNT));
     job.setMaxRetries(doc.getInteger("max_retries", DEFAULT_COUNT));
     job.setBackoffPolicy(requiredEnumValue(doc, "backoff_policy", BackoffPolicy.class));
@@ -245,7 +247,7 @@ public final class DocumentMapper {
         doc.get("_id", UUID.class),
         requiredEnumValue(doc, "status", JobStatus.class),
         requiredEnumValue(doc, "job_type", JobExecutionType.class),
-        jobPriorityFromOrdinal(doc.getInteger("priority")),
+        jobPriorityFromPersistedCode(doc.getInteger("priority")),
         toInstant(doc.getDate("scheduled_time")),
         doc.getInteger("version"),
         doc.getInteger("timeout_sec", DEFAULT_COUNT),
@@ -254,7 +256,8 @@ public final class DocumentMapper {
         doc.getString("business_key"),
         doc.getInteger("attempts", DEFAULT_COUNT),
         doc.getInteger("max_retries", DEFAULT_COUNT),
-        doc.getString("execution_target"));
+        doc.getString("execution_target"),
+        doc.get("depends_on", UUID.class));
   }
 
   public static Document toRecurringDocument(RecurringJobDefinition definition) {
@@ -293,6 +296,8 @@ public final class DocumentMapper {
         toDate(definition.createdAt() != null ? definition.createdAt() : Instant.now()));
     doc.append("caller_principal", definition.callerPrincipal());
     doc.append("encrypted_payload", active);
+    doc.append("misfire_policy", definition.misfirePolicy().action().name());
+    doc.append("max_catch_up_executions", definition.misfirePolicy().maxCatchUpExecutions());
     return doc;
   }
 
@@ -311,6 +316,7 @@ public final class DocumentMapper {
         && PayloadEncryptor.argsFlaggedButUnframed(s)) {
       EncryptionIntegrity.flaggedButUnframed(id, ProtectedSurface.PAYLOAD_ARGS);
     }
+    RecurringMisfirePolicy misfirePolicy = recurringMisfirePolicy(doc);
     return new RecurringJobDefinition(
         id,
         doc.getString("cron_expr"),
@@ -318,7 +324,7 @@ public final class DocumentMapper {
         toInstant(doc.getDate("next_fire")),
         doc.getBoolean("is_paused", false),
         toInstant(doc.getDate("paused_at")),
-        priority != null ? priority.intValue() : DEFAULT_JOB_PRIORITY.ordinal(),
+        priority != null ? priority.intValue() : DEFAULT_JOB_PRIORITY.persistedCode(),
         maxRetries != null ? maxRetries.intValue() : DEFAULT_COUNT,
         backoffPolicy,
         backoffParamMs != null ? backoffParamMs.intValue() : DEFAULT_COUNT,
@@ -339,7 +345,24 @@ public final class DocumentMapper {
         doc.getString("execution_target"),
         toInstant(doc.getDate("created_at")),
         doc.getString("caller_principal"),
-        doc.getBoolean("encrypted_payload", false));
+        doc.getBoolean("encrypted_payload", false),
+        misfirePolicy);
+  }
+
+  private static RecurringMisfirePolicy recurringMisfirePolicy(Document doc) {
+    String storedAction = doc.getString("misfire_policy");
+    if (storedAction == null) {
+      return RecurringMisfirePolicy.defaults();
+    }
+    RecurringMisfirePolicy.Action action = RecurringMisfirePolicy.Action.valueOf(storedAction);
+    Number storedLimit = (Number) doc.get("max_catch_up_executions");
+    int limit =
+        storedLimit != null
+            ? storedLimit.intValue()
+            : action == RecurringMisfirePolicy.Action.CATCH_UP
+                ? RecurringMisfirePolicy.DEFAULT_MAX_CATCH_UP_EXECUTIONS
+                : 0;
+    return new RecurringMisfirePolicy(action, limit);
   }
 
   public static Document toDocument(BatchEntity batch) {
@@ -460,7 +483,7 @@ public final class DocumentMapper {
     doc.append("original_job_id", a.getOriginalJobId());
     doc.append("final_status", enumName(a.getFinalStatus()));
     doc.append("job_type", enumName(a.getJobType()));
-    doc.append("priority", a.getPriority() == null ? null : a.getPriority().ordinal());
+    doc.append("priority", a.getPriority() == null ? null : a.getPriority().persistedCode());
     doc.append("total_attempts", a.getTotalAttempts());
     doc.append("max_retries", a.getMaxRetries());
     doc.append("backoff_policy", enumName(a.getBackoffPolicy()));
@@ -512,7 +535,7 @@ public final class DocumentMapper {
     if (jobType != null) {
       e.setJobType(enumValue(jobType, JobExecutionType.class));
     }
-    e.setPriority(jobPriorityFromOrdinal(doc.getInteger("priority")));
+    e.setPriority(jobPriorityFromPersistedCode(doc.getInteger("priority")));
     e.setMaxRetries(doc.getInteger("max_retries", DEFAULT_COUNT));
     if (doc.getString("backoff_policy") != null) {
       e.setBackoffPolicy(enumValue(doc.getString("backoff_policy"), BackoffPolicy.class));
@@ -549,7 +572,7 @@ public final class DocumentMapper {
     if (doc.getString("job_type") != null) {
       a.setJobType(enumValue(doc.getString("job_type"), JobExecutionType.class));
     }
-    a.setPriority(jobPriorityFromOrdinal(doc.getInteger("priority")));
+    a.setPriority(jobPriorityFromPersistedCode(doc.getInteger("priority")));
     a.setTotalAttempts(doc.getInteger("total_attempts", DEFAULT_COUNT));
     a.setMaxRetries(doc.getInteger("max_retries", DEFAULT_COUNT));
     if (doc.getString("backoff_policy") != null) {
@@ -593,6 +616,7 @@ public final class DocumentMapper {
     doc.append("condition_type", enumName(wc.getConditionType()));
     doc.append("condition_expression", wc.getConditionExpression());
     doc.append("condition_priority", wc.getConditionPriority());
+    doc.append("definition_order", wc.getDefinitionOrder());
     doc.append("created_at", toDate(wc.getCreatedAt()));
     return doc;
   }
@@ -608,6 +632,7 @@ public final class DocumentMapper {
     }
     wc.setConditionExpression(doc.getString("condition_expression"));
     wc.setConditionPriority(doc.getInteger("condition_priority"));
+    wc.setDefinitionOrder(doc.getInteger("definition_order", DEFAULT_COUNT));
     wc.setCreatedAt(toInstant(doc.getDate("created_at")));
     return wc;
   }
@@ -642,28 +667,6 @@ public final class DocumentMapper {
     return bm;
   }
 
-  public static Document toDocument(DlqAlertEntity alert) {
-    Document doc = new Document();
-    if (alert.getId() != null) {
-      doc.append("_id", alert.getId());
-    }
-    doc.append("job_id", alert.getJobId());
-    doc.append("error_hash", alert.getErrorHash());
-    doc.append("alert_sent_at", toDate(alert.getAlertSentAt()));
-    doc.append("alert_channel", alert.getAlertChannel());
-    return doc;
-  }
-
-  public static DlqAlertEntity toDlqAlertEntity(Document doc) {
-    DlqAlertEntity alert = new DlqAlertEntity();
-    alert.setId(doc.get("_id", UUID.class));
-    alert.setJobId(doc.get("job_id", UUID.class));
-    alert.setErrorHash(doc.getString("error_hash"));
-    alert.setAlertSentAt(toInstant(doc.getDate("alert_sent_at")));
-    alert.setAlertChannel(doc.getString("alert_channel"));
-    return alert;
-  }
-
   public static Document toDocument(ResourcePermitEntity permit) {
     Document doc = new Document();
     if (permit.getId() != null) {
@@ -691,7 +694,7 @@ public final class DocumentMapper {
       return null;
     }
     try {
-      return PayloadSerializerHolder.get().serialize(payload);
+      return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload);
     } catch (RuntimeException e) {
       throw new MappingException("Could not serialize MongoDB job payload", e);
     }
@@ -887,14 +890,12 @@ public final class DocumentMapper {
     return value == null ? List.of() : value;
   }
 
-  private static JobPriority jobPriorityFromOrdinal(Integer ordinal) {
-    return safeJobPriority(ordinal == null ? DEFAULT_JOB_PRIORITY.ordinal() : ordinal);
+  private static JobPriority jobPriorityFromPersistedCode(Integer persistedCode) {
+    return safeJobPriority(
+        persistedCode == null ? DEFAULT_JOB_PRIORITY.persistedCode() : persistedCode);
   }
 
-  static JobPriority safeJobPriority(int ordinal) {
-    if (ordinal < 0 || ordinal >= JOB_PRIORITY_VALUES.length) {
-      return JobPriority.NORMAL;
-    }
-    return JOB_PRIORITY_VALUES[ordinal];
+  static JobPriority safeJobPriority(int persistedCode) {
+    return JobPriority.findByPersistedCode(persistedCode).orElse(JobPriority.NORMAL);
   }
 }

@@ -17,6 +17,7 @@ package run.ratchet.tck.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -34,10 +35,12 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
  * Base contract for {@link run.ratchet.api.JobBuilder#withBusinessKey(String) withBusinessKey}
  * semantics.
  *
- * <p>The Ratchet API javadoc on {@code withBusinessKey} states only that the call "prevents
- * concurrent execution against the same entity" and that "multiple completed jobs may share the
- * same key; only active (PENDING/RUNNING) jobs are blocked." It deliberately does NOT lock the
- * rejection <em>mechanism</em>. A conformant implementation may either:
+ * <p>The Ratchet API requires a normalized business key to contain at most 255 printable ASCII
+ * characters. This deliberately does not promise arbitrary Unicode: Oracle can count its {@code
+ * VARCHAR2} limit in bytes, while SQL Server's indexed {@code VARCHAR} columns are
+ * code-page-dependent. Invalid keys must be rejected before submission. For duplicate
+ * <em>valid</em> keys, the contract deliberately does NOT lock the rejection mechanism. A
+ * conformant implementation may either:
  *
  * <ul>
  *   <li>throw an exception from {@code submit()} (the reference implementation does this), or
@@ -52,6 +55,33 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
  * withIdempotencyKey} permanent-merge semantics.
  */
 public abstract class AbstractBusinessKeyContract {
+
+  @Test
+  void maximumPortableBusinessKey_isAcceptedAndExecutes() {
+    String businessKey = "k".repeat(255);
+
+    JobHandle handle =
+        runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey(businessKey).submit();
+    runtime().probe().track(handle);
+
+    assertTrue(
+        runtime().probe().awaitCompleted(handle, defaultTimeout()),
+        "A 255-character portable business key must be accepted and execute");
+  }
+
+  @Test
+  void businessKeyLongerThanPortableLimit_isRejected() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey("k".repeat(256)));
+  }
+
+  @Test
+  void nonAsciiBusinessKey_isRejectedBeforeStoreConversion() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey("invoice-😀"));
+  }
 
   private static String uniqueKey(String label) {
     return label + '-' + UUID.randomUUID();
@@ -129,42 +159,59 @@ public abstract class AbstractBusinessKeyContract {
    * must occur.
    */
   @Test
-  void concurrentSubmitsWithSameBusinessKey_executeOnce() {
+  void concurrentSubmitsWithSameBusinessKey_executeOnce() throws InterruptedException {
     String businessKey = uniqueKey("concurrent-dup");
+    CountDownLatch winnerStarted = TckJobs.beginBlocking();
     AtomicReference<JobHandle> handleA = new AtomicReference<>();
     AtomicReference<JobHandle> handleB = new AtomicReference<>();
 
-    List<Throwable> outcomes =
-        ConcurrentTestRunner.runAll(
-            defaultTimeout().plus(Duration.ofSeconds(2)),
-            () -> {
-              JobHandle h =
-                  runtime()
-                      .scheduler()
-                      .enqueue(TckJobs::noop)
-                      .withBusinessKey(businessKey)
-                      .submit();
-              handleA.set(h);
-              runtime().probe().track(h);
-            },
-            () -> {
-              JobHandle h =
-                  runtime()
-                      .scheduler()
-                      .enqueue(TckJobs::noop)
-                      .withBusinessKey(businessKey)
-                      .submit();
-              handleB.set(h);
-              runtime().probe().track(h);
-            });
+    JobHandle survivor;
+    try {
+      List<Throwable> outcomes =
+          ConcurrentTestRunner.runAll(
+              defaultTimeout().plus(Duration.ofSeconds(2)),
+              () -> {
+                JobHandle h =
+                    runtime()
+                        .scheduler()
+                        .enqueue(TckJobs::blockUntilReleased)
+                        .withBusinessKey(businessKey)
+                        .submit();
+                handleA.set(h);
+                runtime().probe().track(h);
+              },
+              () -> {
+                JobHandle h =
+                    runtime()
+                        .scheduler()
+                        .enqueue(TckJobs::blockUntilReleased)
+                        .withBusinessKey(businessKey)
+                        .submit();
+                handleB.set(h);
+                runtime().probe().track(h);
+              });
 
-    long submitWinners = outcomes.stream().filter(t -> t == null).count();
-    assertTrue(
-        submitWinners >= 1,
-        "At least one of two concurrent submitters must succeed; outcomes=" + outcomes);
+      long submitWinners = outcomes.stream().filter(t -> t == null).count();
+      assertTrue(
+          submitWinners >= 1,
+          "At least one of two concurrent submitters must succeed; outcomes=" + outcomes);
 
-    JobHandle survivor = handleA.get() != null ? handleA.get() : handleB.get();
-    assertNotNull(survivor, "Surviving handle must be observable");
+      if (handleA.get() != null && handleB.get() != null) {
+        assertEquals(
+            handleA.get().id(),
+            handleB.get().id(),
+            "Two successful submitters must observe the same active job");
+      }
+
+      survivor = handleA.get() != null ? handleA.get() : handleB.get();
+      assertNotNull(survivor, "Surviving handle must be observable");
+      assertTrue(
+          winnerStarted.await(defaultTimeout().toMillis(), TimeUnit.MILLISECONDS),
+          "Surviving job must start while its business key is still reserved");
+    } finally {
+      TckJobs.release();
+    }
+
     Duration completionTimeout = defaultTimeout().plus(Duration.ofSeconds(10));
     assertTrue(
         runtime().probe().awaitCompleted(survivor, completionTimeout),

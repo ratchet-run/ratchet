@@ -17,6 +17,29 @@ env:
   TESTCONTAINERS_RYUK_DISABLED: "true"
 
 jobs:
+  # Validate workflow structure and parse every shell run block before any
+  # release can reach its deploy step. Limit ShellCheck to errors so this gate
+  # catches invalid shell without turning existing advisory findings into
+  # unrelated CI failures. It also runs the functional tests for the release
+  # helper scripts so script-logic regressions gate pull requests instead of
+  # surfacing only in the post-merge documentation deploy or a release run.
+  workflow-lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint GitHub Actions workflows and embedded shell
+        uses: docker://rhysd/actionlint:1.7.12
+        env:
+          SHELLCHECK_OPTS: -S error
+        with:
+          args: -color
+      - name: Test runtime conformance report materialization
+        run: scripts/test-materialize-runtime-conformance-reports.sh
+      - name: Test release version synchronization
+        run: scripts/test-sync-version.sh
+
   # Detects whether a pull request touches anything other than documentation, so
   # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
   # docs-only PRs. Only pull_request events are eligible for that docs skip;
@@ -185,6 +208,43 @@ jobs:
           name: tck-conformance-reports-${{ matrix.server }}-${{ matrix.database }}
           path: testing/ratchet-testsuite/target/tck-*-conformance-report.md
 
+  showcase-smoke:
+    needs: [build, changes]
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-
+      - name: Install showcase reactor dependencies
+        run: >-
+          mvn -B -ntp -pl :ratchet-showcase -am
+          -DskipTests -Dspotbugs.skip=true install
+      - name: Smoke test the WildFly and PostgreSQL showcase
+        run: >-
+          mvn -B -ntp -pl :ratchet-showcase
+          -P wildfly-managed,postgresql
+          -DskipTests -Dspotbugs.skip=true
+          -Dshowcase.smoke=true
+          -Dshowcase.http.port=4176
+          -Dshowcase.context.path=/app
+          -Dwildfly.management.port=19993
+          -Dwildfly.https.port=18446
+          package exec:exec@run-showcase
+      - name: Upload showcase server log
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: showcase-smoke-server-log
+          path: testing/ratchet-showcase/target/wildfly-runs/*/standalone/log/server.log
+
   # Eclipse Dash vets every dependency's license against the Eclipse Foundation
   # approved-license list. It is SPDX-aware — it resolves dual licenses and the
   # GPL Classpath / MySQL FOSS exceptions correctly, which a name-matching gate
@@ -311,7 +371,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [changes, build, spotbugs, ee11-verify, integration-test, dash-license-check, license-gate, a11y]
+    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

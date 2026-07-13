@@ -40,7 +40,7 @@ public class DefaultPollerScheduler implements PollerScheduler {
   private final AtomicBoolean started = new AtomicBoolean();
   private final Object scheduleLock = new Object();
   private final ExecutorProvider executorProvider;
-  private final Poller poller;
+  private final PollerCycleExecutor pollerCycleExecutor;
 
   @SuppressWarnings("java:S3077")
   private volatile Future<?> handle;
@@ -56,13 +56,14 @@ public class DefaultPollerScheduler implements PollerScheduler {
 
   protected DefaultPollerScheduler() {
     this.executorProvider = null;
-    this.poller = null;
+    this.pollerCycleExecutor = null;
   }
 
   @Inject
-  public DefaultPollerScheduler(ExecutorProvider executorProvider, Poller poller) {
+  public DefaultPollerScheduler(
+      ExecutorProvider executorProvider, PollerCycleExecutor pollerCycleExecutor) {
     this.executorProvider = executorProvider;
-    this.poller = poller;
+    this.pollerCycleExecutor = pollerCycleExecutor;
   }
 
   @Override
@@ -107,7 +108,7 @@ public class DefaultPollerScheduler implements PollerScheduler {
       return;
     }
 
-    poller.onWakeup();
+    pollerCycleExecutor.onWakeup();
 
     synchronized (scheduleLock) {
       if (!started.get()) {
@@ -162,7 +163,7 @@ public class DefaultPollerScheduler implements PollerScheduler {
 
     long nextDelayMs = 5000;
     try {
-      nextDelayMs = poller.tick();
+      nextDelayMs = pollerCycleExecutor.tick();
     } catch (Throwable t) {
       if (!started.get()) {
         finishPollCycle(0, false);

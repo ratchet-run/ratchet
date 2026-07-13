@@ -16,6 +16,7 @@
 package run.ratchet.store.entity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
@@ -31,6 +32,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.store.converter.JobPriorityConverter;
 import run.ratchet.store.id.UuidV7EntityListener;
 
 /**
@@ -71,7 +73,7 @@ public class ArchivedJobEntity implements UuidV7EntityListener.UuidV7Assignable 
   @Column(name = "job_type", nullable = false, length = 16)
   private JobExecutionType jobType;
 
-  @Enumerated(EnumType.ORDINAL)
+  @Convert(converter = JobPriorityConverter.class)
   @Column(nullable = false)
   private JobPriority priority;
 

@@ -20,9 +20,9 @@ import java.io.Serializable;
 import java.util.Objects;
 
 /**
- * A condition-action pair in a job workflow. When the condition evaluates to true after a parent
- * job completes, the associated task is enqueued. Multiple matching branches execute in priority
- * order (lower first).
+ * A condition-action pair in a job workflow. After a parent job completes, branches are evaluated
+ * by priority (lower numbers first), then by builder registration order. The task for the first
+ * matching branch is enqueued and every remaining sibling branch is canceled.
  *
  * @param condition condition evaluated after the parent job completes; must not be {@code null}
  * @param task serializable task scheduled when the condition matches; must be a supported Ratchet
@@ -47,7 +47,7 @@ public record WorkflowBranch(WorkflowCondition condition, Serializable task, Str
   }
 
   /**
-   * @return the priority from the underlying condition (lower = first)
+   * @return the priority from the underlying condition (lower numbers are evaluated first)
    */
   public int getPriority() {
     return condition.priority();

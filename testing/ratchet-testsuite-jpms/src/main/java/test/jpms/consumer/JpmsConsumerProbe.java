@@ -20,6 +20,11 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.exception.JobTimeoutException;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.hazelcast.HazelcastCoordinatorConfig;
+import run.ratchet.coordinator.infinispan.InfinispanCoordinatorConfig;
+import run.ratchet.coordinator.jms.JmsCoordinatorConfig;
+import run.ratchet.coordinator.postgresql.PostgresqlCoordinatorConfig;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.RetryPolicy;
 
@@ -47,6 +52,11 @@ public final class JpmsConsumerProbe {
       JobTimeoutException.class,
       ClassPolicy.class,
       RetryPolicy.class,
+      NotifyPayload.class,
+      HazelcastCoordinatorConfig.class,
+      InfinispanCoordinatorConfig.class,
+      JmsCoordinatorConfig.class,
+      PostgresqlCoordinatorConfig.class,
     };
   }
 }

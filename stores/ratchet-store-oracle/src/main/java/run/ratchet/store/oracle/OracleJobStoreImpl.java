@@ -39,7 +39,6 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -379,6 +378,11 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
+  public int resetFailedToPending(JobFilter filter, int limit) {
+    return lifecycle.resetFailedToPending(filter, limit);
+  }
+
+  @Override
   public boolean resetRunningJob(UUID id, String nodeId) {
     return lifecycle.resetRunningJob(id, nodeId);
   }
@@ -556,8 +560,9 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    return archives.archiveJobsBatch(jobsToArchive, reason, archivedBy);
+  public int archiveAndDeleteJobsBatch(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+    return archives.archiveAndDeleteJobsBatch(jobsToArchive, reason, archivedBy);
   }
 
   @Override
@@ -685,16 +690,6 @@ class OracleJobStoreImpl implements OracleJobStore {
   @Override
   public long countConditionsByParentJobId(UUID parentJobId) {
     return auxiliary.countConditionsByParentJobId(parentJobId);
-  }
-
-  @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    return auxiliary.saveDlqAlert(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    return auxiliary.existsRecentDlqAlert(jobId, errorHash, cutoff);
   }
 
   @Override
@@ -836,7 +831,7 @@ class OracleJobStoreImpl implements OracleJobStore {
     query = new OracleJobQueryOperations(ctx, mapper, tags);
     batches = new OracleBatchOperations(ctx);
     claims = new OracleJobClaimOperations(ctx, jobs);
-    lifecycle = new OracleJobLifecycleOperations(ctx, reservations, batches);
+    lifecycle = new OracleJobLifecycleOperations(ctx, reservations, batches, query);
     nodeLocks = new OracleNodeLockOperations(ctx);
     archives = new OracleArchiveOperations(ctx, mapper, tags, jobs);
     auxiliary = new OracleAuxiliaryOperations(ctx);

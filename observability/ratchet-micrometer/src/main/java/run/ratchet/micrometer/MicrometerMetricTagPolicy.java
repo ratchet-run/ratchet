@@ -15,13 +15,17 @@
  */
 package run.ratchet.micrometer;
 
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.spi.ProtectedSurface;
 
 /**
  * Allowlist for string-valued Micrometer tags emitted by {@link MicrometerMetricsCollector}.
@@ -59,7 +63,6 @@ public final class MicrometerMetricTagPolicy {
             "BATCH_PARENT",
             "BATCH_CHILD",
             "CHAIN_STEP",
-            "DLQ_ALERT",
             "WORKFLOW_BRANCH",
             "WORKFLOW_JOIN")
         .allowValues("gate_status", "DRAINING", "RATE_LIMITED", "NO_PERMITS")
@@ -82,8 +85,18 @@ public final class MicrometerMetricTagPolicy {
             "schedule_retry",
             "update_status")
         .allowValue("breaker", "store.claim")
+        .allowValue("service", "store.claim")
+        .allowValues(
+            "profile",
+            EnumSet.allOf(CircuitBreakerProfile.class).stream()
+                .map(CircuitBreakerProfile::name)
+                .toList())
         .allowValues("requested_target", "platform", "virtual")
         .allowValues("effective_target", "platform")
+        .allowValues("version_gap", "next", "multiple_versions_ahead", "not_newer")
+        .allowValues(
+            "surface",
+            Arrays.stream(ProtectedSurface.values()).map(ProtectedSurface::name).toList())
         .build();
   }
 
@@ -133,6 +146,14 @@ public final class MicrometerMetricTagPolicy {
       return rawValue;
     }
     return OTHER;
+  }
+
+  boolean explicitlyAllows(String tagName, String rawValue) {
+    if (rawValue == null || rawValue.isBlank()) {
+      return false;
+    }
+    Set<String> allowed = allowedValues.get(normalizeTagName(tagName));
+    return allowed != null && allowed.contains(rawValue);
   }
 
   private static String normalizeTagName(String tagName) {

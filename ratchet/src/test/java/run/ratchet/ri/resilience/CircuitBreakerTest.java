@@ -22,10 +22,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
@@ -48,6 +53,71 @@ class CircuitBreakerTest {
   @Test
   void startsInClosedState() {
     assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+  }
+
+  @Test
+  void reportsEachStateTransitionOnce() throws Exception {
+    List<CircuitBreaker.State> transitions = new ArrayList<>();
+    CircuitBreaker observed =
+        new CircuitBreaker(
+            "observed-service",
+            new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2),
+            clock,
+            transitions::add);
+
+    observed.transitionToOpen();
+    observed.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, observed.getState());
+    observed.execute(() -> "ok1");
+    observed.execute(() -> "ok2");
+
+    assertEquals(
+        List.of(
+            CircuitBreaker.State.OPEN, CircuitBreaker.State.HALF_OPEN, CircuitBreaker.State.CLOSED),
+        transitions);
+  }
+
+  @Test
+  void publishesStateChangesAfterReleasingTheStateLock() throws Exception {
+    CountDownLatch listenerEntered = new CountDownLatch(1);
+    CountDownLatch releaseListener = new CountDownLatch(1);
+    List<CircuitBreaker.State> transitions = new CopyOnWriteArrayList<>();
+    CircuitBreaker observed =
+        new CircuitBreaker(
+            "observed-service",
+            new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2),
+            clock,
+            newState -> {
+              transitions.add(newState);
+              if (newState == CircuitBreaker.State.OPEN) {
+                listenerEntered.countDown();
+                try {
+                  if (!releaseListener.await(2, TimeUnit.SECONDS)) {
+                    throw new AssertionError("listener was not released");
+                  }
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  throw new AssertionError("listener was interrupted", e);
+                }
+              }
+            });
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> opening = executor.submit(observed::transitionToOpen);
+      assertTrue(listenerEntered.await(1, TimeUnit.SECONDS));
+
+      Future<?> resetting = executor.submit(observed::reset);
+      resetting.get(1, TimeUnit.SECONDS);
+      assertEquals(CircuitBreaker.State.CLOSED, observed.getState());
+
+      releaseListener.countDown();
+      opening.get(1, TimeUnit.SECONDS);
+      assertEquals(List.of(CircuitBreaker.State.OPEN, CircuitBreaker.State.CLOSED), transitions);
+    } finally {
+      releaseListener.countDown();
+      executor.shutdownNow();
+    }
   }
 
   @Test
@@ -216,7 +286,7 @@ class CircuitBreakerTest {
     try {
       Future<String> first = executor.submit(() -> blockingHalfOpenCall(started, release));
       Future<String> second = executor.submit(() -> blockingHalfOpenCall(started, release));
-      assertTrue(started.await(1, java.util.concurrent.TimeUnit.SECONDS));
+      assertTrue(started.await(1, TimeUnit.SECONDS));
 
       CircuitBreakerOpenException thrown =
           assertThrows(CircuitBreakerOpenException.class, () -> breaker.execute(() -> "extra"));
@@ -228,6 +298,103 @@ class CircuitBreakerTest {
       assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
     } finally {
       release.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  void staleHalfOpenSuccessCannotCloseANewerProbeRound() throws Exception {
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+
+    CountDownLatch staleProbeStarted = new CountDownLatch(1);
+    CountDownLatch releaseStaleProbe = new CountDownLatch(1);
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<String> staleSuccess =
+          executor.submit(
+              () ->
+                  breaker.execute(
+                      () -> {
+                        staleProbeStarted.countDown();
+                        releaseStaleProbe.await();
+                        return "round-1-result";
+                      }));
+      assertTrue(staleProbeStarted.await(1, TimeUnit.SECONDS));
+
+      assertThrows(
+          RuntimeException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new RuntimeException("round-1-failure");
+                  }));
+      assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+
+      clock.advance(Duration.ofMillis(100));
+      assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+      assertEquals("round-2-result", breaker.execute(() -> "round-2-result"));
+      assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+
+      releaseStaleProbe.countDown();
+      assertEquals("round-1-result", staleSuccess.get(1, TimeUnit.SECONDS));
+      assertEquals(
+          CircuitBreaker.State.HALF_OPEN,
+          breaker.getState(),
+          "a success admitted in round 1 must not close round 2");
+    } finally {
+      releaseStaleProbe.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  void staleHalfOpenFailureCannotReopenANewerProbeRound() throws Exception {
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+
+    CountDownLatch staleProbeStarted = new CountDownLatch(1);
+    CountDownLatch releaseStaleProbe = new CountDownLatch(1);
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    RuntimeException staleFailure = new RuntimeException("round-1-stale-failure");
+    try {
+      Future<String> staleResult =
+          executor.submit(
+              () ->
+                  breaker.execute(
+                      () -> {
+                        staleProbeStarted.countDown();
+                        releaseStaleProbe.await();
+                        throw staleFailure;
+                      }));
+      assertTrue(staleProbeStarted.await(1, TimeUnit.SECONDS));
+
+      assertThrows(
+          RuntimeException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new RuntimeException("round-1-current-failure");
+                  }));
+      assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+
+      clock.advance(Duration.ofMillis(100));
+      assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+      assertEquals("round-2-result", breaker.execute(() -> "round-2-result"));
+      assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+
+      releaseStaleProbe.countDown();
+      ExecutionException thrown =
+          assertThrows(ExecutionException.class, () -> staleResult.get(1, TimeUnit.SECONDS));
+      assertSame(staleFailure, thrown.getCause());
+      assertEquals(
+          CircuitBreaker.State.HALF_OPEN,
+          breaker.getState(),
+          "a failure admitted in round 1 must not reopen round 2");
+    } finally {
+      releaseStaleProbe.countDown();
       executor.shutdownNow();
     }
   }

@@ -312,7 +312,7 @@ public class WorkflowScheduler extends ChainScheduler {
     if (eventPublisher == null) {
       return;
     }
-    eventPublisher.publish(
+    publishAfterCommit(
         new WorkflowBranchTriggeredEvent(
             parentJob.getId(),
             parentJob.getBusinessKey(),

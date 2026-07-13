@@ -24,20 +24,19 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourceLimitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
-import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.WorkflowConditionOrdering;
 
 final class PostgresqlAuxiliaryOperations
-    implements JobAuditStore, WorkflowConditionStore, DlqAlertStore, ResourcePermitStore {
+    implements JobAuditStore, WorkflowConditionStore, ResourcePermitStore {
 
   private static final int PERMIT_CLEANUP_CHUNK_SIZE = 500;
 
@@ -55,7 +54,8 @@ final class PostgresqlAuxiliaryOperations
     condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
     condition.setConditionExpression(row[4] == null ? null : row[4].toString());
     condition.setConditionPriority(((Number) row[5]).intValue());
-    condition.setCreatedAt(RowValues.instantOrNull(row[6]));
+    condition.setDefinitionOrder(((Number) row[6]).intValue());
+    condition.setCreatedAt(RowValues.instantOrNull(row[7]));
     return condition;
   }
 
@@ -124,14 +124,15 @@ final class PostgresqlAuxiliaryOperations
         """
         INSERT INTO scheduler_workflow_condition
           (id, parent_job_id, child_job_id, condition_type, condition_expression,
-           condition_priority, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+           condition_priority, definition_order, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           parent_job_id = EXCLUDED.parent_job_id,
           child_job_id = EXCLUDED.child_job_id,
           condition_type = EXCLUDED.condition_type,
           condition_expression = EXCLUDED.condition_expression,
           condition_priority = EXCLUDED.condition_priority,
+          definition_order = EXCLUDED.definition_order,
           created_at = EXCLUDED.created_at
         """;
     ctx.em()
@@ -142,7 +143,8 @@ final class PostgresqlAuxiliaryOperations
         .setParameter(4, condition.getConditionType().name())
         .setParameter(5, condition.getConditionExpression())
         .setParameter(6, condition.getConditionPriority())
-        .setParameter(7, Timestamp.from(condition.getCreatedAt()))
+        .setParameter(7, condition.getDefinitionOrder())
+        .setParameter(8, Timestamp.from(condition.getCreatedAt()))
         .executeUpdate();
     return condition;
   }
@@ -150,20 +152,25 @@ final class PostgresqlAuxiliaryOperations
   @Override
   public WorkflowConditionEntity findConditionById(UUID id) {
     List<WorkflowConditionEntity> results =
-        findConditions("WHERE id = ?", List.of(id), "ORDER BY condition_priority ASC");
+        findConditions(
+            "WHERE id = ?", List.of(id), "ORDER BY condition_priority ASC, definition_order ASC");
     return results.isEmpty() ? null : results.get(0);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
     return findConditions(
-        "WHERE parent_job_id = ?", List.of(parentJobId), "ORDER BY condition_priority ASC");
+        "WHERE parent_job_id = ?",
+        List.of(parentJobId),
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
     return findConditions(
-        "WHERE child_job_id = ?", List.of(childJobId), "ORDER BY condition_priority ASC");
+        "WHERE child_job_id = ?",
+        List.of(childJobId),
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -172,7 +179,7 @@ final class PostgresqlAuxiliaryOperations
     return findConditions(
         "WHERE parent_job_id = ? AND condition_type = ?",
         List.of(parentJobId, type.name()),
-        "ORDER BY condition_priority ASC");
+        "ORDER BY condition_priority ASC, definition_order ASC");
   }
 
   @Override
@@ -201,33 +208,6 @@ final class PostgresqlAuxiliaryOperations
     // language=PostgreSQL
     String sql = "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?";
     return ctx.countByNative(sql, parentJobId);
-  }
-
-  @Override
-  public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    if (alert.getId() == null) {
-      ctx.em().persist(alert);
-      return alert;
-    }
-    return ctx.em().merge(alert);
-  }
-
-  @Override
-  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    // language=JPAQL
-    String jpql =
-        """
-        SELECT COUNT(a) FROM DlqAlertEntity a
-        WHERE a.jobId = :jid AND a.errorHash = :hash AND a.alertSentAt >= :cutoff
-        """;
-    Long count =
-        ctx.em()
-            .createQuery(jpql, Long.class)
-            .setParameter("jid", jobId)
-            .setParameter("hash", errorHash)
-            .setParameter("cutoff", cutoff)
-            .getSingleResult();
-    return count > 0;
   }
 
   @Override
@@ -411,14 +391,16 @@ final class PostgresqlAuxiliaryOperations
     String sqlPrefix =
         """
         SELECT id, parent_job_id, child_job_id, condition_type, condition_expression,
-               condition_priority, created_at
+               condition_priority, definition_order, created_at
         FROM scheduler_workflow_condition
         """;
     Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
     for (int i = 0; i < params.size(); i++) {
       query.setParameter(i + 1, params.get(i));
     }
-    return ((List<Object[]>) query.getResultList())
-        .stream().map(PostgresqlAuxiliaryOperations::mapCondition).toList();
+    List<WorkflowConditionEntity> conditions =
+        ((List<Object[]>) query.getResultList())
+            .stream().map(PostgresqlAuxiliaryOperations::mapCondition).toList();
+    return WorkflowConditionOrdering.sorted(conditions);
   }
 }

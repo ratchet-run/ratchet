@@ -10,7 +10,7 @@ Ratchet provides two batch processing APIs: `BatchBuilder` for in-memory collect
 
 ## How Batches Work
 
-A batch consists of a **parent job** (BATCH_PARENT) and many **child jobs** (BATCH_CHILD). The parent tracks overall progress but performs no work itself. Each child executes independently and in parallel, following the normal job lifecycle with its own retry and failure handling.
+A batch consists of a **parent job** (BATCH_PARENT) and many **child jobs** (BATCH_CHILD). The parent tracks overall progress but performs no work itself. Each child executes independently and in parallel, following the normal job lifecycle. Retries are configured for all children on the builder; the default remains no retries.
 
 <div class="docs-diagram" role="img" aria-label="Batch execution flow: submit creates a parent job, the parent creates child jobs, children execute independently, then parent evaluates success or failure callbacks.">
   <div class="docs-diagram-flow">
@@ -24,7 +24,7 @@ A batch consists of a **parent job** (BATCH_PARENT) and many **child jobs** (BAT
     </div>
     <div class="docs-diagram-card docs-diagram-card--active">
       <strong>N child jobs</strong>
-      <small>Each child is a normal job with independent retry and failure handling.</small>
+      <small>Each child has independent failure handling and the retry settings from the builder.</small>
     </div>
     <div class="docs-diagram-card docs-diagram-card--store">
       <strong>Progress aggregation</strong>
@@ -46,8 +46,16 @@ List<User> users = userRepository.findAllPending();
 
 scheduler.enqueueBatch("Import Users")
     .forEach(users, user -> userService.importUser(user))
+    .withMaxRetries(3)
+    .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
     .submit();
 ```
+
+### Child Retries
+
+Retries are opt-in and apply to every child in the batch. `withMaxRetries(3)` allows three attempts after the initial failure. The parent and batch-level workflow branches do not inherit these settings.
+
+Builder order does not change the result. You can set the retry options before or after `forEach`; they apply to the whole batch.
 
 ### Progress Monitoring
 
@@ -134,6 +142,8 @@ scheduler.enqueueBatch("Data Migration")
 | Method | Description |
 |--------|-------------|
 | `forEach(items, action)` | Process each item in the collection |
+| `withMaxRetries(retries)` | Set child retry attempts (default: 0) |
+| `withBackoff(policy, delay)` | Set the child retry backoff policy |
 | `onProgress(hook)` | Track progress during execution |
 | `thenOnBatchSuccess(task)` | Execute on 100% success |
 | `thenOnBatchFailure(task)` | Execute on any failure |
@@ -152,6 +162,8 @@ scheduler.<User>streamingBatch("Process All Users")
     .fromStream(userRepository.streamAll())
     .process(user -> userService.processUser(user))
     .withChunkSize(500)
+    .withMaxRetries(3)
+    .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
     .start();
 ```
 
@@ -212,6 +224,8 @@ scheduler.<Record>streamingBatch("ETL Pipeline")
 | `fromStream(stream)` | Set the input stream |
 | `process(action)` | Define per-item processing logic |
 | `withChunkSize(size)` | Items per bulk insert (default: 100) |
+| `withMaxRetries(retries)` | Set child retry attempts (default: 0) |
+| `withBackoff(policy, delay)` | Set the child retry backoff policy |
 | `onProgress(hook)` | Track streaming progress |
 | `onBatchProgress(hook)` | Track batch execution progress |
 | `thenOnBatchSuccess(task)` | Execute on 100% success |

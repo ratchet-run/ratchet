@@ -28,4 +28,9 @@
 module ratchet.testsuite.jpms {
   requires run.ratchet.api;
   requires run.ratchet.ri;
+  requires run.ratchet.coordinator.common;
+  requires run.ratchet.coordinator.postgresql;
+  requires run.ratchet.coordinator.jms;
+  requires run.ratchet.coordinator.infinispan;
+  requires run.ratchet.coordinator.hazelcast;
 }

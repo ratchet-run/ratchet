@@ -76,6 +76,7 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.util.StatusClassifier;
 
 /**
  * Core CRUD + read-side stats for the {@code scheduler_job} collection. The longest op class
@@ -93,9 +94,15 @@ final class MongoJobCrudOperations {
   private static final String TYPE_RECURRING = JobExecutionType.RECURRING.name();
 
   private final MongoStoreContext ctx;
+  private final MongoBusinessKeyReservations reservations;
 
   MongoJobCrudOperations(MongoStoreContext ctx) {
+    this(ctx, new MongoBusinessKeyReservations(ctx));
+  }
+
+  MongoJobCrudOperations(MongoStoreContext ctx, MongoBusinessKeyReservations reservations) {
     this.ctx = ctx;
+    this.reservations = reservations;
   }
 
   /**
@@ -126,7 +133,19 @@ final class MongoJobCrudOperations {
     }
     truncateInstantsToMillis(job);
     try {
-      ctx.jobs().insertOne(DocumentMapper.toDocument(job));
+      Document doc = DocumentMapper.toDocument(job);
+      if (holdsBusinessKey(job)) {
+        try (ClientSession session = ctx.startSession()) {
+          session.withTransaction(
+              () -> {
+                reservations.syncForJob(session, job);
+                ctx.jobs().insertOne(session, doc);
+                return null;
+              });
+        }
+      } else {
+        ctx.jobs().insertOne(doc);
+      }
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
         throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), e);
@@ -154,30 +173,36 @@ final class MongoJobCrudOperations {
     job.setVersion(expectedVersion + 1);
     truncateInstantsToMillis(job);
     Document doc = DocumentMapper.toDocument(job);
-    UpdateResult result;
     try {
-      result =
-          ctx.jobs()
-              .replaceOne(
-                  and(eq(ID, job.getId()), eq(VERSION, expectedVersion)),
-                  doc,
-                  new ReplaceOptions().upsert(false));
+      try (ClientSession session = ctx.startSession()) {
+        session.withTransaction(
+            () -> {
+              reservations.syncForJob(session, job);
+              UpdateResult result =
+                  ctx.jobs()
+                      .replaceOne(
+                          session,
+                          and(eq(ID, job.getId()), eq(VERSION, expectedVersion)),
+                          doc,
+                          new ReplaceOptions().upsert(false));
+              if (result.getMatchedCount() == 0) {
+                throw new RatchetOptimisticLockException(
+                    "Concurrent modification on job "
+                        + job.getId()
+                        + " (expectedVersion="
+                        + expectedVersion
+                        + ")");
+              }
+              return null;
+            });
+      }
     } catch (RuntimeException e) {
+      job.setVersion(expectedVersion);
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
-        job.setVersion(expectedVersion);
         throw new RatchetTransientStoreException(
             "Active business key in use for job " + job.getId(), e);
       }
       throw e;
-    }
-    if (result.getMatchedCount() == 0) {
-      job.setVersion(expectedVersion);
-      throw new RatchetOptimisticLockException(
-          "Concurrent modification on job "
-              + job.getId()
-              + " (expectedVersion="
-              + expectedVersion
-              + ")");
     }
     return job;
   }
@@ -194,7 +219,14 @@ final class MongoJobCrudOperations {
   }
 
   void delete(UUID id) {
-    ctx.jobs().deleteOne(eq(ID, id));
+    try (ClientSession session = ctx.startSession()) {
+      session.withTransaction(
+          () -> {
+            reservations.releaseByOwner(session, id);
+            ctx.jobs().deleteOne(session, eq(ID, id));
+            return null;
+          });
+    }
   }
 
   JobStatus getJobStatus(UUID id) {
@@ -306,7 +338,7 @@ final class MongoJobCrudOperations {
 
   long countPendingJobsByPriority(JobPriority priority) {
     return ctx.jobs()
-        .countDocuments(and(eq(STATUS, STATUS_PENDING), eq(PRIORITY, priority.ordinal())));
+        .countDocuments(and(eq(STATUS, STATUS_PENDING), eq(PRIORITY, priority.persistedCode())));
   }
 
   Map<JobPriority, Long> countPendingJobsByPriorities() {
@@ -317,17 +349,17 @@ final class MongoJobCrudOperations {
                 "$group",
                 new Document(ID, "$" + PRIORITY).append("count", new Document("$sum", 1))));
     Map<JobPriority, Long> counts = new EnumMap<>(JobPriority.class);
-    JobPriority[] values = JobPriority.values();
     for (Document doc : ctx.jobs().aggregate(pipeline)) {
       Object rawPriority = doc.get(ID);
       if (rawPriority instanceof Number priority) {
-        int ordinal = priority.intValue();
-        if (ordinal >= 0 && ordinal < values.length) {
-          Number count = numberField(doc, "count");
-          if (count != null) {
-            counts.put(values[ordinal], count.longValue());
-          }
-        }
+        JobPriority.findByPersistedCode(priority.intValue())
+            .ifPresent(
+                mappedPriority -> {
+                  Number count = numberField(doc, "count");
+                  if (count != null) {
+                    counts.put(mappedPriority, count.longValue());
+                  }
+                });
       }
     }
     return counts;
@@ -508,7 +540,20 @@ final class MongoJobCrudOperations {
       docs.add(DocumentMapper.toDocument(job));
     }
     try {
-      ctx.jobs().insertMany(docs);
+      if (jobList.stream().anyMatch(MongoJobCrudOperations::holdsBusinessKey)) {
+        try (ClientSession session = ctx.startSession()) {
+          session.withTransaction(
+              () -> {
+                for (JobEntity job : jobList) {
+                  reservations.syncForJob(session, job);
+                }
+                ctx.jobs().insertMany(session, docs);
+                return null;
+              });
+        }
+      } else {
+        ctx.jobs().insertMany(docs);
+      }
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException(
@@ -522,24 +567,39 @@ final class MongoJobCrudOperations {
     if (ids.isEmpty()) {
       return 0;
     }
-    DeleteResult result = ctx.jobs().deleteMany(in(ID, ids));
-    return (int) result.getDeletedCount();
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            reservations.releaseByOwners(session, ids);
+            DeleteResult result = ctx.jobs().deleteMany(session, in(ID, ids));
+            return (int) result.getDeletedCount();
+          });
+    }
   }
 
   int deleteDlqOlderThan(Instant cutoff) {
-    DeleteResult result =
-        ctx.jobs()
-            .deleteMany(
-                and(
-                    eq(STATUS, STATUS_FAILED),
-                    new Document(
-                        "$expr", new Document("$gte", List.of("$" + ATTEMPTS, "$" + MAX_RETRIES))),
-                    or(
-                        lt(TERMINATED_AT, DocumentMapper.toDate(cutoff)),
-                        and(
-                            exists(TERMINATED_AT, false),
-                            lt(UPDATED_AT, DocumentMapper.toDate(cutoff))))));
-    return (int) result.getDeletedCount();
+    Bson filter =
+        and(
+            eq(STATUS, STATUS_FAILED),
+            new Document("$expr", new Document("$gte", List.of("$" + ATTEMPTS, "$" + MAX_RETRIES))),
+            or(
+                lt(TERMINATED_AT, DocumentMapper.toDate(cutoff)),
+                and(exists(TERMINATED_AT, false), lt(UPDATED_AT, DocumentMapper.toDate(cutoff)))));
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            List<UUID> ids = new ArrayList<>();
+            for (Document doc : ctx.jobs().find(session, filter).projection(new Document(ID, 1))) {
+              UUID id = doc.get(ID, UUID.class);
+              if (id != null) {
+                ids.add(id);
+              }
+            }
+            reservations.releaseByOwners(session, ids);
+            DeleteResult result = ctx.jobs().deleteMany(session, filter);
+            return (int) result.getDeletedCount();
+          });
+    }
   }
 
   int resetOrphanJobs(Duration grace) {
@@ -599,5 +659,10 @@ final class MongoJobCrudOperations {
                     set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
                     inc(VERSION, 1)));
     return (int) result.getModifiedCount();
+  }
+
+  private static boolean holdsBusinessKey(JobEntity job) {
+    return job.getBusinessKey() != null
+        && StatusClassifier.isLiveStatus(StatusClassifier.effectiveStatus(job.getStatus()));
   }
 }

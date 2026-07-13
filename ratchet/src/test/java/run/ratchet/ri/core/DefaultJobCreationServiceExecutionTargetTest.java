@@ -268,6 +268,30 @@ class DefaultJobCreationServiceExecutionTargetTest {
   }
 
   @Test
+  void workflowBranches_persistBuilderRegistrationOrder() {
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceExecutionTargetTest::noopTask, Duration.ZERO);
+    builder
+        .thenOnSuccess(DefaultJobCreationServiceExecutionTargetTest::noopTask)
+        .thenOnFailure(DefaultJobCreationServiceExecutionTargetTest::noopTask);
+
+    service.submit(builder);
+
+    ArgumentCaptor<WorkflowConditionEntity> conditionCaptor =
+        ArgumentCaptor.forClass(WorkflowConditionEntity.class);
+    verify(workflowConditionStore, times(2)).saveCondition(conditionCaptor.capture());
+
+    assertEquals(
+        List.of(0, 1),
+        conditionCaptor.getAllValues().stream()
+            .map(WorkflowConditionEntity::getDefinitionOrder)
+            .toList());
+  }
+
+  @Test
   void workflowBranchPredicateExpression_encryptsStoredPayloadArgs() {
     EncryptionTestKit.install(true);
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());

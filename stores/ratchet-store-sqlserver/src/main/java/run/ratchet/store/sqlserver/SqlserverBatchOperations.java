@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import org.jboss.logging.Logger;
+import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
@@ -37,6 +38,7 @@ import run.ratchet.store.util.BatchProgressRows;
 final class SqlserverBatchOperations implements BatchStore {
 
   private static final Logger log = Logger.getLogger(SqlserverBatchOperations.class);
+  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
 
   private final SqlserverStoreContext ctx;
 
@@ -377,7 +379,7 @@ final class SqlserverBatchOperations implements BatchStore {
   }
 
   private String progressHookJson(JobPayload progressHook) {
-    return progressHook == null ? null : PayloadSerializerHolder.get().serialize(progressHook);
+    return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(progressHook);
   }
 
   private enum BatchCounter {

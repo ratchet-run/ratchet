@@ -46,7 +46,10 @@ import run.ratchet.store.id.UuidV7EntityListener;
     indexes = {
       @Index(name = "idx_workflow_parent", columnList = "parent_job_id"),
       @Index(name = "idx_workflow_child", columnList = "child_job_id"),
-      @Index(name = "idx_workflow_priority", columnList = "parent_job_id, condition_priority")
+      @Index(name = "idx_workflow_priority", columnList = "parent_job_id, condition_priority"),
+      @Index(
+          name = "idx_workflow_evaluation_order",
+          columnList = "parent_job_id, condition_priority, definition_order")
     })
 @EntityListeners(UuidV7EntityListener.class)
 public class WorkflowConditionEntity
@@ -71,6 +74,9 @@ public class WorkflowConditionEntity
 
   @Column(name = "condition_priority", nullable = false)
   private Integer conditionPriority = 0;
+
+  @Column(name = "definition_order", nullable = false)
+  private Integer definitionOrder = 0;
 
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
@@ -133,6 +139,14 @@ public class WorkflowConditionEntity
     this.conditionPriority = conditionPriority;
   }
 
+  public Integer getDefinitionOrder() {
+    return definitionOrder;
+  }
+
+  public void setDefinitionOrder(Integer definitionOrder) {
+    this.definitionOrder = definitionOrder;
+  }
+
   public Instant getCreatedAt() {
     return createdAt;
   }
@@ -192,6 +206,8 @@ public class WorkflowConditionEntity
         + conditionExpression
         + ", conditionPriority="
         + conditionPriority
+        + ", definitionOrder="
+        + definitionOrder
         + ", createdAt="
         + createdAt
         + ')';

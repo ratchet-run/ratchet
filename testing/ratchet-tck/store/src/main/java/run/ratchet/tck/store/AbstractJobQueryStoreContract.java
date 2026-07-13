@@ -442,7 +442,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       JobPriority curr = results.get(i).getPriority();
       assertNotNull(prev, "Sorted jobs must expose non-null priority values");
       assertNotNull(curr, "Sorted jobs must expose non-null priority values");
-      assertTrue(prev.ordinal() >= curr.ordinal(), "Results must be in descending priority order");
+      assertTrue(
+          prev.persistedCode() >= curr.persistedCode(),
+          "Results must be in descending priority order");
     }
   }
 
@@ -690,7 +692,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
           new JobQueryCursor(
                   JobQuerySortField.PRIORITY,
                   /* sortAscending= */ false,
-                  Integer.toString(last.getPriority().ordinal()),
+                  Integer.toString(last.getPriority().persistedCode()),
                   last.getId())
               .encode();
       if (pageRows.size() < pageSize) {
@@ -741,7 +743,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
           new JobQueryCursor(
                   JobQuerySortField.PRIORITY,
                   /* sortAscending= */ false,
-                  Integer.toString(last.getPriority().ordinal()),
+                  Integer.toString(last.getPriority().persistedCode()),
                   last.getId())
               .encode();
       if (pageRows.size() < pageSize) {

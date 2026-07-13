@@ -25,8 +25,30 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.Recurring;
+import run.ratchet.api.RecurringMisfirePolicy;
 
 class RecurringAnnotationParserTest {
+
+  private static final class MisfireFixtures {
+
+    @Recurring(cron = "0 * * * * ?", misfirePolicy = RecurringMisfirePolicy.Action.SKIP)
+    public void skip() {}
+
+    @Recurring(cron = "0 * * * * ?", misfirePolicy = RecurringMisfirePolicy.Action.FIRE_ONCE)
+    public void fireOnce() {}
+
+    @Recurring(
+        cron = "0 * * * * ?",
+        misfirePolicy = RecurringMisfirePolicy.Action.CATCH_UP,
+        maxCatchUpExecutions = 4)
+    public void catchUp() {}
+
+    @Recurring(
+        cron = "0 * * * * ?",
+        misfirePolicy = RecurringMisfirePolicy.Action.CATCH_UP,
+        maxCatchUpExecutions = 0)
+    public void invalidCatchUp() {}
+  }
 
   private static Recurring recurring(String id, String cron) {
     return new Recurring() {
@@ -68,6 +90,16 @@ class RecurringAnnotationParserTest {
       @Override
       public int maxRetries() {
         return 3;
+      }
+
+      @Override
+      public RecurringMisfirePolicy.Action misfirePolicy() {
+        return RecurringMisfirePolicy.Action.CATCH_UP;
+      }
+
+      @Override
+      public int maxCatchUpExecutions() {
+        return RecurringMisfirePolicy.DEFAULT_MAX_CATCH_UP_EXECUTIONS;
       }
 
       @Override
@@ -135,6 +167,16 @@ class RecurringAnnotationParserTest {
       }
 
       @Override
+      public RecurringMisfirePolicy.Action misfirePolicy() {
+        return RecurringMisfirePolicy.Action.CATCH_UP;
+      }
+
+      @Override
+      public int maxCatchUpExecutions() {
+        return RecurringMisfirePolicy.DEFAULT_MAX_CATCH_UP_EXECUTIONS;
+      }
+
+      @Override
       public BackoffPolicy backoffPolicy() {
         return BackoffPolicy.EXPONENTIAL;
       }
@@ -170,6 +212,28 @@ class RecurringAnnotationParserTest {
     assertEquals(
         "com.example.MyService.myMethod",
         RecurringAnnotationParser.generateJobId(annotation, "com.example.MyService", "myMethod"));
+  }
+
+  @Test
+  void generateJobId_rejectsExplicitIdOutsideThePortableContract() {
+    Recurring annotation = recurring("récurrent", "0 * * * * ?");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RecurringAnnotationParser.generateJobId(
+                annotation, "com.example.MyService", "myMethod"));
+  }
+
+  @Test
+  void generateJobId_rejectsOverlongDerivedId() {
+    Recurring annotation = recurring("", "0 * * * * ?");
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RecurringAnnotationParser.generateJobId(
+                annotation, "com.example." + "a".repeat(240), "myMethod"));
   }
 
   @Test
@@ -224,5 +288,29 @@ class RecurringAnnotationParserTest {
   void mapPriority_rejectsValuesAboveDocumentedRange() {
     assertThrows(IllegalArgumentException.class, () -> RecurringAnnotationParser.mapPriority(11));
     assertThrows(IllegalArgumentException.class, () -> RecurringAnnotationParser.mapPriority(100));
+  }
+
+  @Test
+  void misfirePolicyMapsEveryAnnotationAction() throws NoSuchMethodException {
+    assertEquals(
+        RecurringMisfirePolicy.skip(),
+        RecurringAnnotationParser.misfirePolicy(annotationOn("skip")));
+    assertEquals(
+        RecurringMisfirePolicy.fireOnce(),
+        RecurringAnnotationParser.misfirePolicy(annotationOn("fireOnce")));
+    assertEquals(
+        RecurringMisfirePolicy.catchUp(4),
+        RecurringAnnotationParser.misfirePolicy(annotationOn("catchUp")));
+  }
+
+  @Test
+  void misfirePolicyRejectsInvalidCatchUpLimit() throws NoSuchMethodException {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RecurringAnnotationParser.misfirePolicy(annotationOn("invalidCatchUp")));
+  }
+
+  private static Recurring annotationOn(String methodName) throws NoSuchMethodException {
+    return MisfireFixtures.class.getMethod(methodName).getAnnotation(Recurring.class);
   }
 }

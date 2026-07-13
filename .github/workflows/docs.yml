@@ -8,6 +8,7 @@ on:
       - 'ratchet-*/src/main/java/**'
       - 'src/main/javadoc/**'
       - 'pom.xml'
+      - 'scripts/*runtime-conformance-reports.sh'
       - '.github/workflows/docs.yml'
   workflow_run:
     workflows: [CI]
@@ -45,6 +46,9 @@ jobs:
       )
     steps:
       - uses: actions/checkout@v7
+
+      - name: Test runtime conformance report materialization
+        run: scripts/test-materialize-runtime-conformance-reports.sh
 
       # --- Javadoc generation ---
       - uses: actions/setup-java@v5
@@ -103,50 +107,14 @@ jobs:
             fi
           done
 
-      - name: Copy API and Jakarta reports into Docusaurus docs
+      - name: Materialize API and Jakarta reports for VitePress
         if: github.event_name == 'workflow_run'
-        run: |
-          declare -A SERVER_LABELS=(
-            [wildfly-managed]="WildFly"
-            [wildfly-ee11-managed]="WildFly (EE 11)"
-            [payara-managed]="Payara"
-            [openliberty-managed]="Open Liberty"
-            [glassfish-managed]="GlassFish"
-          )
-          declare -A DB_LABELS=(
-            [mysql]="MySQL"
-            [postgresql]="PostgreSQL"
-            [oracle]="Oracle"
-            [sqlserver]="SQL Server"
-            [mongodb]="MongoDB"
-          )
-          mkdir -p website/docs/conformance/api website/docs/conformance/jakarta
-          for dir in tck-reports/runtime/tck-conformance-reports-*/; do
-            [ -d "$dir" ] || continue
-            suffix="${dir#tck-reports/runtime/tck-conformance-reports-}"
-            suffix="${suffix%/}"
-            for db in mysql postgresql oracle sqlserver mongodb; do
-              if [[ "$suffix" == *"-${db}" ]]; then
-                server="${suffix%-${db}}"
-                database="$db"
-                break
-              fi
-            done
-            server_label="${SERVER_LABELS[$server]:-$server}"
-            db_label="${DB_LABELS[$database]:-$database}"
-            combo="${server}-${database}"
-            for tier in api jakarta; do
-              src="${dir}testing/ratchet-testsuite/target/tck-${tier}-conformance-report.md"
-              dst="website/docs/conformance/${tier}/${combo}.md"
-              if [ -f "$src" ]; then
-                printf -- '---\nid: %s\ntitle: "%s / %s"\nsidebar_label: "%s / %s"\n---\n\n' \
-                  "$combo" "$server_label" "$db_label" "$server_label" "$db_label" \
-                  | cat - "$src" > "$dst"
-              fi
-            done
-          done
+        run: >-
+          scripts/materialize-runtime-conformance-reports.sh
+          tck-reports/runtime
+          website/docs/conformance
 
-      # --- Docusaurus build ---
+      # --- VitePress build ---
       - uses: actions/setup-node@v6
         with:
           node-version: '20'

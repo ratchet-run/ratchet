@@ -210,9 +210,11 @@ export default defineConfig({
           text: 'Deployment',
           items: [
             { text: 'Overview', link: '/deployment/overview' },
-            { text: 'Installation', link: '/deployment/installation' },
+            { text: 'Runtime setup', link: '/deployment/installation' },
             { text: 'Configuration', link: '/deployment/configuration' },
+            { text: 'Configuration reference', link: '/deployment/configuration-reference' },
             { text: 'Database Setup', link: '/deployment/database-setup' },
+            { text: 'Rolling Upgrades', link: '/deployment/rolling-upgrades' },
             { text: 'MySQL', link: '/deployment/mysql' },
             { text: 'PostgreSQL', link: '/deployment/postgresql' },
             { text: 'Oracle', link: '/deployment/oracle' },
@@ -259,6 +261,7 @@ export default defineConfig({
           text: 'Conformance',
           items: [
             { text: 'Overview', link: '/conformance/' },
+            { text: 'Adopting the TCK', link: '/conformance/adopting-the-tck' },
             {
               text: 'Store Reports',
               collapsed: false,

@@ -29,6 +29,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.inject.Instance;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -127,6 +129,39 @@ class SchemaMigratorTest {
     verify(connection, times(2)).commit();
     assertEquals(1, dialect.acquireCount());
     assertEquals(1, dialect.releaseCount());
+  }
+
+  @Test
+  void singleStatementDirectivePreservesJdbcBlocksWithInternalSemicolons() throws Exception {
+    ResultSet firstMissingVersion = missingVersion();
+    when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
+
+    migrator("schema-migrator-single-statement").migrate();
+
+    ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+    verify(statement, atLeast(2)).execute(sqlCaptor.capture());
+    List<String> executedSql = sqlCaptor.getAllValues();
+    List<String> blocks = executedSql.stream().filter(sql -> sql.startsWith("BEGIN")).toList();
+    assertEquals(1, blocks.size());
+    assertTrue(blocks.get(0).contains("EXECUTE IMMEDIATE 'SELECT 1 FROM dual';"));
+    assertTrue(blocks.get(0).endsWith("END;"));
+  }
+
+  @Test
+  void singleStatementDirectiveRejectsMissingSql() throws Exception {
+    Method splitStatements =
+        SchemaMigrator.class.getDeclaredMethod("splitStatements", String.class);
+    splitStatements.setAccessible(true);
+
+    InvocationTargetException thrown =
+        assertThrows(
+            InvocationTargetException.class,
+            () -> splitStatements.invoke(null, "-- ratchet:single-statement"));
+
+    assertTrue(thrown.getCause() instanceof SchemaMigrationException);
+    assertEquals(
+        "Single-statement migration directive must be followed by SQL",
+        thrown.getCause().getMessage());
   }
 
   @Test

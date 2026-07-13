@@ -34,14 +34,16 @@ import java.util.Map;
 public enum ConformanceLevel {
   CORE(
       "Core",
-      "Fundamental persistence primitives required by all conforming store implementations.",
+      "Fundamental persistence primitives required by all conforming store implementations. The"
+          + " core-only projection contract is optional validation that a full store can expose"
+          + " only those mandatory capabilities.",
       List.of(
           "AbstractJobCrudStoreContract",
           "AbstractJobClaimStoreContract",
           "AbstractNodeStoreContract",
           "AbstractTagStoreContract",
           "AbstractPayloadEncryptionStoreContract"),
-      List.of()),
+      List.of("AbstractCoreOnlyStoreContract")),
 
   BEHAVIORAL(
       "Behavioral",
@@ -67,7 +69,7 @@ public enum ConformanceLevel {
       "Advanced",
       "Bulk operations, business-key uniqueness, and the dual-write storage invariant are core. The"
           + " optional contracts apply only to stores that advertise the capability: archival,"
-          + " dead-letter alerting, distributed locks, resource permits, and — for SQL stores —"
+          + " distributed locks, resource permits, and — for SQL stores —"
           + " schema conformance, schema migration, JPA recurring-claim concurrency, and JTA"
           + " transaction boundaries.",
       List.of(
@@ -76,7 +78,6 @@ public enum ConformanceLevel {
           "AbstractDualWriteInvariantContract"),
       List.of(
           "AbstractArchiveStoreContract",
-          "AbstractDlqAlertStoreContract",
           "AbstractJobExtensionStoreContract",
           "AbstractLockStoreContract",
           "AbstractResourcePermitStoreContract",

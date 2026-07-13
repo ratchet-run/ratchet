@@ -33,4 +33,54 @@
         </dependency>
     </dependencies>
 
+    <profiles>
+        <!--
+            Ratchet is pre-1.0 and intentionally permits breaking API changes. Generate the report
+            with -Dratchet.api.compatibility. Once a release is chosen as a stability baseline, add
+            -Dratchet.api.compatibility.enforce=true to turn incompatibilities into failures.
+        -->
+        <profile>
+            <id>api-compatibility</id>
+            <activation>
+                <property>
+                    <name>ratchet.api.compatibility</name>
+                </property>
+            </activation>
+            <properties>
+                <ratchet.api.compatibility.enforce>false</ratchet.api.compatibility.enforce>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.siom79.japicmp</groupId>
+                        <artifactId>japicmp-maven-plugin</artifactId>
+                        <version>0.26.1</version>
+                        <configuration>
+                            <parameter>
+                                <oldVersionPattern>\d+\.\d+\.\d+</oldVersionPattern>
+                                <includeSnapshots>false</includeSnapshots>
+                                <onlyModified>true</onlyModified>
+                                <accessModifier>public</accessModifier>
+                                <excludes>
+                                    <exclude>run.ratchet.api.internal</exclude>
+                                </excludes>
+                                <breakBuildOnBinaryIncompatibleModifications>${ratchet.api.compatibility.enforce}</breakBuildOnBinaryIncompatibleModifications>
+                                <breakBuildOnSourceIncompatibleModifications>${ratchet.api.compatibility.enforce}</breakBuildOnSourceIncompatibleModifications>
+                            </parameter>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>report-public-api-compatibility</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>cmp</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>

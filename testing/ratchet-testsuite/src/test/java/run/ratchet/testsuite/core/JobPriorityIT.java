@@ -59,7 +59,7 @@ class JobPriorityIT extends BaseRatchetIT {
     Instant due = Instant.now().minusSeconds(5);
     JobEntity low = persistJob(JobExecutionType.SINGLE, JobPriority.LOW, due, null);
     JobEntity high = persistJob(JobExecutionType.SINGLE, JobPriority.HIGH, due, null);
-    persistJob(JobExecutionType.DLQ_ALERT, JobPriority.CRITICAL, due, null);
+    persistJob(JobExecutionType.RECURRING, JobPriority.CRITICAL, due, null);
     persistJob(JobExecutionType.WORKFLOW_JOIN, JobPriority.CRITICAL, due, null);
 
     List<JobClaimDto> claims =

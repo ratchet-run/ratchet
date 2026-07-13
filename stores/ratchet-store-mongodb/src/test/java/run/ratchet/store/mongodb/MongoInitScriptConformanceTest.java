@@ -30,8 +30,8 @@ import org.junit.jupiter.api.Test;
  * an operator running it by hand from ending up with a different index set.
  *
  * <p>It asserts every index the initializer marks required (each {@code createRequiredIndex} call)
- * is named in the script, plus the {@code unique} flag on {@code uk_rec_business_key} that stops
- * two recurring masters from registering under the same business key.
+ * is named in the script, including the shared reservation owner lookup, plus the {@code unique}
+ * flag on {@code uk_rec_business_key} that remains as a collection-local guard.
  */
 class MongoInitScriptConformanceTest {
 
@@ -39,12 +39,13 @@ class MongoInitScriptConformanceTest {
     MongoIndexHints.JOB_CLAIM_EXEC,
     "idx_job_idempotency_key",
     "idx_job_active_business_key",
+    "idx_bk_owner",
     "idx_signal_key_status",
     "idx_signal_timeout_status",
     "idx_signal_delivery_id",
     MongoIndexHints.RECURRING_JOB_CLAIM,
     "uk_rec_business_key",
-    "idx_dlq_job_hash",
+    "idx_wfc_evaluation_order",
   };
 
   private static String readInitScript() throws IOException {

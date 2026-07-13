@@ -39,7 +39,10 @@
  *       thread, hand it to your own executor from inside a synchronous observer.
  *   <li><b>After commit.</b> A state-change event raised inside a transaction is delivered after
  *       that transaction commits. A rollback suppresses the event, and an observer cannot roll the
- *       source transaction back. When no transaction is active, delivery is immediate.
+ *       source transaction back. When no transaction is active, delivery is immediate. If Ratchet
+ *       cannot register an after-commit callback for an existing transaction, it logs the failure
+ *       and suppresses the event rather than risk publishing before the transaction outcome is
+ *       known.
  *   <li><b>Contained failures.</b> A programmatic listener runs in its own guard: one that throws
  *       is logged, and the remaining listeners still run. CDI observers follow standard synchronous
  *       {@code fire} semantics — a {@code @Observes} method that throws aborts delivery to the

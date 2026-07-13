@@ -16,7 +16,10 @@
 package run.ratchet.api;
 
 import java.io.Serializable;
+import java.time.Duration;
 import java.util.Collection;
+import java.util.Objects;
+import run.ratchet.api.exception.PayloadTooLargeException;
 
 /**
  * Fluent builder for batch job execution with progress monitoring, conditional branching, and
@@ -71,10 +74,50 @@ public interface BatchBuilder {
   BatchBuilder platform();
 
   /**
+   * Sets the retry backoff policy and base delay for every child job in this batch.
+   *
+   * <p>The setting applies to the whole builder, including children already added through {@link
+   * #forEach}. It does not apply to the no-op batch parent or workflow branches.
+   *
+   * @param policy the backoff strategy applied between child attempts
+   * @param param policy-specific base delay
+   * @return this builder
+   * @throws NullPointerException if {@code policy} or {@code param} is null
+   * @throws UnsupportedOperationException if the builder does not support child retry settings
+   */
+  default BatchBuilder withBackoff(BackoffPolicy policy, Duration param) {
+    Objects.requireNonNull(policy, "policy");
+    Objects.requireNonNull(param, "param");
+    throw new UnsupportedOperationException("Batch child retry backoff is not supported");
+  }
+
+  /**
+   * Sets the maximum number of retry attempts for every child job in this batch.
+   *
+   * <p>The default is {@code 0} for compatibility. The setting applies to the whole builder,
+   * including children already added through {@link #forEach}. It does not apply to the no-op batch
+   * parent or workflow branches.
+   *
+   * @param retries maximum child retry attempts; {@code 0} disables retries
+   * @return this builder
+   * @throws IllegalArgumentException if {@code retries} is negative
+   * @throws UnsupportedOperationException if the builder does not support child retry settings
+   */
+  default BatchBuilder withMaxRetries(int retries) {
+    if (retries < 0) {
+      throw new IllegalArgumentException("retries must be at least 0");
+    }
+    throw new UnsupportedOperationException("Batch child retries are not supported");
+  }
+
+  /**
    * Persists the batch job and returns a handle to it.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
    * only and do not participate in a transaction.
+   *
+   * @throws PayloadTooLargeException if a child, progress hook, or workflow payload exceeds the
+   *     configured serialized-payload limit
    */
   JobHandle submit();
 

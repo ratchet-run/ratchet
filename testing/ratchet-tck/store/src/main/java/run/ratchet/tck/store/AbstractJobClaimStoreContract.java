@@ -48,7 +48,8 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     int boostInterval = RatchetOptions.defaults().store().priorityBoostIntervalMinutes();
     assumeTrue(boostInterval > 0, "priority boosting is disabled");
     return Instant.now()
-        .minus(Duration.ofMinutes((long) boostInterval * (JobPriority.CRITICAL.ordinal() + 1L)))
+        .minus(
+            Duration.ofMinutes((long) boostInterval * (JobPriority.CRITICAL.persistedCode() + 1L)))
         .minusSeconds(1);
   }
 
@@ -288,6 +289,24 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
 
     assertEquals(1, claims.size(), "optimized claim should only return the requested job type");
     assertEquals(JobExecutionType.BATCH_CHILD, claims.get(0).jobType());
+  }
+
+  @Test
+  void claimNextBatchOptimized_roundTripsBatchParentId() {
+    JobEntity parent = persist(newPendingJob());
+    JobEntity batchChild = newPendingJob();
+    batchChild.setJobType(JobExecutionType.BATCH_CHILD);
+    batchChild.setDependsOn(parent.getId());
+    persist(batchChild);
+
+    List<JobClaimDto> claims =
+        store().claimNextBatchOptimized(JobExecutionType.BATCH_CHILD, 10, "node-1");
+
+    assertEquals(1, claims.size());
+    assertEquals(
+        parent.getId(),
+        claims.get(0).dependsOn(),
+        "claim projection must retain the batch parent for pre-hydration failure handling");
   }
 
   @Test

@@ -50,7 +50,6 @@ import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.ri.core.internal.ThreadPoolManager;
-import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
@@ -200,9 +199,9 @@ public class RatchetProducer {
   public JobTimeoutHandler jobTimeoutHandler(
       Clock clock,
       InternalEventPublisher eventPublisher,
-      WorkflowScheduler workflowScheduler,
       Instance<SignalStore> signalStore,
-      SingletonLeaseService singletonLeaseService) {
+      SingletonLeaseService singletonLeaseService,
+      ErrorSanitizer errorSanitizer) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
     int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
@@ -216,12 +215,12 @@ public class RatchetProducer {
         defaultTimeoutSeconds,
         clock,
         eventPublisher,
-        workflowScheduler,
         signalStore.isResolvable() ? signalStore.get() : null,
         metricsCollector,
         signalTimeoutBatchSize,
         resolveTxRegistry(),
-        singletonLeaseService);
+        singletonLeaseService,
+        errorSanitizer);
   }
 
   private TransactionSynchronizationRegistry resolveTxRegistry() {
@@ -455,7 +454,6 @@ public class RatchetProducer {
       case BATCH_CHILD -> options.execution().maxConcurrency("BATCH_CHILD", 30);
       case BATCH_PARENT -> options.execution().maxConcurrency("BATCH_PARENT", 2);
       case CHAIN_STEP -> options.execution().maxConcurrency("CHAIN_STEP", 10);
-      case DLQ_ALERT -> options.execution().maxConcurrency("DLQ_ALERT", 2);
       case WORKFLOW_BRANCH -> options.execution().maxConcurrency("WORKFLOW_BRANCH", 10);
       case WORKFLOW_JOIN -> options.execution().maxConcurrency("WORKFLOW_JOIN", 10);
     };

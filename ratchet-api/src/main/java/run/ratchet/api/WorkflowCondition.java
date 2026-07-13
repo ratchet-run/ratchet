@@ -19,8 +19,9 @@ import java.io.Serial;
 import java.io.Serializable;
 
 /**
- * Decision criteria for workflow branching after job execution. Conditions are evaluated in {@code
- * priority} order (lower = first); each matching branch is scheduled.
+ * Decision criteria for workflow branching after job execution. Conditions are evaluated by {@code
+ * priority} (lower numbers first), then by builder registration order. The first matching branch is
+ * scheduled and every remaining sibling branch is canceled.
  *
  * <pre>{@code
  * public final class ScoreConditions {
@@ -50,7 +51,8 @@ import java.io.Serializable;
  *
  * @param type condition evaluation strategy
  * @param expression type-specific expression data (predicate, threshold, or null)
- * @param priority evaluation order when multiple conditions match (lower = first, default 0)
+ * @param priority evaluation order (lower numbers first, default 0); equal priorities retain
+ *     builder registration order
  * @see JobBuilder#when(SerializablePredicate, SerializableCheckedRunnable)
  * @see BatchBuilder#thenWhenBatch(SerializablePredicate, SerializableCheckedRunnable)
  * @see WorkflowBranch

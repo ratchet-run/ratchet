@@ -257,7 +257,7 @@ final class OracleJobWriteOperations {
     String keyId = JobEncryption.keyId(active);
     q.setParameter(i++, UuidRawConverter.toBytes(job.getId()));
     q.setParameter(i++, job.getJobType().name());
-    q.setParameter(i++, job.getPriority().ordinal());
+    q.setParameter(i++, job.getPriority().persistedCode());
     q.setParameter(i++, job.getMaxRetries());
     q.setParameter(i++, job.getBackoffPolicy().name());
     q.setParameter(i++, job.getBackoffParamMs());
@@ -298,7 +298,7 @@ final class OracleJobWriteOperations {
     JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
     q.setParameter(i++, s.name());
     q.setParameter(i++, job.getJobType().name());
-    q.setParameter(i++, job.getPriority().ordinal());
+    q.setParameter(i++, job.getPriority().persistedCode());
     Instant scheduled = job.getScheduledTime();
     q.setParameter(i++, scheduled != null ? Timestamp.from(scheduled) : nowTs);
     q.setParameter(i++, job.getBusinessKey());

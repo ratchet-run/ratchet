@@ -42,7 +42,6 @@ public class DocumentStoreTestCleanupStrategy implements TestCleanupStrategy {
   private static final List<String> COLLECTIONS =
       List.of(
           "scheduler_workflow_condition",
-          "scheduler_dlq_alerts",
           "scheduler_job_log",
           "scheduler_job_execution",
           "scheduler_resource_permit",

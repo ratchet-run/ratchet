@@ -37,7 +37,7 @@ The resolver must be deterministic. A queued job may execute on another node or 
 
 ## Result Persistence
 
-Job return values are separate from the invocation payload. The default `ResultPersistenceStrategy` stores JSON metadata in the job row and truncates oversized JSON to a marker document.
+Job return values are separate from the invocation payload. The default `ResultPersistenceStrategy` stores JSON metadata in the job row. When a result exceeds the configured limit, Ratchet replaces the value with encrypted-or-plaintext marker metadata and stores a reserved truncation state in `result_type`. Value-based workflow conditions then fail closed instead of deserializing that metadata as the application's result class.
 
 Override it to change result serialization, redact values, or disable result persistence:
 
@@ -57,6 +57,8 @@ public class RedactingResultPersistence implements ResultPersistenceStrategy {
 ```
 
 The default size cap is controlled by `RatchetOptions.builder().payload(p -> p.maxResultBytes(...))`. Set it to `0` to disable truncation. If your `RatchetOptions` producer uses `RatchetOptionsFactory.fromEnvironment()`, the same cap is read from `ratchet.jobs.max-result-bytes` / `RATCHET_JOB_RESULT_MAX_BYTES`.
+
+Custom strategies can keep returning `new SerializedJobResult(json, type)` for ordinary values. If a strategy replaces a value with truncation metadata, return `SerializedJobResult.truncated(markerJson)` so readers can identify the state without inspecting user JSON. A user result that contains a field such as `_truncated: true` remains ordinary data unless the strategy also returns Ratchet's reserved truncation type.
 
 ## Related SPIs
 

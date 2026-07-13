@@ -17,7 +17,7 @@ package run.ratchet.architecture;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
-import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.tngtech.archunit.base.DescribedPredicate;
@@ -32,8 +32,13 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import run.ratchet.architecture.ReactorStoreModules.ReactorModel;
+import run.ratchet.architecture.ReactorStoreModules.StoreModule;
 
 /**
  * Module-hygiene guardrails that hold against today's tree. Each rule locks in an invariant the
@@ -46,13 +51,21 @@ import org.junit.jupiter.api.Test;
  *   <li>The serializable-lambda deserialization surface stays in {@code ratchet-api}.
  *   <li>Implementation modules never print to stdout/stderr or call {@code printStackTrace}.
  *   <li>JPA entities are non-final and carry a non-private no-arg constructor.
- *   <li>SQL store dialects are mutually isolated.
+ *   <li>Store implementations are mutually isolated.
  *   <li>{@code ratchet-api} does not import {@code jakarta.transaction}.
  *   <li>Coordinator modules depend only on {@code coordinator-common}, not on sibling coordinators.
  * </ul>
  */
 @AnalyzeClasses(packages = "run.ratchet", importOptions = ImportOption.DoNotIncludeTests.class)
 public class ModuleHygieneArchitectureTest {
+
+  private static final ReactorModel REACTOR = ReactorStoreModules.discover();
+  private static final Map<String, StoreModule> STORE_IMPLEMENTATION_PACKAGES =
+      REACTOR.implementations().stream()
+          .flatMap(
+              module ->
+                  module.implementationPackageRoots().stream().map(root -> Map.entry(root, module)))
+          .collect(Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
 
   private static final String API = "run.ratchet.api..";
   private static final String SPI = "run.ratchet.spi..";
@@ -86,15 +99,51 @@ public class ModuleHygieneArchitectureTest {
     assertPackageNonEmpty(imported, "run.ratchet.api");
     assertPackageNonEmpty(imported, "run.ratchet.spi");
     assertPackageNonEmpty(imported, "run.ratchet.store");
-    assertPackageNonEmpty(imported, "run.ratchet.store.mysql");
-    assertPackageNonEmpty(imported, "run.ratchet.store.postgresql");
-    assertPackageNonEmpty(imported, "run.ratchet.store.mongodb");
     assertPackageNonEmpty(imported, "run.ratchet.ri");
     assertPackageNonEmpty(imported, "run.ratchet.coordinator");
     assertPackageNonEmpty(imported, "run.ratchet.coordinator.jms");
     assertPackageNonEmpty(imported, "run.ratchet.coordinator.postgresql");
     assertPackageNonEmpty(imported, "run.ratchet.coordinator.infinispan");
     assertPackageNonEmpty(imported, "run.ratchet.coordinator.hazelcast");
+  }
+
+  /**
+   * Keeps Maven's static test classpath synchronized with the production store modules declared by
+   * the reactor. A newly added store fails here until it is a direct test dependency, at which
+   * point {@code mvn -pl testing/ratchet-arch-tests -am test} also builds and imports its bytecode.
+   */
+  @Test
+  void archunitImporterSeesEveryStoreModule() {
+    List<String> missingDependencies =
+        REACTOR.stores().stream()
+            .map(StoreModule::artifactId)
+            .filter(artifactId -> !REACTOR.archTestDependencies().contains(artifactId))
+            .sorted()
+            .toList();
+    assertEquals(
+        List.of(),
+        missingDependencies,
+        "every production store module must be a direct test dependency of ratchet-arch-tests; "
+            + "Maven's reactor graph is static, so this completeness check keeps the ArchUnit "
+            + "classpath synchronized with dynamically discovered stores");
+
+    JavaClasses imported =
+        new ClassFileImporter()
+            .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
+            .importPackages("run.ratchet");
+    for (StoreModule store : REACTOR.stores()) {
+      long importedClassCount =
+          imported.stream()
+              .filter(javaClass -> store.productionPackages().contains(javaClass.getPackageName()))
+              .count();
+      assertTrue(
+          importedClassCount > 0,
+          () ->
+              store.artifactId()
+                  + " production bytecode is absent from the ArchUnit classpath (module "
+                  + store.modulePath()
+                  + ")");
+    }
   }
 
   private static void assertPackageNonEmpty(JavaClasses imported, String packageName) {
@@ -212,22 +261,20 @@ public class ModuleHygieneArchitectureTest {
               "JPA providers instantiate entities reflectively and subclass them for lazy proxies; "
                   + "a final entity or a private/absent no-arg constructor breaks one provider");
 
-  // --- 6. SQL store dialects are mutually isolated ---
+  // --- 6. Store implementations are mutually isolated ---
 
   /**
-   * The SQL store dialect packages do not depend on each other. The MySQL store must not reach into
-   * the PostgreSQL store or vice versa; each compiles against {@code ratchet-store-core} only.
-   * Expressed as ArchUnit glob slices over {@code run.ratchet.store.(*)..} so the MongoDB store is
-   * included for free.
+   * Store implementation packages do not depend on each other; each compiles against {@code
+   * ratchet-store-core} only. Both the subject packages and sibling-package detection come from the
+   * reactor's production store modules, so a new implementation is governed as soon as it is added.
    */
   @ArchTest
-  static final ArchRule sqlStoreDialectsAreMutuallyIsolated =
-      slices()
-          .matching("run.ratchet.store.(mysql|postgresql|mongodb)..")
-          .should()
-          .notDependOnEachOther()
+  static final ArchRule storeImplementationsAreMutuallyIsolated =
+      classes()
+          .that(resideInStoreImplementation())
+          .should(notDependOnAnotherStoreImplementation())
           .because(
-              "each store dialect compiles against ratchet-store-core only; a cross-dialect "
+              "each store implementation compiles against ratchet-store-core only; a cross-store "
                   + "dependency couples two stores that must ship independently");
 
   // --- 7. ratchet-api must not import jakarta.transaction ---
@@ -401,6 +448,50 @@ public class ModuleHygieneArchitectureTest {
                                 + "; coordinators must depend only on coordinator-common")));
       }
     };
+  }
+
+  private static DescribedPredicate<JavaClass> resideInStoreImplementation() {
+    return new DescribedPredicate<>("reside in a dynamically discovered store implementation") {
+      @Override
+      public boolean test(JavaClass clazz) {
+        return storeModule(clazz.getPackageName()) != null;
+      }
+    };
+  }
+
+  private static ArchCondition<JavaClass> notDependOnAnotherStoreImplementation() {
+    return new ArchCondition<>("not depend on a sibling store implementation") {
+      @Override
+      public void check(JavaClass clazz, ConditionEvents events) {
+        StoreModule sourceStore = storeModule(clazz.getPackageName());
+        clazz.getDirectDependenciesFromSelf().stream()
+            .map(dependency -> storeModule(dependency.getTargetClass().getPackageName()))
+            .filter(targetStore -> targetStore != null && !targetStore.equals(sourceStore))
+            .map(StoreModule::artifactId)
+            .distinct()
+            .forEach(
+                targetArtifactId ->
+                    events.add(
+                        SimpleConditionEvent.violated(
+                            clazz,
+                            clazz.getFullName()
+                                + " ("
+                                + sourceStore.artifactId()
+                                + ") depends on "
+                                + targetArtifactId
+                                + "; store implementations must depend only on ratchet-store-core")));
+      }
+    };
+  }
+
+  private static StoreModule storeModule(String packageName) {
+    return STORE_IMPLEMENTATION_PACKAGES.entrySet().stream()
+        .filter(
+            entry ->
+                packageName.equals(entry.getKey()) || packageName.startsWith(entry.getKey() + "."))
+        .map(Map.Entry::getValue)
+        .findFirst()
+        .orElse(null);
   }
 
   private static String coordinatorDialect(String packageName) {

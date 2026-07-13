@@ -16,8 +16,11 @@
 package run.ratchet.spi;
 
 import java.io.Serializable;
+import java.time.Duration;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.StreamingBatchBuilder;
@@ -54,6 +57,23 @@ public interface InvocationStreamingBatchBuilder<T extends Serializable> {
 
   /** Requests execution on the platform-thread executor target. */
   InvocationStreamingBatchBuilder<T> platform();
+
+  /** Sets the retry backoff policy and base delay for every invocation child. */
+  default InvocationStreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param) {
+    Objects.requireNonNull(policy, "policy");
+    Objects.requireNonNull(param, "param");
+    throw new UnsupportedOperationException(
+        "Invocation streaming batch child retry backoff is not supported");
+  }
+
+  /** Sets the maximum retry count for every invocation child. */
+  default InvocationStreamingBatchBuilder<T> withMaxRetries(int retries) {
+    if (retries < 0) {
+      throw new IllegalArgumentException("retries must be at least 0");
+    }
+    throw new UnsupportedOperationException(
+        "Invocation streaming batch child retries are not supported");
+  }
 
   /** Adds a conditional branch evaluated against the batch outcome. */
   InvocationStreamingBatchBuilder<T> thenBranch(

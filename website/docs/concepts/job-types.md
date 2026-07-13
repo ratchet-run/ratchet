@@ -34,7 +34,6 @@ The `JobExecutionType` enum adds granularity the engine needs for routing:
 | `CHAIN_STEP` | CHAIN | One step in a sequential chain |
 | `WORKFLOW_BRANCH` | WORKFLOW | Conditional branch job |
 | `WORKFLOW_JOIN` | WORKFLOW | Join point for workflow convergence |
-| `DLQ_ALERT` | SYSTEM | Dead letter queue alert tracking |
 
 This separation lets external observers see clean semantic categories while the engine routes jobs to the correct handler based on their execution role.
 
@@ -183,15 +182,15 @@ scheduler.enqueue(() -> analyzeData())
     .submit();
 ```
 
-Workflow branches are stored as `WorkflowConditionEntity` rows linked to the parent job. When the parent completes, `WorkflowScheduler` loads all conditions, evaluates them in priority order, and schedules the matching branches.
+Workflow branches are stored as `WorkflowConditionEntity` rows linked to the parent job. When the parent completes, `WorkflowScheduler` loads all conditions, evaluates them by priority and then registration order, and schedules the first matching branch. Every remaining sibling branch is canceled.
 
-Multiple branches can fire from a single parent -- unlike chains (which are linear), workflows support fan-out.
+Workflow conditions are exclusive, so only one branch can fire from a parent. Chain multiple follow-up jobs with `.then()`, or use a batch when those jobs need to fan out.
 
 See [Workflows](./workflows.md) for the full condition type catalog and branching patterns.
 
 ## SYSTEM jobs
 
-System jobs are framework-managed and not directly creatable through the public API. Currently, the `DLQ_ALERT` execution type is the only system job, used internally for dead letter queue alert tracking.
+`SYSTEM` is reserved for framework-managed work and is not directly creatable through the public API. The reference implementation does not currently define a system execution role.
 
 ## Type routing in the engine
 
@@ -202,7 +201,7 @@ When a job completes, the `PostExecutionHandler` routes the next action based on
 | SINGLE | Invoke callbacks | Invoke callbacks, move to DLQ |
 | BATCH_CHILD | Update parent progress | Update parent progress (as failure) |
 | CHAIN_STEP | Schedule next step | Cancel downstream steps |
-| WORKFLOW_BRANCH | Evaluate conditions, schedule matches | Evaluate conditions (FAILURE branches may fire) |
+| WORKFLOW_BRANCH | Evaluate conditions, schedule first match | Evaluate conditions (a FAILURE branch may fire) |
 | RECURRING | Calculate next fire time | Calculate next fire time (retry if configured) |
 
 This routing is the reason the internal `JobExecutionType` exists. The engine needs to know more than "this is a BATCH job"; it needs "this is a BATCH_CHILD job" to route correctly.

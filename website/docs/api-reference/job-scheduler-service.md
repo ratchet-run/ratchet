@@ -91,14 +91,14 @@ RecurringJobBuilder scheduleRecurring(
     String cron, ZoneId zone, SerializableCheckedRunnable task)
 ```
 
-Schedules a recurring job based on a cron expression. Returns a `RecurringJobBuilder` for configuring options and tags.
+Schedules a recurring job based on a cron expression. Returns a `RecurringJobBuilder` for configuring options, tags, identity, and downtime behavior.
 
 **Parameters:**
 - `cron` -- Quartz cron expression (6-7 fields: `second minute hour day-of-month month day-of-week [year]`).
 - `zone` -- timezone for evaluating the cron expression.
 - `task` -- the job task to execute on each occurrence.
 
-**Returns:** a `RecurringJobBuilder` for configuring options, tags, and business key.
+**Returns:** a `RecurringJobBuilder` for configuring options, tags, business key, and a persisted `RecurringMisfirePolicy`.
 
 ```java
 // Every weekday at 9 AM Eastern
@@ -111,8 +111,11 @@ scheduler.scheduleRecurring(
         .withBackoff(BackoffPolicy.FIXED, Duration.ofMinutes(5)))
     .withTags(List.of("reports", "daily"))
     .withBusinessKey("daily-report")
+    .withMisfirePolicy(RecurringMisfirePolicy.fireOnce())
     .submit();
 ```
+
+`withMisfirePolicy` accepts `skip()`, `fireOnce()`, or `catchUp(maxExecutions)`. The default is `catchUp(11)`, which preserves the previous bounded catch-up behavior. Policies apply only when at least two occurrences are overdue; a lone due occurrence runs normally.
 
 ## Batch methods
 
@@ -291,6 +294,36 @@ if (retried) {
     log.info("Job {} re-queued for execution", failedJobId);
 }
 ```
+
+### retryJobs
+
+```java
+int retryJobs(JobFilter filter, int limit)
+```
+
+Recovers a bounded set of failed jobs in one atomic store operation. Ratchet intersects the filter
+with `FAILED`, ignores archived rows, resets retry metadata, and makes the selected jobs immediately
+eligible again. The limit must be from 1 through 1000; repeat the call to drain a larger incident in
+bounded transactions.
+
+```java
+JobFilter billingFailures = JobFilter.builder()
+    .tags("billing")
+    .createdAfter(incidentStarted)
+    .sortField(JobQuerySortField.CREATED_AT)
+    .sortAscending(true)
+    .build();
+
+int recovered = scheduler.retryJobs(billingFailures, 250);
+```
+
+- All `JobFilter` criteria and ordering apply, but only current `FAILED` jobs are eligible.
+- The batch commits or rolls back as a unit. A business-key reservation conflict rolls back the
+  whole selected batch instead of partially recovering it.
+- This administrative operation does not run per-job authorization checks. Use `retryJob(UUID)`
+  when each job needs an authorization decision.
+- One `JobsBulkRetriedEvent` and one scheduler wakeup are emitted when the count is positive. Ratchet
+  does not emit one `JobRetryingEvent` per recovered job.
 
 ## Signal delivery methods
 
@@ -480,6 +513,10 @@ RecurringJobBuilder withBusinessKey(String key)
 ```
 
 Sets the business key for active-unique identity. While the job is active (PENDING, RUNNING, PAUSED), no other job may share the same business key.
+
+After trimming, a business key may contain up to 255 printable ASCII characters (`U+0020` through
+`U+007E`). Ratchet rejects longer or non-ASCII keys instead of leaving a store to truncate or
+convert them.
 
 ### submit
 

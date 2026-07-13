@@ -31,11 +31,11 @@ import run.ratchet.store.entity.JobEntity;
 class MongoArchiveOperationsIT extends BaseDocumentStoreIT {
 
   @Test
-  void archiveJobsBatchMovesSourceJobsInsideMongoTransaction() {
+  void archiveAndDeleteJobsBatchMovesSourceJobsInsideMongoTransaction() {
     JobEntity first = complete(store().save(newPendingJob()));
     JobEntity second = complete(store().save(newPendingJob()));
 
-    int archived = store().archiveJobsBatch(List.of(first, second), "retention", "system");
+    int archived = store().archiveAndDeleteJobsBatch(List.of(first, second), "retention", "system");
 
     assertEquals(2, archived);
     assertTrue(store().findById(first.getId()).isEmpty());

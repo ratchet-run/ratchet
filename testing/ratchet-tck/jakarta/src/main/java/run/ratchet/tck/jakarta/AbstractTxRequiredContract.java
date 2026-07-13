@@ -25,12 +25,13 @@ import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobSchedulerService;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TckJobs;
 
 /**
- * TCK contract: mutation operations on {@link run.ratchet.api.JobSchedulerService} documented as
- * transaction attribute {@code REQUIRED} MUST participate in the caller's JTA transaction.
+ * TCK contract: mutation operations on {@link JobSchedulerService} documented as transaction
+ * attribute {@code REQUIRED} MUST participate in the caller's JTA transaction.
  *
  * <ul>
  *   <li>When the surrounding transaction commits, the mutation MUST be durably visible.
@@ -43,11 +44,10 @@ import run.ratchet.tck.api.TckJobs;
  * store-specific preconditions (PAUSED / FAILED state) that cannot be set up generically without
  * additional TCK infrastructure.
  *
- * <p>Implementations backed by a non-JTA store (e.g. MongoDB) skip per method, not per class: the
- * two rollback contracts self-skip via {@code assumeTrue} on the {@code ratchet.test.db.type}
- * property (a non-JTA store cannot undo the write on {@code rollback}), while the commit-visible
- * contracts still run and must pass. Do not {@code @Disabled} the whole subclass — that would
- * suppress the commit assertions that a non-JTA store is expected to satisfy.
+ * <p>Implementations backed by a non-JTA store return {@code false} from {@link
+ * RatchetTckRuntime#supportsCallerTransactionRollback()}. Only the rollback contracts then report
+ * {@code N/A}; commit-visible contracts still run and must pass. Do not disable the whole subclass,
+ * because that would suppress assertions a non-JTA store is still expected to satisfy.
  */
 public abstract class AbstractTxRequiredContract {
 
@@ -78,15 +78,16 @@ public abstract class AbstractTxRequiredContract {
   }
 
   /**
-   * @apiNote Intentionally {@code protected} so runtime-specific TCK subclasses can override this
-   *     test to attach deployment-specific annotations. Overriders MUST delegate to {@code super};
-   *     replacing the body silently suppresses the contract.
+   * @apiNote Intentionally {@code protected} so a runtime-specific subclass may attach a
+   *     runner-level skip annotation when its test harness cannot translate an in-container
+   *     assumption into a skipped test. Such an override must delegate to {@code super} and must
+   *     not replace the assertion body.
    */
   @Test
   protected void cancelJob_rollback_isNotVisible() throws Exception {
     assumeTrue(
-        !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
-        "MongoDB does not participate in JTA rollback");
+        runtime().supportsCallerTransactionRollback(),
+        "The runtime reports that its store does not participate in caller transaction rollback");
     JobHandle handle =
         runtime().scheduler().schedule(Duration.ofSeconds(30), TckJobs::noop).submit();
     runtime().probe().track(handle);
@@ -135,16 +136,18 @@ public abstract class AbstractTxRequiredContract {
   }
 
   /**
-   * @apiNote Intentionally {@code protected} so runtime-specific TCK subclasses (e.g. the RI
-   *     test-suite under {@code ratchet-testsuite}) can override this test to attach
-   *     deployment-specific annotations such as {@code @DisabledIfSystemProperty}. Overriders MUST
-   *     delegate to {@code super}; replacing the body silently suppresses the contract.
+   * @apiNote Intentionally {@code protected} so a runtime-specific subclass may attach a
+   *     runner-level skip annotation when its test harness cannot translate an in-container
+   *     assumption into a skipped test. Capability-based skip overrides must delegate to {@code
+   *     super} and must not replace the assertion body. A runner may instead keep an inherited
+   *     method disabled when the runner itself hangs before the contract can complete; such a
+   *     sentinel override must fail loudly if its disable annotation is removed.
    */
   @Test
   protected void pauseJob_rollback_doesNotSuppressExecution() throws Exception {
     assumeTrue(
-        !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
-        "MongoDB does not participate in JTA rollback");
+        runtime().supportsCallerTransactionRollback(),
+        "The runtime reports that its store does not participate in caller transaction rollback");
     // 2 s delay: comfortably exceeds a typical poll cycle so the begin → pause → rollback
     // sequence completes before the scheduler can claim the job. The old 500 ms budget was
     // narrower than a single poll interval on loaded CI runners, causing vacuous passes.

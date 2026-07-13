@@ -18,9 +18,11 @@ The Java on this page compiles against `ratchet-api` `0.1.2-SNAPSHOT`. It shows 
 ## Fan out, track progress, branch on the result
 
 ```java
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 
@@ -40,6 +42,8 @@ public class ImageSetService {
     return scheduler
         .enqueueBatch("album-" + albumId)
         .forEach(imageKeys, key -> renderDerivatives(key))
+        .withMaxRetries(3)
+        .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
         .onProgress(ctx -> progress.record(albumId, ctx))
         .thenWhenFailureCount(25, () -> quarantineAlbum(albumId))
         .thenWhenSuccessRate(1.0, () -> publishAlbum(albumId))
@@ -54,7 +58,7 @@ public class ImageSetService {
 }
 ```
 
-`forEach` enqueues one child job per key. Each runs `renderDerivatives` on a worker, independently, with the store's retry rules behind it. The parent job is the batch itself: it does no image work, it owns the count.
+`forEach` enqueues one child job per key. Each runs `renderDerivatives` independently, with up to three retry attempts and exponential backoff. Batch retries are opt-in: without `withMaxRetries`, each child gets one attempt. The parent job is the batch itself: it does no image work, it owns the count.
 
 The two `thenWhen` lines are the part you would otherwise hand-roll. `thenWhenFailureCount(25, ...)` schedules `quarantineAlbum` if twenty-five children fail, so a bad upload stops short of publishing. `thenWhenSuccessRate(1.0, ...)` runs `publishAlbum` only when every child succeeded. They are conditions on the final tally, evaluated once, by the batch, not by you polling a counter.
 
@@ -100,6 +104,8 @@ public JobHandle reindex(UUID albumId, java.util.stream.Stream<String> imageKeys
       .fromStream(imageKeys)
       .process(key -> renderDerivatives(key))
       .withChunkSize(500)
+      .withMaxRetries(3)
+      .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
       .onBatchProgress(ctx -> progress.record(albumId, ctx))
       .thenOnBatchSuccess(() -> publishAlbum(albumId))
       .start();
@@ -113,6 +119,7 @@ Same counting, same completion branches; the difference is that the items arrive
 - Batches are an **optional store capability**. A store that does not advertise `BatchStore` throws `UnsupportedOperationException` from `enqueueBatch` and `streamingBatch`, by design: it refuses to persist a parent job whose children it cannot track, rather than silently dropping the count. The bundled MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB stores all advertise it.
 - The items and the per-item action must be `Serializable`; the action is stored and replayed, so capture ids and keys, not live service handles.
 - Children are independent and run in whatever order workers claim them. A batch counts completions and failures; it does not sequence one item after another. If item B depends on item A, that is a [workflow](../concepts/workflows.md), not a batch.
+- Child retries are configured on the batch builder with `withMaxRetries` and `withBackoff`. The default is no retries. These settings apply to the children only, not to the bookkeeping parent or completion branches.
 - `submit()` runs with the Jakarta transaction attribute `REQUIRED`, so the batch is created inside the caller's transaction. The children become eligible when that transaction commits, then run on the next poll, not the same instant.
 
 ## Why reach for a batch

@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
@@ -46,8 +47,30 @@ class EventApiContractTest {
     assertEquals(
         int.class, JobCallbackFailedEvent.class.getMethod("getCallbackAttempt").getReturnType());
     assertEquals(int.class, JobDlqEvent.class.getMethod("getRetryAttempt").getReturnType());
+    assertEquals(
+        int.class, JobExecutionTimedOutEvent.class.getMethod("getRetryAttempt").getReturnType());
     assertEquals(int.class, JobFailedEvent.class.getMethod("getRetryAttempt").getReturnType());
     assertEquals(int.class, JobRetryingEvent.class.getMethod("getRetryAttempt").getReturnType());
+  }
+
+  @Test
+  void jobExecutionTimedOutEventPreservesTimeoutContext() {
+    JobExecutionTimedOutEvent event =
+        new JobExecutionTimedOutEvent(
+            JOB_ID,
+            "business-key",
+            JobType.SINGLE,
+            JobPriority.HIGH,
+            "node-a",
+            TIMESTAMP,
+            Duration.ofSeconds(30),
+            Duration.ofSeconds(31),
+            2);
+
+    assertEquals(TIMESTAMP, event.getTimestamp());
+    assertEquals(Duration.ofSeconds(30), event.getExecutionTimeout());
+    assertEquals(Duration.ofSeconds(31), event.getElapsedTime());
+    assertEquals(2, event.getRetryAttempt());
   }
 
   @Test
@@ -181,6 +204,42 @@ class EventApiContractTest {
                 "node-a",
                 "signal-key",
                 null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobExecutionTimedOutEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                Duration.ZERO,
+                Duration.ofSeconds(1),
+                1));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobExecutionTimedOutEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                Duration.ofSeconds(1),
+                Duration.ofMillis(-1),
+                1));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobExecutionTimedOutEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                Duration.ofSeconds(1),
+                Duration.ofSeconds(1),
+                0));
     assertThrows(
         IllegalArgumentException.class,
         () ->
@@ -336,6 +395,21 @@ class EventApiContractTest {
 
     assertEquals(SignalDecision.Outcome.REJECTED, event.getOutcome());
     assertEquals("no", event.getRejectionReason());
+  }
+
+  @Test
+  void bulkRetriedEventValidatesBoundsAndPreservesSelection() {
+    JobFilter filter = JobFilter.builder().tags("billing").build();
+    JobsBulkRetriedEvent event = new JobsBulkRetriedEvent(filter, 25, 7, TIMESTAMP);
+
+    assertEquals(filter, event.getFilter());
+    assertEquals(25, event.getLimit());
+    assertEquals(7, event.getCount());
+    assertEquals(TIMESTAMP, event.getRetriedAt());
+    assertThrows(
+        IllegalArgumentException.class, () -> new JobsBulkRetriedEvent(filter, 0, 1, TIMESTAMP));
+    assertThrows(
+        IllegalArgumentException.class, () -> new JobsBulkRetriedEvent(filter, 1, 2, TIMESTAMP));
   }
 
   @Test

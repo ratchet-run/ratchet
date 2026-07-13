@@ -175,6 +175,22 @@ public interface MetricsCollector {
   }
 
   /**
+   * Called with a built-in resilience circuit breaker's initial state and after each state change.
+   *
+   * <p>Service names come from {@code CircuitBreakerProtected.service()} or the RI's bounded,
+   * class-and-method fallback. Implementations should still apply their normal metric-cardinality
+   * policy before using the value as a tag. Implementations may omit services that are not in an
+   * explicit bounded allowlist.
+   *
+   * @param serviceName logical downstream service protected by the breaker
+   * @param profile circuit-breaker profile enum name
+   * @param state breaker state enum name, e.g. {@code CLOSED}, {@code HALF_OPEN}, or {@code OPEN}
+   */
+  default void circuitBreakerState(String serviceName, String profile, String state) {
+    // default no-op
+  }
+
+  /**
    * Called when a row flagged {@code encrypted_payload} is read back as unframed plaintext (ADR
    * Q-D). An operational-integrity signal — a write-time downgrade, an un-upgraded node, or a bug —
    * never a read failure. The read still succeeds with the plaintext value.

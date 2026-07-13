@@ -64,6 +64,7 @@
     <module>testing/ratchet-tck</module>
     <module>testing/ratchet-testsuite</module>
     <module>testing/ratchet-testsuite-jpms</module>
+    <module>testing/ratchet-version-compatibility</module>
     <module>testing/ratchet-loadtest</module>
     <module>testing/ratchet-showcase</module>
     <module>testing/ratchet-coverage</module>
@@ -79,6 +80,9 @@
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.release>17</maven.compiler.release>
+    <!-- Ratchet does not generate sources through annotation processing. Disable implicit
+         discovery so transitive processors cannot make compilation JDK- or module-path-dependent. -->
+    <maven.compiler.proc>none</maven.compiler.proc>
 
     <!--
       Jakarta EE API versions. Defaults target Jakarta EE 10. The
@@ -113,7 +117,6 @@
     <jakarta.authentication-api.version>3.0.0</jakarta.authentication-api.version>
     <junit.version>5.14.4</junit.version>
     <junit.platform.version>1.14.4</junit.platform.version>
-    <asm.version>9.7.1</asm.version>
     <cron-utils.version>9.2.1</cron-utils.version>
     <arquillian.version>1.10.1.Final</arquillian.version>
     <!-- Plugin versions -->
@@ -930,6 +933,7 @@
               <excludeArtifacts>
                 <excludeArtifact>ratchet-testsuite</excludeArtifact>
                 <excludeArtifact>ratchet-testsuite-jpms</excludeArtifact>
+                <excludeArtifact>ratchet-version-compatibility</excludeArtifact>
                 <excludeArtifact>ratchet-loadtest</excludeArtifact>
                 <excludeArtifact>ratchet-showcase</excludeArtifact>
                 <excludeArtifact>ratchet-coverage</excludeArtifact>

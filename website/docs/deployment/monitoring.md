@@ -18,7 +18,7 @@ Add the Micrometer module:
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-micrometer</artifactId>
-  <version>0.1.2-SNAPSHOT</version>
+  <version>0.1.1</version>
 </dependency>
 ```
 
@@ -36,16 +36,43 @@ public MeterRegistry meterRegistry() {
 
 The `MicrometerMetricsCollector` is annotated `@Alternative @Priority(1000)`, so it automatically overrides the default `NoOpMetricsCollector` when the module is on the classpath.
 
+You can install `ratchet-otel` beside `ratchet-micrometer`. In that combination, OpenTelemetry's
+priority-1100 adapter handles tracing while Micrometer continues to publish metrics. If both
+modules are present, Ratchet deliberately chooses direct OpenTelemetry tracing instead of the
+Micrometer tracing bridge. A custom tracing collector with a priority above 1100 overrides both.
+
 ### Published metrics
 
 | Metric | Type | Tags | Description |
 |--------|------|------|-------------|
-| `ratchet.jobs.started` | Counter | `type`, `priority` | Jobs that began execution |
-| `ratchet.jobs.completed` | Counter | `type` | Jobs that finished successfully |
-| `ratchet.jobs.failed` | Counter | `type`, `family` | Jobs that failed (exception-family classification as tag) |
-| `ratchet.jobs.duration` | Timer | `type` | Execution time per job |
+| `ratchet.jobs.started` | Counter | `type`, `priority` | Job execution attempts started |
+| `ratchet.jobs.completed` | Counter | `type` | Job execution attempts completed successfully |
+| `ratchet.jobs.failed` | Counter | `type`, `family` | Failed attempts, grouped by bounded exception family |
+| `ratchet.jobs.duration` | Timer | `type` | Wall-clock duration of successful attempts |
+| `ratchet.store.finalization.retries` | Counter | `type` | Transient conflicts while persisting a successful result |
+| `ratchet.store.finalization.minimal_success` | Counter | `type` | Full-result persistence was exhausted and Ratchet used the minimal success write |
+| `ratchet.store.finalization.stuck` | Counter | `type` | Both finalization paths were exhausted; the job remains `RUNNING` for recovery |
+| `ratchet.store.claim.transient_failures` | Counter | `execution_type` | Transient store conflicts on the claim path |
+| `ratchet.poller.claimed.jobs` | Counter | `execution_type` | Number of jobs claimed |
+| `ratchet.submission.gate.rejections` | Counter | `execution_type`, `gate_status` | Claimed jobs blocked by a local submission gate |
+| `ratchet.wakeup.local` | Counter | `source` | Direct local poller wakeups after new work |
+| `ratchet.execution.target.fallback` | Counter | `requested_target`, `effective_target` | Requested executor target was unavailable and Ratchet used a fallback pool |
+| `ratchet.wakeup.cluster.publish` | Counter | `transport`, `outcome` | Cluster wakeup publish attempts |
+| `ratchet.wakeup.cluster.receive` | Counter | `transport`, `outcome` | Cluster wakeup messages observed by a receiver |
+| `ratchet.callbacks.failed` | Counter | `type`, `family` | `onSuccess` or `onFailure` callback failures; these do not fail the parent job |
+| `ratchet.signal.waiting` | Counter | `type`, `signal_key` | Jobs created in `WAITING` for a signal |
+| `ratchet.signal.delivered` | Counter | `type`, `signal_key`, `outcome` | Signal deliveries that moved a job to `PENDING` |
+| `ratchet.signal.timed_out` | Counter | `type`, `signal_key` | Signal waits that expired |
+| `ratchet.signal.cancelled` | Counter | `type`, `signal_key` | Signal waits cancelled before delivery |
+| `ratchet.store.operation` | Timer | `store`, `operation`, `outcome` | Timed store operations on claim and execution hot paths |
+| `ratchet.poller.breaker.state` | Gauge | `breaker` | Poller claim-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.circuit.breaker.state` | Gauge | `service`, `profile` | Application circuit-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.encryption.integrity.violations` | Counter | `surface` | A row marked as encrypted contained plaintext. The read succeeds, but the writer or rollout needs investigation. |
+| `ratchet.encryption.envelope.version_skew` | Counter | `version_gap` | A newer envelope reached this node. `next`, `multiple_versions_ahead`, and `not_newer` keep the diagnostic bounded; Ratchet releases valid newer jobs for an upgraded peer. |
 
 The `type` tag corresponds to `JobType` (`SINGLE`, `RECURRING`, `BATCH`, `CHAIN`, `WORKFLOW`, `SYSTEM`). The `priority` tag corresponds to `JobPriority` (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`). The `family` tag corresponds to `ExceptionFamily`, a coarse classification of the failure cause rather than the raw exception class name.
+
+`MicrometerMetricTagPolicy` keeps string-valued tags bounded. Framework values pass through, blanks become `UNKNOWN`, and unrecognized values become `OTHER`. Signal keys are application strings and collapse to `OTHER` unless you explicitly allowlist selected keys. See [Metrics Collection](../advanced/metrics-collection.md#published-metrics) for the tag-policy details.
 
 ### Grafana dashboard queries
 
@@ -72,7 +99,9 @@ topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 
 ### Custom `MetricsCollector`
 
-If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Beyond the three core job-lifecycle hooks (`jobStarted`, `jobCompleted`, `jobFailed`), the SPI also declares `successFinalizationRetried`/`successFinalizationMinimal`/`successFinalizationStuck`, `claimTransientFailure`, `jobsClaimed`, `gateRejected`, and `localWakeup`, plus default no-op hooks for cluster wakeup, callback failures, signal events, store operations, and poller circuit-breaker state. The simplest approach is to extend `NoOpMetricsCollector` and override only the callbacks you need:
+If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. Its callbacks cover job outcomes, success finalization, claims and gates, wakeups and executor routing, callback and signal events, store timing, poller and application circuit breakers, and encryption integrity/version signals.
+
+The example below is intentionally partial: it records two basic job outcomes and drops every other signal. Extending `NoOpMetricsCollector` is convenient when that is what you want. For a production replacement, review every callback in [Metrics Collection](../advanced/metrics-collection.md#metricscollector-spi) and either export it or delegate it to a complete collector.
 
 ```java
 public class MyMetricsCollector extends NoOpMetricsCollector {
@@ -120,6 +149,12 @@ public class JobMonitor {
             event.getJobId(), event.getRetryAttempt(), event.getErrorMessage());
     }
 
+    public void onExecutionTimeout(@Observes JobExecutionTimedOutEvent event) {
+        // Dispatch external alerts on an application-managed executor: observers are synchronous.
+        timeoutAlertExecutor.execute(() -> alertOps(
+            "Job " + event.getJobId() + " exceeded " + event.getExecutionTimeout()));
+    }
+
     public void onDlq(@Observes JobDlqEvent event) {
         // Alert: job exhausted all retries
         alertOps("Job " + event.getJobId() + " moved to DLQ: " + event.getErrorMessage());
@@ -148,9 +183,10 @@ For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI 
 |-------|-----------|
 | `JobStartedEvent` | Worker begins executing a job |
 | `JobCompletedEvent` | Job finished successfully |
-| `JobFailedEvent` | Job threw an exception |
+| `JobFailedEvent` | Job reached terminal `FAILED` state |
 | `JobRetryingEvent` | Job failed but will be retried |
-| `JobDlqEvent` | Job exhausted retries, moved to dead-letter queue |
+| `JobDlqEvent` | Job entered terminal dead-letter/FAILED handling |
+| `JobExecutionTimedOutEvent` | Running job exceeded its configured execution timeout |
 | `JobCancelledEvent` | Job was cancelled via API |
 | `BatchCompletingEvent` | All children in a batch have finished |
 | `ChainStartedEvent` | A chained job was triggered by its parent |
@@ -204,10 +240,13 @@ Alert if `CRITICAL` or `HIGH` jobs have been pending for more than a few seconds
 Jobs in the dead-letter queue need human attention:
 
 ```sql
-SELECT COUNT(*) FROM scheduler_dlq_alerts;
+SELECT COUNT(*)
+FROM scheduler_job
+WHERE terminal_status = 'FAILED';
 ```
 
-Wire this into your alerting system. A non-zero DLQ count means something failed permanently.
+Wire this into your alerting system. The durable `scheduler_job` row remains the source of truth
+after its live `scheduler_job_queue` row is removed.
 
 ## Alerting recommendations
 
@@ -219,6 +258,10 @@ Wire this into your alerting system. A non-zero DLQ count means something failed
 | Node heartbeat stale > 2min | **Critical** | Node may be down; check process health |
 | Pending CRITICAL jobs > 30s | **Critical** | Cluster may be overloaded |
 | Pending queue depth growing | **Warning** | Scale up nodes or increase thread pool |
+| `ratchet.store.finalization.stuck` > 0 | **Critical** | Check store health; successful work is waiting for recovery |
+| `ratchet.poller.breaker.state` remains `2` | **Critical** | Investigate claim-path store failures |
+| `ratchet.encryption.integrity.violations` > 0 | **Critical** | Investigate a downgrade, lagging writer, or encryption bug |
+| `ratchet.encryption.envelope.version_skew` persists after rollout | **Warning** | Find and upgrade the lagging node |
 
 ## See also
 

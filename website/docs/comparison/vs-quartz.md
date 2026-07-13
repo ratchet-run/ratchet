@@ -120,7 +120,9 @@ Each step is a separate persisted job, so a crash between step 2 and step 3 does
 
 ## Resilience
 
-Quartz has misfire policies (what to do if a trigger fires late) but no built-in retry policy, no circuit breaker, and no dead letter queue. The standard answer is "wrap your job code in MicroProfile Fault Tolerance" or "catch the exception and reschedule yourself."
+Quartz and Ratchet both have misfire policies. Ratchet persists `SKIP`, `FIRE_ONCE`, or a bounded `CATCH_UP` policy with each recurring master; its default catches up at most 11 overdue occurrences. Quartz offers a broader set of trigger-specific instructions, especially for its richer trigger types.
+
+Quartz has no built-in retry policy, circuit breaker, or dead letter queue. The standard answer is "wrap your job code in MicroProfile Fault Tolerance" or "catch the exception and reschedule yourself."
 
 Ratchet ships:
 
