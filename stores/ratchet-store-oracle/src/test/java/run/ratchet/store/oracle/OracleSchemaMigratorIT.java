@@ -153,4 +153,25 @@ class OracleSchemaMigratorIT extends AbstractSchemaMigratorContract {
     assertTrue(ex.getMessage().contains("Checksum mismatch"), () -> "got: " + ex.getMessage());
     assertTrue(ex.getMessage().contains(firstVersion), () -> "got: " + ex.getMessage());
   }
+
+  @Test
+  void v005ToleratesMissingLegacyJobTypeConstraints() throws Exception {
+    resetDatabase();
+    SchemaMigrator migrator = new SchemaMigrator(dataSource(), new OracleSchemaMigrationDialect());
+    migrator.migrate();
+
+    try (Connection c = newJdbcConnection();
+        Statement s = c.createStatement()) {
+      s.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '005'");
+      s.execute("ALTER TABLE scheduler_job DROP CONSTRAINT chk_job_type");
+      s.execute("ALTER TABLE scheduler_job_queue DROP CONSTRAINT chk_queue_job_type");
+      s.execute("ALTER TABLE scheduler_job_archive DROP CONSTRAINT chk_archive_job_type");
+    }
+
+    SchemaMigrator.MigrationResult result = migrator.migrate();
+
+    assertTrue(
+        result.applied().stream().anyMatch(script -> script.version().equals("005")),
+        "expected V005 to be reapplied");
+  }
 }
