@@ -164,6 +164,7 @@ public class RatchetArchiveBuilder {
             <class>run.ratchet.store.entity.BatchEntity</class>
             <class>run.ratchet.store.converter.InstantAttributeConverter</class>
             <class>run.ratchet.store.converter.JobPayloadConverter</class>
+            <class>run.ratchet.store.converter.JobPriorityConverter</class>
             <class>run.ratchet.store.converter.JsonListConverter</class>
             <class>run.ratchet.store.converter.JsonMapConverter</class>
             <class>run.ratchet.store.converter.JsonObjectMapConverter</class>
