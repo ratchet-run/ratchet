@@ -235,7 +235,7 @@ public class ChainScheduler {
    * commits. Subclasses use the same seam so branch events cannot escape a rolled-back chain
    * mutation.
    */
-  protected final void publishAfterCommit(Object event) {
+  protected void publishAfterCommit(Object event) {
     if (eventPublisher == null) {
       return;
     }
