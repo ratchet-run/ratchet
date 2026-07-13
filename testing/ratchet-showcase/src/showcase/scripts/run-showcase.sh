@@ -427,8 +427,10 @@ run_showcase_smoke() {
   local dashboard=""
   local observed_job=false
   for _ in {1..60}; do
-    dashboard="$(curl -fsS "$base_url/api/dashboard")"
-    if grep -Eq '"recentJobs"[[:space:]]*:[[:space:]]*\[[[:space:]]*\{' <<<"$dashboard"; then
+    # The curl must stay inside the condition: a bare assignment under `set -e`
+    # aborts the script on the first transient failure instead of retrying.
+    if dashboard="$(curl -fsS "$base_url/api/dashboard")" \
+      && grep -Eq '"recentJobs"[[:space:]]*:[[:space:]]*\[[[:space:]]*\{' <<<"$dashboard"; then
       observed_job=true
       break
     fi
