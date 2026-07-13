@@ -35,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RecurringMisfirePolicy;
@@ -479,6 +480,41 @@ public abstract class AbstractRecurringJobStoreContract {
     boolean queueOwns = jobFixture().store().findActiveByBusinessKey(key).isPresent();
     boolean recurringOwns = recurringStore().findRecurringByBusinessKey(key).isPresent();
     assertTrue(queueOwns ^ recurringOwns, "exactly one active owner must remain durable");
+  }
+
+  /**
+   * TCK 7i — bulk FAILED-to-PENDING recovery restores the resurrected queue job's claim on the
+   * shared active business-key namespace. A recurring master created after the bulk reset must be
+   * rejected exactly as if the queue job had been enqueued fresh.
+   */
+  @Test
+  void bulkResetFailedToPending_restoresBusinessKeyAgainstRecurringMaster() {
+    String key = "tck-bulk-reset-to-recurring-" + UUID.randomUUID();
+    String tag = "tck-bulk-reset-" + UUID.randomUUID();
+    JobEntity queueJob = jobFixture().newPendingJob(tag);
+    queueJob.setBusinessKey(key);
+    JobEntity saved = jobFixture().persist(queueJob);
+    assertTrue(
+        jobFixture()
+            .store()
+            .compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    assertTrue(
+        jobFixture()
+            .store()
+            .compareAndSwapStatus(
+                saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "tck bulk-reset fixture"));
+
+    assertEquals(
+        1, jobFixture().store().resetFailedToPending(JobFilter.builder().tags(tag).build(), 10));
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            recurringStore()
+                .createRecurring(
+                    definitionWithBusinessKey(
+                        UuidV7Factory.create(), key, "0 * * * * ?", Instant.now())),
+        "a bulk-resurrected queue job must reclaim its business key against recurring masters");
   }
 
   /**

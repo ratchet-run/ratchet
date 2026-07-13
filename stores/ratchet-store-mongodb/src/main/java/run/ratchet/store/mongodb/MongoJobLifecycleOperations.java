@@ -590,9 +590,21 @@ final class MongoJobLifecycleOperations
                       + " jobs but reset "
                       + modified);
             }
+            // The reservation collection is the cross-type business-key authority
+            // (queue vs recurring); re-reserve each resurrected key in this transaction so
+            // the whole batch commits or rolls back together, reservations included.
+            for (UUID id : ids) {
+              reservations.syncForStoredJob(session, id, JobStatus.PENDING);
+            }
             return modified;
           });
+    } catch (RatchetTransientStoreException e) {
+      throw e;
     } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Cannot bulk-resurrect jobs: a business key is already held", e);
+      }
       throw ctx.translateTransientStoreException("bulk reset failed jobs to pending", e);
     }
   }
