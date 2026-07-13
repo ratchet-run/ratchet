@@ -19,7 +19,6 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import jakarta.inject.Inject;
-import jakarta.transaction.UserTransaction;
 import java.time.Duration;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -58,7 +57,6 @@ class PollerCycleTransactionIT extends BaseRatchetIT {
   @Inject private PollerScheduler pollerScheduler;
   @Inject private TestJobService jobService;
   @Inject private TestTransactionRunner txRunner;
-  @Inject private UserTransaction utx;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -85,18 +83,16 @@ class PollerCycleTransactionIT extends BaseRatchetIT {
   }
 
   @Test
-  void pollCycle_commitsClaimBeforeDispatch_whileCallerTransactionRemainsActive() throws Exception {
+  void pollCycle_commitsClaimBeforeDispatch_whileCallerTransactionRemainsActive() {
     JobHandle handle = txRunner.call(() -> jobService.enqueue(SimpleJob::execute).submit());
 
-    utx.begin();
-    try {
-      pollerCycleExecutor.tick();
-      await()
-          .atMost(EXECUTION_TIMEOUT)
-          .untilAsserted(() -> assertEquals(1, SimpleJob.getInvocationCount()));
-    } finally {
-      utx.rollback();
-    }
+    txRunner.runRollbackOnly(
+        () -> {
+          pollerCycleExecutor.tick();
+          await()
+              .atMost(EXECUTION_TIMEOUT)
+              .untilAsserted(() -> assertEquals(1, SimpleJob.getInvocationCount()));
+        });
 
     JobAssertions.assertJobCompleted(jobCrudStore, handle, EXECUTION_TIMEOUT);
   }
