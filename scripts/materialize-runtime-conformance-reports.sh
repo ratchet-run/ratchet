@@ -88,7 +88,8 @@ for server_entry in "${SERVER_ENTRIES[@]}"; do
   done
 done
 
-expected_reports=50
+expected_combinations=$(( ${#SERVER_ENTRIES[@]} * ${#DATABASE_ENTRIES[@]} ))
+expected_reports=$(( expected_combinations * ${#TIER_ENTRIES[@]} ))
 if [[ "${#sources[@]}" -ne "${expected_reports}" ]]; then
   echo "Expected ${expected_reports} runtime reports, found ${#sources[@]}" >&2
   exit 1
@@ -136,4 +137,4 @@ for destination in "${destinations[@]}"; do
   fi
 done
 
-echo "Materialized ${expected_reports} runtime conformance reports for 25 server/database combinations"
+echo "Materialized ${expected_reports} runtime conformance reports for ${expected_combinations} server/database combinations"
