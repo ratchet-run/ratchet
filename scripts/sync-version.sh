@@ -104,6 +104,7 @@ PUBLIC_MAVEN_FILES=(
   "website/docs/advanced/metrics-collection.md"     # ratchet-micrometer
   "website/docs/advanced/spi-implementation.md"     # ratchet-tck-store
   "website/docs/concepts/overview.md"               # ratchet-bom
+  "website/docs/conformance/adopting-the-tck.md"    # ratchet-bom
 )
 if [[ -n "$PUBLIC_VERSION" ]]; then
   for f in "${PUBLIC_MAVEN_FILES[@]}"; do
