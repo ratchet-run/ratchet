@@ -37,6 +37,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -117,6 +118,49 @@ class ChainSchedulerTest {
     ChainCompletedEvent event = (ChainCompletedEvent) eventCaptor.getValue();
     assertEquals(finished.getId(), event.getJobId());
     assertEquals(root.getId(), event.getParentJobId());
+  }
+
+  @Test
+  void scheduleNext_chainCompletedEventPublishesExactlyOnceAfterCommit() {
+    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
+    scheduler.setTxRegistryForTesting(txRegistry);
+    AtomicReference<Synchronization> synchronization = activeTransaction();
+    JobEntity root = pendingJob();
+    root.setJobType(JobExecutionType.SINGLE);
+    JobEntity finished = pendingJob();
+    finished.setJobType(JobExecutionType.CHAIN_STEP);
+    finished.setDependsOn(root.getId());
+    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of());
+    when(jobCrudStore.findById(root.getId())).thenReturn(Optional.of(root));
+
+    assertFalse(scheduler.scheduleNext(finished));
+
+    verify(eventPublisher, never()).publish(any(ChainCompletedEvent.class));
+
+    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
+
+    verify(eventPublisher, times(1)).publish(any(ChainCompletedEvent.class));
+  }
+
+  @Test
+  void scheduleNext_chainCompletedEventIsSuppressedOnRollback() {
+    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
+    scheduler.setTxRegistryForTesting(txRegistry);
+    AtomicReference<Synchronization> synchronization = activeTransaction();
+    JobEntity root = pendingJob();
+    root.setJobType(JobExecutionType.SINGLE);
+    JobEntity finished = pendingJob();
+    finished.setJobType(JobExecutionType.CHAIN_STEP);
+    finished.setDependsOn(root.getId());
+    when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of());
+    when(jobCrudStore.findById(root.getId())).thenReturn(Optional.of(root));
+
+    assertFalse(scheduler.scheduleNext(finished));
+    synchronization.get().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verify(eventPublisher, never()).publish(any(ChainCompletedEvent.class));
   }
 
   @Test

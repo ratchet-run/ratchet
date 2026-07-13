@@ -205,7 +205,7 @@ public class ChainScheduler {
     if (eventPublisher == null) {
       return;
     }
-    eventPublisher.publish(
+    publishAfterCommit(
         new ChainCompletedEvent(
             finished.getId(),
             finished.getBusinessKey(),
