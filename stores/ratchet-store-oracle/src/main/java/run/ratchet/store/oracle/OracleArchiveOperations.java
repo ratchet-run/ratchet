@@ -104,6 +104,7 @@ final class OracleArchiveOperations implements ArchiveStore {
       }
 
       List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
+      lockJobRowsForArchive(ids);
       List<JobEntity> currentJobs =
           ArchiveHelper.requireCurrentTerminalJobs(ids, jobs.findByIds(ids));
       List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
@@ -142,6 +143,24 @@ final class OracleArchiveOperations implements ArchiveStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("archive and delete jobs batch", e);
     }
+  }
+
+  /**
+   * Locks the hot rows before the snapshot read so a concurrent resurrect cannot commit between the
+   * read and the terminal-guarded delete, which would archive stale content while deleting the
+   * newer terminal row.
+   */
+  private void lockJobRowsForArchive(List<UUID> ids) {
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    // language=Oracle
+    String sql =
+        "SELECT job_id FROM scheduler_job WHERE job_id IN (" + placeholders + ") FOR UPDATE";
+    Query lock = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) {
+      lock.setParameter(parameter++, UuidRawConverter.toBytes(id));
+    }
+    lock.getResultList();
   }
 
   @Override
