@@ -218,6 +218,64 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void hardTimeoutTerminalFailurePublishesFailedEventAfterCommit() {
+    handler =
+        newHandler(
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            Clock.systemUTC(),
+            eventPublisher,
+            txRegistry);
+    JobEntity job = jobWithMaxRetries(0);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    verify(eventPublisher, never()).publish(any());
+
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    verify(eventPublisher).publish(any(JobFailedEvent.class));
+  }
+
+  @Test
+  void hardTimeoutTerminalFailureSuppressesFailedEventAfterRollback() {
+    handler =
+        newHandler(
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            Clock.systemUTC(),
+            eventPublisher,
+            txRegistry);
+    JobEntity job = jobWithMaxRetries(0);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
   void racePathDoesNotEscalateToDlqWhenScheduleRetryLoses() {
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));

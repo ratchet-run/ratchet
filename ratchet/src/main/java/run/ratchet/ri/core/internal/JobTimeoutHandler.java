@@ -425,7 +425,7 @@ public class JobTimeoutHandler {
         resolveTxRegistry(),
         action,
         log,
-        "After-commit signal timeout event registration failed; event suppressed: %s");
+        "After-commit timeout event registration failed; event suppressed: %s");
   }
 
   private TransactionSynchronizationRegistry resolveTxRegistry() {
@@ -437,7 +437,7 @@ public class JobTimeoutHandler {
     if (eventPublisher == null) {
       return;
     }
-    eventPublisher.publish(
+    JobFailedEvent event =
         new JobFailedEvent(
             job.getId(),
             job.getBusinessKey(),
@@ -445,7 +445,11 @@ public class JobTimeoutHandler {
             job.getPriority(),
             job.getPickedBy(),
             errorMessage,
-            retryAttempt));
+            retryAttempt);
+    if (registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+      eventPublisher.publish(event);
+    }
   }
 
   private String formatDuration(Duration duration) {
