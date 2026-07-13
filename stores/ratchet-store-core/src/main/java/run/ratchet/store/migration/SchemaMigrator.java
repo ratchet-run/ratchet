@@ -117,10 +117,15 @@ public final class SchemaMigrator {
     if (stripped.startsWith(SINGLE_STATEMENT_DIRECTIVE)) {
       int directiveEnd = stripped.indexOf('\n');
       if (directiveEnd < 0) {
-        return List.of();
+        throw new SchemaMigrationException(
+            "Single-statement migration directive must be followed by SQL");
       }
       String statement = stripped.substring(directiveEnd + 1).strip();
-      return statement.isEmpty() ? List.of() : List.of(statement);
+      if (statement.isEmpty()) {
+        throw new SchemaMigrationException(
+            "Single-statement migration directive must be followed by SQL");
+      }
+      return List.of(statement);
     }
 
     List<String> statements = new ArrayList<>();
