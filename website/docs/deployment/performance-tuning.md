@@ -351,7 +351,7 @@ Add the `ratchet-micrometer` module instead of maintaining a lifecycle-only coll
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-micrometer</artifactId>
-  <version>${ratchet.version}</version>
+  <version>0.1.1</version>
 </dependency>
 ```
 

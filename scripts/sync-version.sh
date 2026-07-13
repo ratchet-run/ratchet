@@ -99,6 +99,7 @@ PUBLIC_MAVEN_FILES=(
   "website/docs/deployment/overview.md"            # ratchet-bom
   "website/docs/deployment/mongodb.md"             # ratchet-store-mongodb
   "website/docs/deployment/monitoring.md"          # ratchet-micrometer
+  "website/docs/deployment/performance-tuning.md"  # ratchet-micrometer
   "website/docs/use-cases/durable-llm-workflows.md"   # ratchet + ratchet-store-postgresql
   "website/docs/advanced/metrics-collection.md"     # ratchet-micrometer
   "website/docs/advanced/spi-implementation.md"     # ratchet-tck-store
