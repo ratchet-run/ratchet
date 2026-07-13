@@ -79,6 +79,9 @@
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.release>17</maven.compiler.release>
+    <!-- Ratchet does not generate sources through annotation processing. Disable implicit
+         discovery so transitive processors cannot make compilation JDK- or module-path-dependent. -->
+    <maven.compiler.proc>none</maven.compiler.proc>
 
     <!--
       Jakarta EE API versions. Defaults target Jakarta EE 10. The
