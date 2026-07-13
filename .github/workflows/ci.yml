@@ -20,9 +20,9 @@ jobs:
   # Validate workflow structure and parse every shell run block before any
   # release can reach its deploy step. Limit ShellCheck to errors so this gate
   # catches invalid shell without turning existing advisory findings into
-  # unrelated CI failures. It also runs the conformance materializer's
-  # functional tests so script-logic regressions gate pull requests instead of
-  # surfacing only in the post-merge documentation deploy.
+  # unrelated CI failures. It also runs the functional tests for the release
+  # helper scripts so script-logic regressions gate pull requests instead of
+  # surfacing only in the post-merge documentation deploy or a release run.
   workflow-lint:
     runs-on: ubuntu-latest
     permissions:
@@ -37,6 +37,8 @@ jobs:
           args: -color
       - name: Test runtime conformance report materialization
         run: scripts/test-materialize-runtime-conformance-reports.sh
+      - name: Test release version synchronization
+        run: scripts/test-sync-version.sh
 
   # Detects whether a pull request touches anything other than documentation, so
   # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
