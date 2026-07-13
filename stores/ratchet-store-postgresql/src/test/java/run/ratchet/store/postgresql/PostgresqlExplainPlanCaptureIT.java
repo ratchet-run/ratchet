@@ -74,9 +74,11 @@ class PostgresqlExplainPlanCaptureIT {
         Statement statement = conn.createStatement()) {
       conn.setAutoCommit(false);
       statement.execute("ANALYZE scheduler_job_queue");
-      // The fixture table is intentionally small, so PostgreSQL may prefer a sequential scan on
-      // cost alone. Disable seqscan locally to verify the intended claim index remains usable.
+      // The fixture table is intentionally small, so PostgreSQL may prefer a sequential scan or
+      // the status-only signal index on cost alone. Disable the former and temporarily drop the
+      // latter inside this rolled-back transaction to verify the claim index remains usable.
       statement.execute("SET LOCAL enable_seqscan = off");
+      statement.execute("DROP INDEX idx_signal_timeout_status");
       String plan = explainJson(statement);
       ExplainPlanTestSupport.writePlan(
           "target/explain-plans/postgresql-optimized-claim.json", plan);
