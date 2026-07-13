@@ -41,6 +41,7 @@ import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -71,6 +72,7 @@ public class JobTimeoutHandler {
   private final int signalTimeoutBatchSize;
   private final TransactionSynchronizationRegistry txRegistry;
   private final SingletonLeaseService singletonLeaseService;
+  private final ErrorSanitizer errorSanitizer;
 
   /**
    * Job ids the hard-timeout watchdog has cancelled and is about to retry/finalize itself. The
@@ -95,6 +97,7 @@ public class JobTimeoutHandler {
     this.signalTimeoutBatchSize = 0;
     this.txRegistry = null;
     this.singletonLeaseService = null;
+    this.errorSanitizer = null;
   }
 
   public JobTimeoutHandler(
@@ -121,6 +124,7 @@ public class JobTimeoutHandler {
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
+        null,
         null,
         null);
   }
@@ -151,6 +155,7 @@ public class JobTimeoutHandler {
         metricsCollector,
         signalTimeoutBatchSize,
         txRegistry,
+        null,
         null);
   }
 
@@ -168,6 +173,38 @@ public class JobTimeoutHandler {
       int signalTimeoutBatchSize,
       TransactionSynchronizationRegistry txRegistry,
       SingletonLeaseService singletonLeaseService) {
+    this(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        eventPublisher,
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        txRegistry,
+        singletonLeaseService,
+        null);
+  }
+
+  public JobTimeoutHandler(
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      TransactionSynchronizationRegistry txRegistry,
+      SingletonLeaseService singletonLeaseService,
+      ErrorSanitizer errorSanitizer) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -181,6 +218,7 @@ public class JobTimeoutHandler {
     this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
     this.txRegistry = txRegistry;
     this.singletonLeaseService = singletonLeaseService;
+    this.errorSanitizer = errorSanitizer;
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -284,6 +322,7 @@ public class JobTimeoutHandler {
 
   private Optional<TerminalTimeoutTransition> applyHardTimeoutTransition(
       UUID jobId, TimeoutException timeoutEx, long timeoutSec, Duration observedElapsedTime) {
+    String sanitizedError = sanitizeTimeoutError(timeoutEx);
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
       log.infof("Job %s no longer exists when timeout handler ran", jobId);
@@ -302,10 +341,10 @@ public class JobTimeoutHandler {
     if (newAttempts <= job.getMaxRetries()) {
       Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
       boolean rescheduled =
-          jobRetryStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
+          jobRetryStore.scheduleJobRetry(jobId, sanitizedError, retryTime, newAttempts);
       if (rescheduled) {
         publishHardTimeoutRetryEvents(
-            job, timeoutEx.getMessage(), newAttempts, retryTime, timeoutSec, observedElapsedTime);
+            job, sanitizedError, newAttempts, retryTime, timeoutSec, observedElapsedTime);
         log.warnf(
             "Job %s timed out but has retries remaining (%s/%s) — rescheduled for %s",
             jobId, newAttempts, job.getMaxRetries(), retryTime);
@@ -323,7 +362,7 @@ public class JobTimeoutHandler {
     // Step 3: Retries exhausted — CAS to FAILED and route to DLQ.
     boolean marked =
         jobBatchStatusStore.compareAndSwapStatus(
-            jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
+            jobId, JobStatus.RUNNING, JobStatus.FAILED, sanitizedError);
     if (!marked) {
       log.infof("Job %s already in terminal state when timeout handler ran", jobId);
       return Optional.empty();
@@ -331,10 +370,25 @@ public class JobTimeoutHandler {
     log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
     job.setAttempts(newAttempts);
     job.setStatus(JobStatus.FAILED);
-    job.setLastError(timeoutEx.getMessage());
+    job.setLastError(sanitizedError);
     return Optional.of(
         terminalHardTimeoutTransition(
-            job, timeoutEx.getMessage(), newAttempts, timeoutSec, observedElapsedTime));
+            job, sanitizedError, newAttempts, timeoutSec, observedElapsedTime));
+  }
+
+  private String sanitizeTimeoutError(TimeoutException timeout) {
+    if (errorSanitizer == null) {
+      return timeout.getMessage();
+    }
+    try {
+      String sanitized = errorSanitizer.sanitize(timeout);
+      return sanitized != null ? sanitized : timeout.getClass().getName();
+    } catch (Throwable sanitizerError) {
+      log.warnf(
+          sanitizerError,
+          "Error sanitizer failed while preparing hard-timeout metadata; using exception class fallback");
+      return timeout.getClass().getName();
+    }
   }
 
   void processSignalTimeout(JobEntity job, Instant now) {

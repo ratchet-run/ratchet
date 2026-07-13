@@ -16,6 +16,7 @@ SERVERS=(
 )
 DATABASES=(mysql postgresql oracle sqlserver mongodb)
 TIERS=(api jakarta)
+EXPECTED_REPORT_COUNT=$(( ${#SERVERS[@]} * ${#DATABASES[@]} * ${#TIERS[@]} ))
 
 fail() {
   echo "FAIL: $*" >&2
@@ -85,11 +86,10 @@ EOF
 
 assert_materialized() {
   local docs_root="$1"
-  local expected_count actual_count server database tier report_file expected_frontmatter actual_frontmatter
-  expected_count=50
+  local actual_count server database tier report_file expected_frontmatter actual_frontmatter
   actual_count="$(find "${docs_root}/api" "${docs_root}/jakarta" -type f -name '*.md' | wc -l | tr -d ' ')"
-  [[ "${actual_count}" == "${expected_count}" ]] \
-    || fail "expected ${expected_count} materialized reports, found ${actual_count}"
+  [[ "${actual_count}" == "${EXPECTED_REPORT_COUNT}" ]] \
+    || fail "expected ${EXPECTED_REPORT_COUNT} materialized reports, found ${actual_count}"
 
   for server in "${SERVERS[@]}"; do
     for database in "${DATABASES[@]}"; do
@@ -127,7 +127,7 @@ assert_legacy_flattened_regression() {
 
   [[ "${found}" -eq 0 ]] \
     || fail "flattened fixture unexpectedly satisfied ${found} legacy report paths"
-  echo 'BASELINE: the original nested-path copy logic finds 0 of 50 flattened reports'
+  echo "BASELINE: the original nested-path copy logic finds 0 of ${EXPECTED_REPORT_COUNT} flattened reports"
 }
 
 expect_failure() {

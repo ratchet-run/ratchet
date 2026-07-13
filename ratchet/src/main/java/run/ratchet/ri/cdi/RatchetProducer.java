@@ -200,7 +200,8 @@ public class RatchetProducer {
       Clock clock,
       InternalEventPublisher eventPublisher,
       Instance<SignalStore> signalStore,
-      SingletonLeaseService singletonLeaseService) {
+      SingletonLeaseService singletonLeaseService,
+      ErrorSanitizer errorSanitizer) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
     int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
@@ -218,7 +219,8 @@ public class RatchetProducer {
         metricsCollector,
         signalTimeoutBatchSize,
         resolveTxRegistry(),
-        singletonLeaseService);
+        singletonLeaseService,
+        errorSanitizer);
   }
 
   private TransactionSynchronizationRegistry resolveTxRegistry() {
