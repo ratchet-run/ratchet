@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,6 +55,7 @@ import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -76,6 +78,7 @@ class JobTimeoutHandlerTest {
   @Mock private SignalStore signalStore;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private TransactionSynchronizationRegistry txRegistry;
+  @Mock private ErrorSanitizer errorSanitizer;
 
   private JobTimeoutHandler handler;
 
@@ -215,6 +218,36 @@ class JobTimeoutHandlerTest {
     assertEquals(JOB_ID, failedEvent.getJobId());
     assertEquals("timeout-key", failedEvent.getBusinessKey());
     assertEquals(1, failedEvent.getRetryAttempt());
+  }
+
+  @Test
+  void hardTimeoutTerminalFailureSanitizesPersistedAndPublishedError() {
+    handler =
+        newHandler(
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            Clock.systemUTC(),
+            eventPublisher,
+            null,
+            errorSanitizer);
+    JobEntity job = jobWithMaxRetries(0);
+    when(errorSanitizer.sanitize(any(TimeoutException.class))).thenReturn("safe timeout");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(JOB_ID, JobStatus.RUNNING, JobStatus.FAILED, "safe timeout");
+    assertEquals("safe timeout", job.getLastError());
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    JobFailedEvent event = assertInstanceOf(JobFailedEvent.class, eventCaptor.getValue());
+    assertEquals("safe timeout", event.getErrorMessage());
   }
 
   @Test
@@ -599,6 +632,24 @@ class JobTimeoutHandlerTest {
       Clock clock,
       InternalEventPublisher eventPublisher,
       TransactionSynchronizationRegistry txRegistry) {
+    return newHandler(
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        clock,
+        eventPublisher,
+        txRegistry,
+        null);
+  }
+
+  private JobTimeoutHandler newHandler(
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      TransactionSynchronizationRegistry txRegistry,
+      ErrorSanitizer errorSanitizer) {
     return new JobTimeoutHandler(
         jobCrudStore,
         jobRetryStore,
@@ -612,7 +663,9 @@ class JobTimeoutHandlerTest {
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
-        txRegistry);
+        txRegistry,
+        null,
+        errorSanitizer);
   }
 
   private JobTimeoutHandler newLeasedHandler(SingletonLeaseService singletonLeaseService) {
