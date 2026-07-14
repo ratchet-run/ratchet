@@ -23,7 +23,7 @@
 #                      including the Signed-off-by trailer); pass /dev/null for
 #                      no body
 #
-# Requires: gh (authenticated), jq, git. Reads the changed files from
+# Requires: gh (authenticated), jq, git, base64. Reads the changed files from
 # `git diff --name-only HEAD` plus `git diff --name-only --cached`.
 #
 # Prints the new commit oid on stdout.
@@ -35,6 +35,14 @@ BRANCH="$2"
 EXPECTED_HEAD_OID="$3"
 HEADLINE="$4"
 BODY_FILE="${5:-/dev/null}"
+
+TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ratchet-gh-signed-commit.XXXXXX")"
+trap 'rm -rf "${TMP_ROOT}"' EXIT
+ADDITIONS_FILE="${TMP_ROOT}/additions.jsonl"
+DELETIONS_FILE="${TMP_ROOT}/deletions.jsonl"
+REQUEST_FILE="${TMP_ROOT}/request.json"
+: > "${ADDITIONS_FILE}"
+: > "${DELETIONS_FILE}"
 
 # Collect every TRACKED path that differs from HEAD — modifications, staged
 # changes, and deletions (`git diff HEAD` plus `--cached`). Untracked files are
@@ -55,23 +63,21 @@ if [[ -z "$CHANGED_LIST" ]]; then
   exit 1
 fi
 
-# Build the additions/deletions arrays in one pass. A file still present in the
-# working tree is an addition carrying its base64 contents (base64 -w0 keeps
-# each blob on one line); a path that has vanished is a deletion.
-ADDITIONS='[]'
-DELETIONS='[]'
+# Build the additions/deletions as JSON-object-per-line temp files in one pass.
+# A file still present in the working tree is an addition carrying its base64
+# contents (base64 -w0 keeps each blob on one line); a path that has vanished
+# is a deletion. Blob contents flow through stdin into jq and then into a file,
+# so neither individual blobs nor the accumulated payload ever ride in argv.
 while IFS= read -r path; do
   [[ -n "$path" ]] || continue
   if [[ -f "$path" ]]; then
-    b64="$(base64 -w0 < "$path")"
-    ADDITIONS="$(jq -c --arg p "$path" --arg c "$b64" \
-      '. + [{path: $p, contents: $c}]' <<<"$ADDITIONS")"
+    base64 -w0 < "$path" \
+      | jq -Rsc --arg p "$path" '{path: $p, contents: .}' \
+      >> "${ADDITIONS_FILE}"
   else
-    DELETIONS="$(jq -c --arg p "$path" '. + [{path: $p}]' <<<"$DELETIONS")"
+    jq -cn --arg p "$path" '{path: $p}' >> "${DELETIONS_FILE}"
   fi
 done <<<"$CHANGED_LIST"
-
-BODY="$(cat "$BODY_FILE")"
 
 MUTATION='mutation($input: CreateCommitOnBranchInput!) {
   createCommitOnBranch(input: $input) {
@@ -79,20 +85,20 @@ MUTATION='mutation($input: CreateCommitOnBranchInput!) {
   }
 }'
 
-# Assemble the COMPLETE GraphQL request body ({query, variables}) with jq so
-# nothing is shell-interpolated into the payload. `gh api graphql --input -`
-# reads the whole body from stdin, so query and variables both ride along
-# rather than being passed as flat field flags (which can't express a nested
-# input object). The message is {headline, body}; an empty body is allowed.
-REQUEST="$(jq -n \
+# Assemble the complete GraphQL request body ({query, variables}) in a temp
+# file. `--slurpfile` turns each JSONL file into an array (including [] for an
+# empty file), while `--rawfile` reads the message body without putting its
+# contents in argv. Passing that request file to gh preserves the nested input
+# object without holding the multi-megabyte payload in a shell variable.
+jq -n \
   --arg query "$MUTATION" \
   --arg repo "$REPO" \
   --arg branch "$BRANCH" \
   --arg oid "$EXPECTED_HEAD_OID" \
   --arg headline "$HEADLINE" \
-  --arg body "$BODY" \
-  --argjson additions "$ADDITIONS" \
-  --argjson deletions "$DELETIONS" \
+  --rawfile body "$BODY_FILE" \
+  --slurpfile additions "$ADDITIONS_FILE" \
+  --slurpfile deletions "$DELETIONS_FILE" \
   '{
     query: $query,
     variables: {
@@ -103,11 +109,10 @@ REQUEST="$(jq -n \
         fileChanges: { additions: $additions, deletions: $deletions }
       }
     }
-  }')"
+  }' > "$REQUEST_FILE"
 
 # Capture the new commit oid for the caller.
-NEW_OID="$(printf '%s' "$REQUEST" \
-  | gh api graphql --input - \
+NEW_OID="$(gh api graphql --input "$REQUEST_FILE" \
   | jq -r '.data.createCommitOnBranch.commit.oid')"
 
 if [[ -z "$NEW_OID" || "$NEW_OID" == "null" ]]; then

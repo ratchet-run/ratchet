@@ -39,6 +39,8 @@ jobs:
         run: scripts/test-materialize-runtime-conformance-reports.sh
       - name: Test release version synchronization
         run: scripts/test-sync-version.sh
+      - name: Test signed commit request generation
+        run: scripts/test-gh-signed-commit.sh
 
   # Detects whether a pull request touches anything other than documentation, so
   # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
