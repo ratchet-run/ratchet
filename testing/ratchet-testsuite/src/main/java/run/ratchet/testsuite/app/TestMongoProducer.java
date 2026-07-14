@@ -20,6 +20,7 @@ import com.mongodb.client.MongoDatabase;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Disposes;
 import jakarta.enterprise.inject.Produces;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
@@ -46,6 +47,21 @@ public class TestMongoProducer {
           "ratchet.test.mongo.uri system property not set. "
               + "Ensure MongoContainerExtension is active and the mongodb profile is enabled.");
     }
+
+    // Bound how long a monitor thread blocked in connect/heartbeat I/O can survive close(), keeping
+    // its post-close lifetime under the disposer join budget so the WAR classloader never closes
+    // while a driver thread is still alive.
+    String query = uri.contains("?") ? uri.substring(uri.indexOf('?') + 1) : "";
+    List<String> queryParameterNames =
+        Arrays.stream(query.split("&")).map(parameter -> parameter.split("=", 2)[0]).toList();
+    if (queryParameterNames.stream()
+        .noneMatch(parameter -> parameter.equalsIgnoreCase("heartbeatFrequencyMS"))) {
+      uri += (uri.contains("?") ? "&" : "?") + "heartbeatFrequencyMS=2000";
+    }
+    if (queryParameterNames.stream()
+        .noneMatch(parameter -> parameter.equalsIgnoreCase("connectTimeoutMS"))) {
+      uri += (uri.contains("?") ? "&" : "?") + "connectTimeoutMS=2000";
+    }
     return MongoClientFactory.create(uri);
   }
 
@@ -71,29 +87,43 @@ public class TestMongoProducer {
   }
 
   private static void waitForMonitorThreads() {
-    // GlassFish closes the WebappClassLoader at undeploy and hard-fails later class loads. MongoDB
-    // monitor threads lazily load classes during shutdown, so wait for them before undeploy
-    // returns.
-    long deadlineNanos = System.nanoTime() + MONITOR_SHUTDOWN_TIMEOUT_NANOS;
+    // MongoDB close() signals monitor threads, but one blocked in socket I/O dies only when the
+    // now-bounded timeout fires. Join to reap it before GlassFish closes the WAR classloader.
+    // Interrupt halfway through covers interruptible waits but cannot break a blocking socket read.
+    long startNanos = System.nanoTime();
+    long interruptDeadlineNanos = startNanos + MONITOR_SHUTDOWN_TIMEOUT_NANOS / 2;
+    long deadlineNanos = startNanos + MONITOR_SHUTDOWN_TIMEOUT_NANOS;
     List<Thread> monitorThreads =
         Thread.getAllStackTraces().keySet().stream()
             .filter(Thread::isAlive)
             .filter(thread -> thread.getName().startsWith("cluster-"))
             .toList();
 
-    for (Thread thread : monitorThreads) {
-      long remainingNanos = deadlineNanos - System.nanoTime();
-      if (remainingNanos <= 0) {
-        break;
+    boolean waitInterrupted = false;
+    for (int phase = 0; phase < 2 && !waitInterrupted; phase++) {
+      long phaseDeadlineNanos = phase == 0 ? interruptDeadlineNanos : deadlineNanos;
+      if (phase == 1) {
+        monitorThreads.stream().filter(Thread::isAlive).forEach(Thread::interrupt);
       }
-      try {
-        long remainingMillis = TimeUnit.NANOSECONDS.toMillis(remainingNanos);
-        int remainingNanosPart =
-            (int) (remainingNanos - TimeUnit.MILLISECONDS.toNanos(remainingMillis));
-        thread.join(remainingMillis, remainingNanosPart);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        break;
+
+      for (Thread thread : monitorThreads) {
+        if (!thread.isAlive()) {
+          continue;
+        }
+        long remainingNanos = phaseDeadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+          break;
+        }
+        try {
+          long remainingMillis = TimeUnit.NANOSECONDS.toMillis(remainingNanos);
+          int remainingNanosPart =
+              (int) (remainingNanos - TimeUnit.MILLISECONDS.toNanos(remainingMillis));
+          thread.join(remainingMillis, remainingNanosPart);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          waitInterrupted = true;
+          break;
+        }
       }
     }
 
