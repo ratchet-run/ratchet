@@ -263,6 +263,9 @@ jobs:
         # into the script via ${{ }}, so a crafted commit message cannot inject commands.
         run: |
           set -euo pipefail
+          # The tag step creates RELEASE_TAG remotely through the API after this job's
+          # checkout already fetched tags, so the local clone doesn't have it yet.
+          git fetch --quiet origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
           PREV_TAG=$(git describe --tags --abbrev=0 "${RELEASE_TAG}^" 2>/dev/null || echo "")
           if [ -n "$PREV_TAG" ]; then
             COMMITS=$(git log "${PREV_TAG}..${RELEASE_TAG}" --pretty=format:"- %s" \
