@@ -17,14 +17,21 @@ package run.ratchet.testsuite.app;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.lang.reflect.Modifier;
+import com.mongodb.client.MongoClient;
+import jakarta.enterprise.inject.Disposes;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class TestMongoProducerTest {
 
   @Test
-  void producedClientReadDuringShutdown_isVolatile() throws Exception {
+  void producedClient_hasDisposerMethod() {
     assertTrue(
-        Modifier.isVolatile(TestMongoProducer.class.getDeclaredField("client").getModifiers()));
+        Arrays.stream(TestMongoProducer.class.getDeclaredMethods())
+            .flatMap(method -> Arrays.stream(method.getParameters()))
+            .anyMatch(
+                parameter ->
+                    parameter.getType() == MongoClient.class
+                        && parameter.isAnnotationPresent(Disposes.class)));
   }
 }
