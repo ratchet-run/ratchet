@@ -23,7 +23,7 @@ sqlplus ratchet/secret@//localhost:1521/FREEPDB1 \
 
 The Oracle store was added after the `0.1.1` release, so there is no published store JAR to
 extract at that version. Build the current source tree and use the DDL path above. Starting with
-`0.1.2`, the store JAR also contains the file at `ddl/oracle-schema.sql`.
+`0.2.0`, the store JAR also contains the file at `ddl/oracle-schema.sql`.
 
 Or copy it into your migration tool's versioned scripts:
 

@@ -145,7 +145,7 @@ You choose a store implementation as a Maven dependency:
 <artifactId>ratchet-store-mysql</artifactId>
 <artifactId>ratchet-store-mongodb</artifactId>
 
-<!-- Published starting in 0.1.2; build from source when using 0.1.1 -->
+<!-- Published starting in 0.2.0; build from source when using 0.1.1 -->
 <artifactId>ratchet-store-oracle</artifactId>
 <artifactId>ratchet-store-sqlserver</artifactId>
 ```
