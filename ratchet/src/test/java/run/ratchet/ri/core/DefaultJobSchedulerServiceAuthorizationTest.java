@@ -27,6 +27,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,6 +44,7 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobEntity;
@@ -137,6 +139,76 @@ class DefaultJobSchedulerServiceAuthorizationTest {
     service.cancelJob(JOB_ID);
 
     verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(OWNER), eq(CALLER));
+  }
+
+  private DefaultJobSchedulerService serviceWithResolver(
+      CallerPrincipalProvider principalProvider, CallerPrincipalResolver callerPrincipalResolver) {
+    return new DefaultJobSchedulerService(
+        eventPublisher,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        jobCreationService,
+        principalProvider,
+        authorizationPolicy,
+        null,
+        null,
+        null,
+        Clock.systemUTC(),
+        callerPrincipalResolver);
+  }
+
+  @Test
+  void cancelJob_configuredResolverTakesPrecedenceOverProvider() {
+    DefaultJobSchedulerService resolverService =
+        serviceWithResolver(
+            new CallerPrincipalProvider(null) {
+              @Override
+              public Optional<String> currentPrincipal() {
+                return Optional.of(CALLER);
+              }
+            },
+            () -> Optional.of("resolver-caller"));
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(ownerJob()));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any()))
+        .thenReturn(true);
+
+    resolverService.cancelJob(JOB_ID);
+
+    verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(OWNER), eq("resolver-caller"));
+  }
+
+  @Test
+  void cancelJob_throwingResolverDegradesToNullCurrentPrincipal() {
+    DefaultJobSchedulerService resolverService =
+        serviceWithResolver(
+            new CallerPrincipalProvider(null) {
+              @Override
+              public Optional<String> currentPrincipal() {
+                return Optional.of(CALLER);
+              }
+            },
+            () -> {
+              throw new IllegalStateException("ContextNotActiveException-like failure");
+            });
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(ownerJob()));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any()))
+        .thenReturn(true);
+
+    resolverService.cancelJob(JOB_ID);
+
+    verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(OWNER), eq(null));
   }
 
   // ---- pauseJob ----

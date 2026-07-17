@@ -41,6 +41,7 @@ import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SignalDecision;
@@ -58,6 +59,8 @@ import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.security.CallerPrincipalResolution;
+import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
@@ -108,6 +111,7 @@ public class DefaultJobSchedulerService
   private final JobInvocationResolver jobInvocationResolver;
   private final DefaultJobCreationService jobCreationService;
   private final CallerPrincipalProvider callerPrincipalProvider;
+  private final CallerPrincipalResolver callerPrincipalResolver;
   private final JobAuthorizationPolicy authorizationPolicy;
   private final SignalStore signalStore;
   private final PayloadSerializer payloadSerializer;
@@ -134,6 +138,7 @@ public class DefaultJobSchedulerService
     this.jobInvocationResolver = null;
     this.jobCreationService = null;
     this.callerPrincipalProvider = null;
+    this.callerPrincipalResolver = null;
     this.authorizationPolicy = null;
     this.signalStore = null;
     this.payloadSerializer = null;
@@ -247,7 +252,8 @@ public class DefaultJobSchedulerService
       Instance<SignalStore> signalStore,
       PayloadSerializer payloadSerializer,
       MetricsCollector metricsCollector,
-      Clock clock) {
+      Clock clock,
+      RatchetOptions options) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -268,9 +274,15 @@ public class DefaultJobSchedulerService
         signalStore.isResolvable() ? signalStore.get() : null,
         payloadSerializer,
         metricsCollector,
-        clock);
+        clock,
+        options != null ? options.callerPrincipalResolver() : null);
   }
 
+  /**
+   * Convenience constructor for tests that supply stores directly. No {@link
+   * CallerPrincipalResolver} is configured; use the overload below to exercise resolver-precedence
+   * behavior.
+   */
   DefaultJobSchedulerService(
       InternalEventPublisher eventPublisher,
       JobBatchStatusStore jobBatchStatusStore,
@@ -292,6 +304,57 @@ public class DefaultJobSchedulerService
       PayloadSerializer payloadSerializer,
       MetricsCollector metricsCollector,
       Clock clock) {
+    this(
+        eventPublisher,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        jobCreationService,
+        callerPrincipalProvider,
+        authorizationPolicy,
+        signalStore,
+        payloadSerializer,
+        metricsCollector,
+        clock,
+        null);
+  }
+
+  /**
+   * Full constructor for tests that need an application-supplied {@link CallerPrincipalResolver} in
+   * addition to directly-supplied stores. See the no-resolver overload above for the default
+   * (unconfigured) case.
+   */
+  DefaultJobSchedulerService(
+      InternalEventPublisher eventPublisher,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobPauseStore jobPauseStore,
+      JobRetryStore jobRetryStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      DefaultJobCreationService jobCreationService,
+      CallerPrincipalProvider callerPrincipalProvider,
+      JobAuthorizationPolicy authorizationPolicy,
+      SignalStore signalStore,
+      PayloadSerializer payloadSerializer,
+      MetricsCollector metricsCollector,
+      Clock clock,
+      CallerPrincipalResolver callerPrincipalResolver) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -307,6 +370,7 @@ public class DefaultJobSchedulerService
     this.jobInvocationResolver = jobInvocationResolver;
     this.jobCreationService = jobCreationService;
     this.callerPrincipalProvider = callerPrincipalProvider;
+    this.callerPrincipalResolver = callerPrincipalResolver;
     this.authorizationPolicy = authorizationPolicy;
     this.signalStore = signalStore;
     this.payloadSerializer = payloadSerializer;
@@ -330,9 +394,8 @@ public class DefaultJobSchedulerService
       // and the CAS below, ownerPrincipal will be null — the policy must tolerate null.
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : recurringOwner;
       String currentPrincipal =
-          callerPrincipalProvider != null
-              ? callerPrincipalProvider.currentPrincipal().orElse(null)
-              : null;
+          CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+              .orElse(null);
       authorizationPolicy.checkCancel(jobId, ownerPrincipal, currentPrincipal);
     }
 
@@ -479,9 +542,8 @@ public class DefaultJobSchedulerService
                 () -> new IllegalArgumentException("Job not found for replacement: " + jobId));
     if (authorizationPolicy != null) {
       String currentPrincipal =
-          callerPrincipalProvider != null
-              ? callerPrincipalProvider.currentPrincipal().orElse(null)
-              : null;
+          CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+              .orElse(null);
       authorizationPolicy.checkCancel(jobId, existing.getCallerPrincipal(), currentPrincipal);
     }
     if (existing.getSupersededBy() != null) {
@@ -546,9 +608,8 @@ public class DefaultJobSchedulerService
     if (recurring.isPresent()) {
       if (authorizationPolicy != null) {
         String currentPrincipal =
-            callerPrincipalProvider != null
-                ? callerPrincipalProvider.currentPrincipal().orElse(null)
-                : null;
+            CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+                .orElse(null);
         authorizationPolicy.checkPause(jobId, recurring.get().callerPrincipal(), currentPrincipal);
       }
       if (recurring.get().paused()) {
@@ -572,9 +633,8 @@ public class DefaultJobSchedulerService
     }
     if (authorizationPolicy != null) {
       String currentPrincipal =
-          callerPrincipalProvider != null
-              ? callerPrincipalProvider.currentPrincipal().orElse(null)
-              : null;
+          CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+              .orElse(null);
       authorizationPolicy.checkPause(jobId, job.getCallerPrincipal(), currentPrincipal);
     }
     JobStatus current = job.getStatus();
@@ -608,9 +668,8 @@ public class DefaultJobSchedulerService
     if (recurring.isPresent()) {
       if (authorizationPolicy != null) {
         String currentPrincipal =
-            callerPrincipalProvider != null
-                ? callerPrincipalProvider.currentPrincipal().orElse(null)
-                : null;
+            CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+                .orElse(null);
         authorizationPolicy.checkResume(jobId, recurring.get().callerPrincipal(), currentPrincipal);
       }
       if (recurringJobStore.resumeRecurring(jobId)) {
@@ -630,9 +689,8 @@ public class DefaultJobSchedulerService
     }
     if (authorizationPolicy != null) {
       String currentPrincipal =
-          callerPrincipalProvider != null
-              ? callerPrincipalProvider.currentPrincipal().orElse(null)
-              : null;
+          CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+              .orElse(null);
       authorizationPolicy.checkResume(jobId, job.getCallerPrincipal(), currentPrincipal);
     }
 
@@ -659,9 +717,8 @@ public class DefaultJobSchedulerService
       // and the CAS below, ownerPrincipal will be null — the policy must tolerate null.
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       String currentPrincipal =
-          callerPrincipalProvider != null
-              ? callerPrincipalProvider.currentPrincipal().orElse(null)
-              : null;
+          CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+              .orElse(null);
       authorizationPolicy.checkRetry(jobId, ownerPrincipal, currentPrincipal);
     }
 
@@ -997,9 +1054,8 @@ public class DefaultJobSchedulerService
     }
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     String principal =
-        callerPrincipalProvider != null
-            ? callerPrincipalProvider.currentPrincipal().orElse(null)
-            : null;
+        CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+            .orElse(null);
     if (authorizationPolicy != null) {
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
@@ -1033,9 +1089,8 @@ public class DefaultJobSchedulerService
     }
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     String principal =
-        callerPrincipalProvider != null
-            ? callerPrincipalProvider.currentPrincipal().orElse(null)
-            : null;
+        CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+            .orElse(null);
     if (authorizationPolicy != null) {
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
@@ -1070,9 +1125,8 @@ public class DefaultJobSchedulerService
       return 0;
     }
     String principal =
-        callerPrincipalProvider != null
-            ? callerPrincipalProvider.currentPrincipal().orElse(null)
-            : null;
+        CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+            .orElse(null);
     if (authorizationPolicy != null) {
       authorizationPolicy.checkDeliverSignal(signalKey, principal);
     }
@@ -1109,9 +1163,8 @@ public class DefaultJobSchedulerService
       return 0;
     }
     String principal =
-        callerPrincipalProvider != null
-            ? callerPrincipalProvider.currentPrincipal().orElse(null)
-            : null;
+        CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+            .orElse(null);
     if (authorizationPolicy != null) {
       authorizationPolicy.checkDeliverSignal(signalKey, principal);
     }

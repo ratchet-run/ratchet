@@ -59,6 +59,7 @@ import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
@@ -160,6 +161,31 @@ class DefaultJobCreationServiceAuthorizationTest {
         eventPublisher,
         metricsCollector,
         clock);
+  }
+
+  private DefaultJobCreationService serviceWithResolver(
+      CallerPrincipalProvider principalProvider, CallerPrincipalResolver callerPrincipalResolver) {
+    return new DefaultJobCreationService(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        jobBulkStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        new DefaultJobInvocationResolver(),
+        new JobPayloadInputValidator(),
+        principalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        null,
+        eventPublisher,
+        metricsCollector,
+        Clock.systemUTC(),
+        callerPrincipalResolver);
   }
 
   private DefaultJobCreationService serviceWithoutAuthorizationPolicy() {
@@ -324,6 +350,61 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(jobCrudStore).create(jobCaptor.capture());
     verify(authorizationPolicy).checkCreate(any(UUID.class), isNull());
     assertNull(jobCaptor.getValue().getCallerPrincipal());
+  }
+
+  @Test
+  void checkCreate_configuredResolverTakesPrecedenceOverProvider() {
+    DefaultJobCreationService resolverService =
+        serviceWithResolver(
+            principalProviderReturning("provider-principal"),
+            () -> Optional.of("resolver-principal"));
+
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
+
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                resolverService,
+                DefaultJobCreationServiceAuthorizationTest::noopTask,
+                Duration.ZERO);
+
+    resolverService.submit(builder);
+
+    ArgumentCaptor<JobEntity> jobCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore).create(jobCaptor.capture());
+    assertEquals("resolver-principal", jobCaptor.getValue().getCallerPrincipal());
+    verify(authorizationPolicy).checkCreate(any(UUID.class), Mockito.eq("resolver-principal"));
+  }
+
+  @Test
+  void checkCreate_throwingResolverDegradesToNullPrincipal_doesNotFailSubmission() {
+    DefaultJobCreationService resolverService =
+        serviceWithResolver(
+            principalProviderReturning("provider-principal"),
+            () -> {
+              throw new IllegalStateException("ContextNotActiveException-like failure");
+            });
+
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
+
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                resolverService,
+                DefaultJobCreationServiceAuthorizationTest::noopTask,
+                Duration.ZERO);
+
+    JobHandle handle = resolverService.submit(builder);
+
+    assertNotNull(handle, "A throwing resolver must not fail submission");
+    ArgumentCaptor<JobEntity> jobCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore).create(jobCaptor.capture());
+    assertNull(jobCaptor.getValue().getCallerPrincipal());
+    verify(authorizationPolicy).checkCreate(any(UUID.class), isNull());
   }
 
   // ---- recurring job ----

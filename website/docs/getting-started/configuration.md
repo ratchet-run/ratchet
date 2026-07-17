@@ -323,6 +323,68 @@ public class AppClassPolicy implements ClassPolicy {
 | `RatchetEntityManagerProvider` | Store default provider | Specific SQL persistence unit |
 | `NodeIdentityProvider` | Hostname-based with heartbeat | Cloud-specific node identity |
 
+## Caller principal resolution
+
+By default, Ratchet captures the caller principal through `CallerPrincipalProvider`, a CDI bean resolved via `Instance<SecurityContext>`. Applications override the default by supplying an `@Alternative @Priority(APPLICATION) CallerPrincipalProvider` bean.
+
+CDI `@Alternative` visibility can vary by container and deployment topology. An override packaged in `EAR/lib` alongside Ratchet is broadly honored, but the same override packaged in a separate subdeployment (an EJB-jar, for example) is not guaranteed visible to Ratchet's injection points on every container — WildFly-family servers and Open Liberty honor a subdeployment `@Alternative`, while Payara and GlassFish do not.
+
+For applications that want to supply the caller principal without relying on a CDI `@Alternative` override at all, `RatchetOptions` exposes a second, independent path:
+
+```java
+@FunctionalInterface
+public interface CallerPrincipalResolver {
+    Optional<String> resolve();
+}
+```
+
+Configure it through the builder:
+
+```java
+RatchetOptions.builder()
+    .callerPrincipalResolver(myResolver)
+    .build();
+```
+
+When configured, it takes precedence over `CallerPrincipalProvider` at every call site. Leaving it unset (the default) preserves the CDI-based resolution described above.
+
+If your producer builds `RatchetOptions` through `RatchetOptionsFactory.fromEnvironment(...)` instead of the builder, attach the resolver afterward with `withCallerPrincipalResolver`, since `fromEnvironment` returns a finished instance rather than a `Builder`:
+
+```java
+RatchetOptionsFactory.fromEnvironment(overlay)
+    .withCallerPrincipalResolver(() ->
+        currentUser.isSet() ? Optional.of(currentUser.get()) : Optional.empty());
+```
+
+### Proxy discipline
+
+`resolve()` is called once per job submission, cancellation, pause, resume, retry, signal delivery, or read — but the `CallerPrincipalResolver` instance itself is captured only **once**, when your `@ApplicationScoped RatchetOptions` producer method runs. If you close the lambda over a directly-injected `@Dependent` bean, you freeze whatever value was live at container startup, reproducing the exact bug this seam exists to fix.
+
+Close over a normal-scoped CDI proxy, or inject `Instance<T>` and call `.get()` from inside `resolve()`, so every invocation re-resolves the live actor — the same pattern `CallerPrincipalProvider` itself uses with `Instance<SecurityContext>`:
+
+```java
+@ApplicationScoped
+public class SchedulerConfiguration {
+
+    @Inject Instance<CurrentUserContext> currentUserContext;
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptions.builder()
+            .callerPrincipalResolver(() ->
+                currentUserContext.isResolvable()
+                    ? Optional.ofNullable(currentUserContext.get().userId())
+                    : Optional.empty())
+            .build();
+    }
+}
+```
+
+`CurrentUserContext` here is an application-defined, narrowly-scoped bean (`@RequestScoped` or similar); `Instance<T>.get()` re-resolves it on every call instead of freezing it at startup.
+
+A resolver may be invoked from a background or materializer thread (chain-step continuation, workflow-branch creation, batch-child creation) where a request-scoped proxy is not active. Ratchet treats a thrown `RuntimeException` — and a `null` `Optional` return — as `Optional.empty()` rather than failing the submission, but a resolver that legitimately has no caller identity available should prefer returning `Optional.empty()` directly.
+
 ## ClassPolicy
 
 The default `PackagePrefixClassPolicy` has an empty allowlist. Ratchet refuses to start until you provide a real allowlist, because jobs execute application code by design.

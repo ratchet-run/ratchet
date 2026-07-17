@@ -17,14 +17,18 @@ package run.ratchet.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import run.ratchet.spi.CallerPrincipalResolver;
 
 class RatchetOptionsTest {
 
@@ -209,6 +213,27 @@ class RatchetOptionsTest {
                         circuitBreaker.profile(
                             CircuitBreakerProfile.DEFAULT,
                             profile -> profile.failureRateThreshold(Float.POSITIVE_INFINITY))));
+  }
+
+  @Test
+  void withCallerPrincipalResolverCopiesEveryOtherFieldAndLeavesOriginalUnchanged() {
+    RatchetOptions original =
+        RatchetOptions.builder()
+            .node(node -> node.heartbeatIntervalSeconds(42L))
+            .polling(polling -> polling.batchSize(77))
+            .security(security -> security.maskPayloads(true))
+            .execution(execution -> execution.jobExecutorJndi("java:app/concurrent/CustomExecutor"))
+            .build();
+    CallerPrincipalResolver resolver = () -> Optional.of("test-user");
+
+    RatchetOptions withResolver = original.withCallerPrincipalResolver(resolver);
+
+    assertSame(resolver, withResolver.callerPrincipalResolver());
+    assertEquals(42L, withResolver.node().heartbeatIntervalSeconds());
+    assertEquals(77, withResolver.polling().batchSize());
+    assertTrue(withResolver.security().maskPayloads());
+    assertEquals("java:app/concurrent/CustomExecutor", withResolver.execution().jobExecutorJndi());
+    assertNull(original.callerPrincipalResolver());
   }
 
   @Test

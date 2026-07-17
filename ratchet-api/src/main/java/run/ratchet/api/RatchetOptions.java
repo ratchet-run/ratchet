@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
+import run.ratchet.spi.CallerPrincipalResolver;
 
 /**
  * Immutable CDI-producible runtime options for Ratchet.
@@ -54,6 +55,7 @@ public class RatchetOptions {
   private final StoreOptions store;
   private final CircuitBreakerOptions circuitBreaker;
   private final EncryptionOptions encryption;
+  private final CallerPrincipalResolver callerPrincipalResolver;
 
   /**
    * No-arg constructor used only by CDI to generate the client proxy subclass. Sets all fields to
@@ -75,6 +77,7 @@ public class RatchetOptions {
     this.store = null;
     this.circuitBreaker = null;
     this.encryption = null;
+    this.callerPrincipalResolver = null;
   }
 
   public RatchetOptions(
@@ -91,6 +94,38 @@ public class RatchetOptions {
       StoreOptions store,
       CircuitBreakerOptions circuitBreaker,
       EncryptionOptions encryption) {
+    this(
+        polling,
+        execution,
+        node,
+        recurring,
+        retryBuffer,
+        timeout,
+        maintenance,
+        schema,
+        payload,
+        security,
+        store,
+        circuitBreaker,
+        encryption,
+        /* callerPrincipalResolver */ null);
+  }
+
+  private RatchetOptions(
+      PollingOptions polling,
+      ExecutionOptions execution,
+      NodeOptions node,
+      RecurringOptions recurring,
+      RetryBufferOptions retryBuffer,
+      TimeoutOptions timeout,
+      MaintenanceOptions maintenance,
+      SchemaOptions schema,
+      PayloadOptions payload,
+      SecurityOptions security,
+      StoreOptions store,
+      CircuitBreakerOptions circuitBreaker,
+      EncryptionOptions encryption,
+      CallerPrincipalResolver callerPrincipalResolver) {
     this.polling = Objects.requireNonNull(polling, "polling must not be null");
     this.execution = Objects.requireNonNull(execution, "execution must not be null");
     this.node = Objects.requireNonNull(node, "node must not be null");
@@ -104,6 +139,7 @@ public class RatchetOptions {
     this.store = Objects.requireNonNull(store, "store must not be null");
     this.circuitBreaker = Objects.requireNonNull(circuitBreaker, "circuitBreaker must not be null");
     this.encryption = Objects.requireNonNull(encryption, "encryption must not be null");
+    this.callerPrincipalResolver = callerPrincipalResolver;
   }
 
   public static RatchetOptions defaults() {
@@ -267,6 +303,56 @@ public class RatchetOptions {
   @Incubating
   public EncryptionOptions encryption() {
     return encryption;
+  }
+
+  /**
+   * Returns the application-supplied caller-principal resolver, or {@code null} if none is
+   * configured. When {@code null}, caller-principal resolution falls back to {@code
+   * run.ratchet.ri.security.CallerPrincipalProvider} — today's behavior.
+   *
+   * @see CallerPrincipalResolver for the proxy-discipline contract an application MUST follow when
+   *     supplying one.
+   */
+  @Incubating
+  public @Nullable CallerPrincipalResolver callerPrincipalResolver() {
+    return callerPrincipalResolver;
+  }
+
+  /**
+   * Returns a new instance identical to this one except with the caller-principal resolver set to
+   * {@code resolver}. This instance is left unchanged.
+   *
+   * <p>{@link RatchetOptionsFactory#fromEnvironment} returns a finished, immutable {@code
+   * RatchetOptions} rather than a {@link Builder}, so it has no way to accept a resolver — a
+   * resolver is code, not environment-sourced configuration, and cannot travel through the
+   * factory's config-source chain. This method is the attachment point for that case:
+   *
+   * <pre>{@code
+   * RatchetOptionsFactory.fromEnvironment(overlay)
+   *     .withCallerPrincipalResolver(() ->
+   *         currentUser.isSet() ? Optional.of(currentUser.get()) : Optional.empty());
+   * }</pre>
+   *
+   * @see CallerPrincipalResolver for the proxy-discipline contract the supplied resolver MUST
+   *     follow.
+   */
+  @Incubating
+  public RatchetOptions withCallerPrincipalResolver(CallerPrincipalResolver resolver) {
+    return new RatchetOptions(
+        polling,
+        execution,
+        node,
+        recurring,
+        retryBuffer,
+        timeout,
+        maintenance,
+        schema,
+        payload,
+        security,
+        store,
+        circuitBreaker,
+        encryption,
+        resolver);
   }
 
   public enum IsolationCheckMode {
@@ -646,6 +732,7 @@ public class RatchetOptions {
     private final StoreBuilder store = new StoreBuilder();
     private final CircuitBreakerBuilder circuitBreaker = new CircuitBreakerBuilder();
     private final EncryptionBuilder encryption = new EncryptionBuilder();
+    private CallerPrincipalResolver callerPrincipalResolver;
 
     private Builder() {}
 
@@ -716,6 +803,20 @@ public class RatchetOptions {
       return this;
     }
 
+    /**
+     * Sets the application-supplied caller-principal resolver. Leave unset (the default) to resolve
+     * the caller principal via {@code run.ratchet.ri.security.CallerPrincipalProvider} instead —
+     * today's behavior.
+     *
+     * @see CallerPrincipalResolver for the proxy-discipline contract the supplied resolver MUST
+     *     follow.
+     */
+    @Incubating
+    public Builder callerPrincipalResolver(CallerPrincipalResolver callerPrincipalResolver) {
+      this.callerPrincipalResolver = callerPrincipalResolver;
+      return this;
+    }
+
     public RatchetOptions build() {
       return new RatchetOptions(
           polling.build(),
@@ -730,7 +831,8 @@ public class RatchetOptions {
           security.build(),
           store.build(),
           circuitBreaker.build(),
-          encryption.build());
+          encryption.build(),
+          callerPrincipalResolver);
     }
   }
 

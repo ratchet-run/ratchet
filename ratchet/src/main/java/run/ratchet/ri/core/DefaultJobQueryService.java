@@ -40,7 +40,9 @@ import run.ratchet.api.QueueHealthSnapshot;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.security.CallerPrincipalResolution;
 import run.ratchet.ri.security.PayloadMasker;
+import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MaskingContext;
 import run.ratchet.spi.ProtectedSurface;
@@ -71,6 +73,7 @@ class DefaultJobQueryService implements JobQueryService {
   private final Clock clock;
   private final boolean maskPayloads;
   private final JobExtensionStore extensionStore;
+  private final CallerPrincipalResolver callerPrincipalResolver;
 
   protected DefaultJobQueryService() {
     this.queryStore = null;
@@ -83,6 +86,7 @@ class DefaultJobQueryService implements JobQueryService {
     this.clock = null;
     this.maskPayloads = false;
     this.extensionStore = null;
+    this.callerPrincipalResolver = null;
   }
 
   public DefaultJobQueryService(
@@ -194,6 +198,7 @@ class DefaultJobQueryService implements JobQueryService {
     this.clock = clock;
     this.maskPayloads = options != null && options.security().maskPayloads();
     this.extensionStore = extensionStore;
+    this.callerPrincipalResolver = options != null ? options.callerPrincipalResolver() : null;
   }
 
   /**
@@ -544,7 +549,8 @@ class DefaultJobQueryService implements JobQueryService {
   }
 
   private String currentPrincipal() {
-    return principalProvider != null ? principalProvider.currentPrincipal().orElse(null) : null;
+    return CallerPrincipalResolution.resolve(callerPrincipalResolver, principalProvider)
+        .orElse(null);
   }
 
   private Clock effective() {
