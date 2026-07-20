@@ -29,6 +29,21 @@ import run.ratchet.api.Incubating;
  * {@code @Alternative @Priority(APPLICATION) CallerPrincipalProvider} override, so this seam exists
  * as a fallback path that does not depend on CDI alternative resolution at all.
  *
+ * <h2>Authentication mechanism and the default capture</h2>
+ *
+ * <p>The reference default reads {@code jakarta.security.enterprise.SecurityContext}, which a
+ * container registers only when the deployment activates Jakarta Security — an {@code
+ * HttpAuthenticationMechanism}, {@code IdentityStore}, or a
+ * {@code @…AuthenticationMechanismDefinition}. Some integrations authenticate the caller fully
+ * without activating Jakarta Security, so no {@code SecurityContext} bean is registered and the
+ * default capture records no principal even for an authenticated request. WildFly's native Elytron
+ * OIDC ({@code web.xml} {@code auth-method=OIDC} via the {@code elytron-oidc-client} subsystem) is
+ * one such case: {@code HttpServletRequest.getUserPrincipal()} and {@code @RolesAllowed} work, but
+ * {@code SecurityContext} is never resolvable. Under such a mechanism, supply this resolver and
+ * read an identity source the mechanism actually populates — {@code
+ * HttpServletRequest.getUserPrincipal()} or the Elytron {@code SecurityIdentity} — rather than
+ * relying on the default {@code SecurityContext}-based capture.
+ *
  * <h2>Proxy discipline</h2>
  *
  * <p>{@link #resolve()} is invoked per submission or authorization check, but the {@code

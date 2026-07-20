@@ -329,6 +329,12 @@ By default, Ratchet captures the caller principal through `CallerPrincipalProvid
 
 CDI `@Alternative` visibility can vary by container and deployment topology. An override packaged in `EAR/lib` alongside Ratchet is broadly honored, but the same override packaged in a separate subdeployment (an EJB-jar, for example) is not guaranteed visible to Ratchet's injection points on every container — WildFly-family servers and Open Liberty honor a subdeployment `@Alternative`, while Payara and GlassFish do not.
 
+### Caller capture and the authentication mechanism
+
+The default `CallerPrincipalProvider` reads `jakarta.security.enterprise.SecurityContext`, which a container registers only when the deployment activates **Jakarta Security** — an `HttpAuthenticationMechanism`, `IdentityStore`, or a `@…AuthenticationMechanismDefinition`. Some authentication integrations fully authenticate the caller without activating Jakarta Security, so `SecurityContext` is never registered and the default capture records **no principal even for an authenticated caller**. WildFly's native Elytron OIDC (`web.xml` `auth-method=OIDC` via the `elytron-oidc-client` subsystem) is one such case: `HttpServletRequest.getUserPrincipal()` and `@RolesAllowed` work normally, but `SecurityContext` is not resolvable.
+
+If your deployment authenticates through a mechanism like this, use the `CallerPrincipalResolver` seam below and read an identity source your mechanism populates — `HttpServletRequest.getUserPrincipal()` or the Elytron `SecurityIdentity` — instead of relying on the default `SecurityContext`-based capture.
+
 For applications that want to supply the caller principal without relying on a CDI `@Alternative` override at all, `RatchetOptions` exposes a second, independent path:
 
 ```java
