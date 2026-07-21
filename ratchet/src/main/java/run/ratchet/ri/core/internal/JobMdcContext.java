@@ -110,7 +110,7 @@ final class JobMdcContext {
       String jobCreator,
       String jobType,
       Serializable signalPayload) {
-    JobContext.bind(jobId, logger, params, signalPayload);
+    JobContext.bind(jobId, logger, params, jobCreator, signalPayload);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));
     }

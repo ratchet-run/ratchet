@@ -24,6 +24,11 @@ import run.ratchet.spi.JobLogger;
 /**
  * Thread-local context for the executing job.
  *
+ * <p>This is a plain {@link ThreadLocal}. Job code that hands work to another thread, for example
+ * with {@code CompletableFuture.supplyAsync(...)}, does not carry this context with it. Submissions
+ * that should inherit the executing job's caller principal must be made on the job execution thread
+ * while the context is bound.
+ *
  * @since 0.1
  */
 @Incubating
@@ -35,21 +40,32 @@ public final class JobContext {
   private final JobLogger logger;
   private final Map<String, String> params;
   private final Serializable signalPayload;
+  private final @Nullable String callerPrincipal;
 
   private JobContext(UUID jobId, JobLogger logger) {
-    this(jobId, logger, Collections.emptyMap(), null);
+    this(jobId, logger, Collections.emptyMap(), null, null);
   }
 
   private JobContext(UUID jobId, JobLogger logger, Map<String, String> params) {
-    this(jobId, logger, params, null);
+    this(jobId, logger, params, null, null);
   }
 
   private JobContext(
       UUID jobId, JobLogger logger, Map<String, String> params, Serializable signalPayload) {
+    this(jobId, logger, params, signalPayload, null);
+  }
+
+  private JobContext(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      @Nullable Serializable signalPayload,
+      @Nullable String callerPrincipal) {
     this.jobId = jobId;
     this.logger = logger;
     this.params = params != null ? Collections.unmodifiableMap(params) : Collections.emptyMap();
     this.signalPayload = signalPayload;
+    this.callerPrincipal = callerPrincipal;
   }
 
   /**
@@ -84,6 +100,23 @@ public final class JobContext {
     return ctx;
   }
 
+  /**
+   * Binds a new context with parameters, the captured caller principal, and a pre-deserialized
+   * signal payload. Called by the job executor for persisted jobs; {@code callerPrincipal} is the
+   * immutable principal captured when the job was created, or {@code null} when none was captured.
+   * Always pair with {@link #clear()} in a finally block.
+   */
+  public static JobContext bind(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      @Nullable String callerPrincipal,
+      @Nullable Serializable signalPayload) {
+    JobContext ctx = new JobContext(jobId, logger, params, signalPayload, callerPrincipal);
+    TL.set(ctx);
+    return ctx;
+  }
+
   /** Removes the context bound to the current thread. */
   public static void clear() {
     TL.remove();
@@ -101,6 +134,13 @@ public final class JobContext {
     return ctx;
   }
 
+  /**
+   * @return the context bound to the current thread, or {@code null} if no context is bound
+   */
+  public static @Nullable JobContext currentOrNull() {
+    return TL.get();
+  }
+
   /** Returns the UUID of the executing job. */
   public UUID jobId() {
     return jobId;
@@ -109,6 +149,14 @@ public final class JobContext {
   /** Returns the job-scoped logger (automatically includes job ID in all entries). */
   public JobLogger logger() {
     return logger;
+  }
+
+  /**
+   * Returns the caller principal captured when this job was created, or {@code null} when no
+   * principal was captured.
+   */
+  public @Nullable String callerPrincipal() {
+    return callerPrincipal;
   }
 
   /**
