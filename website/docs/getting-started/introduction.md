@@ -164,7 +164,7 @@ If you're building a microservice on Spring Boot or Quarkus and not targeting a 
 
 ## Project status
 
-Ratchet is currently at version **0.2.1-SNAPSHOT**. The core API is stabilizing, but interfaces marked with `@Incubating` (such as `CircuitBreakerProtected` and `CircuitBreakerProfile`) may change in future releases. Feedback and contributions are welcome.
+Ratchet is currently at version **0.2.1**. The core API is stabilizing, but interfaces marked with `@Incubating` (such as `CircuitBreakerProtected` and `CircuitBreakerProfile`) may change in future releases. Feedback and contributions are welcome.
 
 ## What's next
 

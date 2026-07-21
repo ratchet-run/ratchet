@@ -39,7 +39,7 @@ The DDL file is at `stores/ratchet-store-postgresql/src/main/resources/ddl/postg
 psql -U ratchet -d ratchet -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 
 # Or extract from the JAR
-jar xf ratchet-store-postgresql-0.2.0.jar ddl/postgresql-schema.sql
+jar xf ratchet-store-postgresql-0.2.1.jar ddl/postgresql-schema.sql
 psql -U ratchet -d ratchet -f ddl/postgresql-schema.sql
 ```
 
@@ -162,7 +162,7 @@ FLUSH PRIVILEGES;
 mysql -u ratchet -p ratchet < stores/ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 
 # Or extract from the JAR
-jar xf ratchet-store-mysql-0.2.0.jar ddl/mysql-schema.sql
+jar xf ratchet-store-mysql-0.2.1.jar ddl/mysql-schema.sql
 mysql -u ratchet -p ratchet < ddl/mysql-schema.sql
 ```
 

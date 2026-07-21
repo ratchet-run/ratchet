@@ -18,7 +18,7 @@ The Bill of Materials (BOM) ensures all Ratchet modules use the same version. Im
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.2.0</version>
+      <version>0.2.1</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
