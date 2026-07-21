@@ -15,18 +15,22 @@
  */
 package run.ratchet.testsuite.security;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.CallerPrincipalInheritanceJob;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.StubCallerPrincipalProvider;
 import run.ratchet.testsuite.app.TestJobService;
@@ -57,10 +61,19 @@ class CallerPrincipalCaptureIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(StubCallerPrincipalProvider.class, SimpleJob.class, TestJobService.class)
+        .addClasses(
+            StubCallerPrincipalProvider.class,
+            SimpleJob.class,
+            CallerPrincipalInheritanceJob.class,
+            TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
+  }
+
+  @BeforeEach
+  void resetFixtures() {
+    CallerPrincipalInheritanceJob.reset();
   }
 
   @Test
@@ -89,5 +102,68 @@ class CallerPrincipalCaptureIT extends BaseRatchetIT {
         beforeExecution.getCallerPrincipal(),
         afterExecution.getCallerPrincipal(),
         "Execution must not overwrite the caller principal stamped at job creation");
+  }
+
+  @Test
+  void runtimeChildSubmittedOnWorkerThread_inheritsParentCallerPrincipal() {
+    JobHandle parent =
+        jobService.enqueueNow(CallerPrincipalInheritanceJob::submitChildOnWorkerThread);
+
+    JobAssertions.assertJobCompleted(jobCrudStore, parent);
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .until(() -> CallerPrincipalInheritanceJob.childId() != null);
+
+    UUID childId = CallerPrincipalInheritanceJob.childId();
+    JobEntity child =
+        jobCrudStore
+            .findById(childId)
+            .orElseThrow(() -> new AssertionError("Child job not found after runtime submit"));
+
+    assertEquals(
+        StubCallerPrincipalProvider.STUB_PRINCIPAL,
+        child.getCallerPrincipal(),
+        "Child submissions made on the worker thread must inherit the parent's captured principal");
+    JobAssertions.assertJobCompleted(jobCrudStore, () -> childId);
+  }
+
+  @Test
+  void onSuccessCallbackRunsInsideJobContextBindWindow() {
+    JobHandle handle =
+        jobService
+            .enqueue(CallerPrincipalInheritanceJob::succeed)
+            .onSuccess(ctx -> CallerPrincipalInheritanceJob.captureSuccessCallbackContext())
+            .submit();
+
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
+
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(
+            () ->
+                assertEquals(
+                    StubCallerPrincipalProvider.STUB_PRINCIPAL,
+                    CallerPrincipalInheritanceJob.successCallbackPrincipal()));
+  }
+
+  @Test
+  void onFailureCallbackRunsInsideJobContextBindWindow() {
+    JobHandle handle =
+        jobService
+            .enqueue(CallerPrincipalInheritanceJob::fail)
+            .withMaxRetries(0)
+            .onFailure(
+                (ctx, failure) -> CallerPrincipalInheritanceJob.captureFailureCallbackContext())
+            .submit();
+
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(
+            () ->
+                assertEquals(
+                    StubCallerPrincipalProvider.STUB_PRINCIPAL,
+                    CallerPrincipalInheritanceJob.failureCallbackPrincipal()));
   }
 }

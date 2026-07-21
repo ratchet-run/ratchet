@@ -22,15 +22,26 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobContext;
 
 class CallerPrincipalResolutionTest {
 
+  @AfterEach
+  void clearJobContext() {
+    JobContext.clear();
+  }
+
   @Test
-  void resolve_resolverPresent_takesPrecedenceOverProvider() {
+  void resolve_resolverPresent_takesPrecedenceOverJobContextAndProvider() {
     CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
     when(provider.currentPrincipal()).thenReturn(Optional.of("provider-principal"));
+    JobContext.bind(
+        UUID.randomUUID(), null, Map.of(), "job-context-principal", /* signalPayload */ null);
 
     Optional<String> result =
         CallerPrincipalResolution.resolve(() -> Optional.of("resolver-principal"), provider);
@@ -40,38 +51,63 @@ class CallerPrincipalResolutionTest {
   }
 
   @Test
-  void resolve_resolverThrows_degradesToEmptyWithoutConsultingProvider() {
+  void resolve_resolverEmpty_fallsBackToJobContextBeforeProvider() {
     CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
+    when(provider.currentPrincipal()).thenReturn(Optional.of("provider-principal"));
+    JobContext.bind(
+        UUID.randomUUID(), null, Map.of(), "job-context-principal", /* signalPayload */ null);
 
-    Optional<String> result =
-        CallerPrincipalResolution.resolve(
-            () -> {
-              throw new IllegalStateException("ContextNotActiveException-like failure");
-            },
-            provider);
+    Optional<String> result = CallerPrincipalResolution.resolve(Optional::empty, provider);
 
-    assertTrue(result.isEmpty(), "A throwing resolver must degrade to empty, not propagate");
+    assertEquals(Optional.of("job-context-principal"), result);
     verify(provider, never()).currentPrincipal();
   }
 
   @Test
-  void resolve_resolverReturnsNullOptional_isTreatedAsEmpty() {
+  void resolve_resolverReturnsNullOptional_fallsBackToJobContext() {
     CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
+    JobContext.bind(
+        UUID.randomUUID(), null, Map.of(), "job-context-principal", /* signalPayload */ null);
 
     Optional<String> result = CallerPrincipalResolution.resolve(() -> null, provider);
 
-    assertTrue(result.isEmpty(), "A resolver returning a null Optional must be treated as empty");
+    assertEquals(
+        Optional.of("job-context-principal"),
+        result,
+        "A resolver returning a null Optional must be treated as empty");
     verify(provider, never()).currentPrincipal();
   }
 
   @Test
-  void resolve_resolverNull_fallsBackToProvider() {
+  void resolve_jobContextEmpty_fallsBackToProvider() {
+    CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
+    when(provider.currentPrincipal()).thenReturn(Optional.of("provider-principal"));
+    JobContext.bind(UUID.randomUUID(), null, Map.of(), null, /* signalPayload */ null);
+
+    Optional<String> result = CallerPrincipalResolution.resolve(null, provider);
+
+    assertEquals(Optional.of("provider-principal"), result);
+  }
+
+  @Test
+  void resolve_noJobContext_fallsBackToProvider() {
     CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
     when(provider.currentPrincipal()).thenReturn(Optional.of("provider-principal"));
 
     Optional<String> result = CallerPrincipalResolution.resolve(null, provider);
 
     assertEquals(Optional.of("provider-principal"), result);
+  }
+
+  @Test
+  void resolve_allSourcesEmpty_yieldsEmpty() {
+    CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
+    when(provider.currentPrincipal()).thenReturn(Optional.empty());
+    JobContext.bind(UUID.randomUUID(), null, Map.of(), null, /* signalPayload */ null);
+
+    Optional<String> result = CallerPrincipalResolution.resolve(Optional::empty, provider);
+
+    assertTrue(result.isEmpty());
   }
 
   @Test
@@ -82,12 +118,47 @@ class CallerPrincipalResolutionTest {
   }
 
   @Test
-  void resolve_resolverNullAndProviderEmpty_yieldsEmpty() {
+  void resolve_throwingResolver_degradesToJobContext() {
     CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
-    when(provider.currentPrincipal()).thenReturn(Optional.empty());
+    JobContext.bind(
+        UUID.randomUUID(), null, Map.of(), "job-context-principal", /* signalPayload */ null);
+
+    Optional<String> result =
+        CallerPrincipalResolution.resolve(
+            () -> {
+              throw new IllegalStateException("ContextNotActiveException-like failure");
+            },
+            provider);
+
+    assertEquals(
+        Optional.of("job-context-principal"),
+        result,
+        "A throwing resolver must degrade to the next source, not propagate");
+    verify(provider, never()).currentPrincipal();
+  }
+
+  @Test
+  void resolve_throwingResolverWithNoJobContext_degradesToProvider() {
+    CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
+    when(provider.currentPrincipal()).thenReturn(Optional.of("provider-principal"));
+
+    Optional<String> result =
+        CallerPrincipalResolution.resolve(
+            () -> {
+              throw new IllegalStateException("ContextNotActiveException-like failure");
+            },
+            provider);
+
+    assertEquals(Optional.of("provider-principal"), result);
+  }
+
+  @Test
+  void resolve_throwingProvider_degradesToEmpty() {
+    CallerPrincipalProvider provider = mock(CallerPrincipalProvider.class);
+    when(provider.currentPrincipal()).thenThrow(new IllegalStateException("provider failure"));
 
     Optional<String> result = CallerPrincipalResolution.resolve(null, provider);
 
-    assertTrue(result.isEmpty());
+    assertTrue(result.isEmpty(), "A throwing provider must degrade to empty, not propagate");
   }
 }

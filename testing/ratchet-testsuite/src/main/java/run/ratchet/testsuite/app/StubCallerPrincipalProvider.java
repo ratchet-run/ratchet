@@ -19,6 +19,7 @@ import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.Optional;
+import run.ratchet.api.JobContext;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 
 /**
@@ -33,6 +34,7 @@ import run.ratchet.ri.security.CallerPrincipalProvider;
 public class StubCallerPrincipalProvider extends CallerPrincipalProvider {
 
   public static final String STUB_PRINCIPAL = "it-caller";
+  public static final String WORKER_FALLBACK_PRINCIPAL = "worker-service-account";
 
   public StubCallerPrincipalProvider() {
     super();
@@ -40,6 +42,9 @@ public class StubCallerPrincipalProvider extends CallerPrincipalProvider {
 
   @Override
   public Optional<String> currentPrincipal() {
+    if (JobContext.currentOrNull() != null) {
+      return Optional.of(WORKER_FALLBACK_PRINCIPAL);
+    }
     return Optional.of(STUB_PRINCIPAL);
   }
 }

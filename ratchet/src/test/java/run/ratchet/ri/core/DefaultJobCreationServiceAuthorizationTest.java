@@ -39,6 +39,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -379,7 +380,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
-  void checkCreate_throwingResolverDegradesToNullPrincipal_doesNotFailSubmission() {
+  void checkCreate_throwingResolverFallsBackToProvider_doesNotFailSubmission() {
     DefaultJobCreationService resolverService =
         serviceWithResolver(
             principalProviderReturning("provider-principal"),
@@ -403,8 +404,8 @@ class DefaultJobCreationServiceAuthorizationTest {
     assertNotNull(handle, "A throwing resolver must not fail submission");
     ArgumentCaptor<JobEntity> jobCaptor = ArgumentCaptor.forClass(JobEntity.class);
     verify(jobCrudStore).create(jobCaptor.capture());
-    assertNull(jobCaptor.getValue().getCallerPrincipal());
-    verify(authorizationPolicy).checkCreate(any(UUID.class), isNull());
+    assertEquals("provider-principal", jobCaptor.getValue().getCallerPrincipal());
+    verify(authorizationPolicy).checkCreate(any(UUID.class), Mockito.eq("provider-principal"));
   }
 
   // ---- recurring job ----
@@ -589,6 +590,34 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
     assertEquals(3, childrenCaptor.getValue().size());
     verify(jobCrudStore, times(1)).create(any(JobEntity.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_resolvesCallerPrincipalOnceForParentAndChildren() {
+    AtomicInteger resolves = new AtomicInteger();
+    DefaultJobCreationService resolverService =
+        serviceWithResolver(
+            principalProviderReturning("provider-principal"),
+            () -> Optional.of("caller-" + resolves.incrementAndGet()));
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", resolverService);
+    builder.forEach(
+        List.of("one", "two", "three"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    resolverService.submit(builder);
+
+    ArgumentCaptor<JobEntity> parentCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore).create(parentCaptor.capture());
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+
+    assertEquals(1, resolves.get(), "A single batch submission must resolve its principal once");
+    assertEquals("caller-1", parentCaptor.getValue().getCallerPrincipal());
+    for (JobEntity child : childrenCaptor.getValue()) {
+      assertEquals("caller-1", child.getCallerPrincipal());
+    }
   }
 
   @Test
