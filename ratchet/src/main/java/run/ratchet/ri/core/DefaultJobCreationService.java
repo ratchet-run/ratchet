@@ -42,6 +42,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.JobType;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
@@ -57,7 +58,9 @@ import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.security.CallerPrincipalResolution;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocation;
@@ -107,6 +110,7 @@ class DefaultJobCreationService
   private final JobInvocationResolver jobInvocationResolver;
   private final JobPayloadInputValidator payloadValidator;
   private final CallerPrincipalProvider callerPrincipalProvider;
+  private final CallerPrincipalResolver callerPrincipalResolver;
   private final TracingCollector tracingCollector;
   private final JobAuthorizationPolicy authorizationPolicy;
   private final ClassPolicy classPolicy;
@@ -132,6 +136,7 @@ class DefaultJobCreationService
     this.jobInvocationResolver = null;
     this.payloadValidator = null;
     this.callerPrincipalProvider = null;
+    this.callerPrincipalResolver = null;
     this.tracingCollector = null;
     this.authorizationPolicy = null;
     this.classPolicy = null;
@@ -164,7 +169,8 @@ class DefaultJobCreationService
       ClassPolicy classPolicy,
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
-      Clock clock) {
+      Clock clock,
+      RatchetOptions options) {
     this(
         jobBatchStatusStore,
         jobTerminalStore,
@@ -186,13 +192,15 @@ class DefaultJobCreationService
         metricsCollector,
         clock,
         signalStore.isResolvable(),
-        resourcePermitStore.isResolvable());
+        resourcePermitStore.isResolvable(),
+        options != null ? options.callerPrincipalResolver() : null);
   }
 
   /**
    * Constructor for tests that supply stores directly. Signal-waiting job creation is permitted
    * (assumes the {@code SignalStore} capability is present); pass through the {@code @Inject}
-   * constructor to model an absent capability.
+   * constructor to model an absent capability. No {@link CallerPrincipalResolver} is configured;
+   * use the overload below to exercise resolver-precedence behavior.
    */
   public DefaultJobCreationService(
       JobBatchStatusStore jobBatchStatusStore,
@@ -234,8 +242,58 @@ class DefaultJobCreationService
         eventPublisher,
         metricsCollector,
         clock,
+        null);
+  }
+
+  /**
+   * Constructor for tests that need an application-supplied {@link CallerPrincipalResolver} in
+   * addition to directly-supplied stores. See the no-resolver overload above for the default
+   * (unconfigured) case.
+   */
+  public DefaultJobCreationService(
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      JobPayloadInputValidator payloadValidator,
+      CallerPrincipalProvider callerPrincipalProvider,
+      TracingCollector tracingCollector,
+      JobAuthorizationPolicy authorizationPolicy,
+      ClassPolicy classPolicy,
+      InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
+      Clock clock,
+      CallerPrincipalResolver callerPrincipalResolver) {
+    this(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        jobBulkStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        payloadValidator,
+        callerPrincipalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        classPolicy,
+        eventPublisher,
+        metricsCollector,
+        clock,
         true,
-        true);
+        true,
+        callerPrincipalResolver);
   }
 
   private DefaultJobCreationService(
@@ -259,7 +317,8 @@ class DefaultJobCreationService
       MetricsCollector metricsCollector,
       Clock clock,
       boolean signalCapabilityAvailable,
-      boolean resourcePermitCapabilityAvailable) {
+      boolean resourcePermitCapabilityAvailable,
+      CallerPrincipalResolver callerPrincipalResolver) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
@@ -273,6 +332,7 @@ class DefaultJobCreationService
     this.jobInvocationResolver = jobInvocationResolver;
     this.payloadValidator = payloadValidator;
     this.callerPrincipalProvider = callerPrincipalProvider;
+    this.callerPrincipalResolver = callerPrincipalResolver;
     this.tracingCollector = tracingCollector;
     this.authorizationPolicy = authorizationPolicy;
     this.classPolicy = classPolicy;
@@ -790,9 +850,8 @@ class DefaultJobCreationService
   }
 
   private String resolveCallerPrincipal() {
-    return callerPrincipalProvider == null
-        ? null
-        : callerPrincipalProvider.currentPrincipal().orElse(null);
+    return CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+        .orElse(null);
   }
 
   private void applyOptions(JobEntity job, JobOptions opts) {
@@ -1088,10 +1147,8 @@ class DefaultJobCreationService
   }
 
   private void stampCallerPrincipal(JobEntity job) {
-    if (callerPrincipalProvider == null) {
-      return;
-    }
-    callerPrincipalProvider.currentPrincipal().ifPresent(job::setCallerPrincipal);
+    CallerPrincipalResolution.resolve(callerPrincipalResolver, callerPrincipalProvider)
+        .ifPresent(job::setCallerPrincipal);
   }
 
   private void checkCreateAuthorization(JobEntity job) {
