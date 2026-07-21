@@ -18,7 +18,7 @@ Add the Micrometer module:
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-micrometer</artifactId>
-  <version>0.2.0</version>
+  <version>0.2.1</version>
 </dependency>
 ```
 
