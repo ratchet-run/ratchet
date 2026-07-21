@@ -28,6 +28,18 @@ import org.jboss.logging.Logger;
  * container, and returns an empty Optional otherwise. Stamped onto {@code
  * JobEntity.callerPrincipal} at job creation for audit.
  *
+ * <p>The provider is the third source in the reference implementation's caller-principal cascade:
+ * configured {@code run.ratchet.spi.CallerPrincipalResolver}, bound {@code JobContext} caller
+ * principal, this provider, then empty. The bound {@code JobContext} source intentionally outranks
+ * this provider so jobs that submit children on their execution thread inherit the parent's
+ * persisted principal even when an application provider falls back to a worker-thread service
+ * account.
+ *
+ * <p>Ratchet never invents a principal. A persisted {@code null} {@code caller_principal} means no
+ * principal was captured, such as a background or system-initiated submission. Applications that
+ * want a literal stamp such as {@code "system"} must supply it through {@code
+ * run.ratchet.spi.CallerPrincipalResolver} or an overriding provider.
+ *
  * <p>The default bean is supplied by a {@code @Produces @Default} producer on {@link
  * run.ratchet.ri.cdi.RatchetProducer}. Applications override it with a CDI
  * {@code @Alternative @Priority(APPLICATION) CallerPrincipalProvider} bean.

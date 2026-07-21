@@ -189,7 +189,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   }
 
   @Test
-  void cancelJob_throwingResolverDegradesToNullCurrentPrincipal() {
+  void cancelJob_throwingResolverFallsBackToProvider() {
     DefaultJobSchedulerService resolverService =
         serviceWithResolver(
             new CallerPrincipalProvider(null) {
@@ -208,7 +208,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
     resolverService.cancelJob(JOB_ID);
 
-    verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(OWNER), eq(null));
+    verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(OWNER), eq(CALLER));
   }
 
   // ---- pauseJob ----

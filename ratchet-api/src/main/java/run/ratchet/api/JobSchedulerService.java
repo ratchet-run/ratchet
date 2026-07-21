@@ -59,11 +59,13 @@ import run.ratchet.spi.JobAuthorizationPolicy;
  *
  * <h2>Security context capture</h2>
  *
- * <p>Implementations MUST capture the caller principal at job creation when a container security
- * context is available and store it on the job entity. When no security context is active or the
- * context provides no authenticated principal, implementations MUST store null. The captured
- * principal MUST be immutable once set — subsequent job mutations (status transitions, retries,
- * rescheduling) MUST NOT overwrite the original capture.
+ * <p>Implementations MUST capture the caller principal at job creation when one is available from
+ * the implementation's configured caller-principal resolution sources and store it on the job
+ * entity. When no source provides a principal, implementations MUST store null. A null capture
+ * means no principal was captured, such as a background or system-initiated submission; Ratchet
+ * does not invent a literal system principal. The captured principal MUST be immutable once set —
+ * subsequent job mutations (status transitions, retries, rescheduling) MUST NOT overwrite the
+ * original capture.
  *
  * <p>Authorization is delegated to the {@link run.ratchet.spi.JobAuthorizationPolicy} SPI. The
  * default reference implementation ({@code PermitAllJobAuthorizationPolicy}) permits all

@@ -352,7 +352,16 @@ RatchetOptions.builder()
     .build();
 ```
 
-When configured, it takes precedence over `CallerPrincipalProvider` at every call site. Leaving it unset (the default) preserves the CDI-based resolution described above.
+Caller-principal resolution cascades in this order:
+
+1. The configured `CallerPrincipalResolver`, if present.
+2. The caller principal bound to the running job's `JobContext`.
+3. The CDI `CallerPrincipalProvider`.
+4. No principal.
+
+`Optional.empty()`, a `null` `Optional`, or a thrown `RuntimeException` from a resolver/provider makes only that source empty; Ratchet continues to the next source instead of failing submission. This is important for worker threads: a child job submitted from inside a running job inherits the parent's captured principal from `JobContext`, and that inherited value outranks a provider that would otherwise return a worker-thread service account fallback.
+
+Ratchet never invents a principal. A `NULL` `caller_principal` means no principal was captured, such as a background or system-initiated submission. If your application wants a literal value like `"system"`, return that value from the resolver.
 
 If your producer builds `RatchetOptions` through `RatchetOptionsFactory.fromEnvironment(...)` instead of the builder, attach the resolver afterward with `withCallerPrincipalResolver`, since `fromEnvironment` returns a finished instance rather than a `Builder`:
 
@@ -364,7 +373,7 @@ RatchetOptionsFactory.fromEnvironment(overlay)
 
 ### Proxy discipline
 
-`resolve()` is called once per job submission, cancellation, pause, resume, retry, signal delivery, or read — but the `CallerPrincipalResolver` instance itself is captured only **once**, when your `@ApplicationScoped RatchetOptions` producer method runs. If you close the lambda over a directly-injected `@Dependent` bean, you freeze whatever value was live at container startup, reproducing the exact bug this seam exists to fix.
+For public submission calls, the reference implementation resolves the principal once and stamps that same value on every node created by that submission: the parent job, batch children, chain steps, workflow branches, and gates. `resolve()` is also called for cancellation, pause, resume, retry, signal delivery, or read authorization checks — but the `CallerPrincipalResolver` instance itself is captured only **once**, when your `@ApplicationScoped RatchetOptions` producer method runs. If you close the lambda over a directly-injected `@Dependent` bean, you freeze whatever value was live at container startup, reproducing the exact bug this seam exists to fix.
 
 Close over a normal-scoped CDI proxy, or inject `Instance<T>` and call `.get()` from inside `resolve()`, so every invocation re-resolves the live actor — the same pattern `CallerPrincipalProvider` itself uses with `Instance<SecurityContext>`:
 
@@ -390,6 +399,8 @@ public class SchedulerConfiguration {
 `CurrentUserContext` here is an application-defined, narrowly-scoped bean (`@RequestScoped` or similar); `Instance<T>.get()` re-resolves it on every call instead of freezing it at startup.
 
 A resolver may be invoked from a background or materializer thread (chain-step continuation, workflow-branch creation, batch-child creation) where a request-scoped proxy is not active. Ratchet treats a thrown `RuntimeException` — and a `null` `Optional` return — as `Optional.empty()` rather than failing the submission, but a resolver that legitimately has no caller identity available should prefer returning `Optional.empty()` directly.
+
+`JobContext` is a plain thread-local, not an inheritable context. If job code uses `CompletableFuture.supplyAsync(...)`, a manually managed executor, or another thread handoff and submits a job there, that submission does not inherit the parent job's principal from `JobContext`. Inheriting submissions must happen on the job execution thread while Ratchet's `JobContext` bind is active.
 
 ## ClassPolicy
 

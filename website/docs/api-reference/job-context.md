@@ -25,6 +25,8 @@ void processOrder(long orderId) {
 }
 ```
 
+`JobContext` is a plain thread-local. Work handed to another thread with `CompletableFuture.supplyAsync(...)` or a separate executor does not inherit it. If a job submits another job and expects caller-principal inheritance, make that submission on the Ratchet execution thread while the context is bound.
+
 ## Static methods
 
 ### current
@@ -43,6 +45,14 @@ Retrieves the `JobContext` bound to the current thread.
 JobContext ctx = JobContext.current();
 UUID id = ctx.jobId();
 ```
+
+### currentOrNull
+
+```java
+public static JobContext currentOrNull()
+```
+
+Retrieves the `JobContext` bound to the current thread, or returns `null` when called outside a Ratchet-managed job execution.
 
 ### bind
 
@@ -108,6 +118,19 @@ Binds a context with both job parameters and a pre-deserialized signal payload. 
 
 Most application code should not call this directly except in unit tests for signal-aware job methods.
 
+### bind (with caller principal)
+
+```java
+public static JobContext bind(
+    UUID jobId,
+    JobLogger logger,
+    Map<String, String> params,
+    String callerPrincipal,
+    Serializable signalPayload)
+```
+
+Binds a context with parameters, the persisted caller principal, and an optional signal payload. Ratchet calls this overload internally while executing persisted jobs. `callerPrincipal` may be `null` when no principal was captured at creation.
+
 ### clear
 
 ```java
@@ -164,6 +187,14 @@ log.info("Progress milestone");
 log.warn("Potential issue");
 log.error("Failure occurred");
 ```
+
+### callerPrincipal
+
+```java
+public String callerPrincipal()
+```
+
+Returns the principal captured when this job was created, or `null` when no principal was captured. A `null` value means Ratchet did not capture a principal; it is not a synthetic `"system"` value.
 
 ### param
 

@@ -23,11 +23,17 @@ import run.ratchet.api.Incubating;
  * application already controls, bypassing CDI {@code @Alternative} bean resolution entirely.
  *
  * <p>Configured via {@code RatchetOptions.Builder#callerPrincipalResolver}. When set, it takes
- * precedence over {@code run.ratchet.ri.security.CallerPrincipalProvider} — the reference
- * implementation's CDI-alternative-based default. Leaving it unset reproduces today's behavior
- * exactly: some EAR containers silently ignore an application's
+ * first precedence in the reference implementation's resolution cascade. If this resolver returns
+ * {@link Optional#empty()}, returns {@code null}, or throws a {@link RuntimeException}, Ratchet
+ * treats this source as empty and continues to the next source: the executing {@code JobContext}'s
+ * captured caller principal, then {@code run.ratchet.ri.security.CallerPrincipalProvider}, then no
+ * principal. Some EAR containers silently ignore an application's
  * {@code @Alternative @Priority(APPLICATION) CallerPrincipalProvider} override, so this seam exists
- * as a fallback path that does not depend on CDI alternative resolution at all.
+ * as a path that does not depend on CDI alternative resolution at all.
+ *
+ * <p>Ratchet never invents a principal. A persisted {@code null} {@code caller_principal} means no
+ * principal was captured, such as a background or system-initiated submission. Applications that
+ * want a literal stamp such as {@code "system"} must return that value from this resolver.
  *
  * <h2>Authentication mechanism and the default capture</h2>
  *
@@ -72,8 +78,8 @@ public interface CallerPrincipalResolver {
    * <p>May be invoked from a background or materializer thread (chain-step continuation,
    * workflow-branch creation, batch-child creation) where a request-scoped proxy is not active. In
    * that situation, prefer returning {@link Optional#empty()}; a thrown {@link RuntimeException} is
-   * also tolerated by the framework's resolution helper, which logs a warning and degrades to
-   * {@link Optional#empty()} rather than failing the submission.
+   * also tolerated by the framework's resolution helper, which logs a warning, treats this source
+   * as empty, and continues the resolution cascade rather than failing the submission.
    *
    * @return the resolved principal name, or {@link Optional#empty()} if none is available
    */
