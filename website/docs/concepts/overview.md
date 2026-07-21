@@ -355,7 +355,7 @@ Add Ratchet to your Jakarta EE application:
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.2.0</version>
+      <version>0.2.1</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
