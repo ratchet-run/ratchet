@@ -19,6 +19,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.AmbiguousResolutionException;
+import jakarta.enterprise.inject.Default;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Inject;
@@ -116,13 +117,12 @@ public class SpiBindingLogger {
   }
 
   /**
-   * Resolves the single bean CDI would hand out for {@code seamType} without instantiating it.
-   * {@link BeanManager#getBeans(java.lang.reflect.Type, java.lang.annotation.Annotation...)} with
-   * no qualifiers implies {@code @Default}, which matches every seam listed above.
+   * Resolves the {@code @Default} bean for {@code seamType} without instantiating it, mirroring an
+   * unqualified {@code @Inject} injection point of that seam type.
    */
   private String resolveBinding(Class<?> seamType) {
     try {
-      Set<Bean<?>> beans = beanManager.getBeans(seamType);
+      Set<Bean<?>> beans = beanManager.getBeans(seamType, Default.Literal.INSTANCE);
       if (beans.isEmpty()) {
         return UNSATISFIED;
       }

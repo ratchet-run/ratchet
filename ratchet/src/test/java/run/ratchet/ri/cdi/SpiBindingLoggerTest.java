@@ -22,6 +22,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 
 import jakarta.enterprise.inject.AmbiguousResolutionException;
+import jakarta.enterprise.inject.Default;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import java.util.Set;
@@ -80,7 +81,9 @@ class SpiBindingLoggerTest {
   void resolvedSeam_logsWinningImplementationClassName() {
     Bean<?> winner = mockBean(CallerPrincipalProvider.class);
     Set<Bean<?>> beans = Set.of(winner);
-    doReturn(beans).when(beanManager).getBeans(CallerPrincipalProvider.class);
+    doReturn(beans)
+        .when(beanManager)
+        .getBeans(CallerPrincipalProvider.class, Default.Literal.INSTANCE);
     doReturn(winner).when(beanManager).resolve(beans);
 
     SpiBindingLogger logger = new SpiBindingLogger(beanManager);
@@ -100,7 +103,9 @@ class SpiBindingLoggerTest {
   @Test
   void ambiguousSeam_logsAmbiguousMarker() {
     Set<Bean<?>> beans = Set.of(mockBean(CallerPrincipalProvider.class), mockBean(Object.class));
-    doReturn(beans).when(beanManager).getBeans(CallerPrincipalProvider.class);
+    doReturn(beans)
+        .when(beanManager)
+        .getBeans(CallerPrincipalProvider.class, Default.Literal.INSTANCE);
     doThrow(new AmbiguousResolutionException("two beans")).when(beanManager).resolve(beans);
 
     SpiBindingLogger logger = new SpiBindingLogger(beanManager);
@@ -118,7 +123,7 @@ class SpiBindingLoggerTest {
   void resolutionFailure_isCaught_andRecordedAsError() {
     doThrow(new IllegalStateException("boom"))
         .when(beanManager)
-        .getBeans(CallerPrincipalProvider.class);
+        .getBeans(CallerPrincipalProvider.class, Default.Literal.INSTANCE);
 
     SpiBindingLogger logger = new SpiBindingLogger(beanManager);
     CapturingHandler handler = attachHandler();
