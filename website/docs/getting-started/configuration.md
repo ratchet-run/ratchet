@@ -79,6 +79,35 @@ public class SchedulerConfiguration {
 
 With zero arguments, `fromEnvironment()` reads exclusively from MicroProfile Config and environment variables, applying compiled-in defaults for keys absent from those sources. See [Source Chain](#source-chain) below to overlay custom `RatchetConfigSource` implementations.
 
+### Typed overrides on top of the environment
+
+When most settings should remain environment-tunable but a few deployment values are known in code, start from the environment-backed builder and override only those values:
+
+```java
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptionsFactory;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
+
+@ApplicationScoped
+public class SchedulerConfiguration {
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptionsFactory.builderFromEnvironment()
+            .schema(s -> s.autoMigrate(false))
+            .store(s -> s.isolationCheckMode(RatchetOptions.IsolationCheckMode.WARN))
+            .execution(e -> e
+                .jobExecutorJndi("java:jboss/ee/concurrency/executor/default")
+                .scheduledExecutorJndi("java:jboss/ee/concurrency/scheduler/default"))
+            .build();
+    }
+}
+```
+
+Everything else stays environment-tunable. Typed overrides win over environment and MicroProfile Config values.
+
 ### Option B: Programmatic producer
 
 For applications that want compile-time-checked configuration without env-var round-tripping, use the builder directly:
@@ -284,6 +313,8 @@ public class PlatformRatchetConfigSource implements RatchetConfigSource {
     }
 }
 ```
+
+For simple known-value pins, prefer typed calls on `builderFromEnvironment()` over a custom `RatchetConfigSource`; they are compile-checked and survive configuration-key renames.
 
 The env lookup recognizes canonical `ratchet.*` property names and `RATCHET_*` environment variable names. The source-derived [Configuration reference](/deployment/configuration-reference) lists every fixed pair and its default; the website build fails if that table falls behind the typed catalog.
 

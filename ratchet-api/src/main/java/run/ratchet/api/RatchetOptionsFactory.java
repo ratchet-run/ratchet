@@ -21,6 +21,7 @@ import run.ratchet.api.internal.DefaultRatchetConfig;
 import run.ratchet.api.internal.EnvironmentRatchetConfigSource;
 import run.ratchet.api.internal.MicroProfileRatchetConfigSource;
 import run.ratchet.api.internal.RatchetConfigKeys;
+import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.RatchetConfigKey;
 import run.ratchet.spi.RatchetConfigSource;
 
@@ -40,6 +41,10 @@ public final class RatchetOptionsFactory {
   private RatchetOptionsFactory() {}
 
   static RatchetOptions from(DefaultRatchetConfig config) {
+    return builderFrom(config).build();
+  }
+
+  static RatchetOptions.Builder builderFrom(DefaultRatchetConfig config) {
     return RatchetOptions.builder()
         .polling(
             polling ->
@@ -131,8 +136,7 @@ public final class RatchetOptionsFactory {
               for (CircuitBreakerProfile profile : CircuitBreakerProfile.values()) {
                 configureCircuitBreakerProfile(config, circuitBreaker, profile);
               }
-            })
-        .build();
+            });
   }
 
   /**
@@ -163,6 +167,48 @@ public final class RatchetOptionsFactory {
    */
   @Incubating
   public static RatchetOptions fromEnvironment(RatchetConfigSource... additional) {
+    return builderFromEnvironment(additional).build();
+  }
+
+  /**
+   * Returns a fully seeded {@link RatchetOptions.Builder} by reading the ambient configuration
+   * chain (MicroProfile Config when present, then environment variables), optionally overlaid with
+   * caller-supplied {@link RatchetConfigSource} instances.
+   *
+   * <p>Intended for use inside a CDI producer method when typed bootstrap overrides are required:
+   *
+   * <pre>{@code
+   * @Produces
+   * @ApplicationScoped
+   * public RatchetOptions ratchetOptions() {
+   *   return RatchetOptionsFactory.builderFromEnvironment()
+   *       .schema(s -> s.autoMigrate(false))
+   *       .store(s -> s.isolationCheckMode(RatchetOptions.IsolationCheckMode.WARN))
+   *       .execution(e -> e.jobExecutorJndi("java:jboss/ee/concurrency/executor/default")
+   *           .scheduledExecutorJndi("java:jboss/ee/concurrency/scheduler/default"))
+   *       .build();
+   * }
+   * }</pre>
+   *
+   * <p>Calling with no arguments reads exclusively from MicroProfile Config and environment
+   * variables, applying compiled-in defaults for keys absent from those sources. Caller-supplied
+   * sources take precedence over the ambient chain.
+   *
+   * <p>The returned builder is fully seeded from that source chain. Subsequent typed setters
+   * override values read from environment variables and MicroProfile Config. The builder is mutable
+   * and intended for single-threaded customization during bootstrap. It also provides the natural
+   * pre-build point for attaching a caller-principal resolver via {@link
+   * RatchetOptions.Builder#callerPrincipalResolver(CallerPrincipalResolver)}.
+   *
+   * <p>The surrounding producer method should be {@code @ApplicationScoped} so sources are read
+   * once at bootstrap rather than on every injection.
+   *
+   * @param additional optional overlay sources consulted before MicroProfile Config / env vars;
+   *     null elements are ignored
+   * @return a fully seeded, mutable {@link RatchetOptions.Builder}
+   */
+  @Incubating
+  public static RatchetOptions.Builder builderFromEnvironment(RatchetConfigSource... additional) {
     List<RatchetConfigSource> sources = new ArrayList<>();
     if (additional != null) {
       for (RatchetConfigSource source : additional) {
@@ -173,7 +219,7 @@ public final class RatchetOptionsFactory {
     }
     MicroProfileRatchetConfigSource.create().ifPresent(sources::add);
     sources.add(new EnvironmentRatchetConfigSource());
-    return from(new DefaultRatchetConfig(sources));
+    return builderFrom(new DefaultRatchetConfig(sources));
   }
 
   private static void configureExecution(

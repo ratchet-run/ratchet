@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -213,6 +214,196 @@ class RatchetOptionsTest {
                         circuitBreaker.profile(
                             CircuitBreakerProfile.DEFAULT,
                             profile -> profile.failureRateThreshold(Float.POSITIVE_INFINITY))));
+  }
+
+  @Test
+  void toBuilderRoundTripsFullyPopulatedInstance() {
+    CallerPrincipalResolver resolver = () -> Optional.of("round-trip-user");
+    RatchetOptions original =
+        RatchetOptions.builder()
+            .polling(
+                polling ->
+                    polling
+                        .batchSize(51)
+                        .burstDelayMs(501L)
+                        .minDelayMs(2001L)
+                        .maxDelayMs(10001L)
+                        .deepIdleDelayMs(30001L)
+                        .deepIdleThresholdMs(60001L)
+                        .idleThreshold(4)
+                        .claimHeadroomFactor(1))
+            .execution(
+                execution ->
+                    execution
+                        .defaultThreadingMode(RatchetOptions.ThreadingMode.VIRTUAL)
+                        .queueSize(101)
+                        .maxConcurrency("SINGLE", 21)
+                        .virtualThreadLimit("RECURRING", 22)
+                        .rateLimitPerMinute("BATCH_CHILD", 23)
+                        .jobExecutorJndi("java:app/concurrent/JobExecutor")
+                        .scheduledExecutorJndi("java:app/concurrent/ScheduledExecutor")
+                        .coordinatorThreadFactoryJndi("java:app/concurrent/CoordinatorFactory")
+                        .virtualExecutorJndi("java:app/concurrent/VirtualExecutor")
+                        .virtualCounterAccounting(true))
+            .node(
+                node ->
+                    node.nodeId("node-a")
+                        .heartbeatIntervalSeconds(11L)
+                        .orphanGraceSeconds(61L)
+                        .orphanScanIntervalMinutes(6L)
+                        .dynamicHeartbeatEnabled(false)
+                        .requireTags("blue", "primary")
+                        .excludeTags("draining"))
+            .recurring(
+                recurring ->
+                    recurring
+                        .batchLimit(21)
+                        .pollMs(1001L)
+                        .maxPollMs(60001L)
+                        .startupGraceSeconds(61L)
+                        .convergenceWindowSeconds(1L))
+            .retryBuffer(retryBuffer -> retryBuffer.drainIntervalMs(1001L))
+            .timeout(
+                timeout ->
+                    timeout
+                        .softTimeoutPercent(81)
+                        .defaultSlaSeconds(1801L)
+                        .signalTimeoutBatchSize(501))
+            .maintenance(
+                maintenance ->
+                    maintenance
+                        .dlqPurgeEnabled(false)
+                        .dlqPurgeCron("0 1 2 * * ?")
+                        .dlqPurgeDays(91L)
+                        .jobArchiveEnabled(false)
+                        .jobArchiveCron("0 1 1 * * ?")
+                        .jobRetentionDays(91L)
+                        .jobArchiveBatchSize(1001)
+                        .logPurgeEnabled(false)
+                        .logPurgeCron("0 31 2 * * ?")
+                        .logRetentionDays(31L))
+            .schema(
+                schema ->
+                    schema
+                        .autoMigrate(true)
+                        .migrationDialect("postgresql")
+                        .migrationPrefix("ddl/custom"))
+            .payload(payload -> payload.maxPayloadKb(101).maxResultBytes(65537L))
+            .security(
+                security ->
+                    security.allowEmptyClassPolicy(true).redactEmails(false).maskPayloads(true))
+            .store(
+                store ->
+                    store
+                        .isolationCheckMode(RatchetOptions.IsolationCheckMode.WARN)
+                        .priorityBoostIntervalMinutes(16))
+            .circuitBreaker(
+                circuitBreaker ->
+                    circuitBreaker
+                        .enabled(false)
+                        .profile(
+                            CircuitBreakerProfile.DEFAULT,
+                            profile ->
+                                profile
+                                    .failureRateThreshold(51.0f)
+                                    .slidingWindowSize(101)
+                                    .waitDurationMs(30001L)
+                                    .permittedCallsInHalfOpen(4)
+                                    .minimumCalls(6)))
+            .encryption(encryption -> encryption.enabled(true).writeAlgorithm("AES/GCM/NoPadding"))
+            .callerPrincipalResolver(resolver)
+            .build();
+
+    RatchetOptions roundTripped = original.toBuilder().build();
+
+    assertEquals(original.polling(), roundTripped.polling());
+    assertEquals(original.execution(), roundTripped.execution());
+    assertEquals(original.node(), roundTripped.node());
+    assertEquals(original.recurring(), roundTripped.recurring());
+    assertEquals(original.retryBuffer(), roundTripped.retryBuffer());
+    assertEquals(original.timeout(), roundTripped.timeout());
+    assertEquals(original.maintenance(), roundTripped.maintenance());
+    assertEquals(original.schema(), roundTripped.schema());
+    assertEquals(original.payload(), roundTripped.payload());
+    assertEquals(original.security(), roundTripped.security());
+    assertEquals(original.store(), roundTripped.store());
+    assertEquals(original.circuitBreaker(), roundTripped.circuitBreaker());
+    assertEquals(original.encryption(), roundTripped.encryption());
+    assertSame(original.callerPrincipalResolver(), roundTripped.callerPrincipalResolver());
+  }
+
+  @Test
+  void toBuilderPreservesSubsetMapsWithoutDefaultLeakBack() {
+    Map<String, Integer> maxConcurrency = Map.of("SINGLE", 2, "RECURRING", 3);
+    RatchetOptions.ExecutionOptions execution =
+        new RatchetOptions.ExecutionOptions(
+            RatchetOptions.ThreadingMode.PLATFORM,
+            17,
+            maxConcurrency,
+            Map.of(),
+            Map.of(),
+            "java:app/concurrent/JobExecutor",
+            "java:app/concurrent/ScheduledExecutor",
+            "java:app/concurrent/CoordinatorFactory",
+            null,
+            false);
+    RatchetOptions.CircuitBreakerProfileOptions profile =
+        new RatchetOptions.CircuitBreakerProfileOptions(40.0f, 10, 5000L, 2, 3);
+    RatchetOptions.CircuitBreakerOptions circuitBreaker =
+        new RatchetOptions.CircuitBreakerOptions(true, Map.of(CircuitBreakerProfile.FAST, profile));
+    RatchetOptions defaults = RatchetOptions.defaults();
+    RatchetOptions original =
+        new RatchetOptions(
+            defaults.polling(),
+            execution,
+            defaults.node(),
+            defaults.recurring(),
+            defaults.retryBuffer(),
+            defaults.timeout(),
+            defaults.maintenance(),
+            defaults.schema(),
+            defaults.payload(),
+            defaults.security(),
+            defaults.store(),
+            circuitBreaker,
+            defaults.encryption());
+
+    RatchetOptions roundTripped = original.toBuilder().build();
+
+    assertEquals(maxConcurrency, roundTripped.execution().maxConcurrency());
+    assertEquals(Map.of(), roundTripped.execution().virtualThreadLimits());
+    assertEquals(Map.of(), roundTripped.execution().rateLimitsPerMinute());
+    assertEquals(
+        Map.of(CircuitBreakerProfile.FAST, profile), roundTripped.circuitBreaker().profiles());
+  }
+
+  @Test
+  void toBuilderModificationsDoNotAffectOriginal() {
+    RatchetOptions original =
+        RatchetOptions.builder().polling(polling -> polling.batchSize(77)).build();
+    RatchetOptions.PollingOptions originalPolling = original.polling();
+    RatchetOptions.Builder builder = original.toBuilder();
+
+    builder.polling(polling -> polling.batchSize(88));
+    RatchetOptions modified = builder.build();
+
+    assertEquals(originalPolling, original.polling());
+    assertEquals(77, original.polling().batchSize());
+    assertEquals(88, modified.polling().batchSize());
+  }
+
+  @Test
+  void pollingOptionsRejectsMinDelayGreaterThanMaxDelay() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new RatchetOptions.PollingOptions(1, 0L, 2L, 1L, 0L, 0L, 0, 0));
+  }
+
+  @Test
+  void recurringOptionsRejectsPollGreaterThanMaxPoll() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new RatchetOptions.RecurringOptions(1, 2L, 1L, 0L, 0L));
   }
 
   @Test

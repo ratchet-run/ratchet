@@ -132,6 +132,68 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
+  void builderFromEnvironmentTreatsNullAdditionalArrayAsNoOverlays() {
+    RatchetOptions options =
+        RatchetOptionsFactory.builderFromEnvironment((RatchetConfigSource[]) null).build();
+
+    assertMatchesDefaults(RatchetOptions.defaults(), options);
+  }
+
+  @Test
+  void typedOverridesWinOverEnvironmentSourcedValues() {
+    RatchetOptions options =
+        RatchetOptionsFactory.builderFrom(
+                new DefaultRatchetConfig(
+                    List.of(
+                        new MapRatchetConfigSource(
+                            Map.of(
+                                "ratchet.schema.auto-migrate", "true",
+                                "ratchet.isolation-check", "fail",
+                                "ratchet.worker.job-executor-jndi", "java:env/concurrency/executor",
+                                "ratchet.worker.scheduled-executor-jndi",
+                                    "java:env/concurrency/scheduler",
+                                "ratchet.poller.batch-size", "456"),
+                            Map.of()))))
+            .schema(schema -> schema.autoMigrate(false))
+            .store(store -> store.isolationCheckMode(RatchetOptions.IsolationCheckMode.WARN))
+            .execution(
+                execution ->
+                    execution
+                        .jobExecutorJndi("java:jboss/ee/concurrency/executor/default")
+                        .scheduledExecutorJndi("java:jboss/ee/concurrency/scheduler/default"))
+            .build();
+
+    assertFalse(options.schema().autoMigrate());
+    assertEquals(RatchetOptions.IsolationCheckMode.WARN, options.store().isolationCheckMode());
+    assertEquals(
+        "java:jboss/ee/concurrency/executor/default", options.execution().jobExecutorJndi());
+    assertEquals(
+        "java:jboss/ee/concurrency/scheduler/default", options.execution().scheduledExecutorJndi());
+    assertEquals(456, options.polling().batchSize());
+  }
+
+  @Test
+  void builderFromSeedsBuilderFromSourceValues() {
+    RatchetOptions options =
+        RatchetOptionsFactory.builderFrom(
+                new DefaultRatchetConfig(
+                    List.of(
+                        new MapRatchetConfigSource(
+                            Map.of(
+                                "ratchet.poller.batch-size", "73",
+                                "ratchet.node.id", "seeded-node",
+                                "ratchet.timeout.default-sla-seconds", "91",
+                                "ratchet.security.mask-payloads", "true"),
+                            Map.of()))))
+            .build();
+
+    assertEquals(73, options.polling().batchSize());
+    assertEquals(Optional.of("seeded-node"), options.node().explicitNodeId());
+    assertEquals(91L, options.timeout().defaultSlaSeconds());
+    assertTrue(options.security().maskPayloads());
+  }
+
+  @Test
   void mapsRepresentativeConfigurationKeysAcrossOptionGroups() {
     RatchetOptions options =
         optionsFrom(
@@ -365,6 +427,37 @@ class RatchetOptionsFactoryTest {
         System.clearProperty(property);
       } else {
         System.setProperty(property, previous);
+      }
+    }
+  }
+
+  @Test
+  void builderFromEnvironmentReadsSystemPropertiesAndTypedOverridesWin() {
+    String batchSizeProperty = "ratchet.poller.batch-size";
+    String autoMigrateProperty = "ratchet.schema.auto-migrate";
+    String previousBatchSize = System.getProperty(batchSizeProperty);
+    String previousAutoMigrate = System.getProperty(autoMigrateProperty);
+    try {
+      System.setProperty(batchSizeProperty, "321");
+      System.setProperty(autoMigrateProperty, "true");
+
+      RatchetOptions options =
+          RatchetOptionsFactory.builderFromEnvironment()
+              .schema(schema -> schema.autoMigrate(false))
+              .build();
+
+      assertEquals(321, options.polling().batchSize());
+      assertFalse(options.schema().autoMigrate());
+    } finally {
+      if (previousBatchSize == null) {
+        System.clearProperty(batchSizeProperty);
+      } else {
+        System.setProperty(batchSizeProperty, previousBatchSize);
+      }
+      if (previousAutoMigrate == null) {
+        System.clearProperty(autoMigrateProperty);
+      } else {
+        System.setProperty(autoMigrateProperty, previousAutoMigrate);
       }
     }
   }
