@@ -150,6 +150,109 @@ public class RatchetOptions {
     return new Builder();
   }
 
+  /**
+   * Returns an independent builder seeded from this instance. Mutating the returned builder never
+   * affects this instance, and building it without changes yields an instance whose option-group
+   * records equal this instance's.
+   *
+   * @return a new builder seeded from this instance
+   */
+  // Instances reachable through builder(), toBuilder(), or the public constructor have non-null
+  // option groups; CDI intercepts the sole null-valued proxy and delegates without reading them.
+  @Incubating
+  @SuppressWarnings("DataFlowIssue")
+  public Builder toBuilder() {
+    Builder builder = new Builder();
+
+    builder.polling.batchSize = polling.batchSize();
+    builder.polling.burstDelayMs = polling.burstDelayMs();
+    builder.polling.minDelayMs = polling.minDelayMs();
+    builder.polling.maxDelayMs = polling.maxDelayMs();
+    builder.polling.deepIdleDelayMs = polling.deepIdleDelayMs();
+    builder.polling.deepIdleThresholdMs = polling.deepIdleThresholdMs();
+    builder.polling.idleThreshold = polling.idleThreshold();
+    builder.polling.claimHeadroomFactor = polling.claimHeadroomFactor();
+
+    builder.execution.defaultThreadingMode = execution.defaultThreadingMode();
+    builder.execution.queueSize = execution.queueSize();
+    builder.execution.maxConcurrency.clear();
+    builder.execution.maxConcurrency.putAll(execution.maxConcurrency());
+    builder.execution.virtualThreadLimits.clear();
+    builder.execution.virtualThreadLimits.putAll(execution.virtualThreadLimits());
+    builder.execution.rateLimitsPerMinute.clear();
+    builder.execution.rateLimitsPerMinute.putAll(execution.rateLimitsPerMinute());
+    builder.execution.jobExecutorJndi = execution.jobExecutorJndi();
+    builder.execution.scheduledExecutorJndi = execution.scheduledExecutorJndi();
+    builder.execution.coordinatorThreadFactoryJndi = execution.coordinatorThreadFactoryJndi();
+    builder.execution.virtualExecutorJndi = execution.virtualExecutorJndi();
+    builder.execution.virtualCounterAccounting = execution.virtualCounterAccounting();
+
+    builder.node.nodeId = node.nodeId();
+    builder.node.heartbeatIntervalSeconds = node.heartbeatIntervalSeconds();
+    builder.node.orphanGraceSeconds = node.orphanGraceSeconds();
+    builder.node.orphanScanIntervalMinutes = node.orphanScanIntervalMinutes();
+    builder.node.dynamicHeartbeatEnabled = node.dynamicHeartbeatEnabled();
+    builder.node.requireTags = List.copyOf(node.requireTags());
+    builder.node.excludeTags = List.copyOf(node.excludeTags());
+
+    builder.recurring.batchLimit = recurring.batchLimit();
+    builder.recurring.pollMs = recurring.pollMs();
+    builder.recurring.maxPollMs = recurring.maxPollMs();
+    builder.recurring.startupGraceSeconds = recurring.startupGraceSeconds();
+    builder.recurring.convergenceWindowSeconds = recurring.convergenceWindowSeconds();
+
+    builder.retryBuffer.drainIntervalMs = retryBuffer.drainIntervalMs();
+
+    builder.timeout.softTimeoutPercent = timeout.softTimeoutPercent();
+    builder.timeout.defaultSlaSeconds = timeout.defaultSlaSeconds();
+    builder.timeout.signalTimeoutBatchSize = timeout.signalTimeoutBatchSize();
+
+    builder.maintenance.dlqPurgeEnabled = maintenance.dlqPurgeEnabled();
+    builder.maintenance.dlqPurgeCron = maintenance.dlqPurgeCron();
+    builder.maintenance.dlqPurgeDays = maintenance.dlqPurgeDays();
+    builder.maintenance.jobArchiveEnabled = maintenance.jobArchiveEnabled();
+    builder.maintenance.jobArchiveCron = maintenance.jobArchiveCron();
+    builder.maintenance.jobRetentionDays = maintenance.jobRetentionDays();
+    builder.maintenance.jobArchiveBatchSize = maintenance.jobArchiveBatchSize();
+    builder.maintenance.logPurgeEnabled = maintenance.logPurgeEnabled();
+    builder.maintenance.logPurgeCron = maintenance.logPurgeCron();
+    builder.maintenance.logRetentionDays = maintenance.logRetentionDays();
+
+    builder.schema.autoMigrate = schema.autoMigrate();
+    builder.schema.migrationDialect = schema.migrationDialect();
+    builder.schema.migrationPrefix = schema.migrationPrefix();
+
+    builder.payload.maxPayloadKb = payload.maxPayloadKb();
+    builder.payload.maxResultBytes = payload.maxResultBytes();
+
+    builder.security.allowEmptyClassPolicy = security.allowEmptyClassPolicy();
+    builder.security.redactEmails = security.redactEmails();
+    builder.security.maskPayloads = security.maskPayloads();
+
+    builder.store.isolationCheckMode = store.isolationCheckMode();
+    builder.store.priorityBoostIntervalMinutes = store.priorityBoostIntervalMinutes();
+
+    builder.circuitBreaker.enabled = circuitBreaker.enabled();
+    builder.circuitBreaker.profiles.clear();
+    for (Map.Entry<CircuitBreakerProfile, CircuitBreakerProfileOptions> entry :
+        circuitBreaker.profiles().entrySet()) {
+      CircuitBreakerProfileOptions profile = entry.getValue();
+      builder.circuitBreaker.profiles.put(
+          entry.getKey(),
+          circuitBreakerProfile(
+              profile.failureRateThreshold(),
+              profile.slidingWindowSize(),
+              profile.waitDurationMs(),
+              profile.permittedCallsInHalfOpen(),
+              profile.minimumCalls()));
+    }
+
+    builder.encryption.enabled = encryption.enabled();
+    builder.encryption.writeAlgorithm = encryption.writeAlgorithm();
+    builder.callerPrincipalResolver = callerPrincipalResolver;
+    return builder;
+  }
+
   private static Map<String, Integer> defaultConcurrency() {
     Map<String, Integer> defaults = new HashMap<>();
     // Keys are JobExecutionType.name() values, but ratchet-api intentionally does not depend on
@@ -184,11 +287,11 @@ public class RatchetOptions {
       int permittedCallsInHalfOpen,
       int minimumCalls) {
     CircuitBreakerProfileBuilder builder = new CircuitBreakerProfileBuilder();
-    builder.failureRateThreshold(failureRateThreshold);
-    builder.slidingWindowSize(slidingWindowSize);
-    builder.waitDurationMs(waitDurationMs);
-    builder.permittedCallsInHalfOpen(permittedCallsInHalfOpen);
-    builder.minimumCalls(minimumCalls);
+    builder.failureRateThreshold = failureRateThreshold;
+    builder.slidingWindowSize = slidingWindowSize;
+    builder.waitDurationMs = waitDurationMs;
+    builder.permittedCallsInHalfOpen = permittedCallsInHalfOpen;
+    builder.minimumCalls = minimumCalls;
     return builder;
   }
 
@@ -406,7 +509,12 @@ public class RatchetOptions {
       long deepIdleDelayMs,
       long deepIdleThresholdMs,
       int idleThreshold,
-      int claimHeadroomFactor) {}
+      int claimHeadroomFactor) {
+
+    public PollingOptions {
+      requireNotGreater("minDelayMs", minDelayMs, "maxDelayMs", maxDelayMs);
+    }
+  }
 
   /**
    * Execution-pool wiring: target executor JNDI names, queue size, and per-execution-type
@@ -554,7 +662,12 @@ public class RatchetOptions {
       long pollMs,
       long maxPollMs,
       long startupGraceSeconds,
-      long convergenceWindowSeconds) {}
+      long convergenceWindowSeconds) {
+
+    public RecurringOptions {
+      requireNotGreater("pollMs", pollMs, "maxPollMs", maxPollMs);
+    }
+  }
 
   /**
    * Tuning for the in-memory retry buffer that batches failed-job retry inserts.
