@@ -157,7 +157,10 @@ public class RatchetOptions {
    *
    * @return a new builder seeded from this instance
    */
+  // Instances reachable through builder(), toBuilder(), or the public constructor have non-null
+  // option groups; CDI intercepts the sole null-valued proxy and delegates without reading them.
   @Incubating
+  @SuppressWarnings("DataFlowIssue")
   public Builder toBuilder() {
     Builder builder = new Builder();
 
