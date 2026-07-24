@@ -6,15 +6,15 @@
 
   <!--
     Runnable demo app exercising the ratchet-quarkus extension end to end: @QuarkusTest boots a real
-    application with the extension on the classpath, backed by a Dev-Services-provisioned PostgreSQL
-    container (Testcontainers under the hood), and drives it over HTTP. This is the extension's only
-    automated regression coverage against a live Quarkus boot; everything else is unit-level.
-    Run on JDK 21.
+    application with the extension on the classpath, backed by a PostgreSQL container that
+    PostgresTestResource manages with standalone Testcontainers, and drives it over HTTP. This is the
+    extension's only automated regression coverage against a live Quarkus boot; everything else is
+    unit-level. Run on JDK 21.
   -->
   <parent>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-quarkus-parent</artifactId>
-    <version>0.1.2-SNAPSHOT</version>
+    <version>0.2.1-SNAPSHOT</version>
   </parent>
 
   <artifactId>ratchet-quarkus-integration-tests</artifactId>
@@ -28,6 +28,31 @@
     <!-- Demo/test module only: never published. -->
     <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-bom</artifactId>
+        <version>2.0.5</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <!--
+        Testcontainers 2.0.5 requires docker-java 3.7.1, whose docker-java-api carries the
+        ImageHistoryCmd type and negotiates the Docker API version. quarkus-bom (inherited from the
+        parent) pins docker-java to 3.4.1, which this module-local import overrides so the
+        self-managed Testcontainers client on the test classpath matches Testcontainers 2.0.5.
+      -->
+      <dependency>
+        <groupId>com.github.docker-java</groupId>
+        <artifactId>docker-java-bom</artifactId>
+        <version>3.7.1</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <dependencies>
     <dependency>
@@ -78,6 +103,16 @@
       <groupId>org.awaitility</groupId>
       <artifactId>awaitility</artifactId>
       <version>${awaitility.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
