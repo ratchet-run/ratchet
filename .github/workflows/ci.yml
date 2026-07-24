@@ -323,6 +323,35 @@ jobs:
       - name: Copyleft dependency-license gate
         run: bash infra/ci/check-dependency-licenses.sh
 
+  # integrations/ratchet-quarkus is its own standalone reactor (separate parent,
+  # not a root <module>) so it isn't picked up by the release/sign/central
+  # profiles that run against the main reactor. It still depends on run.ratchet
+  # core artifacts by version, so a change here that breaks the extension would
+  # otherwise go unnoticed until someone manually rebuilds it. Install the core
+  # modules the extension depends on, then build+test the extension's own
+  # reactor against that freshly-built (not stale-cached) source.
+  quarkus-extension-verify:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: m2-quarkus-ext-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-quarkus-ext-
+            m2-
+      - name: Install core modules the extension depends on
+        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core -am install
+      - name: Build + test the ratchet-quarkus extension
+        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml verify
+
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
   # on the web filter so it runs whenever anything under website/ changes —
@@ -373,7 +402,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, a11y]
+    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

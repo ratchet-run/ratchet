@@ -232,7 +232,10 @@ public class RecurringJobProcessor {
     // Deferred on build-time-CDI runtimes (e.g. Quarkus), which run this observer during
     // STATIC_INIT before the EntityManager exists; they drive startup via RatchetRuntimeStart
     // instead.
-    if (RatchetRuntimeStart.autoStartDeferred()) {
+    if (RatchetRuntimeStart.logIfDeferred(
+        log,
+        "@Recurring registration deferred pending RatchetRuntimeStart event; if this runtime"
+            + " never fires that event, recurring jobs will never register")) {
       return;
     }
     ScheduledExecutorService scheduler = resolveScheduledExecutor();

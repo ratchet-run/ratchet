@@ -28,8 +28,6 @@ import io.quarkus.deployment.builditem.nativeimage.LambdaCapturingTypeBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageSystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem;
-import java.util.LinkedHashSet;
-import java.util.Set;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.FieldInfo;
@@ -39,6 +37,7 @@ import run.ratchet.quarkus.runtime.QuarkusRatchetEntityManagerProvider;
 import run.ratchet.quarkus.runtime.QuarkusRatchetExecutorProvider;
 import run.ratchet.quarkus.runtime.RatchetRuntimeProducers;
 import run.ratchet.quarkus.runtime.RatchetStartupTrigger;
+import run.ratchet.ri.cdi.RatchetRuntimeStart;
 
 /**
  * Build-time wiring for the Ratchet Quarkus extension. Emits everything the spike configured by
@@ -47,7 +46,6 @@ import run.ratchet.quarkus.runtime.RatchetStartupTrigger;
 class RatchetProcessor {
 
   private static final String FEATURE = "ratchet";
-  private static final String DEFER_PROPERTY = "ratchet.lifecycle.defer-auto-start";
   private static final DotName JOB_SCHEDULER_SERVICE =
       DotName.createSimple("run.ratchet.api.JobSchedulerService");
 
@@ -111,8 +109,9 @@ class RatchetProcessor {
   void deferAutoStart(
       BuildProducer<SystemPropertyBuildItem> runtimeProps,
       BuildProducer<NativeImageSystemPropertyBuildItem> nativeBuildProps) {
-    runtimeProps.produce(new SystemPropertyBuildItem(DEFER_PROPERTY, "true"));
-    nativeBuildProps.produce(new NativeImageSystemPropertyBuildItem(DEFER_PROPERTY, "true"));
+    runtimeProps.produce(new SystemPropertyBuildItem(RatchetRuntimeStart.DEFER_PROPERTY, "true"));
+    nativeBuildProps.produce(
+        new NativeImageSystemPropertyBuildItem(RatchetRuntimeStart.DEFER_PROPERTY, "true"));
   }
 
   /** Reflection + runtime-init metadata the engine needs in a native image. */
@@ -129,6 +128,10 @@ class RatchetProcessor {
             .methods(true)
             .fields(true)
             .build());
+    // StandaloneExecutorProvider reflectively looks up Executors.newVirtualThreadPerTaskExecutor()
+    // to stay compilable at --release 17; register it so ExecutorTargets.VIRTUAL works natively.
+    reflective.produce(
+        ReflectiveClassBuildItem.builder("java.util.concurrent.Executors").methods(true).build());
     // Static SecureRandom must be created at image runtime, not captured into the image heap.
     runtimeInit.produce(new RuntimeInitializedClassBuildItem("run.ratchet.store.id.UuidV7Factory"));
   }
@@ -142,14 +145,10 @@ class RatchetProcessor {
   @BuildStep
   void lambdaCapturingTypes(
       CombinedIndexBuildItem index, BuildProducer<LambdaCapturingTypeBuildItem> lambdas) {
-    Set<String> submitters = new LinkedHashSet<>();
     for (ClassInfo candidate : index.getIndex().getKnownClasses()) {
       if (injectsJobScheduler(candidate)) {
-        submitters.add(candidate.name().toString());
+        lambdas.produce(new LambdaCapturingTypeBuildItem(candidate.name().toString()));
       }
-    }
-    for (String submitter : submitters) {
-      lambdas.produce(new LambdaCapturingTypeBuildItem(submitter));
     }
   }
 

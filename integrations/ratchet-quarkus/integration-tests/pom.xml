@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    Runnable demo app exercising the ratchet-quarkus extension end to end: @QuarkusTest boots a real
+    application with the extension on the classpath, backed by a Dev-Services-provisioned PostgreSQL
+    container (Testcontainers under the hood), and drives it over HTTP. This is the extension's only
+    automated regression coverage against a live Quarkus boot; everything else is unit-level.
+    Run on JDK 21.
+  -->
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-quarkus-parent</artifactId>
+    <version>0.1.2-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>ratchet-quarkus-integration-tests</artifactId>
+  <name>Ratchet :: Quarkus Extension :: Integration Tests</name>
+
+  <properties>
+    <maven.compiler.release>21</maven.compiler.release>
+    <surefire-plugin.version>3.5.2</surefire-plugin.version>
+    <rest-assured.version>5.5.1</rest-assured.version>
+    <awaitility.version>4.2.2</awaitility.version>
+    <!-- Demo/test module only: never published. -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-quarkus</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-postgresql</artifactId>
+      <version>${ratchet.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-jdbc-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-rest</artifactId>
+    </dependency>
+    <!-- The RI references jakarta.security.enterprise.SecurityContext (provided scope upstream),
+         consumed via Instance<> (no-ops when absent); supply the API jar so the type resolves. -->
+    <dependency>
+      <groupId>jakarta.security.enterprise</groupId>
+      <artifactId>jakarta.security.enterprise-api</artifactId>
+      <version>3.0.0</version>
+    </dependency>
+
+    <!-- Test -->
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-quarkus-deployment</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-junit5</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.rest-assured</groupId>
+      <artifactId>rest-assured</artifactId>
+      <version>${rest-assured.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.awaitility</groupId>
+      <artifactId>awaitility</artifactId>
+      <version>${awaitility.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-maven-plugin</artifactId>
+        <version>${quarkus.version}</version>
+        <extensions>true</extensions>
+        <executions>
+          <execution>
+            <goals>
+              <goal>build</goal>
+              <goal>generate-code</goal>
+              <goal>generate-code-tests</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${surefire-plugin.version}</version>
+        <configuration>
+          <systemPropertyVariables>
+            <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

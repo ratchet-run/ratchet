@@ -15,6 +15,8 @@
  */
 package run.ratchet.ri.cdi;
 
+import org.jboss.logging.Logger;
+
 /**
  * Startup signal that drives Ratchet's engine start on build-time-CDI runtimes.
  *
@@ -48,5 +50,18 @@ public final class RatchetRuntimeStart {
   public static boolean autoStartDeferred() {
     return Boolean.getBoolean(DEFER_PROPERTY)
         || "true".equalsIgnoreCase(System.getenv(DEFER_ENV_VAR));
+  }
+
+  /**
+   * Common guard for {@code @Initialized(ApplicationScoped.class)} observers that defer their
+   * startup work to this event: logs {@code message} and returns {@code true} when deferred, so
+   * the caller can {@code return} immediately; returns {@code false} (logging nothing) otherwise.
+   */
+  public static boolean logIfDeferred(Logger log, String message) {
+    if (!autoStartDeferred()) {
+      return false;
+    }
+    log.info(message);
+    return true;
   }
 }

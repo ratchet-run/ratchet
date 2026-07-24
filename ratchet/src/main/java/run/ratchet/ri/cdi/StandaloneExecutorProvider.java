@@ -26,6 +26,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.spi.ExecutorProvider;
 
@@ -81,18 +83,10 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
 
   @Override
   public ExecutorService getJobExecutor() {
-    ExecutorService executor = jobExecutor;
-    if (executor == null) {
-      synchronized (this) {
-        executor = jobExecutor;
-        if (executor == null) {
-          ensureOpen();
-          executor = Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job"));
-          jobExecutor = executor;
-        }
-      }
-    }
-    return executor;
+    return lazyInit(
+        () -> jobExecutor,
+        v -> jobExecutor = v,
+        () -> Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job")));
   }
 
   @Override
@@ -107,36 +101,39 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   }
 
   private ExecutorService virtualJobExecutor() {
-    ExecutorService executor = virtualJobExecutor;
-    if (executor == null) {
-      synchronized (this) {
-        executor = virtualJobExecutor;
-        if (executor == null) {
-          ensureOpen();
-          executor = newVirtualThreadExecutor();
-          virtualJobExecutor = executor;
-        }
-      }
-    }
-    return executor;
+    return lazyInit(
+        () -> virtualJobExecutor,
+        v -> virtualJobExecutor = v,
+        StandaloneExecutorProvider::newVirtualThreadExecutor);
   }
 
   @Override
   public ScheduledExecutorService getScheduledExecutor() {
-    ScheduledExecutorService executor = scheduledExecutor;
-    if (executor == null) {
+    return lazyInit(
+        () -> scheduledExecutor,
+        v -> scheduledExecutor = v,
+        () ->
+            Executors.newScheduledThreadPool(2, namedThreadFactory("ratchet-standalone-scheduler")));
+  }
+
+  /**
+   * Double-checked-locking memoizer shared by the three pool getters: a volatile read outside the
+   * lock avoids synchronizing on every call after first init, {@code ensureOpen()} runs only on
+   * the construction path so a pool never gets created after {@link #shutdown()}.
+   */
+  private <T> T lazyInit(Supplier<T> getter, Consumer<T> setter, Supplier<T> factory) {
+    T value = getter.get();
+    if (value == null) {
       synchronized (this) {
-        executor = scheduledExecutor;
-        if (executor == null) {
+        value = getter.get();
+        if (value == null) {
           ensureOpen();
-          executor =
-              Executors.newScheduledThreadPool(
-                  2, namedThreadFactory("ratchet-standalone-scheduler"));
-          scheduledExecutor = executor;
+          value = factory.get();
+          setter.accept(value);
         }
       }
     }
-    return executor;
+    return value;
   }
 
   @PreDestroy

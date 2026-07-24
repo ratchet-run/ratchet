@@ -107,7 +107,10 @@ public class EncryptionInstaller {
     // node identity provider (DB + executor) at STATIC_INIT, before the persistence unit exists.
     // RatchetRuntimeStart drives it at runtime instead, which also yields a real node id for nonce
     // entropy rather than the degraded fallback.
-    if (RatchetRuntimeStart.autoStartDeferred()) {
+    if (RatchetRuntimeStart.logIfDeferred(
+        log,
+        "Encryption install deferred pending RatchetRuntimeStart event; if this runtime never"
+            + " fires that event, encryption will never install")) {
       return;
     }
     install();

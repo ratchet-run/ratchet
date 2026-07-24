@@ -7,7 +7,7 @@
   <parent>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-quarkus-parent</artifactId>
-    <version>0.1.1-SNAPSHOT</version>
+    <version>0.1.2-SNAPSHOT</version>
   </parent>
 
   <artifactId>ratchet-quarkus-deployment</artifactId>
@@ -23,8 +23,9 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-arc-deployment</artifactId>
     </dependency>
-    <!-- AdditionalJpaModelBuildItem: registers the store entities with the default PU so the app
-         needs no quarkus.hibernate-orm.packages. -->
+    <!-- Deployment counterpart of the runtime's quarkus-hibernate-orm (extension dep-verification
+         rule). The app must still declare quarkus.hibernate-orm."ratchet".packages itself; see
+         QuarkusRatchetEntityManagerProvider. -->
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-hibernate-orm-deployment</artifactId>

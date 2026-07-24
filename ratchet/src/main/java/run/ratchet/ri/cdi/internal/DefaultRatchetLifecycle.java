@@ -181,7 +181,10 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
     // STATIC_INIT, before the JPA persistence unit exists. They set
     // -Dratchet.lifecycle.defer-auto-start=true and drive start() from a later, post-persistence
     // event (RatchetRuntimeStart) instead.
-    if (RatchetRuntimeStart.autoStartDeferred()) {
+    if (RatchetRuntimeStart.logIfDeferred(
+        log,
+        "Ratchet start deferred pending RatchetRuntimeStart event; if this runtime never fires"
+            + " that event, the engine will never start")) {
       return;
     }
     start();
