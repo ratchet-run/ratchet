@@ -113,13 +113,14 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
         () -> scheduledExecutor,
         v -> scheduledExecutor = v,
         () ->
-            Executors.newScheduledThreadPool(2, namedThreadFactory("ratchet-standalone-scheduler")));
+            Executors.newScheduledThreadPool(
+                2, namedThreadFactory("ratchet-standalone-scheduler")));
   }
 
   /**
    * Double-checked-locking memoizer shared by the three pool getters: a volatile read outside the
-   * lock avoids synchronizing on every call after first init, {@code ensureOpen()} runs only on
-   * the construction path so a pool never gets created after {@link #shutdown()}.
+   * lock avoids synchronizing on every call after first init, {@code ensureOpen()} runs only on the
+   * construction path so a pool never gets created after {@link #shutdown()}.
    */
   private <T> T lazyInit(Supplier<T> getter, Consumer<T> setter, Supplier<T> factory) {
     T value = getter.get();

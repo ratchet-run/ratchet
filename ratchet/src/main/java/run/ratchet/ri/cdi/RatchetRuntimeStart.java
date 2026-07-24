@@ -54,8 +54,8 @@ public final class RatchetRuntimeStart {
 
   /**
    * Common guard for {@code @Initialized(ApplicationScoped.class)} observers that defer their
-   * startup work to this event: logs {@code message} and returns {@code true} when deferred, so
-   * the caller can {@code return} immediately; returns {@code false} (logging nothing) otherwise.
+   * startup work to this event: logs {@code message} and returns {@code true} when deferred, so the
+   * caller can {@code return} immediately; returns {@code false} (logging nothing) otherwise.
    */
   public static boolean logIfDeferred(Logger log, String message) {
     if (!autoStartDeferred()) {
