@@ -20,7 +20,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>17</maven.compiler.release>
     <quarkus.version>3.20.0</quarkus.version>
-    <ratchet.version>0.1.2-SNAPSHOT</ratchet.version>
+    <ratchet.version>0.2.1-SNAPSHOT</ratchet.version>
     <compiler-plugin.version>3.13.0</compiler-plugin.version>
   </properties>
 
