@@ -6,13 +6,13 @@
 
   <!--
     Quarkus extension for Ratchet (runtime + deployment). Built standalone against the locally
-    installed run.ratchet:*:0.1.2-SNAPSHOT artifacts; can be promoted to a reactor module later.
+    installed run.ratchet:*:0.2.1-SNAPSHOT artifacts; can be promoted to a reactor module later.
     Build with JDK 21:
       JAVA_HOME=~/.sdkman/candidates/java/21.0.8-amzn mvn -f integrations/ratchet-quarkus/pom.xml install
   -->
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus-parent</artifactId>
-  <version>0.1.2-SNAPSHOT</version>
+  <version>0.2.1-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>Ratchet :: Quarkus Extension :: Parent</name>
 
