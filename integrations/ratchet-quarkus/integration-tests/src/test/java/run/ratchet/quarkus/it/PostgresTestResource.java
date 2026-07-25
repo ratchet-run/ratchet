@@ -29,26 +29,24 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  */
 public class PostgresTestResource implements QuarkusTestResourceLifecycleManager {
 
-  private PostgreSQLContainer container;
+  private static final PostgreSQLContainer CONTAINER =
+      new PostgreSQLContainer("postgres:16").withInitScript("ddl/postgresql-schema.sql");
+
+  static {
+    CONTAINER.start();
+  }
 
   @Override
   public Map<String, String> start() {
-    container =
-        new PostgreSQLContainer("postgres:16").withInitScript("ddl/postgresql-schema.sql");
-    container.start();
     return Map.of(
         "quarkus.datasource.jdbc.url",
-        container.getJdbcUrl(),
+        CONTAINER.getJdbcUrl(),
         "quarkus.datasource.username",
-        container.getUsername(),
+        CONTAINER.getUsername(),
         "quarkus.datasource.password",
-        container.getPassword());
+        CONTAINER.getPassword());
   }
 
   @Override
-  public void stop() {
-    if (container != null) {
-      container.stop();
-    }
-  }
+  public void stop() {}
 }

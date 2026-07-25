@@ -16,20 +16,6 @@
 package run.ratchet.quarkus.it.tck;
 
 import io.quarkus.test.junit.QuarkusTestProfile;
-import io.quarkus.test.junit.QuarkusTestProfile.TestResourceEntry;
-import java.util.List;
-import run.ratchet.quarkus.it.PostgresTestResource;
 
 /** Shared Quarkus test profile for API TCK contract bindings. */
-public class QuarkusRatchetTckProfile implements QuarkusTestProfile {
-
-  @Override
-  public List<TestResourceEntry> testResources() {
-    return List.of(new TestResourceEntry(PostgresTestResource.class));
-  }
-
-  @Override
-  public boolean disableGlobalTestResources() {
-    return true;
-  }
-}
+public class QuarkusRatchetTckProfile implements QuarkusTestProfile {}
