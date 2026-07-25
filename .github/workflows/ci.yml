@@ -348,7 +348,12 @@ jobs:
             m2-quarkus-ext-
             m2-
       - name: Install core modules the extension depends on
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core -am install
+        # The integration-tests module pulls ratchet-store-postgresql, ratchet-encryption,
+        # and ratchet-tck-api in addition to the runtime/deployment deps. -am builds each
+        # listed module's upstream but never its downstream, so store-core alone does not
+        # drag in store-postgresql. List every module the extension reactor consumes so all
+        # are built from source here rather than resolved from a stale m2 cache.
+        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,stores/ratchet-store-postgresql,ratchet-encryption,testing/ratchet-tck/api -am install
       - name: Build + test the ratchet-quarkus extension
         run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml verify
 
