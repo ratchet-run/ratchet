@@ -13,26 +13,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.quarkus.it;
+package run.ratchet.quarkus.it.tck;
 
-import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
-import jakarta.interceptor.Interceptor;
-import java.util.Set;
-import run.ratchet.ri.security.PackagePrefixClassPolicy;
+import java.time.Duration;
+import run.ratchet.spi.RetryPolicy;
 
 /**
- * Allows job targets submitted by this module's smoke app and the API TCK contracts. Without an
- * allow-listed {@code ClassPolicy} the engine's default producer refuses to start (or rejects every
- * job).
+ * A {@link RetryPolicy} that permits the first retry then vetoes. A deterministically failing job
+ * runs its body exactly twice, regardless of a larger {@code maxRetries}.
  */
 @Alternative
-@Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
-public class ItClassPolicy extends PackagePrefixClassPolicy {
+public class SecondAttemptVetoRetryPolicy implements RetryPolicy {
 
-  public ItClassPolicy() {
-    super(Set.of("run.ratchet.quarkus.it", "run.ratchet.tck.api"));
+  @Override
+  public boolean shouldRetry(int attempt, Throwable cause) {
+    return attempt < 2;
+  }
+
+  @Override
+  public Duration getDelay(int attempt) {
+    return Duration.ZERO;
   }
 }

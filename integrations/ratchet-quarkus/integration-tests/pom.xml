@@ -89,6 +89,12 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-api</artifactId>
+      <version>${ratchet.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-junit5</artifactId>
       <scope>test</scope>
