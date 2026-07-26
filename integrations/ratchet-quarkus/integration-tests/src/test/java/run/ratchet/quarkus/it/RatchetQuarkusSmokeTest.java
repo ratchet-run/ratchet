@@ -27,14 +27,14 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Proves the ratchet-quarkus extension works end to end against a real Quarkus boot backed by a
- * self-managed PostgreSQL container (standalone Testcontainers, see {@link PostgresTestResource}): a
- * method-reference job submitted at runtime executes, a
+ * self-managed profile-selected database container (standalone Testcontainers, see {@link
+ * RatchetDatabaseTestResource}): a method-reference job submitted at runtime executes, a
  * {@code @Recurring} job registered via the deferred-start path (RatchetRuntimeStart ->
  * RecurringJobProcessor.onRuntimeStart) actually fires, and Ratchet's named persistence unit
  * coexists with the application's own default unit on the same datasource.
  */
 @QuarkusTest
-@QuarkusTestResource(PostgresTestResource.class)
+@QuarkusTestResource(RatchetDatabaseTestResource.class)
 class RatchetQuarkusSmokeTest {
 
   @Test

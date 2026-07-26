@@ -22,29 +22,29 @@ import jakarta.transaction.Transactional;
 import java.util.List;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
-/** PostgreSQL-backed scheduler table cleaner for the Quarkus TCK harness. */
+/** Deletes all scheduler rows in FK-safe order across any supported database. */
 @ApplicationScoped
 public class QuarkusTckStoreCleaner {
 
   private static final List<String> SCHEDULER_TABLES =
       List.of(
-          "scheduler_workflow_condition",
+          "scheduler_business_key_reservation",
+          "scheduler_job_queue",
+          "scheduler_job_tag",
           "scheduler_job_log",
           "scheduler_job_execution",
           "scheduler_resource_permit",
-          "scheduler_job_tag",
+          "scheduler_workflow_condition",
           "scheduler_batch_metrics",
-          "scheduler_batch",
           "scheduler_job_archive",
           "scheduler_job_properties",
           "scheduler_job_extension_state",
-          "scheduler_business_key_reservation",
-          "scheduler_job_queue",
           "scheduler_job",
           "scheduler_recurring_job_archive",
           "scheduler_recurring_job",
-          "scheduler_lock",
+          "scheduler_batch",
           "scheduler_resource_limit",
+          "scheduler_lock",
           "scheduler_node");
 
   @Inject RatchetEntityManagerProvider entityManagerProvider;
@@ -52,12 +52,9 @@ public class QuarkusTckStoreCleaner {
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void truncateAll() {
     EntityManager entityManager = entityManagerProvider.getEntityManager();
-    entityManager
-        .createNativeQuery(
-            "TRUNCATE TABLE "
-                + String.join(", ", SCHEDULER_TABLES)
-                + " RESTART IDENTITY CASCADE")
-        .executeUpdate();
+    for (String table : SCHEDULER_TABLES) {
+      entityManager.createNativeQuery("DELETE FROM " + table).executeUpdate();
+    }
     entityManager.clear();
   }
 }

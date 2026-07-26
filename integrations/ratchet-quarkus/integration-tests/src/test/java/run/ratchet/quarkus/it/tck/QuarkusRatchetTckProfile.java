@@ -18,4 +18,11 @@ package run.ratchet.quarkus.it.tck;
 import io.quarkus.test.junit.QuarkusTestProfile;
 
 /** Shared Quarkus test profile for API TCK contract bindings. */
-public class QuarkusRatchetTckProfile implements QuarkusTestProfile {}
+public class QuarkusRatchetTckProfile implements QuarkusTestProfile {
+
+  @Override
+  public String getConfigProfile() {
+    String dbKind = System.getProperty("quarkus.datasource.db-kind");
+    return ("oracle".equals(dbKind) || "mssql".equals(dbKind)) ? dbKind : null;
+  }
+}

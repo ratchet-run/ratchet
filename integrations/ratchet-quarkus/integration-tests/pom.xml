@@ -6,10 +6,10 @@
 
   <!--
     Runnable demo app exercising the ratchet-quarkus extension end to end: @QuarkusTest boots a real
-    application with the extension on the classpath, backed by a PostgreSQL container that
-    PostgresTestResource manages with standalone Testcontainers, and drives it over HTTP. This is the
-    extension's only automated regression coverage against a live Quarkus boot; everything else is
-    unit-level. Run on JDK 21.
+    application with the extension on the classpath, backed by a profile-selected database container
+    that RatchetDatabaseTestResource manages with standalone Testcontainers, and drives it over HTTP.
+    This is the extension's only automated regression coverage against a live Quarkus boot;
+    everything else is unit-level. Run on JDK 21.
   -->
   <parent>
     <groupId>run.ratchet</groupId>
@@ -61,15 +61,6 @@
       <version>${project.version}</version>
     </dependency>
     <dependency>
-      <groupId>run.ratchet</groupId>
-      <artifactId>ratchet-store-postgresql</artifactId>
-      <version>${ratchet.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-jdbc-postgresql</artifactId>
-    </dependency>
-    <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-rest</artifactId>
     </dependency>
@@ -118,6 +109,21 @@
     </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mysql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-oracle-free</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mssqlserver</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
@@ -130,10 +136,18 @@
         <artifactId>quarkus-maven-plugin</artifactId>
         <version>${quarkus.version}</version>
         <extensions>true</extensions>
+        <!--
+          Only generate-code goals, no `build`. This module is test-only (maven.deploy.skip=true) and
+          its @QuarkusTest classes augment the app in-process using the per-profile db-kind supplied
+          via Surefire, so a packaged standalone runner is never used. The `build` goal would package
+          it from application.properties alone, where db-kind is the postgres default; under the
+          db-mysql/db-oracle profiles only that database's JDBC driver is on the classpath, so the
+          build goal fails to resolve a postgres driver. Dropping it removes that dead, profile-hostile
+          step without losing any test coverage.
+        -->
         <executions>
           <execution>
             <goals>
-              <goal>build</goal>
               <goal>generate-code</goal>
               <goal>generate-code-tests</goal>
             </goals>
@@ -159,4 +173,119 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <id>db-postgres</id>
+      <activation>
+        <activeByDefault>true</activeByDefault>
+      </activation>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-postgresql</artifactId>
+          <version>${ratchet.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-jdbc-postgresql</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+
+    <profile>
+      <id>db-mysql</id>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-mysql</artifactId>
+          <version>${ratchet.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-jdbc-mysql</artifactId>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>${surefire-plugin.version}</version>
+            <configuration>
+              <systemPropertyVariables>
+                <quarkus.datasource.db-kind>mysql</quarkus.datasource.db-kind>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>db-oracle</id>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-oracle</artifactId>
+          <version>${ratchet.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-jdbc-oracle</artifactId>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>${surefire-plugin.version}</version>
+            <configuration>
+              <systemPropertyVariables>
+                <quarkus.datasource.db-kind>oracle</quarkus.datasource.db-kind>
+                <!-- Activate the %oracle config profile so the Oracle-only Hibernate instant
+                     mapping in application.properties applies. Tests carrying an explicit
+                     @TestProfile pick this up via QuarkusRatchetTckProfile.getConfigProfile();
+                     this covers the ones without a profile (e.g. the smoke test). -->
+                <quarkus.test.profile>oracle</quarkus.test.profile>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>db-sqlserver</id>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-sqlserver</artifactId>
+          <version>${ratchet.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>io.quarkus</groupId>
+          <artifactId>quarkus-jdbc-mssql</artifactId>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>${surefire-plugin.version}</version>
+            <configuration>
+              <systemPropertyVariables>
+                <quarkus.datasource.db-kind>mssql</quarkus.datasource.db-kind>
+                <!-- Same as db-oracle: activate the %mssql config profile so the plain-TIMESTAMP
+                     instant mapping applies, covering tests without an explicit @TestProfile. -->
+                <quarkus.test.profile>mssql</quarkus.test.profile>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
