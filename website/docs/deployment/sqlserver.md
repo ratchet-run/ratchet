@@ -61,7 +61,8 @@ Point a JTA data source at your SQL Server instance and list the Ratchet entitie
   <jta-data-source>java:/RatchetDS</jta-data-source>
   <!-- EclipseLink (and other non-Hibernate providers): round-trip UUIDs through the BINARY(16)
        converter so every provider writes the same canonical big-endian bytes. Omit on Hibernate,
-       which maps UUID to BINARY(16) natively and rejects an AttributeConverter on an @Id attribute. -->
+       which rejects an AttributeConverter on an @Id attribute; use the Hibernate property below
+       instead. -->
   <mapping-file>META-INF/orm-sqlserver.xml</mapping-file>
   <class>run.ratchet.store.entity.JobEntity</class>
   <class>run.ratchet.store.entity.JobExecutionEntity</class>
@@ -78,6 +79,10 @@ Point a JTA data source at your SQL Server instance and list the Ratchet entitie
     <!-- Hibernate only (no-op elsewhere): the timestamp columns hold UTC wall-clock, so keep the
          JDBC session in UTC. -->
     <property name="hibernate.jdbc.time_zone" value="UTC" />
+    <!-- Hibernate only: keep UUID binds in the same canonical BINARY(16) byte order as Ratchet's
+         native SQL writes. Without this, SQL Server UNIQUEIDENTIFIER byte ordering can break FK
+         checks between JPA-managed audit rows and native-written job rows. -->
+    <property name="hibernate.type.preferred_uuid_jdbc_type" value="BINARY" />
   </properties>
 </persistence-unit>
 ```
@@ -136,7 +141,7 @@ The Ratchet database must have `READ_COMMITTED_SNAPSHOT ON`. SQL Server's defaul
 
 ### UUIDs as BINARY(16)
 
-Job identifiers are time-ordered UUIDv7 values stored as `BINARY(16)` holding the canonical big-endian bytes, **not** the native `UNIQUEIDENTIFIER` type. `UNIQUEIDENTIFIER` uses .NET-Guid mixed-endian storage that EclipseLink 5.0 (the GlassFish 8 / EE 11 reference implementation) reads byte-swapped from native queries; raw bytes read identically across every provider. On EclipseLink the `orm-sqlserver.xml` mapping routes UUIDs through `UuidByteArrayConverter`; Hibernate maps `UUID` to `BINARY(16)` natively. See the [store README](https://github.com/ratchet-run/ratchet/blob/main/stores/ratchet-store-sqlserver/README.md) for how to query the binary IDs by hand with `0x` hex literals.
+Job identifiers are time-ordered UUIDv7 values stored as `BINARY(16)` holding the canonical big-endian bytes, **not** the native `UNIQUEIDENTIFIER` type. `UNIQUEIDENTIFIER` uses .NET-Guid mixed-endian storage that EclipseLink 5.0 (the GlassFish 8 / EE 11 reference implementation) reads byte-swapped from native queries; raw bytes read identically across every provider. On EclipseLink the `orm-sqlserver.xml` mapping routes UUIDs through `UuidByteArrayConverter`; on Hibernate set `hibernate.type.preferred_uuid_jdbc_type=BINARY` so UUID fields use the same canonical byte order as Ratchet's native SQL writes. See the [store README](https://github.com/ratchet-run/ratchet/blob/main/stores/ratchet-store-sqlserver/README.md) for how to query the binary IDs by hand with `0x` hex literals.
 
 ### JSON payloads as NVARCHAR(MAX)
 

@@ -66,6 +66,19 @@ quarkus.hibernate-orm."ratchet".datasource=<default>
 quarkus.hibernate-orm."ratchet".database.generation=none
 ```
 
+For SQL Server, add the Hibernate overrides below on the `ratchet` persistence unit:
+
+```properties
+quarkus.hibernate-orm."ratchet".unsupported-properties."hibernate.type.preferred_uuid_jdbc_type"=BINARY
+quarkus.hibernate-orm."ratchet".unsupported-properties."hibernate.type.preferred_instant_jdbc_type"=TIMESTAMP
+```
+
+The UUID override is required because Ratchet's SQL Server schema stores UUIDs as canonical
+`BINARY(16)`, while Hibernate's SQL Server dialect otherwise binds UUIDs through SQL Server
+`UNIQUEIDENTIFIER` semantics. The byte orders differ, so JPA-managed rows can fail foreign-key checks
+against rows written by Ratchet's native SQL. The Instant override matches SQL Server's zoneless
+`DATETIME2(6)` columns.
+
 Three things about that block are easy to get wrong:
 
 - `datasource=<default>` is required. A named persistence unit does not fall back to the default

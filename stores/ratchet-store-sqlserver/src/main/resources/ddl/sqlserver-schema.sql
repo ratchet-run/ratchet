@@ -6,9 +6,9 @@
 --                        byte-swapped from native queries). Raw bytes read identically across every
 --                        JPA provider; RowValues.uuidOrNull decodes the byte[]. Native writes
 --                        pre-convert via UuidByteArrayConverter.toBytes; JPA-managed writes route
---                        through the converter (orm-sqlserver.xml on EclipseLink; Hibernate maps
---                        UUID -> BINARY(16) natively). Time-sortable, so a clustered PK inserts
---                        sequentially.
+--                        through the converter (orm-sqlserver.xml on non-Hibernate providers) or
+--                        hibernate.type.preferred_uuid_jdbc_type=BINARY (Hibernate). Time-sortable,
+--                        so a clustered PK inserts sequentially.
 --   * JSONB / JSON    -> NVARCHAR(MAX) (SQL Server JSON is text + JSON_VALUE/OPENJSON functions).
 --   * TIMESTAMPTZ(6)  -> DATETIME2(6). Ratchet stores UTC instants; DATETIME2 is zoneless so the
 --                        UTC convention is preserved and DEFAULTs use SYSUTCDATETIME().
