@@ -29,6 +29,8 @@
     <module>core-deployment</module>
     <module>runtime</module>
     <module>deployment</module>
+    <module>mongodb</module>
+    <module>mongodb-deployment</module>
     <module>integration-tests</module>
   </modules>
 

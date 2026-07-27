@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-quarkus-parent</artifactId>
+    <version>0.2.1-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>ratchet-quarkus-mongodb</artifactId>
+  <name>Ratchet :: Quarkus Extension :: MongoDB Runtime</name>
+  <description>Run the Ratchet job scheduler on Quarkus with the MongoDB store flavor.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-quarkus-core</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <!--
+      Pulls in Quarkus MongoDB client runtime and native-image metadata. Ratchet still forces UUID
+      representation through a customizer instead of the quarkus.mongodb.uuid-representation config.
+    -->
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-mongodb-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-mongodb</artifactId>
+      <version>${ratchet.version}</version>
+    </dependency>
+    <!-- API-only dependency for shared store converters used by the Mongo mapper; this does not add Hibernate ORM. -->
+    <dependency>
+      <groupId>jakarta.persistence</groupId>
+      <artifactId>jakarta.persistence-api</artifactId>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>io.quarkus</groupId>
+        <artifactId>quarkus-extension-maven-plugin</artifactId>
+        <version>${quarkus.version}</version>
+        <executions>
+          <execution>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>extension-descriptor</goal>
+            </goals>
+            <configuration>
+              <deployment>${project.groupId}:${project.artifactId}-deployment:${project.version}</deployment>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <release>${maven.compiler.release}</release>
+        </configuration>
+        <executions>
+          <execution>
+            <id>default-compile</id>
+            <configuration>
+              <annotationProcessorPaths>
+                <path>
+                  <groupId>io.quarkus</groupId>
+                  <artifactId>quarkus-extension-processor</artifactId>
+                  <version>${quarkus.version}</version>
+                </path>
+              </annotationProcessorPaths>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
