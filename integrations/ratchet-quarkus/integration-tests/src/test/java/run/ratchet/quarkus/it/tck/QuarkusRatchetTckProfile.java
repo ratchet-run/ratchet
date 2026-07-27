@@ -23,6 +23,9 @@ public class QuarkusRatchetTckProfile implements QuarkusTestProfile {
   @Override
   public String getConfigProfile() {
     String dbKind = System.getProperty("quarkus.datasource.db-kind");
+    if ("mongodb".equals(dbKind)) {
+      return "mongo";
+    }
     return ("oracle".equals(dbKind) || "mssql".equals(dbKind)) ? dbKind : null;
   }
 }

@@ -23,6 +23,7 @@ import io.quarkus.test.junit.QuarkusTest;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import org.awaitility.Awaitility;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -86,6 +87,9 @@ class RatchetQuarkusSmokeTest {
    */
   @Test
   void applicationDefaultPersistenceUnitCoexistsWithRatchet() {
+    Assumptions.assumeFalse(
+        "mongodb".equals(System.getProperty("quarkus.datasource.db-kind")),
+        "MongoDB flavor intentionally runs without Hibernate ORM or an application persistence unit.");
     given().when().post("/jobs/notes").then().statusCode(200).body(is("1"));
   }
 }

@@ -29,7 +29,9 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.testcontainers.containers.JdbcDatabaseContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.mssqlserver.MSSQLServerContainer;
+import org.testcontainers.mongodb.MongoDBContainer;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.oracle.OracleContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -49,18 +51,22 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
   private static final String DB_KIND =
       System.getProperty("quarkus.datasource.db-kind", "postgresql");
 
-  private static final JdbcDatabaseContainer<?> CONTAINER = createContainer(DB_KIND);
+  private static final DatabaseFixture FIXTURE = createFixture(DB_KIND);
 
   static {
-    CONTAINER.start();
-    if ("mssql".equals(DB_KIND)) {
-      provisionRatchetDatabase(CONTAINER);
-      CONTAINER.withUrlParam("databaseName", "ratchet");
-    }
+    FIXTURE.start();
   }
 
   @SuppressWarnings("resource")
-  private static JdbcDatabaseContainer<?> createContainer(String dbKind) {
+  private static DatabaseFixture createFixture(String dbKind) {
+    if ("mongodb".equals(dbKind)) {
+      return new MongoFixture();
+    }
+    return new SqlFixture(dbKind, createSqlContainer(dbKind));
+  }
+
+  @SuppressWarnings("resource")
+  private static JdbcDatabaseContainer<?> createSqlContainer(String dbKind) {
     return switch (dbKind) {
       case "postgresql" ->
           new PostgreSQLContainer("postgres:16").withInitScript("ddl/postgresql-schema.sql");
@@ -162,15 +168,74 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
 
   @Override
   public Map<String, String> start() {
-    return Map.of(
-        "quarkus.datasource.jdbc.url",
-        CONTAINER.getJdbcUrl(),
-        "quarkus.datasource.username",
-        CONTAINER.getUsername(),
-        "quarkus.datasource.password",
-        CONTAINER.getPassword());
+    return FIXTURE.config();
   }
 
   @Override
   public void stop() {}
+
+  private interface DatabaseFixture {
+    void start();
+
+    Map<String, String> config();
+  }
+
+  private static final class SqlFixture implements DatabaseFixture {
+
+    private final String dbKind;
+    private final JdbcDatabaseContainer<?> container;
+
+    private SqlFixture(String dbKind, JdbcDatabaseContainer<?> container) {
+      this.dbKind = dbKind;
+      this.container = container;
+    }
+
+    @Override
+    public void start() {
+      container.start();
+      if ("mssql".equals(dbKind)) {
+        provisionRatchetDatabase(container);
+        container.withUrlParam("databaseName", "ratchet");
+      }
+    }
+
+    @Override
+    public Map<String, String> config() {
+      return Map.of(
+          "quarkus.datasource.jdbc.url",
+          container.getJdbcUrl(),
+          "quarkus.datasource.username",
+          container.getUsername(),
+          "quarkus.datasource.password",
+          container.getPassword());
+    }
+  }
+
+  private static final class MongoFixture implements DatabaseFixture {
+
+    private static final String DATABASE_NAME = "ratchet_quarkus_tck";
+
+    private final MongoDBContainer container =
+        new MongoDBContainer("mongo:7.0")
+            .withReplicaSet()
+            .waitingFor(
+                Wait.forLogMessage("(?i).*waiting for connections.*", 1)
+                    .withStartupTimeout(Duration.ofMinutes(2)));
+
+    @Override
+    public void start() {
+      container.start();
+    }
+
+    @Override
+    public Map<String, String> config() {
+      return Map.of(
+          "quarkus.mongodb.connection-string",
+          container.getConnectionString(),
+          "quarkus.mongodb.database",
+          DATABASE_NAME,
+          "quarkus.mongodb.devservices.enabled",
+          "false");
+    }
+  }
 }

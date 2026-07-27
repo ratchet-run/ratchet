@@ -15,14 +15,17 @@
  */
 package run.ratchet.quarkus.it.tck;
 
+import com.mongodb.client.MongoDatabase;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.util.List;
+import org.bson.Document;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
-/** Deletes all scheduler rows in FK-safe order across any supported database. */
+/** Deletes all scheduler data across any supported Quarkus extension store. */
 @ApplicationScoped
 public class QuarkusTckStoreCleaner {
 
@@ -47,14 +50,33 @@ public class QuarkusTckStoreCleaner {
           "scheduler_lock",
           "scheduler_node");
 
-  @Inject RatchetEntityManagerProvider entityManagerProvider;
+  @Inject Instance<RatchetEntityManagerProvider> entityManagerProviders;
+  @Inject Instance<MongoDatabase> mongoDatabases;
 
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void truncateAll() {
-    EntityManager entityManager = entityManagerProvider.getEntityManager();
+    if (entityManagerProviders.isResolvable()) {
+      truncateSql(entityManagerProviders.get().getEntityManager());
+      return;
+    }
+    if (mongoDatabases.isResolvable()) {
+      truncateMongo(mongoDatabases.get());
+      return;
+    }
+    throw new IllegalStateException("No supported Ratchet store cleaner is available");
+  }
+
+  private static void truncateSql(EntityManager entityManager) {
     for (String table : SCHEDULER_TABLES) {
       entityManager.createNativeQuery("DELETE FROM " + table).executeUpdate();
     }
     entityManager.clear();
+  }
+
+  private static void truncateMongo(MongoDatabase database) {
+    Document emptyFilter = new Document();
+    for (String collection : database.listCollectionNames()) {
+      database.getCollection(collection).deleteMany(emptyFilter);
+    }
   }
 }

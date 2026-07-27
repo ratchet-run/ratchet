@@ -330,13 +330,14 @@ jobs:
   # otherwise go unnoticed until someone manually rebuilds it. Install the core
   # modules the extension depends on, then build+test the extension's own
   # reactor against that freshly-built (not stale-cached) source.
-  # Runs the ratchet-quarkus extension's full TCK suite once per SQL store. Each
+  # Runs the ratchet-quarkus extension's full TCK suite once per store. Each
   # cell swaps in that store's jar plus the matching quarkus-jdbc-<db> extension
-  # via the db-<kind> Maven profile (defined in the integration-tests pom), and
-  # the RatchetDatabaseTestResource spins up a matching Testcontainers database
-  # keyed on quarkus.datasource.db-kind. fail-fast is off so one store's failure
-  # never masks another's verdict. Oracle and SQL Server pull ~2GB images, which
-  # is why this stays gated on the code filter rather than running on every PR.
+  # or MongoDB flavor via the db-<kind> Maven profile (defined in the
+  # integration-tests pom), and the RatchetDatabaseTestResource spins up a
+  # matching Testcontainers database keyed on quarkus.datasource.db-kind. fail-fast
+  # is off so one store's failure never masks another's verdict. Oracle and SQL
+  # Server pull ~2GB images, which is why this stays gated on the code filter
+  # rather than running on every PR.
   quarkus-extension-verify:
     needs: changes
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
@@ -358,6 +359,9 @@ jobs:
           - db: sqlserver
             store: stores/ratchet-store-sqlserver
             profile: db-sqlserver
+          - db: mongodb
+            store: stores/ratchet-store-mongodb
+            profile: db-mongo
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
@@ -381,6 +385,30 @@ jobs:
         run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},ratchet-encryption,testing/ratchet-tck/api -am install
       - name: Build + test the ratchet-quarkus extension
         run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml verify -P${{ matrix.profile }}
+
+  quarkus-extension-native-mongo:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: m2-quarkus-ext-native-mongo-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-quarkus-ext-native-mongo-
+            m2-quarkus-ext-
+            m2-
+      - name: Install core modules the extension depends on
+        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,stores/ratchet-store-mongodb,ratchet-encryption,testing/ratchet-tck/api -am install
+      - name: Native MongoDB smoke test
+        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-mongo,native-mongo
 
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
@@ -432,7 +460,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, a11y]
+    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native-mongo, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

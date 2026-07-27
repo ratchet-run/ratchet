@@ -56,13 +56,12 @@
 
   <dependencies>
     <dependency>
-      <groupId>run.ratchet</groupId>
-      <artifactId>ratchet-quarkus</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-rest</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.persistence</groupId>
+      <artifactId>jakarta.persistence-api</artifactId>
     </dependency>
     <!-- The RI references jakarta.security.enterprise.SecurityContext (provided scope upstream),
          consumed via Instance<> (no-ops when absent); supply the API jar so the type resolves. -->
@@ -73,12 +72,6 @@
     </dependency>
 
     <!-- Test -->
-    <dependency>
-      <groupId>run.ratchet</groupId>
-      <artifactId>ratchet-quarkus-deployment</artifactId>
-      <version>${project.version}</version>
-      <scope>test</scope>
-    </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-tck-api</artifactId>
@@ -103,6 +96,11 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>org.mongodb</groupId>
+      <artifactId>mongodb-driver-sync</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-postgresql</artifactId>
       <scope>test</scope>
@@ -120,6 +118,11 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-mssqlserver</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mongodb</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -183,6 +186,17 @@
       <dependencies>
         <dependency>
           <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus-deployment</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>run.ratchet</groupId>
           <artifactId>ratchet-store-postgresql</artifactId>
           <version>${ratchet.version}</version>
         </dependency>
@@ -196,6 +210,17 @@
     <profile>
       <id>db-mysql</id>
       <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus-deployment</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
         <dependency>
           <groupId>run.ratchet</groupId>
           <artifactId>ratchet-store-mysql</artifactId>
@@ -223,8 +248,115 @@
     </profile>
 
     <profile>
+      <id>db-mongo</id>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus-mongodb</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus-mongodb-deployment</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-mongodb</artifactId>
+          <version>${ratchet.version}</version>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>${surefire-plugin.version}</version>
+            <configuration>
+              <systemPropertyVariables>
+                <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                <quarkus.datasource.db-kind>mongodb</quarkus.datasource.db-kind>
+                <quarkus.test.profile>mongo</quarkus.test.profile>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>native-mongo</id>
+      <properties>
+        <quarkus.native.enabled>true</quarkus.native.enabled>
+        <quarkus.profile>mongo</quarkus.profile>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-maven-plugin</artifactId>
+            <version>${quarkus.version}</version>
+            <extensions>true</extensions>
+            <executions>
+              <execution>
+                <id>native-build</id>
+                <goals>
+                  <goal>build</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <version>${surefire-plugin.version}</version>
+            <configuration>
+              <skipTests>true</skipTests>
+            </configuration>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <version>${surefire-plugin.version}</version>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+            <configuration>
+              <includes>
+                <include>**/*NativeIT.java</include>
+              </includes>
+              <systemPropertyVariables>
+                <native.image.path>${project.build.directory}/${project.build.finalName}-runner</native.image.path>
+                <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
+                <quarkus.datasource.db-kind>mongodb</quarkus.datasource.db-kind>
+                <quarkus.test.integration-test-profile>mongo</quarkus.test.integration-test-profile>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
       <id>db-oracle</id>
       <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus-deployment</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
         <dependency>
           <groupId>run.ratchet</groupId>
           <artifactId>ratchet-store-oracle</artifactId>
@@ -259,6 +391,17 @@
     <profile>
       <id>db-sqlserver</id>
       <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-quarkus-deployment</artifactId>
+          <version>${project.version}</version>
+          <scope>test</scope>
+        </dependency>
         <dependency>
           <groupId>run.ratchet</groupId>
           <artifactId>ratchet-store-sqlserver</artifactId>
