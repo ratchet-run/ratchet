@@ -10,23 +10,37 @@
     <version>0.2.1-SNAPSHOT</version>
   </parent>
 
-  <artifactId>ratchet-quarkus</artifactId>
-  <name>Ratchet :: Quarkus Extension :: Runtime</name>
-  <description>Run the Ratchet job scheduler on Quarkus with the Hibernate-backed SQL store flavor.</description>
+  <artifactId>ratchet-quarkus-core</artifactId>
+  <name>Ratchet :: Quarkus Extension :: Core Runtime</name>
+  <description>Shared Ratchet Quarkus runtime wiring used by persistence-specific flavors.</description>
 
   <dependencies>
     <dependency>
-      <groupId>run.ratchet</groupId>
-      <artifactId>ratchet-quarkus-core</artifactId>
-      <version>${project.version}</version>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-arc</artifactId>
     </dependency>
     <!--
-      Existing SQL users keep depending on run.ratchet:ratchet-quarkus. This artifact now layers the
-      Hibernate-specific EntityManager provider and ORM dependency on top of the shared core.
+      Ratchet's engine uses container transaction interceptors for every store. Keep Narayana/JTA in
+      the shared core so non-Hibernate flavors retain transaction support instead of inheriting it
+      accidentally from quarkus-hibernate-orm.
     -->
     <dependency>
       <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-hibernate-orm</artifactId>
+      <artifactId>quarkus-narayana-jta</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-jsonb</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet</artifactId>
+      <version>${ratchet.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-core</artifactId>
+      <version>${ratchet.version}</version>
     </dependency>
   </dependencies>
 

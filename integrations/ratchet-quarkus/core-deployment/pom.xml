@@ -10,26 +10,26 @@
     <version>0.2.1-SNAPSHOT</version>
   </parent>
 
-  <artifactId>ratchet-quarkus-deployment</artifactId>
-  <name>Ratchet :: Quarkus Extension :: Deployment</name>
+  <artifactId>ratchet-quarkus-core-deployment</artifactId>
+  <name>Ratchet :: Quarkus Extension :: Core Deployment</name>
 
   <dependencies>
     <dependency>
       <groupId>run.ratchet</groupId>
-      <artifactId>ratchet-quarkus</artifactId>
+      <artifactId>ratchet-quarkus-core</artifactId>
       <version>${project.version}</version>
     </dependency>
-    <dependency>
-      <groupId>run.ratchet</groupId>
-      <artifactId>ratchet-quarkus-core-deployment</artifactId>
-      <version>${project.version}</version>
-    </dependency>
-    <!-- Deployment counterpart of the SQL flavor's quarkus-hibernate-orm dependency. The app must
-         still declare quarkus.hibernate-orm."ratchet".packages itself; see
-         QuarkusRatchetEntityManagerProvider. -->
     <dependency>
       <groupId>io.quarkus</groupId>
-      <artifactId>quarkus-hibernate-orm-deployment</artifactId>
+      <artifactId>quarkus-arc-deployment</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-narayana-jta-deployment</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-jsonb-deployment</artifactId>
     </dependency>
   </dependencies>
 
@@ -40,12 +40,6 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
           <release>${maven.compiler.release}</release>
-          <!--
-            The Quarkus extension processor scans @BuildStep methods at compile time and emits
-            META-INF/quarkus-build-steps.list (plus Jandex/config metadata). Quarkus loads build
-            steps only from that list; without this processor the deployment jar is inert and none
-            of the build steps run.
-          -->
           <annotationProcessorPaths>
             <path>
               <groupId>io.quarkus</groupId>

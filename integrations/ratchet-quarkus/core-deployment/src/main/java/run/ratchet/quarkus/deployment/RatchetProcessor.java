@@ -33,15 +33,14 @@ import org.jboss.jandex.DotName;
 import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
-import run.ratchet.quarkus.runtime.QuarkusRatchetEntityManagerProvider;
 import run.ratchet.quarkus.runtime.QuarkusRatchetExecutorProvider;
 import run.ratchet.quarkus.runtime.RatchetRuntimeProducers;
 import run.ratchet.quarkus.runtime.RatchetStartupTrigger;
 import run.ratchet.ri.cdi.RatchetRuntimeStart;
 
 /**
- * Build-time wiring for the Ratchet Quarkus extension. Emits everything the spike configured by
- * hand so an application only adds {@code ratchet-quarkus} + a store + a datasource.
+ * Shared build-time wiring for Ratchet Quarkus flavors. Persistence-specific deployment modules add
+ * only the store-provider pieces for their flavor.
  */
 class RatchetProcessor {
 
@@ -55,8 +54,8 @@ class RatchetProcessor {
   }
 
   /**
-   * The extension's own beans: the StartupEvent trigger, the executor, the named-unit EntityManager
-   * provider, and default producers.
+   * The extension's own flavor-neutral beans: the StartupEvent trigger, the executor, and default
+   * producers.
    */
   @BuildStep
   AdditionalBeanBuildItem beans() {
@@ -64,7 +63,6 @@ class RatchetProcessor {
         .addBeanClasses(
             RatchetStartupTrigger.class,
             QuarkusRatchetExecutorProvider.class,
-            QuarkusRatchetEntityManagerProvider.class,
             RatchetRuntimeProducers.class)
         .setUnremovable()
         .build();
@@ -119,11 +117,9 @@ class RatchetProcessor {
   void nativeMetadata(
       BuildProducer<ReflectiveClassBuildItem> reflective,
       BuildProducer<RuntimeInitializedClassBuildItem> runtimeInit) {
-    // UuidV7EntityListener is instantiated by Hibernate via reflection; JobPayload (a record) is
-    // reconstructed by JSON-B when a claimed job's payload is read back.
+    // JobPayload (a record) is reconstructed by JSON-B when a claimed job's payload is read back.
     reflective.produce(
-        ReflectiveClassBuildItem.builder(
-                "run.ratchet.store.id.UuidV7EntityListener", "run.ratchet.store.entity.JobPayload")
+        ReflectiveClassBuildItem.builder("run.ratchet.store.entity.JobPayload")
             .constructors(true)
             .methods(true)
             .fields(true)
