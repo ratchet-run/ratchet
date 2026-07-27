@@ -54,6 +54,7 @@ public abstract class AbstractPayloadSizeContract {
     PayloadTooLargeException exception =
         assertThrows(
             PayloadTooLargeException.class,
+            // Intentional: captures oversized value into payload; excluded from native TCK subset.
             () -> runtime().scheduler().enqueue(() -> TckJobs.acceptPayload(value)).submit());
 
     assertEquals(maxPayloadBytes, exception.maxBytes());

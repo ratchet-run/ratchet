@@ -48,13 +48,13 @@ public abstract class AbstractJobAuthorizationContract {
 
   @Test
   void defaultPolicy_permitsJobCreation() {
-    JobHandle handle = runtime().scheduler().enqueueNow(() -> TckJobs.noop());
+    JobHandle handle = runtime().scheduler().enqueueNow(TckJobs::noop);
     assertNotNull(handle.id(), "Job submitted with permit-all policy must return a non-null ID");
   }
 
   @Test
   void defaultPolicy_permitsJobCreationViaBuilder() {
-    JobHandle handle = runtime().scheduler().enqueue(() -> TckJobs.noop()).submit();
+    JobHandle handle = runtime().scheduler().enqueue(TckJobs::noop).submit();
     assertNotNull(
         handle.id(), "Job submitted via builder with permit-all policy must return a non-null ID");
   }
@@ -82,7 +82,7 @@ public abstract class AbstractJobAuthorizationContract {
     JobAuthorizationException ex =
         assertThrows(
             JobAuthorizationException.class,
-            () -> denyScheduler.get().enqueueNow(() -> TckJobs.noop()),
+            () -> denyScheduler.get().enqueueNow(TckJobs::noop),
             "submit() with a deny-all policy must throw JobAuthorizationException");
 
     assertEquals(
@@ -102,7 +102,7 @@ public abstract class AbstractJobAuthorizationContract {
     // without coercion. The exception is still thrown; this test just verifies no NPE occurs.
     assertThrows(
         JobAuthorizationException.class,
-        () -> denyScheduler.get().enqueueNow(() -> TckJobs.noop()),
+        () -> denyScheduler.get().enqueueNow(TckJobs::noop),
         "Deny-all policy must throw even when callerPrincipal is null");
   }
 }
