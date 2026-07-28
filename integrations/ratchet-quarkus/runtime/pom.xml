@@ -28,6 +28,11 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-hibernate-orm</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -44,6 +49,53 @@
             </goals>
             <configuration>
               <deployment>${project.groupId}:${project.artifactId}-deployment:${project.version}</deployment>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>stage-codestarts</id>
+            <phase>generate-resources</phase>
+            <goals><goal>copy-resources</goal></goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/codestarts-staging/codestarts</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.basedir}/src/main/codestarts</directory>
+                  <filtering>true</filtering>
+                  <includes>
+                    <include>**/codestart.yml</include>
+                  </includes>
+                </resource>
+                <resource>
+                  <directory>${project.basedir}/src/main/codestarts</directory>
+                  <filtering>false</filtering>
+                  <excludes>
+                    <exclude>**/codestart.yml</exclude>
+                  </excludes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>generate-codestart-jar</id>
+            <phase>prepare-package</phase>
+            <goals><goal>jar</goal></goals>
+            <configuration>
+              <classesDirectory>${project.build.directory}/codestarts-staging</classesDirectory>
+              <includes><include>codestarts/**</include></includes>
+              <classifier>codestarts</classifier>
+              <skipIfEmpty>true</skipIfEmpty>
             </configuration>
           </execution>
         </executions>

@@ -1,0 +1,6 @@
+quarkus:
+  datasource:
+    db-kind: postgresql
+ratchet:
+  schema:
+    auto-migrate: true
