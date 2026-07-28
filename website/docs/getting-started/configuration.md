@@ -356,7 +356,7 @@ public class AppClassPolicy implements ClassPolicy {
 
 ## Caller principal resolution
 
-By default, Ratchet captures the caller principal through `CallerPrincipalProvider`, a CDI bean that delegates to platform `PrincipalSource` beans. The Jakarta EE distribution contributes a `PrincipalSource` backed by `jakarta.security.enterprise.SecurityContext`. Applications override the default by supplying an `@Alternative @Priority(APPLICATION) CallerPrincipalProvider` bean.
+By default, Ratchet captures the caller principal through `CallerPrincipalProvider`, a CDI bean that delegates to platform `PrincipalSource` beans. Each runtime contributes the source that fits it: the Jakarta EE distribution supplies one backed by `jakarta.security.enterprise.SecurityContext`, and the `ratchet-quarkus` extension supplies one backed by `io.quarkus.security.identity.SecurityIdentity`, so a caller authenticated through your Quarkus security stack is captured with no configuration. The core engine itself references neither security API. Applications override the default by supplying an `@Alternative @Priority(APPLICATION) CallerPrincipalProvider` bean.
 
 CDI `@Alternative` visibility can vary by container and deployment topology. An override packaged in `EAR/lib` alongside Ratchet is broadly honored, but the same override packaged in a separate subdeployment (an EJB-jar, for example) is not guaranteed visible to Ratchet's injection points on every container — WildFly-family servers and Open Liberty honor a subdeployment `@Alternative`, while Payara and GlassFish do not.
 

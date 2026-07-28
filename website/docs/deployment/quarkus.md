@@ -260,6 +260,9 @@ method instead.
   application with no entities of its own still boots.
 - Turns off dev-mode Hibernate validation of the `ratchet` unit, whose entities are a denormalized
   view served by native row mappers rather than a literal image of the physical schema.
+- Supplies a caller-principal source backed by Quarkus `SecurityIdentity`, so a job submitted during
+  an authenticated request records that caller. It reads the identity defensively, so submitting from
+  a background thread with no active request simply records no caller instead of failing.
 - Keeps Ratchet's beans from being pruned by ArC and registers the native metadata.
 
 ## Differences from a Jakarta EE server
