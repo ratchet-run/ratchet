@@ -53,6 +53,26 @@ PostgreSQL, Oracle, SQL Server, and MongoDB, and regenerated after each successf
 - [API Conformance Matrix](./api/) -- Tier 2 results across all runtimes
 - [Jakarta Runtime Conformance Matrix](./jakarta/) -- Tier 3 results across all runtimes
 
+## Quarkus Runtime
+
+Ratchet also runs on Quarkus through the [`ratchet-quarkus`](/deployment/quarkus) extension, on the
+JVM and as a GraalVM native image. Quarkus is not a Jakarta EE application server, so it does not use
+the Arquillian container deployment that the Jakarta Runtime tier requires. Instead the extension
+runs the **API tier** contracts (`ratchet-tck-api`) inside a live Quarkus runtime with `@QuarkusTest`,
+which wires the engine through Quarkus CDI the same way an application does.
+
+CI verifies the extension on every supported store:
+
+- **JVM**, once per database: PostgreSQL, MySQL, Oracle, SQL Server, and MongoDB. Each cell swaps in
+  that store's jar and a matching Testcontainers database, then runs the full extension TCK suite.
+- **Native image**, built with GraalVM: the default SQL flavor (PostgreSQL on Hibernate ORM) and the
+  MongoDB flavor. These exercise the native reflection surface (entities, converters, the Agroal
+  datasource, and the MongoDB client) that a JVM run never loads.
+
+This is part of **Ratchet RI Verified**, the project's own claim. It is not a separate third-party
+TCK artifact, and Quarkus does not appear in the Jakarta Runtime matrix above because it is not a
+Jakarta EE container.
+
 ## Running Conformance Tests Locally
 
 **Store tier:**
@@ -69,6 +89,18 @@ mvn test -pl :ratchet-store-mongodb -am
 mvn verify -P wildfly-managed,mysql -pl :ratchet-testsuite -am
 # generates ratchet-testsuite/target/tck-api-conformance-report.md
 #           ratchet-testsuite/target/tck-jakarta-conformance-report.md
+```
+
+**Quarkus runtime (API tier, JVM):** pick a store profile; each runs the extension TCK suite against
+a Testcontainers database for that store.
+```bash
+mvn -f integrations/ratchet-quarkus/pom.xml verify -Pdb-postgres   # or db-mysql, db-oracle, db-sqlserver, db-mongo
+```
+
+**Quarkus native image** (needs GraalVM and Docker):
+```bash
+mvn -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-postgres,native-sql   # PostgreSQL/Hibernate flavor
+mvn -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-mongo,native-mongo
 ```
 
 ## Implementing a Conformant Store

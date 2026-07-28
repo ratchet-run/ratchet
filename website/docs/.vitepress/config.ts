@@ -121,6 +121,7 @@ export default defineConfig({
       { text: 'Concepts', link: '/concepts/overview' },
       { text: 'API Reference', link: '/api-reference/overview' },
       { text: 'Deployment', link: '/deployment/overview' },
+      { text: 'Quarkus', link: '/deployment/quarkus' },
       { text: 'Conformance', link: '/conformance/' },
     ],
 
