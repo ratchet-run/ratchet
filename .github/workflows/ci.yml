@@ -410,6 +410,36 @@ jobs:
       - name: Native MongoDB smoke test
         run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-mongo,native-mongo
 
+  # Native gate for the DEFAULT SQL (PostgreSQL/Hibernate) flavor. Distinct from
+  # the Mongo native gate above because it exercises the Hibernate/JPA-native
+  # reflection surface (entities, UuidV7EntityListener, InstantAttributeConverter,
+  # Agroal) that the Mongo native build never loads, and it is the flavor most
+  # users run. Same graalvm setup and shape as native-mongo; the native-sql
+  # profile builds the default flavor to native and runs only *SqlNativeIT.
+  quarkus-extension-native-sql:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '21'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: m2-quarkus-ext-native-sql-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-quarkus-ext-native-sql-
+            m2-quarkus-ext-
+            m2-
+      - name: Install core modules the extension depends on
+        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,stores/ratchet-store-postgresql,ratchet-encryption,testing/ratchet-tck/api -am install
+      - name: Native SQL smoke test
+        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-postgres,native-sql
+
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
   # on the web filter so it runs whenever anything under website/ changes —
@@ -460,7 +490,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native-mongo, a11y]
+    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native-mongo, quarkus-extension-native-sql, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
