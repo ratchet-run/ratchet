@@ -228,7 +228,9 @@ public class RecurringJobProcessor {
   }
 
   void onStartup(
-      @Observes @Priority(Interceptor.Priority.APPLICATION) @Initialized(ApplicationScoped.class) Object init) {
+      @Observes
+          @Priority(Interceptor.Priority.APPLICATION + 501)
+          @Initialized(ApplicationScoped.class) Object init) {
     // Deferred on build-time-CDI runtimes (e.g. Quarkus), which run this observer during
     // STATIC_INIT before the EntityManager exists; they drive startup via RatchetRuntimeStart
     // instead.
@@ -257,7 +259,7 @@ public class RecurringJobProcessor {
   }
 
   void onRuntimeStart(
-      @Observes @Priority(Interceptor.Priority.APPLICATION) RatchetRuntimeStart event) {
+      @Observes @Priority(Interceptor.Priority.APPLICATION + 501) RatchetRuntimeStart event) {
     registerRecurringJobs();
   }
 

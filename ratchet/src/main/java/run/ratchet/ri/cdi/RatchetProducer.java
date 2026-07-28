@@ -252,25 +252,18 @@ public class RatchetProducer {
 
   @Produces
   @ApplicationScoped
-  public NodeIdentityProvider nodeIdentityProvider(
+  public DefaultNodeIdentityProvider nodeIdentityProvider(
       DynamicHeartbeatCalculator heartbeatCalculator, JobBulkStore jobBulkStore, Clock clock) {
-    long heartbeatIntervalSeconds = options.node().heartbeatIntervalSeconds();
-    long orphanGraceSeconds = options.node().orphanGraceSeconds();
-    boolean dynamicHeartbeatEnabled = options.node().dynamicHeartbeatEnabled();
-
-    DefaultNodeIdentityProvider provider =
-        new DefaultNodeIdentityProvider(
-            nodeStore,
-            jobBulkStore,
-            heartbeatCalculator,
-            executorProvider,
-            heartbeatIntervalSeconds,
-            orphanGraceSeconds,
-            dynamicHeartbeatEnabled,
-            options.node().explicitNodeId().orElse(null),
-            clock);
-    provider.init();
-    return provider;
+    return new DefaultNodeIdentityProvider(
+        nodeStore,
+        jobBulkStore,
+        heartbeatCalculator,
+        executorProvider,
+        options.node().heartbeatIntervalSeconds(),
+        options.node().orphanGraceSeconds(),
+        options.node().dynamicHeartbeatEnabled(),
+        options.node().explicitNodeId().orElse(null),
+        clock);
   }
 
   @Produces

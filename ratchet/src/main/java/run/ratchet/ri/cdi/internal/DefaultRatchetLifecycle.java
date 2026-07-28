@@ -204,6 +204,13 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
     List<SchedulerLifecycleHook> beforeStartSucceeded =
         notifyHooks("beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true);
 
+    // Default node init writes scheduler_node, so it must wait until beforeStart hooks, including
+    // Quarkus auto-migration, have succeeded. If migration fails, init is intentionally skipped
+    // for that boot attempt; running it from a finally block would re-hit the missing-schema
+    // failure. Its one-time orphan recovery and heartbeat upsert are coupled to successful startup,
+    // while cluster peers continue sweeping on their normal orphan-recovery intervals.
+    initializeDefaultNodeIdentityProvider();
+
     ScheduledExecutorService scheduledExecutor = resolveScheduledExecutorForStartup();
     if (scheduledExecutor != null) {
       recurringScheduler.configure(
@@ -323,6 +330,12 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       resolvedHooks = List.copyOf(resolved);
     }
     return resolvedHooks;
+  }
+
+  private void initializeDefaultNodeIdentityProvider() {
+    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
+      defaultProvider.init();
+    }
   }
 
   private List<SchedulerLifecycleHook> notifyHooks(

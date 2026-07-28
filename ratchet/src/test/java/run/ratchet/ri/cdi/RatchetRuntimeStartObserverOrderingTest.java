@@ -25,20 +25,16 @@ import run.ratchet.ri.cdi.internal.DefaultRatchetLifecycle;
 
 /**
  * CDI fires multiple observers of the same event in ascending {@code @Priority} order. On
- * build-time-CDI runtimes (Quarkus), all three {@code onRuntimeStart(RatchetRuntimeStart)}
- * observers fire in that order, which is the REVERSE of how they run on a plain Jakarta EE server
- * (where {@link EncryptionInstaller#onStartup} installs encryption before {@link
- * DefaultRatchetLifecycle#onStartup} starts the poller, and {@link RecurringJobProcessor#onStartup}
- * is deferred ~500ms after both). Today RecurringJobProcessor's registration has no dependency on
- * encryption or the poller being ready, so the reversed order is harmless — but that's an
- * invariant, not an accident, and nothing else guards it. This test fails loudly if a future edit
- * changes one of the three priorities without updating the others, since that's exactly the kind of
- * change that would silently corrupt or drop an encrypted recurring-job payload only on Quarkus.
+ * build-time-CDI runtimes (Quarkus), {@code RatchetRuntimeStart} must preserve the same effective
+ * startup order as plain Jakarta EE: install encryption before the poller can claim encrypted jobs,
+ * run lifecycle {@code beforeStart} hooks before any store-writing startup work, and register
+ * {@code @Recurring} jobs after the schema is initialized. This test fails loudly if a future edit
+ * changes one of the three priorities without updating the others.
  */
 class RatchetRuntimeStartObserverOrderingTest {
 
   @Test
-  void onRuntimeStartObservers_fireEncryptionAndPollerBeforeRecurringRegistration()
+  void onRuntimeStartObservers_installEncryptionAndStartLifecycleBeforeRecurringRegistration()
       throws NoSuchMethodException {
     int recurringJobProcessorPriority = priorityOf(RecurringJobProcessor.class, "onRuntimeStart");
     int encryptionInstallerPriority = priorityOf(EncryptionInstaller.class, "onRuntimeStart");
@@ -46,14 +42,16 @@ class RatchetRuntimeStartObserverOrderingTest {
         priorityOf(DefaultRatchetLifecycle.class, "onRuntimeStart");
 
     assertTrue(
-        recurringJobProcessorPriority < encryptionInstallerPriority,
-        "RecurringJobProcessor.onRuntimeStart must fire before EncryptionInstaller.onRuntimeStart"
-            + " (lower @Priority value = fires first)");
-    assertTrue(
         encryptionInstallerPriority < defaultRatchetLifecyclePriority,
         "EncryptionInstaller.onRuntimeStart must fire before"
-            + " DefaultRatchetLifecycle.onRuntimeStart, per EncryptionInstaller's own ordering"
-            + " comment about installing encryption before the poller starts");
+            + " DefaultRatchetLifecycle.onRuntimeStart so encryption is installed before the"
+            + " poller starts");
+    assertTrue(
+        defaultRatchetLifecyclePriority < recurringJobProcessorPriority,
+        "DefaultRatchetLifecycle.onRuntimeStart must fire before"
+            + " RecurringJobProcessor.onRuntimeStart so schema migration runs before recurring"
+            + " registration"
+            + " (lower @Priority value = fires first)");
   }
 
   private static int priorityOf(Class<?> declaringClass, String methodName)
