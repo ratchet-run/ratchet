@@ -6,15 +6,18 @@ description: "Run Ratchet on Quarkus, on the JVM and as a GraalVM native image, 
 # Quarkus Deployment
 
 Ratchet runs on Quarkus, on the JVM and as a GraalVM native image, through the `ratchet-quarkus`
-extension. The extension wires the engine into Quarkus so you add a few dependencies and some
-persistence config, then submit jobs through the usual `JobSchedulerService`.
+extension. The extension wires the engine into Quarkus so you add a few dependencies and a
+datasource, then submit jobs through the usual `JobSchedulerService`. Ratchet's own persistence
+unit is supplied by the extension, so there is no persistence-unit configuration to write.
 
 ## Prerequisites
 
 - Quarkus 3.20 or later
 - JDK 21 for JVM mode; a GraalVM or Mandrel distribution for native
-- PostgreSQL 14+ or MySQL 8+. This is the Hibernate ORM cell; EclipseLink is a Jakarta EE feature and
-  does not apply on Quarkus.
+- A SQL database for the Hibernate ORM SQL flavor: PostgreSQL 14+, MySQL 8+, Oracle, or SQL Server.
+  On this flavor the JPA provider is Hibernate ORM; EclipseLink is a Jakarta EE feature and does not
+  apply on Quarkus. For NoSQL, a separate `ratchet-quarkus-mongodb` flavor runs on MongoDB with no
+  JPA provider at all (see [MongoDB](#mongodb-flavor) below).
 
 ## Dependencies
 
@@ -25,12 +28,12 @@ Hibernate ORM with it.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus</artifactId>
-  <version>0.1.1-SNAPSHOT</version>
+  <version>0.2.1-SNAPSHOT</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-postgresql</artifactId>
-  <version>0.1.1-SNAPSHOT</version>
+  <version>0.2.1-SNAPSHOT</version>
 </dependency>
 <dependency>
   <groupId>io.quarkus</groupId>
@@ -47,8 +50,8 @@ For MySQL, swap in `ratchet-store-mysql` and `quarkus-jdbc-mysql`.
 
 ## Configuration
 
-Ratchet runs on its own persistence unit, named `ratchet`, so its entities and schema settings stay
-out of your application's default unit. Put this in `application.properties`:
+Ratchet runs on its own extension-supplied persistence unit, named `ratchet`, so its entities and
+schema settings stay out of your application's default unit. Configure your datasource as usual:
 
 ```properties
 # Your datasource. Ratchet rides on it too.
@@ -56,42 +59,28 @@ quarkus.datasource.db-kind=postgresql
 quarkus.datasource.username=ratchet
 quarkus.datasource.password=ratchet
 quarkus.datasource.jdbc.url=jdbc:postgresql://localhost:5432/ratchet
-
-# Ratchet's persistence unit.
-quarkus.hibernate-orm."ratchet".packages=run.ratchet.store.entity
-quarkus.hibernate-orm."ratchet".datasource=<default>
-quarkus.hibernate-orm."ratchet".database.generation=none
 ```
 
-Two of those lines trip people up:
-
-- `datasource=<default>` is required. A named persistence unit does not pick up the default
-  datasource on its own, and the build fails without it. `<default>` is the literal token for the
-  default datasource; name a different datasource here to put Ratchet on a separate database.
-- `database.generation=none` because Ratchet ships its own schema (see [Schema](#schema)). Apply the
-  DDL yourself and Hibernate leaves the tables alone.
+The extension binds the `ratchet` unit to the default datasource, scopes it to Ratchet's entities,
+sets `database.generation=none`, and keeps Ratchet's `META-INF/orm.xml` off the default unit.
 
 ### Applications with their own entities
 
-A named persistence unit turns off Quarkus's automatic default unit, so declare yours and keep
-Ratchet's mapping file out of it:
+A named persistence unit turns off Quarkus's automatic default unit, so declare yours explicitly:
 
 ```properties
 quarkus.hibernate-orm.packages=com.example.myapp
-quarkus.hibernate-orm.mapping-files=no-file
+quarkus.hibernate-orm.database.generation=drop-and-create
 ```
 
-`mapping-files=no-file` is the line that matters. Ratchet ships a `META-INF/orm.xml`, and Quarkus
-attaches it to every persistence unit by default. Without `no-file`, your default unit also loads
-Ratchet's entities, and a unit set to `drop-and-create` will drop Ratchet's tables. `no-file` keeps
-that mapping on Ratchet's unit alone.
+Ratchet's extension defaults keep its mapping file on the `ratchet` unit only, so your default unit
+does not need a defensive `mapping-files=no-file` line.
 
 If your application has no entities of its own, skip this step. The `ratchet` unit is the only one.
 
 ## Schema
 
-Ratchet does not create its tables, which is what `generation=none` means above. Apply the DDL before
-the first run:
+Ratchet does not create its tables. Apply the DDL before the first run:
 
 ```bash
 psql -U ratchet -d ratchet -f stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
@@ -124,6 +113,43 @@ public class ReportResource {
 
 Recurring jobs, signals, and batches work the same as on a Jakarta EE server.
 
+## MongoDB flavor
+
+Everything above describes the SQL flavor. To run Ratchet on MongoDB instead, use the
+`ratchet-quarkus-mongodb` artifact and the Mongo store. There is no persistence unit, no `orm.xml`,
+and no schema DDL to apply, so the setup is shorter than the SQL flavor.
+
+```xml
+<dependency>
+  <groupId>run.ratchet</groupId>
+  <artifactId>ratchet-quarkus-mongodb</artifactId>
+  <version>0.2.1-SNAPSHOT</version>
+</dependency>
+<dependency>
+  <groupId>run.ratchet</groupId>
+  <artifactId>ratchet-store-mongodb</artifactId>
+  <version>0.2.1-SNAPSHOT</version>
+</dependency>
+<!-- Same engine dependency as the SQL flavor, until the extension declares it transitively. -->
+<dependency>
+  <groupId>jakarta.security.enterprise</groupId>
+  <artifactId>jakarta.security.enterprise-api</artifactId>
+</dependency>
+```
+
+The flavor brings `quarkus-mongodb-client` with it. Point it at your database:
+
+```properties
+quarkus.mongodb.connection-string=mongodb://localhost:27017
+quarkus.mongodb.database=ratchet
+```
+
+The extension forces the driver's `UuidRepresentation` to `STANDARD` at construction, so Ratchet's
+UUID job identifiers round-trip correctly with no configuration on your part. Submitting jobs, plus
+recurring, signals, and batches, is identical to the SQL flavor, and the extension runs on the JVM
+and as a native image the same way. See [MongoDB Deployment](/deployment/mongodb) for collection and
+index details.
+
 ## Native image
 
 ```bash
@@ -146,6 +172,8 @@ reference or a bean method instead.
 
 ## Differences from a Jakarta EE server
 
-- Hibernate ORM only. EclipseLink is a Jakarta EE feature and is not part of the Quarkus cell.
+- On the SQL flavor the JPA provider is Hibernate ORM; EclipseLink is a Jakarta EE feature and is not
+  part of the Quarkus cell. A separate `ratchet-quarkus-mongodb` flavor runs Ratchet on MongoDB with
+  no JPA provider at all.
 - Ratchet uses its own persistence unit rather than the container's default, as configured above.
 - The standalone executor backs job execution instead of a Jakarta Concurrency managed executor.

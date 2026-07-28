@@ -151,7 +151,7 @@ Ratchet is built for **Jakarta EE developers** building applications on servers 
 - JPA/DataSource or MongoDB resource wiring
 - Maven dependency management
 
-On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a GraalVM native image. See [Quarkus Deployment](/deployment/quarkus). For other microservice stacks such as Spring Boot, Ratchet can still work with explicit CDI wiring and the standalone executor fallback, though the reference implementation is primarily designed and tested against Jakarta EE 10/11 runtimes with managed executors.
+On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a GraalVM native image. It supplies Ratchet's persistence unit itself, so setup is a dependency plus a datasource, with no persistence-unit configuration to write. See [Quarkus Deployment](/deployment/quarkus). For other microservice stacks such as Spring Boot, Ratchet can still work with explicit CDI wiring and the standalone executor fallback, though the reference implementation is primarily designed and tested against Jakarta EE 10/11 runtimes with managed executors.
 
 ## Requirements
 

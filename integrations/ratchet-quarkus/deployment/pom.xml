@@ -24,9 +24,7 @@
       <artifactId>ratchet-quarkus-core-deployment</artifactId>
       <version>${project.version}</version>
     </dependency>
-    <!-- Deployment counterpart of the SQL flavor's quarkus-hibernate-orm dependency. The app must
-         still declare quarkus.hibernate-orm."ratchet".packages itself; see
-         QuarkusRatchetEntityManagerProvider. -->
+    <!-- Deployment counterpart of the SQL flavor's quarkus-hibernate-orm dependency. -->
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-hibernate-orm-deployment</artifactId>

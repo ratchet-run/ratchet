@@ -36,18 +36,11 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
  * and, more importantly, isolates Ratchet's schema settings (notably {@code generation=none}) from
  * whatever the application does to its default unit.
  *
- * <p>The application declares the unit in {@code application.properties}:
- *
- * <pre>{@code
- * quarkus.hibernate-orm."ratchet".packages=run.ratchet.store.entity
- * quarkus.hibernate-orm."ratchet".database.generation=none
- * }</pre>
- *
- * <p>Quarkus 3.20 cannot have an extension materialize a named unit from build-time defaults, so the
- * two lines above are required. The unit uses the default datasource unless {@code
- * quarkus.hibernate-orm."ratchet".datasource} names another. Because any named unit suppresses
- * auto-creation of the default unit, an application that also has its own entities must declare its
- * default unit explicitly (e.g. {@code quarkus.hibernate-orm.packages=...}).
+ * <p>The SQL flavor's deployment module contributes the {@value #PERSISTENCE_UNIT_NAME} unit at
+ * build time, scoped to Ratchet's entity package, generation=none, and the application's default
+ * datasource. Because any named unit suppresses auto-creation of Quarkus's default unit, an
+ * application that also has its own entities must still declare its default unit explicitly (e.g.
+ * {@code quarkus.hibernate-orm.packages=...}).
  *
  * <p>This provider is {@code @Alternative} with {@code @Priority(APPLICATION)} so the extension
  * enables it over the store modules' default {@link RatchetEntityManagerProvider} (which uses the
