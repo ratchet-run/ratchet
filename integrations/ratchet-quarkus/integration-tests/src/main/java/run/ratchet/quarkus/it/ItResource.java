@@ -51,7 +51,17 @@ public class ItResource {
       return "accepted";
     } catch (SecurityException expected) {
       return "rejected";
+    } catch (IllegalArgumentException expected) {
+      if (isPayloadValidationRejection(expected)) {
+        return "rejected";
+      }
+      throw expected;
     }
+  }
+
+  private static boolean isPayloadValidationRejection(IllegalArgumentException exception) {
+    String message = exception.getMessage();
+    return message != null && message.startsWith("Job payload validation failed:");
   }
 
   @GET
