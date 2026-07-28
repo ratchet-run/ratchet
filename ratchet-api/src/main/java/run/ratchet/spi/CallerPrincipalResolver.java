@@ -37,18 +37,19 @@ import run.ratchet.api.Incubating;
  *
  * <h2>Authentication mechanism and the default capture</h2>
  *
- * <p>The reference default reads {@code jakarta.security.enterprise.SecurityContext}, which a
- * container registers only when the deployment activates Jakarta Security — an {@code
- * HttpAuthenticationMechanism}, {@code IdentityStore}, or a
- * {@code @…AuthenticationMechanismDefinition}. Some integrations authenticate the caller fully
- * without activating Jakarta Security, so no {@code SecurityContext} bean is registered and the
- * default capture records no principal even for an authenticated request. WildFly's native Elytron
- * OIDC ({@code web.xml} {@code auth-method=OIDC} via the {@code elytron-oidc-client} subsystem) is
- * one such case: {@code HttpServletRequest.getUserPrincipal()} and {@code @RolesAllowed} work, but
- * {@code SecurityContext} is never resolvable. Under such a mechanism, supply this resolver and
- * read an identity source the mechanism actually populates — {@code
- * HttpServletRequest.getUserPrincipal()} or the Elytron {@code SecurityIdentity} — rather than
- * relying on the default {@code SecurityContext}-based capture.
+ * <p>The reference implementation reads platform identities through {@link PrincipalSource}. The
+ * Jakarta EE carrier supplies a source backed by {@code
+ * jakarta.security.enterprise.SecurityContext}, which a container registers only when the
+ * deployment activates Jakarta Security — an {@code HttpAuthenticationMechanism}, {@code
+ * IdentityStore}, or a {@code @…AuthenticationMechanismDefinition}. Some integrations authenticate
+ * the caller fully without activating Jakarta Security, so no {@code SecurityContext} bean is
+ * registered and the Jakarta EE source records no principal even for an authenticated request.
+ * WildFly's native Elytron OIDC ({@code web.xml} {@code auth-method=OIDC} via the {@code
+ * elytron-oidc-client} subsystem) is one such case: {@code HttpServletRequest.getUserPrincipal()}
+ * and {@code @RolesAllowed} work, but {@code SecurityContext} is never resolvable. Under such a
+ * mechanism, supply this resolver and read an identity source the mechanism actually populates —
+ * {@code HttpServletRequest.getUserPrincipal()} or the Elytron {@code SecurityIdentity} — rather
+ * than relying on the Jakarta Security source.
  *
  * <h2>Proxy discipline</h2>
  *
@@ -61,12 +62,12 @@ import run.ratchet.api.Incubating;
  * producer method runs, and would freeze whatever principal was live at container start —
  * reproducing the exact bug this seam exists to fix.
  *
- * <p>{@code run.ratchet.ri.security.CallerPrincipalProvider} is the worked example of the correct
- * pattern: it holds an {@code Instance<SecurityContext>} and calls {@code
- * Instance.getHandle()}/{@code get()} inside its own {@code currentPrincipal()} method on every
- * invocation, rather than injecting {@code SecurityContext} directly. An application's resolver
- * should follow the same shape — inject {@code Instance<MyRequestScopedActor>} into its producer
- * and call {@code .get()} from inside the lambda passed to {@code callerPrincipalResolver(...)}.
+ * <p>{@code PrincipalSource} implementations are the worked examples of the correct pattern: hold
+ * an {@code Instance<MyRequestScopedActor>} and call {@code Instance.getHandle()}/{@code get()}
+ * inside {@code currentPrincipal()} on every invocation, rather than capturing a directly injected
+ * request-scoped identity. An application's resolver should follow the same shape — inject {@code
+ * Instance<MyRequestScopedActor>} into its producer and call {@code .get()} from inside the lambda
+ * passed to {@code callerPrincipalResolver(...)}.
  */
 @Incubating
 @FunctionalInterface

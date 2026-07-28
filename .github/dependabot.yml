@@ -23,6 +23,7 @@ updates:
     directories:
       - /
       - /ratchet-api
+      - /ratchet-security-jakarta
       - /ratchet
       - /stores/ratchet-store-core
       - /stores/ratchet-store-mysql

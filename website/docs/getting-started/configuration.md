@@ -356,15 +356,15 @@ public class AppClassPolicy implements ClassPolicy {
 
 ## Caller principal resolution
 
-By default, Ratchet captures the caller principal through `CallerPrincipalProvider`, a CDI bean that reads `jakarta.security.enterprise.SecurityContext` through an injected `Instance<SecurityContext>`. Applications override the default by supplying an `@Alternative @Priority(APPLICATION) CallerPrincipalProvider` bean.
+By default, Ratchet captures the caller principal through `CallerPrincipalProvider`, a CDI bean that delegates to platform `PrincipalSource` beans. The Jakarta EE distribution contributes a `PrincipalSource` backed by `jakarta.security.enterprise.SecurityContext`. Applications override the default by supplying an `@Alternative @Priority(APPLICATION) CallerPrincipalProvider` bean.
 
 CDI `@Alternative` visibility can vary by container and deployment topology. An override packaged in `EAR/lib` alongside Ratchet is broadly honored, but the same override packaged in a separate subdeployment (an EJB-jar, for example) is not guaranteed visible to Ratchet's injection points on every container — WildFly-family servers and Open Liberty honor a subdeployment `@Alternative`, while Payara and GlassFish do not.
 
 ### Caller capture and the authentication mechanism
 
-The default `CallerPrincipalProvider` reads `jakarta.security.enterprise.SecurityContext`, which a container registers only when the deployment activates **Jakarta Security** — an `HttpAuthenticationMechanism`, `IdentityStore`, or a `@…AuthenticationMechanismDefinition`. Some authentication integrations fully authenticate the caller without activating Jakarta Security, so `SecurityContext` is never registered and the default capture records **no principal even for an authenticated caller**. WildFly's native Elytron OIDC (`web.xml` `auth-method=OIDC` via the `elytron-oidc-client` subsystem) is one such case: `HttpServletRequest.getUserPrincipal()` and `@RolesAllowed` work normally, but `SecurityContext` is not resolvable.
+The default Jakarta EE `PrincipalSource` reads `jakarta.security.enterprise.SecurityContext`, which a container registers only when the deployment activates **Jakarta Security** — an `HttpAuthenticationMechanism`, `IdentityStore`, or a `@…AuthenticationMechanismDefinition`. Some authentication integrations fully authenticate the caller without activating Jakarta Security, so `SecurityContext` is never registered and the default Jakarta EE source records **no principal even for an authenticated caller**. WildFly's native Elytron OIDC (`web.xml` `auth-method=OIDC` via the `elytron-oidc-client` subsystem) is one such case: `HttpServletRequest.getUserPrincipal()` and `@RolesAllowed` work normally, but `SecurityContext` is not resolvable.
 
-If your deployment authenticates through a mechanism like this, use the `CallerPrincipalResolver` seam below and read an identity source your mechanism populates — `HttpServletRequest.getUserPrincipal()` or the Elytron `SecurityIdentity` — instead of relying on the default `SecurityContext`-based capture.
+If your deployment authenticates through a mechanism like this, use the `CallerPrincipalResolver` seam below and read an identity source your mechanism populates — `HttpServletRequest.getUserPrincipal()` or the Elytron `SecurityIdentity` — instead of relying on the default Jakarta Security source.
 
 For applications that want to supply the caller principal without relying on a CDI `@Alternative` override at all, `RatchetOptions` exposes a second, independent path:
 
@@ -406,7 +406,7 @@ RatchetOptionsFactory.fromEnvironment(overlay)
 
 For public submission calls, the reference implementation resolves the principal once and stamps that same value on every node created by that submission: the parent job, batch children, chain steps, workflow branches, and gates. `resolve()` is also called for cancellation, pause, resume, retry, signal delivery, or read authorization checks — but the `CallerPrincipalResolver` instance itself is captured only **once**, when your `@ApplicationScoped RatchetOptions` producer method runs. If you close the lambda over a directly-injected `@Dependent` bean, you freeze whatever value was live at container startup, reproducing the exact bug this seam exists to fix.
 
-Close over a normal-scoped CDI proxy, or inject `Instance<T>` and call `.get()` from inside `resolve()`, so every invocation re-resolves the live actor — the same pattern `CallerPrincipalProvider` itself uses with `Instance<SecurityContext>`:
+Close over a normal-scoped CDI proxy, or inject `Instance<T>` and call `.get()` from inside `resolve()`, so every invocation re-resolves the live actor — the same pattern the built-in `PrincipalSource` implementations use:
 
 ```java
 @ApplicationScoped

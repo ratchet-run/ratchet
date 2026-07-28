@@ -23,7 +23,6 @@ module run.ratchet.ri {
   requires jakarta.inject;
   requires jakarta.interceptor;
   requires jakarta.json.bind;
-  requires jakarta.security;
   requires jakarta.transaction;
   requires java.management;
   requires java.naming;

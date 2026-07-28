@@ -6,7 +6,7 @@ description: "Run Ratchet on Quarkus, on the JVM and as a GraalVM native image, 
 # Quarkus Deployment
 
 Ratchet runs on Quarkus, on the JVM and as a GraalVM native image, through the `ratchet-quarkus`
-extension. The extension wires the engine into Quarkus, so you add a few dependencies and a
+extension. The extension wires the engine into Quarkus, so you add the extension, a store, and a
 datasource, then submit jobs through the usual `JobSchedulerService`. Ratchet's own persistence unit
 is supplied by the extension, so there is no persistence-unit configuration to write.
 
@@ -34,16 +34,10 @@ matching Quarkus JDBC driver.
   <groupId>io.quarkus</groupId>
   <artifactId>quarkus-jdbc-postgresql</artifactId>
 </dependency>
-<!-- The engine references jakarta.security.enterprise.SecurityContext. The Quarkus BOM does not
-     manage this artifact, so pin a version (3.0.x matches Quarkus 3.20's EE 10 baseline). -->
-<dependency>
-  <groupId>jakarta.security.enterprise</groupId>
-  <artifactId>jakarta.security.enterprise-api</artifactId>
-  <version>3.0.0</version>
-</dependency>
 ```
 
-Add `quarkus-rest` too if you want the REST endpoint below.
+Add `quarkus-rest` too if you want the REST endpoint below. When a request has a Quarkus
+`SecurityIdentity`, Ratchet captures that principal automatically at job submission.
 
 **2. Configuration.** Two lines. No datasource URL is set, so Dev Services starts a container in dev
 mode. `auto-migrate` tells Ratchet to create its tables on startup.
@@ -224,12 +218,6 @@ and no schema DDL to apply, so the setup is shorter than the SQL flavor.
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-mongodb</artifactId>
   <version>0.2.1-SNAPSHOT</version>
-</dependency>
-<!-- Same engine dependency as the SQL flavor, until the extension declares it transitively. -->
-<dependency>
-  <groupId>jakarta.security.enterprise</groupId>
-  <artifactId>jakarta.security.enterprise-api</artifactId>
-  <version>3.0.0</version>
 </dependency>
 ```
 

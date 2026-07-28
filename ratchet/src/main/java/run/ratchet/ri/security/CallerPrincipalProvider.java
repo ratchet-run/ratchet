@@ -18,15 +18,14 @@ package run.ratchet.ri.security;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Vetoed;
-import jakarta.security.enterprise.SecurityContext;
-import java.security.Principal;
 import java.util.Optional;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.PrincipalSource;
 
 /**
- * Resolves the current caller principal from {@link SecurityContext} when one is available in the
- * container, and returns an empty Optional otherwise. Stamped onto {@code
- * JobEntity.callerPrincipal} at job creation for audit.
+ * Resolves the current caller principal from a platform {@link PrincipalSource}, and returns an
+ * empty Optional otherwise. Stamped onto {@code JobEntity.callerPrincipal} at job creation for
+ * audit.
  *
  * <p>The provider is the third source in the reference implementation's caller-principal cascade:
  * configured {@code run.ratchet.spi.CallerPrincipalResolver}, bound {@code JobContext} caller
@@ -52,7 +51,7 @@ import org.jboss.logging.Logger;
  * applications override it with a CDI {@code @Alternative @Priority(APPLICATION)} bean to enforce
  * site-specific authorization.
  *
- * <p>In plain-CDI / Weld SE test environments no {@code SecurityContext} implementation is
+ * <p>In plain-CDI / Weld SE test environments no {@code PrincipalSource} implementation may be
  * resolvable — the provider silently returns empty rather than failing. This keeps the RI usable
  * outside a full EE profile.
  *
@@ -64,44 +63,44 @@ public class CallerPrincipalProvider {
 
   private static final Logger log = Logger.getLogger(CallerPrincipalProvider.class);
 
-  private final Instance<SecurityContext> securityContexts;
+  private final Instance<PrincipalSource> sources;
 
   protected CallerPrincipalProvider() {
-    this.securityContexts = null;
+    this.sources = null;
   }
 
-  public CallerPrincipalProvider(Instance<SecurityContext> securityContexts) {
-    this.securityContexts = securityContexts;
+  public CallerPrincipalProvider(Instance<PrincipalSource> sources) {
+    this.sources = sources;
   }
 
   /**
-   * Returns the authenticated caller principal name when a {@link SecurityContext} is resolvable
-   * and holds an authenticated principal. Returns empty when no context is available or the context
-   * reports no principal (unauthenticated request, or non-EE runtime).
+   * Returns the authenticated caller principal name when a {@link PrincipalSource} is resolvable
+   * and reports one. Returns empty when no source is available or the source reports no principal
+   * (unauthenticated request, or non-EE runtime).
    */
   public Optional<String> currentPrincipal() {
-    if (securityContexts == null) {
-      throw new IllegalStateException("SecurityContext Instance was not injected");
+    if (sources == null) {
+      throw new IllegalStateException("PrincipalSource Instance was not injected");
     }
     try {
-      if (!securityContexts.isResolvable()) {
+      if (!sources.isResolvable()) {
         return Optional.empty();
       }
-      Instance.Handle<SecurityContext> handle = securityContexts.getHandle();
+      Instance.Handle<PrincipalSource> handle = sources.getHandle();
       try {
-        Principal principal = handle.get().getCallerPrincipal();
-        if (principal == null) {
+        PrincipalSource source = handle.get();
+        if (source == null) {
           return Optional.empty();
         }
-        String name = principal.getName();
-        return (name == null || name.isEmpty()) ? Optional.empty() : Optional.of(name);
+        Optional<String> principal = source.currentPrincipal();
+        return principal == null ? Optional.empty() : principal.filter(name -> !name.isEmpty());
       } finally {
         if (handle.getBean().getScope().equals(Dependent.class)) {
           handle.destroy();
         }
       }
     } catch (RuntimeException e) {
-      log.warnf(e, "SecurityContext lookup failed; capturing null caller principal");
+      log.warnf(e, "PrincipalSource lookup failed; capturing null caller principal");
       return Optional.empty();
     }
   }

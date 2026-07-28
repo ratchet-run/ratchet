@@ -19,6 +19,10 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-arc</artifactId>
     </dependency>
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-security</artifactId>
+    </dependency>
     <!--
       Ratchet's engine uses container transaction interceptors for every store. Keep Narayana/JTA in
       the shared core so non-Hibernate flavors retain transaction support instead of inheriting it
@@ -36,6 +40,12 @@
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet</artifactId>
       <version>${ratchet.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-security-jakarta</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>

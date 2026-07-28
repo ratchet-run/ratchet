@@ -8,7 +8,7 @@ This mirrors the [Quarkus Deployment quickstart](../../website/docs/deployment/q
 
 ## What it shows
 
-- The four dependencies for the SQL flavor (`pom.xml`).
+- The three dependencies for the SQL flavor (`pom.xml`).
 - Two-line configuration: a datasource kind and `ratchet.schema.auto-migrate=true`
   (`src/main/resources/application.properties`).
 - A job (`Reports#rebuild`) submitted as a method reference (`ReportResource`).

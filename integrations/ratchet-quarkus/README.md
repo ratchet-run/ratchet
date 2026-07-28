@@ -40,15 +40,10 @@ Add the extension, a store, and the matching Quarkus JDBC driver.
   <groupId>io.quarkus</groupId>
   <artifactId>quarkus-jdbc-postgresql</artifactId>
 </dependency>
-<!-- The engine references jakarta.security.enterprise.SecurityContext. Add the API until the
-     extension declares it transitively. -->
-<dependency>
-  <groupId>jakarta.security.enterprise</groupId>
-  <artifactId>jakarta.security.enterprise-api</artifactId>
-</dependency>
 ```
 
-For MySQL, swap in `ratchet-store-mysql` and `quarkus-jdbc-mysql`.
+For MySQL, swap in `ratchet-store-mysql` and `quarkus-jdbc-mysql`. When a request has a Quarkus
+`SecurityIdentity`, Ratchet captures that principal automatically at job submission.
 
 ## Configuration
 

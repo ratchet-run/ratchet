@@ -33,6 +33,7 @@ import org.jboss.jandex.DotName;
 import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
+import run.ratchet.quarkus.runtime.QuarkusPrincipalSource;
 import run.ratchet.quarkus.runtime.QuarkusRatchetExecutorProvider;
 import run.ratchet.quarkus.runtime.RatchetRuntimeProducers;
 import run.ratchet.quarkus.runtime.RatchetStartupTrigger;
@@ -62,6 +63,7 @@ class RatchetProcessor {
     return AdditionalBeanBuildItem.builder()
         .addBeanClasses(
             RatchetStartupTrigger.class,
+            QuarkusPrincipalSource.class,
             QuarkusRatchetExecutorProvider.class,
             RatchetRuntimeProducers.class)
         .setUnremovable()

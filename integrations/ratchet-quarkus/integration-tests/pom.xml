@@ -63,13 +63,6 @@
       <groupId>jakarta.persistence</groupId>
       <artifactId>jakarta.persistence-api</artifactId>
     </dependency>
-    <!-- The RI references jakarta.security.enterprise.SecurityContext (provided scope upstream),
-         consumed via Instance<> (no-ops when absent); supply the API jar so the type resolves. -->
-    <dependency>
-      <groupId>jakarta.security.enterprise</groupId>
-      <artifactId>jakarta.security.enterprise-api</artifactId>
-      <version>3.0.0</version>
-    </dependency>
 
     <!-- Test -->
     <dependency>

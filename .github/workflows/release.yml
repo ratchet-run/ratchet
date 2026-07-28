@@ -142,7 +142,7 @@ jobs:
           # ratchet-tck aggregator are pom-packaging (no jar). The test/dev
           # modules are never published.
           JAR_PATHS=""
-          for m in ratchet-api ratchet ratchet-encryption; do
+          for m in ratchet-api ratchet-security-jakarta ratchet ratchet-encryption; do
             JAR_PATHS="$JAR_PATHS ${m}:${m}"
           done
           for m in ratchet-store-core ratchet-store-mysql \

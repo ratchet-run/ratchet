@@ -27,84 +27,80 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
-import jakarta.security.enterprise.SecurityContext;
-import java.security.Principal;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import run.ratchet.spi.PrincipalSource;
 
 class CallerPrincipalProviderTest {
 
   private static final class UnmanagedCallerPrincipalProvider extends CallerPrincipalProvider {}
 
   @Test
-  void currentPrincipal_resolvableAuthenticated_returnsName() {
-    Principal principal = mock(Principal.class);
-    when(principal.getName()).thenReturn("alice");
-    SecurityContext context = mock(SecurityContext.class);
-    when(context.getCallerPrincipal()).thenReturn(principal);
+  void currentPrincipal_resolvableSource_returnsName() {
+    PrincipalSource source = mock(PrincipalSource.class);
+    when(source.currentPrincipal()).thenReturn(Optional.of("alice"));
 
     @SuppressWarnings("unchecked")
-    Instance<SecurityContext> instance = mock(Instance.class);
+    Instance<PrincipalSource> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    handle(instance, context, ApplicationScoped.class);
+    handle(instance, source, ApplicationScoped.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
-    assertTrue(result.isPresent(), "Authenticated principal should be captured");
-    assertEquals("alice", result.get());
+    assertEquals(Optional.of("alice"), result);
   }
 
   @Test
-  void currentPrincipal_resolvableUnauthenticated_returnsEmpty() {
-    SecurityContext context = mock(SecurityContext.class);
-    when(context.getCallerPrincipal()).thenReturn(null);
+  void currentPrincipal_sourceReturnsEmpty_returnsEmpty() {
+    PrincipalSource source = mock(PrincipalSource.class);
+    when(source.currentPrincipal()).thenReturn(Optional.empty());
 
     @SuppressWarnings("unchecked")
-    Instance<SecurityContext> instance = mock(Instance.class);
+    Instance<PrincipalSource> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    handle(instance, context, ApplicationScoped.class);
+    handle(instance, source, ApplicationScoped.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
-    assertTrue(result.isEmpty(), "Null principal on context should yield empty");
+    assertTrue(result.isEmpty(), "Empty source should yield empty");
   }
 
   @Test
   void currentPrincipal_notResolvable_returnsEmpty() {
     @SuppressWarnings("unchecked")
-    Instance<SecurityContext> instance = mock(Instance.class);
+    Instance<PrincipalSource> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(false);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
-    assertTrue(result.isEmpty(), "Unresolvable SecurityContext should yield empty");
+    assertTrue(result.isEmpty(), "Unresolvable PrincipalSource should yield empty");
   }
 
   @Test
-  void currentPrincipal_securityContextLookupFailure_returnsEmpty() {
+  void currentPrincipal_sourceLookupFailure_returnsEmpty() {
     @SuppressWarnings("unchecked")
-    Instance<SecurityContext> instance = mock(Instance.class);
+    Instance<PrincipalSource> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
     when(instance.getHandle()).thenThrow(new IllegalStateException("container is shutting down"));
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
-    assertTrue(result.isEmpty(), "SecurityContext failures should not block job creation");
+    assertTrue(result.isEmpty(), "PrincipalSource failures should not block job creation");
   }
 
   @Test
-  void currentPrincipal_getCallerPrincipalFailure_returnsEmpty() {
-    SecurityContext context = mock(SecurityContext.class);
-    when(context.getCallerPrincipal()).thenThrow(new RuntimeException("security context failed"));
+  void currentPrincipal_sourceFailure_returnsEmpty() {
+    PrincipalSource source = mock(PrincipalSource.class);
+    when(source.currentPrincipal()).thenThrow(new RuntimeException("source failed"));
 
     @SuppressWarnings("unchecked")
-    Instance<SecurityContext> instance = mock(Instance.class);
+    Instance<PrincipalSource> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    handle(instance, context, ApplicationScoped.class);
+    handle(instance, source, ApplicationScoped.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
-    assertTrue(result.isEmpty(), "Principal lookup failures should not block job creation");
+    assertTrue(result.isEmpty(), "PrincipalSource failures should not block job creation");
   }
 
   @Test
@@ -114,20 +110,18 @@ class CallerPrincipalProviderTest {
             IllegalStateException.class,
             () -> new UnmanagedCallerPrincipalProvider().currentPrincipal());
 
-    assertEquals("SecurityContext Instance was not injected", exception.getMessage());
+    assertEquals("PrincipalSource Instance was not injected", exception.getMessage());
   }
 
   @Test
   void currentPrincipal_emptyPrincipalName_returnsEmpty() {
-    Principal principal = mock(Principal.class);
-    when(principal.getName()).thenReturn("");
-    SecurityContext context = mock(SecurityContext.class);
-    when(context.getCallerPrincipal()).thenReturn(principal);
+    PrincipalSource source = mock(PrincipalSource.class);
+    when(source.currentPrincipal()).thenReturn(Optional.of(""));
 
     @SuppressWarnings("unchecked")
-    Instance<SecurityContext> instance = mock(Instance.class);
+    Instance<PrincipalSource> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    handle(instance, context, ApplicationScoped.class);
+    handle(instance, source, ApplicationScoped.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
@@ -135,16 +129,14 @@ class CallerPrincipalProviderTest {
   }
 
   @Test
-  void currentPrincipal_dependentSecurityContext_destroysHandle() {
-    Principal principal = mock(Principal.class);
-    when(principal.getName()).thenReturn("alice");
-    SecurityContext context = mock(SecurityContext.class);
-    when(context.getCallerPrincipal()).thenReturn(principal);
+  void currentPrincipal_dependentSource_destroysHandle() {
+    PrincipalSource source = mock(PrincipalSource.class);
+    when(source.currentPrincipal()).thenReturn(Optional.of("alice"));
 
     @SuppressWarnings("unchecked")
-    Instance<SecurityContext> instance = mock(Instance.class);
+    Instance<PrincipalSource> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    Instance.Handle<SecurityContext> handle = handle(instance, context, Dependent.class);
+    Instance.Handle<PrincipalSource> handle = handle(instance, source, Dependent.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
@@ -153,14 +145,14 @@ class CallerPrincipalProviderTest {
   }
 
   @SuppressWarnings("unchecked")
-  private static Instance.Handle<SecurityContext> handle(
-      Instance<SecurityContext> instance,
-      SecurityContext context,
+  private static Instance.Handle<PrincipalSource> handle(
+      Instance<PrincipalSource> instance,
+      PrincipalSource source,
       Class<? extends java.lang.annotation.Annotation> scope) {
-    Instance.Handle<SecurityContext> handle = mock(Instance.Handle.class);
-    Bean<SecurityContext> bean = mock(Bean.class);
+    Instance.Handle<PrincipalSource> handle = mock(Instance.Handle.class);
+    Bean<PrincipalSource> bean = mock(Bean.class);
     when(instance.getHandle()).thenReturn(handle);
-    when(handle.get()).thenReturn(context);
+    when(handle.get()).thenReturn(source);
     when(handle.getBean()).thenReturn(bean);
     doReturn(scope).when(bean).getScope();
     return handle;
