@@ -179,6 +179,26 @@ final class SqlserverNodeLockOperations implements LockStore, NodeStore {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
+  public List<NodeEntity> findAllNodes(int limit) {
+    if (limit <= 0) {
+      return List.of();
+    }
+    try {
+      // language=SQL Server
+      String sql =
+          "SELECT * FROM scheduler_node ORDER BY heartbeat_ts DESC"
+              + " OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY";
+      return ctx.em()
+          .createNativeQuery(sql, NodeEntity.class)
+          .setParameter(1, limit)
+          .getResultList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find all nodes", e);
+    }
+  }
+
+  @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     try {
       // language=SQL Server

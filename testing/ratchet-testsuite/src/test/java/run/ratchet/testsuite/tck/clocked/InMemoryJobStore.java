@@ -464,6 +464,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
+  public synchronized List<run.ratchet.store.entity.NodeEntity> findAllNodes(int limit) {
+    return Collections.emptyList();
+  }
+
+  @Override
   public synchronized int deleteInactiveNodesSince(java.time.Instant cutoff) {
     return 0;
   }

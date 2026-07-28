@@ -15,11 +15,13 @@
  */
 package run.ratchet.tck.store;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -52,6 +54,58 @@ public abstract class AbstractNodeStoreContract implements JobStoreContractFixtu
     assertTrue(
         inactive.stream().anyMatch(n -> "stale-node".equals(n.getId())),
         "Stale node should appear in inactive results");
+  }
+
+  @Test
+  void findAllNodes_returnsInsertedNodes() {
+    Instant now = Instant.parse("2026-05-12T12:00:00Z");
+    store().upsertHeartbeat("node-1", now.minusSeconds(10));
+    store().upsertHeartbeat("node-2", now);
+
+    var nodes = store().findAllNodes(10);
+    List<String> nodeIds = nodes.stream().map(n -> n.getId()).toList();
+
+    assertEquals(2, nodes.size(), "findAllNodes should return every inserted node within limit");
+    assertTrue(nodeIds.contains("node-1"), "node-1 should appear in findAllNodes results");
+    assertTrue(nodeIds.contains("node-2"), "node-2 should appear in findAllNodes results");
+  }
+
+  @Test
+  void findAllNodes_ordersByHeartbeatDescending() {
+    Instant now = Instant.parse("2026-05-12T12:00:00Z");
+    store().upsertHeartbeat("oldest-node", now.minusSeconds(20));
+    store().upsertHeartbeat("newest-node", now);
+    store().upsertHeartbeat("middle-node", now.minusSeconds(10));
+
+    List<String> nodeIds = store().findAllNodes(10).stream().map(n -> n.getId()).toList();
+
+    assertEquals(
+        List.of("newest-node", "middle-node", "oldest-node"),
+        nodeIds,
+        "findAllNodes should order by last heartbeat descending");
+  }
+
+  @Test
+  void findAllNodes_respectsLimit() {
+    Instant now = Instant.parse("2026-05-12T12:00:00Z");
+    store().upsertHeartbeat("oldest-node", now.minusSeconds(20));
+    store().upsertHeartbeat("newest-node", now);
+    store().upsertHeartbeat("middle-node", now.minusSeconds(10));
+
+    List<String> nodeIds = store().findAllNodes(2).stream().map(n -> n.getId()).toList();
+
+    assertEquals(2, nodeIds.size(), "findAllNodes should return no more than limit rows");
+    assertEquals(
+        List.of("newest-node", "middle-node"),
+        nodeIds,
+        "findAllNodes should apply the limit after heartbeat-desc ordering");
+  }
+
+  @Test
+  void findAllNodes_emptyStore_returnsEmptyList() {
+    var nodes = store().findAllNodes(10);
+
+    assertTrue(nodes.isEmpty(), "findAllNodes should return an empty list for an empty store");
   }
 
   @Test

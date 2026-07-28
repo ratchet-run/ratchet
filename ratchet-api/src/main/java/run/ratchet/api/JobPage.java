@@ -18,9 +18,10 @@ package run.ratchet.api;
 import java.util.List;
 
 /**
- * A page of query results from {@link JobQueryService}.
+ * A page of query results from Ratchet read-only query APIs such as {@link JobQueryService} and
+ * {@link ClusterQueryService}.
  *
- * @param <T> the item type (typically {@link JobSummary})
+ * @param <T> the item type (typically {@link JobSummary} or {@link NodeStatus})
  * @param items the items on this page
  * @param totalCount total number of matching items across all pages; may be {@code -1} if counting
  *     was skipped for performance

@@ -35,6 +35,7 @@ import static run.ratchet.store.util.LockValidation.requirePositiveDuration;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
+import com.mongodb.client.model.Sorts;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
@@ -158,6 +159,18 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
             "MongoDB inactive-node query since %s returned more than %d rows",
             cutoff, INACTIVE_NODE_WARNING_THRESHOLD);
       }
+    }
+    return results;
+  }
+
+  @Override
+  public List<NodeEntity> findAllNodes(int limit) {
+    if (limit <= 0) {
+      return List.of();
+    }
+    List<NodeEntity> results = new ArrayList<>();
+    for (Document doc : ctx.nodes().find().sort(Sorts.descending(HEARTBEAT_TS)).limit(limit)) {
+      results.add(DocumentMapper.toNodeEntity(doc));
     }
     return results;
   }

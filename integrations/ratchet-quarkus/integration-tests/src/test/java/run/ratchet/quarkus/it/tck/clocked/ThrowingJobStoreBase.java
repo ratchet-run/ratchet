@@ -453,6 +453,11 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public List<NodeEntity> findAllNodes(int limit) {
+    return fail("findAllNodes");
+  }
+
+  @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     return fail("deleteInactiveNodesSince");
   }
