@@ -61,6 +61,7 @@
     <module>coordinators/ratchet-coordinator-hazelcast</module>
     <module>observability/ratchet-micrometer</module>
     <module>observability/ratchet-otel</module>
+    <module>integrations/ratchet-spring-boot</module>
     <module>ratchet-bom</module>
     <module>testing/ratchet-tck</module>
     <module>testing/ratchet-testsuite</module>

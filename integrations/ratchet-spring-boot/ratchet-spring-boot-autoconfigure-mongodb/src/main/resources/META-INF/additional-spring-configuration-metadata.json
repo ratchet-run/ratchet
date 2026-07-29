@@ -1,0 +1,9 @@
+{
+  "groups": [
+    {
+      "name": "ratchet",
+      "type": "run.ratchet.spring.boot.autoconfigure.mongodb.RatchetMongoAutoConfiguration",
+      "description": "Ratchet Spring Boot configuration namespace."
+    }
+  ]
+}

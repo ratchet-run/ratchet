@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-parent</artifactId>
+    <version>0.2.2-SNAPSHOT</version>
+    <relativePath>../../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>ratchet-spring-boot-parent</artifactId>
+  <packaging>pom</packaging>
+  <name>Ratchet :: Spring Boot :: Parent</name>
+  <description>Parent reactor for the Ratchet Spring Boot integration</description>
+
+  <properties>
+    <spring-boot35.version>3.5.16</spring-boot35.version>
+    <spring-boot41.version>4.1.0</spring-boot41.version>
+    <!-- Temporarily unpublished until the Spring release-candidate gate. -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+  </properties>
+
+  <modules>
+    <module>ratchet-spring-boot-autoconfigure</module>
+    <module>ratchet-spring-boot-autoconfigure-jpa</module>
+    <module>ratchet-spring-boot-starter</module>
+    <module>ratchet-spring-boot-autoconfigure-mongodb</module>
+    <module>ratchet-spring-boot-starter-mongodb</module>
+    <module>ratchet-spring-boot-aot-spring7</module>
+    <module>integration-tests</module>
+  </modules>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot35.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-spring-boot-autoconfigure</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-spring-boot-autoconfigure-jpa</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-spring-boot-starter</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-spring-boot-autoconfigure-mongodb</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-spring-boot-starter-mongodb</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-spring-boot-aot-spring7</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+</project>
