@@ -12,7 +12,7 @@ Retrying handles the blip. It is the wrong tool for the outage: a hundred queued
 Ratchet gives you both, and they stay out of each other's way. The retry budget rides out transient errors. The breaker rides out outages without spending that budget. The external call lives in a durable job, so none of this happens on the request thread, and a provider's bad afternoon never reaches your user as a failed request.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.2.2-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store. The `@CircuitBreakerProtected` annotation is marked `@Incubating` and may change.
+The Java on this page compiles against `ratchet-api` `0.3.0-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store. The `@CircuitBreakerProtected` annotation is marked `@Incubating` and may change.
 :::
 
 ## Layer one: the call as a retrying job
