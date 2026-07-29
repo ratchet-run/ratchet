@@ -1,0 +1,80 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.ri.runtime;
+
+import java.time.Clock;
+import java.util.List;
+import run.ratchet.ri.core.BatchService;
+import run.ratchet.ri.core.JobStateManager;
+import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.SingletonLeaseService;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.JobTerminalStore;
+
+/**
+ * Catalog of Ratchet components eligible for container-managed construction.
+ *
+ * <p>A component is catalogable only if its selected constructor takes plain bean-reference types —
+ * no {@code jakarta.enterprise.inject.Instance<T>} or other CDI-only wrapper. Components with
+ * {@code Instance<T>} constructors ({@code BatchService}, {@code WorkflowScheduler}, etc.) join the
+ * catalog only after their seams are repaired in PRs 5-7.
+ */
+public final class RatchetRuntimeComponentCatalog {
+
+  private static final List<RatchetComponentDescriptor> COMPONENTS =
+      List.of(
+          new RatchetComponentDescriptor(
+              JobStateManager.class,
+              List.of(JobBatchStatusStore.class, NodeIdentityProvider.class),
+              true,
+              true),
+          new RatchetComponentDescriptor(
+              DeadLetterService.class,
+              List.of(
+                  ExecutorProvider.class,
+                  JobBulkStore.class,
+                  JobTerminalStore.class,
+                  SingletonLeaseService.class,
+                  InternalEventPublisher.class,
+                  ErrorSanitizer.class,
+                  Clock.class),
+              true,
+              true),
+          new RatchetComponentDescriptor(
+              PostExecutionHandler.class,
+              List.of(
+                  BatchService.class,
+                  WorkflowScheduler.class,
+                  DeadLetterService.class,
+                  PollerScheduler.class),
+              true,
+              true));
+
+  private RatchetRuntimeComponentCatalog() {}
+
+  /** Returns the deterministic, immutable component catalog. */
+  public static List<RatchetComponentDescriptor> components() {
+    return COMPONENTS;
+  }
+}

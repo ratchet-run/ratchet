@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 module run.ratchet.ri {
+  exports run.ratchet.ri.runtime;
   requires run.ratchet.api;
   requires run.ratchet.store.core;
   requires run.ratchet.encryption;
