@@ -556,7 +556,15 @@ integrations/ratchet-spring-boot/integration-tests/verify.sh postgresql-store
    for user `RatchetOptions` and implement unique, `@Primary`, or explicit
    transaction-manager selection with actionable
    missing/ambiguous/wrong-EMF failures.
-2. Add the JSON-B/Yasson serializer and use exported
+2. Add the JSON-B/Yasson serializer and, first, decide the Jakarta API
+   runtime classpath explicitly (finding from the PR 2 verification loop):
+   the RI scopes `jakarta.enterprise.cdi-api`, `jakarta.transaction-api`,
+   `jakarta.interceptor-api`, and `jakarta.persistence-api` as provided,
+   and RI core signatures reference their types (`Instance<T>`,
+   `Event<T>`, `Transactional`, entities), so Spring's own jars do not
+   cover them. The starter must either supply the API jars or document
+   them as required consumer dependencies; the dependency-tree assertions
+   pin whichever choice is made. Then use exported
    `RatchetRuntimeDefaults` to create the default `ClassPolicy` from
    `ratchet.class-policy.allowed-packages` and
    `ratchet.class-policy.allowed-result-type-packages`. Add an owned
