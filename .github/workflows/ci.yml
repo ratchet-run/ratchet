@@ -382,7 +382,12 @@ jobs:
         # listed module's upstream but never its downstream, so store-core alone does not
         # drag in the store impl. List every module the extension reactor consumes so all
         # are built from source here rather than resolved from a stale m2 cache.
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},ratchet-encryption,testing/ratchet-tck/api,testing/ratchet-tck/store -am install
+        #
+        # ratchet-store-mongodb is listed on every cell, not just the mongodb one. The db-*
+        # profiles only swap the integration-tests dependency; the reactor still builds the
+        # MongoDB flavor modules unconditionally, so the SQL cells need that jar too. It is a
+        # harmless duplicate on the mongodb cell.
+        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},stores/ratchet-store-mongodb,ratchet-encryption,testing/ratchet-tck/api,testing/ratchet-tck/store -am install
       - name: Build + test the ratchet-quarkus extension
         run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml verify -P${{ matrix.profile }}
 
