@@ -59,7 +59,8 @@ class RatchetSqlProcessor {
               "run.ratchet.store.sqlserver.SqlserverEntityManagerProvider",
               "run.ratchet.store.sqlserver.converter"));
 
-  private static final List<String> RATCHET_ENTITY_CLASSES =
+  // Package-private for the orm.xml drift test.
+  static final List<String> RATCHET_ENTITY_CLASSES =
       List.of(
           "run.ratchet.store.entity.ArchivedJobEntity",
           "run.ratchet.store.entity.BatchEntity",
