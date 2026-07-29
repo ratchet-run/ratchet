@@ -32,15 +32,17 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
  * that maps them along with the store's {@code @Converter} classes. On Quarkus the default
  * persistence unit both auto-scans the indexed jar for those converters <em>and</em> reads them from
  * orm.xml, which aborts the boot with "AttributeConverter registered multiple times". Giving Ratchet
- * its own unit — scoped to the entity package only — leaves orm.xml as the converters' single source
- * and, more importantly, isolates Ratchet's schema settings (notably {@code generation=none}) from
- * whatever the application does to its default unit.
+ * its own unit — scoped to the entity, converter, and id packages (plus each SQL store's converter
+ * package) and configured with {@code mapping-files=no-file} to disable orm.xml processing entirely
+ * — resolves the duplicate registration by discovering the converters through package scanning
+ * instead, and, more importantly, isolates Ratchet's schema settings (notably {@code
+ * generation=none}) from whatever the application does to its default unit.
  *
  * <p>The SQL flavor's deployment module contributes the {@value #PERSISTENCE_UNIT_NAME} unit at
- * build time, scoped to Ratchet's entity package, generation=none, and the application's default
- * datasource. Because any named unit suppresses auto-creation of Quarkus's default unit, an
- * application that also has its own entities must still declare its default unit explicitly (e.g.
- * {@code quarkus.hibernate-orm.packages=...}).
+ * build time, scoped to Ratchet's entity, converter, and id packages, generation=none, and the
+ * application's default datasource. Because any named unit suppresses auto-creation of Quarkus's
+ * default unit, an application that also has its own entities must still declare its default unit
+ * explicitly (e.g. {@code quarkus.hibernate-orm.packages=...}).
  *
  * <p>This provider is {@code @Alternative} with {@code @Priority(APPLICATION)} so the extension
  * enables it over the store modules' default {@link RatchetEntityManagerProvider} (which uses the

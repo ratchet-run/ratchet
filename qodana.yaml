@@ -60,6 +60,13 @@ exclude:
       # Sleep inside the reconnect retry loop is exponential backoff with jitter, not polling.
       - coordinators/ratchet-coordinator-jms/src/main/java/run/ratchet/coordinator/jms/JmsConnectionLifecycle.java
 
+  - name: SynchronizationOnLocalVariableOrMethodParameter
+    paths:
+      # The bucket parameter is not a local: it is the per-job Deque held in the recordedEvents
+      # map, always obtained via computeIfAbsent, so every writer and the waiter lock the same
+      # instance. That shared monitor is the point — the probe's wait/notifyAll handshake needs it.
+      - testing/ratchet-tck/api/src/main/java/run/ratchet/tck/api/ListenerProbe.java
+
   - name: OptionalUsedAsFieldOrParameterType
     paths:
       # Schema DSL parameter object; Optional makes absence explicit at the call boundary.

@@ -61,6 +61,13 @@ class DefaultClusterQueryService implements ClusterQueryService {
     this.clock = clock;
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p>{@code totalCount} on the returned page reflects the number of rows returned, not a
+   * cluster-wide total; {@link NodeStore} has no count query. {@code hasMore} signals whether the
+   * roster was capped at {@value #NODE_ROSTER_LIMIT}.
+   */
   @Override
   public JobPage<NodeStatus> getNodes() {
     Instant cutoff = effective().instant().minusSeconds(options.node().orphanGraceSeconds());
@@ -77,7 +84,8 @@ class DefaultClusterQueryService implements ClusterQueryService {
                         !node.getLastHeartbeat().isBefore(cutoff),
                         node.getId().equals(localId)))
             .toList();
-    return new JobPage<>(items, items.size(), NODE_ROSTER_LIMIT, 0, false, null);
+    boolean hasMore = rows.size() >= NODE_ROSTER_LIMIT;
+    return new JobPage<>(items, items.size(), NODE_ROSTER_LIMIT, 0, hasMore, null);
   }
 
   private Clock effective() {

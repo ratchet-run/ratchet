@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -70,6 +71,42 @@ class DefaultClusterQueryServiceTest {
     assertEquals(0, page.offset());
     assertFalse(page.hasMore());
     assertNull(page.nextCursor());
+  }
+
+  @Test
+  void getNodesFlagsHasMoreWhenStoreReturnsFullRoster() {
+    Instant now = Instant.parse("2026-05-12T12:00:00Z");
+    List<NodeEntity> rows = new ArrayList<>();
+    for (int i = 0; i < 1000; i++) {
+      rows.add(node("node-" + i, now));
+    }
+    StubNodeStore store = new StubNodeStore(rows);
+    DefaultClusterQueryService service =
+        new DefaultClusterQueryService(
+            store,
+            () -> "local-node",
+            RatchetOptions.builder().node(node -> node.orphanGraceSeconds(60)).build(),
+            Clock.fixed(now, ZoneOffset.UTC));
+
+    JobPage<NodeStatus> page = service.getNodes();
+
+    assertTrue(page.hasMore(), "roster capped at the limit should signal hasMore");
+  }
+
+  @Test
+  void getNodesDoesNotFlagHasMoreWhenStoreReturnsFewerThanLimit() {
+    Instant now = Instant.parse("2026-05-12T12:00:00Z");
+    StubNodeStore store = new StubNodeStore(List.of(node("only-node", now)));
+    DefaultClusterQueryService service =
+        new DefaultClusterQueryService(
+            store,
+            () -> "local-node",
+            RatchetOptions.builder().node(node -> node.orphanGraceSeconds(60)).build(),
+            Clock.fixed(now, ZoneOffset.UTC));
+
+    JobPage<NodeStatus> page = service.getNodes();
+
+    assertFalse(page.hasMore(), "roster under the limit should not signal hasMore");
   }
 
   private static NodeEntity node(String id, Instant heartbeat) {
