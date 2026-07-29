@@ -16,6 +16,8 @@
 package run.ratchet.spring.boot.autoconfigure;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.context.annotation.Import;
 
 @AutoConfiguration
+@Import(RatchetBeanDefinitionRegistrar.class)
 public class RatchetAutoConfiguration {}
