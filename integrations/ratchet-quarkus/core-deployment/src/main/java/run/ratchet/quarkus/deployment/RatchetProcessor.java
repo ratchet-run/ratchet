@@ -20,7 +20,7 @@ import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.arc.processor.BeanInfo;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
-import io.quarkus.deployment.builditem.ApplicationArchivesBuildItem;
+import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
@@ -28,6 +28,7 @@ import io.quarkus.deployment.builditem.SystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.LambdaCapturingTypeBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageSystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.ReflectiveMethodBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
@@ -38,7 +39,9 @@ import run.ratchet.quarkus.runtime.QuarkusPrincipalSource;
 import run.ratchet.quarkus.runtime.QuarkusRatchetExecutorProvider;
 import run.ratchet.quarkus.runtime.RatchetRuntimeProducers;
 import run.ratchet.quarkus.runtime.RatchetStartupTrigger;
+import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.cdi.RatchetRuntimeStart;
+import run.ratchet.ri.util.JobPlaceholders;
 
 /**
  * Shared build-time wiring for Ratchet Quarkus flavors. Persistence-specific deployment modules add
@@ -119,6 +122,7 @@ class RatchetProcessor {
   @BuildStep
   void nativeMetadata(
       BuildProducer<ReflectiveClassBuildItem> reflective,
+      BuildProducer<ReflectiveMethodBuildItem> reflectiveMethods,
       BuildProducer<RuntimeInitializedClassBuildItem> runtimeInit) {
     // JobPayload (a record) is reconstructed by JSON-B when a claimed job's payload is read back.
     reflective.produce(
@@ -131,25 +135,35 @@ class RatchetProcessor {
     // to stay compilable at --release 17; register it so ExecutorTargets.VIRTUAL works natively.
     reflective.produce(
         ReflectiveClassBuildItem.builder("java.util.concurrent.Executors").methods(true).build());
+    // Framework-created jobs persist these methods as reflective targets.
+    reflectiveMethods.produce(
+        new ReflectiveMethodBuildItem(
+            RecurringMethodInvoker.class.getName(),
+            "invoke",
+            String.class,
+            String.class,
+            boolean.class));
+    reflectiveMethods.produce(
+        new ReflectiveMethodBuildItem(
+            JobPlaceholders.class.getName(), "noop", new String[0]));
     // Static SecureRandom must be created at image runtime, not captured into the image heap.
     runtimeInit.produce(new RuntimeInitializedClassBuildItem("run.ratchet.store.id.UuidV7Factory"));
   }
 
   /**
-   * Register application methods for reflective job execution in native images. Persisted jobs name
-   * their target class, method, and descriptor, so the target may be any class in the application
-   * root or an indexed application dependency and cannot be inferred from the lambda-capturing
-   * class alone.
+   * Register application-root methods for reflective job execution in native images. Persisted jobs
+   * name their target class, method, and descriptor, so the target cannot be inferred from the
+   * lambda-capturing class alone. Limiting automatic registration to the application index
+   * deliberately excludes dependency archives indexed for framework discovery; those archives may
+   * reference optional integrations that are absent from the native image.
    */
   @BuildStep
   void jobTargetMethods(
-      ApplicationArchivesBuildItem applicationArchives,
+      ApplicationIndexBuildItem applicationIndex,
       BuildProducer<ReflectiveClassBuildItem> reflective) {
     String[] applicationClasses =
-        applicationArchives.getAllApplicationArchives().stream()
-            .flatMap(archive -> archive.getIndex().getKnownClasses().stream())
+        applicationIndex.getIndex().getKnownClasses().stream()
             .map(candidate -> candidate.name().toString())
-            .distinct()
             .sorted()
             .toArray(String[]::new);
     if (applicationClasses.length > 0) {
