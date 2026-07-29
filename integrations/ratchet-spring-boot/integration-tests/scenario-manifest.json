@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "scenarios": {
+    "topology": {
+      "bootLanes": [
+        "boot-3.5",
+        "boot-4.1"
+      ],
+      "database": "none",
+      "sharedTckContracts": [],
+      "expectedReports": [
+        {
+          "afterCommand": "compatibility-boot-3.5",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/compatibility/target/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringBootCompatibilitySmokeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringBootCompatibilitySmokeTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "compatibility-boot-4.1",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/compatibility/target/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringBootCompatibilitySmokeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringBootCompatibilitySmokeTest",
+          "minimumExecutedTests": 1
+        }
+      ],
+      "sourceSentinels": [
+        {
+          "kind": "file-exists",
+          "path": "scripts/test-spring-boot-publication-topology.sh"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/compatibility/src/test/java/run/ratchet/spring/boot/it/compatibility/SpringBootCompatibilitySmokeTest.java"
+        }
+      ],
+      "conformanceArtifact": {
+        "applicable": false,
+        "name": null,
+        "path": null
+      },
+      "requiredCiJob": "spring-boot-topology",
+      "commands": [
+        {
+          "id": "publication-topology",
+          "type": "script",
+          "path": "scripts/test-spring-boot-publication-topology.sh",
+          "arguments": [],
+          "producesTests": false
+        },
+        {
+          "id": "compatibility-boot-3.5",
+          "type": "maven",
+          "pom": "integrations/ratchet-spring-boot/integration-tests/compatibility/pom.xml",
+          "profiles": [
+            "boot-3.5"
+          ],
+          "goals": [
+            "clean",
+            "test"
+          ],
+          "lane": "boot-3.5",
+          "producesTests": true
+        },
+        {
+          "id": "compatibility-boot-4.1",
+          "type": "maven",
+          "pom": "integrations/ratchet-spring-boot/integration-tests/compatibility/pom.xml",
+          "profiles": [
+            "boot-4.1"
+          ],
+          "goals": [
+            "clean",
+            "test"
+          ],
+          "lane": "boot-4.1",
+          "producesTests": true
+        }
+      ]
+    }
+  }
+}

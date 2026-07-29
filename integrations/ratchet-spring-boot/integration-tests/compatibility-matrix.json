@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "javaRuntime": 17,
+  "bootLanes": [
+    {
+      "id": "boot-3.5",
+      "version": "3.5.16",
+      "mavenProfile": "boot-3.5",
+      "flavors": [
+        "compatibility"
+      ]
+    },
+    {
+      "id": "boot-4.1",
+      "version": "4.1.0",
+      "mavenProfile": "boot-4.1",
+      "flavors": [
+        "compatibility"
+      ]
+    }
+  ],
+  "flavors": [
+    {
+      "id": "compatibility",
+      "consumerPom": "integrations/ratchet-spring-boot/integration-tests/compatibility/pom.xml",
+      "goals": [
+        "clean",
+        "test"
+      ]
+    }
+  ],
+  "sameJarHashContract": {
+    "algorithm": "SHA-256",
+    "productionBuildCount": 1,
+    "identicalAcrossBootLanes": true,
+    "artifacts": [
+      {
+        "groupId": "run.ratchet",
+        "artifactId": "ratchet-spring-boot-autoconfigure",
+        "packaging": "jar"
+      },
+      {
+        "groupId": "run.ratchet",
+        "artifactId": "ratchet-spring-boot-autoconfigure-jpa",
+        "packaging": "jar"
+      },
+      {
+        "groupId": "run.ratchet",
+        "artifactId": "ratchet-spring-boot-starter",
+        "packaging": "jar"
+      },
+      {
+        "groupId": "run.ratchet",
+        "artifactId": "ratchet-spring-boot-autoconfigure-mongodb",
+        "packaging": "jar"
+      },
+      {
+        "groupId": "run.ratchet",
+        "artifactId": "ratchet-spring-boot-starter-mongodb",
+        "packaging": "jar"
+      },
+      {
+        "groupId": "run.ratchet",
+        "artifactId": "ratchet-spring-boot-aot-spring7",
+        "packaging": "jar"
+      }
+    ]
+  },
+  "hashRecord": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-hashes.json"
+}

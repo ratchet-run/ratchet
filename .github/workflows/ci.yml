@@ -39,6 +39,8 @@ jobs:
         run: scripts/test-materialize-runtime-conformance-reports.sh
       - name: Test release version synchronization
         run: scripts/test-sync-version.sh
+      - name: Test Spring Boot publication topology guard
+        run: scripts/test-test-spring-boot-publication-topology.sh
       - name: Test signed commit request generation
         run: scripts/test-gh-signed-commit.sh
 
@@ -61,6 +63,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
       web: ${{ steps.filter.outputs.web }}
+      spring-boot: ${{ steps.filter.outputs['spring-boot'] }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -83,6 +86,11 @@ jobs:
               - '!LICENSE'
             web:
               - 'website/**'
+            # predicate-quantifier is global and set to 'every', so this must
+            # remain one brace-union pattern rather than separate positive
+            # patterns that no single changed file could match simultaneously.
+            spring-boot:
+              - '{integrations/ratchet-spring-boot/**,ratchet-api/**,ratchet/**,stores/**,testing/ratchet-tck/**,pom.xml,.github/workflows/**,scripts/**}'
 
   build:
     runs-on: ubuntu-latest
@@ -432,6 +440,39 @@ jobs:
       - name: Native smoke test (${{ matrix.db }})
         run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -P${{ matrix.profile }}
 
+  spring-boot-topology:
+    # This job is a required status-check dependency, so it remains present on
+    # every event. Pull requests outside the Spring dependency surface report
+    # an explicit success instead of skipping the job.
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip notice (no Spring Boot topology changes)
+        if: needs.changes.outputs['spring-boot'] == 'false'
+        run: echo "No Spring Boot topology inputs changed — skipping verification."
+
+      - uses: actions/checkout@v7
+        if: needs.changes.outputs['spring-boot'] != 'false'
+
+      - uses: actions/setup-java@v5
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: actions/cache@v6
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        with:
+          path: ~/.m2/repository
+          key: m2-spring-boot-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-spring-boot-
+            m2-
+
+      - name: Verify Spring Boot publication topology and compatibility
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        run: integrations/ratchet-spring-boot/integration-tests/verify.sh topology
+
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
   # on the web filter so it runs whenever anything under website/ changes —
@@ -482,7 +523,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, a11y]
+    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-topology, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

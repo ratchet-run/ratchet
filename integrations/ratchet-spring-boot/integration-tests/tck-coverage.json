@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "schema": {
+    "contractKey": "<source-artifact>:<fully-qualified-contract-class>",
+    "contractEntry": {
+      "sourceArtifact": "ratchet-tck-api | ratchet-tck-store | ratchet-tck-util",
+      "flavors": {
+        "<flavor>": {
+          "status": "covered | unsupported",
+          "scenarios": [
+            "<scenario-name>"
+          ],
+          "rationale": "<required when status is unsupported>"
+        }
+      }
+    }
+  },
+  "contractSources": [
+    "ratchet-tck-api",
+    "ratchet-tck-store",
+    "ratchet-tck-util"
+  ],
+  "contracts": {}
+}
