@@ -288,13 +288,13 @@ class RecurringJobProcessorLeaderGateTest {
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(eq(Set.of("leader-gate-job")), any());
   }
 
-  private static Bean<?> beanFor(Class<?> beanClass) {
+  static Bean<?> beanFor(Class<?> beanClass) {
     var bean = mock(Bean.class);
     when(bean.getBeanClass()).thenReturn(beanClass);
     return bean;
   }
 
-  private static RecurringJobBuilder mockRecurringJobBuilder() {
+  static RecurringJobBuilder mockRecurringJobBuilder() {
     var builder = mock(RecurringJobBuilder.class);
     when(builder.withOptions(any())).thenReturn(builder);
     when(builder.withBusinessKey(any())).thenReturn(builder);
@@ -303,7 +303,7 @@ class RecurringJobProcessorLeaderGateTest {
     return builder;
   }
 
-  private static RecurringJobDefinition recurringDefinition(UUID id, String businessKey) {
+  static RecurringJobDefinition recurringDefinition(UUID id, String businessKey) {
     JobOptions options = JobOptions.defaults();
     return new RecurringJobDefinition(
         id,

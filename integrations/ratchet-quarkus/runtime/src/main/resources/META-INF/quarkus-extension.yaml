@@ -1,0 +1,11 @@
+name: "Ratchet"
+metadata:
+  short-name: "ratchet"
+  keywords: ["scheduler", "jobs", "background", "batch", "cron"]
+  categories: ["miscellaneous"]
+  status: "preview"
+  guide: "https://ratchet.run/deployment/quarkus"
+  codestart:
+    name: "ratchet"
+    languages: ["java"]
+    artifact: "run.ratchet:ratchet-quarkus:codestarts:jar:${project.version}"

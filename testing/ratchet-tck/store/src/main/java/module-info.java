@@ -17,6 +17,8 @@ module run.ratchet.tck.store {
   requires run.ratchet.tck.util;
   requires run.ratchet.api;
   requires run.ratchet.store.core;
+  requires jakarta.cdi;
+  requires jakarta.inject;
   requires jakarta.json;
   requires jakarta.persistence;
   requires jakarta.transaction;
@@ -26,6 +28,9 @@ module run.ratchet.tck.store {
 
   exports run.ratchet.tck.store;
   exports run.ratchet.tck.store.schema;
+
+  opens run.ratchet.tck.store;
+  opens run.ratchet.tck.store.schema;
 
   provides org.junit.platform.launcher.TestExecutionListener with
       run.ratchet.tck.store.ConformanceReportExtension;

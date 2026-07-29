@@ -1,0 +1,14 @@
+name: ratchet-codestart
+ref: ratchet
+type: code
+tags: extension-codestart
+metadata:
+  title: Ratchet
+  description: Persistent, retrying background jobs, submitted as method references.
+  related-guide: https://ratchet.run/deployment/quarkus
+language:
+  base:
+    dependencies:
+      - run.ratchet:ratchet-store-postgresql:${project.version}
+      - io.quarkus:quarkus-jdbc-postgresql
+      - io.quarkus:quarkus-rest

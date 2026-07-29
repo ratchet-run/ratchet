@@ -182,6 +182,24 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
+  public List<NodeEntity> findAllNodes(int limit) {
+    if (limit <= 0) {
+      return List.of();
+    }
+    try {
+      // language=MySQL
+      String sql = "SELECT * FROM scheduler_node ORDER BY heartbeat_ts DESC LIMIT ?";
+      return ctx.em()
+          .createNativeQuery(sql, NodeEntity.class)
+          .setParameter(1, limit)
+          .getResultList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find all nodes", e);
+    }
+  }
+
+  @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     try {
       // language=MySQL

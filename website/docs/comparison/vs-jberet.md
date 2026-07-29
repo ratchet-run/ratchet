@@ -128,7 +128,7 @@ What jBeret does *not* hold over Ratchet (despite the assumption that "Jakarta B
 - **Multi-store including MongoDB.** Jakarta Batch is SQL-only.
 - **Built-in resilience.** Circuit breaker, retry policies with an SPI, dead letter queue, signal-waiting jobs, worker tag affinity. None of these are part of Jakarta Batch.
 - **Operator-level crash recovery.** If jBeret's JobOperator crashes or its JVM dies mid-job, in-flight jobs are stranded in `STARTED` status in the database with no running coordinator. The spec has no automatic recovery mechanism, your application code has to notice the stranded jobs and call `JobOperator.restart()` for each one, and a JVM restart is often the only way to clear the executor pool. Ratchet's design treats the store as the single source of truth: workers claim jobs with a stale-timeout, an `OrphanRecoveryTimer` runs continuously and returns claimed-but-abandoned jobs to `PENDING` automatically, and a worker restart picks the work up from where the previous worker left it without any application-side intervention. The difference determines whether a JVM crash is "annoying" or "outage."
-- **Caller-principal capture.** Ratchet captures `SecurityContext.getCallerPrincipal()` at submission and exposes a `JobAuthorizationPolicy` SPI. Jakarta Batch has no equivalent.
+- **Caller-principal capture.** Ratchet captures the current platform principal at submission and exposes a `JobAuthorizationPolicy` SPI. Jakarta Batch has no equivalent.
 
 ## When to use which
 

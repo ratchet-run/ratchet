@@ -30,6 +30,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.micrometer.MicrometerMetricsCollector;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.tck.api.ListenerProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TckJobs;
 import run.ratchet.tck.jakarta.AbstractTxEnqueueContract;

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-mappings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xmlns="https://jakarta.ee/xml/ns/persistence/orm"
+                 xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence/orm
+                                     https://jakarta.ee/xml/ns/persistence/orm/orm_3_1.xsd"
+                 version="3.1">
+
+  <entity class="run.ratchet.quarkus.it.app.DemoNote">
+    <named-query name="DemoNote.count">
+      <query>select count(n) from DemoNote n</query>
+    </named-query>
+  </entity>
+
+</entity-mappings>

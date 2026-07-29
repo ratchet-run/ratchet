@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.testsuite.tck.clocked;
+package run.ratchet.tck.store.clocked;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -58,6 +58,8 @@ import run.ratchet.store.spi.WorkflowConditionStore;
  * <p>Used by TCK runtimes that need a minimal, in-memory store for a narrow contract — e.g. {@code
  * InMemoryJobStore} for {@code AbstractDelayedSchedulingContract}. Because it implements every
  * capability interface it advertises full capability through {@link JobStore#capability}.
+ *
+ * <p>Published only in ratchet-tck-store's tests classifier.
  */
 public abstract class ThrowingJobStoreBase
     implements JobStore,
@@ -450,6 +452,11 @@ public abstract class ThrowingJobStoreBase
   @Override
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
     return fail("findInactiveNodesSince");
+  }
+
+  @Override
+  public List<NodeEntity> findAllNodes(int limit) {
+    return fail("findAllNodes");
   }
 
   @Override

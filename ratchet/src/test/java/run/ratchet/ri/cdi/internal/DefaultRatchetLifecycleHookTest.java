@@ -18,6 +18,7 @@ package run.ratchet.ri.cdi.internal;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -41,6 +42,7 @@ import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
@@ -115,6 +117,41 @@ class DefaultRatchetLifecycleHookTest {
             "alpha.afterStart",
             "zulu.afterStart"),
         events);
+  }
+
+  @Test
+  void beforeStartHooksRunBeforeDefaultNodeRegistration() {
+    List<String> events = new ArrayList<>();
+    DefaultNodeIdentityProvider nodeIdentityProvider = mock(DefaultNodeIdentityProvider.class);
+    doAnswer(
+            invocation -> {
+              events.add("node.init");
+              return null;
+            })
+        .when(nodeIdentityProvider)
+        .init();
+
+    DefaultRatchetLifecycle lifecycle =
+        new DefaultRatchetLifecycle(
+            mock(Poller.class),
+            mock(RecurringScheduler.class),
+            mock(OrphanRecoveryTimer.class),
+            mock(BatchRecoveryTimer.class),
+            mock(DeadLetterService.class),
+            mock(JobArchivingService.class),
+            mock(LogPurgeTimer.class),
+            mock(PollerWakeupListener.class),
+            executorProviderWithScheduler(),
+            nodeIdentityProvider,
+            mock(DrainController.class),
+            quietOptions(),
+            mock(JobExecutionCoordinator.class),
+            mock(ClusterCoordinator.class),
+            new RecordingInstance<>(List.of(new SuccessfulHook(events))));
+
+    lifecycle.onStartup(new Object());
+
+    assertEquals(List.of("successful.beforeStart", "node.init", "successful.afterStart"), events);
   }
 
   @Test

@@ -55,7 +55,7 @@ This is where the libraries split.
 
 **JobRunr** has first-class starters for Spring Boot, Quarkus, and Micronaut. In a Spring Boot app, `@Autowired private JobScheduler scheduler;` Just Works. Configuration is via `application.properties`. In a vanilla CDI / Jakarta EE app you can still run JobRunr, and 8.7.0 genuinely improved this path: `initialize()` now starts the background server and dashboard lazily and hands you `getBackgroundJobServer()` / `getDashboardWebServer()`, so the servers come up after CDI has booted instead of spinning up mid-configuration. They've published a guide for it, too. But it's still manual wiring: an `@ApplicationScoped` producer calls `JobRunr.configure()...initialize()`, `@Produces` exposes the scheduler, and job beans are resolved through a custom `JobActivator` that does `CDI.current().select(...).get()`. That carries two costs. The first is small: the lookup is service-locator style, and the published sample never calls `Instance.destroy()`, so `@Dependent` job beans leak because their `@PreDestroy` never fires. The second is the architecture itself. JobRunr embeds a self-contained runtime that runs *alongside* your application in the same JVM, not as part of it. Jobs execute on JobRunr's own thread pool rather than a Jakarta-managed executor, so inside a job the container's `@RequestScoped` and `@SessionScoped` contexts aren't active, caller security and JNDI don't propagate, and storage writes commit through raw JDBC instead of container JTA.
 
-**Ratchet** is the inverse. Its engine is a set of managed beans that deploy as part of your application, and it is CDI-native: `@Inject JobSchedulerService scheduler;` works out of the box on WildFly, Payara, Open Liberty, and GlassFish. The bean activator looks up `BeanResolver` through CDI, captures `CallerPrincipal` through `Instance<SecurityContext>`, and registers lifecycle hooks through CDI events. A Spring Boot starter is planned but not shipped.
+**Ratchet** is the inverse. Its engine is a set of managed beans that deploy as part of your application, and it is CDI-native: `@Inject JobSchedulerService scheduler;` works out of the box on WildFly, Payara, Open Liberty, and GlassFish. The bean activator looks up `BeanResolver` through CDI, captures the caller principal through platform `PrincipalSource` beans, and registers lifecycle hooks through CDI events. A Spring Boot starter is planned but not shipped.
 
 The practical implication: if your application is Spring Boot, you will fight Ratchet on integration. If your application is Jakarta EE / CDI, you will fight JobRunr on integration. Pick the one that aligns with your container.
 
@@ -109,7 +109,7 @@ If your organization avoids LGPL, prefers not to evaluate Core-vs-Pro feature ga
 
 ## Caller identity and authorization
 
-Ratchet captures `SecurityContext.getCallerPrincipal()` at job submission time and persists it with the job record. A `JobAuthorizationPolicy` SPI lets you express rules like "users can only cancel jobs they submitted."
+Ratchet captures the current platform principal at job submission time and persists it with the job record. A `JobAuthorizationPolicy` SPI lets you express rules like "users can only cancel jobs they submitted."
 
 JobRunr has no equivalent. If you need to know who submitted a job, you have to pass the identity through as a method argument and trust that it was set correctly. JobRunr Pro has multi-tenancy primitives that overlap with this in spirit, but they are not the same thing.
 

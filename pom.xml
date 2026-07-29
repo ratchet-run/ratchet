@@ -45,6 +45,7 @@
 
   <modules>
     <module>ratchet-api</module>
+    <module>ratchet-security-jakarta</module>
     <module>ratchet</module>
     <module>ratchet-encryption</module>
     <module>stores/ratchet-store-core</module>
@@ -106,9 +107,9 @@
     <jakarta.security.enterprise-api.version>3.0.0</jakarta.security.enterprise-api.version>
     <!--
       jakarta.servlet-api and jakarta.authentication-api are not used directly
-      by ratchet code, but jakarta.security.enterprise-api 4.0.0 (EE 11)
-      uses `requires transitive` for both in its module-info, propagating the
-      module-path requirement to any module that `requires jakarta.security`.
+      by the Jakarta Security carrier, but jakarta.security.enterprise-api 4.0.0
+      (EE 11) uses transitive module requirements for both in its module-info,
+      propagating the module-path requirement to the Jakarta Security carrier.
       Declared as provided deps so the modular compile resolves under both
       EE 10 (where 3.0.0's non-transitive requires made these unnecessary)
       and EE 11.
@@ -368,6 +369,11 @@
       <dependency>
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-api</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-security-jakarta</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

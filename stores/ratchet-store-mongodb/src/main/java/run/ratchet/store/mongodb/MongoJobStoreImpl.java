@@ -553,6 +553,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public List<NodeEntity> findAllNodes(int limit) {
+    return nodeLocks.findAllNodes(limit);
+  }
+
+  @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     return nodeLocks.deleteInactiveNodesSince(cutoff);
   }

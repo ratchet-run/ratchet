@@ -539,6 +539,11 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
+  public List<NodeEntity> findAllNodes(int limit) {
+    return nodeLocks.findAllNodes(limit);
+  }
+
+  @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public int deleteInactiveNodesSince(Instant cutoff) {
     return nodeLocks.deleteInactiveNodesSince(cutoff);

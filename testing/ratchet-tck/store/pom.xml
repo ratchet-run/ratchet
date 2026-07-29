@@ -55,13 +55,17 @@
         </dependency>
         <!--
           jakarta.enterprise.cdi-api is required because ratchet-api's module descriptor declares
-          `requires transitive jakarta.cdi;` (driven by @CircuitBreakerProtected). Provided scope:
-          consumers' container supplies the implementation. Not present in plan v2 — added when the
-          JPMS resolver flagged jakarta.cdi as missing during Phase 2 verification.
+          `requires transitive jakarta.cdi` and the clocked in-memory store is an ApplicationScoped
+          alternative. Provided scope: consumers' container supplies the implementation.
         -->
         <dependency>
             <groupId>jakarta.enterprise</groupId>
             <artifactId>jakarta.enterprise.cdi-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -76,4 +80,30 @@
             <scope>compile</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!--
+              Publishes the clocked in-memory store in the tests classifier so its globally enabled
+              CDI alternative is available to test consumers without shipping in the main TCK jar.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>clocked-test-fixtures</id>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>run/ratchet/tck/store/clocked/**</include>
+                            </includes>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

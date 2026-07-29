@@ -1,0 +1,7 @@
+name: "Ratchet MongoDB store"
+metadata:
+  short-name: "ratchet-mongodb"
+  keywords: ["scheduler", "jobs", "background", "batch", "cron", "mongodb"]
+  categories: ["miscellaneous"]
+  status: "preview"
+  guide: "https://ratchet.run/deployment/quarkus"

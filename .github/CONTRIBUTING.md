@@ -22,6 +22,7 @@ Ratchet currently expects:
 ## Repository Layout
 
 - `ratchet-api`: public API and SPI contracts
+- `ratchet-security-jakarta`: Jakarta Security caller-principal carrier
 - `ratchet`: reference implementation
 - `ratchet-encryption`: payload encryption engines
 - `stores/`: store implementations — `ratchet-store-core` plus the MySQL, PostgreSQL, Oracle, and MongoDB stores

@@ -17,15 +17,16 @@ package run.ratchet.testsuite.tck;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.time.Duration;
 import java.util.Optional;
 import java.util.OptionalLong;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
+import run.ratchet.tck.api.ListenerProbe;
 import run.ratchet.tck.api.RatchetTckProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.RatchetTckRuntimeSupport;
 import run.ratchet.tck.api.TestClock;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
 
@@ -39,15 +40,12 @@ import run.ratchet.testsuite.app.TestCleanupStrategy;
  *   <li>{@code clock()} → {@link Optional#empty()}; the RI is wall-clock-driven today, so {@link
  *       run.ratchet.tck.api.AbstractDelayedSchedulingContract} skips via JUnit assumption.
  *   <li>{@code clear()} → drain-controller-pause + non-destructive {@link
- *       JobExecutorService#awaitIdle(Duration)} + store truncate via {@link TestCleanupStrategy} +
- *       probe reset + drain-controller-resume.
+ *       JobExecutorService#awaitIdle(java.time.Duration)} + store truncate via {@link
+ *       TestCleanupStrategy} + probe reset + drain-controller-resume.
  * </ul>
  */
 @ApplicationScoped
 public class RiRatchetTckRuntime implements RatchetTckRuntime {
-
-  /** Bound on {@link JobExecutorService#awaitIdle(Duration)} during a clear(). */
-  private static final Duration CLEAR_DRAIN_TIMEOUT = Duration.ofSeconds(30);
 
   @Inject private JobSchedulerService scheduler;
   @Inject private ListenerProbe probe;
@@ -83,33 +81,11 @@ public class RiRatchetTckRuntime implements RatchetTckRuntime {
 
   @Override
   public void clear() {
-    clearRuntime(
-        "RiRatchetTckRuntime", drainController, executor, cleanupStrategy::truncateAll, probe);
-  }
-
-  public static void clearRuntime(
-      String runtimeName,
-      DrainController drainController,
-      JobExecutorService executor,
-      Runnable resetStore,
-      ListenerProbe probe) {
-    drainController.setDraining(true);
-    try {
-      boolean idle = executor.awaitIdle(CLEAR_DRAIN_TIMEOUT);
-      if (!idle) {
-        throw new IllegalStateException(
-            runtimeName
-                + ".clear(): executor did not become idle within "
-                + CLEAR_DRAIN_TIMEOUT
-                + " — implementation drain is buggy or a worker is stuck");
-      }
-      resetStore.run();
-      probe.reset();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IllegalStateException("clear() interrupted", e);
-    } finally {
-      drainController.setDraining(false);
-    }
+    RatchetTckRuntimeSupport.clearRuntime(
+        "RiRatchetTckRuntime",
+        drainController::setDraining,
+        executor::awaitIdle,
+        cleanupStrategy::truncateAll,
+        probe::reset);
   }
 }

@@ -27,7 +27,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Inject;
-import jakarta.interceptor.Interceptor;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -228,7 +227,18 @@ public class RecurringJobProcessor {
   }
 
   void onStartup(
-      @Observes @Priority(Interceptor.Priority.APPLICATION) @Initialized(ApplicationScoped.class) Object init) {
+      @Observes
+          @Priority(RatchetRuntimeStart.PRIORITY_RECURRING_REGISTRATION)
+          @Initialized(ApplicationScoped.class) Object init) {
+    // Deferred on build-time-CDI runtimes (e.g. Quarkus), which run this observer during
+    // STATIC_INIT before the EntityManager exists; they drive startup via RatchetRuntimeStart
+    // instead.
+    if (RatchetRuntimeStart.logIfDeferred(
+        log,
+        "@Recurring registration deferred pending RatchetRuntimeStart event; if this runtime"
+            + " never fires that event, recurring jobs will never register")) {
+      return;
+    }
     ScheduledExecutorService scheduler = resolveScheduledExecutor();
     if (scheduler == null) {
       // Plain-CDI / SE / unit tests: no managed executor, and the calling thread already carries a
@@ -245,6 +255,17 @@ public class RecurringJobProcessor {
     // registration to the managed scheduled executor, whose tasks run post-deployment with a proper
     // component context, and retry until every master is confirmed committed.
     scheduleDeferredRegistration(scheduler, 1);
+  }
+
+  void onRuntimeStart(
+      @Observes @Priority(RatchetRuntimeStart.PRIORITY_RECURRING_REGISTRATION)
+          RatchetRuntimeStart event) {
+    ScheduledExecutorService scheduler = resolveScheduledExecutor();
+    if (scheduler == null) {
+      registerRecurringJobs();
+      return;
+    }
+    attemptDeferredRegistration(scheduler, 1);
   }
 
   private ScheduledExecutorService resolveScheduledExecutor() {

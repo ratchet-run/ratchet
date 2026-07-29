@@ -40,11 +40,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
+import org.jboss.logging.Logger;
 
 /**
  * Optional classpath SQL migrator for Ratchet-managed schemas.
@@ -55,7 +57,10 @@ import javax.sql.DataSource;
  */
 public final class SchemaMigrator {
 
+  private static final Logger log = Logger.getLogger(SchemaMigrator.class);
+
   private static final String SINGLE_STATEMENT_DIRECTIVE = "-- ratchet:single-statement";
+  private static final String MIGRATION_INDEX_FILE = "index.txt";
 
   public static final String DEFAULT_MIGRATION_PREFIX = "ddl/migrations";
 
@@ -218,6 +223,15 @@ public final class SchemaMigrator {
    */
   public MigrationResult migrate() throws IOException, SQLException {
     List<MigrationScript> scripts = discoverMigrations();
+    if (scripts.isEmpty()) {
+      throw new SchemaMigrationException(
+          "No Ratchet schema migration scripts were discovered under classpath prefix '"
+              + classpathPrefix
+              + "'. When ratchet.schema.auto-migrate=true, ensure the SQL store migration"
+              + " resources and "
+              + migrationIndexResourceName()
+              + " are on the runtime classpath.");
+    }
     List<MigrationScript> applied = new ArrayList<>();
     List<MigrationScript> skipped = new ArrayList<>();
 
@@ -268,35 +282,114 @@ public final class SchemaMigrator {
   /**
    * Returns migration scripts under the configured classpath prefix, sorted by numeric version.
    *
+   * <p>An {@code index.txt} alongside the scripts is authoritative when present, so native images
+   * can discover scripts through exact resource lookup without enumerating a classpath directory.
+   * File and JAR directories remain enumerable on the JVM and are used to validate the index, or as
+   * the discovery source when a custom migration directory has no index.
+   *
    * @throws IOException if classpath resources cannot be read
    */
   public List<MigrationScript> discoverMigrations() throws IOException {
     Map<String, MigrationScript> scripts = new HashMap<>();
-    Set<String> seenResources = new HashSet<>();
+    Set<String> indexedResources = new HashSet<>();
+    boolean migrationIndexPresent = readMigrationIndexes(indexedResources);
+    Set<String> enumeratedResources = new HashSet<>();
     Enumeration<URL> roots = classLoader.getResources(classpathPrefix);
+    boolean rootFound = false;
+    boolean directoryEnumerationComplete = true;
     while (roots.hasMoreElements()) {
       URL root = roots.nextElement();
-      for (String resourceName : resourceNames(root)) {
-        if (!seenResources.add(resourceName)) {
-          continue;
-        }
-        MigrationScript script = readScript(resourceName);
-        MigrationScript previous = scripts.putIfAbsent(script.version(), script);
-        if (previous != null) {
-          throw new SchemaMigrationException(
-              "Duplicate Ratchet schema migration version "
-                  + script.version()
-                  + ": "
-                  + previous.resourceName()
-                  + " and "
-                  + script.resourceName());
-        }
+      rootFound = true;
+      if (!root.getProtocol().equals("file") && !root.getProtocol().equals("jar")) {
+        directoryEnumerationComplete = false;
+      }
+      enumeratedResources.addAll(resourceNames(root));
+    }
+
+    if (migrationIndexPresent && rootFound && directoryEnumerationComplete) {
+      validateMigrationIndex(indexedResources, enumeratedResources);
+    }
+
+    Set<String> discoveredResources =
+        migrationIndexPresent ? indexedResources : enumeratedResources;
+    for (String resourceName : discoveredResources) {
+      MigrationScript script = readScript(resourceName);
+      MigrationScript previous = scripts.putIfAbsent(script.version(), script);
+      if (previous != null) {
+        throw new SchemaMigrationException(
+            "Duplicate Ratchet schema migration version "
+                + script.version()
+                + ": "
+                + previous.resourceName()
+                + " and "
+                + script.resourceName());
       }
     }
 
     return scripts.values().stream()
         .sorted(Comparator.comparingInt(MigrationScript::numericVersion))
         .toList();
+  }
+
+  private boolean readMigrationIndexes(Set<String> resourceNames) throws IOException {
+    String indexResourceName = migrationIndexResourceName();
+    Enumeration<URL> indexes = classLoader.getResources(indexResourceName);
+    boolean indexPresent = false;
+    while (indexes.hasMoreElements()) {
+      indexPresent = true;
+      URL index = indexes.nextElement();
+      try (InputStream inputStream = index.openStream()) {
+        String contents = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+        int lineNumber = 0;
+        for (String line : contents.lines().toList()) {
+          lineNumber++;
+          String entry = line.strip();
+          if (lineNumber == 1 && entry.startsWith("\uFEFF")) {
+            entry = entry.substring(1).stripLeading();
+          }
+          if (entry.isEmpty() || entry.startsWith("#")) {
+            continue;
+          }
+          if (entry.contains("/") || entry.contains("\\") || !isMigrationResource(entry)) {
+            throw new SchemaMigrationException(
+                "Invalid Ratchet schema migration index entry '"
+                    + entry
+                    + "' at "
+                    + index
+                    + ":"
+                    + lineNumber
+                    + "; entries must be migration file names such as V001__initial_schema.sql");
+          }
+          resourceNames.add(classpathPrefix + "/" + entry);
+        }
+      }
+    }
+    return indexPresent;
+  }
+
+  private String migrationIndexResourceName() {
+    return classpathPrefix + "/" + MIGRATION_INDEX_FILE;
+  }
+
+  private void validateMigrationIndex(
+      Set<String> indexedResources, Set<String> enumeratedResources) {
+    if (indexedResources.equals(enumeratedResources)) {
+      return;
+    }
+
+    Set<String> missingFromIndex = new TreeSet<>(enumeratedResources);
+    missingFromIndex.removeAll(indexedResources);
+    Set<String> missingFromDirectory = new TreeSet<>(indexedResources);
+    missingFromDirectory.removeAll(enumeratedResources);
+    throw new SchemaMigrationException(
+        "Ratchet schema migration index "
+            + migrationIndexResourceName()
+            + " does not match the migration directory"
+            + " (missing from index="
+            + missingFromIndex
+            + ", missing from directory="
+            + missingFromDirectory
+            + ")");
   }
 
   private Connection openLockConnection() throws SQLException {
@@ -386,7 +479,13 @@ public final class SchemaMigrator {
       return switch (root.getProtocol()) {
         case "file" -> fileResourceNames(root);
         case "jar" -> jarResourceNames(root);
-        default -> List.of();
+        default -> {
+          log.warnf(
+              "Cannot enumerate Ratchet schema migration resources for URL protocol '%s' at %s;"
+                  + " using explicit migration index %s when available.",
+              root.getProtocol(), root, migrationIndexResourceName());
+          yield List.of();
+        }
       };
     } catch (URISyntaxException e) {
       throw new IOException("Could not read Ratchet migration resources under " + root, e);

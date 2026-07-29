@@ -8,10 +8,10 @@
   reads byte-swapped from native queries. Raw bytes read identically across every provider.
 
   This file is for EclipseLink (and other non-Hibernate JPA providers) only. Do NOT reference it in
-  a Hibernate-backed deployment: Hibernate maps UUID to BINARY(16) natively on the SQL Server
-  dialect, and Hibernate 7 rejects an AttributeConverter on an @Id attribute
-  (org.hibernate.AnnotationException). On Hibernate, omit this file entirely — no mapping file is
-  needed.
+  a Hibernate-backed deployment: Hibernate rejects an AttributeConverter on an @Id attribute
+  (org.hibernate.AnnotationException). On Hibernate, omit this file and set
+  hibernate.type.preferred_uuid_jdbc_type=BINARY instead, so UUID fields bind as canonical bytes
+  rather than SQL Server UNIQUEIDENTIFIER values.
 
   Production users wiring ratchet-store-sqlserver into a non-Hibernate persistence-unit must
   reference this file from their persistence.xml: <mapping-file>META-INF/orm-sqlserver.xml</mapping-file>.

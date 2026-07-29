@@ -113,6 +113,20 @@ if [[ -n "$PUBLIC_VERSION" ]]; then
   done
 fi
 
+# 1b. Source-built Maven dependency snippets: same anchoring as section 1, but
+#     for artifacts that are NOT published to Maven Central. Readers install
+#     these from a source checkout, so the snippets must show the project
+#     version (SNAPSHOT included) rather than the last published release —
+#     the opposite rule from section 1. Move a file up to PUBLIC_MAVEN_FILES
+#     once its artifact actually ships.
+PROJECT_MAVEN_FILES=(
+  "website/docs/deployment/quarkus.md"   # ratchet-quarkus (unpublished; built from source)
+)
+for f in "${PROJECT_MAVEN_FILES[@]}"; do
+  apply "$f" "project-maven-version" \
+    's{(<groupId>run\.ratchet</groupId>\s*<artifactId>ratchet[A-Za-z0-9-]*</artifactId>\s*<version>)$ENV{PUBLIC_REF_RE}(</version>)}{$1$ENV{VERSION}$2}g'
+done
+
 # 2. Published ratchet-* JAR filenames used by extract-the-DDL snippets.
 #    Oracle and SQL Server are included so future release references cannot
 #    drift when their bundled-JAR instructions are present.

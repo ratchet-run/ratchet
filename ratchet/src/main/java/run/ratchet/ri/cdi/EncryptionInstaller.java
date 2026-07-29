@@ -16,6 +16,7 @@
 package run.ratchet.ri.cdi;
 
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
@@ -97,7 +98,30 @@ public class EncryptionInstaller {
     this.options = options;
   }
 
-  void onStartup(@Observes @Initialized(ApplicationScoped.class) Object event) {
+  void onStartup(
+      @Observes
+          @Priority(RatchetRuntimeStart.PRIORITY_ENCRYPTION_INSTALL)
+          @Initialized(ApplicationScoped.class) Object event) {
+    // Deferred on build-time-CDI runtimes (e.g. Quarkus): resolving node entropy here reaches the
+    // node identity provider (DB + executor) at STATIC_INIT, before the persistence unit exists.
+    // RatchetRuntimeStart drives it at runtime instead, which also yields a real node id for nonce
+    // entropy rather than the degraded fallback.
+    if (RatchetRuntimeStart.logIfDeferred(
+        log,
+        "Encryption install deferred pending RatchetRuntimeStart event; if this runtime never"
+            + " fires that event, encryption will never install")) {
+      return;
+    }
+    install();
+  }
+
+  void onRuntimeStart(
+      @Observes @Priority(RatchetRuntimeStart.PRIORITY_ENCRYPTION_INSTALL)
+          RatchetRuntimeStart event) {
+    install();
+  }
+
+  void install() {
     if (engines == null || keyProvider == null || options == null) {
       return;
     }

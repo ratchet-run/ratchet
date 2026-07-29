@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.testsuite.tck;
+package run.ratchet.tck.api;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -40,16 +40,14 @@ import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
-import run.ratchet.tck.api.ProbeEvent;
-import run.ratchet.tck.api.RatchetTckProbe;
 
 /**
- * RI-side {@link RatchetTckProbe} implementation.
+ * Shared {@link RatchetTckProbe} implementation backed by the scheduler event-listener API.
  *
- * <p>Subscribes to the scheduler's event listener API and projects each lifecycle event for a
- * tracked job into a {@link ProbeEvent}. Implements the buffer-then-promote semantics described on
- * {@link RatchetTckProbe#track(JobHandle)}: events for an as-yet-untracked job id are stashed in a
- * per-id pending buffer and flushed when {@code track} is finally called.
+ * <p>Projects each lifecycle event for a tracked job into a {@link ProbeEvent}. Implements the
+ * buffer-then-promote semantics described on {@link RatchetTckProbe#track(JobHandle)}: events for
+ * an as-yet-untracked job id are stashed in a per-id pending buffer and flushed when {@code track}
+ * is finally called.
  */
 @ApplicationScoped
 public class ListenerProbe implements RatchetTckProbe {
@@ -65,7 +63,7 @@ public class ListenerProbe implements RatchetTckProbe {
   private final Set<UUID> trackedIds = ConcurrentHashMap.newKeySet();
   private final Object stateLock = new Object();
 
-  @Inject private JobSchedulerService scheduler;
+  @Inject JobSchedulerService scheduler;
 
   private Consumer<Object> listener;
 
@@ -83,10 +81,7 @@ public class ListenerProbe implements RatchetTckProbe {
     }
   }
 
-  /**
-   * Drops every recorded handle and clears all buffers. Called by {@code
-   * RiRatchetTckRuntime#clear}.
-   */
+  /** Drops every recorded handle and clears all buffers. */
   public void reset() {
     synchronized (stateLock) {
       trackedIds.clear();
@@ -236,10 +231,10 @@ public class ListenerProbe implements RatchetTckProbe {
   }
 
   /**
-   * Maps RI-specific event types to {@link ProbeEvent.Type}. The RI never fires {@code
-   * JobFailedEvent} for terminal failures — it routes them through {@code JobDlqEvent} after
-   * exhausting retries — so {@code JobDlqEvent} is mapped to FAILED here. A future API-level
-   * implementation that fires {@code JobFailedEvent} directly will also be mapped to FAILED.
+   * Maps scheduler event types to {@link ProbeEvent.Type}. Current runtimes route terminal retry
+   * exhaustion through {@code JobDlqEvent}, so {@code JobDlqEvent} is mapped to FAILED here. A
+   * future API-level implementation that fires {@code JobFailedEvent} directly will also be mapped
+   * to FAILED.
    */
   private static ProbeEvent.Type typeOf(Object event) {
     if (event instanceof JobStartedEvent) return ProbeEvent.Type.STARTED;

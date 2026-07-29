@@ -52,6 +52,14 @@ public interface NodeStore {
   List<NodeEntity> findInactiveNodesSince(Instant cutoff);
 
   /**
+   * Finds persisted nodes. Transaction attribute: {@code SUPPORTS}.
+   *
+   * @param limit maximum number of node rows to return
+   * @return up to {@code limit} node rows ordered by last heartbeat descending; never {@code null}
+   */
+  List<NodeEntity> findAllNodes(int limit);
+
+  /**
    * Deletes inactive node rows. Transaction attribute: {@code REQUIRED}.
    *
    * @param cutoff nodes whose last heartbeat is strictly before this instant are deleted; never

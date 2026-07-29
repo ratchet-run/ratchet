@@ -17,13 +17,13 @@ module run.ratchet.ri {
   requires run.ratchet.api;
   requires run.ratchet.store.core;
   requires run.ratchet.encryption;
+  requires run.ratchet.security.jakarta;
   requires com.cronutils;
   requires jakarta.annotation;
   requires jakarta.cdi;
   requires jakarta.inject;
   requires jakarta.interceptor;
   requires jakarta.json.bind;
-  requires jakarta.security;
   requires jakarta.transaction;
   requires java.management;
   requires java.naming;

@@ -121,6 +121,7 @@ export default defineConfig({
       { text: 'Concepts', link: '/concepts/overview' },
       { text: 'API Reference', link: '/api-reference/overview' },
       { text: 'Deployment', link: '/deployment/overview' },
+      { text: 'Quarkus', link: '/deployment/quarkus' },
       { text: 'Conformance', link: '/conformance/' },
     ],
 
@@ -213,6 +214,7 @@ export default defineConfig({
             { text: 'Runtime setup', link: '/deployment/installation' },
             { text: 'Configuration', link: '/deployment/configuration' },
             { text: 'Configuration reference', link: '/deployment/configuration-reference' },
+            { text: 'Quarkus', link: '/deployment/quarkus' },
             { text: 'Database Setup', link: '/deployment/database-setup' },
             { text: 'Rolling Upgrades', link: '/deployment/rolling-upgrades' },
             { text: 'MySQL', link: '/deployment/mysql' },

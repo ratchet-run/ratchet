@@ -44,6 +44,11 @@
     </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-security-jakarta</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
       <artifactId>ratchet</artifactId>
       <scope>test</scope>
     </dependency>

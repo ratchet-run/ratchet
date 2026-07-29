@@ -23,7 +23,6 @@ import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
-import jakarta.interceptor.Interceptor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -32,6 +31,7 @@ import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RatchetLifecycle;
+import run.ratchet.ri.cdi.RatchetRuntimeStart;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -81,6 +81,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
   private volatile List<SchedulerLifecycleHook> resolvedHooks;
   private volatile List<SchedulerLifecycleHook> startedHooks = List.of();
   private volatile boolean shutdownComplete;
+  private volatile boolean started;
 
   private static final Comparator<SchedulerLifecycleHook> HOOK_ORDER =
       Comparator.comparingInt(DefaultRatchetLifecycle::priorityValue)
@@ -173,11 +174,41 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
 
   void onStartup(
       @Observes
-          @Priority(Interceptor.Priority.APPLICATION + 500)
+          @Priority(RatchetRuntimeStart.PRIORITY_LIFECYCLE_START)
           @Initialized(ApplicationScoped.class) Object init) {
+    // Build-time-CDI runtimes (e.g. Quarkus/ArC) fire @Initialized(ApplicationScoped.class) during
+    // STATIC_INIT, before the JPA persistence unit exists. They set
+    // -Dratchet.lifecycle.defer-auto-start=true and drive start() from a later, post-persistence
+    // event (RatchetRuntimeStart) instead.
+    if (RatchetRuntimeStart.logIfDeferred(
+        log,
+        "Ratchet start deferred pending RatchetRuntimeStart event; if this runtime never fires"
+            + " that event, the engine will never start")) {
+      return;
+    }
+    start();
+  }
+
+  void onRuntimeStart(
+      @Observes @Priority(RatchetRuntimeStart.PRIORITY_LIFECYCLE_START) RatchetRuntimeStart event) {
+    start();
+  }
+
+  public synchronized void start() {
+    if (started) {
+      return;
+    }
+    started = true;
     log.info("Ratchet starting");
     List<SchedulerLifecycleHook> beforeStartSucceeded =
         notifyHooks("beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true);
+
+    // Default node init writes scheduler_node, so it must wait until beforeStart hooks, including
+    // Quarkus auto-migration, have succeeded. If migration fails, init is intentionally skipped
+    // for that boot attempt; running it from a finally block would re-hit the missing-schema
+    // failure. Its one-time orphan recovery and heartbeat upsert are coupled to successful startup,
+    // while cluster peers continue sweeping on their normal orphan-recovery intervals.
+    initializeDefaultNodeIdentityProvider();
 
     ScheduledExecutorService scheduledExecutor = resolveScheduledExecutorForStartup();
     if (scheduledExecutor != null) {
@@ -298,6 +329,12 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       resolvedHooks = List.copyOf(resolved);
     }
     return resolvedHooks;
+  }
+
+  private void initializeDefaultNodeIdentityProvider() {
+    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
+      defaultProvider.init();
+    }
   }
 
   private List<SchedulerLifecycleHook> notifyHooks(

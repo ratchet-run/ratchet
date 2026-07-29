@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.testsuite.tck.clocked;
+package run.ratchet.tck.store.clocked;
 
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -52,6 +52,12 @@ import run.ratchet.store.spi.ExecutionTargetFilter;
  * rather than wall-clock {@code Instant.now()}, so a {@code SteppingTestClock} can
  * deterministically advance the eligibility horizon.
  */
+// @Priority is what enables this alternative on some app servers even though
+// testing/ratchet-testsuite/src/test/resources/beans-clocked.xml also lists it under
+// <alternatives> (belt and suspenders, per that file's own comment: "Do NOT rely on @Priority
+// alone"). A prior refactor moved this class here and silently dropped @Priority, which broke
+// RiDelayedSchedulingIT across the whole app-server matrix. Keep both mechanisms in sync.
+// This class ships only in ratchet-tck-store's tests classifier.
 @ApplicationScoped
 @Alternative
 @Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION + 100)
@@ -70,7 +76,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     this.clock = clock;
   }
 
-  /** Resets all stored state. Called from {@code RiClockedTckRuntime.clear()}. */
+  /** Resets all stored state. Called from clocked TCK runtimes. */
   public synchronized void reset() {
     jobs.clear();
     executions.clear();
@@ -460,6 +466,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized List<run.ratchet.store.entity.NodeEntity> findInactiveNodesSince(
       java.time.Instant cutoff) {
+    return Collections.emptyList();
+  }
+
+  @Override
+  public synchronized List<run.ratchet.store.entity.NodeEntity> findAllNodes(int limit) {
     return Collections.emptyList();
   }
 

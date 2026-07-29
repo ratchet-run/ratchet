@@ -26,6 +26,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.spi.ExecutorProvider;
 
@@ -39,11 +41,14 @@ import run.ratchet.spi.ExecutorProvider;
 @ApplicationScoped
 public class StandaloneExecutorProvider implements ExecutorProvider {
 
-  private final ExecutorService jobExecutor =
-      Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job"));
-  private final ScheduledExecutorService scheduledExecutor =
-      Executors.newScheduledThreadPool(2, namedThreadFactory("ratchet-standalone-scheduler"));
+  // Pools are created lazily on first use, not in field initializers. Eager creation makes the
+  // bean construction start OS threads; under a build-time-CDI runtime (Quarkus native) the bean is
+  // instantiated during image build and a live thread would be captured into the image heap
+  // ("Detected a started Thread in the image heap"). Lazy creation keeps construction inert.
+  private volatile ExecutorService jobExecutor;
+  private volatile ScheduledExecutorService scheduledExecutor;
   private volatile ExecutorService virtualJobExecutor;
+  private volatile boolean closed;
 
   private static void shutdown(ExecutorService executor) {
     executor.shutdown();
@@ -78,7 +83,14 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
 
   @Override
   public ExecutorService getJobExecutor() {
-    return jobExecutor;
+    ExecutorService value = jobExecutor;
+    if (value != null) {
+      return value;
+    }
+    return lazyInit(
+        () -> jobExecutor,
+        v -> jobExecutor = v,
+        () -> Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job")));
   }
 
   @Override
@@ -93,31 +105,69 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   }
 
   private ExecutorService virtualJobExecutor() {
-    ExecutorService executor = virtualJobExecutor;
-    if (executor == null) {
-      synchronized (this) {
-        executor = virtualJobExecutor;
-        if (executor == null) {
-          executor = newVirtualThreadExecutor();
-          virtualJobExecutor = executor;
-        }
-      }
+    ExecutorService value = virtualJobExecutor;
+    if (value != null) {
+      return value;
     }
-    return executor;
+    return lazyInit(
+        () -> virtualJobExecutor,
+        v -> virtualJobExecutor = v,
+        StandaloneExecutorProvider::newVirtualThreadExecutor);
   }
 
   @Override
   public ScheduledExecutorService getScheduledExecutor() {
-    return scheduledExecutor;
+    ScheduledExecutorService value = scheduledExecutor;
+    if (value != null) {
+      return value;
+    }
+    return lazyInit(
+        () -> scheduledExecutor,
+        v -> scheduledExecutor = v,
+        () ->
+            Executors.newScheduledThreadPool(
+                2, namedThreadFactory("ratchet-standalone-scheduler")));
+  }
+
+  /**
+   * Double-checked-locking memoizer shared by the three pool getters: a volatile read outside the
+   * lock avoids synchronizing on every call after first init, {@code ensureOpen()} runs only on the
+   * construction path so a pool never gets created after {@link #shutdown()}.
+   */
+  private <T> T lazyInit(Supplier<T> getter, Consumer<T> setter, Supplier<T> factory) {
+    T value = getter.get();
+    if (value == null) {
+      synchronized (this) {
+        value = getter.get();
+        if (value == null) {
+          ensureOpen();
+          value = factory.get();
+          setter.accept(value);
+        }
+      }
+    }
+    return value;
   }
 
   @PreDestroy
-  void shutdown() {
-    shutdown(jobExecutor);
-    ExecutorService virtualExecutor = virtualJobExecutor;
-    if (virtualExecutor != null) {
-      shutdown(virtualExecutor);
+  synchronized void shutdown() {
+    // Set before shutting the pools down so a concurrent lazy getter (which locks on this) cannot
+    // resurrect a pool after @PreDestroy and leak its threads.
+    closed = true;
+    shutdownIfPresent(jobExecutor);
+    shutdownIfPresent(virtualJobExecutor);
+    shutdownIfPresent(scheduledExecutor);
+  }
+
+  private void ensureOpen() {
+    if (closed) {
+      throw new IllegalStateException("StandaloneExecutorProvider is shut down");
     }
-    shutdown(scheduledExecutor);
+  }
+
+  private static void shutdownIfPresent(ExecutorService executor) {
+    if (executor != null) {
+      shutdown(executor);
+    }
   }
 }

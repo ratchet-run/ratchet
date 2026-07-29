@@ -24,6 +24,11 @@
             </dependency>
             <dependency>
                 <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-security-jakarta</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
                 <artifactId>ratchet</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -110,6 +115,12 @@
                 <groupId>run.ratchet</groupId>
                 <artifactId>ratchet-tck-store</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-tck-store</artifactId>
+                <version>${project.version}</version>
+                <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>run.ratchet</groupId>

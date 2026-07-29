@@ -8,6 +8,10 @@ description: Add Ratchet to your Maven project with the BOM, choose your store m
 
 Ratchet is distributed as a set of Maven modules. You pick the modules you need, import the BOM for version alignment, and apply the database schema. This page walks through each step.
 
+:::tip Looking for Quarkus?
+This page covers the Jakarta EE setup. On Quarkus, the `ratchet-quarkus` extension supplies the persistence unit and applies the schema for you, so the steps are different. Jump to [Quarkus Deployment](/deployment/quarkus).
+:::
+
 ## Maven BOM setup
 
 The Bill of Materials (BOM) ensures all Ratchet modules use the same version. Import it in your `<dependencyManagement>` section:

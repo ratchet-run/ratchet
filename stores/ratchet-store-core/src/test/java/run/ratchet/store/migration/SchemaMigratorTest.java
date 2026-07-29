@@ -29,13 +29,19 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.inject.Instance;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.net.URL;
+import java.net.URLConnection;
+import java.net.URLStreamHandler;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
@@ -84,6 +90,28 @@ class SchemaMigratorTest {
     return new SchemaMigrator(dataSource, dialect, classpathPrefix);
   }
 
+  private static ClassLoader resourceProtocolClassLoader(String classpathPrefix) throws Exception {
+    URL resourceRoot =
+        new URL(
+            null,
+            "resource:/" + classpathPrefix,
+            new URLStreamHandler() {
+              @Override
+              protected URLConnection openConnection(URL url) {
+                throw new UnsupportedOperationException("Directory URL must not be opened");
+              }
+            });
+    return new ClassLoader(SchemaMigratorTest.class.getClassLoader()) {
+      @Override
+      public Enumeration<URL> getResources(String name) throws IOException {
+        if (name.equals(classpathPrefix)) {
+          return Collections.enumeration(List.of(resourceRoot));
+        }
+        return super.getResources(name);
+      }
+    };
+  }
+
   @BeforeEach
   void setUp() throws Exception {
     dataSource = mock(DataSource.class);
@@ -129,6 +157,61 @@ class SchemaMigratorTest {
     verify(connection, times(2)).commit();
     assertEquals(1, dialect.acquireCount());
     assertEquals(1, dialect.releaseCount());
+  }
+
+  @Test
+  void discoversIndexedMigrationsWhenDirectoryUsesNativeResourceProtocol() throws Exception {
+    SchemaMigrator migrator =
+        new SchemaMigrator(
+            dataSource, dialect, "schema-migrator", resourceProtocolClassLoader("schema-migrator"));
+
+    List<SchemaMigrator.MigrationScript> scripts = migrator.discoverMigrations();
+
+    assertEquals(List.of("001", "002"), scripts.stream().map(s -> s.version()).toList());
+  }
+
+  @Test
+  void failsBeforeConnectingWhenNoMigrationScriptsAreDiscovered() throws Exception {
+    SchemaMigrationException ex =
+        assertThrows(
+            SchemaMigrationException.class, () -> migrator("schema-migrator-empty").migrate());
+
+    assertTrue(ex.getMessage().contains("No Ratchet schema migration scripts were discovered"));
+    assertTrue(ex.getMessage().contains("schema-migrator-empty/index.txt"));
+    verify(dataSource, never()).getConnection();
+  }
+
+  @Test
+  void autoMigrationFailsLoudlyWhenNoMigrationScriptsAreDiscovered() throws Exception {
+    @SuppressWarnings("unchecked")
+    Instance<DataSource> dataSources = mock(Instance.class);
+    when(dataSources.isUnsatisfied()).thenReturn(false);
+    when(dataSources.isAmbiguous()).thenReturn(false);
+    when(dataSources.get()).thenReturn(dataSource);
+
+    @SuppressWarnings("unchecked")
+    Instance<SchemaMigrationDialect> dialects = mock(Instance.class);
+    when(dialects.isUnsatisfied()).thenReturn(false);
+    when(dialects.iterator()).thenReturn(List.<SchemaMigrationDialect>of(dialect).iterator());
+
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .schema(
+                schema ->
+                    schema
+                        .autoMigrate(true)
+                        .migrationDialect("stub")
+                        .migrationPrefix("schema-migrator-empty"))
+            .build();
+    SchemaMigrationLifecycleHook hook =
+        new SchemaMigrationLifecycleHook(options, dataSources, dialects);
+
+    SchemaInitializationException ex =
+        assertThrows(SchemaInitializationException.class, hook::beforeStart);
+
+    assertTrue(ex.getMessage().contains("No Ratchet schema migration scripts were discovered"));
+    assertTrue(ex.getMessage().contains("schema-migrator-empty/index.txt"));
+    verify(dataSource, never()).getConnection();
   }
 
   @Test
@@ -253,12 +336,14 @@ class SchemaMigratorTest {
   }
 
   @Test
-  void surfacesReleaseLockFailureAfterMigrationWorkCompletes() {
+  void surfacesReleaseLockFailureAfterMigrationWorkCompletes() throws Exception {
+    ResultSet firstMissingVersion = missingVersion();
+    ResultSet secondMissingVersion = missingVersion();
+    when(selectVersion.executeQuery()).thenReturn(firstMissingVersion, secondMissingVersion);
     dialect.failReleaseWith(new java.sql.SQLException("Failed to release schema migration lock"));
 
     java.sql.SQLException ex =
-        assertThrows(
-            java.sql.SQLException.class, () -> migrator("schema-migrator-empty").migrate());
+        assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
 
     assertTrue(ex.getMessage().contains("Failed to release schema migration lock"));
     assertEquals(1, dialect.releaseCount());
@@ -305,7 +390,7 @@ class SchemaMigratorTest {
                     schema
                         .autoMigrate(true)
                         .migrationDialect("mysql")
-                        .migrationPrefix("schema-migrator-empty"))
+                        .migrationPrefix("schema-migrator"))
             .build();
     SchemaMigrationLifecycleHook hook =
         new SchemaMigrationLifecycleHook(options, dataSources, dialects);

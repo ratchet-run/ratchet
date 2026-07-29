@@ -1,0 +1,9 @@
+name: "Ratchet Runtime"
+description: "Shared Ratchet runtime wiring and the Dev UI jobs and cluster views, used by the persistence-specific store flavors."
+metadata:
+  short-name: "ratchet-runtime"
+  keywords: ["scheduler", "jobs", "background", "cron"]
+  categories: ["miscellaneous"]
+  status: "preview"
+  unlisted: true
+  guide: "https://ratchet.run/deployment/quarkus"

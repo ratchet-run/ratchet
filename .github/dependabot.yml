@@ -3,9 +3,13 @@ version: 2
 # Dependabot configuration for Ratchet.
 #
 # Two ecosystems are watched:
-#   * maven           — every reactor pom + the four ratchet-tck submodules.
-#                       Listed individually because each module declares at
-#                       least some dependencies of its own.
+#   * maven           — every reactor pom + the four ratchet-tck submodules,
+#                       plus the standalone integrations/ratchet-quarkus
+#                       reactor. Listed individually because each module
+#                       declares at least some dependencies of its own.
+#                       ratchet-quarkus is a separate reactor with its own
+#                       parent (not a root <module>), so it is not reachable
+#                       from / and has to be enumerated on its own.
 #   * github-actions  — every reusable action pinned in .github/workflows/.
 #
 # Two dependency families are *ignored* on purpose:
@@ -23,6 +27,7 @@ updates:
     directories:
       - /
       - /ratchet-api
+      - /ratchet-security-jakarta
       - /ratchet
       - /stores/ratchet-store-core
       - /stores/ratchet-store-mysql
@@ -47,6 +52,14 @@ updates:
       - /observability/ratchet-otel
       - /ratchet-bom
       - /testing/ratchet-coverage
+      - /integrations/ratchet-quarkus
+      - /integrations/ratchet-quarkus/core
+      - /integrations/ratchet-quarkus/core-deployment
+      - /integrations/ratchet-quarkus/runtime
+      - /integrations/ratchet-quarkus/deployment
+      - /integrations/ratchet-quarkus/mongodb
+      - /integrations/ratchet-quarkus/mongodb-deployment
+      - /integrations/ratchet-quarkus/integration-tests
     schedule:
       interval: daily
     open-pull-requests-limit: 20

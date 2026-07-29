@@ -136,7 +136,7 @@ These are not separate dependencies. They are part of the scheduler.
 
 ## Identity and authorization
 
-In Jakarta EE 10, `SecurityContext.getCallerPrincipal()` tells you who is logged in. Ratchet captures that principal at the moment a job is submitted and persists it with the job record. Two things follow:
+In Jakarta EE 10, `SecurityContext.getCallerPrincipal()` tells you who is logged in. Ratchet captures that platform principal at the moment a job is submitted and persists it with the job record. Two things follow:
 
 1. The submitting principal is captured and persisted with the job. The executor thread does not re-establish that caller's Subject, so job bodies run with no live `CallerPrincipal`. The captured principal is for owner-based authorization, not re-authentication: a `JobAuthorizationPolicy.checkExecute` hook can deny execution by captured owner (for example, when an account is deactivated after submission).
 2. A `JobAuthorizationPolicy` SPI lets you write rules like "this user can cancel jobs they submitted, an admin can cancel any job."

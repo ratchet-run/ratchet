@@ -92,13 +92,22 @@
       The Jpa* test helpers (src/main) reference the SqlDialectTestSupport interface, which lives in
       ratchet-tck-store next to DialectTypeMapper. provided keeps tck-store (and its JUnit deps) off
       the WAR; RatchetArchiveBuilder bundles just the interface plus the active store's ServiceLoader
-      implementation. The per-store implementations are pulled in via the test-jar dependencies under
-      each db profile below.
+      implementation. The tests-classifier dependency supplies the clocked store only to test
+      compilation; RiDelayedSchedulingIT adds those classes directly to its isolated deployment. The
+      per-store implementations are pulled in via the test-jar dependencies under each db profile
+      below.
     -->
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-tck-store</artifactId>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-store</artifactId>
+      <version>${project.version}</version>
+      <type>test-jar</type>
+      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>

@@ -16,6 +16,7 @@
 package run.ratchet.testsuite.tck;
 
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import run.ratchet.tck.api.ListenerProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TckJobs;
 import run.ratchet.tck.util.ConcurrentTestRunner;
