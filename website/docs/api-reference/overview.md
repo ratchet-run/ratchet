@@ -18,6 +18,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 |---|---|---|
 | [`JobSchedulerService`](./job-scheduler-service) | Interface | Primary entry point for scheduling, canceling, pausing, and retrying jobs |
 | [`JobQueryService`](./job-query-service) | Interface | Read-only dashboards/admin API for job lists, detail views, history, and queue health |
+| `ClusterQueryService` | Interface | Read-only sibling of `JobQueryService` for observing the scheduler node roster |
 | [`JobBuilder`](./job-builder) | Interface | Fluent builder for configuring individual jobs before submission |
 | [`RecurringJobBuilder`](./job-scheduler-service#schedulerecurring) | Interface | Builder for configuring recurring (cron-based) jobs |
 | [`BatchBuilder`](./batch-builder) | Interface | Builder for in-memory batch processing of collections |
@@ -30,6 +31,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | `JobFilter` | Record | Immutable query criteria for list/search operations |
 | `JobPage<T>` | Record | Page metadata and cursor returned by query operations |
 | `JobSummary` / `JobDetail` | Records | Lightweight and full read-only job projections |
+| `NodeStatus` | Record | Point-in-time view of a scheduler node's heartbeat state, liveness, and identity |
 | [`WorkflowCondition`](./workflow-condition) | Record | Defines conditions for workflow branching (success, failure, custom, batch) |
 | [`WorkflowBranch`](./workflow-condition#workflowbranch) | Record | Pairs a condition with a task and optional description |
 | [`BatchContext`](./batch-context) | Record | Progress snapshot for batch jobs (total, completed, failed items) |

@@ -16,6 +16,18 @@ This is a complete dev application. In dev mode Quarkus provisions a throwaway P
 for you, and Ratchet creates its own schema on startup, so there is nothing to install first. You
 need JDK 21 and a running Docker (or Podman) for Dev Services.
 
+:::warning Not yet on Maven Central
+The `ratchet-quarkus` extension is validated on the JVM and as a native image, but it has not been
+published yet. The coordinates below will not resolve from Maven Central. Build and install it from
+a source checkout first:
+
+```bash
+mvn -f integrations/ratchet-quarkus/pom.xml install
+```
+
+Everything else on this page works against that locally installed build.
+:::
+
 **1. Dependencies.** The extension brings the engine and Hibernate ORM with it; add a store and the
 matching Quarkus JDBC driver.
 

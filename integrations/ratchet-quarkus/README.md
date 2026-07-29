@@ -92,10 +92,20 @@ only one, and there is no default unit to protect.
 
 ## Schema
 
-Ratchet does not create its tables. Apply the DDL before the first run. Each store ships a
-consolidated script and per-version migrations under
-`src/main/resources/ddl/`, for example `ddl/postgresql-schema.sql`. Apply it with whatever you
-already use: Flyway, Liquibase, or plain `psql`.
+Ratchet does not create its tables by default. You have two options.
+
+For development, CI, and embedded use, set `ratchet.schema.auto-migrate=true` and Ratchet applies
+its bundled migrations on startup — this is what `examples/quarkus` does, and it works in native
+images as well:
+
+```properties
+ratchet.schema.auto-migrate=true
+```
+
+For production, many teams prefer to apply schema changes out of band and leave `auto-migrate` off.
+Each store ships a consolidated script and per-version migrations under `src/main/resources/ddl/`,
+for example `ddl/postgresql-schema.sql`. Apply it with whatever you already use: Flyway, Liquibase,
+or plain `psql`.
 
 ## Submitting jobs
 
