@@ -303,7 +303,7 @@ class RecurringJobProcessorLeaderGateTest {
     return builder;
   }
 
-  private static RecurringJobDefinition recurringDefinition(UUID id, String businessKey) {
+  static RecurringJobDefinition recurringDefinition(UUID id, String businessKey) {
     JobOptions options = JobOptions.defaults();
     return new RecurringJobDefinition(
         id,

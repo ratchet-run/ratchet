@@ -260,7 +260,12 @@ public class RecurringJobProcessor {
   void onRuntimeStart(
       @Observes @Priority(RatchetRuntimeStart.PRIORITY_RECURRING_REGISTRATION)
           RatchetRuntimeStart event) {
-    registerRecurringJobs();
+    ScheduledExecutorService scheduler = resolveScheduledExecutor();
+    if (scheduler == null) {
+      registerRecurringJobs();
+      return;
+    }
+    attemptDeferredRegistration(scheduler, 1);
   }
 
   private ScheduledExecutorService resolveScheduledExecutor() {
