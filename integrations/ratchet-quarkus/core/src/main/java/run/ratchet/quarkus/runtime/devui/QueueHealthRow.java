@@ -15,7 +15,6 @@
  */
 package run.ratchet.quarkus.runtime.devui;
 
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import run.ratchet.api.QueueHealthSnapshot;
@@ -56,17 +55,13 @@ public record QueueHealthRow(
         snapshot.retryRate(),
         snapshot.avgProcessingTimeMs(),
         snapshot.p95QueueWaitMs(),
-        instantToString(snapshot.oldestPendingJobTime()),
+        DevUiFormat.instantToString(snapshot.oldestPendingJobTime()),
         stringifyKeys(snapshot.pendingByType()),
         stringifyKeys(snapshot.pendingByPriority()));
   }
 
   static QueueHealthRow empty() {
     return new QueueHealthRow(0, 0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0, null, Map.of(), Map.of());
-  }
-
-  private static String instantToString(Instant instant) {
-    return instant == null ? null : instant.toString();
   }
 
   private static Map<String, Long> stringifyKeys(Map<?, Long> values) {

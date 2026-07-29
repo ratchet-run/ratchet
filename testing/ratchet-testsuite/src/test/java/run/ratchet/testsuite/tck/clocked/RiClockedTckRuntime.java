@@ -21,11 +21,12 @@ import java.util.Optional;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
+import run.ratchet.tck.api.ListenerProbe;
 import run.ratchet.tck.api.RatchetTckProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.RatchetTckRuntimeSupport;
 import run.ratchet.tck.api.TestClock;
-import run.ratchet.testsuite.tck.ListenerProbe;
-import run.ratchet.testsuite.tck.RiRatchetTckRuntime;
+import run.ratchet.tck.store.clocked.InMemoryJobStore;
 
 /**
  * RI-side {@link RatchetTckRuntime} variant that exposes a {@link TestClock} and reset semantics
@@ -59,7 +60,11 @@ public class RiClockedTckRuntime implements RatchetTckRuntime {
 
   @Override
   public void clear() {
-    RiRatchetTckRuntime.clearRuntime(
-        "RiClockedTckRuntime", drainController, executor, inMemoryJobStore::reset, probe);
+    RatchetTckRuntimeSupport.clearRuntime(
+        "RiClockedTckRuntime",
+        drainController::setDraining,
+        executor::awaitIdle,
+        inMemoryJobStore::reset,
+        probe::reset);
   }
 }

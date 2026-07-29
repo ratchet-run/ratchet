@@ -15,17 +15,15 @@
  */
 package run.ratchet.quarkus.runtime.devui;
 
-import java.time.Instant;
 import run.ratchet.api.NodeStatus;
 
 public record NodeRow(String nodeId, boolean active, boolean local, String lastHeartbeat) {
 
   static NodeRow from(NodeStatus status) {
     return new NodeRow(
-        status.nodeId(), status.active(), status.local(), instantToString(status.lastHeartbeat()));
-  }
-
-  private static String instantToString(Instant instant) {
-    return instant == null ? null : instant.toString();
+        status.nodeId(),
+        status.active(),
+        status.local(),
+        DevUiFormat.instantToString(status.lastHeartbeat()));
   }
 }

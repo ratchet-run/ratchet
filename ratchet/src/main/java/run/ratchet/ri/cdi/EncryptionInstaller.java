@@ -22,7 +22,6 @@ import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
-import jakarta.interceptor.Interceptor;
 import java.util.List;
 import java.util.Optional;
 import org.jboss.logging.Logger;
@@ -101,7 +100,7 @@ public class EncryptionInstaller {
 
   void onStartup(
       @Observes
-          @Priority(Interceptor.Priority.APPLICATION + 499)
+          @Priority(RatchetRuntimeStart.PRIORITY_ENCRYPTION_INSTALL)
           @Initialized(ApplicationScoped.class) Object event) {
     // Deferred on build-time-CDI runtimes (e.g. Quarkus): resolving node entropy here reaches the
     // node identity provider (DB + executor) at STATIC_INIT, before the persistence unit exists.
@@ -117,9 +116,8 @@ public class EncryptionInstaller {
   }
 
   void onRuntimeStart(
-      @Observes @Priority(Interceptor.Priority.APPLICATION + 499) RatchetRuntimeStart event) {
-    // Install encryption before DefaultRatchetLifecycle (APPLICATION + 500) starts the poller, so a
-    // pending encrypted job is never claimed before the engine is installed.
+      @Observes @Priority(RatchetRuntimeStart.PRIORITY_ENCRYPTION_INSTALL)
+          RatchetRuntimeStart event) {
     install();
   }
 

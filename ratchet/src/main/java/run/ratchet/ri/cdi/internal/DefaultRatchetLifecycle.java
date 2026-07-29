@@ -23,7 +23,6 @@ import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
-import jakarta.interceptor.Interceptor;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -175,7 +174,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
 
   void onStartup(
       @Observes
-          @Priority(Interceptor.Priority.APPLICATION + 500)
+          @Priority(RatchetRuntimeStart.PRIORITY_LIFECYCLE_START)
           @Initialized(ApplicationScoped.class) Object init) {
     // Build-time-CDI runtimes (e.g. Quarkus/ArC) fire @Initialized(ApplicationScoped.class) during
     // STATIC_INIT, before the JPA persistence unit exists. They set
@@ -191,7 +190,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
   }
 
   void onRuntimeStart(
-      @Observes @Priority(Interceptor.Priority.APPLICATION + 500) RatchetRuntimeStart event) {
+      @Observes @Priority(RatchetRuntimeStart.PRIORITY_LIFECYCLE_START) RatchetRuntimeStart event) {
     start();
   }
 

@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.security.enterprise.AuthenticationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.DoNotRetry;
@@ -65,7 +66,7 @@ class DoNotRetryPolicyTest {
 
   @Test
   void shouldNotRetry_authenticationException_returnsTrue() {
-    assertTrue(policy.shouldNotRetry(authenticationException("bad credentials")));
+    assertTrue(policy.shouldNotRetry(new AuthenticationException("bad credentials")));
   }
 
   @Test
@@ -121,15 +122,4 @@ class DoNotRetryPolicyTest {
   }
 
   private static final class UnannotatedBusinessException extends AnnotatedBusinessException {}
-
-  private static RuntimeException authenticationException(String message) {
-    try {
-      return (RuntimeException)
-          Class.forName("jakarta.security.enterprise.AuthenticationException")
-              .getConstructor(String.class)
-              .newInstance(message);
-    } catch (ReflectiveOperationException e) {
-      throw new AssertionError(e);
-    }
-  }
 }

@@ -17,17 +17,32 @@ package run.ratchet.quarkus.deployment;
 
 import io.smallrye.config.SmallRyeConfigBuilder;
 import io.smallrye.config.SmallRyeConfigBuilderCustomizer;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /** Supplies build-time Hibernate ORM defaults for Ratchet's SQL persistence unit. */
 public final class RatchetHibernateOrmDefaults implements SmallRyeConfigBuilderCustomizer {
 
+  private static final List<String> BASE_PACKAGES =
+      List.of(
+          "run.ratchet.store.entity",
+          "run.ratchet.store.converter",
+          "run.ratchet.store.id");
+
+  private static final String RATCHET_PACKAGES =
+      Stream.concat(
+              BASE_PACKAGES.stream(),
+              RatchetSqlProcessor.SQL_STORE_ARTIFACTS.stream()
+                  .map(RatchetSqlProcessor.SqlStoreArtifact::converterPackage)
+                  .filter(Objects::nonNull))
+          .collect(Collectors.joining(","));
+
   private static final Map<String, String> DEFAULTS =
       Map.of(
-          "quarkus.hibernate-orm.\"ratchet\".packages",
-              "run.ratchet.store.entity,run.ratchet.store.converter,run.ratchet.store.id,"
-                  + "run.ratchet.store.mysql.converter,run.ratchet.store.oracle.converter,"
-                  + "run.ratchet.store.sqlserver.converter",
+          "quarkus.hibernate-orm.\"ratchet\".packages", RATCHET_PACKAGES,
           "quarkus.hibernate-orm.\"ratchet\".datasource", "<default>",
           "quarkus.hibernate-orm.\"ratchet\".database.generation", "none",
           "quarkus.hibernate-orm.\"ratchet\".validate-in-dev-mode", "false",

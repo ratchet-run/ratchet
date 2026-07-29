@@ -17,25 +17,24 @@ package run.ratchet.quarkus.it.tck;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.time.Duration;
 import java.util.Optional;
 import java.util.OptionalLong;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
+import run.ratchet.tck.api.ListenerProbe;
 import run.ratchet.tck.api.RatchetTckProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.RatchetTckRuntimeSupport;
 import run.ratchet.tck.api.TestClock;
 
 /** Quarkus {@link RatchetTckRuntime} bridge for the public-API TCK contracts. */
 @ApplicationScoped
 public class QuarkusRatchetTckRuntime implements RatchetTckRuntime {
 
-  private static final Duration CLEAR_DRAIN_TIMEOUT = Duration.ofSeconds(30);
-
   @Inject JobSchedulerService scheduler;
-  @Inject QuarkusRatchetTckProbe probe;
+  @Inject ListenerProbe probe;
   @Inject DrainController drainController;
   @Inject JobExecutorService executor;
   @Inject QuarkusTckStoreCleaner storeCleaner;
@@ -68,21 +67,11 @@ public class QuarkusRatchetTckRuntime implements RatchetTckRuntime {
 
   @Override
   public void clear() {
-    drainController.setDraining(true);
-    try {
-      boolean idle = executor.awaitIdle(CLEAR_DRAIN_TIMEOUT);
-      if (!idle) {
-        throw new IllegalStateException(
-            "QuarkusRatchetTckRuntime.clear(): executor did not become idle within "
-                + CLEAR_DRAIN_TIMEOUT);
-      }
-      storeCleaner.truncateAll();
-      probe.reset();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IllegalStateException("clear() interrupted", e);
-    } finally {
-      drainController.setDraining(false);
-    }
+    RatchetTckRuntimeSupport.clearRuntime(
+        "QuarkusRatchetTckRuntime",
+        drainController::setDraining,
+        executor::awaitIdle,
+        storeCleaner::truncateAll,
+        probe::reset);
   }
 }

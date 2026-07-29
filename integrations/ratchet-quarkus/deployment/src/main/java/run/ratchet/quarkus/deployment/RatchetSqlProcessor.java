@@ -36,24 +36,28 @@ class RatchetSqlProcessor {
   private static final String SCHEMA_MIGRATION_LIFECYCLE_HOOK =
       "run.ratchet.store.migration.SchemaMigrationLifecycleHook";
 
-  private static final List<SqlStoreArtifact> SQL_STORE_ARTIFACTS =
+  static final List<SqlStoreArtifact> SQL_STORE_ARTIFACTS =
       List.of(
           new SqlStoreArtifact(
               "ratchet-store-postgresql",
               "run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect",
-              "run.ratchet.store.postgresql.PostgresqlEntityManagerProvider"),
+              "run.ratchet.store.postgresql.PostgresqlEntityManagerProvider",
+              null),
           new SqlStoreArtifact(
               "ratchet-store-mysql",
               "run.ratchet.store.mysql.MysqlSchemaMigrationDialect",
-              "run.ratchet.store.mysql.MysqlEntityManagerProvider"),
+              "run.ratchet.store.mysql.MysqlEntityManagerProvider",
+              "run.ratchet.store.mysql.converter"),
           new SqlStoreArtifact(
               "ratchet-store-oracle",
               "run.ratchet.store.oracle.OracleSchemaMigrationDialect",
-              "run.ratchet.store.oracle.OracleEntityManagerProvider"),
+              "run.ratchet.store.oracle.OracleEntityManagerProvider",
+              "run.ratchet.store.oracle.converter"),
           new SqlStoreArtifact(
               "ratchet-store-sqlserver",
               "run.ratchet.store.sqlserver.SqlserverSchemaMigrationDialect",
-              "run.ratchet.store.sqlserver.SqlserverEntityManagerProvider"));
+              "run.ratchet.store.sqlserver.SqlserverEntityManagerProvider",
+              "run.ratchet.store.sqlserver.converter"));
 
   private static final List<String> RATCHET_ENTITY_CLASSES =
       List.of(
@@ -151,6 +155,9 @@ class RatchetSqlProcessor {
     return false;
   }
 
-  private record SqlStoreArtifact(
-      String artifactId, String dialectClass, String entityManagerProviderClass) {}
+  record SqlStoreArtifact(
+      String artifactId,
+      String dialectClass,
+      String entityManagerProviderClass,
+      String converterPackage) {}
 }

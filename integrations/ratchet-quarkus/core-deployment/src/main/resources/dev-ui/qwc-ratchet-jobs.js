@@ -13,52 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { LitElement, html, css } from 'lit';
-import { JsonRpc } from 'jsonrpc';
+import { html, css } from 'lit';
+import { RatchetSnapshotElement, ratchetSharedStyles } from './qwc-ratchet-base.js';
 import '@vaadin/button';
 import '@vaadin/icon';
 import '@vaadin/progress-bar';
 import 'qui-badge';
 
-export class QwcRatchetJobs extends LitElement {
-  jsonRpc = new JsonRpc(this);
-
-  static styles = css`
-    :host {
-      display: block;
-      height: 100%;
-      color: var(--lumo-body-text-color);
-    }
-
-    .page {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      height: 100%;
-      padding: 12px;
-      box-sizing: border-box;
-    }
-
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      border-bottom: 1px solid var(--lumo-contrast-10pct);
-      padding-bottom: 10px;
-    }
-
-    .title {
-      font-size: var(--lumo-font-size-l);
-      font-weight: 600;
-    }
-
-    .status {
-      color: var(--lumo-secondary-text-color);
-      font-size: var(--lumo-font-size-s);
-      margin-top: 3px;
-    }
-
+export class QwcRatchetJobs extends RatchetSnapshotElement {
+  static styles = [
+    ratchetSharedStyles,
+    css`
     .health {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
@@ -96,44 +61,6 @@ export class QwcRatchetJobs extends LitElement {
       font-size: var(--lumo-font-size-s);
     }
 
-    .table-wrap {
-      min-height: 0;
-      overflow: auto;
-      border-top: 1px solid var(--lumo-contrast-10pct);
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-
-    th {
-      color: var(--lumo-secondary-text-color);
-      font-size: var(--lumo-font-size-xs);
-      font-weight: 600;
-      text-align: left;
-      text-transform: uppercase;
-      padding: 9px 8px;
-      border-bottom: 1px solid var(--lumo-contrast-10pct);
-    }
-
-    td {
-      padding: 9px 8px;
-      border-bottom: 1px solid var(--lumo-contrast-5pct);
-      vertical-align: middle;
-      overflow-wrap: anywhere;
-    }
-
-    code {
-      font-size: var(--lumo-font-size-xs);
-    }
-
-    .empty {
-      color: var(--lumo-secondary-text-color);
-      padding: 18px 8px;
-    }
-
     .status-pill {
       border: 1px solid var(--lumo-contrast-20pct);
       border-radius: 999px;
@@ -164,10 +91,6 @@ export class QwcRatchetJobs extends LitElement {
     }
 
     @media (max-width: 700px) {
-      .page {
-        padding: 8px;
-      }
-
       th:nth-child(1),
       td:nth-child(1) {
         width: 38%;
@@ -180,33 +103,8 @@ export class QwcRatchetJobs extends LitElement {
         display: none;
       }
     }
-  `;
-
-  static properties = {
-    _snapshot: { state: true },
-    _loading: { state: true },
-    _error: { state: true },
-    _streamObserver: { state: false }
-  };
-
-  constructor() {
-    super();
-    this._snapshot = null;
-    this._loading = true;
-    this._error = null;
-    this._streamObserver = null;
-  }
-
-  connectedCallback() {
-    super.connectedCallback();
-    this._loadSnapshot();
-    this._startStream();
-  }
-
-  disconnectedCallback() {
-    this._cancelStream();
-    super.disconnectedCallback();
-  }
+    `
+  ];
 
   render() {
     if (this._loading && !this._snapshot) {
@@ -229,39 +127,6 @@ export class QwcRatchetJobs extends LitElement {
         ${this._renderJobs(snapshot.jobs ?? [], snapshot.status)}
       </div>
     `;
-  }
-
-  _startStream() {
-    this._cancelStream();
-    this._streamObserver = this.jsonRpc.streamSnapshot()
-      .onNext((jsonRpcResponse) => this._applySnapshot(jsonRpcResponse.result))
-      .onError((error) => {
-        this._error = this._errorMessage(error);
-        this._loading = false;
-      });
-  }
-
-  _cancelStream() {
-    if (this._streamObserver) {
-      this._streamObserver.cancel();
-      this._streamObserver = null;
-    }
-  }
-
-  _loadSnapshot() {
-    this._loading = true;
-    this.jsonRpc.getSnapshot()
-      .then((jsonRpcResponse) => this._applySnapshot(jsonRpcResponse.result))
-      .catch((error) => {
-        this._error = this._errorMessage(error);
-        this._loading = false;
-      });
-  }
-
-  _applySnapshot(snapshot) {
-    this._snapshot = snapshot;
-    this._error = null;
-    this._loading = false;
   }
 
   _renderHealth(health) {
@@ -348,10 +213,6 @@ export class QwcRatchetJobs extends LitElement {
     `;
   }
 
-  _formatDate(value) {
-    return value ? new Date(value).toLocaleString() : '-';
-  }
-
   _formatMillis(value) {
     const number = Number(value || 0);
     return `${Math.round(number)} ms`;
@@ -360,10 +221,6 @@ export class QwcRatchetJobs extends LitElement {
   _formatPercent(value) {
     const number = Number(value || 0);
     return `${Math.round(number * 100)}%`;
-  }
-
-  _errorMessage(error) {
-    return error?.message || 'Ratchet snapshot is unavailable.';
   }
 }
 

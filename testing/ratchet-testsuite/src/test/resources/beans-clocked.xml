@@ -14,7 +14,7 @@
     would inject InMemoryJobStore and SteppingTestClock into every Ri*IT and break them.
   -->
   <alternatives>
-    <class>run.ratchet.testsuite.tck.clocked.InMemoryJobStore</class>
+    <class>run.ratchet.tck.store.clocked.InMemoryJobStore</class>
     <class>run.ratchet.testsuite.tck.clocked.ClockedTestProducers</class>
   </alternatives>
 </beans>

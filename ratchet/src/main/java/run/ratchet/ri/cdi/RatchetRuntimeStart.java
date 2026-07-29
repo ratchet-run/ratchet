@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.cdi;
 
+import jakarta.interceptor.Interceptor;
 import org.jboss.logging.Logger;
 
 /**
@@ -45,6 +46,19 @@ public final class RatchetRuntimeStart {
    * property is awkward.
    */
   public static final String DEFER_ENV_VAR = "RATCHET_LIFECYCLE_DEFER_AUTO_START";
+
+  /**
+   * Startup observer priorities shared by the normal CDI initialization event and the deferred
+   * {@link RatchetRuntimeStart} event. Encryption installs before lifecycle startup so pending
+   * encrypted jobs cannot be claimed before their engine is available; lifecycle startup then
+   * initializes the scheduler, and recurring registration runs last so it can use the initialized
+   * runtime services.
+   */
+  public static final int PRIORITY_ENCRYPTION_INSTALL = Interceptor.Priority.APPLICATION + 499;
+
+  public static final int PRIORITY_LIFECYCLE_START = Interceptor.Priority.APPLICATION + 500;
+
+  public static final int PRIORITY_RECURRING_REGISTRATION = Interceptor.Priority.APPLICATION + 501;
 
   /** Returns {@code true} when context-initialization auto-start has been deferred. */
   public static boolean autoStartDeferred() {

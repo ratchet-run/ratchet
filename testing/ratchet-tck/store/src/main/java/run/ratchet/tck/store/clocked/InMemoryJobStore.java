@@ -13,9 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.testsuite.tck.clocked;
+package run.ratchet.tck.store.clocked;
 
-import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import jakarta.inject.Inject;
@@ -54,7 +53,6 @@ import run.ratchet.store.spi.ExecutionTargetFilter;
  */
 @ApplicationScoped
 @Alternative
-@Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION + 100)
 public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   private final Map<UUID, JobEntity> jobs = new HashMap<>();
@@ -70,7 +68,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     this.clock = clock;
   }
 
-  /** Resets all stored state. Called from {@code RiClockedTckRuntime.clear()}. */
+  /** Resets all stored state. Called from clocked TCK runtimes. */
   public synchronized void reset() {
     jobs.clear();
     executions.clear();

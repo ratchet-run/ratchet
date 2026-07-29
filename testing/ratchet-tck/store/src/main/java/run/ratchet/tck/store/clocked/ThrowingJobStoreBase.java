@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.testsuite.tck.clocked;
+package run.ratchet.tck.store.clocked;
 
 import java.time.Duration;
 import java.time.Instant;

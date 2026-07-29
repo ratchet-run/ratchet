@@ -25,6 +25,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.tck.store.clocked.InMemoryJobStore;
 
 class InMemoryJobStoreTest {
 

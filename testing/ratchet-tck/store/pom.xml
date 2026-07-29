@@ -55,13 +55,17 @@
         </dependency>
         <!--
           jakarta.enterprise.cdi-api is required because ratchet-api's module descriptor declares
-          `requires transitive jakarta.cdi;` (driven by @CircuitBreakerProtected). Provided scope:
-          consumers' container supplies the implementation. Not present in plan v2 — added when the
-          JPMS resolver flagged jakarta.cdi as missing during Phase 2 verification.
+          `requires transitive jakarta.cdi` and the clocked in-memory store is an ApplicationScoped
+          alternative. Provided scope: consumers' container supplies the implementation.
         -->
         <dependency>
             <groupId>jakarta.enterprise</groupId>
             <artifactId>jakarta.enterprise.cdi-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.inject</groupId>
+            <artifactId>jakarta.inject-api</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>

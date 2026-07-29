@@ -378,18 +378,35 @@ jobs:
             m2-
       - name: Install core modules the extension depends on
         # The integration-tests module pulls this cell's store jar, ratchet-encryption,
-        # and ratchet-tck-api in addition to the runtime/deployment deps. -am builds each
+        # ratchet-tck-api, and ratchet-tck-store in addition to the runtime/deployment deps. -am builds each
         # listed module's upstream but never its downstream, so store-core alone does not
         # drag in the store impl. List every module the extension reactor consumes so all
         # are built from source here rather than resolved from a stale m2 cache.
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},ratchet-encryption,testing/ratchet-tck/api -am install
+        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},ratchet-encryption,testing/ratchet-tck/api,testing/ratchet-tck/store -am install
       - name: Build + test the ratchet-quarkus extension
         run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml verify -P${{ matrix.profile }}
 
-  quarkus-extension-native-mongo:
+  # Native smoke gates for MongoDB and the DEFAULT SQL (PostgreSQL/Hibernate) flavor. The SQL cell
+  # exercises the Hibernate/JPA-native reflection surface (entities, UuidV7EntityListener,
+  # InstantAttributeConverter, Agroal) that the Mongo native build never loads, and it is the flavor
+  # most users run.
+  quarkus-extension-native:
     needs: changes
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
+    name: quarkus-extension-native (${{ matrix.db }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - db: mongodb
+            cache: mongo
+            store: stores/ratchet-store-mongodb
+            profile: db-mongo,native-mongo
+          - db: sql
+            cache: sql
+            store: stores/ratchet-store-postgresql
+            profile: db-postgres,native-sql
     steps:
       - uses: actions/checkout@v7
       - uses: graalvm/setup-graalvm@v1
@@ -400,45 +417,15 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.m2/repository
-          key: m2-quarkus-ext-native-mongo-${{ hashFiles('**/pom.xml') }}
+          key: m2-quarkus-ext-native-${{ matrix.cache }}-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
-            m2-quarkus-ext-native-mongo-
+            m2-quarkus-ext-native-${{ matrix.cache }}-
             m2-quarkus-ext-
             m2-
       - name: Install core modules the extension depends on
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,stores/ratchet-store-mongodb,ratchet-encryption,testing/ratchet-tck/api -am install
-      - name: Native MongoDB smoke test
-        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-mongo,native-mongo
-
-  # Native gate for the DEFAULT SQL (PostgreSQL/Hibernate) flavor. Distinct from
-  # the Mongo native gate above because it exercises the Hibernate/JPA-native
-  # reflection surface (entities, UuidV7EntityListener, InstantAttributeConverter,
-  # Agroal) that the Mongo native build never loads, and it is the flavor most
-  # users run. Same graalvm setup and shape as native-mongo; the native-sql
-  # profile builds the default flavor to native and runs only *SqlNativeIT.
-  quarkus-extension-native-sql:
-    needs: changes
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '21'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/cache@v6
-        with:
-          path: ~/.m2/repository
-          key: m2-quarkus-ext-native-sql-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            m2-quarkus-ext-native-sql-
-            m2-quarkus-ext-
-            m2-
-      - name: Install core modules the extension depends on
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,stores/ratchet-store-postgresql,ratchet-encryption,testing/ratchet-tck/api -am install
-      - name: Native SQL smoke test
-        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-postgres,native-sql
+        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},ratchet-encryption,testing/ratchet-tck/api,testing/ratchet-tck/store -am install
+      - name: Native smoke test (${{ matrix.db }})
+        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -P${{ matrix.profile }}
 
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
@@ -490,7 +477,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native-mongo, quarkus-extension-native-sql, a11y]
+    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

@@ -15,7 +15,6 @@
  */
 package run.ratchet.security.jakarta;
 
-import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Vetoed;
 import jakarta.security.enterprise.SecurityContext;
@@ -23,6 +22,7 @@ import java.security.Principal;
 import java.util.Optional;
 import org.jboss.logging.Logger;
 import run.ratchet.spi.PrincipalSource;
+import run.ratchet.spi.PrincipalSourceInstances;
 
 /**
  * Jakarta Security-backed {@link PrincipalSource}.
@@ -47,29 +47,15 @@ public class SecurityContextPrincipalSource implements PrincipalSource {
 
   @Override
   public Optional<String> currentPrincipal() {
-    if (securityContexts == null) {
-      throw new IllegalStateException("SecurityContext Instance was not injected");
-    }
-    try {
-      if (!securityContexts.isResolvable()) {
-        return Optional.empty();
-      }
-      Instance.Handle<SecurityContext> handle = securityContexts.getHandle();
-      try {
-        Principal principal = handle.get().getCallerPrincipal();
-        if (principal == null) {
-          return Optional.empty();
-        }
-        String name = principal.getName();
-        return (name == null || name.isEmpty()) ? Optional.empty() : Optional.of(name);
-      } finally {
-        if (handle.getBean().getScope().equals(Dependent.class)) {
-          handle.destroy();
-        }
-      }
-    } catch (RuntimeException e) {
-      log.warnf(e, "SecurityContext lookup failed; capturing null caller principal");
-      return Optional.empty();
-    }
+    return PrincipalSourceInstances.currentPrincipal(
+        securityContexts,
+        SecurityContextPrincipalSource::principalName,
+        "SecurityContext Instance was not injected",
+        e -> log.warnf(e, "SecurityContext lookup failed; capturing null caller principal"));
+  }
+
+  private static Optional<String> principalName(SecurityContext context) {
+    Principal principal = context.getCallerPrincipal();
+    return principal == null ? Optional.empty() : Optional.ofNullable(principal.getName());
   }
 }

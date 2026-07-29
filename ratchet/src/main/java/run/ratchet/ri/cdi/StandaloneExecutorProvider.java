@@ -83,6 +83,10 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
 
   @Override
   public ExecutorService getJobExecutor() {
+    ExecutorService value = jobExecutor;
+    if (value != null) {
+      return value;
+    }
     return lazyInit(
         () -> jobExecutor,
         v -> jobExecutor = v,
@@ -101,6 +105,10 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   }
 
   private ExecutorService virtualJobExecutor() {
+    ExecutorService value = virtualJobExecutor;
+    if (value != null) {
+      return value;
+    }
     return lazyInit(
         () -> virtualJobExecutor,
         v -> virtualJobExecutor = v,
@@ -109,6 +117,10 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
 
   @Override
   public ScheduledExecutorService getScheduledExecutor() {
+    ScheduledExecutorService value = scheduledExecutor;
+    if (value != null) {
+      return value;
+    }
     return lazyInit(
         () -> scheduledExecutor,
         v -> scheduledExecutor = v,

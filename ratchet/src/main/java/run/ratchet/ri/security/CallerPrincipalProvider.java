@@ -15,12 +15,12 @@
  */
 package run.ratchet.ri.security;
 
-import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Vetoed;
 import java.util.Optional;
 import org.jboss.logging.Logger;
 import run.ratchet.spi.PrincipalSource;
+import run.ratchet.spi.PrincipalSourceInstances;
 
 /**
  * Resolves the current caller principal from a platform {@link PrincipalSource}, and returns an
@@ -79,29 +79,14 @@ public class CallerPrincipalProvider {
    * (unauthenticated request, or non-EE runtime).
    */
   public Optional<String> currentPrincipal() {
-    if (sources == null) {
-      throw new IllegalStateException("PrincipalSource Instance was not injected");
-    }
-    try {
-      if (!sources.isResolvable()) {
-        return Optional.empty();
-      }
-      Instance.Handle<PrincipalSource> handle = sources.getHandle();
-      try {
-        PrincipalSource source = handle.get();
-        if (source == null) {
-          return Optional.empty();
-        }
-        Optional<String> principal = source.currentPrincipal();
-        return principal == null ? Optional.empty() : principal.filter(name -> !name.isEmpty());
-      } finally {
-        if (handle.getBean().getScope().equals(Dependent.class)) {
-          handle.destroy();
-        }
-      }
-    } catch (RuntimeException e) {
-      log.warnf(e, "PrincipalSource lookup failed; capturing null caller principal");
-      return Optional.empty();
-    }
+    return PrincipalSourceInstances.currentPrincipal(
+        sources,
+        CallerPrincipalProvider::sourcePrincipal,
+        "PrincipalSource Instance was not injected",
+        e -> log.warnf(e, "PrincipalSource lookup failed; capturing null caller principal"));
+  }
+
+  private static Optional<String> sourcePrincipal(PrincipalSource source) {
+    return source == null ? Optional.empty() : source.currentPrincipal();
   }
 }

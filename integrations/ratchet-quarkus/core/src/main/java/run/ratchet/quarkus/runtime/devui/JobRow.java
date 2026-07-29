@@ -15,7 +15,6 @@
  */
 package run.ratchet.quarkus.runtime.devui;
 
-import java.time.Instant;
 import run.ratchet.api.JobSummary;
 
 public record JobRow(String id, String type, String status, String createdAt, String nextRunAt) {
@@ -25,11 +24,7 @@ public record JobRow(String id, String type, String status, String createdAt, St
         summary.id().toString(),
         summary.type().name(),
         summary.status().name(),
-        instantToString(summary.createdAt()),
-        instantToString(summary.scheduledTime()));
-  }
-
-  private static String instantToString(Instant instant) {
-    return instant == null ? null : instant.toString();
+        DevUiFormat.instantToString(summary.createdAt()),
+        DevUiFormat.instantToString(summary.scheduledTime()));
   }
 }

@@ -27,7 +27,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Inject;
-import jakarta.interceptor.Interceptor;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -229,7 +228,7 @@ public class RecurringJobProcessor {
 
   void onStartup(
       @Observes
-          @Priority(Interceptor.Priority.APPLICATION + 501)
+          @Priority(RatchetRuntimeStart.PRIORITY_RECURRING_REGISTRATION)
           @Initialized(ApplicationScoped.class) Object init) {
     // Deferred on build-time-CDI runtimes (e.g. Quarkus), which run this observer during
     // STATIC_INIT before the EntityManager exists; they drive startup via RatchetRuntimeStart
@@ -259,7 +258,8 @@ public class RecurringJobProcessor {
   }
 
   void onRuntimeStart(
-      @Observes @Priority(Interceptor.Priority.APPLICATION + 501) RatchetRuntimeStart event) {
+      @Observes @Priority(RatchetRuntimeStart.PRIORITY_RECURRING_REGISTRATION)
+          RatchetRuntimeStart event) {
     registerRecurringJobs();
   }
 

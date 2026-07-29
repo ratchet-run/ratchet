@@ -13,23 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-module run.ratchet.tck.store {
-  requires run.ratchet.tck.util;
-  requires run.ratchet.api;
-  requires run.ratchet.store.core;
-  requires jakarta.cdi;
-  requires jakarta.inject;
-  requires jakarta.json;
-  requires jakarta.persistence;
-  requires jakarta.transaction;
-  requires java.sql;
-  requires org.junit.jupiter.api;
-  requires org.junit.platform.launcher;
+package run.ratchet.quarkus.runtime.devui;
 
-  exports run.ratchet.tck.store;
-  exports run.ratchet.tck.store.clocked;
-  exports run.ratchet.tck.store.schema;
+import java.time.Instant;
 
-  provides org.junit.platform.launcher.TestExecutionListener with
-      run.ratchet.tck.store.ConformanceReportExtension;
+final class DevUiFormat {
+
+  private DevUiFormat() {}
+
+  static String instantToString(Instant instant) {
+    return instant == null ? null : instant.toString();
+  }
 }

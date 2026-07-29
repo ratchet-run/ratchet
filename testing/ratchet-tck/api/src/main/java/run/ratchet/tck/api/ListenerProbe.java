@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.quarkus.it.tck;
+package run.ratchet.tck.api;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -40,17 +40,22 @@ import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
-import run.ratchet.tck.api.ProbeEvent;
-import run.ratchet.tck.api.RatchetTckProbe;
 
 /**
- * Quarkus-side {@link RatchetTckProbe}. It mirrors the RI TCK probe, but is discovered as a normal
- * ArC test bean and subscribes to the live Quarkus scheduler through {@link
- * JobSchedulerService#addEventListener(Consumer)}.
+ * Shared {@link RatchetTckProbe} implementation backed by the scheduler event-listener API.
+ *
+ * <p>Projects each lifecycle event for a tracked job into a {@link ProbeEvent}. Implements the
+ * buffer-then-promote semantics described on {@link RatchetTckProbe#track(JobHandle)}: events for
+ * an as-yet-untracked job id are stashed in a per-id pending buffer and flushed when {@code track}
+ * is finally called.
  */
 @ApplicationScoped
-public class QuarkusRatchetTckProbe implements RatchetTckProbe {
+public class ListenerProbe implements RatchetTckProbe {
 
+  /**
+   * Bound on the per-id pending-events buffer. Higher than any reasonable test would generate;
+   * still finite so a runaway scheduler can't OOM the JVM.
+   */
   private static final int PENDING_BUFFER_LIMIT = 256;
 
   private final Map<UUID, Deque<ProbeEvent>> recordedEvents = new ConcurrentHashMap<>();
@@ -76,6 +81,7 @@ public class QuarkusRatchetTckProbe implements RatchetTckProbe {
     }
   }
 
+  /** Drops every recorded handle and clears all buffers. */
   public void reset() {
     synchronized (stateLock) {
       trackedIds.clear();
@@ -97,6 +103,20 @@ public class QuarkusRatchetTckProbe implements RatchetTckProbe {
             recordedEvents.computeIfAbsent(id, k -> new ConcurrentLinkedDeque<>());
         recordAllAndNotify(bucket, pending);
       }
+    }
+  }
+
+  private static void recordAndNotify(Deque<ProbeEvent> bucket, ProbeEvent event) {
+    synchronized (bucket) {
+      bucket.add(event);
+      bucket.notifyAll();
+    }
+  }
+
+  private static void recordAllAndNotify(Deque<ProbeEvent> bucket, Deque<ProbeEvent> events) {
+    synchronized (bucket) {
+      bucket.addAll(events);
+      bucket.notifyAll();
     }
   }
 
@@ -127,13 +147,13 @@ public class QuarkusRatchetTckProbe implements RatchetTckProbe {
       return 0;
     }
     synchronized (bucket) {
-      int count = 0;
-      for (ProbeEvent event : bucket) {
-        if (event.type() == ProbeEvent.Type.STARTED) {
-          count++;
+      int n = 0;
+      for (ProbeEvent e : bucket) {
+        if (e.type() == ProbeEvent.Type.STARTED) {
+          n++;
         }
       }
-      return count;
+      return n;
     }
   }
 
@@ -145,20 +165,6 @@ public class QuarkusRatchetTckProbe implements RatchetTckProbe {
     }
     synchronized (bucket) {
       return List.copyOf(new ArrayList<>(bucket));
-    }
-  }
-
-  private static void recordAndNotify(Deque<ProbeEvent> bucket, ProbeEvent event) {
-    synchronized (bucket) {
-      bucket.add(event);
-      bucket.notifyAll();
-    }
-  }
-
-  private static void recordAllAndNotify(Deque<ProbeEvent> bucket, Deque<ProbeEvent> events) {
-    synchronized (bucket) {
-      bucket.addAll(events);
-      bucket.notifyAll();
     }
   }
 
@@ -174,7 +180,7 @@ public class QuarkusRatchetTckProbe implements RatchetTckProbe {
         }
         try {
           bucket.wait(Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
-        } catch (InterruptedException e) {
+        } catch (InterruptedException ie) {
           Thread.currentThread().interrupt();
           return false;
         }
@@ -184,8 +190,8 @@ public class QuarkusRatchetTckProbe implements RatchetTckProbe {
   }
 
   private static boolean hasType(Deque<ProbeEvent> bucket, ProbeEvent.Type type) {
-    for (ProbeEvent event : bucket) {
-      if (event.type() == type) {
+    for (ProbeEvent e : bucket) {
+      if (e.type() == type) {
         return true;
       }
     }
@@ -198,19 +204,18 @@ public class QuarkusRatchetTckProbe implements RatchetTckProbe {
     if (jobId == null || type == null) {
       return;
     }
-
-    ProbeEvent probeEvent = new ProbeEvent(type, Instant.now());
+    ProbeEvent ev = new ProbeEvent(type, Instant.now());
     synchronized (stateLock) {
       if (trackedIds.contains(jobId)) {
         Deque<ProbeEvent> bucket =
             recordedEvents.computeIfAbsent(jobId, k -> new ConcurrentLinkedDeque<>());
-        recordAndNotify(bucket, probeEvent);
+        recordAndNotify(bucket, ev);
         return;
       }
       Deque<ProbeEvent> pending =
           pendingEvents.computeIfAbsent(jobId, k -> new ConcurrentLinkedDeque<>());
       if (pending.size() < PENDING_BUFFER_LIMIT) {
-        pending.add(probeEvent);
+        pending.add(ev);
       }
     }
   }
@@ -225,6 +230,12 @@ public class QuarkusRatchetTckProbe implements RatchetTckProbe {
     return null;
   }
 
+  /**
+   * Maps scheduler event types to {@link ProbeEvent.Type}. Current runtimes route terminal retry
+   * exhaustion through {@code JobDlqEvent}, so {@code JobDlqEvent} is mapped to FAILED here. A
+   * future API-level implementation that fires {@code JobFailedEvent} directly will also be mapped
+   * to FAILED.
+   */
   private static ProbeEvent.Type typeOf(Object event) {
     if (event instanceof JobStartedEvent) return ProbeEvent.Type.STARTED;
     if (event instanceof JobCompletedEvent) return ProbeEvent.Type.COMPLETED;
