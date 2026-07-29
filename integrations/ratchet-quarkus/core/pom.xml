@@ -52,6 +52,11 @@
       <artifactId>ratchet-store-core</artifactId>
       <version>${ratchet.version}</version>
     </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>
@@ -68,6 +73,12 @@
             </goals>
             <configuration>
               <deployment>${project.groupId}:${project.artifactId}-deployment:${project.version}</deployment>
+              <removedResources>
+                <removedResource>
+                  <key>run.ratchet:ratchet-store-core</key>
+                  <resources>META-INF/orm.xml</resources>
+                </removedResource>
+              </removedResources>
             </configuration>
           </execution>
         </executions>

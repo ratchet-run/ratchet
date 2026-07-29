@@ -25,18 +25,18 @@ import jakarta.persistence.EntityManager;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
 /**
- * Binds Ratchet's SQL stores to a dedicated {@value #PERSISTENCE_UNIT_NAME} persistence unit instead
- * of the application's default one.
+ * Binds Ratchet's SQL stores to a dedicated {@value #PERSISTENCE_UNIT_NAME} persistence unit
+ * instead of the application's default one.
  *
  * <p>Ratchet ships its entities in {@code run.ratchet.store.entity} and a {@code META-INF/orm.xml}
- * that maps them along with the store's {@code @Converter} classes. On Quarkus the default
- * persistence unit both auto-scans the indexed jar for those converters <em>and</em> reads them from
- * orm.xml, which aborts the boot with "AttributeConverter registered multiple times". Giving Ratchet
- * its own unit — scoped to the entity, converter, and id packages (plus each SQL store's converter
- * package) and configured with {@code mapping-files=no-file} to disable orm.xml processing entirely
- * — resolves the duplicate registration by discovering the converters through package scanning
- * instead, and, more importantly, isolates Ratchet's schema settings (notably {@code
- * generation=none}) from whatever the application does to its default unit.
+ * that maps them along with the store's {@code @Converter} classes. Giving Ratchet its own unit —
+ * scoped to the entity, converter, and id packages (plus each SQL store's converter package) and
+ * configured with {@code mapping-files=no-file} to disable XML processing — discovers the mappings
+ * through package scanning instead. The common core extension descriptor removes Ratchet's mapping
+ * resource from the Quarkus augmentation classpath before Hibernate ORM scans it, preventing
+ * implicit attachment to the application's default persistence unit while leaving
+ * application-provided mapping resources untouched. This also isolates Ratchet's schema settings
+ * (notably {@code generation=none}) from whatever the application does to its default unit.
  *
  * <p>The SQL flavor's deployment module contributes the {@value #PERSISTENCE_UNIT_NAME} unit at
  * build time, scoped to Ratchet's entity, converter, and id packages, generation=none, and the
@@ -46,8 +46,8 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
  *
  * <p>This provider is {@code @Alternative} with {@code @Priority(APPLICATION)} so the extension
  * enables it over the store modules' default {@link RatchetEntityManagerProvider} (which uses the
- * unnamed persistence context). An application that wants Ratchet on a different unit can override it
- * with its own {@code @Alternative @Priority(APPLICATION + 1)} provider.
+ * unnamed persistence context). An application that wants Ratchet on a different unit can override
+ * it with its own {@code @Alternative @Priority(APPLICATION + 1)} provider.
  */
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)

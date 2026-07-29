@@ -27,10 +27,7 @@ import java.util.stream.Stream;
 public final class RatchetHibernateOrmDefaults implements SmallRyeConfigBuilderCustomizer {
 
   private static final List<String> BASE_PACKAGES =
-      List.of(
-          "run.ratchet.store.entity",
-          "run.ratchet.store.converter",
-          "run.ratchet.store.id");
+      List.of("run.ratchet.store.entity", "run.ratchet.store.converter", "run.ratchet.store.id");
 
   private static final String RATCHET_PACKAGES =
       Stream.concat(
@@ -47,8 +44,7 @@ public final class RatchetHibernateOrmDefaults implements SmallRyeConfigBuilderC
           "quarkus.hibernate-orm.\"ratchet\".database.generation", "none",
           "quarkus.hibernate-orm.\"ratchet\".validate-in-dev-mode", "false",
           "quarkus.hibernate-orm.\"ratchet\".jdbc.timezone", "UTC",
-          "quarkus.hibernate-orm.\"ratchet\".mapping-files", "no-file",
-          "quarkus.hibernate-orm.mapping-files", "no-file");
+          "quarkus.hibernate-orm.\"ratchet\".mapping-files", "no-file");
 
   @Override
   public void configBuilder(SmallRyeConfigBuilder builder) {

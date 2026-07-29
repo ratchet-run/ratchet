@@ -89,7 +89,14 @@ class RatchetQuarkusSmokeTest {
   void applicationDefaultPersistenceUnitCoexistsWithRatchet() {
     Assumptions.assumeFalse(
         "mongodb".equals(System.getProperty("quarkus.datasource.db-kind")),
-        "MongoDB flavor intentionally runs without Hibernate ORM or an application persistence unit.");
+        "MongoDB flavor intentionally runs without Hibernate ORM or an application persistence"
+            + " unit.");
     given().when().post("/jobs/notes").then().statusCode(200).body(is("1"));
+    given()
+        .when()
+        .get("/jobs/default-unit-has-ratchet-entities")
+        .then()
+        .statusCode(200)
+        .body(is("false"));
   }
 }

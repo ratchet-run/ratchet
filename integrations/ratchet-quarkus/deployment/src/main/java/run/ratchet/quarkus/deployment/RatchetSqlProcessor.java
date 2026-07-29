@@ -84,8 +84,8 @@ class RatchetSqlProcessor {
   }
 
   /**
-   * Make ArC discover the active SQL store's dialect bean. Applications choose the concrete
-   * {@code ratchet-store-*} dependency, so only index/register artifacts already present.
+   * Make ArC discover the active SQL store's dialect bean. Applications choose the concrete {@code
+   * ratchet-store-*} dependency, so only index/register artifacts already present.
    */
   @BuildStep
   void sqlStoreBeans(
@@ -108,8 +108,10 @@ class RatchetSqlProcessor {
 
   /**
    * Contributes Ratchet's model to the named Ratchet persistence unit only. Build time config
-   * defaults in {@link RatchetHibernateOrmDefaults} keep Quarkus from attaching default XML
-   * mappings to either Ratchet's persistence unit or the application's own persistence unit.
+   * defaults in {@link RatchetHibernateOrmDefaults} disable XML mappings for that unit, while the
+   * core extension descriptor removes Ratchet's default-named mapping before Quarkus constructs the
+   * augmentation classloader. The application's own mapping resources remain available to its
+   * default persistence unit.
    */
   @BuildStep
   void ratchetJpaModel(
@@ -129,9 +131,7 @@ class RatchetSqlProcessor {
   /** Include bundled schema migrations for {@code ratchet.schema.auto-migrate} in native images. */
   @BuildStep
   NativeImageResourcePatternsBuildItem migrationResources() {
-    return NativeImageResourcePatternsBuildItem.builder()
-        .includeGlob("ddl/migrations/**")
-        .build();
+    return NativeImageResourcePatternsBuildItem.builder().includeGlob("ddl/migrations/**").build();
   }
 
   /** UuidV7EntityListener is instantiated by Hibernate via reflection. */

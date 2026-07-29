@@ -19,6 +19,7 @@ import io.quarkus.arc.profile.UnlessBuildProfile;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
@@ -31,10 +32,25 @@ import run.ratchet.quarkus.it.app.DemoNote;
 public class SqlItResource {
 
   /**
-   * The application's own EntityManager, unqualified so it resolves to the default persistence unit.
-   * Ratchet's SQL stores use the named {@code "ratchet"} unit through the extension.
+   * The application's own EntityManager, unqualified so it resolves to the default persistence
+   * unit. Ratchet's SQL stores use the named {@code "ratchet"} unit through the extension.
    */
   @Inject EntityManager appEntityManager;
+
+  /**
+   * Reports whether Ratchet's dependency-provided mapping leaked into the application's default
+   * persistence unit.
+   */
+  @GET
+  @Path("/default-unit-has-ratchet-entities")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String defaultUnitHasRatchetEntities() {
+    boolean found =
+        appEntityManager.getMetamodel().getEntities().stream()
+            .anyMatch(
+                entity -> entity.getJavaType().getName().startsWith("run.ratchet.store.entity."));
+    return Boolean.toString(found);
+  }
 
   /**
    * Persists an application entity through the default persistence unit and returns the row count.
@@ -49,8 +65,7 @@ public class SqlItResource {
     note.id = 1L;
     note.text = "stored via the application's own persistence unit";
     appEntityManager.merge(note);
-    long count =
-        appEntityManager.createQuery("select count(n) from DemoNote n", Long.class).getSingleResult();
+    long count = appEntityManager.createNamedQuery("DemoNote.count", Long.class).getSingleResult();
     return Long.toString(count);
   }
 }
