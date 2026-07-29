@@ -75,6 +75,7 @@
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-tck-store</artifactId>
       <version>${ratchet.version}</version>
+      <type>test-jar</type>
       <scope>test</scope>
     </dependency>
     <dependency>

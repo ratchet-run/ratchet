@@ -118,6 +118,12 @@
             </dependency>
             <dependency>
                 <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-tck-store</artifactId>
+                <version>${project.version}</version>
+                <type>test-jar</type>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
                 <artifactId>ratchet-tck-api</artifactId>
                 <version>${project.version}</version>
             </dependency>

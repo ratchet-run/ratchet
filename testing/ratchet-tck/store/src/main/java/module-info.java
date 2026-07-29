@@ -27,8 +27,10 @@ module run.ratchet.tck.store {
   requires org.junit.platform.launcher;
 
   exports run.ratchet.tck.store;
-  exports run.ratchet.tck.store.clocked;
   exports run.ratchet.tck.store.schema;
+
+  opens run.ratchet.tck.store;
+  opens run.ratchet.tck.store.schema;
 
   provides org.junit.platform.launcher.TestExecutionListener with
       run.ratchet.tck.store.ConformanceReportExtension;

@@ -57,6 +57,7 @@ import run.ratchet.store.spi.ExecutionTargetFilter;
 // <alternatives> (belt and suspenders, per that file's own comment: "Do NOT rely on @Priority
 // alone"). A prior refactor moved this class here and silently dropped @Priority, which broke
 // RiDelayedSchedulingIT across the whole app-server matrix. Keep both mechanisms in sync.
+// This class ships only in ratchet-tck-store's tests classifier.
 @ApplicationScoped
 @Alternative
 @Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION + 100)

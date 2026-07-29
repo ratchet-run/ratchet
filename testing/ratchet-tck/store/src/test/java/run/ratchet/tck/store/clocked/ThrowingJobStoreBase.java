@@ -58,6 +58,8 @@ import run.ratchet.store.spi.WorkflowConditionStore;
  * <p>Used by TCK runtimes that need a minimal, in-memory store for a narrow contract — e.g. {@code
  * InMemoryJobStore} for {@code AbstractDelayedSchedulingContract}. Because it implements every
  * capability interface it advertises full capability through {@link JobStore#capability}.
+ *
+ * <p>Published only in ratchet-tck-store's tests classifier.
  */
 public abstract class ThrowingJobStoreBase
     implements JobStore,
