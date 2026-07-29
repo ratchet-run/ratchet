@@ -17,6 +17,7 @@ package run.ratchet.quarkus.it;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.matchesPattern;
 
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusIntegrationTest;
@@ -25,7 +26,11 @@ import java.util.concurrent.TimeUnit;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 
-/** Native-image smoke subset for the default SQL (PostgreSQL/Hibernate) Quarkus flavor. Exercises the Hibernate/JPA-native reflection surface (entities, UuidV7EntityListener, InstantAttributeConverter, Agroal) that the Mongo native build never touches. */
+/**
+ * Native-image smoke subset for the default SQL (PostgreSQL/Hibernate) Quarkus flavor. Exercises
+ * the Hibernate/JPA-native reflection surface (entities, UuidV7EntityListener,
+ * InstantAttributeConverter, Agroal) that the Mongo native build never touches.
+ */
 @QuarkusIntegrationTest
 @QuarkusTestResource(RatchetDatabaseTestResource.class)
 class RatchetQuarkusSqlNativeIT {
@@ -52,5 +57,20 @@ class RatchetQuarkusSqlNativeIT {
   @Test
   void classPolicyRejectsDisallowedJobTargetInNativeSqlApp() {
     given().when().post("/jobs/reject-class-policy").then().statusCode(200).body(is("rejected"));
+  }
+
+  @Test
+  void ratchetConfigurationTakesEffectInNativeSqlApp() {
+    given().when().get("/jobs/auto-migrate-enabled").then().statusCode(200).body(is("true"));
+  }
+
+  @Test
+  void schemaAutoMigrationDiscoversAndAppliesScriptsInNativeSqlApp() {
+    given()
+        .when()
+        .get("/jobs/migration-count")
+        .then()
+        .statusCode(200)
+        .body(matchesPattern("[1-9]\\d*"));
   }
 }

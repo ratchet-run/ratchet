@@ -30,8 +30,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
-import org.testcontainers.mssqlserver.MSSQLServerContainer;
 import org.testcontainers.mongodb.MongoDBContainer;
+import org.testcontainers.mssqlserver.MSSQLServerContainer;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.oracle.OracleContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -68,8 +68,7 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
   @SuppressWarnings("resource")
   private static JdbcDatabaseContainer<?> createSqlContainer(String dbKind) {
     return switch (dbKind) {
-      case "postgresql" ->
-          new PostgreSQLContainer("postgres:16").withInitScript("ddl/postgresql-schema.sql");
+      case "postgresql" -> new PostgreSQLContainer("postgres:16");
       case "mysql" ->
           new MySQLContainer("mysql:8.0")
               .withDatabaseName("ratchet_test")
@@ -102,7 +101,8 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
             System.getenv()
                 .getOrDefault("RATCHET_MSSQL_IMAGE", "mcr.microsoft.com/mssql/server:2022-latest");
         DockerImageName dockerImage =
-            DockerImageName.parse(image).asCompatibleSubstituteFor("mcr.microsoft.com/mssql/server");
+            DockerImageName.parse(image)
+                .asCompatibleSubstituteFor("mcr.microsoft.com/mssql/server");
         yield new MSSQLServerContainer(dockerImage)
             .acceptLicense()
             .withPassword("Ratchet!Str0ngPwd")
@@ -120,7 +120,8 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
             DriverManager.getConnection(c.getJdbcUrl(), c.getUsername(), c.getPassword());
         Statement st = master.createStatement()) {
       st.execute(
-          "IF DB_ID('ratchet') IS NOT NULL BEGIN ALTER DATABASE [ratchet] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [ratchet]; END");
+          "IF DB_ID('ratchet') IS NOT NULL BEGIN ALTER DATABASE [ratchet] SET SINGLE_USER WITH"
+              + " ROLLBACK IMMEDIATE; DROP DATABASE [ratchet]; END");
       st.execute("CREATE DATABASE [ratchet]");
       st.execute("ALTER DATABASE [ratchet] SET READ_COMMITTED_SNAPSHOT ON");
       st.execute("ALTER DATABASE [ratchet] SET ALLOW_SNAPSHOT_ISOLATION ON");
@@ -201,6 +202,17 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
 
     @Override
     public Map<String, String> config() {
+      if ("postgresql".equals(dbKind)) {
+        return Map.of(
+            "quarkus.datasource.jdbc.url",
+            container.getJdbcUrl(),
+            "quarkus.datasource.username",
+            container.getUsername(),
+            "quarkus.datasource.password",
+            container.getPassword(),
+            "ratchet.schema.auto-migrate",
+            "true");
+      }
       return Map.of(
           "quarkus.datasource.jdbc.url",
           container.getJdbcUrl(),

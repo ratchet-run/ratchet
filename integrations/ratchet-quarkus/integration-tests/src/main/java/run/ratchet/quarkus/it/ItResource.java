@@ -22,6 +22,7 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.RatchetOptions;
 
 /**
  * Drives the demo app over HTTP so {@link RatchetQuarkusSmokeTest} ({@code @QuarkusTest}) can
@@ -33,6 +34,7 @@ public class ItResource {
 
   @Inject JobSchedulerService scheduler;
   @Inject ItJobs jobs;
+  @Inject RatchetOptions options;
 
   @POST
   @Path("/submit")
@@ -76,5 +78,12 @@ public class ItResource {
   @Produces(MediaType.TEXT_PLAIN)
   public String recurringExecuted() {
     return Boolean.toString(jobs.hasRecurringExecuted());
+  }
+
+  @GET
+  @Path("/auto-migrate-enabled")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String autoMigrateEnabled() {
+    return Boolean.toString(options.schema().autoMigrate());
   }
 }

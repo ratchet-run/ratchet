@@ -47,9 +47,16 @@ public final class MicroProfileRatchetConfigSource implements RatchetConfigSourc
   public static Optional<RatchetConfigSource> create() {
     try {
       Class<?> provider = Class.forName("org.eclipse.microprofile.config.ConfigProvider");
+      Class<?> configType = Class.forName("org.eclipse.microprofile.config.Config");
       Object config = provider.getMethod("getConfig").invoke(null);
-      Method getOptionalValue =
-          config.getClass().getMethod("getOptionalValue", String.class, Class.class);
+      if (!configType.isInstance(config)) {
+        throw new IllegalStateException(
+            "ConfigProvider.getConfig() returned "
+                + config.getClass().getName()
+                + ", which does not implement "
+                + configType.getName());
+      }
+      Method getOptionalValue = configType.getMethod("getOptionalValue", String.class, Class.class);
       return Optional.of(new MicroProfileRatchetConfigSource(config, getOptionalValue));
     } catch (ClassNotFoundException e) {
       return Optional.empty();
