@@ -60,6 +60,18 @@ updates:
       - /integrations/ratchet-quarkus/mongodb
       - /integrations/ratchet-quarkus/mongodb-deployment
       - /integrations/ratchet-quarkus/integration-tests
+      - /integrations/ratchet-spring-boot
+      - /integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure
+      - /integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa
+      - /integrations/ratchet-spring-boot/ratchet-spring-boot-starter
+      - /integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb
+      - /integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb
+      - /integrations/ratchet-spring-boot/ratchet-spring-boot-aot-spring7
+      - /integrations/ratchet-spring-boot/integration-tests
+      - /integrations/ratchet-spring-boot/integration-tests/compatibility
+      - /integrations/ratchet-spring-boot/integration-tests/postgresql
+      - /integrations/ratchet-spring-boot/integration-tests/mongodb
+      - /integrations/ratchet-spring-boot/integration-tests/native-postgresql
     schedule:
       interval: daily
     open-pull-requests-limit: 20

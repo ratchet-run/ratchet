@@ -1,0 +1,149 @@
+{
+  "releaseReady": false,
+  "coordinates": [
+    {
+      "path": "integrations/ratchet-spring-boot",
+      "artifactId": "ratchet-spring-boot-parent",
+      "packaging": "pom",
+      "parentArtifactId": "ratchet-parent",
+      "relativePath": "../../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure",
+      "artifactId": "ratchet-spring-boot-autoconfigure",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-parent",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa",
+      "artifactId": "ratchet-spring-boot-autoconfigure-jpa",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-parent",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-starter",
+      "artifactId": "ratchet-spring-boot-starter",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-parent",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb",
+      "artifactId": "ratchet-spring-boot-autoconfigure-mongodb",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-parent",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb",
+      "artifactId": "ratchet-spring-boot-starter-mongodb",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-parent",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-aot-spring7",
+      "artifactId": "ratchet-spring-boot-aot-spring7",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-parent",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/integration-tests",
+      "artifactId": "ratchet-spring-boot-integration-tests",
+      "packaging": "pom",
+      "parentArtifactId": "ratchet-spring-boot-parent",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/integration-tests/compatibility",
+      "artifactId": "ratchet-spring-boot-it-compatibility",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-integration-tests",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/integration-tests/postgresql",
+      "artifactId": "ratchet-spring-boot-it-postgresql",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-integration-tests",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/integration-tests/mongodb",
+      "artifactId": "ratchet-spring-boot-it-mongodb",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-integration-tests",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/integration-tests/native-postgresql",
+      "artifactId": "ratchet-spring-boot-it-native-postgresql",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-integration-tests",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    }
+  ]
+}

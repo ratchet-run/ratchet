@@ -938,6 +938,7 @@
                    these modules also sets maven.deploy.skip=true, which guards the plain
                    mvn-deploy path (e.g. GitHub Packages snapshots). -->
               <excludeArtifacts>
+                <!-- Test artifacts are permanently excluded. -->
                 <excludeArtifact>ratchet-testsuite</excludeArtifact>
                 <excludeArtifact>ratchet-testsuite-jpms</excludeArtifact>
                 <excludeArtifact>ratchet-version-compatibility</excludeArtifact>
@@ -945,6 +946,20 @@
                 <excludeArtifact>ratchet-showcase</excludeArtifact>
                 <excludeArtifact>ratchet-coverage</excludeArtifact>
                 <excludeArtifact>ratchet-arch-tests</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-integration-tests</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-it-compatibility</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-it-postgresql</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-it-mongodb</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-it-native-postgresql</excludeArtifact>
+                <!-- Spring Boot production artifacts are temporarily excluded until the
+                     release-candidate gate. -->
+                <excludeArtifact>ratchet-spring-boot-parent</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-autoconfigure</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-autoconfigure-jpa</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-starter</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-autoconfigure-mongodb</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-starter-mongodb</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-aot-spring7</excludeArtifact>
               </excludeArtifacts>
             </configuration>
           </plugin>
