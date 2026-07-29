@@ -20,6 +20,7 @@ import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.arc.processor.BeanInfo;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
+import io.quarkus.deployment.builditem.ApplicationArchivesBuildItem;
 import io.quarkus.deployment.builditem.CombinedIndexBuildItem;
 import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
@@ -85,8 +86,8 @@ class RatchetProcessor {
   }
 
   /**
-   * Make ArC discover the engine/store beans and API types from the (external) Ratchet jars.
-   * {@code ratchet-api} must be here too: it holds the interceptor-binding annotations (e.g.
+   * Make ArC discover the engine/store beans and API types from the (external) Ratchet jars. {@code
+   * ratchet-api} must be here too: it holds the interceptor-binding annotations (e.g.
    * {@code @CircuitBreakerProtected}) and ships no beans.xml, so it is not a bean archive. Without
    * it in the index ArC discovers {@code CircuitBreakerInterceptor} (from the indexed {@code
    * ratchet} jar) but cannot resolve its binding and fails with "Interceptor has no bindings".
@@ -132,6 +133,32 @@ class RatchetProcessor {
         ReflectiveClassBuildItem.builder("java.util.concurrent.Executors").methods(true).build());
     // Static SecureRandom must be created at image runtime, not captured into the image heap.
     runtimeInit.produce(new RuntimeInitializedClassBuildItem("run.ratchet.store.id.UuidV7Factory"));
+  }
+
+  /**
+   * Register application methods for reflective job execution in native images. Persisted jobs name
+   * their target class, method, and descriptor, so the target may be any class in the application
+   * root or an indexed application dependency and cannot be inferred from the lambda-capturing
+   * class alone.
+   */
+  @BuildStep
+  void jobTargetMethods(
+      ApplicationArchivesBuildItem applicationArchives,
+      BuildProducer<ReflectiveClassBuildItem> reflective) {
+    String[] applicationClasses =
+        applicationArchives.getAllApplicationArchives().stream()
+            .flatMap(archive -> archive.getIndex().getKnownClasses().stream())
+            .map(candidate -> candidate.name().toString())
+            .distinct()
+            .sorted()
+            .toArray(String[]::new);
+    if (applicationClasses.length > 0) {
+      reflective.produce(
+          ReflectiveClassBuildItem.builder(applicationClasses)
+              .constructors(false)
+              .methods(true)
+              .build());
+    }
   }
 
   /**

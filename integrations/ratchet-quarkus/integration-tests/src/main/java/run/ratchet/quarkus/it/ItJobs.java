@@ -15,7 +15,6 @@
  */
 package run.ratchet.quarkus.it;
 
-import io.quarkus.runtime.annotations.RegisterForReflection;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -29,11 +28,7 @@ import run.ratchet.api.Recurring;
  * run.ratchet.ri.cdi.RatchetRuntimeStart} fires (see {@code RecurringJobProcessor.onRuntimeStart}),
  * so this bean firing at all is proof that the deferred-start wiring works end to end on a live
  * Quarkus boot, not just in a unit test.
- *
- * <p>{@code @RegisterForReflection} keeps these methods reflectively invokable in a GraalVM native
- * image: Ratchet resolves the bean and calls the method via reflection at execution time.
  */
-@RegisterForReflection
 @ApplicationScoped
 public class ItJobs {
 
