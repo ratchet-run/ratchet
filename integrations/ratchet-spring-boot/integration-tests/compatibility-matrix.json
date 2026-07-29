@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "javaRuntime": 17,
+  "consumerJavaRuntime": 17,
   "bootLanes": [
     {
       "id": "boot-3.5",

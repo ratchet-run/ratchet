@@ -4,9 +4,21 @@
 # consumer lane without reactor assistance, and prove the installed jar hashes
 # remain identical across the matrix.
 #
+# The production reactor build runs on whatever JVM is ambient in the calling
+# shell (the build JDK — the repo currently builds on Temurin 25). The
+# compatibility matrix's declared consumerJavaRuntime is a requirement on the
+# CONSUMER lanes only: the JVM that actually executes the installed jars. Set
+# RATCHET_MATRIX_JAVA_HOME to an absolute JDK home to run the consumer lane
+# invocations under that JVM regardless of the ambient build JDK; if it is
+# unset, the consumer lanes fall back to the ambient JVM and it must already
+# be the declared consumerJavaRuntime.
+#
 # Usage:
 #   verify-jvm-matrix.sh
 #   verify-jvm-matrix.sh -Dmaven.repo.local=/absolute/isolated/repository
+#
+# Environment:
+#   RATCHET_MATRIX_JAVA_HOME=/absolute/path/to/jdk-17   (optional)
 
 set -euo pipefail
 
@@ -100,6 +112,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -175,11 +188,43 @@ matrix = load_json(matrix_path)
 if matrix.get("schemaVersion") != 1:
     fail("compatibility matrix schemaVersion must be 1")
 
-expected_java = matrix.get("javaRuntime")
+report_archive = matrix_path.parent / "target" / "jvm-matrix-reports"
+if report_archive.exists():
+    shutil.rmtree(report_archive)
+
+expected_java = matrix.get("consumerJavaRuntime")
 if not isinstance(expected_java, int) or isinstance(expected_java, bool):
-    fail("compatibility matrix javaRuntime must be an integer")
+    fail("compatibility matrix consumerJavaRuntime must be an integer")
+
+# consumerJavaRuntime constrains the CONSUMER lanes (the JVM that runs the installed
+# jars), not the build JDK used for the root reactor install above/below.
+consumer_java_home_raw = os.environ.get("RATCHET_MATRIX_JAVA_HOME", "")
+consumer_java_home = None
+consumer_environment = os.environ.copy()
+if consumer_java_home_raw:
+    candidate = pathlib.Path(consumer_java_home_raw)
+    if not candidate.is_absolute():
+        fail(
+            "RATCHET_MATRIX_JAVA_HOME must be an absolute path: "
+            f"{consumer_java_home_raw}"
+        )
+    consumer_java_home = candidate.resolve()
+    consumer_java_binary = consumer_java_home / "bin" / "java"
+    if not consumer_java_binary.is_file():
+        fail(
+            "RATCHET_MATRIX_JAVA_HOME does not contain a java executable: "
+            f"{consumer_java_home}"
+        )
+    consumer_environment["JAVA_HOME"] = str(consumer_java_home)
+    consumer_environment["PATH"] = (
+        f"{consumer_java_home / 'bin'}{os.pathsep}{consumer_environment.get('PATH', '')}"
+    )
+    java_binary = str(consumer_java_binary)
+else:
+    java_binary = "java"
+
 java_result = subprocess.run(
-    ["java", "-XshowSettings:properties", "-version"],
+    [java_binary, "-XshowSettings:properties", "-version"],
     text=True,
     stdout=subprocess.PIPE,
     stderr=subprocess.PIPE,
@@ -192,12 +237,20 @@ java_match = re.search(
     re.MULTILINE,
 )
 if java_result.returncode != 0 or java_match is None:
-    fail("cannot determine the active Java runtime")
+    fail("cannot determine the consumer lane Java runtime")
 actual_java = int(java_match.group(1))
 if actual_java != expected_java:
+    if consumer_java_home is not None:
+        fail(
+            f"RATCHET_MATRIX_JAVA_HOME {consumer_java_home} runs Java "
+            f"{actual_java}, but the compatibility matrix requires the "
+            f"consumer lanes to run Java {expected_java}"
+        )
     fail(
-        f"compatibility matrix requires Java {expected_java}, "
-        f"but Java {actual_java} is active"
+        f"compatibility matrix requires the consumer lanes to run Java "
+        f"{expected_java}, but the ambient Java is {actual_java}. Set "
+        "RATCHET_MATRIX_JAVA_HOME to a Java "
+        f"{expected_java} JDK, or make Java {expected_java} the ambient JVM."
     )
 
 root_pom = root / "pom.xml"
@@ -264,6 +317,8 @@ for index, flavor in enumerate(flavor_entries):
     if not isinstance(flavor, dict):
         fail(f"flavors[{index}] must be an object")
     flavor_id = require_string(flavor.get("id"), f"flavors[{index}].id")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", flavor_id):
+        fail(f"compatibility flavor has a non-portable id: {flavor_id!r}")
     if flavor_id in flavors:
         fail(f"duplicate compatibility flavor: {flavor_id}")
     consumer_pom = repo_path(
@@ -296,6 +351,8 @@ for index, lane in enumerate(lanes):
     if not isinstance(lane, dict):
         fail(f"bootLanes[{index}] must be an object")
     lane_id = require_string(lane.get("id"), f"bootLanes[{index}].id")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", lane_id):
+        fail(f"Boot lane has a non-portable id: {lane_id!r}")
     if lane_id in lane_ids:
         fail(f"duplicate Boot lane: {lane_id}")
     lane_ids.add(lane_id)
@@ -390,9 +447,30 @@ for lane in lanes:
             flush=True,
         )
         try:
-            subprocess.run(invocation, cwd=root, check=True)
+            subprocess.run(
+                invocation, cwd=root, env=consumer_environment, check=True
+            )
         except (OSError, subprocess.CalledProcessError) as exc:
             fail(f"Boot lane {lane_id}/{flavor_id} failed: {exc}")
+
+        consumer_target = flavor["consumerPom"].parent / "target"
+        copied_reports = False
+        for report_directory in ("surefire-reports", "failsafe-reports"):
+            source = consumer_target / report_directory
+            if source.is_dir():
+                destination = (
+                    report_archive
+                    / lane_id
+                    / flavor_id
+                    / report_directory
+                )
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source, destination)
+                copied_reports = True
+        if not copied_reports:
+            fail(
+                f"Boot lane {lane_id}/{flavor_id} produced no test reports"
+            )
 
         current_hashes = {
             coordinate: sha256(path)
@@ -416,7 +494,7 @@ record = {
     "schemaVersion": 1,
     "algorithm": "SHA-256",
     "projectVersion": project_version,
-    "javaRuntime": actual_java,
+    "consumerJavaRuntime": actual_java,
     "bootLanes": [
         {
             "id": lane["id"],
