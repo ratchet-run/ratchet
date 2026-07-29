@@ -7,7 +7,7 @@
   <parent>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-quarkus-parent</artifactId>
-    <version>0.2.1-SNAPSHOT</version>
+    <version>0.2.2-SNAPSHOT</version>
   </parent>
 
   <artifactId>ratchet-quarkus-mongodb-deployment</artifactId>

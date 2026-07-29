@@ -34,7 +34,7 @@ rebuilt` when the job runs.
 
 ## Notes
 
-- The dependencies use `0.2.1-SNAPSHOT`. Bump to the release you are on.
+- The dependencies use `0.2.2-SNAPSHOT`. Bump to the release you are on.
 - On Docker Engine 29 or newer, if Dev Services reports `client version ... is too old`, create
   `~/.docker-java.properties` containing `api.version=1.44`.
 - For a production datasource, schema strategy, and the MongoDB flavor, see the

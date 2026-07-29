@@ -15,7 +15,7 @@
     <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
     <quarkus.platform.version>3.20.0</quarkus.platform.version>
     <!-- Bump to the Ratchet release you are on. -->
-    <ratchet.version>0.2.1-SNAPSHOT</ratchet.version>
+    <ratchet.version>0.2.2-SNAPSHOT</ratchet.version>
   </properties>
 
   <dependencyManagement>
