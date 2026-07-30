@@ -15,6 +15,7 @@ while IFS= read -r path; do
 done < <(
   git -C "$ROOT" ls-files \
     README.md \
+    integrations/ratchet-quarkus/README.md \
     website/docs \
     infra/loadtest/Dockerfile \
     .github/ISSUE_TEMPLATE/bug_report.yml
@@ -24,6 +25,16 @@ assert_contains() {
   local file="$1" expected="$2"
   if ! grep -Fq "$expected" "$FIXTURE/$file"; then
     echo "expected $file to contain: $expected" >&2
+    exit 1
+  fi
+}
+
+assert_count() {
+  local file="$1" expected="$2" count="$3"
+  local actual
+  actual="$(grep -Fc "$expected" "$FIXTURE/$file" || true)"
+  if [[ "$actual" -ne "$count" ]]; then
+    echo "expected $file to contain $count occurrence(s) of: $expected; got $actual" >&2
     exit 1
   fi
 }
@@ -40,6 +51,14 @@ if [[ -z "$initial_public_version" || "$initial_public_version" == *-SNAPSHOT ]]
   echo "README public version is missing or unpublished: $initial_public_version" >&2
   exit 1
 fi
+initial_quarkus_version="$(
+  sed -n '/<artifactId>ratchet-quarkus<\/artifactId>/{n;s/.*<version>\([^<]*\)<\/version>.*/\1/p;q;}' \
+    "$FIXTURE/website/docs/deployment/quarkus.md"
+)"
+if [[ -z "$initial_quarkus_version" || "$initial_quarkus_version" == *-SNAPSHOT ]]; then
+  echo "Quarkus public version is missing or unpublished: $initial_quarkus_version" >&2
+  exit 1
+fi
 
 # The current public guides omit these JAR commands because neither store was
 # published in 0.1.1. Add fixture-only commands to prove both files participate
@@ -52,6 +71,8 @@ printf '\njar xf ratchet-store-sqlserver-0.1.1.jar ddl/sqlserver-schema.sql\n' \
 # A local development bump must not invent an unpublished public coordinate.
 env -u RELEASE_VERSION "$FIXTURE/scripts/sync-version.sh" 9.8.7-SNAPSHOT >/dev/null
 assert_contains README.md "<version>$initial_public_version</version>"
+assert_count website/docs/deployment/quarkus.md "<version>$initial_quarkus_version</version>" 4
+assert_count integrations/ratchet-quarkus/README.md "<version>$initial_quarkus_version</version>" 2
 assert_contains README.md 'Ratchet is in **9.8.7-SNAPSHOT**.'
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.7-SNAPSHOT.war'
 
@@ -62,6 +83,8 @@ assert_contains README.md 'Ratchet is in **9.8.7**.'
 assert_contains website/docs/deployment/database-setup.md 'ratchet-store-postgresql-9.8.7.jar'
 assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.jar'
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
+assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 4
+assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
 
 # The following development bump keeps public snippets on the release while
 # advancing source-tree and verified-against references to the next SNAPSHOT.
@@ -72,6 +95,8 @@ assert_contains website/docs/use-cases/durable-llm-workflows.md '<version>9.8.7<
 assert_contains website/docs/use-cases/durable-llm-workflows.md '`ratchet-api` `9.8.8-SNAPSHOT`'
 assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.jar'
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
+assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 4
+assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.8-SNAPSHOT.war'
 
 # Repeating the same transition is idempotent.

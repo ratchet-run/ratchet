@@ -22,8 +22,8 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RatchetOptionsFactory;
 
 /**
- * Default beans the extension contributes. {@code @DefaultBean} means an application can override any
- * of these by simply declaring its own bean of the same type.
+ * Default beans the extension contributes. {@code @DefaultBean} means an application can override
+ * any of these by simply declaring its own bean of the same type.
  */
 @ApplicationScoped
 public class RatchetRuntimeProducers {

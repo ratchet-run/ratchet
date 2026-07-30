@@ -56,6 +56,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-resources-plugin</artifactId>
+        <version>3.3.1</version>
         <executions>
           <execution>
             <id>stage-codestarts</id>
@@ -103,9 +104,6 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <configuration>
-          <release>${maven.compiler.release}</release>
-        </configuration>
         <executions>
           <execution>
             <id>default-compile</id>

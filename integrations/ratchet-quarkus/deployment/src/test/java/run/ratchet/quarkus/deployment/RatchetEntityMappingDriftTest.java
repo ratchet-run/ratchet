@@ -43,9 +43,7 @@ class RatchetEntityMappingDriftTest {
     Set<String> processorEntities = new TreeSet<>(RatchetSqlProcessor.RATCHET_ENTITY_CLASSES);
 
     assertEquals(
-        ormXmlEntities,
-        processorEntities,
-        () -> driftMessage(ormXmlEntities, processorEntities));
+        ormXmlEntities, processorEntities, () -> driftMessage(ormXmlEntities, processorEntities));
   }
 
   private static Set<String> loadOrmXmlEntityClasses() throws Exception {

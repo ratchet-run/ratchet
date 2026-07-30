@@ -61,6 +61,7 @@
     <module>coordinators/ratchet-coordinator-hazelcast</module>
     <module>observability/ratchet-micrometer</module>
     <module>observability/ratchet-otel</module>
+    <module>integrations/ratchet-quarkus</module>
     <module>ratchet-bom</module>
     <module>testing/ratchet-tck</module>
     <module>testing/ratchet-testsuite</module>
@@ -944,6 +945,7 @@
                 <excludeArtifact>ratchet-showcase</excludeArtifact>
                 <excludeArtifact>ratchet-coverage</excludeArtifact>
                 <excludeArtifact>ratchet-arch-tests</excludeArtifact>
+                <excludeArtifact>ratchet-quarkus-integration-tests</excludeArtifact>
               </excludeArtifacts>
             </configuration>
           </plugin>

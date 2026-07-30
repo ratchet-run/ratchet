@@ -15,6 +15,10 @@
 
   <dependencyManagement>
     <dependencies>
+      <!--
+        Quarkus 3.20 manages Testcontainers 1.x. Keep this module-local import so the
+        self-managed Docker 29-compatible test client stays on the aligned 2.0.5 modules.
+      -->
       <dependency>
         <groupId>org.testcontainers</groupId>
         <artifactId>testcontainers-bom</artifactId>
@@ -70,7 +74,6 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
-          <release>${maven.compiler.release}</release>
           <annotationProcessorPaths>
             <path>
               <groupId>io.quarkus</groupId>
@@ -83,7 +86,6 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.5.2</version>
         <configuration>
           <systemPropertyVariables>
             <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
