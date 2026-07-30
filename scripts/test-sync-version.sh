@@ -31,6 +31,10 @@ assert_contains() {
 
 assert_count() {
   local file="$1" expected="$2" count="$3"
+  if [[ ! -f "$FIXTURE/$file" ]]; then
+    echo "missing fixture file: $file" >&2
+    exit 1
+  fi
   local actual
   actual="$(grep -Fc "$expected" "$FIXTURE/$file" || true)"
   if [[ "$actual" -ne "$count" ]]; then

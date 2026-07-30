@@ -2,11 +2,12 @@ version: 2
 
 # Dependabot configuration for Ratchet.
 #
-# Two ecosystems are watched:
+# Three ecosystems are watched:
 #   * maven           — every reactor pom + the four ratchet-tck submodules.
 #                       Listed individually because each module declares at
 #                       least some dependencies of its own.
 #   * github-actions  — every reusable action pinned in .github/workflows/.
+#   * npm             — the VitePress documentation site under /website.
 #
 # Two dependency families are *ignored* on purpose:
 #   * org.jboss.shrinkwrap.resolver  — irregular release cadence; minor bumps
