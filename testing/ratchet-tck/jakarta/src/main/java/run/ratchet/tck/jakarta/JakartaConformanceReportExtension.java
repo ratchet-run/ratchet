@@ -38,10 +38,12 @@ public class JakartaConformanceReportExtension extends AbstractConformanceReport
               List.of(
                   "AbstractCdiEventContract",
                   "AbstractCdiInjectionContract",
+                  "AbstractTxDlqOrderContract",
                   "AbstractTxEnqueueContract",
                   "AbstractTxNotSupportedContract",
                   "AbstractTxRequiredContract",
-                  "AbstractTxSupportsContract")));
+                  "AbstractTxSupportsContract"),
+              List.of("AbstractTxRequiresNewContract")));
 
   @Override
   protected String tierTitle() {

@@ -46,6 +46,16 @@ class ProbeEventTest {
   }
 
   @Test
+  void failedAndDlqEventsRemainDistinct() {
+    Instant timestamp = Instant.parse("2026-05-07T12:34:56Z");
+
+    ProbeEvent failed = new ProbeEvent(ProbeEvent.Type.FAILED, timestamp);
+    ProbeEvent dlq = new ProbeEvent(ProbeEvent.Type.DLQ, timestamp);
+
+    assertNotEquals(failed, dlq);
+  }
+
+  @Test
   void eventsWithDifferentTimestampsAreNotEqual() {
     ProbeEvent first =
         new ProbeEvent(ProbeEvent.Type.STARTED, Instant.parse("2026-05-07T12:34:56Z"));

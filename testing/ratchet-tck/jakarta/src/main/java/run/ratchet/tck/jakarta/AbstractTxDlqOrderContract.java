@@ -13,20 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-module run.ratchet.tck.api {
-  requires transitive run.ratchet.api;
-  requires run.ratchet.tck.util;
-  requires jakarta.annotation;
-  requires jakarta.cdi;
-  requires jakarta.inject;
-  requires org.junit.jupiter.api;
+package run.ratchet.tck.jakarta;
 
-  exports run.ratchet.tck.api;
-  exports run.ratchet.tck.api.transaction;
+import jakarta.inject.Inject;
+import jakarta.transaction.UserTransaction;
+import run.ratchet.tck.api.transaction.RatchetTransactionDriver;
 
-  opens run.ratchet.tck.api;
-  opens run.ratchet.tck.api.transaction;
+/** Jakarta {@link UserTransaction} adapter for the portable DLQ event-order contract. */
+public abstract class AbstractTxDlqOrderContract
+    extends run.ratchet.tck.api.transaction.AbstractTxDlqOrderContract {
 
-  provides org.junit.platform.launcher.TestExecutionListener with
-      run.ratchet.tck.api.ApiConformanceReportExtension;
+  @Inject protected UserTransaction tx;
+
+  @Override
+  protected RatchetTransactionDriver transactionDriver() {
+    return new UserTransactionRatchetTransactionDriver(tx);
+  }
 }

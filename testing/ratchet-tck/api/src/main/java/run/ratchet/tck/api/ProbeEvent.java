@@ -60,6 +60,11 @@ public record ProbeEvent(Type type, Instant timestamp) {
     COMPLETED,
     /** Job threw an exception. Maps to {@code JobFailedEvent}. */
     FAILED,
+    /**
+     * Job exhausted its retry policy and entered the dead-letter queue. Maps to {@code
+     * JobDlqEvent}.
+     */
+    DLQ,
     /** Job was cancelled. Maps to {@code JobCancelledEvent}. */
     CANCELLED,
     /** Job is being retried. Maps to {@code JobRetryingEvent}. */

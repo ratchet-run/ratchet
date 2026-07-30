@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.transaction.RatchetTransactionDriver;
 import run.ratchet.tck.jakarta.AbstractTxRequiredContract;
 
 /**
@@ -67,6 +68,7 @@ class RiTxRequiredIT extends AbstractTxRequiredContract {
 
   @Deployment
   public static WebArchive createDeployment() {
-    return RiTckDeployment.create(AbstractTxRequiredContract.class.getPackage());
+    return RiTckDeployment.create(
+        AbstractTxRequiredContract.class.getPackage(), RatchetTransactionDriver.class.getPackage());
   }
 }

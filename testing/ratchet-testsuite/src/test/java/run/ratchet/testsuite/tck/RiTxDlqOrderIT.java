@@ -22,15 +22,11 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.transaction.RatchetTransactionDriver;
-import run.ratchet.tck.jakarta.AbstractTxNotSupportedContract;
+import run.ratchet.tck.jakarta.AbstractTxDlqOrderContract;
 
-/**
- * RI subclass of {@link AbstractTxNotSupportedContract}. The RI manages its event listener list in
- * an in-memory {@link java.util.concurrent.CopyOnWriteArrayList} that is not TX-bound, so add/
- * remove operations take effect immediately regardless of the surrounding JTA context.
- */
+/** RI runner for the portable failed-before-DLQ event-order contract. */
 @ExtendWith(ArquillianExtension.class)
-class RiTxNotSupportedIT extends AbstractTxNotSupportedContract {
+class RiTxDlqOrderIT extends AbstractTxDlqOrderContract {
 
   @Inject private RiRatchetTckRuntime runtime;
 
@@ -42,7 +38,6 @@ class RiTxNotSupportedIT extends AbstractTxNotSupportedContract {
   @Deployment
   public static WebArchive createDeployment() {
     return RiTckDeployment.create(
-        AbstractTxNotSupportedContract.class.getPackage(),
-        RatchetTransactionDriver.class.getPackage());
+        AbstractTxDlqOrderContract.class.getPackage(), RatchetTransactionDriver.class.getPackage());
   }
 }

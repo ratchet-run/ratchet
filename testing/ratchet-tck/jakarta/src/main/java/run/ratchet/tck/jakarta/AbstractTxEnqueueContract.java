@@ -15,98 +15,18 @@
  */
 package run.ratchet.tck.jakarta;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
-
 import jakarta.inject.Inject;
 import jakarta.transaction.UserTransaction;
-import java.time.Duration;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
-import run.ratchet.api.JobHandle;
-import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.TckJobs;
+import run.ratchet.tck.api.transaction.RatchetTransactionDriver;
 
-/**
- * Base contract: a Jakarta-EE-compliant Ratchet runtime backed by a JTA-aware store MUST honor the
- * caller's transaction context on enqueue. Specifically:
- *
- * <ul>
- *   <li>An enqueue performed inside a committed transaction MUST result in the job being executed
- *       by the scheduler.
- *   <li>An enqueue performed inside a rolled-back transaction MUST NOT result in the job being
- *       executed.
- * </ul>
- *
- * <p>This contract is a conformance grade, not a universal hard requirement. A runtime whose store
- * does not participate in caller transactions returns {@code false} from {@link
- * RatchetTckRuntime#supportsCallerTransactionRollback()}. Its rollback-only case then reports
- * {@code N/A}; the commit-visible case still runs and must pass.
- *
- * <p>Subclasses provide an Arquillian {@code @Deployment} that bundles this contract package and
- * the implementation's {@link RatchetTckRuntime} adapter.
- */
-public abstract class AbstractTxEnqueueContract {
+/** Jakarta {@link UserTransaction} adapter for the portable enqueue transaction contract. */
+public abstract class AbstractTxEnqueueContract
+    extends run.ratchet.tck.api.transaction.AbstractTxEnqueueContract {
 
   @Inject protected UserTransaction tx;
 
-  @AfterEach
-  void clearAfterEach() {
-    runtime().clear();
-    TckJobs.resetAll();
-  }
-
-  @Test
-  void commitPublishesEnqueuedJob() throws Exception {
-    tx.begin();
-    JobHandle handle = runtime().scheduler().enqueueNow(TckJobs::noop);
-    runtime().probe().track(handle);
-    tx.commit();
-
-    assertTrue(
-        runtime().probe().awaitCompleted(handle, defaultTimeout()),
-        "Job enqueued in a committed transaction must execute. If this fails on a JTA-aware "
-            + "store, the runtime is publishing to its scheduler queue eagerly instead of "
-            + "deferring to commit, breaking caller atomicity.");
-  }
-
-  /**
-   * @apiNote Intentionally {@code protected} so a runtime-specific subclass may attach a
-   *     runner-level skip annotation when its test harness cannot translate an in-container
-   *     assumption into a skipped test. Such an override must delegate to {@code super} and must
-   *     not replace the assertion body.
-   */
-  @Test
-  protected void rollbackSuppressesEnqueuedJob() throws Exception {
-    assumeTrue(
-        runtime().supportsCallerTransactionRollback(),
-        "The runtime reports that its store does not participate in caller transaction rollback");
-    tx.begin();
-    JobHandle handle = runtime().scheduler().enqueueNow(TckJobs::noop);
-    runtime().probe().track(handle);
-    tx.rollback();
-
-    assertFalse(
-        runtime().probe().awaitCompleted(handle, rollbackQuietWindow()),
-        "Job enqueued in a rolled-back transaction must NOT execute. A COMPLETED event for "
-            + "handle "
-            + handle.id()
-            + " indicates the runtime ignored the rollback — caller atomicity is broken.");
-  }
-
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(10);
-  }
-
-  /**
-   * Bound on the negative-assertion wait for the rollback case. A non-trivial wall-clock window so
-   * we give a misbehaving store time to fire COMPLETED if it's going to. Keep it short enough that
-   * a passing run doesn't drag — the absence of an event is what's being asserted.
-   */
-  protected Duration rollbackQuietWindow() {
-    return Duration.ofMillis(750);
+  @Override
+  protected RatchetTransactionDriver transactionDriver() {
+    return new UserTransactionRatchetTransactionDriver(tx);
   }
 }

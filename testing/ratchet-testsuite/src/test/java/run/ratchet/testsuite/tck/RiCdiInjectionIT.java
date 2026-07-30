@@ -21,6 +21,7 @@ import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.transaction.RatchetTransactionDriver;
 import run.ratchet.tck.jakarta.AbstractCdiInjectionContract;
 
 /** RI subclass of {@link AbstractCdiInjectionContract}. */
@@ -36,6 +37,8 @@ class RiCdiInjectionIT extends AbstractCdiInjectionContract {
 
   @Deployment
   public static WebArchive createDeployment() {
-    return RiTckDeployment.create(AbstractCdiInjectionContract.class.getPackage());
+    return RiTckDeployment.create(
+        AbstractCdiInjectionContract.class.getPackage(),
+        RatchetTransactionDriver.class.getPackage());
   }
 }

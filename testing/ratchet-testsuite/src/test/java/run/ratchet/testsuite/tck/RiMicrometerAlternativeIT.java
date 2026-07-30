@@ -33,6 +33,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.tck.api.ListenerProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TckJobs;
+import run.ratchet.tck.api.transaction.RatchetTransactionDriver;
 import run.ratchet.tck.jakarta.AbstractTxEnqueueContract;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
@@ -60,6 +61,7 @@ class RiMicrometerAlternativeIT {
         "run.ratchet:ratchet-micrometer",
         new Package[] {
           RatchetTckRuntime.class.getPackage(),
+          RatchetTransactionDriver.class.getPackage(),
           AbstractTxEnqueueContract.class.getPackage(),
           ConcurrentTestRunner.class.getPackage()
         },

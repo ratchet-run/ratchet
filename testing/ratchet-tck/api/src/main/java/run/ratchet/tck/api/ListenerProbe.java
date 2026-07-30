@@ -230,17 +230,12 @@ public class ListenerProbe implements RatchetTckProbe {
     return null;
   }
 
-  /**
-   * Maps scheduler event types to {@link ProbeEvent.Type}. Current runtimes route terminal retry
-   * exhaustion through {@code JobDlqEvent}, so {@code JobDlqEvent} is mapped to FAILED here. A
-   * future API-level implementation that fires {@code JobFailedEvent} directly will also be mapped
-   * to FAILED.
-   */
+  /** Maps scheduler event types to {@link ProbeEvent.Type}. */
   private static ProbeEvent.Type typeOf(Object event) {
     if (event instanceof JobStartedEvent) return ProbeEvent.Type.STARTED;
     if (event instanceof JobCompletedEvent) return ProbeEvent.Type.COMPLETED;
     if (event instanceof JobFailedEvent) return ProbeEvent.Type.FAILED;
-    if (event instanceof JobDlqEvent) return ProbeEvent.Type.FAILED;
+    if (event instanceof JobDlqEvent) return ProbeEvent.Type.DLQ;
     if (event instanceof JobCancelledEvent) return ProbeEvent.Type.CANCELLED;
     if (event instanceof JobRetryingEvent) return ProbeEvent.Type.RETRYING;
     return null;

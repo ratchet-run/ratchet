@@ -19,18 +19,19 @@ import jakarta.inject.Inject;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.transaction.RatchetTransactionDriver;
-import run.ratchet.tck.jakarta.AbstractTxNotSupportedContract;
+import run.ratchet.tck.jakarta.AbstractTxRequiresNewContract;
 
 /**
- * RI subclass of {@link AbstractTxNotSupportedContract}. The RI manages its event listener list in
- * an in-memory {@link java.util.concurrent.CopyOnWriteArrayList} that is not TX-bound, so add/
- * remove operations take effect immediately regardless of the surrounding JTA context.
+ * RI runner for the portable post-execution {@code REQUIRES_NEW} contract. MongoDB does not enlist
+ * scheduler writes in the caller's JTA transaction, so its rollback case is capability-exempt.
  */
 @ExtendWith(ArquillianExtension.class)
-class RiTxNotSupportedIT extends AbstractTxNotSupportedContract {
+class RiTxRequiresNewIT extends AbstractTxRequiresNewContract {
 
   @Inject private RiRatchetTckRuntime runtime;
 
@@ -39,10 +40,17 @@ class RiTxNotSupportedIT extends AbstractTxNotSupportedContract {
     return runtime;
   }
 
+  @Override
+  @Test
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  protected void completedState_survivesCallerRollback() throws Exception {
+    super.completedState_survivesCallerRollback();
+  }
+
   @Deployment
   public static WebArchive createDeployment() {
     return RiTckDeployment.create(
-        AbstractTxNotSupportedContract.class.getPackage(),
+        AbstractTxRequiresNewContract.class.getPackage(),
         RatchetTransactionDriver.class.getPackage());
   }
 }

@@ -21,6 +21,7 @@ import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.transaction.RatchetTransactionDriver;
 import run.ratchet.tck.jakarta.AbstractCdiEventContract;
 import run.ratchet.tck.jakarta.CdiEventCollector;
 
@@ -38,6 +39,9 @@ class RiCdiEventIT extends AbstractCdiEventContract {
   @Deployment
   public static WebArchive createDeployment() {
     return RiTckDeployment.createWith(
-        new Package[] {AbstractCdiEventContract.class.getPackage()}, CdiEventCollector.class);
+        new Package[] {
+          AbstractCdiEventContract.class.getPackage(), RatchetTransactionDriver.class.getPackage()
+        },
+        CdiEventCollector.class);
   }
 }
