@@ -9,9 +9,7 @@ parts of Ratchet that assume a Jakarta EE server: it starts the engine once the 
 supplies a JNDI-free executor, binds the stores to their own persistence unit, and registers the
 reflection and serialization metadata a native image needs.
 
-> **Status:** validated on the JVM and as a native image, but not yet published to Maven Central.
-> Build it from source until a release is cut:
-> `mvn -f integrations/ratchet-quarkus/pom.xml install`
+The extension is available from Maven Central starting with Ratchet 0.3.0.
 
 ## Requirements
 
@@ -29,12 +27,12 @@ Add the extension, a store, and the matching Quarkus JDBC driver.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.3.0</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-postgresql</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.3.0</version>
 </dependency>
 <dependency>
   <groupId>io.quarkus</groupId>
@@ -154,7 +152,15 @@ reference or a bean method instead.
 
 ## Known limitations
 
-- Snapshot only. Not yet on Maven Central.
 - EclipseLink is not available on Quarkus. This is the Hibernate ORM cell.
 - The native lambda-capturing scan keys off classes that inject `JobSchedulerService`. If you submit
   jobs from a class that does not inject it directly, register that class for serialization yourself.
+
+## Building from source
+
+The extension is part of Ratchet's root Maven reactor. For development, build it together with its
+reactor dependencies from the repository root:
+
+```bash
+mvn -pl integrations/ratchet-quarkus/integration-tests -am install
+```
