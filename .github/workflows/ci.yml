@@ -305,11 +305,15 @@ jobs:
           EOF
       - name: Eclipse Dash license check
         # api.eclipse.org occasionally times out under load. Retry once after
-        # 60s to absorb transient failures without masking real outages.
+        # 60s to absorb transient failures without masking real outages. The
+        # batch size is capped because the default sends the whole dependency
+        # list (~344 items) as one request, which dies on the foundation's
+        # 60-second gateway timeout whenever the service is slow; batches of
+        # 50 finish well inside the window.
         run: |
           for attempt in 1 2; do
             mvn org.eclipse.dash:license-tool-plugin:1.1.0:license-check \
-              -Ddash.summary=target/dash-DEPENDENCIES && exit 0
+              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=50 && exit 0
             echo "Attempt $attempt failed; sleeping 60s before retry..."
             sleep 60
           done
