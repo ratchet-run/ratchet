@@ -164,6 +164,10 @@ jobs:
     # stays fast without leaving main unvalidated.
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
+    # The slowest healthy cell finishes well under 30 minutes; a wedged
+    # container deploy otherwise burns the full 6-hour default before the
+    # runner kills it.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -196,7 +200,21 @@ jobs:
       - name: Integration tests (${{ matrix.server }} / ${{ matrix.database }})
         # spotbugs.skip: the SpotBugs gate is bound to verify but runs once in the
         # dedicated spotbugs job — skip it here so it isn't re-analyzed per matrix cell.
-        run: mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -pl :ratchet-testsuite,:ratchet-coverage -am
+        #
+        # timeout(1) fails the step (exit 124) instead of letting a wedged
+        # container deploy ride to the job-level kill, and TERMs only the
+        # Maven process — the forked JVM and the app server survive as
+        # orphans so the next step can thread-dump them.
+        run: timeout --kill-after=60 45m mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -pl :ratchet-testsuite,:ratchet-coverage -am
+      - name: Thread-dump surviving JVMs
+        if: failure()
+        run: |
+          for pid in $(jcmd -l | awk '$2 !~ /jcmd/ {print $1}'); do
+            echo "::group::jcmd ${pid} Thread.print"
+            jcmd "${pid}" VM.command_line || true
+            jcmd "${pid}" Thread.print || true
+            echo "::endgroup::"
+          done
       - name: Upload coverage report
         if: matrix.server == 'wildfly-managed' && matrix.database == 'mysql'
         uses: actions/upload-artifact@v7
