@@ -35,17 +35,25 @@ import java.util.Set;
 import java.util.jar.JarFile;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import run.ratchet.ri.cdi.CdiBeanResolver;
+import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultRatchetRuntime;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.RecurringMethodRegistrar;
+import run.ratchet.ri.core.internal.RecurringRegistrationState;
 
 class RatchetRuntimeComponentCatalogTest {
 
   private static final List<Class<?>> EXPECTED_COMPONENT_ORDER =
       List.of(
           JakartaAfterCommitRegistrar.class,
+          CdiBeanResolver.class,
+          RecurringMethodInvoker.class,
+          RecurringRegistrationState.class,
+          RecurringMethodRegistrar.class,
           JobStateManager.class,
           DeadLetterService.class,
           PostExecutionHandler.class,

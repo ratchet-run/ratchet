@@ -17,15 +17,13 @@ package run.ratchet.ri.cdi;
 
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.Dependent;
-import jakarta.enterprise.inject.Any;
-import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import run.ratchet.api.JobContext;
+import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 
 /** Invokes @Recurring methods on their CDI beans. */
@@ -33,17 +31,17 @@ import run.ratchet.spi.ClassPolicy;
 public class RecurringMethodInvoker {
 
   private final ConcurrentMap<MethodCacheKey, Method> methodCache = new ConcurrentHashMap<>();
-  private final Instance<Object> allBeans;
+  private final BeanResolver beanResolver;
   private final ClassPolicy classPolicy;
 
   protected RecurringMethodInvoker() {
-    this.allBeans = null;
+    this.beanResolver = null;
     this.classPolicy = null;
   }
 
   @Inject
-  public RecurringMethodInvoker(@Any Instance<Object> allBeans, ClassPolicy classPolicy) {
-    this.allBeans = allBeans;
+  public RecurringMethodInvoker(BeanResolver beanResolver, ClassPolicy classPolicy) {
+    this.beanResolver = beanResolver;
     this.classPolicy = classPolicy;
   }
 
@@ -56,26 +54,22 @@ public class RecurringMethodInvoker {
     }
     Class<?> beanClass =
         Class.forName(beanClassName, true, Thread.currentThread().getContextClassLoader());
-    Instance<?> instance = allBeans.select(beanClass);
-
-    if (instance.isUnsatisfied()) {
-      throw new IllegalStateException("No CDI bean found for class: " + beanClassName);
+    BeanResolver.ManagedBeanHandle<?> handle;
+    try {
+      handle = beanResolver.resolveManaged(beanClass);
+    } catch (IllegalStateException e) {
+      throw new IllegalStateException("No managed bean found for class: " + beanClassName, e);
     }
 
-    Instance.Handle<?> handle = instance.getHandle();
-    Object bean = handle.get();
-    try {
-      Method method = getOrResolveMethod(beanClass, methodName, hasJobContextParam);
-
+    try (handle) {
+      Object bean = handle.get();
+      Method method =
+          getOrResolveMethod(beanClass, bean.getClass(), methodName, hasJobContextParam);
       if (hasJobContextParam) {
         JobContext context = JobContext.current();
         invokeMethod(method, bean, context);
       } else {
         invokeMethod(method, bean);
-      }
-    } finally {
-      if (handle.getBean().getScope().equals(Dependent.class)) {
-        handle.destroy();
       }
     }
   }
@@ -85,10 +79,11 @@ public class RecurringMethodInvoker {
       throw new SecurityException(
           "Class " + beanClass.getName() + " is not allowed for recurring job execution.");
     }
-    Instance<?> instance = allBeans.select(beanClass);
-    if (instance.isUnsatisfied()) {
+    try (BeanResolver.ManagedBeanHandle<?> handle = beanResolver.resolveManaged(beanClass)) {
+      handle.get();
+    } catch (IllegalStateException e) {
       throw new IllegalStateException(
-          "@Recurring method on unresolvable CDI bean: " + beanClass.getName());
+          "@Recurring method on unresolvable managed bean: " + beanClass.getName(), e);
     }
   }
 
@@ -98,54 +93,82 @@ public class RecurringMethodInvoker {
   }
 
   private Method getOrResolveMethod(
-      Class<?> beanClass, String methodName, boolean hasJobContextParam)
+      Class<?> beanClass, Class<?> resolvedBeanClass, String methodName, boolean hasJobContextParam)
       throws NoSuchMethodException {
-    MethodCacheKey key = new MethodCacheKey(beanClass.getName(), methodName, hasJobContextParam);
+    Class<?> lookupClass =
+        beanClass.isAssignableFrom(resolvedBeanClass) ? beanClass : resolvedBeanClass;
+    MethodCacheKey key =
+        new MethodCacheKey(
+            beanClass.getName(), lookupClass.getName(), methodName, hasJobContextParam);
 
     Method cached = methodCache.get(key);
     if (cached != null) {
       return cached;
     }
 
-    Method resolved;
-    try {
-      if (hasJobContextParam) {
-        resolved = beanClass.getDeclaredMethod(methodName, JobContext.class);
-      } else {
-        resolved = beanClass.getDeclaredMethod(methodName);
+    Method resolved =
+        findMethod(lookupClass, methodName, hasJobContextParam, lookupClass == beanClass);
+    if (resolved == null) {
+      Method opposite =
+          findMethod(lookupClass, methodName, !hasJobContextParam, lookupClass == beanClass);
+      if (opposite != null) {
+        throw signatureChanged(beanClass, methodName, hasJobContextParam);
       }
-    } catch (NoSuchMethodException e) {
-      // Check if the method exists with the opposite signature (signature change detection)
+      throw new NoSuchMethodException(
+          beanClass.getName() + "." + methodName + (hasJobContextParam ? "(JobContext)" : "()"));
+    }
+
+    Method existing = methodCache.putIfAbsent(key, resolved);
+    return existing != null ? existing : resolved;
+  }
+
+  private static Method findMethod(
+      Class<?> lookupClass,
+      String methodName,
+      boolean hasJobContextParam,
+      boolean walkDeclaredHierarchy) {
+    Class<?>[] parameterTypes =
+        hasJobContextParam ? new Class<?>[] {JobContext.class} : new Class<?>[0];
+    if (!walkDeclaredHierarchy) {
       try {
-        if (hasJobContextParam) {
-          beanClass.getDeclaredMethod(methodName);
-          throw new NoSuchMethodException(
-              "Method signature changed for @Recurring job: "
-                  + beanClass.getName()
-                  + "."
-                  + methodName
-                  + ". Job payload expects (JobContext) parameter but method now has no parameters."
-                  + " Cancel and re-register the recurring job, or redeploy to pick up the new"
-                  + " signature.");
-        } else {
-          beanClass.getDeclaredMethod(methodName, JobContext.class);
-          throw new NoSuchMethodException(
-              "Method signature changed for @Recurring job: "
-                  + beanClass.getName()
-                  + "."
-                  + methodName
-                  + ". Job payload expects no parameters but method now requires (JobContext)."
-                  + " Cancel and re-register the recurring job, or redeploy to pick up the new"
-                  + " signature.");
-        }
-      } catch (NoSuchMethodException signatureCheckFailure) {
-        // Method was not found under either supported signature; rethrow the original miss.
-        throw e;
+        Method method = lookupClass.getMethod(methodName, parameterTypes);
+        return method.isSynthetic() || method.isBridge() ? null : method;
+      } catch (NoSuchMethodException e) {
+        return null;
       }
     }
 
-    methodCache.put(key, resolved);
-    return resolved;
+    Class<?> current = lookupClass;
+    while (current != null && current != Object.class) {
+      for (Method method : current.getDeclaredMethods()) {
+        if (method.isSynthetic()
+            || method.isBridge()
+            || !method.getName().equals(methodName)
+            || !java.util.Arrays.equals(method.getParameterTypes(), parameterTypes)) {
+          continue;
+        }
+        return method;
+      }
+      current = current.getSuperclass();
+    }
+    return null;
+  }
+
+  private static NoSuchMethodException signatureChanged(
+      Class<?> beanClass, String methodName, boolean hasJobContextParam) {
+    String mismatch =
+        hasJobContextParam
+            ? "Job payload expects (JobContext) parameter but method now has no parameters."
+            : "Job payload expects no parameters but method now requires (JobContext).";
+    return new NoSuchMethodException(
+        "Method signature changed for @Recurring job: "
+            + beanClass.getName()
+            + "."
+            + methodName
+            + ". "
+            + mismatch
+            + " Cancel and re-register the recurring job, or redeploy to pick up the new"
+            + " signature.");
   }
 
   private static void invokeMethod(Method method, Object bean, Object... args) throws Exception {
@@ -163,5 +186,6 @@ public class RecurringMethodInvoker {
     }
   }
 
-  private record MethodCacheKey(String className, String methodName, boolean hasJobContextParam) {}
+  private record MethodCacheKey(
+      String className, String resolvedClassName, String methodName, boolean hasJobContextParam) {}
 }
