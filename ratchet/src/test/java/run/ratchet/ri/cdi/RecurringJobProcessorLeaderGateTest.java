@@ -28,16 +28,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.Bean;
-import jakarta.enterprise.inject.spi.BeanManager;
 import java.lang.reflect.Field;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -52,46 +48,47 @@ import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
+import run.ratchet.ri.core.internal.RecurringMethodRegistrar;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.ri.runtime.RecurringMethodDiscovery;
 import run.ratchet.spi.StartupCoordinator;
-import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 
-// Verifies startup-lease-gated cleanup and convergence window in RecurringJobProcessor.
+// Verifies startup-lease-gated cleanup and convergence behavior in the portable registrar.
 class RecurringJobProcessorLeaderGateTest {
 
   private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+  private static final RecurringMethodDiscovery LEADER_GATE_DISCOVERY =
+      () -> Set.of(LeaderGateBean.class);
+  private static final RecurringMethodDiscovery EMPTY_DISCOVERY = Set::of;
 
   @Test
-  void cleanup_skippedWhenStartupLeaseNotAcquired() throws Exception {
+  void cleanup_skippedWhenStartupLeaseNotAcquired() {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     var schedulerService = mock(JobSchedulerService.class);
-    var jobBatchStatusStore = mock(JobBatchStatusStore.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    var beanManager = mock(BeanManager.class);
-    Set<Bean<?>> beans = Set.of(beanFor(LeaderGateBean.class));
-    when(beanManager.getBeans(any(), any())).thenReturn(beans);
     when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     var coordinator = mock(StartupCoordinator.class);
     when(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)))
         .thenReturn(false);
     var registrationState = new RecurringRegistrationState();
-
-    var processor =
-        new RecurringJobProcessor(
+    var registrar =
+        newRegistrar(
             schedulerService,
-            jobBatchStatusStore,
             maintenance,
-            beanManager,
-            mock(RecurringMethodInvoker.class),
+            LEADER_GATE_DISCOVERY,
             coordinator,
-            registrationState);
+            registrationState,
+            RatchetOptions.defaults(),
+            null,
+            FIXED_CLOCK);
 
-    processor.registerRecurringJobs();
+    registrar.register();
 
     verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).withBusinessKey("leader-gate-job");
@@ -103,89 +100,76 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   @Test
-  void registerRecurringJobs_usesDiscoveredRecurringBeanClassesWhenAvailable() throws Exception {
+  void registerRecurringJobs_usesPortableDiscovery() {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     var schedulerService = mock(JobSchedulerService.class);
-    var jobBatchStatusStore = mock(JobBatchStatusStore.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    var beanManager = mock(BeanManager.class);
-    Set<Bean<?>> beans = Set.of(beanFor(LeaderGateBean.class));
-    when(beanManager.getBeans(eq(LeaderGateBean.class), any())).thenReturn(beans);
+    var discovery = mock(RecurringMethodDiscovery.class);
+    when(discovery.recurringBeanClasses()).thenReturn(Set.of(LeaderGateBean.class));
+    when(discovery.isMethodInvocable(eq(LeaderGateBean.class), any())).thenReturn(true);
     when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
-
-    var processor =
-        new RecurringJobProcessor(
+    var registrar =
+        newRegistrar(
             schedulerService,
-            jobBatchStatusStore,
             maintenance,
-            beanManager,
-            mock(RecurringMethodInvoker.class),
+            discovery,
             null,
             new RecurringRegistrationState(),
             RatchetOptions.defaults(),
-            Set.of(LeaderGateBean.class));
+            null,
+            FIXED_CLOCK);
 
-    processor.registerRecurringJobs();
+    registrar.register();
 
-    verify(beanManager).getBeans(eq(LeaderGateBean.class), any());
-    verify(beanManager, never()).getBeans(eq(Object.class), any());
+    verify(discovery).recurringBeanClasses();
     verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
   }
 
   @Test
-  void cleanup_runsWhenStartupLeaseAcquired_andAppliesConvergenceWindow() throws Exception {
+  void cleanup_runsWhenStartupLeaseAcquired_andAppliesConvergenceWindow() {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     when(maintenance.cancelOrphanedRecurringAnnotationJobs(anySet(), any())).thenReturn(0);
-    var beanManager = mock(BeanManager.class);
-    when(beanManager.getBeans(any(), any())).thenReturn(Collections.emptySet());
     var coordinator = mock(StartupCoordinator.class);
     when(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)))
         .thenReturn(true);
-
-    var processor =
-        new RecurringJobProcessor(
+    var registrar =
+        newRegistrar(
             mock(JobSchedulerService.class),
-            mock(JobBatchStatusStore.class),
             maintenance,
-            beanManager,
-            mock(RecurringMethodInvoker.class),
+            EMPTY_DISCOVERY,
             coordinator,
             new RecurringRegistrationState(),
             RatchetOptions.builder()
                 .recurring(recurring -> recurring.convergenceWindowSeconds(120))
                 .build(),
-            Set.of(),
+            null,
             FIXED_CLOCK);
 
-    processor.registerRecurringJobs();
+    registrar.register();
 
     ArgumentCaptor<Instant> cutoffCaptor = ArgumentCaptor.forClass(Instant.class);
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(anySet(), cutoffCaptor.capture());
     verify(coordinator).release("recurring-annotation-orphan-cleanup");
-
-    Instant cutoff = cutoffCaptor.getValue();
-    assertEquals(FIXED_NOW.minusSeconds(120), cutoff);
+    assertEquals(FIXED_NOW.minusSeconds(120), cutoffCaptor.getValue());
   }
 
   @Test
-  void cleanup_runsWhenStartupCoordinatorMissing() throws Exception {
+  void cleanup_runsWhenStartupCoordinatorMissing() {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     when(maintenance.cancelOrphanedRecurringAnnotationJobs(anySet(), any())).thenReturn(0);
-    var beanManager = mock(BeanManager.class);
-    when(beanManager.getBeans(any(), any())).thenReturn(Collections.emptySet());
-
-    var processor =
-        new RecurringJobProcessor(
+    var registrar =
+        newRegistrar(
             mock(JobSchedulerService.class),
-            mock(JobBatchStatusStore.class),
             maintenance,
-            beanManager,
-            mock(RecurringMethodInvoker.class),
+            EMPTY_DISCOVERY,
             null,
-            new RecurringRegistrationState());
+            new RecurringRegistrationState(),
+            RatchetOptions.defaults(),
+            null,
+            FIXED_CLOCK);
 
-    processor.registerRecurringJobs();
+    registrar.register();
 
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(anySet(), any());
   }
@@ -195,23 +179,21 @@ class RecurringJobProcessorLeaderGateTest {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     when(maintenance.cancelOrphanedRecurringAnnotationJobs(anySet(), any()))
         .thenThrow(new IllegalStateException("store unavailable"));
-    var beanManager = mock(BeanManager.class);
-    when(beanManager.getBeans(any(), any())).thenReturn(Collections.emptySet());
     var coordinator = mock(StartupCoordinator.class);
     when(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)))
         .thenReturn(true);
-
-    var processor =
-        new RecurringJobProcessor(
+    var registrar =
+        newRegistrar(
             mock(JobSchedulerService.class),
-            mock(JobBatchStatusStore.class),
             maintenance,
-            beanManager,
-            mock(RecurringMethodInvoker.class),
+            EMPTY_DISCOVERY,
             coordinator,
-            new RecurringRegistrationState());
+            new RecurringRegistrationState(),
+            RatchetOptions.defaults(),
+            null,
+            FIXED_CLOCK);
 
-    assertDoesNotThrow(processor::registerRecurringJobs);
+    assertDoesNotThrow(registrar::register);
 
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(anySet(), any());
     verify(coordinator).tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5));
@@ -220,29 +202,25 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   @Test
-  void registerRecurringJobs_doesNotCancelExistingJobWhenSubmitFails() throws Exception {
+  void registerRecurringJobs_doesNotCancelExistingJobWhenSubmitFails() {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     var schedulerService = mock(JobSchedulerService.class);
-    var jobBatchStatusStore = mock(JobBatchStatusStore.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    var beanManager = mock(BeanManager.class);
-    Set<Bean<?>> beans = Set.of(beanFor(LeaderGateBean.class));
-    when(beanManager.getBeans(any(), any())).thenReturn(beans);
     when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     when(recurringJobBuilder.submit()).thenThrow(new IllegalStateException("store unavailable"));
-
-    var processor =
-        new RecurringJobProcessor(
+    var registrar =
+        newRegistrar(
             schedulerService,
-            jobBatchStatusStore,
             maintenance,
-            beanManager,
-            mock(RecurringMethodInvoker.class),
+            LEADER_GATE_DISCOVERY,
             null,
-            new RecurringRegistrationState());
+            new RecurringRegistrationState(),
+            RatchetOptions.defaults(),
+            null,
+            FIXED_CLOCK);
 
-    assertDoesNotThrow(processor::registerRecurringJobs);
+    assertDoesNotThrow(registrar::register);
 
     verify(recurringJobBuilder).submit();
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(eq(Set.of("leader-gate-job")), any());
@@ -253,45 +231,58 @@ class RecurringJobProcessorLeaderGateTest {
       throws Exception {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     var schedulerService = mock(JobSchedulerService.class);
-    var jobBatchStatusStore = mock(JobBatchStatusStore.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
     UUID existingId = UUID.randomUUID();
     when(recurringJobBuilder.submit()).thenReturn((JobHandle) () -> existingId);
-    var beanManager = mock(BeanManager.class);
-    Set<Bean<?>> beans = Set.of(beanFor(LeaderGateBean.class));
-    when(beanManager.getBeans(any(), any())).thenReturn(beans);
     when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     var registrationState = new RecurringRegistrationState();
-
-    var processor =
-        new RecurringJobProcessor(
-            schedulerService,
-            jobBatchStatusStore,
-            maintenance,
-            beanManager,
-            mock(RecurringMethodInvoker.class),
-            null,
-            registrationState);
-    var store = mock(RecurringJobStore.class);
-    when(store.findRecurringByBusinessKey("leader-gate-job"))
+    var recurringJobStore = mock(RecurringJobStore.class);
+    when(recurringJobStore.findRecurringByBusinessKey("leader-gate-job"))
         .thenReturn(Optional.of(recurringDefinition(existingId, "leader-gate-job")));
-    injectRecurringJobStore(processor, store);
+    var jobStore = mock(JobStore.class);
+    when(jobStore.capability(RecurringJobStore.class)).thenReturn(Optional.of(recurringJobStore));
+    var registrar =
+        newRegistrar(
+            schedulerService,
+            maintenance,
+            LEADER_GATE_DISCOVERY,
+            null,
+            registrationState,
+            RatchetOptions.defaults(),
+            jobStore,
+            FIXED_CLOCK);
 
-    assertTrue(processor.registerRecurringJobs());
+    registrar.register();
 
     verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).withBusinessKey("leader-gate-job");
     verify(recurringJobBuilder).submit();
-    assertRegisteredJobId(processor, "leader-gate-job", existingId);
+    assertRegisteredJobId(registrar, "leader-gate-job", existingId);
     assertTrue(registrationState.shouldFire("leader-gate-job"));
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(eq(Set.of("leader-gate-job")), any());
   }
 
-  static Bean<?> beanFor(Class<?> beanClass) {
-    var bean = mock(Bean.class);
-    when(bean.getBeanClass()).thenReturn(beanClass);
-    return bean;
+  private static RecurringMethodRegistrar newRegistrar(
+      JobSchedulerService schedulerService,
+      RecurringAnnotationMaintenanceService maintenance,
+      RecurringMethodDiscovery discovery,
+      StartupCoordinator coordinator,
+      RecurringRegistrationState registrationState,
+      RatchetOptions options,
+      JobStore jobStore,
+      Clock clock) {
+    return new RecurringMethodRegistrar(
+        schedulerService,
+        maintenance,
+        discovery,
+        mock(RecurringMethodInvoker.class),
+        coordinator,
+        registrationState,
+        options,
+        null,
+        jobStore,
+        clock);
   }
 
   static RecurringJobBuilder mockRecurringJobBuilder() {
@@ -330,22 +321,11 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   @SuppressWarnings("unchecked")
-  private static void injectRecurringJobStore(
-      RecurringJobProcessor processor, RecurringJobStore recurringJobStore) throws Exception {
-    Instance<RecurringJobStore> instance = mock(Instance.class);
-    when(instance.isResolvable()).thenReturn(true);
-    when(instance.get()).thenReturn(recurringJobStore);
-    Field field = RecurringJobProcessor.class.getDeclaredField("recurringJobStoreInstance");
-    field.setAccessible(true);
-    field.set(processor, instance);
-  }
-
-  @SuppressWarnings("unchecked")
   private static void assertRegisteredJobId(
-      RecurringJobProcessor processor, String businessKey, UUID jobId) throws Exception {
-    Field field = RecurringJobProcessor.class.getDeclaredField("registeredJobIds");
+      RecurringMethodRegistrar registrar, String businessKey, UUID jobId) throws Exception {
+    Field field = RecurringMethodRegistrar.class.getDeclaredField("registeredJobIds");
     field.setAccessible(true);
-    Map<String, String> registeredJobIds = (Map<String, String>) field.get(processor);
+    Map<String, String> registeredJobIds = (Map<String, String>) field.get(registrar);
     assertEquals(jobId.toString(), registeredJobIds.get(businessKey));
   }
 

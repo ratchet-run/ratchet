@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.ri.cdi;
+package run.ratchet.ri.core.internal;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -30,7 +30,7 @@ import run.ratchet.api.JobContext;
  *   <li>If one parameter, it must be assignable to {@link JobContext}
  * </ul>
  *
- * @see RecurringJobProcessor
+ * @see RecurringMethodRegistrar
  */
 final class RecurringMethodValidator {
 

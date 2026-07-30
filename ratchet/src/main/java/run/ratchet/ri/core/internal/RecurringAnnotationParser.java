@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.ri.cdi;
+package run.ratchet.ri.core.internal;
 
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.Recurring;
@@ -24,7 +24,7 @@ import run.ratchet.api.internal.BusinessKeyNormalizer;
  * Parses {@code @Recurring} annotation values: enabled flag, numeric-to-{@link JobPriority}
  * mapping, and job ID generation.
  *
- * @see RecurringJobProcessor
+ * @see RecurringMethodRegistrar
  */
 final class RecurringAnnotationParser {
 

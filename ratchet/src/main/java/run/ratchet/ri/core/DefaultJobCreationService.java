@@ -79,6 +79,7 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -156,7 +157,7 @@ class DefaultJobCreationService
       Instance<BatchStore> batchStore,
       TagStore tagStore,
       Instance<WorkflowConditionStore> workflowConditionStore,
-      Instance<RecurringJobStore> recurringJobStore,
+      JobStore jobStore,
       Instance<SignalStore> signalStore,
       Instance<ResourcePermitStore> resourcePermitStore,
       JobWakeupService wakeupService,
@@ -180,7 +181,7 @@ class DefaultJobCreationService
         batchStore.isResolvable() ? batchStore.get() : null,
         tagStore,
         workflowConditionStore.isResolvable() ? workflowConditionStore.get() : null,
-        recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
+        jobStore.capability(RecurringJobStore.class).orElse(null),
         wakeupService,
         recurringScheduler,
         jobInvocationResolver,

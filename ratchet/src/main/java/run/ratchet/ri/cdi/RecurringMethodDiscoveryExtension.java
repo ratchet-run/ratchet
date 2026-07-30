@@ -29,8 +29,8 @@ import run.ratchet.api.Recurring;
 /**
  * Collects CDI bean classes that declare {@link Recurring} methods during type discovery.
  *
- * <p>The startup processor uses this metadata to query the BeanManager for only candidate recurring
- * bean classes instead of enumerating every bean in the deployment.
+ * <p>The CDI discovery adapter uses this metadata to query the BeanManager for only candidate
+ * recurring bean classes instead of enumerating every bean in the deployment.
  *
  * <p>Callers retrieve the discovered set via {@link #getRecurringBeanClasses()} on the Extension
  * instance obtained from the deployment's own {@link jakarta.enterprise.inject.spi.BeanManager}.
@@ -40,8 +40,8 @@ import run.ratchet.api.Recurring;
  *
  * @apiNote Internal RI implementation. The class is public because the CDI {@code
  *     jakarta.enterprise.inject.spi.Extension} ServiceLoader mechanism requires it, and {@link
- *     #getRecurringBeanClasses()} is public because it is called reflectively from {@link
- *     RecurringJobProcessor} after {@code BeanManager.getExtension()} returns this instance.
+ *     #getRecurringBeanClasses()} is public because it is called by {@link
+ *     CdiRecurringMethodDiscovery} after {@code BeanManager.getExtension()} returns this instance.
  *     Applications must not reference this class directly. Not part of the supported API surface.
  */
 public class RecurringMethodDiscoveryExtension implements Extension {
