@@ -46,10 +46,10 @@ jobs:
   # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
   # docs-only PRs. Only pull_request events are eligible for that docs skip;
   # pushes to main and release builds (workflow_call) always run the full
-  # pipeline. The merge queue (merge_group) runs a reduced pipeline — build and
-  # spotbugs only — because the heavy lanes already ran on the PR and run again
-  # on the post-merge push to main (see the integration-test / ee11-verify
-  # guards). The leading '**' is the base set; the '!' rules subtract docs from
+  # pipeline. The merge queue (merge_group) runs a reduced pipeline — build,
+  # unit-tests, and spotbugs only — because the heavy lanes already ran on the
+  # PR and run again on the post-merge push to main (see the integration-test /
+  # ee11-verify guards). The leading '**' is the base set; the '!' rules subtract docs from
   # it, so code == 'true' only when a non-doc file changed. On non-PR events the
   # filter step is skipped and the output is empty, which the downstream
   # `!= 'false'` guards read as "run".
@@ -84,6 +84,9 @@ jobs:
             web:
               - 'website/**'
 
+  # Thin gate that releases the integration-test matrix: compile + format check
+  # only, no tests. The unit suite lives in the unit-tests job below, which runs
+  # in parallel with the matrix instead of in front of it.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -99,6 +102,27 @@ jobs:
           restore-keys: m2-
       - name: Compile
         run: mvn clean compile -B
+      - name: Format check
+        run: mvn spotless:check -B
+
+  # Runs the unit suite exactly once per pipeline. Deliberately NOT gated on
+  # changes or merge_group: build and spotbugs are the only other jobs that run
+  # in the merge queue, and with build reduced to compile + format this job is
+  # the queue's sole test signal. Gating it there would let queue merges land
+  # with zero tests executed.
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-
       - name: Unit tests
         run: mvn clean test -B
       - name: Upload unit test coverage
@@ -112,8 +136,6 @@ jobs:
         with:
           name: tck-conformance-reports
           path: stores/ratchet-store-*/target/tck-conformance-report.md
-      - name: Format check
-        run: mvn spotless:check -B
 
   spotbugs:
     runs-on: ubuntu-latest
@@ -138,7 +160,7 @@ jobs:
     needs: changes
     # Skipped in the merge queue (merge_group): the full pre-merge validation
     # already ran on the PR, and the post-merge push to main runs it again. The
-    # queue only needs the fast build + spotbugs smoke to merge.
+    # queue only needs the fast build + unit-tests + spotbugs smoke to merge.
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
@@ -205,7 +227,14 @@ jobs:
         # container deploy ride to the job-level kill, and TERMs only the
         # Maven process — the forked JVM and the app server survive as
         # orphans so the next step can thread-dump them.
-        run: timeout --kill-after=60 45m mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -pl :ratchet-testsuite,:ratchet-coverage -am
+        #
+        # -Dtest=ZZZ_NoMatch skips surefire across the -am dependency closure:
+        # the server/database profiles only affect the testsuite ITs, so
+        # re-running every upstream module's unit tests (Testcontainers suites
+        # included) in all 25 cells is pure redundancy — the unit-tests job
+        # already runs them once. The pom ignores -Dsurefire.skip, hence the
+        # no-match pattern; failsafe filters on -Dit.test, so the ITs still run.
+        run: timeout --kill-after=60 45m mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -Dtest=ZZZ_NoMatch -Dsurefire.failIfNoSpecifiedTests=false -pl :ratchet-testsuite,:ratchet-coverage -am
       - name: Thread-dump surviving JVMs
         if: failure()
         run: |
@@ -304,16 +333,16 @@ jobs:
           </settings>
           EOF
       - name: Eclipse Dash license check
-        # api.eclipse.org occasionally times out under load. Retry once after
-        # 60s to absorb transient failures without masking real outages. The
-        # batch size is capped because the default sends the whole dependency
-        # list (~344 items) as one request, which dies on the foundation's
-        # 60-second gateway timeout whenever the service is slow; batches of
-        # 50 finish well inside the window.
+        # api.eclipse.org occasionally times out under load. Retry up to six
+        # times with 60s between attempts to absorb transient failures without
+        # masking real outages. The batch size is capped because the default
+        # sends the whole dependency list (~344 items) as one request, which
+        # dies on the foundation's 60-second gateway timeout whenever the
+        # service is slow; batches of 25 finish well inside the window.
         run: |
           for attempt in 1 2 3 4 5 6; do
             mvn org.eclipse.dash:license-tool-plugin:1.1.0:license-check \
-              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=25 -Ddash.timeout=120 && exit 0
+              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=25 && exit 0
             echo "Attempt $attempt failed; sleeping 60s before retry..."
             sleep 60
           done
@@ -486,7 +515,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, a11y]
+    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
