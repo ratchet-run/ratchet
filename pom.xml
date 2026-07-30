@@ -921,6 +921,20 @@
       <id>central</id>
       <build>
         <plugins>
+          <!--
+            Pom flattening is bound only in the publishing profiles (central,
+            github). flatten:flatten swaps each module's model file to the
+            flattened pom for the rest of the session, which breaks the
+            in-process Quarkus bootstrap's workspace resolution for every
+            reactor artifact downstream (the quarkus-maven-plugin generate-code
+            goals fail to resolve sibling modules). Publishing runs are immune
+            because the deploy lifecycle installs each module before the next
+            one builds, so resolution falls back to the local repository.
+          -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>flatten-maven-plugin</artifactId>
+          </plugin>
           <plugin>
             <groupId>org.sonatype.central</groupId>
             <artifactId>central-publishing-maven-plugin</artifactId>
@@ -975,6 +989,15 @@
           <url>https://maven.pkg.github.com/ratchet-run/ratchet</url>
         </repository>
       </distributionManagement>
+      <build>
+        <plugins>
+          <!-- Snapshot deploys publish flattened poms too; see the central profile. -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>flatten-maven-plugin</artifactId>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
   </profiles>
 
@@ -1397,10 +1420,6 @@
             </goals>
           </execution>
         </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>flatten-maven-plugin</artifactId>
       </plugin>
       <plugin>
         <groupId>org.cyclonedx</groupId>

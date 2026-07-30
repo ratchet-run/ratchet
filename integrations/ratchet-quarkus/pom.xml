@@ -222,13 +222,15 @@
     <pluginManagement>
       <plugins>
         <!--
-          The root reactor runs flatten:flatten at process-resources, which swaps each module's
-          model file to the flattened pom for the rest of the session. The flattened pom drops the
+          flatten:flatten swaps each module's model file to the flattened pom for the rest of
+          the maven session. The flattened pom drops the
           parent chain and the quarkus-bom import, so the in-JVM Quarkus test bootstrap
           (QuarkusTest/QuarkusUnitTest) can no longer resolve the platform properties and fails
-          with SRCFG00011 "Could not expand value platform.quarkus.native.builder-image". Defer
-          flattening to prepare-package for these modules: surefire runs against the real pom,
-          while the jar archiver and install/deploy still see the flattened one.
+          with SRCFG00011 "Could not expand value platform.quarkus.native.builder-image". The
+          root reactor therefore binds flatten only in the publishing profiles (central,
+          github), and when one of those activates it, this override defers the goal to
+          prepare-package for these modules: anything test-shaped runs against the real pom,
+          while the jar archiver and install/deploy see the flattened one.
         -->
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
