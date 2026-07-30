@@ -28,8 +28,9 @@ import run.ratchet.ri.cdi.StandaloneExecutorProvider;
  * enables it without the application needing {@code quarkus.arc.selected-alternatives}. The lazy
  * pools it inherits are native-image-safe (no threads created at bean construction).
  *
- * <p>An application that wants context propagation can override this with its own {@code @Alternative
- * @Priority(APPLICATION + 1)} provider backed by a SmallRye {@code ManagedExecutor}.
+ * <p>An application that wants context propagation can override this with its own
+ * {@code @Alternative @Priority(APPLICATION + 1)} provider backed by a SmallRye {@code
+ * ManagedExecutor}.
  */
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)

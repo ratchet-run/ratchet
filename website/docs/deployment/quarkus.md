@@ -16,17 +16,7 @@ This is a complete dev application. In dev mode Quarkus provisions a throwaway P
 for you, and Ratchet creates its own schema on startup, so there is nothing to install first. You
 need JDK 21 and a running Docker (or Podman) for Dev Services.
 
-:::warning Not yet on Maven Central
-The `ratchet-quarkus` extension is validated on the JVM and as a native image, but it has not been
-published yet. The coordinates below will not resolve from Maven Central. Build and install it from
-a source checkout first:
-
-```bash
-mvn -f integrations/ratchet-quarkus/pom.xml install
-```
-
-Everything else on this page works against that locally installed build.
-:::
+The extension is available from Maven Central starting with Ratchet 0.3.0.
 
 **1. Dependencies.** The extension brings the engine and Hibernate ORM with it; add a store and the
 matching Quarkus JDBC driver.
@@ -35,12 +25,12 @@ matching Quarkus JDBC driver.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.3.0</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-postgresql</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.3.0</version>
 </dependency>
 <dependency>
   <groupId>io.quarkus</groupId>
@@ -224,12 +214,12 @@ and no schema DDL to apply, so the setup is shorter than the SQL flavor.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus-mongodb</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.3.0</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-mongodb</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 

@@ -17,7 +17,7 @@ jobs:
 
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: temurin
           cache: maven
           # setup-java materializes ~/.m2/settings.xml with a <server> entry whose id
@@ -32,8 +32,8 @@ jobs:
       - name: Publish snapshot to GitHub Packages
         # No verify gate here, unlike release.yml: every push to main already ran the
         # full CI matrix through the "CI required" branch protection, and re-running
-        # the 15-cell Arquillian matrix per push would roughly double CI cost. The six
-        # test/dev modules set maven.deploy.skip=true, so only library artifacts upload.
+        # the Arquillian matrix per push would roughly double CI cost. Test/dev modules
+        # set maven.deploy.skip=true, so only library artifacts upload.
         run: mvn -B -ntp -Dstyle.color=always deploy -P github,sign -DskipTests -Dspotbugs.skip=true
         env:
           GITHUB_ACTOR: ${{ github.actor }}

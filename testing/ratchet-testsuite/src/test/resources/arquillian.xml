@@ -38,7 +38,7 @@
   </container>
 
   <!--
-    WildFly 40 on Jakarta EE 11 (JDK 25). Same managed-container wiring as
+    WildFly 40 on Jakarta EE 11 (JDK 21). Same managed-container wiring as
     wildfly-managed, but a distinct port-offset (21000) and management port
     (30990) so an EE 11 run never collides with a stray EE 10 server. The
     wildfly-ee11-managed Maven profile overrides ${wildfly.version} to the

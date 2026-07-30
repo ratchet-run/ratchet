@@ -39,8 +39,8 @@ import run.ratchet.quarkus.runtime.QuarkusPrincipalSource;
 import run.ratchet.quarkus.runtime.QuarkusRatchetExecutorProvider;
 import run.ratchet.quarkus.runtime.RatchetRuntimeProducers;
 import run.ratchet.quarkus.runtime.RatchetStartupTrigger;
-import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.cdi.RatchetRuntimeStart;
+import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.util.JobPlaceholders;
 
 /**
@@ -144,8 +144,7 @@ class RatchetProcessor {
             String.class,
             boolean.class));
     reflectiveMethods.produce(
-        new ReflectiveMethodBuildItem(
-            JobPlaceholders.class.getName(), "noop", new String[0]));
+        new ReflectiveMethodBuildItem(JobPlaceholders.class.getName(), "noop", new String[0]));
     // Static SecureRandom must be created at image runtime, not captured into the image heap.
     runtimeInit.produce(new RuntimeInitializedClassBuildItem("run.ratchet.store.id.UuidV7Factory"));
   }

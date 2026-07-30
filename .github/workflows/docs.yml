@@ -53,7 +53,7 @@ jobs:
       # --- Javadoc generation ---
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
 
       - uses: actions/cache@v6

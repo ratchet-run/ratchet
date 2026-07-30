@@ -61,6 +61,7 @@
     <module>coordinators/ratchet-coordinator-hazelcast</module>
     <module>observability/ratchet-micrometer</module>
     <module>observability/ratchet-otel</module>
+    <module>integrations/ratchet-quarkus</module>
     <module>ratchet-bom</module>
     <module>testing/ratchet-tck</module>
     <module>testing/ratchet-testsuite</module>
@@ -81,6 +82,7 @@
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.release>17</maven.compiler.release>
+    <maven.compiler.testRelease>17</maven.compiler.testRelease>
     <!-- Ratchet does not generate sources through annotation processing. Disable implicit
          discovery so transitive processors cannot make compilation JDK- or module-path-dependent. -->
     <maven.compiler.proc>none</maven.compiler.proc>
@@ -150,7 +152,8 @@
       Eclipse GlassFish 8 is the Jakarta EE 11 reference implementation
       (8.0.0 GA Feb 5 2026; 8.0.1 latest stable). Requires JDK 21+ at
       runtime — the glassfish-managed testsuite profile enforces this with
-      maven-enforcer-plugin. Default CI lanes still target JDK 17.
+      maven-enforcer-plugin. CI runs on JDK 21 while main sources retain
+      their Java 17 compiler release.
     -->
     <glassfish.version>8.0.1</glassfish.version>
     <glassfish-arquillian.version>2.1.3</glassfish-arquillian.version>
@@ -165,7 +168,7 @@
     <artemis.version>2.54.0</artemis.version>
     <netty.version>4.1.135.Final</netty.version>
     <commons-configuration2.version>2.15.0</commons-configuration2.version>
-    <jackson-core.version>2.18.6</jackson-core.version>
+    <jackson-core.version>2.18.8</jackson-core.version>
     <infinispan.version>15.1.7.Final</infinispan.version>
     <hazelcast.version>5.5.0</hazelcast.version>
     <mongodb-driver.version>5.7.0</mongodb-driver.version>
@@ -755,11 +758,11 @@
     </profile>
 
     <!--
-      WildFly 40 / Jakarta EE 11 managed-server test profile. Enforces JDK 25 at
-      runtime so the WF40 integration tests run on the recommended LTS. The server
-      config and the EE 11-only test sources live in ratchet-testsuite's same-id
-      profile. The ratchet library itself is unaffected: it stays a single
-      EE-agnostic artifact built at the default JDK 17 baseline.
+      WildFly 40 / Jakarta EE 11 managed-server test profile. WildFly 40 supports
+      JDK 21, which is the build JDK used throughout the reactor. The server config
+      and the EE 11-only test sources live in ratchet-testsuite's same-id profile.
+      The ratchet library itself is unaffected: it stays a single EE-agnostic
+      artifact compiled at the default Java 17 release baseline.
     -->
     <profile>
       <id>wildfly-ee11-managed</id>
@@ -771,7 +774,7 @@
             <version>3.5.0</version>
             <executions>
               <execution>
-                <id>enforce-jdk25-for-wildfly-ee11</id>
+                <id>enforce-jdk21-for-wildfly-ee11</id>
                 <phase>validate</phase>
                 <goals>
                   <goal>enforce</goal>
@@ -779,10 +782,10 @@
                 <configuration>
                   <rules>
                     <requireJavaVersion>
-                      <version>[25,)</version>
+                      <version>[21,)</version>
                       <message>
-                        The wildfly-ee11-managed profile targets WildFly 40 on JDK 25.
-                        Re-run with JDK 25+ on PATH (or via JAVA_HOME).
+                        The wildfly-ee11-managed profile targets WildFly 40 on JDK 21.
+                        Re-run with JDK 21+ on PATH (or via JAVA_HOME).
                       </message>
                     </requireJavaVersion>
                   </rules>
@@ -918,6 +921,20 @@
       <id>central</id>
       <build>
         <plugins>
+          <!--
+            Pom flattening is bound only in the publishing profiles (central,
+            github). flatten:flatten swaps each module's model file to the
+            flattened pom for the rest of the session, which breaks the
+            in-process Quarkus bootstrap's workspace resolution for every
+            reactor artifact downstream (the quarkus-maven-plugin generate-code
+            goals fail to resolve sibling modules). Publishing runs are immune
+            because the deploy lifecycle installs each module before the next
+            one builds, so resolution falls back to the local repository.
+          -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>flatten-maven-plugin</artifactId>
+          </plugin>
           <plugin>
             <groupId>org.sonatype.central</groupId>
             <artifactId>central-publishing-maven-plugin</artifactId>
@@ -944,6 +961,7 @@
                 <excludeArtifact>ratchet-showcase</excludeArtifact>
                 <excludeArtifact>ratchet-coverage</excludeArtifact>
                 <excludeArtifact>ratchet-arch-tests</excludeArtifact>
+                <excludeArtifact>ratchet-quarkus-integration-tests</excludeArtifact>
               </excludeArtifacts>
             </configuration>
           </plugin>
@@ -971,6 +989,15 @@
           <url>https://maven.pkg.github.com/ratchet-run/ratchet</url>
         </repository>
       </distributionManagement>
+      <build>
+        <plugins>
+          <!-- Snapshot deploys publish flattened poms too; see the central profile. -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>flatten-maven-plugin</artifactId>
+          </plugin>
+        </plugins>
+      </build>
     </profile>
   </profiles>
 
@@ -984,6 +1011,14 @@
           <configuration>
             <release>${maven.compiler.release}</release>
           </configuration>
+          <executions>
+            <execution>
+              <id>default-testCompile</id>
+              <configuration>
+                <release>${maven.compiler.testRelease}</release>
+              </configuration>
+            </execution>
+          </executions>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -1369,7 +1404,7 @@
       <!--
         SpotBugs concurrency/correctness gate, bound to verify so `mvn verify`
         fails on any new MT_CORRECTNESS or CORRECTNESS finding. Analysis config,
-        the include filter, and the Java-25 ASM override are inherited from
+        the include filter, and the newer-JDK ASM override are inherited from
         pluginManagement. CI runs this once in a dedicated job; the integration
         matrix passes -Dspotbugs.skip=true to avoid re-analyzing 15× per build.
       -->
@@ -1385,10 +1420,6 @@
             </goals>
           </execution>
         </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>flatten-maven-plugin</artifactId>
       </plugin>
       <plugin>
         <groupId>org.cyclonedx</groupId>

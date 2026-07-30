@@ -98,8 +98,10 @@ PUBLIC_MAVEN_FILES=(
   "website/docs/deployment/installation.md"        # ratchet-bom
   "website/docs/deployment/overview.md"            # ratchet-bom
   "website/docs/deployment/mongodb.md"             # ratchet-store-mongodb
+  "website/docs/deployment/quarkus.md"              # ratchet-quarkus flavors
   "website/docs/deployment/monitoring.md"          # ratchet-micrometer
   "website/docs/deployment/performance-tuning.md"  # ratchet-micrometer
+  "integrations/ratchet-quarkus/README.md"          # ratchet-quarkus flavors
   "website/docs/use-cases/durable-llm-workflows.md"   # ratchet + ratchet-store-postgresql
   "website/docs/advanced/metrics-collection.md"     # ratchet-micrometer
   "website/docs/advanced/spi-implementation.md"     # ratchet-tck-store
@@ -112,20 +114,6 @@ if [[ -n "$PUBLIC_VERSION" ]]; then
       's{(<groupId>run\.ratchet</groupId>\s*<artifactId>ratchet[A-Za-z0-9-]*</artifactId>\s*<version>)$ENV{PUBLIC_REF_RE}(</version>)}{$1$ENV{PUBLIC_VERSION}$2}g'
   done
 fi
-
-# 1b. Source-built Maven dependency snippets: same anchoring as section 1, but
-#     for artifacts that are NOT published to Maven Central. Readers install
-#     these from a source checkout, so the snippets must show the project
-#     version (SNAPSHOT included) rather than the last published release —
-#     the opposite rule from section 1. Move a file up to PUBLIC_MAVEN_FILES
-#     once its artifact actually ships.
-PROJECT_MAVEN_FILES=(
-  "website/docs/deployment/quarkus.md"   # ratchet-quarkus (unpublished; built from source)
-)
-for f in "${PROJECT_MAVEN_FILES[@]}"; do
-  apply "$f" "project-maven-version" \
-    's{(<groupId>run\.ratchet</groupId>\s*<artifactId>ratchet[A-Za-z0-9-]*</artifactId>\s*<version>)$ENV{PUBLIC_REF_RE}(</version>)}{$1$ENV{VERSION}$2}g'
-done
 
 # 2. Published ratchet-* JAR filenames used by extract-the-DDL snippets.
 #    Oracle and SQL Server are included so future release references cannot

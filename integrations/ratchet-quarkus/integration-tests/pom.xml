@@ -21,10 +21,7 @@
   <name>Ratchet :: Quarkus Extension :: Integration Tests</name>
 
   <properties>
-    <maven.compiler.release>21</maven.compiler.release>
-    <surefire-plugin.version>3.5.2</surefire-plugin.version>
     <rest-assured.version>5.5.1</rest-assured.version>
-    <awaitility.version>4.2.2</awaitility.version>
     <!-- Demo/test module only: never published. -->
     <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
@@ -92,7 +89,6 @@
     <dependency>
       <groupId>org.awaitility</groupId>
       <artifactId>awaitility</artifactId>
-      <version>${awaitility.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -159,15 +155,7 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-compiler-plugin</artifactId>
-        <configuration>
-          <release>${maven.compiler.release}</release>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
-        <version>${surefire-plugin.version}</version>
         <configuration>
           <systemPropertyVariables>
             <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
@@ -236,7 +224,6 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
-            <version>${surefire-plugin.version}</version>
             <configuration>
               <systemPropertyVariables>
                 <quarkus.datasource.db-kind>mysql</quarkus.datasource.db-kind>
@@ -272,7 +259,6 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
-            <version>${surefire-plugin.version}</version>
             <configuration>
               <systemPropertyVariables>
                 <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
@@ -310,7 +296,6 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
-            <version>${surefire-plugin.version}</version>
             <configuration>
               <skipTests>true</skipTests>
             </configuration>
@@ -318,7 +303,6 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-failsafe-plugin</artifactId>
-            <version>${surefire-plugin.version}</version>
             <executions>
               <execution>
                 <goals>
@@ -347,6 +331,13 @@
       <id>native-sql</id>
       <properties>
         <quarkus.native.enabled>true</quarkus.native.enabled>
+        <!--
+          This reactor pins the PostgreSQL driver above the Quarkus platform version for
+          security advisories. pgjdbc 42.7.8+ initializes LazyCleanerImpl's singleton (and
+          its java.lang.ref.Cleaner daemon thread) from a class initializer, which
+          native-image rejects when it lands in the image heap at build time.
+        -->
+        <quarkus.native.additional-build-args>--initialize-at-run-time=org.postgresql.util.LazyCleanerImpl</quarkus.native.additional-build-args>
       </properties>
       <build>
         <plugins>
@@ -367,7 +358,6 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
-            <version>${surefire-plugin.version}</version>
             <configuration>
               <skipTests>true</skipTests>
             </configuration>
@@ -375,7 +365,6 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-failsafe-plugin</artifactId>
-            <version>${surefire-plugin.version}</version>
             <executions>
               <execution>
                 <goals>
@@ -428,7 +417,6 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
-            <version>${surefire-plugin.version}</version>
             <configuration>
               <systemPropertyVariables>
                 <quarkus.datasource.db-kind>oracle</quarkus.datasource.db-kind>
@@ -473,7 +461,6 @@
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
-            <version>${surefire-plugin.version}</version>
             <configuration>
               <systemPropertyVariables>
                 <quarkus.datasource.db-kind>mssql</quarkus.datasource.db-kind>
