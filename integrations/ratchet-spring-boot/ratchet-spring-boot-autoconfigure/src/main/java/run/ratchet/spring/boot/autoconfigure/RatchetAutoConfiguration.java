@@ -15,11 +15,14 @@
  */
 package run.ratchet.spring.boot.autoconfigure;
 
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import run.ratchet.ri.runtime.RecurringMethodDiscovery;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.BeanResolver;
 
 @AutoConfiguration
 @Import(RatchetBeanDefinitionRegistrar.class)
@@ -29,5 +32,17 @@ public class RatchetAutoConfiguration {
   @ConditionalOnMissingBean(AfterCommitRegistrar.class)
   AfterCommitRegistrar afterCommitRegistrar() {
     return new SpringAfterCommitRegistrar();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(BeanResolver.class)
+  BeanResolver beanResolver(ConfigurableListableBeanFactory beanFactory) {
+    return new SpringBeanResolver(beanFactory);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(RecurringMethodDiscovery.class)
+  RecurringMethodDiscovery recurringMethodDiscovery(ConfigurableListableBeanFactory beanFactory) {
+    return new SpringRecurringMethodDiscovery(beanFactory);
   }
 }
