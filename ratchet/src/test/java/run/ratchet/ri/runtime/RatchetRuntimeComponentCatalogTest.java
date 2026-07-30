@@ -37,12 +37,17 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DefaultRatchetRuntime;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 
 class RatchetRuntimeComponentCatalogTest {
 
   private static final List<Class<?>> EXPECTED_COMPONENT_ORDER =
-      List.of(JobStateManager.class, DeadLetterService.class, PostExecutionHandler.class);
+      List.of(
+          JobStateManager.class,
+          DeadLetterService.class,
+          PostExecutionHandler.class,
+          DefaultRatchetRuntime.class);
 
   @Test
   void catalogMatchesTransactionalSourceAndSelectedConstructors() throws Exception {
@@ -55,12 +60,14 @@ class RatchetRuntimeComponentCatalogTest {
 
     for (RatchetComponentDescriptor descriptor : descriptors) {
       Class<?> componentType = descriptor.componentType();
-      assertTrue(
-          transactionalInventory.contains(componentType),
-          () -> componentType.getName() + " is missing from the transactional source inventory");
-      assertEquals(isTransactional(componentType), descriptor.transactional());
       assertEquals(
-          componentType.isAnnotationPresent(ApplicationScoped.class), descriptor.singletonScope());
+          transactionalInventory.contains(componentType),
+          descriptor.transactional(),
+          () -> componentType.getName() + " has incorrect transactional catalog metadata");
+      assertEquals(
+          componentType == DefaultRatchetRuntime.class
+              || componentType.isAnnotationPresent(ApplicationScoped.class),
+          descriptor.singletonScope());
 
       Class<?>[] parameterTypes = descriptor.constructorParameterTypes().toArray(Class<?>[]::new);
       Constructor<?> constructor = componentType.getDeclaredConstructor(parameterTypes);

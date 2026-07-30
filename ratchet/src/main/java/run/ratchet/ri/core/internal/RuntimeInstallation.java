@@ -13,21 +13,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.ri.runtime;
+package run.ratchet.ri.core.internal;
 
 /**
- * Controls the lifecycle of a Ratchet runtime.
+ * Installs and removes one process-wide runtime seam for a specific Ratchet runtime owner.
  *
- * <p>Both {@link #start()} and {@link #stop()} are idempotent.
- *
- * @apiNote This interface is incubating. Container integrations obtain the implementation from
- *     {@link RatchetRuntimeComponentCatalog}.
+ * <p>Implementations must reject a conflicting owner from {@link #install(Object)} without
+ * replacing the current value. {@link #uninstall(Object)} must be idempotent and must not clear a
+ * value owned by another runtime.
  */
-public interface RatchetRuntime {
+public interface RuntimeInstallation {
 
-  /** Starts the runtime if it is not already running. */
-  void start();
+  /** Installs this seam for {@code ownerToken}. */
+  void install(Object ownerToken);
 
-  /** Stops the runtime if it is running. */
-  void stop();
+  /** Removes this seam only when it is currently owned by {@code ownerToken}. */
+  void uninstall(Object ownerToken);
 }

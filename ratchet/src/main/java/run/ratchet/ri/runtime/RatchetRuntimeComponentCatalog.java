@@ -17,14 +17,28 @@ package run.ratchet.ri.runtime;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.function.Supplier;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.BatchService;
+import run.ratchet.ri.core.DrainController;
+import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DefaultRatchetRuntime;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobExecutionCoordinator;
+import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
+import run.ratchet.ri.core.internal.Poller;
+import run.ratchet.ri.core.internal.PollerWakeupListener;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.RecurringRegistration;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -69,7 +83,29 @@ public final class RatchetRuntimeComponentCatalog {
                   DeadLetterService.class,
                   PollerScheduler.class),
               true,
-              true));
+              true),
+          new RatchetComponentDescriptor(
+              DefaultRatchetRuntime.class,
+              List.of(
+                  Poller.class,
+                  RecurringScheduler.class,
+                  OrphanRecoveryTimer.class,
+                  BatchRecoveryTimer.class,
+                  DeadLetterService.class,
+                  JobArchivingService.class,
+                  LogPurgeTimer.class,
+                  JobExecutionCoordinator.class,
+                  PollerWakeupListener.class,
+                  DrainController.class,
+                  ClusterCoordinator.class,
+                  NodeIdentityProvider.class,
+                  RatchetOptions.class,
+                  List.class,
+                  Supplier.class,
+                  RecurringRegistration.class,
+                  List.class),
+              true,
+              false));
 
   private RatchetRuntimeComponentCatalog() {}
 
