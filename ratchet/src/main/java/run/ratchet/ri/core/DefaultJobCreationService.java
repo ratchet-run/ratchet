@@ -20,7 +20,6 @@ import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
 import java.time.Clock;
@@ -55,11 +54,12 @@ import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -117,10 +117,9 @@ class DefaultJobCreationService
   private final InternalEventPublisher eventPublisher;
   private final MetricsCollector metricsCollector;
   private final Clock clock;
+  private final AfterCommitRegistrar afterCommitRegistrar;
   private final boolean signalCapabilityAvailable;
   private final boolean resourcePermitCapabilityAvailable;
-
-  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected DefaultJobCreationService() {
     this.jobBatchStatusStore = null;
@@ -143,6 +142,7 @@ class DefaultJobCreationService
     this.eventPublisher = null;
     this.metricsCollector = null;
     this.clock = null;
+    this.afterCommitRegistrar = null;
     this.signalCapabilityAvailable = false;
     this.resourcePermitCapabilityAvailable = false;
   }
@@ -170,7 +170,8 @@ class DefaultJobCreationService
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
       Clock clock,
-      RatchetOptions options) {
+      RatchetOptions options,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this(
         jobBatchStatusStore,
         jobTerminalStore,
@@ -191,6 +192,7 @@ class DefaultJobCreationService
         eventPublisher,
         metricsCollector,
         clock,
+        afterCommitRegistrar,
         signalStore.isResolvable(),
         resourcePermitStore.isResolvable(),
         options != null ? options.callerPrincipalResolver() : null);
@@ -221,7 +223,8 @@ class DefaultJobCreationService
       ClassPolicy classPolicy,
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
-      Clock clock) {
+      Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this(
         jobBatchStatusStore,
         jobTerminalStore,
@@ -242,6 +245,7 @@ class DefaultJobCreationService
         eventPublisher,
         metricsCollector,
         clock,
+        afterCommitRegistrar,
         null);
   }
 
@@ -270,6 +274,7 @@ class DefaultJobCreationService
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
       Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar,
       CallerPrincipalResolver callerPrincipalResolver) {
     this(
         jobBatchStatusStore,
@@ -291,6 +296,7 @@ class DefaultJobCreationService
         eventPublisher,
         metricsCollector,
         clock,
+        afterCommitRegistrar,
         true,
         true,
         callerPrincipalResolver);
@@ -316,6 +322,7 @@ class DefaultJobCreationService
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
       Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar,
       boolean signalCapabilityAvailable,
       boolean resourcePermitCapabilityAvailable,
       CallerPrincipalResolver callerPrincipalResolver) {
@@ -339,6 +346,7 @@ class DefaultJobCreationService
     this.eventPublisher = eventPublisher;
     this.metricsCollector = metricsCollector;
     this.clock = clock;
+    this.afterCommitRegistrar = afterCommitRegistrar;
     this.signalCapabilityAvailable = signalCapabilityAvailable;
     this.resourcePermitCapabilityAvailable = resourcePermitCapabilityAvailable;
   }
@@ -1207,36 +1215,14 @@ class DefaultJobCreationService
             null,
             signalKey,
             signalTimeout);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
 
-  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
-    return JobWakeupService.registerAfterCommit(
-        resolveTxRegistry(),
-        action,
-        log,
-        "After-commit signal waiting event registration failed; event suppressed: %s");
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          reg = JobWakeupService.lookupTxRegistry(log);
-          txRegistry = reg;
-        }
-      }
-    }
-    return reg;
-  }
-
-  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
-    this.txRegistry = txRegistry;
+  private Outcome registerAfterCommit(Runnable action) {
+    return afterCommitRegistrar.registerAfterCommit(
+        action, "After-commit signal waiting event registration failed; event suppressed: %s");
   }
 
   /**

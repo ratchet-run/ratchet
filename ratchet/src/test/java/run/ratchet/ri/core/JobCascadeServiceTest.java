@@ -43,6 +43,7 @@ import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
@@ -80,7 +81,12 @@ class JobCascadeServiceTest {
   @BeforeEach
   void setUp() {
     cascadeService =
-        new JobCascadeService(jobCrudStore, jobPauseStore, eventPublisher, FIXED_CLOCK);
+        new JobCascadeService(
+            jobCrudStore,
+            jobPauseStore,
+            eventPublisher,
+            FIXED_CLOCK,
+            new StubAfterCommitRegistrar());
   }
 
   @Test

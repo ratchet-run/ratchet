@@ -23,7 +23,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -41,7 +40,6 @@ import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
-import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PoolRegistry;
@@ -54,6 +52,7 @@ import run.ratchet.ri.resilience.DefaultResilienceStrategy;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -109,8 +108,6 @@ public class RatchetProducer {
   private volatile Instance.Handle<PayloadSerializer> dependentPayloadSerializerHandle;
   private volatile RuntimeInstallation payloadSerializerInstallation;
   private volatile Object payloadSerializerOwnerToken;
-
-  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected RatchetProducer() {
     this.executorProvider = null;
@@ -204,7 +201,8 @@ public class RatchetProducer {
       InternalEventPublisher eventPublisher,
       Instance<SignalStore> signalStore,
       SingletonLeaseService singletonLeaseService,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      AfterCommitRegistrar afterCommitRegistrar) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
     int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
@@ -221,23 +219,9 @@ public class RatchetProducer {
         signalStore.isResolvable() ? signalStore.get() : null,
         metricsCollector,
         signalTimeoutBatchSize,
-        resolveTxRegistry(),
+        afterCommitRegistrar,
         singletonLeaseService,
         errorSanitizer);
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          reg = JobWakeupService.lookupTxRegistry(log);
-          txRegistry = reg;
-        }
-      }
-    }
-    return reg;
   }
 
   @Produces

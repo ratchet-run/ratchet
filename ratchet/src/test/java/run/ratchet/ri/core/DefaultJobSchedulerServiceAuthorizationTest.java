@@ -44,6 +44,7 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
@@ -126,7 +127,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             callerProvider,
             authorizationPolicy,
             null,
-            null);
+            null,
+            new StubAfterCommitRegistrar());
   }
 
   @Test
@@ -164,6 +166,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         null,
         null,
         Clock.systemUTC(),
+        new StubAfterCommitRegistrar(),
         callerPrincipalResolver);
   }
 
@@ -425,7 +428,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             null,
             null,
-            null);
+            null,
+            new StubAfterCommitRegistrar());
 
     when(jobBatchStatusStore.compareAndSwapStatus(
             eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any()))

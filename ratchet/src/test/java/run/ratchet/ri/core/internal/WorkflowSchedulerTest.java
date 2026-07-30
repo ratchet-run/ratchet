@@ -24,17 +24,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import jakarta.transaction.Status;
-import jakarta.transaction.Synchronization;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -42,7 +37,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,6 +48,8 @@ import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
@@ -72,9 +68,9 @@ class WorkflowSchedulerTest {
   @Mock private WorkflowConditionStore conditionStore;
   @Mock private WorkflowConditionEvaluator conditionEvaluator;
   @Mock private InternalEventPublisher eventPublisher;
-  @Mock private TransactionSynchronizationRegistry txRegistry;
 
   private WorkflowScheduler scheduler;
+  private StubAfterCommitRegistrar afterCommitRegistrar;
 
   private static WorkflowConditionEntity condition(UUID parentId, UUID childId, int priority) {
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
@@ -95,9 +91,15 @@ class WorkflowSchedulerTest {
 
   @BeforeEach
   void setUp() {
+    afterCommitRegistrar = new StubAfterCommitRegistrar();
     scheduler =
         new WorkflowScheduler(
-            jobCrudStore, jobTerminalStore, conditionStore, conditionEvaluator, FIXED_CLOCK);
+            jobCrudStore,
+            jobTerminalStore,
+            conditionStore,
+            conditionEvaluator,
+            FIXED_CLOCK,
+            afterCommitRegistrar);
     lenient()
         .when(jobCrudStore.findByIds(anyList()))
         .thenAnswer(
@@ -197,7 +199,8 @@ class WorkflowSchedulerTest {
             conditionStore,
             conditionEvaluator,
             FIXED_CLOCK,
-            eventPublisher);
+            eventPublisher,
+            afterCommitRegistrar);
     JobEntity parent = job(new UUID(0L, 18L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 19L), JobStatus.PENDING);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
@@ -218,9 +221,8 @@ class WorkflowSchedulerTest {
 
   @Test
   void scheduleNext_workflowBranchEventPublishesExactlyOnceAfterCommit() {
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
     scheduler = eventPublishingScheduler();
-    scheduler.setTxRegistryForTesting(txRegistry);
-    AtomicReference<Synchronization> synchronization = activeTransaction();
     JobEntity parent = job(new UUID(0L, 180L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 190L), JobStatus.PENDING);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
@@ -232,16 +234,15 @@ class WorkflowSchedulerTest {
 
     verify(eventPublisher, never()).publish(any(WorkflowBranchTriggeredEvent.class));
 
-    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     verify(eventPublisher, times(1)).publish(any(WorkflowBranchTriggeredEvent.class));
   }
 
   @Test
   void scheduleNext_workflowBranchEventIsSuppressedOnRollback() {
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
     scheduler = eventPublishingScheduler();
-    scheduler.setTxRegistryForTesting(txRegistry);
-    AtomicReference<Synchronization> synchronization = activeTransaction();
     JobEntity parent = job(new UUID(0L, 181L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 191L), JobStatus.PENDING);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
@@ -250,19 +251,15 @@ class WorkflowSchedulerTest {
     when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
 
     assertTrue(scheduler.scheduleNext(parent));
-    synchronization.get().afterCompletion(Status.STATUS_ROLLEDBACK);
+    afterCommitRegistrar.rollBack();
 
     verify(eventPublisher, never()).publish(any(WorkflowBranchTriggeredEvent.class));
   }
 
   @Test
   void scheduleNext_workflowBranchEventIsSuppressedWhenAfterCommitRegistrationFails() {
+    afterCommitRegistrar.outcome(Outcome.ACTIVE_TRANSACTION_REGISTRATION_FAILED);
     scheduler = eventPublishingScheduler();
-    scheduler.setTxRegistryForTesting(txRegistry);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    doThrow(new IllegalStateException("boom"))
-        .when(txRegistry)
-        .registerInterposedSynchronization(any());
     JobEntity parent = job(new UUID(0L, 182L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 192L), JobStatus.PENDING);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
@@ -537,19 +534,7 @@ class WorkflowSchedulerTest {
         conditionStore,
         conditionEvaluator,
         FIXED_CLOCK,
-        eventPublisher);
-  }
-
-  private AtomicReference<Synchronization> activeTransaction() {
-    AtomicReference<Synchronization> synchronization = new AtomicReference<>();
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    doAnswer(
-            invocation -> {
-              synchronization.set(invocation.getArgument(0));
-              return null;
-            })
-        .when(txRegistry)
-        .registerInterposedSynchronization(any());
-    return synchronization;
+        eventPublisher,
+        afterCommitRegistrar);
   }
 }

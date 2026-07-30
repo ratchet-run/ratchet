@@ -38,12 +38,14 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultRatchetRuntime;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 
 class RatchetRuntimeComponentCatalogTest {
 
   private static final List<Class<?>> EXPECTED_COMPONENT_ORDER =
       List.of(
+          JakartaAfterCommitRegistrar.class,
           JobStateManager.class,
           DeadLetterService.class,
           PostExecutionHandler.class,

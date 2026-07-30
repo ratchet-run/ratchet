@@ -41,6 +41,7 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.ArchivedRecurringJob;
@@ -231,7 +232,8 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
         null,
         null,
         null,
-        clock);
+        clock,
+        new StubAfterCommitRegistrar());
   }
 
   private static RecurringJobDefinition existingDefinition(

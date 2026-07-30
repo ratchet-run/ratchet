@@ -43,6 +43,7 @@ import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.converter.JobPayloadConverter;
@@ -223,7 +224,8 @@ class DefaultJobCreationServicePayloadSizeTest {
         null,
         null,
         null,
-        Clock.systemUTC());
+        Clock.systemUTC(),
+        new StubAfterCommitRegistrar());
   }
 
   private static JobEntity saved(JobEntity job) {

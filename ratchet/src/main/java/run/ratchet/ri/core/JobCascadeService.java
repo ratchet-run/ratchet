@@ -17,7 +17,6 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
@@ -28,15 +27,12 @@ import java.util.List;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
-import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
-import run.ratchet.ri.core.internal.JobWakeupService;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
+import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
@@ -53,24 +49,26 @@ import run.ratchet.store.spi.JobPauseStore;
 class JobCascadeService {
 
   private static final int DEPENDANT_PAGE_SIZE = JobCrudStore.DEFAULT_PAGE_LIMIT;
-  private static final Logger log = Logger.getLogger(JobCascadeService.class);
 
   private final JobCrudStore jobCrudStore;
   private final JobPauseStore jobPauseStore;
   private final InternalEventPublisher eventPublisher;
   private final Clock clock;
-
-  private volatile TransactionSynchronizationRegistry txRegistry;
+  private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected JobCascadeService() {
     this.jobCrudStore = null;
     this.jobPauseStore = null;
     this.eventPublisher = null;
     this.clock = null;
+    this.afterCommitRegistrar = null;
   }
 
-  public JobCascadeService(JobCrudStore jobCrudStore, JobPauseStore jobPauseStore) {
-    this(jobCrudStore, jobPauseStore, null, null);
+  public JobCascadeService(
+      JobCrudStore jobCrudStore,
+      JobPauseStore jobPauseStore,
+      AfterCommitRegistrar afterCommitRegistrar) {
+    this(jobCrudStore, jobPauseStore, null, null, afterCommitRegistrar);
   }
 
   @Inject
@@ -78,11 +76,13 @@ class JobCascadeService {
       JobCrudStore jobCrudStore,
       JobPauseStore jobPauseStore,
       InternalEventPublisher eventPublisher,
-      Clock clock) {
+      Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this.jobCrudStore = jobCrudStore;
     this.jobPauseStore = jobPauseStore;
     this.eventPublisher = eventPublisher;
     this.clock = clock;
+    this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
   /**
@@ -238,34 +238,11 @@ class JobCascadeService {
   }
 
   private void publishAfterCommit(Object event) {
-    if (JobWakeupService.registerAfterCommit(
-            resolveTxRegistry(),
+    if (afterCommitRegistrar.registerAfterCommit(
             () -> eventPublisher.publish(event),
-            log,
             "After-commit cascade event registration failed; event suppressed: %s")
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+        == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          try {
-            reg = InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
-            txRegistry = reg;
-          } catch (NamingException e) {
-            log.debugf(
-                "TransactionSynchronizationRegistry lookup unavailable on this thread; using immediate"
-                    + " fallback cascade event publication: %s",
-                e.getMessage());
-          }
-        }
-      }
-    }
-    return reg;
   }
 }

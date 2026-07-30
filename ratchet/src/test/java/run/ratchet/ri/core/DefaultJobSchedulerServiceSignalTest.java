@@ -51,6 +51,7 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
@@ -501,6 +502,7 @@ class DefaultJobSchedulerServiceSignalTest {
         signalStore,
         serializer,
         signalMetricsCollector,
-        FIXED_CLOCK);
+        FIXED_CLOCK,
+        new StubAfterCommitRegistrar());
   }
 }

@@ -39,6 +39,7 @@ import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobExecutionType;
@@ -98,7 +99,8 @@ class DefaultJobCreationServiceRecurringClassPolicyTest {
             new PackagePrefixClassPolicy(Set.of("run.ratchet.ri.core.")),
             null,
             null,
-            Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC));
+            Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
+            new StubAfterCommitRegistrar());
     DefaultRecurringJobBuilder builder =
         new DefaultRecurringJobBuilder(
             "0 0 12 * * ?", ZoneId.of("UTC"), AppRecurringBean::doWork, service);

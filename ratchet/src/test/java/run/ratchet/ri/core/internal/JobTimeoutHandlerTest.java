@@ -31,9 +31,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import jakarta.transaction.Status;
-import jakarta.transaction.Synchronization;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Clock;
@@ -64,6 +61,9 @@ import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
@@ -86,14 +86,15 @@ class JobTimeoutHandlerTest {
   @Mock private MetricsCollector metricsCollector;
   @Mock private SignalStore signalStore;
   @Mock private InternalEventPublisher eventPublisher;
-  @Mock private TransactionSynchronizationRegistry txRegistry;
   @Mock private ErrorSanitizer errorSanitizer;
 
   private JobTimeoutHandler handler;
   private TerminalTimeoutTransition terminalTimeoutTransition;
+  private StubAfterCommitRegistrar afterCommitRegistrar;
 
   @BeforeEach
   void setUp() {
+    afterCommitRegistrar = new StubAfterCommitRegistrar();
     lenient()
         .when(lifecycleFacade.handleTimeoutTransition(any(), anyBoolean(), any(Supplier.class)))
         .thenAnswer(
@@ -123,7 +124,8 @@ class JobTimeoutHandlerTest {
                 null,
                 signalStore,
                 metricsCollector,
-                JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE));
+                JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+                afterCommitRegistrar));
   }
 
   @Test
@@ -154,7 +156,7 @@ class JobTimeoutHandlerTest {
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
             Clock.fixed(now, ZoneOffset.UTC),
             eventPublisher,
-            txRegistry);
+            afterCommitRegistrar);
     JobEntity job = jobWithMaxRetries(3);
     job.setBusinessKey("timeout-key");
     job.setPickedBy("node-a");
@@ -162,9 +164,7 @@ class JobTimeoutHandlerTest {
     when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
         .thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronizationCaptor =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, Duration.ofSeconds(31));
 
@@ -172,10 +172,10 @@ class JobTimeoutHandlerTest {
         .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
-    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any());
 
-    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher, times(2)).publish(eventCaptor.capture());
@@ -248,7 +248,7 @@ class JobTimeoutHandlerTest {
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
             Clock.fixed(now, ZoneOffset.UTC),
             eventPublisher,
-            txRegistry);
+            afterCommitRegistrar);
     JobEntity job = jobWithMaxRetries(0);
     job.setBusinessKey("timeout-key");
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
@@ -284,7 +284,7 @@ class JobTimeoutHandlerTest {
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
             Clock.systemUTC(),
             eventPublisher,
-            null,
+            afterCommitRegistrar,
             errorSanitizer);
     JobEntity job = jobWithMaxRetries(0);
     when(errorSanitizer.sanitize(any(TimeoutException.class))).thenReturn("safe timeout");
@@ -316,7 +316,7 @@ class JobTimeoutHandlerTest {
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
             Clock.fixed(now, ZoneOffset.UTC),
             eventPublisher,
-            txRegistry,
+            afterCommitRegistrar,
             errorSanitizer);
     JobEntity job = jobWithMaxRetries(3);
     when(errorSanitizer.sanitize(any(TimeoutException.class))).thenReturn("safe timeout");
@@ -324,19 +324,17 @@ class JobTimeoutHandlerTest {
     when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), eq("safe timeout"), any(), eq(1)))
         .thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronization =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
     verify(jobRetryStore)
         .scheduleJobRetry(eq(JOB_ID), eq("safe timeout"), any(Instant.class), eq(1));
     verify(errorSanitizer, times(1)).sanitize(any(TimeoutException.class));
-    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any());
 
-    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher, times(2)).publish(events.capture());
@@ -523,21 +521,19 @@ class JobTimeoutHandlerTest {
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
             Clock.systemUTC(),
             eventPublisher,
-            txRegistry);
+            afterCommitRegistrar);
     JobEntity job = waitingJobWithMaxRetries(3);
     when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
         .thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronizationCaptor =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
 
     eventHandler.processSignalTimeout(job, Instant.now());
 
-    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any());
 
-    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher).publish(eventCaptor.capture());
@@ -702,7 +698,7 @@ class JobTimeoutHandlerTest {
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
             Clock.fixed(createdAt.plusSeconds(31), ZoneOffset.UTC),
             eventPublisher,
-            txRegistry);
+            afterCommitRegistrar);
     JobEntity job = waitingJobWithMaxRetries(0);
     job.setCreatedAt(createdAt);
     job.setSignalTimeout(createdAt.plusSeconds(30));
@@ -811,7 +807,8 @@ class JobTimeoutHandlerTest {
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
       Clock clock) {
-    return newHandler(signalStore, metricsCollector, signalTimeoutBatchSize, clock, null, null);
+    return newHandler(
+        signalStore, metricsCollector, signalTimeoutBatchSize, clock, null, afterCommitRegistrar);
   }
 
   private JobTimeoutHandler newHandler(
@@ -821,7 +818,12 @@ class JobTimeoutHandlerTest {
       Clock clock,
       InternalEventPublisher eventPublisher) {
     return newHandler(
-        signalStore, metricsCollector, signalTimeoutBatchSize, clock, eventPublisher, null);
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        clock,
+        eventPublisher,
+        afterCommitRegistrar);
   }
 
   private JobTimeoutHandler newHandler(
@@ -830,14 +832,14 @@ class JobTimeoutHandlerTest {
       int signalTimeoutBatchSize,
       Clock clock,
       InternalEventPublisher eventPublisher,
-      TransactionSynchronizationRegistry txRegistry) {
+      AfterCommitRegistrar afterCommitRegistrar) {
     return newHandler(
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
         clock,
         eventPublisher,
-        txRegistry,
+        afterCommitRegistrar,
         null);
   }
 
@@ -847,7 +849,7 @@ class JobTimeoutHandlerTest {
       int signalTimeoutBatchSize,
       Clock clock,
       InternalEventPublisher eventPublisher,
-      TransactionSynchronizationRegistry txRegistry,
+      AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer) {
     return new JobTimeoutHandler(
         jobCrudStore,
@@ -861,7 +863,7 @@ class JobTimeoutHandlerTest {
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
-        txRegistry,
+        afterCommitRegistrar,
         null,
         errorSanitizer);
   }
@@ -879,7 +881,7 @@ class JobTimeoutHandlerTest {
         signalStore,
         metricsCollector,
         JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
-        null,
+        afterCommitRegistrar,
         singletonLeaseService);
   }
 }

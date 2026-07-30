@@ -15,7 +15,6 @@
  */
 package run.ratchet.ri.core.internal;
 
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Instant;
@@ -31,7 +30,8 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.ChainCompletedEvent;
 import run.ratchet.api.event.ChainFailedEvent;
 import run.ratchet.api.event.ChainStartedEvent;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
+import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
@@ -59,33 +59,42 @@ public class ChainScheduler {
   protected final JobTerminalStore jobTerminalStore;
   protected final InternalEventPublisher eventPublisher;
   private final Clock clock;
-
-  private volatile TransactionSynchronizationRegistry txRegistry;
+  private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected ChainScheduler() {
     this.jobCrudStore = null;
     this.jobTerminalStore = null;
     this.eventPublisher = null;
     this.clock = null;
+    this.afterCommitRegistrar = null;
   }
 
-  public ChainScheduler(JobCrudStore jobCrudStore, JobTerminalStore jobTerminalStore) {
-    this(jobCrudStore, jobTerminalStore, Clock.systemUTC(), null);
-  }
-
-  ChainScheduler(JobCrudStore jobCrudStore, JobTerminalStore jobTerminalStore, Clock clock) {
-    this(jobCrudStore, jobTerminalStore, clock, null);
+  public ChainScheduler(
+      JobCrudStore jobCrudStore,
+      JobTerminalStore jobTerminalStore,
+      AfterCommitRegistrar afterCommitRegistrar) {
+    this(jobCrudStore, jobTerminalStore, Clock.systemUTC(), null, afterCommitRegistrar);
   }
 
   ChainScheduler(
       JobCrudStore jobCrudStore,
       JobTerminalStore jobTerminalStore,
       Clock clock,
-      InternalEventPublisher eventPublisher) {
+      AfterCommitRegistrar afterCommitRegistrar) {
+    this(jobCrudStore, jobTerminalStore, clock, null, afterCommitRegistrar);
+  }
+
+  ChainScheduler(
+      JobCrudStore jobCrudStore,
+      JobTerminalStore jobTerminalStore,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this.jobCrudStore = jobCrudStore;
     this.jobTerminalStore = jobTerminalStore;
     this.clock = clock != null ? clock : Clock.systemUTC();
     this.eventPublisher = eventPublisher;
+    this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
   public void cancelChain(JobEntity failed) {
@@ -243,32 +252,11 @@ public class ChainScheduler {
       return;
     }
     Runnable publish = () -> eventPublisher.publish(event);
-    if (JobWakeupService.registerAfterCommit(
-            resolveTxRegistry(),
-            publish,
-            log,
-            "After-commit chain/workflow event registration failed; event suppressed: %s")
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (afterCommitRegistrar.registerAfterCommit(
+            publish, "After-commit chain/workflow event registration failed; event suppressed: %s")
+        == Outcome.NO_ACTIVE_TRANSACTION) {
       publish.run();
     }
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry registry = txRegistry;
-    if (registry == null) {
-      synchronized (this) {
-        registry = txRegistry;
-        if (registry == null) {
-          registry = JobWakeupService.lookupTxRegistry(log);
-          txRegistry = registry;
-        }
-      }
-    }
-    return registry;
-  }
-
-  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
-    this.txRegistry = txRegistry;
   }
 
   private UUID findRootJobId(JobEntity job) {

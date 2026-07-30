@@ -29,6 +29,7 @@ import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DefaultRatchetRuntime;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
@@ -38,6 +39,7 @@ import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.RecurringRegistration;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
@@ -58,6 +60,7 @@ public final class RatchetRuntimeComponentCatalog {
 
   private static final List<RatchetComponentDescriptor> COMPONENTS =
       List.of(
+          new RatchetComponentDescriptor(JakartaAfterCommitRegistrar.class, List.of(), true, false),
           new RatchetComponentDescriptor(
               JobStateManager.class,
               List.of(JobBatchStatusStore.class, NodeIdentityProvider.class),
@@ -72,7 +75,8 @@ public final class RatchetRuntimeComponentCatalog {
                   SingletonLeaseService.class,
                   InternalEventPublisher.class,
                   ErrorSanitizer.class,
-                  Clock.class),
+                  Clock.class,
+                  AfterCommitRegistrar.class),
               true,
               true),
           new RatchetComponentDescriptor(

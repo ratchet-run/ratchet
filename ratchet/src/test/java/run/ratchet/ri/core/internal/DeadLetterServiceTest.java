@@ -24,7 +24,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.times;
@@ -36,9 +35,6 @@ import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.model.time.ExecutionTime;
 import com.cronutils.parser.CronParser;
-import jakarta.transaction.Status;
-import jakarta.transaction.Synchronization;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
 import java.time.Duration;
@@ -65,6 +61,8 @@ import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.ri.core.SingletonLease;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobEntity;
@@ -88,14 +86,15 @@ class DeadLetterServiceTest {
   @Mock private SingletonLeaseService singletonLeaseService;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private ErrorSanitizer errorSanitizer;
-  @Mock private TransactionSynchronizationRegistry txRegistry;
   @Mock private ScheduledExecutorService scheduledExecutor;
   @Mock private LockStore lockStore;
 
   private DeadLetterService service;
+  private StubAfterCommitRegistrar afterCommitRegistrar;
 
   @BeforeEach
   void setUp() {
+    afterCommitRegistrar = new StubAfterCommitRegistrar();
     service =
         new DeadLetterService(
             executorProvider,
@@ -104,7 +103,8 @@ class DeadLetterServiceTest {
             singletonLeaseService,
             eventPublisher,
             errorSanitizer,
-            FIXED_CLOCK);
+            FIXED_CLOCK,
+            afterCommitRegistrar);
   }
 
   @Test
@@ -113,9 +113,6 @@ class DeadLetterServiceTest {
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
     when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
-    service.setTxRegistryForTesting(txRegistry);
-
     assertTrue(service.moveToDlq(job, cause));
 
     verify(jobTerminalStore).markJobFailedTerminal(job.getId(), "safe error", 2);
@@ -160,9 +157,6 @@ class DeadLetterServiceTest {
     RuntimeException cause = new RuntimeException("retry buffer hard cap");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe overflow");
     when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe overflow", 0)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
-    service.setTxRegistryForTesting(txRegistry);
-
     assertTrue(service.moveToDlq(job, cause));
 
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
@@ -178,9 +172,6 @@ class DeadLetterServiceTest {
     JobEntity job = jobWithAttempts(2);
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
-    service.setTxRegistryForTesting(txRegistry);
-
     service.recordDlqTransition(job, cause);
 
     verify(jobTerminalStore, never()).markJobFailedTerminal(eq(job.getId()), any(), anyInt());
@@ -193,9 +184,6 @@ class DeadLetterServiceTest {
     JobEntity job = jobWithAttempts(2);
     job.setLastError("exact persisted terminal error");
     RuntimeException cause = new RuntimeException("raw secret");
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
-    service.setTxRegistryForTesting(txRegistry);
-
     service.recordDlqTransition(job, cause);
 
     verify(errorSanitizer, never()).sanitize(any());
@@ -211,9 +199,6 @@ class DeadLetterServiceTest {
     String fallback = RuntimeException.class.getName();
     when(errorSanitizer.sanitize(cause)).thenThrow(new AssertionError("broken sanitizer"));
     when(jobTerminalStore.markJobFailedTerminal(job.getId(), fallback, 2)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
-    service.setTxRegistryForTesting(txRegistry);
-
     assertTrue(service.moveToDlq(job, cause));
 
     assertEquals(fallback, job.getLastError());
@@ -279,17 +264,14 @@ class DeadLetterServiceTest {
             timestamp,
             job.getLastError(),
             2);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    service.setTxRegistryForTesting(txRegistry);
-    ArgumentCaptor<Synchronization> synchronization =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
 
     service.recordDlqTransitionInCurrentTransaction(
         job, new RuntimeException(), List.of(timedOut, failed));
 
-    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any());
-    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher, times(3)).publish(events.capture());
@@ -323,16 +305,13 @@ class DeadLetterServiceTest {
             FIXED_NOW,
             job.getLastError(),
             1);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    service.setTxRegistryForTesting(txRegistry);
-    ArgumentCaptor<Synchronization> synchronization =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
 
     service.recordDlqTransitionInCurrentTransaction(
         job, new RuntimeException(), List.of(timedOut, failed));
-    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
 
-    synchronization.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+    afterCommitRegistrar.rollBack();
 
     verify(eventPublisher, never()).publish(any());
   }
@@ -352,11 +331,7 @@ class DeadLetterServiceTest {
             FIXED_NOW,
             job.getLastError(),
             1);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    doThrow(new IllegalStateException("registration failed"))
-        .when(txRegistry)
-        .registerInterposedSynchronization(any(Synchronization.class));
-    service.setTxRegistryForTesting(txRegistry);
+    afterCommitRegistrar.outcome(Outcome.ACTIVE_TRANSACTION_REGISTRATION_FAILED);
 
     service.recordDlqTransitionInCurrentTransaction(job, new RuntimeException(), List.of(failed));
 
@@ -389,16 +364,13 @@ class DeadLetterServiceTest {
             FIXED_NOW,
             job.getLastError(),
             1);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    service.setTxRegistryForTesting(txRegistry);
-    ArgumentCaptor<Synchronization> synchronization =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
 
     service.recordDlqTransitionInCurrentTransaction(
         job, new RuntimeException(), List.of(timedOut, failed));
-    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
 
-    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher, times(3)).publish(events.capture());
@@ -412,17 +384,14 @@ class DeadLetterServiceTest {
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
     when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    service.setTxRegistryForTesting(txRegistry);
-    ArgumentCaptor<Synchronization> synchronization =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
 
     assertTrue(service.moveToDlq(job, cause));
 
-    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any());
 
-    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher, times(2)).publish(events.capture());
@@ -436,15 +405,12 @@ class DeadLetterServiceTest {
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
     when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    service.setTxRegistryForTesting(txRegistry);
-    ArgumentCaptor<Synchronization> synchronization =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
 
     assertTrue(service.moveToDlq(job, cause));
-    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
 
-    synchronization.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+    afterCommitRegistrar.rollBack();
 
     verify(eventPublisher, never()).publish(any());
   }
@@ -455,11 +421,7 @@ class DeadLetterServiceTest {
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
     when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    doThrow(new IllegalStateException("registration failed"))
-        .when(txRegistry)
-        .registerInterposedSynchronization(any(Synchronization.class));
-    service.setTxRegistryForTesting(txRegistry);
+    afterCommitRegistrar.outcome(Outcome.ACTIVE_TRANSACTION_REGISTRATION_FAILED);
 
     assertTrue(service.moveToDlq(job, cause));
 

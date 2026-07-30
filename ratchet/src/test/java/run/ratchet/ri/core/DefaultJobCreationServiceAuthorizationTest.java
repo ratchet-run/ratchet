@@ -28,9 +28,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import jakarta.transaction.Status;
-import jakarta.transaction.Synchronization;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -60,6 +57,8 @@ import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MetricsCollector;
@@ -92,8 +91,8 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Mock private JobAuthorizationPolicy authorizationPolicy;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private MetricsCollector metricsCollector;
-  @Mock private TransactionSynchronizationRegistry txRegistry;
 
+  private StubAfterCommitRegistrar afterCommitRegistrar;
   private DefaultJobCreationService service;
   private JobWakeupService wakeupService;
 
@@ -161,7 +160,8 @@ class DefaultJobCreationServiceAuthorizationTest {
         null,
         eventPublisher,
         metricsCollector,
-        clock);
+        clock,
+        afterCommitRegistrar);
   }
 
   private DefaultJobCreationService serviceWithResolver(
@@ -186,6 +186,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         eventPublisher,
         metricsCollector,
         Clock.systemUTC(),
+        afterCommitRegistrar,
         callerPrincipalResolver);
   }
 
@@ -211,11 +212,13 @@ class DefaultJobCreationServiceAuthorizationTest {
         null,
         null,
         null,
-        Clock.systemUTC());
+        Clock.systemUTC(),
+        afterCommitRegistrar);
   }
 
   @BeforeEach
   void setUp() {
+    afterCommitRegistrar = new StubAfterCommitRegistrar();
     wakeupService = new NoopJobWakeupService();
     service =
         serviceWith(
@@ -430,10 +433,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void signalWaitingEventPublishesAfterCommit() {
-    service.setTxRegistryForTesting(txRegistry);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronizationCaptor =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
     JobEntity saved = savedEntity();
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
@@ -445,20 +445,17 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     service.submit(builder);
 
-    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
 
-    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     verify(eventPublisher).publish(any(JobSignalWaitingEvent.class));
   }
 
   @Test
   void signalWaitingEventIsSuppressedWhenTransactionRollsBack() {
-    service.setTxRegistryForTesting(txRegistry);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronizationCaptor =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
     JobEntity saved = savedEntity();
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
@@ -469,20 +466,16 @@ class DefaultJobCreationServiceAuthorizationTest {
                 .awaitSignal("approval", Duration.ofSeconds(30));
 
     service.submit(builder);
-    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
 
-    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+    afterCommitRegistrar.rollBack();
 
     verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
   }
 
   @Test
   void signalWaitingEventIsSuppressedWhenAfterCommitRegistrationFails() {
-    service.setTxRegistryForTesting(txRegistry);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    doThrow(new IllegalStateException("boom"))
-        .when(txRegistry)
-        .registerInterposedSynchronization(any());
+    afterCommitRegistrar.outcome(Outcome.ACTIVE_TRANSACTION_REGISTRATION_FAILED);
     JobEntity saved = savedEntity();
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
@@ -494,6 +487,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     service.submit(builder);
 
+    assertEquals(0, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
   }
 

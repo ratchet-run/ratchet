@@ -48,6 +48,7 @@ import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.entity.JobEntity;
@@ -119,7 +120,8 @@ class DefaultJobCreationServiceExecutionTargetTest {
             null,
             null,
             null,
-            Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC));
+            Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
+            new StubAfterCommitRegistrar());
 
     lenient()
         .when(jobCrudStore.create(any(JobEntity.class)))
@@ -178,7 +180,8 @@ class DefaultJobCreationServiceExecutionTargetTest {
             appPolicy,
             null,
             null,
-            Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC));
+            Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
+            new StubAfterCommitRegistrar());
 
     DefaultBatchBuilder builder = new DefaultBatchBuilder("batch", gated);
     builder.forEach(

@@ -38,6 +38,7 @@ import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
@@ -93,7 +94,8 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
         null,
         null,
         null,
-        Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC));
+        Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
+        new StubAfterCommitRegistrar());
   }
 
   @Test

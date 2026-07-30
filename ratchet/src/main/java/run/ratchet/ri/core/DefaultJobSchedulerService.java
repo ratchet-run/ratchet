@@ -18,7 +18,6 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
 import java.time.Clock;
@@ -30,8 +29,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
-import javax.naming.InitialContext;
-import javax.naming.NamingException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.JobBuilder;
@@ -56,10 +53,11 @@ import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
+import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
@@ -117,10 +115,7 @@ public class DefaultJobSchedulerService
   private final PayloadSerializer payloadSerializer;
   private final MetricsCollector metricsCollector;
   private final Clock clock;
-
-  // Resolved lazily on first use from a Jakarta EE component thread. @Resource field injection
-  // fails on Payara when CDI startup observers run on the admin thread (no java:comp/env context).
-  private volatile TransactionSynchronizationRegistry txRegistry;
+  private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected DefaultJobSchedulerService() {
     this.eventPublisher = null;
@@ -144,48 +139,7 @@ public class DefaultJobSchedulerService
     this.payloadSerializer = null;
     this.metricsCollector = null;
     this.clock = null;
-  }
-
-  DefaultJobSchedulerService(
-      InternalEventPublisher eventPublisher,
-      JobBatchStatusStore jobBatchStatusStore,
-      JobPauseStore jobPauseStore,
-      JobRetryStore jobRetryStore,
-      JobTerminalStore jobTerminalStore,
-      JobCrudStore jobCrudStore,
-      BatchStore batchStore,
-      TagStore tagStore,
-      WorkflowConditionStore workflowConditionStore,
-      RecurringJobStore recurringJobStore,
-      JobWakeupService wakeupService,
-      RecurringScheduler recurringScheduler,
-      JobInvocationResolver jobInvocationResolver,
-      DefaultJobCreationService jobCreationService,
-      CallerPrincipalProvider callerPrincipalProvider,
-      JobAuthorizationPolicy authorizationPolicy,
-      SignalStore signalStore,
-      PayloadSerializer payloadSerializer) {
-    this(
-        eventPublisher,
-        jobBatchStatusStore,
-        jobPauseStore,
-        jobRetryStore,
-        jobTerminalStore,
-        jobCrudStore,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        recurringJobStore,
-        wakeupService,
-        recurringScheduler,
-        jobInvocationResolver,
-        jobCreationService,
-        callerPrincipalProvider,
-        authorizationPolicy,
-        signalStore,
-        payloadSerializer,
-        null,
-        Clock.systemUTC());
+    this.afterCommitRegistrar = null;
   }
 
   DefaultJobSchedulerService(
@@ -207,7 +161,52 @@ public class DefaultJobSchedulerService
       JobAuthorizationPolicy authorizationPolicy,
       SignalStore signalStore,
       PayloadSerializer payloadSerializer,
-      MetricsCollector metricsCollector) {
+      AfterCommitRegistrar afterCommitRegistrar) {
+    this(
+        eventPublisher,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        jobCreationService,
+        callerPrincipalProvider,
+        authorizationPolicy,
+        signalStore,
+        payloadSerializer,
+        null,
+        Clock.systemUTC(),
+        afterCommitRegistrar);
+  }
+
+  DefaultJobSchedulerService(
+      InternalEventPublisher eventPublisher,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobPauseStore jobPauseStore,
+      JobRetryStore jobRetryStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      DefaultJobCreationService jobCreationService,
+      CallerPrincipalProvider callerPrincipalProvider,
+      JobAuthorizationPolicy authorizationPolicy,
+      SignalStore signalStore,
+      PayloadSerializer payloadSerializer,
+      MetricsCollector metricsCollector,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -228,7 +227,8 @@ public class DefaultJobSchedulerService
         signalStore,
         payloadSerializer,
         metricsCollector,
-        Clock.systemUTC());
+        Clock.systemUTC(),
+        afterCommitRegistrar);
   }
 
   @Inject
@@ -253,7 +253,8 @@ public class DefaultJobSchedulerService
       PayloadSerializer payloadSerializer,
       MetricsCollector metricsCollector,
       Clock clock,
-      RatchetOptions options) {
+      RatchetOptions options,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -275,6 +276,7 @@ public class DefaultJobSchedulerService
         payloadSerializer,
         metricsCollector,
         clock,
+        afterCommitRegistrar,
         options != null ? options.callerPrincipalResolver() : null);
   }
 
@@ -303,7 +305,8 @@ public class DefaultJobSchedulerService
       SignalStore signalStore,
       PayloadSerializer payloadSerializer,
       MetricsCollector metricsCollector,
-      Clock clock) {
+      Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this(
         eventPublisher,
         jobBatchStatusStore,
@@ -325,6 +328,7 @@ public class DefaultJobSchedulerService
         payloadSerializer,
         metricsCollector,
         clock,
+        afterCommitRegistrar,
         null);
   }
 
@@ -354,6 +358,7 @@ public class DefaultJobSchedulerService
       PayloadSerializer payloadSerializer,
       MetricsCollector metricsCollector,
       Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar,
       CallerPrincipalResolver callerPrincipalResolver) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -376,6 +381,7 @@ public class DefaultJobSchedulerService
     this.payloadSerializer = payloadSerializer;
     this.metricsCollector = metricsCollector;
     this.clock = clock;
+    this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
   @Override
@@ -755,7 +761,7 @@ public class DefaultJobSchedulerService
       JobsBulkRetriedEvent event =
           new JobsBulkRetriedEvent(filter, limit, count, effective().instant());
       if (registerAfterCommit(() -> eventPublisher.publish(event))
-          == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+          == Outcome.NO_ACTIVE_TRANSACTION) {
         eventPublisher.publish(event);
       }
       if (wakeupService != null) {
@@ -837,8 +843,7 @@ public class DefaultJobSchedulerService
    */
   private void publishBulkCancelledEvent(String tag, int count) {
     JobsBulkCancelledEvent event = new JobsBulkCancelledEvent(tag, count, effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -869,8 +874,7 @@ public class DefaultJobSchedulerService
                 null);
     // Defer publication until after the surrounding TX commits so a rollback does not produce a
     // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -888,8 +892,7 @@ public class DefaultJobSchedulerService
             effective().instant(),
             previousStatus.name(),
             null);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -912,7 +915,7 @@ public class DefaultJobSchedulerService
                   1,
                   retryAt);
       if (registerAfterCommit(() -> eventPublisher.publish(event))
-          == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+          == Outcome.NO_ACTIVE_TRANSACTION) {
         eventPublisher.publish(event);
       }
     }
@@ -962,8 +965,7 @@ public class DefaultJobSchedulerService
             job.getPriority(),
             job.getPickedBy(),
             effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -978,8 +980,7 @@ public class DefaultJobSchedulerService
             job.getPriority(),
             job.getPickedBy(),
             effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -994,8 +995,7 @@ public class DefaultJobSchedulerService
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -1010,41 +1010,14 @@ public class DefaultJobSchedulerService
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
 
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          try {
-            reg = InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
-            txRegistry = reg;
-          } catch (NamingException e) {
-            // No component context on this thread (e.g. CDI startup observers on Payara admin
-            // thread)
-            log.debugf(
-                "TransactionSynchronizationRegistry lookup unavailable on this thread; using immediate"
-                    + " fallback publication: %s",
-                e.getMessage());
-          }
-        }
-      }
-    }
-    return reg;
-  }
-
-  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
-    return JobWakeupService.registerAfterCommit(
-        resolveTxRegistry(),
-        action,
-        log,
-        "After-commit event registration failed; event suppressed: %s");
+  private Outcome registerAfterCommit(Runnable action) {
+    return afterCommitRegistrar.registerAfterCommit(
+        action, "After-commit event registration failed; event suppressed: %s");
   }
 
   private int deliverSignalRaw(UUID jobId, Serializable payload) {
@@ -1202,8 +1175,7 @@ public class DefaultJobSchedulerService
       String rejectionReason) {
     JobsBulkSignaledEvent event =
         new JobsBulkSignaledEvent(signalKey, count, principal, outcome, rejectionReason, timestamp);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }
@@ -1231,8 +1203,7 @@ public class DefaultJobSchedulerService
             principal,
             outcome,
             rejectionReason);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(() -> eventPublisher.publish(event)) == Outcome.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
   }

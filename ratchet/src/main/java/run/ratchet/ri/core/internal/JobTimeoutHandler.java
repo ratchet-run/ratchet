@@ -15,7 +15,6 @@
  */
 package run.ratchet.ri.core.internal;
 
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -39,8 +38,9 @@ import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
+import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
@@ -70,7 +70,7 @@ public class JobTimeoutHandler {
   private final long defaultTimeoutSeconds;
   private final Clock clock;
   private final int signalTimeoutBatchSize;
-  private final TransactionSynchronizationRegistry txRegistry;
+  private final AfterCommitRegistrar afterCommitRegistrar;
   private final SingletonLeaseService singletonLeaseService;
   private final ErrorSanitizer errorSanitizer;
 
@@ -95,7 +95,7 @@ public class JobTimeoutHandler {
     this.defaultTimeoutSeconds = 0;
     this.clock = null;
     this.signalTimeoutBatchSize = 0;
-    this.txRegistry = null;
+    this.afterCommitRegistrar = null;
     this.singletonLeaseService = null;
     this.errorSanitizer = null;
   }
@@ -111,7 +111,8 @@ public class JobTimeoutHandler {
       InternalEventPublisher eventPublisher,
       SignalStore signalStore,
       MetricsCollector metricsCollector,
-      int signalTimeoutBatchSize) {
+      int signalTimeoutBatchSize,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this(
         jobCrudStore,
         jobRetryStore,
@@ -124,7 +125,7 @@ public class JobTimeoutHandler {
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
-        null,
+        afterCommitRegistrar,
         null,
         null);
   }
@@ -141,37 +142,7 @@ public class JobTimeoutHandler {
       SignalStore signalStore,
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
-      TransactionSynchronizationRegistry txRegistry) {
-    this(
-        jobCrudStore,
-        jobRetryStore,
-        jobBatchStatusStore,
-        lifecycleFacade,
-        softTimeoutPercent,
-        defaultTimeoutSeconds,
-        clock,
-        eventPublisher,
-        signalStore,
-        metricsCollector,
-        signalTimeoutBatchSize,
-        txRegistry,
-        null,
-        null);
-  }
-
-  public JobTimeoutHandler(
-      JobCrudStore jobCrudStore,
-      JobRetryStore jobRetryStore,
-      JobBatchStatusStore jobBatchStatusStore,
-      PostExecutionHandler lifecycleFacade,
-      int softTimeoutPercent,
-      long defaultTimeoutSeconds,
-      Clock clock,
-      InternalEventPublisher eventPublisher,
-      SignalStore signalStore,
-      MetricsCollector metricsCollector,
-      int signalTimeoutBatchSize,
-      TransactionSynchronizationRegistry txRegistry,
+      AfterCommitRegistrar afterCommitRegistrar,
       SingletonLeaseService singletonLeaseService) {
     this(
         jobCrudStore,
@@ -185,7 +156,7 @@ public class JobTimeoutHandler {
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
-        txRegistry,
+        afterCommitRegistrar,
         singletonLeaseService,
         null);
   }
@@ -202,7 +173,7 @@ public class JobTimeoutHandler {
       SignalStore signalStore,
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
-      TransactionSynchronizationRegistry txRegistry,
+      AfterCommitRegistrar afterCommitRegistrar,
       SingletonLeaseService singletonLeaseService,
       ErrorSanitizer errorSanitizer) {
     this.jobCrudStore = jobCrudStore;
@@ -216,7 +187,7 @@ public class JobTimeoutHandler {
     this.signalStore = signalStore;
     this.metricsCollector = metricsCollector;
     this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
-    this.txRegistry = txRegistry;
+    this.afterCommitRegistrar = afterCommitRegistrar;
     this.singletonLeaseService = singletonLeaseService;
     this.errorSanitizer = errorSanitizer;
   }
@@ -502,16 +473,9 @@ public class JobTimeoutHandler {
     return new TerminalTimeoutTransition(job, List.of(event, failedEvent));
   }
 
-  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
-    return JobWakeupService.registerAfterCommit(
-        resolveTxRegistry(),
-        action,
-        log,
-        "After-commit timeout event registration failed; events suppressed: %s");
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    return txRegistry != null ? txRegistry : JobWakeupService.lookupTxRegistry(log);
+  private Outcome registerAfterCommit(Runnable action) {
+    return afterCommitRegistrar.registerAfterCommit(
+        action, "After-commit timeout event registration failed; events suppressed: %s");
   }
 
   private void publishHardTimeoutRetryEvents(
@@ -604,7 +568,7 @@ public class JobTimeoutHandler {
   }
 
   private void publishAfterCommit(Runnable action) {
-    if (registerAfterCommit(action) == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(action) == Outcome.NO_ACTIVE_TRANSACTION) {
       action.run();
     }
   }

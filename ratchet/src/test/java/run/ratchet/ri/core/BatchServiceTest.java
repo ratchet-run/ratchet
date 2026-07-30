@@ -27,9 +27,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import jakarta.transaction.Status;
-import jakarta.transaction.Synchronization;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -56,6 +53,8 @@ import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
@@ -84,12 +83,13 @@ class BatchServiceTest {
   @Mock private WorkflowScheduler workflowScheduler;
   @Mock private ClassPolicy classPolicy;
   @Mock private BeanResolver beanResolver;
-  @Mock private TransactionSynchronizationRegistry txRegistry;
 
   private BatchService batchService;
+  private StubAfterCommitRegistrar afterCommitRegistrar;
 
   @BeforeEach
   void setUp() {
+    afterCommitRegistrar = new StubAfterCommitRegistrar();
     batchService =
         new BatchService(
             batchStore,
@@ -102,7 +102,8 @@ class BatchServiceTest {
             workflowScheduler,
             classPolicy,
             beanResolver,
-            FIXED_CLOCK);
+            FIXED_CLOCK,
+            afterCommitRegistrar);
   }
 
   @Test
@@ -259,10 +260,7 @@ class BatchServiceTest {
 
   @Test
   void completedBatchEventPublishesAfterCommit() {
-    batchService.setTxRegistryForTesting(txRegistry);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronizationCaptor =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
     UUID parentId = UUID.randomUUID();
     JobEntity child = new JobEntity();
     child.setDependsOn(parentId);
@@ -286,20 +284,17 @@ class BatchServiceTest {
 
     batchService.markChildSucceeded(child);
 
-    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any());
 
-    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     verify(eventPublisher).publish(any(BatchCompletingEvent.class));
   }
 
   @Test
   void failedBatchDelegatesDlqOnlyAfterCommitAndAfterJobFailed() {
-    batchService.setTxRegistryForTesting(txRegistry);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronizationCaptor =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
     UUID parentId = UUID.randomUUID();
     JobEntity child = new JobEntity();
     child.setDependsOn(parentId);
@@ -319,11 +314,11 @@ class BatchServiceTest {
 
     batchService.markChildFailed(child);
 
-    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
     verify(eventPublisher, never()).publish(any());
     verify(deadLetterService, never()).recordDlqTransition(any(), any());
 
-    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+    afterCommitRegistrar.commit();
 
     InOrder terminalOrder = inOrder(eventPublisher, deadLetterService);
     terminalOrder.verify(eventPublisher).publish(any(BatchCompletingEvent.class));
@@ -334,10 +329,7 @@ class BatchServiceTest {
 
   @Test
   void failedBatchRollbackSuppressesFailureAndDlqEvents() {
-    batchService.setTxRegistryForTesting(txRegistry);
-    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
-    ArgumentCaptor<Synchronization> synchronizationCaptor =
-        ArgumentCaptor.forClass(Synchronization.class);
+    afterCommitRegistrar.outcome(Outcome.REGISTERED);
     UUID parentId = UUID.randomUUID();
     JobEntity child = new JobEntity();
     child.setDependsOn(parentId);
@@ -357,8 +349,8 @@ class BatchServiceTest {
 
     batchService.markChildFailed(child);
 
-    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
-    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+    assertEquals(1, afterCommitRegistrar.pendingActionCount());
+    afterCommitRegistrar.rollBack();
 
     verify(eventPublisher, never()).publish(any());
     verify(deadLetterService, never()).recordDlqTransition(any(), any());

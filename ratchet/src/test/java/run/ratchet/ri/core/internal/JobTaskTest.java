@@ -72,6 +72,7 @@ import run.ratchet.ri.core.JBossLoggingJobLogger;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
+import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -502,7 +503,8 @@ class JobTaskTest {
             null,
             null,
             null,
-            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            new StubAfterCommitRegistrar());
 
     JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
     initJobTaskWithDefaultStubs(task, job);
@@ -561,7 +563,8 @@ class JobTaskTest {
             null,
             null,
             null,
-            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            new StubAfterCommitRegistrar());
 
     JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
     initJobTaskWithDefaultStubs(task, job);
