@@ -63,7 +63,7 @@ jobs:
       - uses: actions/setup-java@v5
         if: needs.changes.outputs.code != 'false'
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
 

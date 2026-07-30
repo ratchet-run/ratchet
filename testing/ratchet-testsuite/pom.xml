@@ -498,9 +498,9 @@
     </profile>
 
     <!--
-      WildFly 40 on Jakarta EE 11 / JDK 25. Mirrors wildfly-managed but pins the
+      WildFly 40 on Jakarta EE 11 / JDK 21. Mirrors wildfly-managed but pins the
       EE 11 distribution and adds the EE 11 test source root (VirtualThreadExecutionIT).
-      The parent same-id profile supplies the JDK 25 enforcer; this profile sets the
+      The parent same-id profile supplies the JDK 21 enforcer; this profile sets the
       EE 11 umbrella (Concurrency 3.1) via jakarta.ee.version below. The test deployment
       declares its own virtual-thread executor (VirtualThreadTestExecutor); Ratchet ships
       none.
@@ -516,7 +516,7 @@
         <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
         <jakarta.ee.version>11.0.0</jakarta.ee.version>
         <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.testRelease>21</maven.compiler.testRelease>
       </properties>
       <dependencies>
         <dependency>
@@ -914,7 +914,7 @@
         <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
         <jakarta.ee.version>11.0.0</jakarta.ee.version>
         <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.testRelease>21</maven.compiler.testRelease>
       </properties>
       <dependencies>
         <dependency>

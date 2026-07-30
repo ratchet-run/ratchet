@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -186,7 +186,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -218,7 +218,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -311,7 +311,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -323,14 +323,10 @@ jobs:
       - name: Copyleft dependency-license gate
         run: bash infra/ci/check-dependency-licenses.sh
 
-  # integrations/ratchet-quarkus is its own standalone reactor (separate parent,
-  # not a root <module>) so it isn't picked up by the release/sign/central
-  # profiles that run against the main reactor. It still depends on run.ratchet
-  # core artifacts by version, so a change here that breaks the extension would
-  # otherwise go unnoticed until someone manually rebuilds it. Install the core
-  # modules the extension depends on, then build+test the extension's own
-  # reactor against that freshly-built (not stale-cached) source.
-  # Runs the ratchet-quarkus extension's full TCK suite once per store. Each
+  # Runs the ratchet-quarkus extension's full TCK suite once per store. The main
+  # build now compiles and unit-tests these reactor modules (including the default
+  # PostgreSQL profile), while this matrix preserves explicit coverage for every
+  # supported SQL store and the MongoDB flavor. Each
   # cell swaps in that store's jar plus the matching quarkus-jdbc-<db> extension
   # or MongoDB flavor via the db-<kind> Maven profile (defined in the
   # integration-tests pom), and the RatchetDatabaseTestResource spins up a
@@ -348,19 +344,14 @@ jobs:
       matrix:
         include:
           - db: postgres
-            store: stores/ratchet-store-postgresql
             profile: db-postgres
           - db: mysql
-            store: stores/ratchet-store-mysql
             profile: db-mysql
           - db: oracle
-            store: stores/ratchet-store-oracle
             profile: db-oracle
           - db: sqlserver
-            store: stores/ratchet-store-sqlserver
             profile: db-sqlserver
           - db: mongodb
-            store: stores/ratchet-store-mongodb
             profile: db-mongo
     steps:
       - uses: actions/checkout@v7
@@ -376,20 +367,12 @@ jobs:
             m2-quarkus-ext-${{ matrix.db }}-
             m2-quarkus-ext-
             m2-
-      - name: Install core modules the extension depends on
-        # The integration-tests module pulls this cell's store jar, ratchet-encryption,
-        # ratchet-tck-api, and ratchet-tck-store in addition to the runtime/deployment deps. -am builds each
-        # listed module's upstream but never its downstream, so store-core alone does not
-        # drag in the store impl. List every module the extension reactor consumes so all
-        # are built from source here rather than resolved from a stale m2 cache.
-        #
-        # ratchet-store-mongodb is listed on every cell, not just the mongodb one. The db-*
-        # profiles only swap the integration-tests dependency; the reactor still builds the
-        # MongoDB flavor modules unconditionally, so the SQL cells need that jar too. It is a
-        # harmless duplicate on the mongodb cell.
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},stores/ratchet-store-mongodb,ratchet-encryption,testing/ratchet-tck/api,testing/ratchet-tck/store -am install
       - name: Build + test the ratchet-quarkus extension
-        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml verify -P${{ matrix.profile }}
+        # SpotBugs runs once for the full reactor in the dedicated job above.
+        run: >-
+          mvn -B -ntp -Dspotbugs.skip=true
+          -pl integrations/ratchet-quarkus/integration-tests -am
+          verify -P${{ matrix.profile }}
 
   # Native smoke gates for MongoDB and the DEFAULT SQL (PostgreSQL/Hibernate) flavor. The SQL cell
   # exercises the Hibernate/JPA-native reflection surface (entities, UuidV7EntityListener,
@@ -406,11 +389,9 @@ jobs:
         include:
           - db: mongodb
             cache: mongo
-            store: stores/ratchet-store-mongodb
             profile: db-mongo,native-mongo
           - db: sql
             cache: sql
-            store: stores/ratchet-store-postgresql
             profile: db-postgres,native-sql
     steps:
       - uses: actions/checkout@v7
@@ -427,10 +408,11 @@ jobs:
             m2-quarkus-ext-native-${{ matrix.cache }}-
             m2-quarkus-ext-
             m2-
-      - name: Install core modules the extension depends on
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},ratchet-encryption,testing/ratchet-tck/api,testing/ratchet-tck/store -am install
       - name: Native smoke test (${{ matrix.db }})
-        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -P${{ matrix.profile }}
+        run: >-
+          mvn -B -ntp -Dspotbugs.skip=true
+          -pl integrations/ratchet-quarkus/integration-tests -am
+          verify -P${{ matrix.profile }}
 
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
