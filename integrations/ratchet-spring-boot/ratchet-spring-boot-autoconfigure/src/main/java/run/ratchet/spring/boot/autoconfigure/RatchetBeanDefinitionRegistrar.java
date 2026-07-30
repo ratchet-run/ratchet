@@ -25,6 +25,7 @@ import org.springframework.context.annotation.ImportBeanDefinitionRegistrar;
 import org.springframework.core.type.AnnotationMetadata;
 import run.ratchet.ri.runtime.RatchetComponentDescriptor;
 import run.ratchet.ri.runtime.RatchetRuntimeComponentCatalog;
+import run.ratchet.spi.AfterCommitRegistrar;
 
 /**
  * Registers catalogued Ratchet components for lazy, container-managed construction.
@@ -37,7 +38,9 @@ public final class RatchetBeanDefinitionRegistrar implements ImportBeanDefinitio
   @Override
   public void registerBeanDefinitions(
       AnnotationMetadata importingClassMetadata, BeanDefinitionRegistry registry) {
-    RatchetRuntimeComponentCatalog.components()
+    RatchetRuntimeComponentCatalog.components().stream()
+        .filter(
+            descriptor -> !AfterCommitRegistrar.class.isAssignableFrom(descriptor.componentType()))
         .forEach(descriptor -> registerComponent(descriptor, registry));
   }
 

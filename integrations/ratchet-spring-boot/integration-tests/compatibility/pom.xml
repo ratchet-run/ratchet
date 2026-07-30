@@ -27,6 +27,21 @@
       <artifactId>ratchet-spring-boot-starter</artifactId>
     </dependency>
     <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-api</artifactId>
+      <scope>test</scope>
+      <exclusions>
+        <exclusion>
+          <groupId>org.junit.jupiter</groupId>
+          <artifactId>junit-jupiter</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>org.junit.platform</groupId>
+          <artifactId>junit-platform-launcher</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-test</artifactId>
       <version>${spring-boot.compatibility.version}</version>

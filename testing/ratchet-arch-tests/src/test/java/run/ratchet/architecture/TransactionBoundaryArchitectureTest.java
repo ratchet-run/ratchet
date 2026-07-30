@@ -20,6 +20,8 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
@@ -30,12 +32,16 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
+import javax.naming.Context;
+import javax.naming.InitialContext;
+import javax.naming.Name;
 import org.junit.jupiter.api.Test;
 
 /**
- * Locks in the two transaction-boundary decisions Ratchet's portability depends on, so a future PR
- * cannot quietly undo them across the matrix of Jakarta EE servers.
+ * Locks in transaction-boundary decisions Ratchet's portability depends on, so a future PR cannot
+ * quietly undo them across the matrix of Jakarta EE servers.
  *
  * <ul>
  *   <li><b>No {@code @Transactional(SUPPORTS)} in the store layer.</b> A store method invoked
@@ -46,6 +52,9 @@ import org.junit.jupiter.api.Test;
  *   <li><b>No {@code @Transactional} on the public API.</b> The {@code JobSchedulerService} surface
  *       is a pure contract: each method documents its transaction attribute in Javadoc, and the
  *       attribute is declared on the reference implementation, never on the exported interface.
+ *   <li><b>Container transaction lookup stays behind the portable SPI.</b> RI services depend on
+ *       {@code AfterCommitRegistrar}; only {@code JakartaAfterCommitRegistrar} may access the
+ *       container's {@code TransactionSynchronizationRegistry}.
  * </ul>
  *
  * <p>The per-store {@code REQUIRES_NEW} lock-and-heartbeat rule lives in the store TCK's {@code
@@ -56,14 +65,19 @@ import org.junit.jupiter.api.Test;
 public class TransactionBoundaryArchitectureTest {
 
   private static final String API = "run.ratchet.api..";
+  private static final String RI = "run.ratchet.ri..";
   private static final String STORE = "run.ratchet.store..";
+  private static final String JAKARTA_AFTER_COMMIT_REGISTRAR =
+      "run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar";
+  private static final String DEFAULT_EXECUTOR_PROVIDER =
+      "run.ratchet.ri.cdi.internal.DefaultExecutorProvider";
 
   /**
-   * Defends against a vacuous pass: if the importer returns no store or API classes (a known
+   * Defends against a vacuous pass: if the importer returns no store, API, or RI classes (a known
    * surefire/JaCoCo parallel-fork interaction), the rules below would pass with zero subjects.
    */
   @Test
-  void archunitImporterSeesStoreAndApi() {
+  void archunitImporterSeesStoreApiAndRi() {
     JavaClasses imported =
         new ClassFileImporter()
             .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
@@ -76,6 +90,13 @@ public class TransactionBoundaryArchitectureTest {
     assertTrue(
         imported.stream().anyMatch(c -> c.getPackageName().startsWith("run.ratchet.api")),
         "no run.ratchet.api classes imported; the API rule would pass vacuously");
+    assertTrue(
+        imported.stream().anyMatch(c -> c.getPackageName().startsWith("run.ratchet.ri")),
+        "no run.ratchet.ri classes imported; the RI transaction rules would pass vacuously");
+    assertTrue(
+        imported.stream().anyMatch(c -> c.getName().equals(JAKARTA_AFTER_COMMIT_REGISTRAR)),
+        JAKARTA_AFTER_COMMIT_REGISTRAR
+            + " was not imported; its exclusive TSR access cannot be verified");
   }
 
   @ArchTest
@@ -114,6 +135,77 @@ public class TransactionBoundaryArchitectureTest {
           .because(
               "transaction attributes belong on the reference implementation, not the exported API "
                   + "types");
+
+  @ArchTest
+  static final ArchRule transactionSynchronizationRegistryIsConfinedToJakartaRegistrar =
+      noClasses()
+          .that()
+          .resideInAPackage(RI)
+          .and(areNotJakartaAfterCommitRegistrar())
+          .should()
+          .dependOnClassesThat()
+          .haveFullyQualifiedName(TransactionSynchronizationRegistry.class.getName())
+          .because(
+              "RI services use the portable AfterCommitRegistrar SPI; only "
+                  + "JakartaAfterCommitRegistrar may access the container TSR");
+
+  /**
+   * ArchUnit cannot inspect a lookup call's string argument, so this rule confines JNDI lookup
+   * calls to the transaction registrar and the existing managed-executor resolver. In particular,
+   * an RI service cannot re-grow an inline {@code java:comp/TransactionSynchronizationRegistry}
+   * lookup.
+   */
+  @ArchTest
+  static final ArchRule jndiLookupsAreConfinedToRiResolvers =
+      noClasses()
+          .that()
+          .resideInAPackage(RI)
+          .and(areNotJndiLookupResolvers())
+          .should()
+          .callMethod(InitialContext.class, "doLookup", String.class)
+          .orShould()
+          .callMethod(InitialContext.class, "doLookup", Name.class)
+          .orShould()
+          .callMethod(InitialContext.class, "lookup", String.class)
+          .orShould()
+          .callMethod(InitialContext.class, "lookup", Name.class)
+          .orShould()
+          .callMethod(Context.class, "lookup", String.class)
+          .orShould()
+          .callMethod(Context.class, "lookup", Name.class)
+          .because(
+              "JNDI resource lookup is centralized in the Jakarta transaction registrar and the "
+                  + "managed-executor resolver; RI services must not look up the TSR themselves");
+
+  private static DescribedPredicate<JavaClass> areNotJakartaAfterCommitRegistrar() {
+    return topLevelClassIsNot(
+        JAKARTA_AFTER_COMMIT_REGISTRAR, "are not JakartaAfterCommitRegistrar");
+  }
+
+  private static DescribedPredicate<JavaClass> areNotJndiLookupResolvers() {
+    return new DescribedPredicate<>("are not the documented RI JNDI resolvers") {
+      @Override
+      public boolean test(JavaClass clazz) {
+        String topLevelClassName = topLevelClassName(clazz);
+        return !topLevelClassName.equals(JAKARTA_AFTER_COMMIT_REGISTRAR)
+            && !topLevelClassName.equals(DEFAULT_EXECUTOR_PROVIDER);
+      }
+    };
+  }
+
+  private static DescribedPredicate<JavaClass> topLevelClassIsNot(
+      String excludedClassName, String description) {
+    return new DescribedPredicate<>(description) {
+      @Override
+      public boolean test(JavaClass clazz) {
+        return !topLevelClassName(clazz).equals(excludedClassName);
+      }
+    };
+  }
+
+  private static String topLevelClassName(JavaClass clazz) {
+    return clazz.getName().split("\\$", 2)[0];
+  }
 
   private static ArchCondition<JavaMethod> notUseSupportsTransaction() {
     return new ArchCondition<>("not be annotated @Transactional(SUPPORTS)") {

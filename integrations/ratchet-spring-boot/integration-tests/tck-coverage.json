@@ -20,5 +20,66 @@
     "ratchet-tck-store",
     "ratchet-tck-util"
   ],
-  "contracts": {}
+  "contracts": {
+    "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxDlqOrderContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "core-compat": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxEnqueueContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "core-compat": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxNotSupportedContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "core-compat": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiredContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "core-compat": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiresNewContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "core-compat": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxSupportsContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "core-compat": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        }
+      }
+    }
+  }
 }

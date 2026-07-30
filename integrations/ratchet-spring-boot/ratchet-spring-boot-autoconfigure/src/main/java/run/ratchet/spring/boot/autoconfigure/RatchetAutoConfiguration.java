@@ -16,8 +16,18 @@
 package run.ratchet.spring.boot.autoconfigure;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import run.ratchet.spi.AfterCommitRegistrar;
 
 @AutoConfiguration
 @Import(RatchetBeanDefinitionRegistrar.class)
-public class RatchetAutoConfiguration {}
+public class RatchetAutoConfiguration {
+
+  @Bean
+  @ConditionalOnMissingBean(AfterCommitRegistrar.class)
+  AfterCommitRegistrar afterCommitRegistrar() {
+    return new SpringAfterCommitRegistrar();
+  }
+}

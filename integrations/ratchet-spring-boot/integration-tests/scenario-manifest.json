@@ -94,7 +94,7 @@
           "kind": "surefire",
           "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringBootManagedBeanCompatibilityTest.xml",
           "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringBootManagedBeanCompatibilityTest",
-          "minimumExecutedTests": 2
+          "minimumExecutedTests": 4
         },
         {
           "afterCommand": "jvm-matrix",
@@ -102,7 +102,7 @@
           "kind": "surefire",
           "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringBootManagedBeanCompatibilityTest.xml",
           "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringBootManagedBeanCompatibilityTest",
-          "minimumExecutedTests": 2
+          "minimumExecutedTests": 4
         },
         {
           "afterCommand": "jvm-matrix",
@@ -119,6 +119,38 @@
           "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.RatchetRuntimeLifecycleContractTest.xml",
           "reportClass": "run.ratchet.spring.boot.it.compatibility.RatchetRuntimeLifecycleContractTest",
           "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringAfterCommitRegistrarContractTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringAfterCommitRegistrarContractTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringAfterCommitRegistrarContractTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringAfterCommitRegistrarContractTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringTransactionDriverContractTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringTransactionDriverContractTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringTransactionDriverContractTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringTransactionDriverContractTest",
+          "minimumExecutedTests": 2
         }
       ],
       "sourceSentinels": [
@@ -133,6 +165,14 @@
         {
           "kind": "file-exists",
           "path": "integrations/ratchet-spring-boot/integration-tests/compatibility/src/test/java/run/ratchet/spring/boot/it/compatibility/RatchetRuntimeLifecycleContractTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "ratchet-api/src/main/java/run/ratchet/spi/AfterCommitRegistrar.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "ratchet/src/main/java/run/ratchet/ri/core/internal/JakartaAfterCommitRegistrar.java"
         }
       ],
       "conformanceArtifact": {

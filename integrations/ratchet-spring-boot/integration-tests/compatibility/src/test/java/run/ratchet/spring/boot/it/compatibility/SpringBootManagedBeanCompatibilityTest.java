@@ -37,6 +37,7 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionException;
@@ -55,6 +56,7 @@ import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobTerminalStore;
@@ -104,6 +106,31 @@ class SpringBootManagedBeanCompatibilityTest {
                       "RESUME",
                       "COMMIT"),
                   transactionManager.events());
+            });
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void cataloguedSelfInvocationDoesNotReenterTheTransactionProxy(boolean proxyTargetClass) {
+    contextRunner
+        .withUserConfiguration(SelfInvocationOverrides.class)
+        .withPropertyValues("spring.aop.proxy-target-class=" + proxyTargetClass)
+        .run(
+            context -> {
+              PostExecutionHandler postExecutionHandler =
+                  context.getBean(PostExecutionHandler.class);
+              RecordingTransactionManager transactionManager =
+                  context.getBean(RecordingTransactionManager.class);
+              JobEntity job = mock(JobEntity.class);
+              when(job.getJobType()).thenReturn(JobExecutionType.SINGLE);
+              IllegalStateException failure = new IllegalStateException("failure");
+
+              postExecutionHandler.moveToDlq(job, failure);
+              assertEquals(List.of("BEGIN(REQUIRES_NEW)", "COMMIT"), transactionManager.events());
+
+              transactionManager.clear();
+              postExecutionHandler.handlePermanentFailure(job, failure);
+              assertEquals(List.of("BEGIN(REQUIRES_NEW)", "COMMIT"), transactionManager.events());
             });
   }
 
@@ -201,6 +228,16 @@ class SpringBootManagedBeanCompatibilityTest {
     // proxy.
     private static <T> T nonAdvisedMock(Class<T> type) {
       return mock(type, withSettings().extraInterfaces(AopInfrastructureBean.class));
+    }
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  static class SelfInvocationOverrides {
+
+    @Bean
+    @Primary
+    DeadLetterService nonTransactionalDeadLetterService() {
+      return ManagedApplication.nonAdvisedMock(DeadLetterService.class);
     }
   }
 
