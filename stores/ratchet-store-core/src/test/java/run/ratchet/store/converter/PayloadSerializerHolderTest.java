@@ -18,6 +18,7 @@ package run.ratchet.store.converter;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -47,6 +48,67 @@ class PayloadSerializerHolderTest {
     PayloadSerializer mock = new RecordingSerializer();
     PayloadSerializerHolder.set(mock);
     assertSame(mock, PayloadSerializerHolder.get());
+  }
+
+  @Test
+  void tokenInstall_rejectsDifferentOwnerAndPreservesDelegate() {
+    Object firstOwner = new Object();
+    PayloadSerializer first = new RecordingSerializer();
+
+    PayloadSerializerHolder.install(firstOwner, first);
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> PayloadSerializerHolder.install(new Object(), new RecordingSerializer()));
+    assertSame(first, PayloadSerializerHolder.get());
+  }
+
+  @Test
+  void tokenInstall_sameOwnerMayReplaceDelegate() {
+    Object owner = new Object();
+    PayloadSerializer first = new RecordingSerializer();
+    PayloadSerializer second = new RecordingSerializer();
+
+    PayloadSerializerHolder.install(owner, first);
+    PayloadSerializerHolder.install(owner, second);
+
+    assertSame(second, PayloadSerializerHolder.get());
+  }
+
+  @Test
+  void tokenUninstall_onlyClearsMatchingOwner() {
+    Object owner = new Object();
+    PayloadSerializer serializer = new RecordingSerializer();
+    PayloadSerializerHolder.install(owner, serializer);
+
+    PayloadSerializerHolder.uninstall(new Object());
+    assertSame(serializer, PayloadSerializerHolder.get());
+
+    PayloadSerializerHolder.uninstall(owner);
+    assertNotSame(serializer, PayloadSerializerHolder.get());
+  }
+
+  @Test
+  void tokenInstall_allowsSequentialOwners() {
+    Object firstOwner = new Object();
+    Object secondOwner = new Object();
+    PayloadSerializer second = new RecordingSerializer();
+
+    PayloadSerializerHolder.install(firstOwner, new RecordingSerializer());
+    PayloadSerializerHolder.uninstall(firstOwner);
+    PayloadSerializerHolder.install(secondOwner, second);
+
+    assertSame(second, PayloadSerializerHolder.get());
+  }
+
+  @Test
+  void legacySet_isAnonymousAndReplaceableByToken() {
+    PayloadSerializer replacement = new RecordingSerializer();
+    PayloadSerializerHolder.set(new RecordingSerializer());
+
+    PayloadSerializerHolder.install(new Object(), replacement);
+
+    assertSame(replacement, PayloadSerializerHolder.get());
   }
 
   @Test

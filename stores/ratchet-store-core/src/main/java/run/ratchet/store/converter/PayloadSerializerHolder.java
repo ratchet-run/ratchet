@@ -18,6 +18,7 @@ package run.ratchet.store.converter;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
+import java.util.Objects;
 import run.ratchet.spi.PayloadSerializer;
 
 /**
@@ -40,6 +41,8 @@ public final class PayloadSerializerHolder {
 
   private static volatile PayloadSerializer delegate;
 
+  private static Object ownerToken;
+
   private static volatile Jsonb fallbackJsonb;
 
   private PayloadSerializerHolder() {}
@@ -50,8 +53,46 @@ public final class PayloadSerializerHolder {
    *
    * @param serializer the serializer to install; MAY be {@code null} to revert to the fallback
    */
-  public static void set(PayloadSerializer serializer) {
+  public static synchronized void set(PayloadSerializer serializer) {
+    ownerToken = null;
     delegate = serializer;
+  }
+
+  /**
+   * Installs the framework-managed serializer for a specific runtime owner.
+   *
+   * <p>Ownership is compared by identity. Re-installing with the same token is idempotent and may
+   * replace the serializer. An installation made through {@link #set(PayloadSerializer)} is
+   * anonymous and may be replaced by any token.
+   *
+   * @param ownerToken the non-null identity token for the installing runtime
+   * @param serializer the serializer to install
+   * @throws IllegalStateException if another token currently owns the holder
+   */
+  public static synchronized void install(Object ownerToken, PayloadSerializer serializer) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (PayloadSerializerHolder.ownerToken != null
+        && PayloadSerializerHolder.ownerToken != ownerToken) {
+      throw new IllegalStateException(
+          "Payload serializer is already installed by a different owner");
+    }
+    PayloadSerializerHolder.ownerToken = ownerToken;
+    delegate = serializer;
+  }
+
+  /**
+   * Clears the serializer only when {@code ownerToken} is the token that installed it.
+   *
+   * <p>A different token, or an anonymously installed serializer, is left unchanged.
+   *
+   * @param ownerToken the non-null identity token for the uninstalling runtime
+   */
+  public static synchronized void uninstall(Object ownerToken) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (PayloadSerializerHolder.ownerToken == ownerToken) {
+      delegate = null;
+      PayloadSerializerHolder.ownerToken = null;
+    }
   }
 
   /**

@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.util;
 
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jboss.logging.Logger;
@@ -50,17 +51,56 @@ public final class EncryptionIntegrity {
   private static final AtomicLong flaggedButUnframed = new AtomicLong();
   private static volatile long lastWarnAtMs;
   private static volatile Listener listener;
+  private static Object ownerToken;
 
   private EncryptionIntegrity() {}
 
   /** Installs the metrics bridge. Called at container startup; replaced or cleared on shutdown. */
-  public static void setListener(Listener bridge) {
+  public static synchronized void setListener(Listener bridge) {
+    ownerToken = null;
     listener = bridge;
   }
 
   /** Removes the metrics bridge. Called at container shutdown and between tests. */
-  public static void clearListener() {
+  public static synchronized void clearListener() {
+    ownerToken = null;
     listener = null;
+  }
+
+  /**
+   * Installs the metrics bridge for a specific runtime owner.
+   *
+   * <p>Ownership is compared by identity. Re-installing with the same token is idempotent and may
+   * replace the listener. An installation made through {@link #setListener(Listener)} is anonymous
+   * and may be replaced by any token.
+   *
+   * @param ownerToken the non-null identity token for the installing runtime
+   * @param bridge the metrics bridge to install
+   * @throws IllegalStateException if another token currently owns the listener seam
+   */
+  public static synchronized void install(Object ownerToken, Listener bridge) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (EncryptionIntegrity.ownerToken != null && EncryptionIntegrity.ownerToken != ownerToken) {
+      throw new IllegalStateException(
+          "Encryption-integrity listener is already installed by a different owner");
+    }
+    EncryptionIntegrity.ownerToken = ownerToken;
+    listener = bridge;
+  }
+
+  /**
+   * Clears the listener only when {@code ownerToken} is the token that installed it.
+   *
+   * <p>A different token, or an anonymously installed listener, is left unchanged.
+   *
+   * @param ownerToken the non-null identity token for the uninstalling runtime
+   */
+  public static synchronized void uninstall(Object ownerToken) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (EncryptionIntegrity.ownerToken == ownerToken) {
+      listener = null;
+      EncryptionIntegrity.ownerToken = null;
+    }
   }
 
   /** Total flagged-but-unframed reads observed since the process started. */

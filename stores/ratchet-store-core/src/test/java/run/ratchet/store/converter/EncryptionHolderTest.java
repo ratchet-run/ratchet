@@ -58,6 +58,103 @@ class EncryptionHolderTest {
   }
 
   @Test
+  void tokenInstall_rejectsDifferentOwnerAndPreservesState() {
+    Object firstOwner = new Object();
+    PayloadEncryption firstEngine = new StubEngine("alg-1");
+    KeyProvider firstProvider = new StubKeyProvider();
+    EncryptionHolder.install(firstOwner, List.of(firstEngine), "alg-1", firstProvider, true);
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            EncryptionHolder.install(
+                new Object(),
+                List.of(new StubEngine("alg-2")),
+                "alg-2",
+                new StubKeyProvider(),
+                false));
+    assertSame(firstEngine, EncryptionHolder.writeEngine());
+    assertSame(firstProvider, EncryptionHolder.keyProvider());
+    assertTrue(EncryptionHolder.isGloballyEnabled());
+  }
+
+  @Test
+  void tokenInstall_sameOwnerMayReplaceState() {
+    Object owner = new Object();
+    PayloadEncryption replacement = new StubEngine("alg-2");
+    KeyProvider replacementProvider = new StubKeyProvider();
+    EncryptionHolder.install(
+        owner, List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
+
+    EncryptionHolder.install(owner, List.of(replacement), "alg-2", replacementProvider, false);
+
+    assertSame(replacement, EncryptionHolder.writeEngine());
+    assertSame(replacementProvider, EncryptionHolder.keyProvider());
+    assertFalse(EncryptionHolder.isGloballyEnabled());
+  }
+
+  @Test
+  void tokenUninstall_onlyClearsMatchingOwner() {
+    Object owner = new Object();
+    PayloadEncryption engine = new StubEngine("alg-1");
+    EncryptionHolder.install(owner, List.of(engine), "alg-1", new StubKeyProvider(), true);
+
+    EncryptionHolder.uninstall(new Object());
+    assertSame(engine, EncryptionHolder.writeEngine());
+
+    EncryptionHolder.uninstall(owner);
+    assertFalse(EncryptionHolder.isEnabled());
+  }
+
+  @Test
+  void tokenInstall_allowsSequentialOwners() {
+    Object firstOwner = new Object();
+    Object secondOwner = new Object();
+    PayloadEncryption secondEngine = new StubEngine("alg-2");
+
+    EncryptionHolder.install(
+        firstOwner, List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
+    EncryptionHolder.uninstall(firstOwner);
+    EncryptionHolder.install(
+        secondOwner, List.of(secondEngine), "alg-2", new StubKeyProvider(), false);
+
+    assertSame(secondEngine, EncryptionHolder.writeEngine());
+  }
+
+  @Test
+  void legacyInstall_isAnonymousAndReplaceableByToken() {
+    PayloadEncryption replacement = new StubEngine("alg-2");
+    EncryptionHolder.install(
+        List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
+
+    EncryptionHolder.install(
+        new Object(), List.of(replacement), "alg-2", new StubKeyProvider(), false);
+
+    assertSame(replacement, EncryptionHolder.writeEngine());
+  }
+
+  @Test
+  void tokenDisable_reservesTheSeamUntilItsOwnerUninstalls() {
+    Object owner = new Object();
+    EncryptionHolder.disable(owner);
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            EncryptionHolder.install(
+                new Object(),
+                List.of(new StubEngine("alg-1")),
+                "alg-1",
+                new StubKeyProvider(),
+                true));
+
+    EncryptionHolder.uninstall(owner);
+    EncryptionHolder.install(
+        new Object(), List.of(new StubEngine("alg-1")), "alg-1", new StubKeyProvider(), true);
+    assertTrue(EncryptionHolder.isEnabled());
+  }
+
+  @Test
   void install_multipleEngines_dispatchesReadByAlgorithmId() {
     PayloadEncryption v1 = new StubEngine("alg-1");
     PayloadEncryption v2 = new StubEngine("alg-2");

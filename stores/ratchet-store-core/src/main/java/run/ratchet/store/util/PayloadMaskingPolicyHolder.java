@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.util;
 
+import java.util.Objects;
 import run.ratchet.spi.PayloadMaskingPolicy;
 
 /**
@@ -34,6 +35,8 @@ public final class PayloadMaskingPolicyHolder {
 
   private static volatile PayloadMaskingPolicy delegate;
 
+  private static Object ownerToken;
+
   private PayloadMaskingPolicyHolder() {}
 
   /**
@@ -42,8 +45,46 @@ public final class PayloadMaskingPolicyHolder {
    *
    * @param policy the policy to install; MAY be {@code null} to revert to the built-in default
    */
-  public static void set(PayloadMaskingPolicy policy) {
+  public static synchronized void set(PayloadMaskingPolicy policy) {
+    ownerToken = null;
     delegate = policy;
+  }
+
+  /**
+   * Installs the framework-managed policy for a specific runtime owner.
+   *
+   * <p>Ownership is compared by identity. Re-installing with the same token is idempotent and may
+   * replace the policy. An installation made through {@link #set(PayloadMaskingPolicy)} is
+   * anonymous and may be replaced by any token.
+   *
+   * @param ownerToken the non-null identity token for the installing runtime
+   * @param policy the policy to install
+   * @throws IllegalStateException if another token currently owns the holder
+   */
+  public static synchronized void install(Object ownerToken, PayloadMaskingPolicy policy) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (PayloadMaskingPolicyHolder.ownerToken != null
+        && PayloadMaskingPolicyHolder.ownerToken != ownerToken) {
+      throw new IllegalStateException(
+          "Payload masking policy is already installed by a different owner");
+    }
+    PayloadMaskingPolicyHolder.ownerToken = ownerToken;
+    delegate = policy;
+  }
+
+  /**
+   * Clears the policy only when {@code ownerToken} is the token that installed it.
+   *
+   * <p>A different token, or an anonymously installed policy, is left unchanged.
+   *
+   * @param ownerToken the non-null identity token for the uninstalling runtime
+   */
+  public static synchronized void uninstall(Object ownerToken) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (PayloadMaskingPolicyHolder.ownerToken == ownerToken) {
+      delegate = null;
+      PayloadMaskingPolicyHolder.ownerToken = null;
+    }
   }
 
   /**

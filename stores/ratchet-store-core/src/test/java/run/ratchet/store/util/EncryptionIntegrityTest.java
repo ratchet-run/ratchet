@@ -16,6 +16,7 @@
 package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -57,6 +58,71 @@ class EncryptionIntegrityTest {
 
     assertEquals(before + 1, EncryptionIntegrity.flaggedButUnframedCount());
     assertTrue(seen.isEmpty());
+  }
+
+  @Test
+  void tokenInstall_rejectsDifferentOwnerAndPreservesListener() {
+    Object owner = new Object();
+    List<String> seen = new ArrayList<>();
+    EncryptionIntegrity.install(owner, (jobId, surface) -> seen.add("first"));
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> EncryptionIntegrity.install(new Object(), (jobId, surface) -> seen.add("second")));
+    EncryptionIntegrity.flaggedButUnframed(JOB, ProtectedSurface.RESULT);
+
+    assertEquals(List.of("first"), seen);
+  }
+
+  @Test
+  void tokenInstall_sameOwnerMayReplaceListener() {
+    Object owner = new Object();
+    List<String> seen = new ArrayList<>();
+    EncryptionIntegrity.install(owner, (jobId, surface) -> seen.add("first"));
+
+    EncryptionIntegrity.install(owner, (jobId, surface) -> seen.add("second"));
+    EncryptionIntegrity.flaggedButUnframed(JOB, ProtectedSurface.RESULT);
+
+    assertEquals(List.of("second"), seen);
+  }
+
+  @Test
+  void tokenUninstall_onlyClearsMatchingOwner() {
+    Object owner = new Object();
+    List<ProtectedSurface> seen = new ArrayList<>();
+    EncryptionIntegrity.install(owner, (jobId, surface) -> seen.add(surface));
+
+    EncryptionIntegrity.uninstall(new Object());
+    EncryptionIntegrity.flaggedButUnframed(JOB, ProtectedSurface.RESULT);
+    EncryptionIntegrity.uninstall(owner);
+    EncryptionIntegrity.flaggedButUnframed(JOB, ProtectedSurface.PAYLOAD_ARGS);
+
+    assertEquals(List.of(ProtectedSurface.RESULT), seen);
+  }
+
+  @Test
+  void tokenInstall_allowsSequentialOwners() {
+    Object firstOwner = new Object();
+    Object secondOwner = new Object();
+    List<String> seen = new ArrayList<>();
+
+    EncryptionIntegrity.install(firstOwner, (jobId, surface) -> seen.add("first"));
+    EncryptionIntegrity.uninstall(firstOwner);
+    EncryptionIntegrity.install(secondOwner, (jobId, surface) -> seen.add("second"));
+    EncryptionIntegrity.flaggedButUnframed(JOB, ProtectedSurface.RESULT);
+
+    assertEquals(List.of("second"), seen);
+  }
+
+  @Test
+  void legacySetListener_isAnonymousAndReplaceableByToken() {
+    List<String> seen = new ArrayList<>();
+    EncryptionIntegrity.setListener((jobId, surface) -> seen.add("legacy"));
+
+    EncryptionIntegrity.install(new Object(), (jobId, surface) -> seen.add("owned"));
+    EncryptionIntegrity.flaggedButUnframed(JOB, ProtectedSurface.RESULT);
+
+    assertEquals(List.of("owned"), seen);
   }
 
   @Test

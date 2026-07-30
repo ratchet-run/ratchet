@@ -17,6 +17,8 @@ package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Locale;
@@ -66,6 +68,65 @@ class PayloadMaskingPolicyTest {
 
     assertTrue(PayloadMaskingPolicyHolder.get().isSensitiveField("password"));
     assertFalse(PayloadMaskingPolicyHolder.get().isSensitiveField("username"));
+  }
+
+  @Test
+  void holderTokenInstall_rejectsDifferentOwnerAndPreservesPolicy() {
+    Object owner = new Object();
+    PayloadMaskingPolicy first = fieldName -> true;
+    PayloadMaskingPolicyHolder.install(owner, first);
+
+    assertThrows(
+        IllegalStateException.class,
+        () -> PayloadMaskingPolicyHolder.install(new Object(), fieldName -> false));
+    assertSame(first, PayloadMaskingPolicyHolder.get());
+  }
+
+  @Test
+  void holderTokenInstall_sameOwnerMayReplacePolicy() {
+    Object owner = new Object();
+    PayloadMaskingPolicy replacement = fieldName -> false;
+    PayloadMaskingPolicyHolder.install(owner, fieldName -> true);
+
+    PayloadMaskingPolicyHolder.install(owner, replacement);
+
+    assertSame(replacement, PayloadMaskingPolicyHolder.get());
+  }
+
+  @Test
+  void holderTokenUninstall_onlyClearsMatchingOwner() {
+    Object owner = new Object();
+    PayloadMaskingPolicy policy = fieldName -> false;
+    PayloadMaskingPolicyHolder.install(owner, policy);
+
+    PayloadMaskingPolicyHolder.uninstall(new Object());
+    assertSame(policy, PayloadMaskingPolicyHolder.get());
+
+    PayloadMaskingPolicyHolder.uninstall(owner);
+    assertTrue(PayloadMaskingPolicyHolder.get().isSensitiveField("password"));
+  }
+
+  @Test
+  void holderTokenInstall_allowsSequentialOwners() {
+    Object firstOwner = new Object();
+    Object secondOwner = new Object();
+    PayloadMaskingPolicy replacement = fieldName -> false;
+
+    PayloadMaskingPolicyHolder.install(firstOwner, fieldName -> true);
+    PayloadMaskingPolicyHolder.uninstall(firstOwner);
+    PayloadMaskingPolicyHolder.install(secondOwner, replacement);
+
+    assertSame(replacement, PayloadMaskingPolicyHolder.get());
+  }
+
+  @Test
+  void holderLegacySet_isAnonymousAndReplaceableByToken() {
+    PayloadMaskingPolicy replacement = fieldName -> false;
+    PayloadMaskingPolicyHolder.set(fieldName -> true);
+
+    PayloadMaskingPolicyHolder.install(new Object(), replacement);
+
+    assertSame(replacement, PayloadMaskingPolicyHolder.get());
   }
 
   @Test

@@ -18,6 +18,7 @@ package run.ratchet.store.converter;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import run.ratchet.api.exception.EncryptionConfigurationException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.spi.KeyProvider;
@@ -57,6 +58,7 @@ public final class EncryptionHolder {
   private static final State DISABLED = new State(Map.of(), null, null, false, false);
 
   private static volatile State state = DISABLED;
+  private static Object ownerToken;
 
   private EncryptionHolder() {}
 
@@ -74,7 +76,46 @@ public final class EncryptionHolder {
    *     {@code null}, an engine reports a blank algorithm id, two engines report the same id, or
    *     {@code writeAlgorithmId} names no installed engine
    */
-  public static void install(
+  public static synchronized void install(
+      Collection<PayloadEncryption> engines,
+      String writeAlgorithmId,
+      KeyProvider keyProvider,
+      boolean globalEnabled) {
+    state = createState(engines, writeAlgorithmId, keyProvider, globalEnabled);
+    ownerToken = null;
+  }
+
+  /**
+   * Installs the active engines and key provider for a specific runtime owner.
+   *
+   * <p>Ownership is compared by identity. Re-installing with the same token is idempotent and may
+   * replace the encryption state. An installation made through {@link #install(Collection, String,
+   * KeyProvider, boolean)} or {@link #disable()} is anonymous and may be replaced by any token.
+   *
+   * @param ownerToken the non-null identity token for the installing runtime
+   * @param engines the available encryption engines; must be non-empty
+   * @param writeAlgorithmId the algorithm id of the engine used for new writes
+   * @param keyProvider the key provider; must not be {@code null}
+   * @param globalEnabled whether the deployment-wide encryption switch is on
+   * @throws IllegalStateException if another token currently owns the holder
+   * @throws EncryptionConfigurationException if the encryption wiring is invalid
+   */
+  public static synchronized void install(
+      Object ownerToken,
+      Collection<PayloadEncryption> engines,
+      String writeAlgorithmId,
+      KeyProvider keyProvider,
+      boolean globalEnabled) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (EncryptionHolder.ownerToken != null && EncryptionHolder.ownerToken != ownerToken) {
+      throw new IllegalStateException("Encryption is already installed by a different owner");
+    }
+    State installed = createState(engines, writeAlgorithmId, keyProvider, globalEnabled);
+    EncryptionHolder.ownerToken = ownerToken;
+    state = installed;
+  }
+
+  private static State createState(
       Collection<PayloadEncryption> engines,
       String writeAlgorithmId,
       KeyProvider keyProvider,
@@ -104,12 +145,46 @@ public final class EncryptionHolder {
       throw new EncryptionConfigurationException(
           "Configured write algorithm is not installed: " + writeAlgorithmId);
     }
-    state = new State(Map.copyOf(registry), write, keyProvider, true, globalEnabled);
+    return new State(Map.copyOf(registry), write, keyProvider, true, globalEnabled);
   }
 
   /** Reverts to the disabled state. Called at container shutdown and between tests. */
-  public static void disable() {
+  public static synchronized void disable() {
+    ownerToken = null;
     state = DISABLED;
+  }
+
+  /**
+   * Installs the disabled state for a specific runtime owner.
+   *
+   * <p>This allows a runtime that deliberately resolved encryption as disabled to reserve the seam
+   * against a concurrently active runtime. Repeating the call with the same token is idempotent.
+   *
+   * @param ownerToken the non-null identity token for the installing runtime
+   * @throws IllegalStateException if another token currently owns the holder
+   */
+  public static synchronized void disable(Object ownerToken) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (EncryptionHolder.ownerToken != null && EncryptionHolder.ownerToken != ownerToken) {
+      throw new IllegalStateException("Encryption is already installed by a different owner");
+    }
+    EncryptionHolder.ownerToken = ownerToken;
+    state = DISABLED;
+  }
+
+  /**
+   * Clears the encryption state only when {@code ownerToken} is the token that installed it.
+   *
+   * <p>A different token, or an anonymously installed state, is left unchanged.
+   *
+   * @param ownerToken the non-null identity token for the uninstalling runtime
+   */
+  public static synchronized void uninstall(Object ownerToken) {
+    Objects.requireNonNull(ownerToken, "ownerToken");
+    if (EncryptionHolder.ownerToken == ownerToken) {
+      state = DISABLED;
+      EncryptionHolder.ownerToken = null;
+    }
   }
 
   /**
