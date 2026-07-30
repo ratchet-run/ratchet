@@ -311,13 +311,13 @@ jobs:
         # 60-second gateway timeout whenever the service is slow; batches of
         # 50 finish well inside the window.
         run: |
-          for attempt in 1 2; do
+          for attempt in 1 2 3 4 5 6; do
             mvn org.eclipse.dash:license-tool-plugin:1.1.0:license-check \
-              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=50 && exit 0
+              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=25 -Ddash.timeout=120 && exit 0
             echo "Attempt $attempt failed; sleeping 60s before retry..."
             sleep 60
           done
-          echo "Eclipse Dash license check failed after 2 attempts."
+          echo "Eclipse Dash license check failed after 6 attempts."
           exit 1
 
   # Deterministic copyleft gate, the offline companion to Eclipse Dash. Installs
