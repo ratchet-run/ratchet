@@ -285,26 +285,29 @@ public class WorkflowConditionEvaluator {
           Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
       Method method = findMethod(cls, payload);
       payload = ArgumentMaterializer.materialize(payload, payloadSerializer, classPolicy);
-      Object target;
       Object[] args;
+      Object result;
       if (payload.isStatic()) {
-        target = null;
         if (payload.args().isEmpty()) {
           // Static method reference: SAM parameter maps to the method's first parameter
           args = payload.parameterTypes().length > 0 ? new Object[] {contextArg} : new Object[0];
         } else {
           args = fillArgs(payload.args(), contextArg);
         }
+        result = method.invoke(null, ArgumentCoercion.coerce(method.getParameterTypes(), args));
       } else if (payload.args().isEmpty()) {
         // Instance method reference where the SAM parameter is the receiver (e.g. Result::isOk)
-        target = contextArg;
         args = new Object[0];
+        result =
+            method.invoke(contextArg, ArgumentCoercion.coerce(method.getParameterTypes(), args));
       } else {
-        target = beanResolver.resolve(cls);
         args = fillArgs(payload.args(), contextArg);
+        try (BeanResolver.ManagedBeanHandle<?> handle = beanResolver.resolveManaged(cls)) {
+          result =
+              method.invoke(
+                  handle.get(), ArgumentCoercion.coerce(method.getParameterTypes(), args));
+        }
       }
-      Object result =
-          method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args));
       return Boolean.TRUE.equals(result);
     } catch (InvocationTargetException e) {
       Throwable cause = e.getCause() != null ? e.getCause() : e;

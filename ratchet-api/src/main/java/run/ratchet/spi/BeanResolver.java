@@ -24,6 +24,26 @@ import run.ratchet.api.Incubating;
 @Incubating
 @FunctionalInterface
 public interface BeanResolver {
+
+  /**
+   * A container-managed bean resolution whose lifecycle ends when the handle is closed.
+   *
+   * <p>{@link #close()} releases the resolved instance when the container created it for this
+   * resolution, such as a CDI {@code @Dependent} bean or a Spring prototype bean. Closing a handle
+   * for a shared-scope bean is a no-op. Handles are single-use and are not thread-safe.
+   *
+   * @param <T> resolved bean type
+   */
+  interface ManagedBeanHandle<T> extends AutoCloseable {
+
+    /** Returns the resolved bean instance. */
+    T get();
+
+    /** Releases this resolution without throwing a checked exception. */
+    @Override
+    void close();
+  }
+
   /**
    * Resolves a bean instance for the requested type.
    *
@@ -34,4 +54,30 @@ public interface BeanResolver {
    *     eligible, or if the implementation cannot safely manage the resolved bean lifecycle
    */
   <T> T resolve(Class<T> type);
+
+  /**
+   * Resolves a bean instance together with its container-managed lifecycle.
+   *
+   * <p>The default preserves compatibility for existing resolvers by delegating to {@link
+   * #resolve(Class)} and returning a handle whose {@link ManagedBeanHandle#close()} operation is a
+   * no-op.
+   *
+   * @param type concrete or assignable bean type to resolve; must not be {@code null}
+   * @param <T> resolved bean type
+   * @return managed handle for the resolved bean; never {@code null}
+   */
+  default <T> ManagedBeanHandle<T> resolveManaged(Class<T> type) {
+    T bean = resolve(type);
+    return new ManagedBeanHandle<>() {
+      @Override
+      public T get() {
+        return bean;
+      }
+
+      @Override
+      public void close() {
+        // Existing resolvers have no per-resolution lifecycle to release.
+      }
+    };
+  }
 }

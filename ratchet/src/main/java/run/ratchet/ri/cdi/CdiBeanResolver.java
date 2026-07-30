@@ -24,8 +24,8 @@ import run.ratchet.spi.BeanResolver;
 
 /**
  * Resolves CDI beans by type via {@link Instance}. Throws {@link IllegalStateException} if no bean
- * or multiple beans are found, and refuses {@link Dependent}-scoped beans whose lifecycle it cannot
- * manage.
+ * or multiple beans are found. Direct resolution retains the legacy rejection of {@link
+ * Dependent}-scoped beans; managed resolution destroys dependent handles when they close.
  */
 @ApplicationScoped
 public class CdiBeanResolver implements BeanResolver {
@@ -43,6 +43,38 @@ public class CdiBeanResolver implements BeanResolver {
 
   @Override
   public <T> T resolve(Class<T> type) {
+    Instance<T> instance = selectResolvable(type);
+    Instance.Handle<T> handle = instance.getHandle();
+    if (handle.getBean().getScope().equals(Dependent.class)) {
+      throw new IllegalStateException(
+          "Cannot resolve @Dependent-scoped bean for type: "
+              + type.getName()
+              + ". BeanResolver does not manage the lifecycle of @Dependent beans."
+              + " Inject the bean directly or use a wider scope.");
+    }
+    return handle.get();
+  }
+
+  @Override
+  public <T> ManagedBeanHandle<T> resolveManaged(Class<T> type) {
+    Instance.Handle<T> handle = selectResolvable(type).getHandle();
+    boolean dependent = handle.getBean().getScope().equals(Dependent.class);
+    return new ManagedBeanHandle<>() {
+      @Override
+      public T get() {
+        return handle.get();
+      }
+
+      @Override
+      public void close() {
+        if (dependent) {
+          handle.destroy();
+        }
+      }
+    };
+  }
+
+  private <T> Instance<T> selectResolvable(Class<T> type) {
     Instance<T> instance = allBeans.select(type);
     if (instance.isUnsatisfied()) {
       throw new IllegalStateException("No CDI bean found for type: " + type.getName());
@@ -53,14 +85,6 @@ public class CdiBeanResolver implements BeanResolver {
               + type.getName()
               + ". Use a qualifier to disambiguate.");
     }
-    Instance.Handle<T> handle = instance.getHandle();
-    if (handle.getBean().getScope().equals(Dependent.class)) {
-      throw new IllegalStateException(
-          "Cannot resolve @Dependent-scoped bean for type: "
-              + type.getName()
-              + ". BeanResolver does not manage the lifecycle of @Dependent beans."
-              + " Inject the bean directly or use a wider scope.");
-    }
-    return handle.get();
+    return instance;
   }
 }

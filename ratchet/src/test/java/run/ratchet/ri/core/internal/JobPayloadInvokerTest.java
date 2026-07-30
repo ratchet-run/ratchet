@@ -30,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.BeanResolver.ManagedBeanHandle;
 import run.ratchet.store.entity.JobPayload;
 
 class JobPayloadInvokerTest {
@@ -86,14 +87,32 @@ class JobPayloadInvokerTest {
   void instanceInvocationResolvesTheBeanAndCoercesArguments() throws Exception {
     BeanResolver beanResolver = mock(BeanResolver.class);
     InvocationTarget target = new InvocationTarget();
-    when(beanResolver.resolve(InvocationTarget.class)).thenReturn(target);
+    ManagedBeanHandle<InvocationTarget> handle =
+        managedBean(beanResolver, InvocationTarget.class, target);
     JobPayloadInvoker invoker = new JobPayloadInvoker(beanResolver, name -> true);
     JobPayload payload =
         payload(
             InvocationTarget.class, "instanceValue", "(J)Ljava/lang/String;", false, List.of(7));
 
     assertEquals("instance-7", invoker.invoke(payload));
-    verify(beanResolver).resolve(InvocationTarget.class);
+    verify(beanResolver).resolveManaged(InvocationTarget.class);
+    verify(handle).close();
+  }
+
+  @Test
+  void instanceInvocationClosesManagedBeanAfterTargetFailure() {
+    BeanResolver beanResolver = mock(BeanResolver.class);
+    InvocationTarget target = new InvocationTarget();
+    ManagedBeanHandle<InvocationTarget> handle =
+        managedBean(beanResolver, InvocationTarget.class, target);
+    JobPayloadInvoker invoker = new JobPayloadInvoker(beanResolver, name -> true);
+    JobPayload payload = payload(InvocationTarget.class, "failInstance", "()V", false, List.of());
+
+    IllegalStateException failure =
+        assertThrows(IllegalStateException.class, () -> invoker.invoke(payload));
+
+    assertEquals("instance target failure", failure.getMessage());
+    verify(handle).close();
   }
 
   @Test
@@ -147,6 +166,15 @@ class JobPayloadInvokerTest {
     return mock(BeanResolver.class);
   }
 
+  @SuppressWarnings("unchecked")
+  private static <T> ManagedBeanHandle<T> managedBean(
+      BeanResolver resolver, Class<T> type, T bean) {
+    ManagedBeanHandle<T> handle = mock(ManagedBeanHandle.class);
+    when(resolver.resolveManaged(type)).thenReturn(handle);
+    when(handle.get()).thenReturn(bean);
+    return handle;
+  }
+
   private static byte[] classBytes(Class<?> type) throws IOException {
     String resource = "/" + type.getName().replace('.', '/') + ".class";
     try (InputStream input = type.getResourceAsStream(resource)) {
@@ -170,6 +198,10 @@ class JobPayloadInvokerTest {
 
     public String instanceValue(long value) {
       return "instance-" + value;
+    }
+
+    public void failInstance() {
+      throw new IllegalStateException("instance target failure");
     }
 
     @SuppressWarnings("unused")

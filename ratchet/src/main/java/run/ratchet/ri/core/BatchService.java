@@ -319,8 +319,9 @@ public class BatchService {
       return;
     }
 
-    Object instance = beanResolver.resolve(cls);
-    method.invoke(instance, ctx);
+    try (BeanResolver.ManagedBeanHandle<?> handle = beanResolver.resolveManaged(cls)) {
+      method.invoke(handle.get(), ctx);
+    }
   }
 
   private Class<?> loadProgressHookClass(String targetName) {

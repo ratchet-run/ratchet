@@ -19,6 +19,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.context.ApplicationScoped;
@@ -51,6 +53,37 @@ class CdiBeanResolverTest {
     CdiBeanResolver resolver = new CdiBeanResolver(allBeans);
 
     assertSame(bean, resolver.resolve(ApplicationBean.class));
+  }
+
+  @Test
+  void resolveManaged_dependentScopedBean_destroysHandleOnClose() {
+    Instance<Object> allBeans = mock(Instance.class);
+    DefaultScopedBean bean = new DefaultScopedBean();
+    Instance<DefaultScopedBean> selected = selected(DefaultScopedBean.class, Dependent.class, bean);
+    when(allBeans.select(DefaultScopedBean.class)).thenReturn(selected);
+    CdiBeanResolver resolver = new CdiBeanResolver(allBeans);
+
+    try (var handle = resolver.resolveManaged(DefaultScopedBean.class)) {
+      assertSame(bean, handle.get());
+    }
+
+    verify(selected.getHandle()).destroy();
+  }
+
+  @Test
+  void resolveManaged_applicationScopedBean_leavesSharedHandleAlive() {
+    Instance<Object> allBeans = mock(Instance.class);
+    ApplicationBean bean = new ApplicationBean();
+    Instance<ApplicationBean> selected =
+        selected(ApplicationBean.class, ApplicationScoped.class, bean);
+    when(allBeans.select(ApplicationBean.class)).thenReturn(selected);
+    CdiBeanResolver resolver = new CdiBeanResolver(allBeans);
+
+    try (var handle = resolver.resolveManaged(ApplicationBean.class)) {
+      assertSame(bean, handle.get());
+    }
+
+    verify(selected.getHandle(), never()).destroy();
   }
 
   private static <T> Instance<T> selected(

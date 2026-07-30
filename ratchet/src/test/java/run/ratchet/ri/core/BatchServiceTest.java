@@ -22,6 +22,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -43,6 +44,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
@@ -62,6 +64,7 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -113,6 +116,43 @@ class BatchServiceTest {
 
     assertFalse(Modifier.isStatic(hookCache.getModifiers()));
     assertFalse(Modifier.isStatic(classCache.getModifiers()));
+  }
+
+  @Test
+  void instanceProgressHookClosesManagedBeanAfterSuccess() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+    ProgressHookTarget target = new ProgressHookTarget();
+    BeanResolver.ManagedBeanHandle<ProgressHookTarget> handle = managedProgressHook(target);
+    JobPayload hook = progressHook("record");
+    when(classPolicy.isAllowed(ProgressHookTarget.class.getName())).thenReturn(true);
+    when(batchStore.incrementCompletedAtomic(parentId))
+        .thenReturn(new BatchProgress(parentId, 3, 1, 0, hook));
+
+    batchService.markChildSucceeded(child);
+
+    assertEquals(parentId, target.context.batchId());
+    assertEquals(3, target.context.totalItems());
+    assertEquals(1, target.context.completedItems());
+    verify(handle).close();
+  }
+
+  @Test
+  void instanceProgressHookClosesManagedBeanAfterFailure() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+    ProgressHookTarget target = new ProgressHookTarget();
+    BeanResolver.ManagedBeanHandle<ProgressHookTarget> handle = managedProgressHook(target);
+    JobPayload hook = progressHook("fail");
+    when(classPolicy.isAllowed(ProgressHookTarget.class.getName())).thenReturn(true);
+    when(batchStore.incrementCompletedAtomic(parentId))
+        .thenReturn(new BatchProgress(parentId, 3, 1, 0, hook));
+
+    batchService.markChildSucceeded(child);
+
+    verify(handle).close();
   }
 
   @Test
@@ -534,6 +574,25 @@ class BatchServiceTest {
     return batch;
   }
 
+  @SuppressWarnings("unchecked")
+  private BeanResolver.ManagedBeanHandle<ProgressHookTarget> managedProgressHook(
+      ProgressHookTarget target) {
+    BeanResolver.ManagedBeanHandle<ProgressHookTarget> handle =
+        mock(BeanResolver.ManagedBeanHandle.class);
+    when(beanResolver.resolveManaged(ProgressHookTarget.class)).thenReturn(handle);
+    when(handle.get()).thenReturn(target);
+    return handle;
+  }
+
+  private static JobPayload progressHook(String method) {
+    return new JobPayload(
+        ProgressHookTarget.class.getName(),
+        method,
+        "(Lrun/ratchet/api/BatchContext;)V",
+        false,
+        List.of());
+  }
+
   private static JobEntity parent(UUID id) {
     JobEntity parent = new JobEntity();
     parent.setId(id);
@@ -541,5 +600,17 @@ class BatchServiceTest {
     parent.setJobType(JobExecutionType.BATCH_PARENT);
     parent.setPriority(JobPriority.NORMAL);
     return parent;
+  }
+
+  public static final class ProgressHookTarget {
+    private BatchContext context;
+
+    public void record(BatchContext context) {
+      this.context = context;
+    }
+
+    public void fail(BatchContext context) {
+      throw new IllegalStateException("progress hook failure");
+    }
   }
 }

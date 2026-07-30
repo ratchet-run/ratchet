@@ -20,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.Serializable;
@@ -99,6 +101,10 @@ class WorkflowConditionEvaluatorTest {
   public static final class BeanCondition {
     public boolean hasExpectedFailureCount(BatchContext ctx) {
       return ctx.failedItems() == 2;
+    }
+
+    public boolean fail(BatchContext ctx) {
+      throw new IllegalStateException("managed predicate failure");
     }
   }
 
@@ -775,7 +781,7 @@ class WorkflowConditionEvaluatorTest {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 8, 2)));
     BeanCondition bean = new BeanCondition();
-    when(beanResolver.resolve(BeanCondition.class)).thenReturn(bean);
+    BeanResolver.ManagedBeanHandle<BeanCondition> handle = managedBean(BeanCondition.class, bean);
     String expression =
         payloadSerializer.serialize(
             new JobPayload(
@@ -789,6 +795,29 @@ class WorkflowConditionEvaluatorTest {
         evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.BATCH_CUSTOM, expression),
             parent));
+    verify(handle).close();
+  }
+
+  @Test
+  void batchCustom_managedBeanReceiverClosesHandleAfterPredicateFailure() {
+    JobEntity parent = batchParent(JobStatus.SUCCEEDED);
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 8, 2)));
+    BeanCondition bean = new BeanCondition();
+    BeanResolver.ManagedBeanHandle<BeanCondition> handle = managedBean(BeanCondition.class, bean);
+    String expression =
+        payloadSerializer.serialize(
+            new JobPayload(
+                BeanCondition.class.getName(),
+                "fail",
+                "(Lrun/ratchet/api/BatchContext;)Z",
+                false,
+                Collections.singletonList(null)));
+
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_CUSTOM, expression),
+            parent));
+    verify(handle).close();
   }
 
   @Test
@@ -809,5 +838,13 @@ class WorkflowConditionEvaluatorTest {
 
     assertFalse(
         evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_SUCCESS), parent));
+  }
+
+  @SuppressWarnings("unchecked")
+  private <T> BeanResolver.ManagedBeanHandle<T> managedBean(Class<T> type, T bean) {
+    BeanResolver.ManagedBeanHandle<T> handle = mock(BeanResolver.ManagedBeanHandle.class);
+    when(beanResolver.resolveManaged(type)).thenReturn(handle);
+    when(handle.get()).thenReturn(bean);
+    return handle;
   }
 }
