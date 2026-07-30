@@ -18,8 +18,6 @@ package run.ratchet.ri.cdi;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
-import jakarta.enterprise.context.Initialized;
-import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Default;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
@@ -48,6 +46,7 @@ import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.RuntimeInstallation;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
@@ -108,6 +107,8 @@ public class RatchetProducer {
   private final PollingStrategyProvider pollingStrategyProvider;
   private final CircuitBreakerConfigProvider circuitBreakerConfigProvider;
   private volatile Instance.Handle<PayloadSerializer> dependentPayloadSerializerHandle;
+  private volatile RuntimeInstallation payloadSerializerInstallation;
+  private volatile Object payloadSerializerOwnerToken;
 
   private volatile TransactionSynchronizationRegistry txRegistry;
 
@@ -413,32 +414,60 @@ public class RatchetProducer {
     return new DefaultNodeTagAffinityProvider(options);
   }
 
-  /**
-   * Wires the framework-resolved {@link PayloadSerializer} into {@link PayloadSerializerHolder} at
-   * application startup so JPA {@link jakarta.persistence.AttributeConverter} instances (which are
-   * instantiated by the persistence provider, not CDI) can route JSON I/O through the SPI. If a
-   * user has installed an {@code @Alternative PayloadSerializer}, this observer picks it up
-   * automatically via CDI resolution.
-   */
-  void registerPayloadSerializer(
-      @Observes @Initialized(ApplicationScoped.class) Object init,
+  public RuntimeInstallation payloadSerializerInstallation(
       Instance<PayloadSerializer> payloadSerializers) {
-    if (payloadSerializers.isResolvable()) {
-      destroyDependentPayloadSerializer();
-      Instance.Handle<PayloadSerializer> handle = payloadSerializers.getHandle();
-      PayloadSerializerHolder.set(handle.get());
-      if (handle.getBean().getScope().equals(Dependent.class)) {
-        dependentPayloadSerializerHandle = handle;
+    RuntimeInstallation current = payloadSerializerInstallation;
+    if (current != null) {
+      return current;
+    }
+    synchronized (this) {
+      if (payloadSerializerInstallation == null) {
+        payloadSerializerInstallation =
+            new RuntimeInstallation() {
+              @Override
+              public void install(Object ownerToken) {
+                if (!payloadSerializers.isResolvable()) {
+                  log.warn(
+                      "No PayloadSerializer bean resolvable at startup; JPA converters will use"
+                          + " fallback JSON-B.");
+                  PayloadSerializerHolder.install(ownerToken, null);
+                  payloadSerializerOwnerToken = ownerToken;
+                  return;
+                }
+
+                destroyDependentPayloadSerializer();
+                Instance.Handle<PayloadSerializer> handle = payloadSerializers.getHandle();
+                boolean dependent = handle.getBean().getScope().equals(Dependent.class);
+                try {
+                  PayloadSerializerHolder.install(ownerToken, handle.get());
+                } catch (RuntimeException | Error failure) {
+                  if (dependent) {
+                    destroyPayloadSerializerHandle(handle);
+                  }
+                  throw failure;
+                }
+                if (dependent) {
+                  dependentPayloadSerializerHandle = handle;
+                }
+                payloadSerializerOwnerToken = ownerToken;
+              }
+
+              @Override
+              public void uninstall(Object ownerToken) {
+                PayloadSerializerHolder.uninstall(ownerToken);
+              }
+            };
       }
-    } else {
-      log.warn(
-          "No PayloadSerializer bean resolvable at startup; JPA converters will use fallback JSON-B.");
+      return payloadSerializerInstallation;
     }
   }
 
   @PreDestroy
   void unregisterPayloadSerializer() {
-    PayloadSerializerHolder.set(null);
+    Object ownerToken = payloadSerializerOwnerToken;
+    if (ownerToken != null) {
+      PayloadSerializerHolder.uninstall(ownerToken);
+    }
     destroyDependentPayloadSerializer();
   }
 
@@ -446,11 +475,15 @@ public class RatchetProducer {
     Instance.Handle<PayloadSerializer> handle = dependentPayloadSerializerHandle;
     dependentPayloadSerializerHandle = null;
     if (handle != null) {
-      try {
-        handle.destroy();
-      } catch (RuntimeException e) {
-        log.warnf(e, "PayloadSerializer destruction failed during Ratchet shutdown");
-      }
+      destroyPayloadSerializerHandle(handle);
+    }
+  }
+
+  private void destroyPayloadSerializerHandle(Instance.Handle<PayloadSerializer> handle) {
+    try {
+      handle.destroy();
+    } catch (RuntimeException e) {
+      log.warnf(e, "PayloadSerializer destruction failed during Ratchet shutdown");
     }
   }
 

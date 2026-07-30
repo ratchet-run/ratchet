@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.cdi;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -36,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -177,6 +179,143 @@ class RecurringJobProcessorDeferredStartTest {
     verify(recurringJobStore, times(10)).findRecurringByBusinessKey("leader-gate-job");
     verify(managedScheduler, times(9))
         .schedule(any(Runnable.class), eq(500L), eq(TimeUnit.MILLISECONDS));
+  }
+
+  @Test
+  void pendingDeferredRetryBecomesNoOpAfterCancellation() throws Exception {
+    var schedulerService = mock(JobSchedulerService.class);
+    var recurringJobBuilder = mockRecurringJobBuilder();
+    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+        .thenReturn(recurringJobBuilder);
+    var processor = newProcessor(schedulerService);
+
+    var managedScheduler = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> scheduledFuture = mock(ScheduledFuture.class);
+    when(managedScheduler.schedule(any(Runnable.class), eq(500L), eq(TimeUnit.MILLISECONDS)))
+        .thenAnswer(invocation -> scheduledFuture);
+    var executorProvider = mock(ExecutorProvider.class);
+    when(executorProvider.getScheduledExecutor()).thenReturn(managedScheduler);
+    inject(processor, "executorProvider", executorProvider);
+
+    var recurringJobStore = mock(RecurringJobStore.class);
+    when(recurringJobStore.findRecurringByBusinessKey("leader-gate-job"))
+        .thenReturn(Optional.empty());
+    injectResolvableRecurringStore(processor, recurringJobStore);
+
+    processor.onRuntimeStart(new RatchetRuntimeStart());
+
+    ArgumentCaptor<Runnable> retry = ArgumentCaptor.forClass(Runnable.class);
+    verify(managedScheduler).schedule(retry.capture(), eq(500L), eq(TimeUnit.MILLISECONDS));
+
+    processor.cancelRegistration();
+    verify(scheduledFuture).cancel(false);
+    retry.getValue().run();
+
+    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(recurringJobBuilder).submit();
+    verify(recurringJobStore).findRecurringByBusinessKey("leader-gate-job");
+    verify(managedScheduler).schedule(any(Runnable.class), eq(500L), eq(TimeUnit.MILLISECONDS));
+  }
+
+  @Test
+  void cancellationWhileSchedulingCancelsTheLateFuture() throws Exception {
+    var schedulerService = mock(JobSchedulerService.class);
+    var processor = newProcessor(schedulerService);
+    var managedScheduler = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> scheduledFuture = mock(ScheduledFuture.class);
+    when(managedScheduler.schedule(any(Runnable.class), eq(500L), eq(TimeUnit.MILLISECONDS)))
+        .thenAnswer(
+            invocation -> {
+              processor.cancelRegistration();
+              return scheduledFuture;
+            });
+    var executorProvider = mock(ExecutorProvider.class);
+    when(executorProvider.getScheduledExecutor()).thenReturn(managedScheduler);
+    inject(processor, "executorProvider", executorProvider);
+
+    processor.registerFromApplicationStart();
+
+    verify(scheduledFuture).cancel(false);
+    verifyNoInteractions(schedulerService);
+  }
+
+  @Test
+  void cancellationIsIdempotent() throws Exception {
+    var schedulerService = mock(JobSchedulerService.class);
+    var processor = newProcessor(schedulerService);
+    var managedScheduler = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> scheduledFuture = mock(ScheduledFuture.class);
+    when(managedScheduler.schedule(any(Runnable.class), eq(500L), eq(TimeUnit.MILLISECONDS)))
+        .thenAnswer(invocation -> scheduledFuture);
+    var executorProvider = mock(ExecutorProvider.class);
+    when(executorProvider.getScheduledExecutor()).thenReturn(managedScheduler);
+    inject(processor, "executorProvider", executorProvider);
+
+    assertDoesNotThrow(
+        () -> {
+          processor.registerFromApplicationStart();
+          processor.cancelRegistration();
+          processor.cancelRegistration();
+        });
+
+    verify(scheduledFuture).cancel(false);
+    verifyNoInteractions(schedulerService);
+  }
+
+  @Test
+  void sameProcessorRestartUsesNewGenerationAndLeavesStaleRetryInert() throws Exception {
+    var schedulerService = mock(JobSchedulerService.class);
+    var recurringJobBuilder = mockRecurringJobBuilder();
+    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+        .thenReturn(recurringJobBuilder);
+    var processor = newProcessor(schedulerService);
+
+    var managedScheduler = mock(ScheduledExecutorService.class);
+    ScheduledFuture<?> staleFuture = mock(ScheduledFuture.class);
+    when(managedScheduler.schedule(any(Runnable.class), eq(500L), eq(TimeUnit.MILLISECONDS)))
+        .thenAnswer(invocation -> staleFuture);
+    var executorProvider = mock(ExecutorProvider.class);
+    when(executorProvider.getScheduledExecutor()).thenReturn(managedScheduler);
+    inject(processor, "executorProvider", executorProvider);
+
+    var recurringJobStore = mock(RecurringJobStore.class);
+    when(recurringJobStore.findRecurringByBusinessKey("leader-gate-job"))
+        .thenReturn(Optional.of(recurringDefinition(UUID.randomUUID(), "leader-gate-job")));
+    injectResolvableRecurringStore(processor, recurringJobStore);
+
+    processor.registerFromApplicationStart();
+
+    ArgumentCaptor<Runnable> staleRetry = ArgumentCaptor.forClass(Runnable.class);
+    verify(managedScheduler).schedule(staleRetry.capture(), eq(500L), eq(TimeUnit.MILLISECONDS));
+
+    processor.cancelRegistration();
+    processor.registerFromRuntimeStart();
+    staleRetry.getValue().run();
+
+    verify(staleFuture).cancel(false);
+    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(recurringJobBuilder).submit();
+    verify(recurringJobStore).findRecurringByBusinessKey("leader-gate-job");
+  }
+
+  @Test
+  void freshProcessorCanRegisterAfterPreviousProcessorWasCancelled() throws Exception {
+    var oldSchedulerService = mock(JobSchedulerService.class);
+    var oldProcessor = newProcessor(oldSchedulerService);
+    oldProcessor.cancelRegistration();
+
+    var freshSchedulerService = mock(JobSchedulerService.class);
+    var recurringJobBuilder = mockRecurringJobBuilder();
+    when(freshSchedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+        .thenReturn(recurringJobBuilder);
+    var freshProcessor = newProcessor(freshSchedulerService);
+
+    freshProcessor.onRuntimeStart(new RatchetRuntimeStart());
+
+    verifyNoInteractions(oldSchedulerService);
+    verify(freshSchedulerService)
+        .scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(recurringJobBuilder).submit();
   }
 
   private RecurringJobProcessor newProcessor(JobSchedulerService schedulerService) {

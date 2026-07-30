@@ -45,6 +45,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadEncryption;
 import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.util.EncryptionIntegrity;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -59,14 +60,15 @@ class EncryptionInstallerTest {
   @AfterEach
   void reset() {
     EncryptionHolder.disable();
+    EncryptionIntegrity.clearListener();
     System.clearProperty(ReferenceEncryptionFactory.KEYS_PROPERTY);
     System.clearProperty(ReferenceEncryptionFactory.CURRENT_KEY_PROPERTY);
   }
 
   @Test
   void multipleEngines_withWriteAlgorithm_installTheNamedWriteEngine() {
-    installerWith(options("engine-b"), new StubEngine("engine-a"), new StubEngine("engine-b"))
-        .onStartup(new Object());
+    installFromStartup(
+        installerWith(options("engine-b"), new StubEngine("engine-a"), new StubEngine("engine-b")));
 
     assertEquals("engine-b", EncryptionHolder.writeEngine().algorithmId());
   }
@@ -81,7 +83,7 @@ class EncryptionInstallerTest {
 
   @Test
   void singleEngine_noWriteAlgorithm_usesTheSoleEngine() {
-    installerWith(options(null), new StubEngine("only")).onStartup(new Object());
+    installFromStartup(installerWith(options(null), new StubEngine("only")));
 
     assertEquals("only", EncryptionHolder.writeEngine().algorithmId());
   }
@@ -99,7 +101,7 @@ class EncryptionInstallerTest {
     EncryptionHolder.install(List.of(new StubEngine("seed")), "seed", provider, false);
     EncryptionInstaller installer = installer(options(null), false /* providerResolvable */);
 
-    installer.onStartup(new Object());
+    installFromStartup(installer);
 
     assertFalse(EncryptionHolder.isEnabled());
   }
@@ -138,7 +140,7 @@ class EncryptionInstallerTest {
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     EncryptionInstaller installer = installer(enabledOptions(), false /* providerResolvable */);
 
-    installer.onStartup(new Object());
+    installFromStartup(installer);
 
     assertEquals("AES-256-GCM", EncryptionHolder.writeEngine().algorithmId());
     assertEquals(true, EncryptionHolder.isGloballyEnabled());
@@ -151,7 +153,7 @@ class EncryptionInstallerTest {
     System.setProperty(ReferenceEncryptionFactory.KEYS_PROPERTY, "k1:" + base64Key());
     EncryptionInstaller installer = installer(options(null), false /* providerResolvable */);
 
-    installer.onStartup(new Object());
+    installFromStartup(installer);
 
     assertEquals("AES-256-GCM", EncryptionHolder.writeEngine().algorithmId());
     assertFalse(EncryptionHolder.isGloballyEnabled());
@@ -165,7 +167,7 @@ class EncryptionInstallerTest {
 
     CapturingHandler handler = attachHandler();
     try {
-      installer.onStartup(new Object());
+      installFromStartup(installer);
     } finally {
       detachHandler(handler);
     }
@@ -184,7 +186,7 @@ class EncryptionInstallerTest {
 
     CapturingHandler handler = attachHandler();
     try {
-      installer.onStartup(new Object());
+      installFromStartup(installer);
     } finally {
       detachHandler(handler);
     }
@@ -235,13 +237,18 @@ class EncryptionInstallerTest {
   void appBeansTakePrecedence_overReferenceKeys() {
     // An application-provided engine/provider wins even when reference keys are also configured.
     System.setProperty(ReferenceEncryptionFactory.KEYS_PROPERTY, "k1:" + base64Key());
-    installerWith(options(null), new StubEngine("app-engine")).onStartup(new Object());
+    installFromStartup(installerWith(options(null), new StubEngine("app-engine")));
 
     assertEquals("app-engine", EncryptionHolder.writeEngine().algorithmId());
   }
 
   private static String base64Key() {
     return Base64.getEncoder().encodeToString(new byte[32]);
+  }
+
+  private static void installFromStartup(EncryptionInstaller installer) {
+    installer.onStartup(new Object());
+    installer.runtimeInstallation().install(installer);
   }
 
   /**

@@ -71,6 +71,7 @@ class DefaultRatchetLifecycleShutdownTest {
   void onShutdownEngagesDrainBeforeStoppingPoller() {
     LifecycleFixture fixture = new LifecycleFixture(RatchetOptions.defaults());
 
+    fixture.lifecycle.onStartup(new Object());
     fixture.lifecycle.onShutdown();
 
     InOrder inOrder = inOrder(fixture.drainController, fixture.poller);
@@ -91,6 +92,7 @@ class DefaultRatchetLifecycleShutdownTest {
     LifecycleFixture fixture = new LifecycleFixture(RatchetOptions.defaults());
     doThrow(new IllegalStateException("poller failed")).when(fixture.poller).stop();
 
+    fixture.lifecycle.onStartup(new Object());
     fixture.lifecycle.onShutdown();
 
     verify(fixture.recurringScheduler).stop();
@@ -107,6 +109,7 @@ class DefaultRatchetLifecycleShutdownTest {
   void onShutdownClosesClusterCoordinatorAfterJobExecutionCoordinator() {
     LifecycleFixture fixture = new LifecycleFixture(RatchetOptions.defaults());
 
+    fixture.lifecycle.onStartup(new Object());
     fixture.lifecycle.onShutdown();
 
     InOrder inOrder = inOrder(fixture.jobExecutionCoordinator, fixture.clusterCoordinator);
@@ -166,6 +169,7 @@ class DefaultRatchetLifecycleShutdownTest {
             mock(JobExecutionCoordinator.class),
             coordinator);
 
+    lifecycle.onStartup(new Object());
     lifecycle.onShutdown();
 
     assertEquals(
@@ -180,6 +184,7 @@ class DefaultRatchetLifecycleShutdownTest {
     // via the direct stopService call.
     LifecycleFixture fixture = new LifecycleFixture(RatchetOptions.defaults());
 
+    fixture.lifecycle.onStartup(new Object());
     fixture.lifecycle.onShutdown();
 
     verify(fixture.clusterCoordinator, org.mockito.Mockito.times(1)).close();

@@ -17,10 +17,9 @@ package run.ratchet.ri.cdi;
 
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.Initialized;
-import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import run.ratchet.ri.core.internal.RuntimeInstallation;
 import run.ratchet.spi.PayloadMaskingPolicy;
 import run.ratchet.store.util.PayloadMaskingPolicyHolder;
 
@@ -42,6 +41,8 @@ import run.ratchet.store.util.PayloadMaskingPolicyHolder;
 public class PayloadMaskingPolicyInstaller {
 
   private final Instance<PayloadMaskingPolicy> policy;
+  private volatile RuntimeInstallation runtimeInstallation;
+  private volatile Object installedOwnerToken;
 
   /**
    * No-arg constructor so Weld can instantiate the client-proxy subclass (CDI 4.0 §3.15); never
@@ -56,14 +57,38 @@ public class PayloadMaskingPolicyInstaller {
     this.policy = policy;
   }
 
-  void onStartup(@Observes @Initialized(ApplicationScoped.class) Object event) {
-    if (policy != null && policy.isResolvable()) {
-      PayloadMaskingPolicyHolder.set(policy.get());
+  public RuntimeInstallation runtimeInstallation() {
+    RuntimeInstallation current = runtimeInstallation;
+    if (current != null) {
+      return current;
+    }
+    synchronized (this) {
+      if (runtimeInstallation == null) {
+        PayloadMaskingPolicy resolved =
+            policy != null && policy.isResolvable() ? policy.get() : null;
+        runtimeInstallation =
+            new RuntimeInstallation() {
+              @Override
+              public void install(Object ownerToken) {
+                PayloadMaskingPolicyHolder.install(ownerToken, resolved);
+                installedOwnerToken = ownerToken;
+              }
+
+              @Override
+              public void uninstall(Object ownerToken) {
+                PayloadMaskingPolicyHolder.uninstall(ownerToken);
+              }
+            };
+      }
+      return runtimeInstallation;
     }
   }
 
   @PreDestroy
   void onShutdown() {
-    PayloadMaskingPolicyHolder.set(null);
+    Object ownerToken = installedOwnerToken;
+    if (ownerToken != null) {
+      PayloadMaskingPolicyHolder.uninstall(ownerToken);
+    }
   }
 }

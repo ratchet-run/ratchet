@@ -25,6 +25,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RatchetRuntimeStart;
+import run.ratchet.ri.cdi.RecurringJobProcessor;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -91,8 +92,30 @@ class DefaultRatchetLifecycleDeferredStartTest {
     verify(poller).init();
   }
 
+  @Test
+  void onShutdownCancelsRecurringRegistrationProcessor() {
+    Poller poller = mock(Poller.class);
+    RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
+    RecurringJobProcessor recurringJobProcessor = mock(RecurringJobProcessor.class);
+    DefaultRatchetLifecycle lifecycle =
+        newLifecycle(poller, recurringScheduler, recurringJobProcessor);
+
+    lifecycle.onStartup(new Object());
+    lifecycle.onShutdown();
+
+    verify(recurringJobProcessor).registerFromApplicationStart();
+    verify(recurringJobProcessor).cancelRegistration();
+  }
+
   private DefaultRatchetLifecycle newLifecycle(
       Poller poller, RecurringScheduler recurringScheduler) {
+    return newLifecycle(poller, recurringScheduler, null);
+  }
+
+  private DefaultRatchetLifecycle newLifecycle(
+      Poller poller,
+      RecurringScheduler recurringScheduler,
+      RecurringJobProcessor recurringJobProcessor) {
     return new DefaultRatchetLifecycle(
         poller,
         recurringScheduler,
@@ -107,7 +130,13 @@ class DefaultRatchetLifecycleDeferredStartTest {
         mock(DrainController.class),
         quietOptions(),
         mock(JobExecutionCoordinator.class),
-        mock(ClusterCoordinator.class));
+        mock(ClusterCoordinator.class),
+        null,
+        null,
+        null,
+        null,
+        recurringJobProcessor,
+        null);
   }
 
   private ExecutorProvider executorProviderWithScheduler() {

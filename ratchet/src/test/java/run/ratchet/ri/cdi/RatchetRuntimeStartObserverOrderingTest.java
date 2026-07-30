@@ -26,15 +26,15 @@ import run.ratchet.ri.cdi.internal.DefaultRatchetLifecycle;
 /**
  * CDI fires multiple observers of the same event in ascending {@code @Priority} order. On
  * build-time-CDI runtimes (Quarkus), {@code RatchetRuntimeStart} must preserve the same effective
- * startup order as plain Jakarta EE: install encryption before the poller can claim encrypted jobs,
- * run lifecycle {@code beforeStart} hooks before any store-writing startup work, and register
- * {@code @Recurring} jobs after the schema is initialized. This test fails loudly if a future edit
- * changes one of the three priorities without updating the others.
+ * startup order as plain Jakarta EE: prepare encryption before the common lifecycle installs
+ * runtime seams, then let the retained recurring observer run only after the lifecycle has invoked
+ * its idempotent recurring-registration callback. This test fails loudly if a future edit changes
+ * one of the three priorities without updating the others.
  */
 class RatchetRuntimeStartObserverOrderingTest {
 
   @Test
-  void onRuntimeStartObservers_installEncryptionAndStartLifecycleBeforeRecurringRegistration()
+  void onRuntimeStartObservers_prepareEncryptionAndRunLifecycleBeforeRecurringFallback()
       throws NoSuchMethodException {
     int recurringJobProcessorPriority = priorityOf(RecurringJobProcessor.class, "onRuntimeStart");
     int encryptionInstallerPriority = priorityOf(EncryptionInstaller.class, "onRuntimeStart");
@@ -43,14 +43,12 @@ class RatchetRuntimeStartObserverOrderingTest {
 
     assertTrue(
         encryptionInstallerPriority < defaultRatchetLifecyclePriority,
-        "EncryptionInstaller.onRuntimeStart must fire before"
-            + " DefaultRatchetLifecycle.onRuntimeStart so encryption is installed before the"
-            + " poller starts");
+        "EncryptionInstaller.onRuntimeStart must prepare the installation before"
+            + " DefaultRatchetLifecycle.onRuntimeStart installs seams and starts workers");
     assertTrue(
         defaultRatchetLifecyclePriority < recurringJobProcessorPriority,
-        "DefaultRatchetLifecycle.onRuntimeStart must fire before"
-            + " RecurringJobProcessor.onRuntimeStart so schema migration runs before recurring"
-            + " registration"
+        "DefaultRatchetLifecycle.onRuntimeStart must invoke recurring registration before"
+            + " RecurringJobProcessor.onRuntimeStart reaches the idempotent fallback"
             + " (lower @Priority value = fires first)");
   }
 

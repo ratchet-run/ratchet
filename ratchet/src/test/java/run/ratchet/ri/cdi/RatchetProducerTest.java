@@ -50,7 +50,8 @@ class RatchetProducerTest {
     doReturn(Dependent.class).when(bean).getScope();
 
     RatchetProducer producer = new RatchetProducer();
-    producer.registerPayloadSerializer(new Object(), serializers);
+    Object ownerToken = new Object();
+    producer.payloadSerializerInstallation(serializers).install(ownerToken);
 
     assertSame(serializer, PayloadSerializerHolder.get());
 

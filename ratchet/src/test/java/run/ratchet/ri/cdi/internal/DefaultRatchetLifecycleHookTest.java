@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -30,6 +31,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Instance.Handle;
 import jakarta.enterprise.util.TypeLiteral;
 import java.lang.annotation.Annotation;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -48,6 +50,7 @@ import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
+import run.ratchet.ri.runtime.RatchetRuntime;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -204,6 +207,27 @@ class DefaultRatchetLifecycleHookTest {
     verify(hook, times(1)).beforeStop();
     verify(hook, times(1)).afterStop();
     assertEquals(List.of(hook), hookInstance.destroyed);
+  }
+
+  @Test
+  void onShutdown_destroysResolvedHooksWhenRuntimeStopThrows() throws Exception {
+    SchedulerLifecycleHook hook = mock(SchedulerLifecycleHook.class);
+    RecordingInstance<SchedulerLifecycleHook> hookInstance = new RecordingInstance<>(List.of(hook));
+    DefaultRatchetLifecycle lifecycle = newLifecycle(hookInstance);
+    lifecycle.onStartup(new Object());
+
+    RatchetRuntime failingRuntime = mock(RatchetRuntime.class);
+    doThrow(new IllegalStateException("stop failed")).when(failingRuntime).stop();
+    Field runtimeField = DefaultRatchetLifecycle.class.getDeclaredField("runtime");
+    runtimeField.setAccessible(true);
+    runtimeField.set(lifecycle, failingRuntime);
+
+    assertThrows(IllegalStateException.class, lifecycle::onShutdown);
+
+    assertEquals(
+        List.of(hook),
+        hookInstance.destroyed,
+        "Hook destruction must run from the CDI delegate's finally block");
   }
 
   @Test

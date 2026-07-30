@@ -42,8 +42,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongConsumer;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobHandle;
@@ -101,6 +103,10 @@ public class RecurringJobProcessor {
   @Inject private ExecutorProvider executorProvider;
   @Inject private Instance<RecurringJobStore> recurringJobStoreInstance;
 
+  private final Object registrationLifecycleLock = new Object();
+  private long registrationGeneration;
+  private boolean registrationTriggered;
+  private ScheduledFuture<?> pendingRegistrationRetry;
   private final AtomicBoolean registrationFinalized = new AtomicBoolean();
 
   protected RecurringJobProcessor() {
@@ -239,33 +245,101 @@ public class RecurringJobProcessor {
             + " never fires that event, recurring jobs will never register")) {
       return;
     }
-    ScheduledExecutorService scheduler = resolveScheduledExecutor();
-    if (scheduler == null) {
-      // Plain-CDI / SE / unit tests: no managed executor, and the calling thread already carries a
-      // usable transaction context, so register inline.
-      registerRecurringJobs();
-      return;
-    }
-    // On a Jakarta EE container the @Initialized(ApplicationScoped) observer can fire before the
-    // application's component invocation context is established (notably GlassFish 8, which fires
-    // it
-    // mid-deployment). Without that context the @Transactional submit path neither starts nor
-    // commits a transaction, so on EclipseLink 5 + SQL Server (whose JTA pool pins autocommit off)
-    // the recurring-master INSERT is rolled back on connection return and silently lost. Defer
-    // registration to the managed scheduled executor, whose tasks run post-deployment with a proper
-    // component context, and retry until every master is confirmed committed.
-    scheduleDeferredRegistration(scheduler, 1);
+    registerFromApplicationStart();
   }
 
   void onRuntimeStart(
       @Observes @Priority(RatchetRuntimeStart.PRIORITY_RECURRING_REGISTRATION)
           RatchetRuntimeStart event) {
-    ScheduledExecutorService scheduler = resolveScheduledExecutor();
-    if (scheduler == null) {
-      registerRecurringJobs();
-      return;
+    registerFromRuntimeStart();
+  }
+
+  /**
+   * Requests registration from the normal application-scope startup path.
+   *
+   * <p>The common runtime invokes this before node and worker startup. The retained CDI observer
+   * invokes the same idempotent entry point after the lifecycle observer, preserving compatibility
+   * without registering a second time.
+   */
+  public void registerFromApplicationStart() {
+    triggerRegistration(
+        generation -> {
+          ScheduledExecutorService scheduler = resolveScheduledExecutor();
+          if (scheduler == null) {
+            // Plain-CDI / SE / unit tests: no managed executor, and the calling thread already
+            // carries a usable transaction context, so register inline.
+            if (isRegistrationActive(generation)) {
+              registerRecurringJobs();
+            }
+            return;
+          }
+          // On a Jakarta EE container the @Initialized(ApplicationScoped) observer can fire before
+          // the application's component invocation context is established (notably GlassFish 8).
+          // Defer registration to a managed task with a proper component context, then retry until
+          // every master is confirmed committed.
+          scheduleDeferredRegistration(scheduler, 1, generation);
+        });
+  }
+
+  /**
+   * Requests registration from the deferred runtime-ready event.
+   *
+   * <p>The first attempt may run immediately because this event is fired only after the persistence
+   * and component invocation contexts are ready.
+   */
+  public void registerFromRuntimeStart() {
+    triggerRegistration(
+        generation -> {
+          ScheduledExecutorService scheduler = resolveScheduledExecutor();
+          if (scheduler == null) {
+            if (isRegistrationActive(generation)) {
+              registerRecurringJobs();
+            }
+            return;
+          }
+          attemptDeferredRegistration(scheduler, 1, generation);
+        });
+  }
+
+  /**
+   * Invalidates this registration cycle and cancels its pending retry, if any.
+   *
+   * <p>An attempt already executing may finish, but it cannot schedule another retry after this
+   * method returns. A later runtime start begins a new generation, so callbacks retained from this
+   * cycle remain inert.
+   */
+  public void cancelRegistration() {
+    ScheduledFuture<?> pendingRetry;
+    synchronized (registrationLifecycleLock) {
+      registrationGeneration++;
+      registrationTriggered = false;
+      pendingRetry = pendingRegistrationRetry;
+      pendingRegistrationRetry = null;
     }
-    attemptDeferredRegistration(scheduler, 1);
+    if (pendingRetry != null) {
+      pendingRetry.cancel(false);
+    }
+  }
+
+  private void triggerRegistration(LongConsumer registration) {
+    long generation;
+    synchronized (registrationLifecycleLock) {
+      if (registrationTriggered) {
+        return;
+      }
+      registrationTriggered = true;
+      generation = ++registrationGeneration;
+    }
+    try {
+      registration.accept(generation);
+    } catch (RuntimeException | Error failure) {
+      synchronized (registrationLifecycleLock) {
+        if (registrationGeneration == generation) {
+          registrationTriggered = false;
+        }
+      }
+      throw failure;
+    }
   }
 
   private ScheduledExecutorService resolveScheduledExecutor() {
@@ -282,27 +356,63 @@ public class RecurringJobProcessor {
     }
   }
 
-  private void scheduleDeferredRegistration(ScheduledExecutorService scheduler, int attempt) {
-    scheduler.schedule(
-        () -> attemptDeferredRegistration(scheduler, attempt),
-        REGISTRATION_RETRY_DELAY_MS,
-        TimeUnit.MILLISECONDS);
+  private void scheduleDeferredRegistration(
+      ScheduledExecutorService scheduler, int attempt, long generation) {
+    if (!isRegistrationActive(generation)) {
+      return;
+    }
+    ScheduledFuture<?> scheduledRetry =
+        scheduler.schedule(
+            () -> attemptDeferredRegistration(scheduler, attempt, generation),
+            REGISTRATION_RETRY_DELAY_MS,
+            TimeUnit.MILLISECONDS);
+
+    boolean cancelled;
+    synchronized (registrationLifecycleLock) {
+      cancelled = registrationGeneration != generation || !registrationTriggered;
+      if (!cancelled) {
+        pendingRegistrationRetry = scheduledRetry;
+      }
+    }
+    if (cancelled && scheduledRetry != null) {
+      scheduledRetry.cancel(false);
+    }
   }
 
-  private void attemptDeferredRegistration(ScheduledExecutorService scheduler, int attempt) {
+  private void attemptDeferredRegistration(
+      ScheduledExecutorService scheduler, int attempt, long generation) {
+    if (!beginRegistrationAttempt(generation)) {
+      return;
+    }
     try {
       boolean committed = registerRecurringJobs();
       if (!committed && attempt < MAX_REGISTRATION_ATTEMPTS) {
         log.infof(
             "@Recurring registration not yet committed (attempt %s/%s); retrying",
             attempt, MAX_REGISTRATION_ATTEMPTS);
-        scheduleDeferredRegistration(scheduler, attempt + 1);
+        scheduleDeferredRegistration(scheduler, attempt + 1, generation);
       }
     } catch (RuntimeException e) {
       log.error("@Recurring registration attempt failed", e);
       if (attempt < MAX_REGISTRATION_ATTEMPTS) {
-        scheduleDeferredRegistration(scheduler, attempt + 1);
+        scheduleDeferredRegistration(scheduler, attempt + 1, generation);
       }
+    }
+  }
+
+  private boolean beginRegistrationAttempt(long generation) {
+    synchronized (registrationLifecycleLock) {
+      if (registrationGeneration != generation || !registrationTriggered) {
+        return false;
+      }
+      pendingRegistrationRetry = null;
+      return true;
+    }
+  }
+
+  private boolean isRegistrationActive(long generation) {
+    synchronized (registrationLifecycleLock) {
+      return registrationGeneration == generation && registrationTriggered;
     }
   }
 

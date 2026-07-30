@@ -28,6 +28,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.EncryptionConfigurationException;
 import run.ratchet.ri.cdi.ReferenceEncryptionFactory.ReferenceEncryption;
+import run.ratchet.ri.core.internal.RuntimeInstallation;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -36,9 +37,8 @@ import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.util.EncryptionIntegrity;
 
 /**
- * Installs the framework-resolved {@link PayloadEncryption} engines and {@link KeyProvider} into
- * {@link EncryptionHolder} at application startup, and clears it at shutdown so a redeploy does not
- * leak stale state across the static holder.
+ * Resolves the framework-managed {@link PayloadEncryption} engines and {@link KeyProvider} into a
+ * runtime-owned {@link RuntimeInstallation}.
  *
  * <p>The row mappers and document mapper that apply encryption run outside a CDI container, so they
  * resolve the engine and key provider through the static holder rather than {@code @Inject}. This
@@ -71,6 +71,8 @@ public class EncryptionInstaller {
   private final Instance<MetricsCollector> metricsCollector;
   private final NodeIdentityProvider nodeIdProvider;
   private final RatchetOptions options;
+  private volatile RuntimeInstallation runtimeInstallation;
+  private volatile Object installedOwnerToken;
 
   /**
    * No-arg constructor so Weld can instantiate the client-proxy subclass (CDI 4.0 §3.15); never
@@ -112,20 +114,74 @@ public class EncryptionInstaller {
             + " fires that event, encryption will never install")) {
       return;
     }
-    install();
+    runtimeInstallation();
   }
 
   void onRuntimeStart(
       @Observes @Priority(RatchetRuntimeStart.PRIORITY_ENCRYPTION_INSTALL)
           RatchetRuntimeStart event) {
-    install();
+    runtimeInstallation();
   }
 
-  void install() {
-    if (engines == null || keyProvider == null || options == null) {
-      return;
+  public RuntimeInstallation runtimeInstallation() {
+    RuntimeInstallation current = runtimeInstallation;
+    if (current != null) {
+      return current;
     }
-    registerIntegrityMetricsBridge();
+    synchronized (this) {
+      if (runtimeInstallation == null) {
+        runtimeInstallation = createRuntimeInstallation();
+      }
+      return runtimeInstallation;
+    }
+  }
+
+  private RuntimeInstallation createRuntimeInstallation() {
+    if (engines == null || keyProvider == null || options == null) {
+      return new RuntimeInstallation() {
+        @Override
+        public void install(Object ownerToken) {}
+
+        @Override
+        public void uninstall(Object ownerToken) {}
+      };
+    }
+    EncryptionPlan plan = resolveEncryptionPlan();
+    EncryptionIntegrity.Listener integrityListener = resolveIntegrityMetricsBridge();
+    return new RuntimeInstallation() {
+      @Override
+      public void install(Object ownerToken) {
+        EncryptionIntegrity.install(ownerToken, integrityListener);
+        try {
+          if (plan.disabled()) {
+            EncryptionHolder.disable(ownerToken);
+          } else {
+            EncryptionHolder.install(
+                ownerToken,
+                plan.engines(),
+                plan.writeAlgorithm(),
+                plan.keyProvider(),
+                plan.globalEnabled());
+          }
+          installedOwnerToken = ownerToken;
+        } catch (RuntimeException | Error failure) {
+          EncryptionIntegrity.uninstall(ownerToken);
+          throw failure;
+        }
+      }
+
+      @Override
+      public void uninstall(Object ownerToken) {
+        try {
+          EncryptionHolder.uninstall(ownerToken);
+        } finally {
+          EncryptionIntegrity.uninstall(ownerToken);
+        }
+      }
+    };
+  }
+
+  private EncryptionPlan resolveEncryptionPlan() {
     boolean globalEnabled = options.encryption() != null && options.encryption().enabled();
 
     List<PayloadEncryption> engineList = engines.stream().toList();
@@ -144,9 +200,8 @@ public class EncryptionInstaller {
           ReferenceEncryptionFactory.fromEnvironment(resolveNodeEntropy());
       if (reference.isPresent()) {
         ReferenceEncryption ref = reference.get();
-        EncryptionHolder.install(
+        return new EncryptionPlan(
             List.of(ref.engine()), ref.engine().algorithmId(), ref.keyProvider(), globalEnabled);
-        return;
       }
       if (globalEnabled) {
         throw new EncryptionConfigurationException(
@@ -154,8 +209,7 @@ public class EncryptionInstaller {
                 + " engine and KeyProvider are installed, and no reference keys are configured"
                 + " (RATCHET_ENCRYPTION_KEYS).");
       }
-      EncryptionHolder.disable();
-      return;
+      return EncryptionPlan.disabledPlan();
     }
     if (!hasEngine) {
       throw new EncryptionConfigurationException(
@@ -167,7 +221,7 @@ public class EncryptionInstaller {
           "A PayloadEncryption engine is installed but no KeyProvider is. Install a provider or"
               + " remove the engine.");
     }
-    EncryptionHolder.install(
+    return new EncryptionPlan(
         engineList, resolveWriteAlgorithm(engineList), keyProvider.get(), globalEnabled);
   }
 
@@ -199,13 +253,12 @@ public class EncryptionInstaller {
    * is both logged (in the probe) and counted as a metric. A no-op when no single MetricsCollector
    * is resolvable.
    */
-  private void registerIntegrityMetricsBridge() {
+  private EncryptionIntegrity.Listener resolveIntegrityMetricsBridge() {
     if (metricsCollector == null || !metricsCollector.isResolvable()) {
-      return;
+      return null;
     }
     MetricsCollector metrics = metricsCollector.get();
-    EncryptionIntegrity.setListener(
-        (jobId, surface) -> metrics.encryptionIntegrityViolation(jobId, surface.name()));
+    return (jobId, surface) -> metrics.encryptionIntegrityViolation(jobId, surface.name());
   }
 
   /**
@@ -254,7 +307,25 @@ public class EncryptionInstaller {
 
   @PreDestroy
   void onShutdown() {
-    EncryptionHolder.disable();
-    EncryptionIntegrity.clearListener();
+    Object ownerToken = installedOwnerToken;
+    if (ownerToken != null) {
+      EncryptionHolder.uninstall(ownerToken);
+      EncryptionIntegrity.uninstall(ownerToken);
+    }
+  }
+
+  private record EncryptionPlan(
+      List<PayloadEncryption> engines,
+      String writeAlgorithm,
+      KeyProvider keyProvider,
+      boolean globalEnabled) {
+
+    private static EncryptionPlan disabledPlan() {
+      return new EncryptionPlan(List.of(), null, null, false);
+    }
+
+    private boolean disabled() {
+      return engines.isEmpty();
+    }
   }
 }
