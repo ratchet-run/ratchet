@@ -13,7 +13,7 @@ The extension is available from Maven Central starting with Ratchet 0.3.0.
 
 ## Requirements
 
-- Quarkus 3.20 or later (built against 3.20.0)
+- Quarkus 3.20 or later (built against 3.20.6.2)
 - JDK 21 for JVM mode; a GraalVM or Mandrel distribution for native
 - A store. For the SQL flavor: PostgreSQL, MySQL, Oracle, or SQL Server, where the JPA provider is
   Hibernate ORM (EclipseLink is a Jakarta EE feature and does not apply on Quarkus). For NoSQL, the

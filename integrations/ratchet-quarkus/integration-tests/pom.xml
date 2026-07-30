@@ -331,6 +331,13 @@
       <id>native-sql</id>
       <properties>
         <quarkus.native.enabled>true</quarkus.native.enabled>
+        <!--
+          This reactor pins the PostgreSQL driver above the Quarkus platform version for
+          security advisories. pgjdbc 42.7.8+ initializes LazyCleanerImpl's singleton (and
+          its java.lang.ref.Cleaner daemon thread) from a class initializer, which
+          native-image rejects when it lands in the image heap at build time.
+        -->
+        <quarkus.native.additional-build-args>--initialize-at-run-time=org.postgresql.util.LazyCleanerImpl</quarkus.native.additional-build-args>
       </properties>
       <build>
         <plugins>
