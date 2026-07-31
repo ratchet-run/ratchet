@@ -21,6 +21,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerManager;
 import run.ratchet.spi.ResilienceStrategy;
 
 /**
@@ -31,7 +32,7 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
 
   private static final Logger log = Logger.getLogger(DefaultResilienceStrategy.class);
 
-  private final CircuitBreakerRegistry registry;
+  private final CircuitBreakerManager registry;
   private final CircuitBreakerConfigProvider configProvider;
 
   public DefaultResilienceStrategy(CircuitBreakerRegistry registry) {
@@ -40,6 +41,11 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
 
   public DefaultResilienceStrategy(
       CircuitBreakerRegistry registry, CircuitBreakerConfigProvider configProvider) {
+    this((CircuitBreakerManager) registry, configProvider);
+  }
+
+  public DefaultResilienceStrategy(
+      CircuitBreakerManager registry, CircuitBreakerConfigProvider configProvider) {
     this.registry = registry;
     this.configProvider = configProvider;
   }
@@ -49,9 +55,8 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
     if (!configProvider.isEnabled()) {
       return task.call();
     }
-    CircuitBreaker breaker = registry.getBreaker(serviceName);
     try {
-      return breaker.execute(task);
+      return registry.getBreaker(serviceName).execute(task);
     } catch (CircuitBreakerOpenException e) {
       log.warnv("Circuit breaker OPEN for service: {0}", serviceName);
       throw e;
@@ -63,8 +68,7 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
     if (!configProvider.isEnabled()) {
       return true;
     }
-    CircuitBreaker.State state = registry.getBreakerState(serviceName);
-    return state != CircuitBreaker.State.OPEN;
+    return !CircuitBreaker.State.OPEN.name().equals(registry.getBreaker(serviceName).stateName());
   }
 
   @Override

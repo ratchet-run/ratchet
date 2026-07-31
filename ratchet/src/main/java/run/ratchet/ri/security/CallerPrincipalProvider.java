@@ -17,6 +17,10 @@ package run.ratchet.ri.security;
 
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Vetoed;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.jboss.logging.Logger;
 import run.ratchet.spi.PrincipalSource;
@@ -64,13 +68,23 @@ public class CallerPrincipalProvider {
   private static final Logger log = Logger.getLogger(CallerPrincipalProvider.class);
 
   private final Instance<PrincipalSource> sources;
+  private final List<PrincipalSource> orderedSources;
 
   protected CallerPrincipalProvider() {
     this.sources = null;
+    this.orderedSources = null;
   }
 
   public CallerPrincipalProvider(Instance<PrincipalSource> sources) {
     this.sources = sources;
+    this.orderedSources = null;
+  }
+
+  /** Creates a provider that consults Spring or another container's ordered source collection. */
+  public CallerPrincipalProvider(List<PrincipalSource> sources) {
+    Objects.requireNonNull(sources, "sources must not be null");
+    this.sources = null;
+    this.orderedSources = Collections.unmodifiableList(new ArrayList<>(sources));
   }
 
   /**
@@ -79,6 +93,12 @@ public class CallerPrincipalProvider {
    * (unauthenticated request, or non-EE runtime).
    */
   public Optional<String> currentPrincipal() {
+    if (orderedSources != null) {
+      return PrincipalSourceInstances.currentPrincipal(
+          orderedSources,
+          CallerPrincipalProvider::sourcePrincipal,
+          e -> log.warnf(e, "PrincipalSource lookup failed; trying the next source"));
+    }
     return PrincipalSourceInstances.currentPrincipal(
         sources,
         CallerPrincipalProvider::sourcePrincipal,

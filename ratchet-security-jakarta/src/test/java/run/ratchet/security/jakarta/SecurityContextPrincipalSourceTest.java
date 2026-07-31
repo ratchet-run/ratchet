@@ -29,6 +29,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.security.enterprise.SecurityContext;
 import java.security.Principal;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +47,6 @@ class SecurityContextPrincipalSourceTest {
 
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
-    when(instance.isResolvable()).thenReturn(true);
     handle(instance, context, ApplicationScoped.class);
 
     Optional<String> result = new SecurityContextPrincipalSource(instance).currentPrincipal();
@@ -62,7 +62,6 @@ class SecurityContextPrincipalSourceTest {
 
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
-    when(instance.isResolvable()).thenReturn(true);
     handle(instance, context, ApplicationScoped.class);
 
     Optional<String> result = new SecurityContextPrincipalSource(instance).currentPrincipal();
@@ -74,7 +73,7 @@ class SecurityContextPrincipalSourceTest {
   void currentPrincipal_notResolvable_returnsEmpty() {
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
-    when(instance.isResolvable()).thenReturn(false);
+    doReturn(List.of()).when(instance).handles();
 
     Optional<String> result = new SecurityContextPrincipalSource(instance).currentPrincipal();
 
@@ -85,8 +84,7 @@ class SecurityContextPrincipalSourceTest {
   void currentPrincipal_securityContextLookupFailure_returnsEmpty() {
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
-    when(instance.isResolvable()).thenReturn(true);
-    when(instance.getHandle()).thenThrow(new IllegalStateException("container is shutting down"));
+    when(instance.handles()).thenThrow(new IllegalStateException("container is shutting down"));
 
     Optional<String> result = new SecurityContextPrincipalSource(instance).currentPrincipal();
 
@@ -100,7 +98,6 @@ class SecurityContextPrincipalSourceTest {
 
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
-    when(instance.isResolvable()).thenReturn(true);
     handle(instance, context, ApplicationScoped.class);
 
     Optional<String> result = new SecurityContextPrincipalSource(instance).currentPrincipal();
@@ -127,7 +124,6 @@ class SecurityContextPrincipalSourceTest {
 
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
-    when(instance.isResolvable()).thenReturn(true);
     handle(instance, context, ApplicationScoped.class);
 
     Optional<String> result = new SecurityContextPrincipalSource(instance).currentPrincipal();
@@ -144,7 +140,6 @@ class SecurityContextPrincipalSourceTest {
 
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
-    when(instance.isResolvable()).thenReturn(true);
     Instance.Handle<SecurityContext> handle = handle(instance, context, Dependent.class);
 
     Optional<String> result = new SecurityContextPrincipalSource(instance).currentPrincipal();
@@ -160,7 +155,7 @@ class SecurityContextPrincipalSourceTest {
       Class<? extends java.lang.annotation.Annotation> scope) {
     Instance.Handle<SecurityContext> handle = mock(Instance.Handle.class);
     Bean<SecurityContext> bean = mock(Bean.class);
-    when(instance.getHandle()).thenReturn(handle);
+    doReturn(List.of(handle)).when(instance).handles();
     when(handle.get()).thenReturn(context);
     when(handle.getBean()).thenReturn(bean);
     doReturn(scope).when(bean).getScope();

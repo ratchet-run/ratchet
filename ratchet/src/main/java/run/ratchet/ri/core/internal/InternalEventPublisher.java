@@ -25,11 +25,11 @@ import org.jboss.logging.Logger;
 
 /**
  * Synchronous event publisher for internal RI use. Fires events to both programmatic listeners
- * (registered via {@link #addListener}) and CDI observers (via {@link Event#fire}).
+ * (registered via {@link #addListener}) and a container event bridge.
  *
  * <p>A programmatic listener that throws is logged and suppressed so the remaining listeners still
- * run. A CDI observer exception is logged and suppressed too, but only after CDI's synchronous
- * {@link Event#fire} has already aborted the remaining observers for that event. Either way,
+ * run. A container-bridge exception is logged and suppressed too, but only after that bridge's
+ * synchronous dispatch may already have aborted its remaining observers for the event. Either way,
  * callers must not rely on {@link #publish(Object)} to roll back their transaction when an observer
  * fails.
  */
@@ -37,15 +37,19 @@ import org.jboss.logging.Logger;
 public class InternalEventPublisher {
   private static final Logger log = Logger.getLogger(InternalEventPublisher.class);
   private final List<Consumer<Object>> listeners = new CopyOnWriteArrayList<>();
-  private final Event<Object> cdiEvent;
+  private final Consumer<Object> containerBridge;
 
   protected InternalEventPublisher() {
-    this.cdiEvent = null;
+    this((Consumer<Object>) null);
   }
 
   @Inject
   public InternalEventPublisher(Event<Object> cdiEvent) {
-    this.cdiEvent = cdiEvent;
+    this(cdiEvent == null ? null : cdiEvent::fire);
+  }
+
+  public InternalEventPublisher(Consumer<Object> containerBridge) {
+    this.containerBridge = containerBridge;
   }
 
   public void addListener(Consumer<Object> listener) {
@@ -69,11 +73,11 @@ public class InternalEventPublisher {
       }
     }
 
-    if (cdiEvent != null) {
+    if (containerBridge != null) {
       try {
-        cdiEvent.fire(event);
+        containerBridge.accept(event);
       } catch (Exception e) {
-        log.warnf(e, "CDI event fire threw exception for event: %s", eventType(event));
+        log.warnf(e, "Container event bridge threw exception for event: %s", eventType(event));
       }
     }
   }

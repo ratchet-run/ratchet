@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerManager;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NoOpMetricsCollector;
 
@@ -33,7 +34,7 @@ import run.ratchet.spi.NoOpMetricsCollector;
  * tenant IDs will cause unbounded memory growth.
  */
 @ApplicationScoped
-public class CircuitBreakerRegistry {
+public class CircuitBreakerRegistry implements CircuitBreakerManager {
 
   private static final Logger log = Logger.getLogger(CircuitBreakerRegistry.class);
 

@@ -27,8 +27,8 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.PollerScheduler;
-import run.ratchet.ri.resilience.CircuitBreaker;
-import run.ratchet.ri.resilience.CircuitBreakerRegistry;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerManager;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.NodeTagAffinityProvider;
@@ -70,7 +70,7 @@ public class Poller {
   private final MetricsCollector metricsCollector;
   private final PollingStrategyProvider pollingStrategyProvider;
   private final NodeTagAffinityProvider tagAffinityProvider;
-  private final CircuitBreaker claimCircuitBreaker;
+  private final CircuitBreakerManager.Breaker claimCircuitBreaker;
   private final boolean claimCircuitBreakerEnabled;
   private final int batchSize;
   private final int claimHeadroomFactor;
@@ -108,7 +108,7 @@ public class Poller {
       PollerScheduler pollerScheduler,
       RatchetOptions options,
       MetricsCollector metricsCollector,
-      CircuitBreakerRegistry circuitBreakerRegistry,
+      CircuitBreakerManager circuitBreakerRegistry,
       boolean claimCircuitBreakerEnabled,
       PollingStrategyProvider pollingStrategyProvider,
       NodeTagAffinityProvider tagAffinityProvider,
@@ -132,6 +132,38 @@ public class Poller {
         System::currentTimeMillis);
   }
 
+  /** Creates a poller without primitive configuration arguments. */
+  public Poller(
+      JobClaimStore jobClaimStore,
+      JobExecutionCoordinator jobExecutionCoordinator,
+      NodeIdentityProvider nodeIdProvider,
+      PoolRegistry poolRegistry,
+      DrainController drainController,
+      PollerScheduler pollerScheduler,
+      RatchetOptions options,
+      MetricsCollector metricsCollector,
+      CircuitBreakerManager circuitBreakerRegistry,
+      CircuitBreakerConfigProvider circuitBreakerConfigProvider,
+      PollingStrategyProvider pollingStrategyProvider,
+      NodeTagAffinityProvider tagAffinityProvider,
+      JobTimeoutHandler timeoutHandler) {
+    this(
+        jobClaimStore,
+        jobExecutionCoordinator,
+        nodeIdProvider,
+        poolRegistry,
+        drainController,
+        pollerScheduler,
+        options,
+        metricsCollector,
+        circuitBreakerRegistry,
+        circuitBreakerConfigProvider != null && circuitBreakerConfigProvider.isEnabled(),
+        pollingStrategyProvider,
+        tagAffinityProvider,
+        options.polling().batchSize(),
+        timeoutHandler);
+  }
+
   Poller(
       JobClaimStore jobClaimStore,
       JobExecutionCoordinator jobExecutionCoordinator,
@@ -141,7 +173,7 @@ public class Poller {
       PollerScheduler pollerScheduler,
       RatchetOptions options,
       MetricsCollector metricsCollector,
-      CircuitBreakerRegistry circuitBreakerRegistry,
+      CircuitBreakerManager circuitBreakerRegistry,
       boolean claimCircuitBreakerEnabled,
       PollingStrategyProvider pollingStrategyProvider,
       NodeTagAffinityProvider tagAffinityProvider,
@@ -392,8 +424,7 @@ public class Poller {
 
   private void publishClaimBreakerState() {
     if (metricsCollector != null && claimCircuitBreakerEnabled && claimCircuitBreaker != null) {
-      metricsCollector.pollerBreakerState(
-          CLAIM_BREAKER_NAME, claimCircuitBreaker.getState().name());
+      metricsCollector.pollerBreakerState(CLAIM_BREAKER_NAME, claimCircuitBreaker.stateName());
     }
   }
 }

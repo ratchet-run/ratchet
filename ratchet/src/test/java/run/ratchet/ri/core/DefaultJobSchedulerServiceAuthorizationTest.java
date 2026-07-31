@@ -48,6 +48,7 @@ import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
+import run.ratchet.spi.PrincipalSource;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
@@ -101,7 +102,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   @BeforeEach
   void setUp() {
     CallerPrincipalProvider callerProvider =
-        new CallerPrincipalProvider(null) {
+        new CallerPrincipalProvider((jakarta.enterprise.inject.Instance<PrincipalSource>) null) {
           @Override
           public Optional<String> currentPrincipal() {
             return Optional.of(CALLER);
@@ -123,6 +124,9 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             wakeupService,
             recurringScheduler,
             jobInvocationResolver,
+            jobCreationService,
+            jobCreationService,
+            jobCreationService,
             jobCreationService,
             callerProvider,
             authorizationPolicy,
@@ -160,6 +164,9 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         recurringScheduler,
         jobInvocationResolver,
         jobCreationService,
+        jobCreationService,
+        jobCreationService,
+        jobCreationService,
         principalProvider,
         authorizationPolicy,
         null,
@@ -174,7 +181,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   void cancelJob_configuredResolverTakesPrecedenceOverProvider() {
     DefaultJobSchedulerService resolverService =
         serviceWithResolver(
-            new CallerPrincipalProvider(null) {
+            new CallerPrincipalProvider(
+                (jakarta.enterprise.inject.Instance<PrincipalSource>) null) {
               @Override
               public Optional<String> currentPrincipal() {
                 return Optional.of(CALLER);
@@ -195,7 +203,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   void cancelJob_throwingResolverFallsBackToProvider() {
     DefaultJobSchedulerService resolverService =
         serviceWithResolver(
-            new CallerPrincipalProvider(null) {
+            new CallerPrincipalProvider(
+                (jakarta.enterprise.inject.Instance<PrincipalSource>) null) {
               @Override
               public Optional<String> currentPrincipal() {
                 return Optional.of(CALLER);
@@ -424,6 +433,9 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             wakeupService,
             recurringScheduler,
             jobInvocationResolver,
+            jobCreationService,
+            jobCreationService,
+            jobCreationService,
             jobCreationService,
             null,
             null,

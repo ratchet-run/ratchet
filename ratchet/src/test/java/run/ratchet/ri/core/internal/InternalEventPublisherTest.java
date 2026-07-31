@@ -82,6 +82,30 @@ class InternalEventPublisherTest {
   }
 
   @Test
+  void publishAlsoInvokesPortableContainerBridgeAfterProgrammaticListeners() {
+    List<String> order = new ArrayList<>();
+    InternalEventPublisher publisher =
+        new InternalEventPublisher(event -> order.add("bridge:" + event));
+    publisher.addListener(event -> order.add("listener:" + event));
+
+    publisher.publish("event");
+
+    assertEquals(List.of("listener:event", "bridge:event"), order);
+  }
+
+  @Test
+  void portableContainerBridgeExceptionDoesNotEscapePublish() {
+    InternalEventPublisher publisher =
+        new InternalEventPublisher(
+            (Consumer<Object>)
+                event -> {
+                  throw new RuntimeException("broken bridge");
+                });
+
+    assertDoesNotThrow(() -> publisher.publish("event"));
+  }
+
+  @Test
   void publishAllowsNullEventWhenListenersAcceptIt() {
     InternalEventPublisher publisher = new InternalEventPublisher();
     List<Object> received = new ArrayList<>();

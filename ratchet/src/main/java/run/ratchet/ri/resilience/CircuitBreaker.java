@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
+import run.ratchet.spi.CircuitBreakerManager;
 
 /**
  * Lightweight circuit breaker state machine.
@@ -50,7 +51,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
  * Recovery happens only after the wait duration permits HALF_OPEN probes, or through an explicit
  * {@link #reset()}.
  */
-public class CircuitBreaker {
+public class CircuitBreaker implements CircuitBreakerManager.Breaker {
 
   private static final int UNINITIALIZED = -1;
 
@@ -125,6 +126,11 @@ public class CircuitBreaker {
       return state.get();
     }
     return current;
+  }
+
+  @Override
+  public String stateName() {
+    return getState().name();
   }
 
   /**

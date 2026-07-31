@@ -62,6 +62,7 @@ import run.ratchet.spi.AfterCommitRegistrar.Outcome;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.PrincipalSource;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -118,7 +119,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   private static CallerPrincipalProvider principalProviderReturning(String principal) {
-    return new CallerPrincipalProvider(null) {
+    return new CallerPrincipalProvider((jakarta.enterprise.inject.Instance<PrincipalSource>) null) {
       @Override
       public Optional<String> currentPrincipal() {
         return Optional.of(principal);
@@ -127,7 +128,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   private static CallerPrincipalProvider principalProviderReturningEmpty() {
-    return new CallerPrincipalProvider(null) {
+    return new CallerPrincipalProvider((jakarta.enterprise.inject.Instance<PrincipalSource>) null) {
       @Override
       public Optional<String> currentPrincipal() {
         return Optional.empty();

@@ -55,6 +55,7 @@ import run.ratchet.ri.testsupport.StubAfterCommitRegistrar;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.PrincipalSource;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
@@ -475,7 +476,7 @@ class DefaultJobSchedulerServiceSignalTest {
       JobAuthorizationPolicy signalAuthorizationPolicy,
       Optional<String> currentPrincipal) {
     CallerPrincipalProvider callerProvider =
-        new CallerPrincipalProvider(null) {
+        new CallerPrincipalProvider((jakarta.enterprise.inject.Instance<PrincipalSource>) null) {
           @Override
           public Optional<String> currentPrincipal() {
             return currentPrincipal;
@@ -496,6 +497,9 @@ class DefaultJobSchedulerServiceSignalTest {
         wakeupService,
         recurringScheduler,
         null,
+        jobCreationService,
+        jobCreationService,
+        jobCreationService,
         jobCreationService,
         callerProvider,
         signalAuthorizationPolicy,
