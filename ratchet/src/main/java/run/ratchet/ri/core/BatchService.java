@@ -78,7 +78,7 @@ public class BatchService {
   private final ClassPolicy classPolicy;
   private final BeanResolver beanResolver;
   private final Clock clock;
-  private final Instance<BatchService> self;
+  private final BatchRecoveryService batchRecoveryService;
   private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected BatchService() {
@@ -93,7 +93,7 @@ public class BatchService {
     this.classPolicy = null;
     this.beanResolver = null;
     this.clock = null;
-    this.self = null;
+    this.batchRecoveryService = null;
     this.afterCommitRegistrar = null;
   }
 
@@ -108,6 +108,7 @@ public class BatchService {
       WorkflowScheduler workflowScheduler,
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
+      BatchRecoveryService batchRecoveryService,
       AfterCommitRegistrar afterCommitRegistrar) {
     this(
         batchStore,
@@ -121,7 +122,7 @@ public class BatchService {
         classPolicy,
         beanResolver,
         Clock.systemUTC(),
-        null,
+        batchRecoveryService,
         afterCommitRegistrar);
   }
 
@@ -138,7 +139,7 @@ public class BatchService {
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
       Clock clock,
-      Instance<BatchService> self,
+      BatchRecoveryService batchRecoveryService,
       AfterCommitRegistrar afterCommitRegistrar) {
     this(
         batchStore.isResolvable() ? batchStore.get() : null,
@@ -152,37 +153,8 @@ public class BatchService {
         classPolicy,
         beanResolver,
         clock,
-        self,
+        batchRecoveryService,
         afterCommitRegistrar);
-  }
-
-  BatchService(
-      BatchStore batchStore,
-      JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      MetricsCollector metricsCollector,
-      InternalEventPublisher eventPublisher,
-      DeadLetterService deadLetterService,
-      WorkflowScheduler workflowScheduler,
-      ClassPolicy classPolicy,
-      BeanResolver beanResolver,
-      Clock clock,
-      Instance<BatchService> self,
-      AfterCommitRegistrar afterCommitRegistrar) {
-    this.batchStore = batchStore;
-    this.jobCrudStore = jobCrudStore;
-    this.jobBatchStatusStore = jobBatchStatusStore;
-    this.jobTerminalStore = jobTerminalStore;
-    this.metricsCollector = metricsCollector;
-    this.eventPublisher = eventPublisher;
-    this.deadLetterService = deadLetterService;
-    this.workflowScheduler = workflowScheduler;
-    this.classPolicy = classPolicy;
-    this.beanResolver = beanResolver;
-    this.clock = clock;
-    this.self = self;
-    this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
   public BatchService(
@@ -197,21 +169,21 @@ public class BatchService {
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
       Clock clock,
+      BatchRecoveryService batchRecoveryService,
       AfterCommitRegistrar afterCommitRegistrar) {
-    this(
-        batchStore,
-        jobCrudStore,
-        jobBatchStatusStore,
-        jobTerminalStore,
-        metricsCollector,
-        eventPublisher,
-        deadLetterService,
-        workflowScheduler,
-        classPolicy,
-        beanResolver,
-        clock,
-        null,
-        afterCommitRegistrar);
+    this.batchStore = batchStore;
+    this.jobCrudStore = jobCrudStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
+    this.jobTerminalStore = jobTerminalStore;
+    this.metricsCollector = metricsCollector;
+    this.eventPublisher = eventPublisher;
+    this.deadLetterService = deadLetterService;
+    this.workflowScheduler = workflowScheduler;
+    this.classPolicy = classPolicy;
+    this.beanResolver = beanResolver;
+    this.clock = clock;
+    this.batchRecoveryService = batchRecoveryService;
+    this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
   @PreDestroy
@@ -258,7 +230,8 @@ public class BatchService {
       JobEntity parent = parentMap.get(batchId);
       if (batch != null && parent != null) {
         try {
-          if (recoveryDelegate().recoverCompletedBatch(batchId, batch, parent)) {
+          if (batchRecoveryService.recoverCompletedBatch(
+              batchId, () -> recoverCompletedBatch(batchId, batch, parent))) {
             recovered++;
           }
         } catch (RuntimeException ex) {
@@ -269,11 +242,7 @@ public class BatchService {
     return recovered;
   }
 
-  @Transactional(Transactional.TxType.REQUIRES_NEW)
-  public boolean recoverCompletedBatch(UUID batchId, BatchEntity batch, JobEntity parent) {
-    if (!batchStore.markBatchCompleteIfReady(batchId)) {
-      return false;
-    }
+  boolean recoverCompletedBatch(UUID batchId, BatchEntity batch, JobEntity parent) {
     JobStatus before = parent.getStatus();
     boolean scheduledNext = processBatchCompletion(batchId, batch, parent);
     return scheduledNext || before == JobStatus.PENDING && parent.getStatus() != JobStatus.PENDING;
@@ -599,9 +568,5 @@ public class BatchService {
 
   private Clock effective() {
     return clock != null ? clock : Clock.systemUTC();
-  }
-
-  private BatchService recoveryDelegate() {
-    return self != null && !self.isUnsatisfied() ? self.get() : this;
   }
 }

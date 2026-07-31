@@ -96,7 +96,8 @@ class DefaultInvocationSubmissionServiceTest {
   void setUp() {
     creationService = newCreationService(null);
     service =
-        new DefaultInvocationSubmissionService(creationService, new DefaultJobInvocationResolver());
+        new DefaultInvocationSubmissionService(
+            creationService, creationService, creationService, new DefaultJobInvocationResolver());
     lenient()
         .when(jobCrudStore.create(any(JobEntity.class)))
         .thenAnswer(DefaultInvocationSubmissionServiceTest::persist);
@@ -251,7 +252,8 @@ class DefaultInvocationSubmissionServiceTest {
   void classPolicy_gatesInvocationSubmissions() {
     DefaultJobCreationService gated = newCreationService(className -> false);
     DefaultInvocationSubmissionService gatedService =
-        new DefaultInvocationSubmissionService(gated, new DefaultJobInvocationResolver());
+        new DefaultInvocationSubmissionService(
+            gated, gated, gated, new DefaultJobInvocationResolver());
 
     assertThrows(
         SecurityException.class,
@@ -290,9 +292,13 @@ class DefaultInvocationSubmissionServiceTest {
     List<Object> events = new java.util.concurrent.CopyOnWriteArrayList<>();
     InternalEventPublisher publisher = new InternalEventPublisher() {};
     publisher.addListener(events::add);
+    DefaultJobCreationService failingCreationService = newCreationService(null, publisher);
     DefaultInvocationSubmissionService failing =
         new DefaultInvocationSubmissionService(
-            newCreationService(null, publisher), new DefaultJobInvocationResolver());
+            failingCreationService,
+            failingCreationService,
+            failingCreationService,
+            new DefaultJobInvocationResolver());
     org.mockito.Mockito.doThrow(new RuntimeException("boom")).when(jobBulkStore).bulkInsert(any());
 
     assertThrows(
@@ -323,9 +329,13 @@ class DefaultInvocationSubmissionServiceTest {
     List<Object> events = new java.util.concurrent.CopyOnWriteArrayList<>();
     InternalEventPublisher publisher = new InternalEventPublisher() {};
     publisher.addListener(events::add);
+    DefaultJobCreationService failingCreationService = newCreationService(null, publisher);
     DefaultInvocationSubmissionService failing =
         new DefaultInvocationSubmissionService(
-            newCreationService(null, publisher), new DefaultJobInvocationResolver());
+            failingCreationService,
+            failingCreationService,
+            failingCreationService,
+            new DefaultJobInvocationResolver());
     org.mockito.Mockito.doThrow(new RuntimeException()).when(jobBulkStore).bulkInsert(any());
 
     assertThrows(

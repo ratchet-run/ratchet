@@ -20,6 +20,7 @@ import jakarta.inject.Inject;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.Objects;
+import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.InvocationBatchBuilder;
 import run.ratchet.spi.InvocationJobBuilder;
@@ -30,24 +31,34 @@ import run.ratchet.spi.JobInvocationResolver;
 
 /**
  * Reference implementation of {@link InvocationSubmissionService}: thin facades over the existing
- * builders, converging on {@link DefaultJobCreationService} with no separate persistence path.
+ * builders, converging on the shared job-creation submitter contracts with no separate persistence
+ * path.
  */
 @ApplicationScoped
 public class DefaultInvocationSubmissionService implements InvocationSubmissionService {
 
-  private final DefaultJobCreationService jobCreationService;
+  private final JobSubmitter jobSubmitter;
+  private final BatchSubmitter batchSubmitter;
+  private final StreamingBatchSubmitter streamingBatchSubmitter;
   private final JobInvocationResolver jobInvocationResolver;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected DefaultInvocationSubmissionService() {
-    this.jobCreationService = null;
+    this.jobSubmitter = null;
+    this.batchSubmitter = null;
+    this.streamingBatchSubmitter = null;
     this.jobInvocationResolver = null;
   }
 
   @Inject
   DefaultInvocationSubmissionService(
-      DefaultJobCreationService jobCreationService, JobInvocationResolver jobInvocationResolver) {
-    this.jobCreationService = jobCreationService;
+      JobSubmitter jobSubmitter,
+      BatchSubmitter batchSubmitter,
+      StreamingBatchSubmitter streamingBatchSubmitter,
+      JobInvocationResolver jobInvocationResolver) {
+    this.jobSubmitter = jobSubmitter;
+    this.batchSubmitter = batchSubmitter;
+    this.streamingBatchSubmitter = streamingBatchSubmitter;
     this.jobInvocationResolver = jobInvocationResolver;
   }
 
@@ -55,8 +66,7 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
   public InvocationJobBuilder enqueueInvocation(JobInvocation invocation) {
     Objects.requireNonNull(invocation, "invocation must not be null");
     return new DefaultInvocationJobBuilder(
-        DefaultJobBuilder.create(
-            jobCreationService, new InvocationAdapter(invocation), Duration.ZERO));
+        DefaultJobBuilder.create(jobSubmitter, new InvocationAdapter(invocation), Duration.ZERO));
   }
 
   @Override
@@ -64,21 +74,21 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
     Objects.requireNonNull(delay, "delay must not be null");
     Objects.requireNonNull(invocation, "invocation must not be null");
     return new DefaultInvocationJobBuilder(
-        DefaultJobBuilder.create(jobCreationService, new InvocationAdapter(invocation), delay));
+        DefaultJobBuilder.create(jobSubmitter, new InvocationAdapter(invocation), delay));
   }
 
   @Override
   public InvocationBatchBuilder enqueueInvocationBatch(String name) {
     Objects.requireNonNull(name, "name must not be null");
     return new DefaultInvocationBatchBuilder(
-        new DefaultBatchBuilder(name, jobCreationService, jobInvocationResolver));
+        new DefaultBatchBuilder(name, batchSubmitter, jobInvocationResolver));
   }
 
   @Override
   public <T extends Serializable> InvocationStreamingBatchBuilder<T> invocationStreamingBatch(
       String name) {
     Objects.requireNonNull(name, "name must not be null");
-    return new DefaultInvocationStreamingBatchBuilder<>(name, jobCreationService);
+    return new DefaultInvocationStreamingBatchBuilder<>(name, streamingBatchSubmitter);
   }
 
   @Override

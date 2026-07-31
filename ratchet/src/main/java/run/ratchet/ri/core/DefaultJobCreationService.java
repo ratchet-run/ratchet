@@ -92,7 +92,7 @@ import run.ratchet.store.util.PayloadEncryptor;
 
 /** CDI-managed persistence boundary for scheduler builders. */
 @ApplicationScoped
-class DefaultJobCreationService
+public class DefaultJobCreationService
     implements JobSubmitter, BatchSubmitter, StreamingBatchSubmitter, RecurringJobSubmitter {
 
   private static final Logger log = Logger.getLogger(DefaultJobCreationService.class);
@@ -181,6 +181,60 @@ class DefaultJobCreationService
         batchStore.isResolvable() ? batchStore.get() : null,
         tagStore,
         workflowConditionStore.isResolvable() ? workflowConditionStore.get() : null,
+        jobStore,
+        signalStore.isResolvable() ? signalStore.get() : null,
+        resourcePermitStore.isResolvable() ? resourcePermitStore.get() : null,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        payloadValidator,
+        callerPrincipalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        classPolicy,
+        eventPublisher,
+        metricsCollector,
+        clock,
+        options,
+        afterCommitRegistrar);
+  }
+
+  /**
+   * Creates the service from portable store capability references. Optional capabilities may be
+   * {@code null}; their absence retains the same feature-gating behavior as the CDI constructor.
+   */
+  public DefaultJobCreationService(
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      JobStore jobStore,
+      SignalStore signalStore,
+      ResourcePermitStore resourcePermitStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      JobPayloadInputValidator payloadValidator,
+      CallerPrincipalProvider callerPrincipalProvider,
+      TracingCollector tracingCollector,
+      JobAuthorizationPolicy authorizationPolicy,
+      ClassPolicy classPolicy,
+      InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
+      Clock clock,
+      RatchetOptions options,
+      AfterCommitRegistrar afterCommitRegistrar) {
+    this(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        jobBulkStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
         jobStore.capability(RecurringJobStore.class).orElse(null),
         wakeupService,
         recurringScheduler,
@@ -194,8 +248,8 @@ class DefaultJobCreationService
         metricsCollector,
         clock,
         afterCommitRegistrar,
-        signalStore.isResolvable(),
-        resourcePermitStore.isResolvable(),
+        signalStore != null,
+        resourcePermitStore != null,
         options != null ? options.callerPrincipalResolver() : null);
   }
 

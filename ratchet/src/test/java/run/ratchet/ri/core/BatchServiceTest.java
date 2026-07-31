@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -37,6 +38,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -106,6 +108,7 @@ class BatchServiceTest {
             classPolicy,
             beanResolver,
             FIXED_CLOCK,
+            new BatchRecoveryService(batchStore),
             afterCommitRegistrar);
   }
 
@@ -160,12 +163,18 @@ class BatchServiceTest {
     Transactional sweep =
         BatchService.class.getMethod("recoverStuckBatches").getAnnotation(Transactional.class);
     Transactional unit =
+        BatchRecoveryService.class
+            .getMethod("recoverCompletedBatch", UUID.class, BooleanSupplier.class)
+            .getAnnotation(Transactional.class);
+    Transactional sharedCompletion =
         BatchService.class
-            .getMethod("recoverCompletedBatch", UUID.class, BatchEntity.class, JobEntity.class)
+            .getDeclaredMethod(
+                "recoverCompletedBatch", UUID.class, BatchEntity.class, JobEntity.class)
             .getAnnotation(Transactional.class);
 
     assertNotNull(sweep);
     assertNotNull(unit);
+    assertNull(sharedCompletion);
     assertEquals(Transactional.TxType.NOT_SUPPORTED, sweep.value());
     assertEquals(Transactional.TxType.REQUIRES_NEW, unit.value());
   }

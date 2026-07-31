@@ -38,6 +38,7 @@ import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
@@ -107,7 +108,10 @@ public class DefaultJobSchedulerService
   private final JobWakeupService wakeupService;
   private final RecurringScheduler recurringScheduler;
   private final JobInvocationResolver jobInvocationResolver;
-  private final DefaultJobCreationService jobCreationService;
+  private final JobSubmitter jobSubmitter;
+  private final BatchSubmitter batchSubmitter;
+  private final StreamingBatchSubmitter streamingBatchSubmitter;
+  private final RecurringJobSubmitter recurringJobSubmitter;
   private final CallerPrincipalProvider callerPrincipalProvider;
   private final CallerPrincipalResolver callerPrincipalResolver;
   private final JobAuthorizationPolicy authorizationPolicy;
@@ -131,7 +135,10 @@ public class DefaultJobSchedulerService
     this.wakeupService = null;
     this.recurringScheduler = null;
     this.jobInvocationResolver = null;
-    this.jobCreationService = null;
+    this.jobSubmitter = null;
+    this.batchSubmitter = null;
+    this.streamingBatchSubmitter = null;
+    this.recurringJobSubmitter = null;
     this.callerPrincipalProvider = null;
     this.callerPrincipalResolver = null;
     this.authorizationPolicy = null;
@@ -156,7 +163,10 @@ public class DefaultJobSchedulerService
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
-      DefaultJobCreationService jobCreationService,
+      JobSubmitter jobSubmitter,
+      BatchSubmitter batchSubmitter,
+      StreamingBatchSubmitter streamingBatchSubmitter,
+      RecurringJobSubmitter recurringJobSubmitter,
       CallerPrincipalProvider callerPrincipalProvider,
       JobAuthorizationPolicy authorizationPolicy,
       SignalStore signalStore,
@@ -176,7 +186,10 @@ public class DefaultJobSchedulerService
         wakeupService,
         recurringScheduler,
         jobInvocationResolver,
-        jobCreationService,
+        jobSubmitter,
+        batchSubmitter,
+        streamingBatchSubmitter,
+        recurringJobSubmitter,
         callerPrincipalProvider,
         authorizationPolicy,
         signalStore,
@@ -200,7 +213,10 @@ public class DefaultJobSchedulerService
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
-      DefaultJobCreationService jobCreationService,
+      JobSubmitter jobSubmitter,
+      BatchSubmitter batchSubmitter,
+      StreamingBatchSubmitter streamingBatchSubmitter,
+      RecurringJobSubmitter recurringJobSubmitter,
       CallerPrincipalProvider callerPrincipalProvider,
       JobAuthorizationPolicy authorizationPolicy,
       SignalStore signalStore,
@@ -221,7 +237,10 @@ public class DefaultJobSchedulerService
         wakeupService,
         recurringScheduler,
         jobInvocationResolver,
-        jobCreationService,
+        jobSubmitter,
+        batchSubmitter,
+        streamingBatchSubmitter,
+        recurringJobSubmitter,
         callerPrincipalProvider,
         authorizationPolicy,
         signalStore,
@@ -246,7 +265,10 @@ public class DefaultJobSchedulerService
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
-      DefaultJobCreationService jobCreationService,
+      JobSubmitter jobSubmitter,
+      BatchSubmitter batchSubmitter,
+      StreamingBatchSubmitter streamingBatchSubmitter,
+      RecurringJobSubmitter recurringJobSubmitter,
       CallerPrincipalProvider callerPrincipalProvider,
       JobAuthorizationPolicy authorizationPolicy,
       Instance<SignalStore> signalStore,
@@ -269,10 +291,71 @@ public class DefaultJobSchedulerService
         wakeupService,
         recurringScheduler,
         jobInvocationResolver,
-        jobCreationService,
+        jobSubmitter,
+        batchSubmitter,
+        streamingBatchSubmitter,
+        recurringJobSubmitter,
         callerPrincipalProvider,
         authorizationPolicy,
         signalStore.isResolvable() ? signalStore.get() : null,
+        payloadSerializer,
+        metricsCollector,
+        clock,
+        afterCommitRegistrar,
+        options != null ? options.callerPrincipalResolver() : null);
+  }
+
+  /**
+   * Creates the scheduler from portable store capability references. Optional capabilities may be
+   * {@code null}; their absence retains the same feature-gating behavior as the CDI constructor.
+   */
+  DefaultJobSchedulerService(
+      InternalEventPublisher eventPublisher,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobPauseStore jobPauseStore,
+      JobRetryStore jobRetryStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      JobSubmitter jobSubmitter,
+      BatchSubmitter batchSubmitter,
+      StreamingBatchSubmitter streamingBatchSubmitter,
+      RecurringJobSubmitter recurringJobSubmitter,
+      CallerPrincipalProvider callerPrincipalProvider,
+      JobAuthorizationPolicy authorizationPolicy,
+      SignalStore signalStore,
+      PayloadSerializer payloadSerializer,
+      MetricsCollector metricsCollector,
+      Clock clock,
+      RatchetOptions options,
+      AfterCommitRegistrar afterCommitRegistrar) {
+    this(
+        eventPublisher,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        jobSubmitter,
+        batchSubmitter,
+        streamingBatchSubmitter,
+        recurringJobSubmitter,
+        callerPrincipalProvider,
+        authorizationPolicy,
+        signalStore,
         payloadSerializer,
         metricsCollector,
         clock,
@@ -299,7 +382,10 @@ public class DefaultJobSchedulerService
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
-      DefaultJobCreationService jobCreationService,
+      JobSubmitter jobSubmitter,
+      BatchSubmitter batchSubmitter,
+      StreamingBatchSubmitter streamingBatchSubmitter,
+      RecurringJobSubmitter recurringJobSubmitter,
       CallerPrincipalProvider callerPrincipalProvider,
       JobAuthorizationPolicy authorizationPolicy,
       SignalStore signalStore,
@@ -321,7 +407,10 @@ public class DefaultJobSchedulerService
         wakeupService,
         recurringScheduler,
         jobInvocationResolver,
-        jobCreationService,
+        jobSubmitter,
+        batchSubmitter,
+        streamingBatchSubmitter,
+        recurringJobSubmitter,
         callerPrincipalProvider,
         authorizationPolicy,
         signalStore,
@@ -351,7 +440,10 @@ public class DefaultJobSchedulerService
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
-      DefaultJobCreationService jobCreationService,
+      JobSubmitter jobSubmitter,
+      BatchSubmitter batchSubmitter,
+      StreamingBatchSubmitter streamingBatchSubmitter,
+      RecurringJobSubmitter recurringJobSubmitter,
       CallerPrincipalProvider callerPrincipalProvider,
       JobAuthorizationPolicy authorizationPolicy,
       SignalStore signalStore,
@@ -373,7 +465,10 @@ public class DefaultJobSchedulerService
     this.wakeupService = wakeupService;
     this.recurringScheduler = recurringScheduler;
     this.jobInvocationResolver = jobInvocationResolver;
-    this.jobCreationService = jobCreationService;
+    this.jobSubmitter = jobSubmitter;
+    this.batchSubmitter = batchSubmitter;
+    this.streamingBatchSubmitter = streamingBatchSubmitter;
+    this.recurringJobSubmitter = recurringJobSubmitter;
     this.callerPrincipalProvider = callerPrincipalProvider;
     this.callerPrincipalResolver = callerPrincipalResolver;
     this.authorizationPolicy = authorizationPolicy;
@@ -504,32 +599,32 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional(Transactional.TxType.SUPPORTS)
   public JobBuilder enqueue(SerializableCheckedRunnable task) {
-    return DefaultJobBuilder.create(jobCreationService, task, Duration.ZERO);
+    return DefaultJobBuilder.create(jobSubmitter, task, Duration.ZERO);
   }
 
   @Override
   @Transactional(Transactional.TxType.SUPPORTS)
   public JobBuilder schedule(Duration delay, SerializableCheckedRunnable task) {
-    return DefaultJobBuilder.create(jobCreationService, task, delay);
+    return DefaultJobBuilder.create(jobSubmitter, task, delay);
   }
 
   @Override
   @Transactional(Transactional.TxType.SUPPORTS)
   public BatchBuilder enqueueBatch(String name) {
-    return new DefaultBatchBuilder(name, jobCreationService, jobInvocationResolver);
+    return new DefaultBatchBuilder(name, batchSubmitter, jobInvocationResolver);
   }
 
   @Override
   @Transactional(Transactional.TxType.SUPPORTS)
   public <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name) {
-    return new DefaultStreamingBatchBuilder<>(name, jobCreationService);
+    return new DefaultStreamingBatchBuilder<>(name, streamingBatchSubmitter);
   }
 
   @Override
   @Transactional(Transactional.TxType.SUPPORTS)
   public RecurringJobBuilder scheduleRecurring(
       String cron, ZoneId zone, SerializableCheckedRunnable task) {
-    return new DefaultRecurringJobBuilder(cron, zone, task, jobCreationService);
+    return new DefaultRecurringJobBuilder(cron, zone, task, recurringJobSubmitter);
   }
 
   @Override
@@ -558,7 +653,7 @@ public class DefaultJobSchedulerService
       return () -> replacementId;
     }
 
-    JobBuilder builder = DefaultJobBuilder.create(jobCreationService, newTask, delay);
+    JobBuilder builder = DefaultJobBuilder.create(jobSubmitter, newTask, delay);
     if (opts != null) {
       builder
           .withPriority(opts.priority())
