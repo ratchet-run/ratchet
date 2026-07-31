@@ -7,7 +7,8 @@
       "version": "3.5.16",
       "mavenProfile": "boot-3.5",
       "flavors": [
-        "compatibility"
+        "compatibility",
+        "postgresql"
       ]
     },
     {
@@ -15,7 +16,8 @@
       "version": "4.1.0",
       "mavenProfile": "boot-4.1",
       "flavors": [
-        "compatibility"
+        "compatibility",
+        "postgresql"
       ]
     }
   ],
@@ -23,6 +25,14 @@
     {
       "id": "compatibility",
       "consumerPom": "integrations/ratchet-spring-boot/integration-tests/compatibility/pom.xml",
+      "goals": [
+        "clean",
+        "test"
+      ]
+    },
+    {
+      "id": "postgresql",
+      "consumerPom": "integrations/ratchet-spring-boot/integration-tests/postgresql/pom.xml",
       "goals": [
         "clean",
         "test"

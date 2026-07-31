@@ -14,16 +14,16 @@
 # be the declared consumerJavaRuntime.
 #
 # Usage:
-#   verify-jvm-matrix.sh
-#   verify-jvm-matrix.sh -Dmaven.repo.local=/absolute/isolated/repository
+#   verify-jvm-matrix.sh [flavor]
+#   verify-jvm-matrix.sh -Dmaven.repo.local=/absolute/isolated/repository [flavor]
 #
 # Environment:
 #   RATCHET_MATRIX_JAVA_HOME=/absolute/path/to/jdk-17   (optional)
 
 set -euo pipefail
 
-if [[ $# -gt 1 ]]; then
-  echo "usage: $0 [-Dmaven.repo.local=/absolute/isolated/repository]" >&2
+if [[ $# -gt 2 ]]; then
+  echo "usage: $0 [-Dmaven.repo.local=/absolute/isolated/repository] [flavor]" >&2
   exit 2
 fi
 
@@ -37,18 +37,26 @@ for command in java mvn python3; do
 done
 
 ARGUMENT_REPO=""
-if [[ $# -eq 1 ]]; then
-  case "$1" in
+SELECTED_FLAVOR=""
+for argument in "$@"; do
+  case "$argument" in
     -Dmaven.repo.local=*)
-      ARGUMENT_REPO="${1#-Dmaven.repo.local=}"
+      if [[ -n "$ARGUMENT_REPO" ]]; then
+        echo "maven.repo.local may be specified only once" >&2
+        exit 2
+      fi
+      ARGUMENT_REPO="${argument#-Dmaven.repo.local=}"
       ;;
     *)
-      echo "unsupported argument: $1" >&2
-      echo "usage: $0 [-Dmaven.repo.local=/absolute/isolated/repository]" >&2
-      exit 2
+      if [[ -n "$SELECTED_FLAVOR" ]]; then
+        echo "only one compatibility flavor may be selected" >&2
+        echo "usage: $0 [-Dmaven.repo.local=/absolute/isolated/repository] [flavor]" >&2
+        exit 2
+      fi
+      SELECTED_FLAVOR="$argument"
       ;;
   esac
-fi
+done
 
 ENVIRONMENT_REPO="${MAVEN_REPO_LOCAL:-}"
 if [[ -n "$ARGUMENT_REPO" && -n "$ENVIRONMENT_REPO" ]]; then
@@ -106,7 +114,7 @@ print(resolved)
 PY
 )"
 
-python3 - "$ROOT" "$MATRIX" "$MAVEN_REPO" <<'PY'
+python3 - "$ROOT" "$MATRIX" "$MAVEN_REPO" "$SELECTED_FLAVOR" <<'PY'
 import hashlib
 import json
 import os
@@ -120,6 +128,7 @@ import xml.etree.ElementTree as ET
 root = pathlib.Path(sys.argv[1]).resolve()
 matrix_path = pathlib.Path(sys.argv[2]).resolve()
 maven_repo = pathlib.Path(sys.argv[3]).resolve()
+selected_flavor = sys.argv[4]
 repo_property = f"-Dmaven.repo.local={maven_repo}"
 pom_namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
 
@@ -343,6 +352,17 @@ for index, flavor in enumerate(flavor_entries):
         "goals": goals,
     }
 
+if selected_flavor:
+    if selected_flavor not in flavors:
+        available = ", ".join(sorted(flavors))
+        fail(
+            f"unknown compatibility flavor {selected_flavor!r}; "
+            f"available flavors: {available}"
+        )
+    selected_flavors = {selected_flavor}
+else:
+    selected_flavors = set(flavors)
+
 lanes = require_list(matrix.get("bootLanes"), "bootLanes")
 if not lanes:
     fail("compatibility matrix must declare at least one Boot lane")
@@ -373,6 +393,12 @@ for index, lane in enumerate(lanes):
                 f"Boot lane {lane_id} names unknown compatibility "
                 f"flavor: {flavor_id}"
             )
+    if not selected_flavors.intersection(lane_flavors):
+        requested = ", ".join(sorted(selected_flavors))
+        fail(
+            f"Boot lane {lane_id} does not declare any selected flavor: "
+            f"{requested}"
+        )
 
 artifact_paths = {
     artifact["coordinate"]: installed_artifact_path(artifact, project_version)
@@ -429,7 +455,12 @@ baseline_hashes = {
 lane_hashes = {}
 for lane in lanes:
     lane_id = lane["id"]
-    for flavor_id in lane["flavors"]:
+    lane_flavors = [
+        flavor_id
+        for flavor_id in lane["flavors"]
+        if flavor_id in selected_flavors
+    ]
+    for flavor_id in lane_flavors:
         flavor = flavors[flavor_id]
         invocation = [
             "mvn",

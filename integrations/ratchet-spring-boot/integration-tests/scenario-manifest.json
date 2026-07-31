@@ -234,7 +234,190 @@
           "id": "jvm-matrix",
           "type": "script",
           "path": "integrations/ratchet-spring-boot/integration-tests/verify-jvm-matrix.sh",
-          "arguments": [],
+          "arguments": [
+            "compatibility"
+          ],
+          "producesTests": true
+        }
+      ]
+    },
+    "postgresql-store": {
+      "bootLanes": [
+        "boot-3.5",
+        "boot-4.1"
+      ],
+      "database": "postgresql",
+      "sharedTckContracts": [],
+      "expectedReports": [
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlDependencyVersionTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlDependencyVersionTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlApplicationEntityTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlApplicationEntityTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlTransactionTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlTransactionTruthTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlConcurrencyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlConcurrencyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlMigrationTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlMigrationTruthTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlNegativeStartupTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlNegativeStartupTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlDependencyVersionTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlDependencyVersionTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlApplicationEntityTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlApplicationEntityTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlTransactionTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlTransactionTruthTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlConcurrencyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlConcurrencyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlMigrationTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlMigrationTruthTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlNegativeStartupTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlNegativeStartupTest",
+          "minimumExecutedTests": 4
+        }
+      ],
+      "sourceSentinels": [
+        {
+          "kind": "file-exists",
+          "path": "stores/ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobStoreFactory.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa/src/main/java/run/ratchet/spring/boot/autoconfigure/jpa/RatchetJpaAutoConfiguration.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa/src/main/java/run/ratchet/spring/boot/autoconfigure/jpa/RatchetJpaSchemaMigrationInitializer.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/postgresql/src/test/java/run/ratchet/spring/boot/it/postgresql/PostgresqlDependencyVersionTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/postgresql/src/test/java/run/ratchet/spring/boot/it/postgresql/PostgresqlTopologyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/postgresql/src/test/java/run/ratchet/spring/boot/it/postgresql/PostgresqlApplicationEntityTopologyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/postgresql/src/test/java/run/ratchet/spring/boot/it/postgresql/PostgresqlTransactionTruthTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/postgresql/src/test/java/run/ratchet/spring/boot/it/postgresql/PostgresqlConcurrencyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/postgresql/src/test/java/run/ratchet/spring/boot/it/postgresql/PostgresqlMigrationTruthTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/postgresql/src/test/java/run/ratchet/spring/boot/it/postgresql/PostgresqlNegativeStartupTest.java"
+        }
+      ],
+      "conformanceArtifact": {
+        "applicable": false,
+        "name": null,
+        "path": null
+      },
+      "requiredCiJob": "spring-boot-postgresql-jvm",
+      "commands": [
+        {
+          "id": "jvm-matrix",
+          "type": "script",
+          "path": "integrations/ratchet-spring-boot/integration-tests/verify-jvm-matrix.sh",
+          "arguments": [
+            "postgresql"
+          ],
           "producesTests": true
         }
       ]
