@@ -12,7 +12,7 @@ Roll that yourself and you end up writing the same ledger every time. A counter 
 A batch is Ratchet's name for that ledger. You hand it the items and the work; it enqueues one child job each, counts completions and failures as they land, and hands every progress hook an immutable snapshot. When the batch finishes, you branch on what actually happened.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.3.1-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a store that advertises the `BatchStore` capability.
+The Java on this page compiles against `ratchet-api` `0.3.2-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a store that advertises the `BatchStore` capability.
 :::
 
 ## Fan out, track progress, branch on the result
