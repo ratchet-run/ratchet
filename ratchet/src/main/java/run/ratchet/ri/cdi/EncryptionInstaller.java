@@ -23,18 +23,15 @@ import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.List;
-import java.util.Optional;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.EncryptionConfigurationException;
-import run.ratchet.ri.cdi.ReferenceEncryptionFactory.ReferenceEncryption;
+import run.ratchet.ri.core.internal.EncryptionRuntimeInstallation;
 import run.ratchet.ri.core.internal.RuntimeInstallation;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadEncryption;
-import run.ratchet.store.converter.EncryptionHolder;
-import run.ratchet.store.util.EncryptionIntegrity;
 
 /**
  * Resolves the framework-managed {@link PayloadEncryption} engines and {@link KeyProvider} into a
@@ -104,10 +101,6 @@ public class EncryptionInstaller {
       @Observes
           @Priority(RatchetRuntimeStart.PRIORITY_ENCRYPTION_INSTALL)
           @Initialized(ApplicationScoped.class) Object event) {
-    // Deferred on build-time-CDI runtimes (e.g. Quarkus): resolving node entropy here reaches the
-    // node identity provider (DB + executor) at STATIC_INIT, before the persistence unit exists.
-    // RatchetRuntimeStart drives it at runtime instead, which also yields a real node id for nonce
-    // entropy rather than the degraded fallback.
     if (RatchetRuntimeStart.logIfDeferred(
         log,
         "Encryption install deferred pending RatchetRuntimeStart event; if this runtime never"
@@ -138,194 +131,61 @@ public class EncryptionInstaller {
 
   private RuntimeInstallation createRuntimeInstallation() {
     if (engines == null || keyProvider == null || options == null) {
-      return new RuntimeInstallation() {
-        @Override
-        public void install(Object ownerToken) {}
-
-        @Override
-        public void uninstall(Object ownerToken) {}
-      };
+      return noOpInstallation();
     }
-    EncryptionPlan plan = resolveEncryptionPlan();
-    EncryptionIntegrity.Listener integrityListener = resolveIntegrityMetricsBridge();
-    return new RuntimeInstallation() {
-      @Override
-      public void install(Object ownerToken) {
-        EncryptionIntegrity.install(ownerToken, integrityListener);
-        try {
-          if (plan.disabled()) {
-            EncryptionHolder.disable(ownerToken);
-          } else {
-            EncryptionHolder.install(
-                ownerToken,
-                plan.engines(),
-                plan.writeAlgorithm(),
-                plan.keyProvider(),
-                plan.globalEnabled());
-          }
-          installedOwnerToken = ownerToken;
-        } catch (RuntimeException | Error failure) {
-          EncryptionIntegrity.uninstall(ownerToken);
-          throw failure;
-        }
-      }
-
-      @Override
-      public void uninstall(Object ownerToken) {
-        try {
-          EncryptionHolder.uninstall(ownerToken);
-        } finally {
-          EncryptionIntegrity.uninstall(ownerToken);
-        }
-      }
-    };
-  }
-
-  private EncryptionPlan resolveEncryptionPlan() {
-    boolean globalEnabled = options.encryption() != null && options.encryption().enabled();
-
-    List<PayloadEncryption> engineList = engines.stream().toList();
-    boolean hasEngine = !engineList.isEmpty();
     if (keyProvider.isAmbiguous()) {
       throw new EncryptionConfigurationException(
           "Multiple KeyProvider beans are resolvable. Configure exactly one.");
     }
-    boolean hasProvider = keyProvider.isResolvable();
-
-    if (!hasEngine && !hasProvider) {
-      // No application beans. Fall back to the bundled reference stack if the deployment configured
-      // keys via the environment; an app that brings its own engine/provider takes precedence and
-      // never reaches here.
-      Optional<ReferenceEncryption> reference =
-          ReferenceEncryptionFactory.fromEnvironment(resolveNodeEntropy());
-      if (reference.isPresent()) {
-        ReferenceEncryption ref = reference.get();
-        return new EncryptionPlan(
-            List.of(ref.engine()), ref.engine().algorithmId(), ref.keyProvider(), globalEnabled);
-      }
-      if (globalEnabled) {
-        throw new EncryptionConfigurationException(
-            "Payload encryption is enabled (RatchetOptions.encryption) but no PayloadEncryption"
-                + " engine and KeyProvider are installed, and no reference keys are configured"
-                + " (RATCHET_ENCRYPTION_KEYS).");
-      }
-      return EncryptionPlan.disabledPlan();
-    }
-    if (!hasEngine) {
+    List<PayloadEncryption> resolvedEngines = engines.stream().toList();
+    if (resolvedEngines.isEmpty() && keyProvider.isResolvable()) {
       throw new EncryptionConfigurationException(
           "A KeyProvider is installed but no PayloadEncryption engine is. Install an engine or"
               + " remove the provider.");
     }
-    if (!hasProvider) {
-      throw new EncryptionConfigurationException(
-          "A PayloadEncryption engine is installed but no KeyProvider is. Install a provider or"
-              + " remove the engine.");
-    }
-    return new EncryptionPlan(
-        engineList, resolveWriteAlgorithm(engineList), keyProvider.get(), globalEnabled);
+    RuntimeInstallation delegate =
+        new EncryptionRuntimeInstallation(
+            resolvedEngines,
+            keyProvider.isResolvable() ? List.of(keyProvider.get()) : List.of(),
+            options,
+            metricsCollector != null && metricsCollector.isResolvable()
+                ? List.of(metricsCollector.get())
+                : List.of(),
+            nodeIdProvider);
+    return trackingInstallation(delegate);
   }
 
-  /**
-   * Picks the algorithm id new writes use. With a single engine installed it is that engine. With
-   * several — the algorithm-rotation case, where an old engine stays installed to decrypt
-   * not-yet-drained rows — the deployment must name the write algorithm via {@code
-   * RatchetOptions.encryption().writeAlgorithm}; an unset selection is a fail-loud misconfiguration
-   * rather than an arbitrary pick. {@link EncryptionHolder#install} validates that the returned id
-   * names an installed engine.
-   */
-  private String resolveWriteAlgorithm(List<PayloadEncryption> engineList) {
-    String configured = options.encryption() == null ? null : options.encryption().writeAlgorithm();
-    if (configured != null && !configured.isBlank()) {
-      return configured;
-    }
-    if (engineList.size() == 1) {
-      return engineList.get(0).algorithmId();
-    }
-    throw new EncryptionConfigurationException(
-        "Multiple PayloadEncryption engines are installed but no write algorithm is configured. Set"
-            + " RatchetOptions.encryption().writeAlgorithm to the algorithm id new writes should"
-            + " use.");
+  private RuntimeInstallation trackingInstallation(RuntimeInstallation delegate) {
+    return new RuntimeInstallation() {
+      @Override
+      public void install(Object ownerToken) {
+        delegate.install(ownerToken);
+        installedOwnerToken = ownerToken;
+      }
+
+      @Override
+      public void uninstall(Object ownerToken) {
+        delegate.uninstall(ownerToken);
+      }
+    };
   }
 
-  /**
-   * Bridges the store-layer {@link EncryptionIntegrity} probe — which runs outside CDI in the row
-   * mappers — to the container's {@link MetricsCollector}, so a flagged-but-unframed read (ADR Q-D)
-   * is both logged (in the probe) and counted as a metric. A no-op when no single MetricsCollector
-   * is resolvable.
-   */
-  private EncryptionIntegrity.Listener resolveIntegrityMetricsBridge() {
-    if (metricsCollector == null || !metricsCollector.isResolvable()) {
-      return null;
-    }
-    MetricsCollector metrics = metricsCollector.get();
-    return (jobId, surface) -> metrics.encryptionIntegrityViolation(jobId, surface.name());
-  }
+  private static RuntimeInstallation noOpInstallation() {
+    return new RuntimeInstallation() {
+      @Override
+      public void install(Object ownerToken) {}
 
-  /**
-   * Per-node entropy mixed into the reference engine's nonce epoch so two nodes that share a key
-   * produce disjoint nonce spaces. Falls back to {@code 0} when the node id is unavailable.
-   */
-  private long resolveNodeEntropy() {
-    if (nodeIdProvider == null) {
-      warnNoNodeEntropy(null);
-      return 0L;
-    }
-    long entropy;
-    try {
-      entropy = ReferenceEncryptionFactory.nodeEntropy(nodeIdProvider.getNodeId());
-    } catch (RuntimeException e) {
-      warnNoNodeEntropy(e);
-      return 0L;
-    }
-    if (entropy == 0L) {
-      // A blank/empty node id hashes to 0 (ReferenceEncryptionFactory.nodeEntropy), so the engine
-      // gets no per-node component even though resolution did not throw.
-      warnNoNodeEntropy(null);
-    }
-    return entropy;
-  }
-
-  /**
-   * Warns that the reference engine starts with no per-node entropy. Without it, two nodes that
-   * share a key and were cloned from the same image draw a less-distinct nonce epoch, weakening the
-   * nonce-clone protection. Encryption still works; this is a posture warning, not a startup abort.
-   */
-  private void warnNoNodeEntropy(RuntimeException cause) {
-    if (cause != null) {
-      log.warnf(
-          cause,
-          "Node identity could not be resolved for the reference encryption engine; starting with"
-              + " no per-node nonce entropy (reduced nonce-clone protection). Ensure a"
-              + " NodeIdentityProvider yields a stable, non-empty node id.");
-    } else {
-      log.warn(
-          "Node identity is unavailable for the reference encryption engine; starting with no"
-              + " per-node nonce entropy (reduced nonce-clone protection). Ensure a"
-              + " NodeIdentityProvider yields a stable, non-empty node id.");
-    }
+      @Override
+      public void uninstall(Object ownerToken) {}
+    };
   }
 
   @PreDestroy
   void onShutdown() {
+    RuntimeInstallation current = runtimeInstallation;
     Object ownerToken = installedOwnerToken;
-    if (ownerToken != null) {
-      EncryptionHolder.uninstall(ownerToken);
-      EncryptionIntegrity.uninstall(ownerToken);
-    }
-  }
-
-  private record EncryptionPlan(
-      List<PayloadEncryption> engines,
-      String writeAlgorithm,
-      KeyProvider keyProvider,
-      boolean globalEnabled) {
-
-    private static EncryptionPlan disabledPlan() {
-      return new EncryptionPlan(List.of(), null, null, false);
-    }
-
-    private boolean disabled() {
-      return engines.isEmpty();
+    if (current != null && ownerToken != null) {
+      current.uninstall(ownerToken);
     }
   }
 }

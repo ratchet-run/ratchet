@@ -69,6 +69,7 @@ import run.ratchet.ri.core.internal.DefaultRecurringScheduler;
 import run.ratchet.ri.core.internal.DefaultResourcePermitService;
 import run.ratchet.ri.core.internal.DoNotRetryPolicy;
 import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
+import run.ratchet.ri.core.internal.EncryptionRuntimeInstallation;
 import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -80,6 +81,8 @@ import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
+import run.ratchet.ri.core.internal.PayloadMaskingRuntimeInstallation;
+import run.ratchet.ri.core.internal.PayloadSerializerRuntimeInstallation;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerCycleExecutor;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -498,6 +501,15 @@ public final class RatchetRuntimeComponentCatalog {
               JobStore.class,
               Clock.class),
           component(
+              EncryptionRuntimeInstallation.class,
+              List.class,
+              List.class,
+              RatchetOptions.class,
+              List.class,
+              NodeIdentityProvider.class),
+          component(PayloadSerializerRuntimeInstallation.class, List.class),
+          component(PayloadMaskingRuntimeInstallation.class, List.class),
+          component(
               DefaultRatchetRuntime.class,
               Poller.class,
               RecurringScheduler.class,
@@ -507,6 +519,7 @@ public final class RatchetRuntimeComponentCatalog {
               JobArchivingService.class,
               LogPurgeTimer.class,
               JobExecutionCoordinator.class,
+              JobExecutorService.class,
               PollerWakeupListener.class,
               DrainController.class,
               ClusterCoordinator.class,

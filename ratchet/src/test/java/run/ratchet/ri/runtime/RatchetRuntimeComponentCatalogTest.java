@@ -102,6 +102,9 @@ class RatchetRuntimeComponentCatalogTest {
           "DefaultJobQueryService",
           "DefaultClusterQueryService",
           "RecurringMethodRegistrar",
+          "EncryptionRuntimeInstallation",
+          "PayloadSerializerRuntimeInstallation",
+          "PayloadMaskingRuntimeInstallation",
           "DefaultRatchetRuntime");
 
   @Test

@@ -33,7 +33,6 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
@@ -46,19 +45,12 @@ import org.springframework.core.env.StandardEnvironment;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.persistenceunit.PersistenceUnitManager;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spring.boot.autoconfigure.RatchetProperties;
-import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.migration.SchemaInitializationException;
 import run.ratchet.store.postgresql.PostgresqlJobStore;
 import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
 
 class RatchetJpaAutoConfigurationTest {
-
-  @AfterEach
-  void clearPayloadSerializerHolder() {
-    PayloadSerializerHolder.set(null);
-  }
 
   @Test
   void ordersAfterBothSpringBootHibernateAutoConfigurationNames() {
@@ -105,30 +97,6 @@ class RatchetJpaAutoConfigurationTest {
 
     assertFalse(configuration.proxyBeanMethods());
     assertArrayEquals(new Class<?>[] {PostgresqlJobStore.class}, condition.value());
-  }
-
-  @Test
-  void postgresqlStoreExplicitlyDependsOnPayloadSerializerInstallation() {
-    boolean installationDependency =
-        Stream.of(
-                RatchetJpaAutoConfiguration.PostgresqlStoreConfiguration.class.getDeclaredMethods())
-            .filter(method -> method.getName().equals("postgresqlJobStore"))
-            .flatMap(method -> Stream.of(method.getParameterTypes()))
-            .anyMatch(SpringPayloadSerializerInstallation.class::equals);
-
-    assertTrue(installationDependency);
-  }
-
-  @Test
-  void payloadSerializerInstallationOwnsAndReleasesHolderIdempotently() throws Exception {
-    PayloadSerializer serializer = mock(PayloadSerializer.class);
-    SpringPayloadSerializerInstallation installation =
-        new SpringPayloadSerializerInstallation(serializer);
-
-    assertSame(serializer, PayloadSerializerHolder.get());
-    installation.destroy();
-    assertFalse(PayloadSerializerHolder.get() == serializer);
-    assertDoesNotThrow(installation::destroy);
   }
 
   @Test

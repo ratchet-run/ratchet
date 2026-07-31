@@ -24,6 +24,7 @@ import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
 import java.time.Clock;
+import java.util.List;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
@@ -36,6 +37,7 @@ import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
+import run.ratchet.ri.core.internal.PayloadSerializerRuntimeInstallation;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
@@ -58,7 +60,6 @@ import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.spi.PrincipalSource;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.TracingCollector;
-import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
@@ -337,13 +338,13 @@ public class RatchetProducer {
       if (payloadSerializerInstallation == null) {
         payloadSerializerInstallation =
             new RuntimeInstallation() {
+              private RuntimeInstallation delegate;
+
               @Override
               public void install(Object ownerToken) {
                 if (!payloadSerializers.isResolvable()) {
-                  log.warn(
-                      "No PayloadSerializer bean resolvable at startup; JPA converters will use"
-                          + " fallback JSON-B.");
-                  PayloadSerializerHolder.install(ownerToken, null);
+                  delegate = new PayloadSerializerRuntimeInstallation(List.of());
+                  delegate.install(ownerToken);
                   payloadSerializerOwnerToken = ownerToken;
                   return;
                 }
@@ -352,7 +353,8 @@ public class RatchetProducer {
                 Instance.Handle<PayloadSerializer> handle = payloadSerializers.getHandle();
                 boolean dependent = handle.getBean().getScope().equals(Dependent.class);
                 try {
-                  PayloadSerializerHolder.install(ownerToken, handle.get());
+                  delegate = new PayloadSerializerRuntimeInstallation(List.of(handle.get()));
+                  delegate.install(ownerToken);
                 } catch (RuntimeException | Error failure) {
                   if (dependent) {
                     destroyPayloadSerializerHandle(handle);
@@ -367,7 +369,10 @@ public class RatchetProducer {
 
               @Override
               public void uninstall(Object ownerToken) {
-                PayloadSerializerHolder.uninstall(ownerToken);
+                RuntimeInstallation current = delegate;
+                if (current != null) {
+                  current.uninstall(ownerToken);
+                }
               }
             };
       }
@@ -378,8 +383,9 @@ public class RatchetProducer {
   @PreDestroy
   void unregisterPayloadSerializer() {
     Object ownerToken = payloadSerializerOwnerToken;
-    if (ownerToken != null) {
-      PayloadSerializerHolder.uninstall(ownerToken);
+    RuntimeInstallation current = payloadSerializerInstallation;
+    if (current != null && ownerToken != null) {
+      current.uninstall(ownerToken);
     }
     destroyDependentPayloadSerializer();
   }

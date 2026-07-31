@@ -45,7 +45,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NoOpMetricsCollector;
-import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spring.boot.autoconfigure.RatchetProperties;
 import run.ratchet.store.postgresql.PostgresqlJobStore;
 import run.ratchet.store.postgresql.PostgresqlJobStoreFactory;
@@ -352,12 +351,6 @@ public class RatchetJpaAutoConfiguration {
     }
 
     @Bean
-    SpringPayloadSerializerInstallation ratchetPayloadSerializerInstallation(
-        PayloadSerializer payloadSerializer) {
-      return new SpringPayloadSerializerInstallation(payloadSerializer);
-    }
-
-    @Bean
     @ConditionalOnMissingBean(PostgresqlSchemaMigrationDialect.class)
     PostgresqlSchemaMigrationDialect postgresqlSchemaMigrationDialect() {
       return new PostgresqlSchemaMigrationDialect();
@@ -377,11 +370,9 @@ public class RatchetJpaAutoConfiguration {
     PostgresqlJobStore postgresqlJobStore(
         JpaTopology topology,
         RatchetJpaSchemaMigrationInitializer migrationInitializer,
-        SpringPayloadSerializerInstallation payloadSerializerInstallation,
         ObjectProvider<MetricsCollector> metricsCollectorProvider,
         ObjectProvider<RatchetOptions> optionsProvider) {
       Objects.requireNonNull(migrationInitializer, "migrationInitializer");
-      Objects.requireNonNull(payloadSerializerInstallation, "payloadSerializerInstallation");
       EntityManager sharedEntityManager =
           SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
       RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
