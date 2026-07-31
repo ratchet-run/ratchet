@@ -10,7 +10,7 @@ Calling a language model from a request thread is a trap. The call is slow, it f
 This is the problem durable execution solves, and it is what Ratchet already does for any other background work. Ratchet is not an AI framework and ships no model client. It is the layer underneath: it persists the call before it runs, retries it with backoff, trips a circuit breaker when the provider is down, and resumes a half-finished multi-step workflow after a crash. You bring the model client. On Jakarta EE the natural choice is [langchain4j-cdi](https://github.com/langchain4j/langchain4j-cdi), which exposes a [LangChain4j](https://docs.langchain4j.dev) AI service as an injectable CDI bean, the same programming model Ratchet uses.
 
 ::: tip Verified
-The Java on this page is compile-checked in this repository against the next development API: `ratchet-api` `0.3.0-SNAPSHOT`, `langchain4j-cdi-portable-ext` `1.3.3`, and `langchain4j-bedrock` `1.0.0-beta5`. The copyable dependency block deliberately uses the latest published Ratchet release shown below so it resolves from Maven Central. This is not a full runnable application (wiring it up needs a Jakarta EE server and AWS credentials), but the API usage is real, not illustrative pseudocode.
+The Java on this page is compile-checked in this repository against the next development API: `ratchet-api` `0.3.1-SNAPSHOT`, `langchain4j-cdi-portable-ext` `1.3.3`, and `langchain4j-bedrock` `1.0.0-beta5`. The copyable dependency block deliberately uses the latest published Ratchet release shown below so it resolves from Maven Central. This is not a full runnable application (wiring it up needs a Jakarta EE server and AWS credentials), but the API usage is real, not illustrative pseudocode.
 :::
 
 ## What you wire together
@@ -20,12 +20,12 @@ The Java on this page is compile-checked in this repository against the next dev
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet</artifactId>
-  <version>0.2.1</version>
+  <version>0.3.0</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-postgresql</artifactId>
-  <version>0.2.1</version>
+  <version>0.3.0</version>
 </dependency>
 
 <!-- langchain4j-cdi: AI services as CDI beans on WildFly, Liberty, Payara, GlassFish -->

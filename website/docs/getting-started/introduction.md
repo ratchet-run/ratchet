@@ -164,7 +164,7 @@ On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a 
 
 ## Project status
 
-Ratchet is currently at version **0.3.0-SNAPSHOT**. The core API is stabilizing, but interfaces marked with `@Incubating` (such as `CircuitBreakerProtected` and `CircuitBreakerProfile`) may change in future releases. Feedback and contributions are welcome.
+Ratchet is currently at version **0.3.1-SNAPSHOT**. The core API is stabilizing, but interfaces marked with `@Incubating` (such as `CircuitBreakerProtected` and `CircuitBreakerProfile`) may change in future releases. Feedback and contributions are welcome.
 
 ## What's next
 

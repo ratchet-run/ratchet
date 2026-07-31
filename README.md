@@ -69,7 +69,7 @@ Swap the retry logic, circuit-breaker behavior, polling cadence, thread/executor
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.2.1</version>
+      <version>0.3.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -175,7 +175,7 @@ mvn spotless:apply       # auto-format (Google Java Format)
 
 ## Project Status
 
-Ratchet is in **0.3.0-SNAPSHOT**. The API is stabilizing; interfaces marked `@Incubating` may change between alpha releases. Feedback and contributions are welcome.
+Ratchet is in **0.3.1-SNAPSHOT**. The API is stabilizing; interfaces marked `@Incubating` may change between alpha releases. Feedback and contributions are welcome.
 
 ## Community
 
