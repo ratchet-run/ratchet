@@ -13,10 +13,147 @@
 
   <artifactId>ratchet-spring-boot-it-postgresql</artifactId>
   <name>Ratchet :: Spring Boot :: PostgreSQL Integration Tests</name>
-  <description>Placeholder for the Ratchet Spring Boot PostgreSQL integration tests</description>
+  <description>PostgreSQL JPA integration tests across supported Spring Boot lines</description>
 
   <properties>
+    <spring-boot.compatibility.version>${spring-boot35.version}</spring-boot.compatibility.version>
     <!-- Test infrastructure: never published. -->
     <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-spring-boot-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-postgresql</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <!--
+      The RI scopes jakarta.enterprise.cdi-api as provided, but
+      RatchetRuntimeComponentCatalog's descriptors reference CDI SPI types (e.g.
+      jakarta.enterprise.inject.Instance), so booting the starter's auto-configuration needs
+      the API on the test classpath. The starter-vs-consumer runtime-scope decision is owned
+      by PR 7; this mirrors the compatibility module's test-scoped arrangement. Version comes
+      from the root pom's dependencyManagement.
+    -->
+    <dependency>
+      <groupId>jakarta.enterprise</groupId>
+      <artifactId>jakarta.enterprise.cdi-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-postgresql</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-test</artifactId>
+      <version>${spring-boot.compatibility.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse</groupId>
+      <artifactId>yasson</artifactId>
+      <version>3.0.4</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Boot 3.5's Hibernate and Spring Data JPA declarations otherwise diverge. -->
+      <dependency>
+        <groupId>org.antlr</groupId>
+        <artifactId>antlr4-runtime</artifactId>
+        <version>4.13.2</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <profiles>
+    <profile>
+      <id>boot-3.5</id>
+      <properties>
+        <spring-boot.compatibility.version>${spring-boot35.version}</spring-boot.compatibility.version>
+      </properties>
+      <dependencyManagement>
+        <dependencies>
+          <!-- Keep Testcontainers ahead of Boot 3.5's managed 1.21.4 line. -->
+          <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-bom</artifactId>
+            <version>${testcontainers.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+          <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>${spring-boot.compatibility.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+        </dependencies>
+      </dependencyManagement>
+    </profile>
+    <profile>
+      <id>boot-4.1</id>
+      <properties>
+        <spring-boot.compatibility.version>${spring-boot41.version}</spring-boot.compatibility.version>
+      </properties>
+      <dependencyManagement>
+        <dependencies>
+          <!--
+            The root pom manages hibernate-core at Boot 3.5's line with test scope for the
+            store modules; that inherited entry outranks the imported Boot 4.1 BOM, so this
+            lane must restate Boot 4.1's Hibernate version (and drop the scope override) or
+            Boot 4.1's Hibernate auto-configuration fails on Hibernate 7-only classes.
+          -->
+          <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-core</artifactId>
+            <version>7.4.1.Final</version>
+          </dependency>
+          <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <version>3.2.0</version>
+          </dependency>
+          <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-bom</artifactId>
+            <version>${testcontainers.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+          <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>${spring-boot.compatibility.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+        </dependencies>
+      </dependencyManagement>
+    </profile>
+  </profiles>
 </project>
