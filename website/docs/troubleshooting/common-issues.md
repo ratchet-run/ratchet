@@ -86,26 +86,43 @@ Verify the datasource is working by checking for connection errors in your serve
 
 **Symptom:** `ClassNotFoundException`, `NoSuchMethodException`, or `IllegalStateException` when jobs try to execute.
 
-### Lambda must be a method reference
+### Job task must be a single method invocation
 
-Ratchet uses ASM bytecode analysis to serialize lambda expressions. This means the lambda you pass to `enqueue()` must be a **single method reference**, not an inline lambda with complex logic:
+Ratchet uses ASM bytecode analysis to turn the task you submit into a stored payload. The task must
+contain **exactly one method invocation** — a method reference, or a lambda whose body is a single
+method call. Multi-statement lambdas and inline logic fail at submission with
+`IllegalArgumentException`:
 
 ```java
-// This works - single method reference
+// This works - method reference
 scheduler.enqueue(myService::processData);
 
-// This works - no-arg runnable
+// This works - lambda wrapping one call
 scheduler.enqueue(() -> myService.processData());
 
-// This may fail - captured variables must be Serializable
+// This works - the captured argument is stored with the job
 String name = "test";
-scheduler.enqueue(() -> myService.processData(name));  // 'name' is captured
+scheduler.enqueue(() -> myService.processData(name));
+
+// This fails - more than one invocation
+scheduler.enqueue(() -> {
+  myService.prepare();
+  myService.processData(name);
+});
 ```
+
+For complex logic, put it in a method on a CDI bean and submit that method instead.
+
+Captured arguments are persisted as JSON, not JDK-serialized, so they must be JSON-representable —
+strings, numbers, and booleans round-trip as themselves, and your own types are serialized and
+rebuilt by the payload serializer. Implementing `java.io.Serializable` is neither required nor
+sufficient.
 
 If you see `IllegalStateException` during serialization, ensure:
 1. The target class is accessible from the thread context classloader
 2. The method is `public`
-3. Any captured arguments implement `java.io.Serializable`
+3. Any captured arguments are JSON-representable, and their types are permitted by the class
+   allowlist
 
 ### Target class not found at execution time
 

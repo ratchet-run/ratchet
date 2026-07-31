@@ -17,7 +17,9 @@ package run.ratchet.spi;
 
 import java.io.Serializable;
 import java.time.Duration;
+import java.time.ZoneId;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.WorkflowCondition;
 
 /**
@@ -54,6 +56,17 @@ public interface InvocationSubmissionService {
    * @return builder for options, chaining, and submission; never {@code null}
    */
   InvocationJobBuilder scheduleInvocation(Duration delay, JobInvocation invocation);
+
+  /**
+   * Starts a builder for a recurring job executing the given invocation on a cron schedule.
+   *
+   * @param cron Quartz cron expression; never {@code null}
+   * @param zone timezone used to evaluate the cron expression; never {@code null}
+   * @param invocation pre-resolved invocation; never {@code null}
+   * @return builder for recurring options and submission; never {@code null}
+   */
+  RecurringJobBuilder scheduleRecurringInvocation(
+      String cron, ZoneId zone, JobInvocation invocation);
 
   /**
    * Starts a builder for a batch whose children are produced by per-item invocation factories.

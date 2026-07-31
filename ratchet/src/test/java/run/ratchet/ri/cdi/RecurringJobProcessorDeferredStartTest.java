@@ -40,11 +40,11 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.Recurring;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.InvocationSubmissionService;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.RecurringJobStore;
 
@@ -64,28 +64,30 @@ class RecurringJobProcessorDeferredStartTest {
   @Test
   void onStartup_whenAutoStartDeferred_doesNotRegisterJobs() {
     System.setProperty(RatchetRuntimeStart.DEFER_PROPERTY, "true");
-    var schedulerService = mock(JobSchedulerService.class);
-    var processor = newProcessor(schedulerService);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
+    var processor = newProcessor(invocationSubmissionService);
 
     processor.onStartup(new Object());
 
-    verifyNoInteractions(schedulerService);
+    verifyNoInteractions(invocationSubmissionService);
   }
 
   @Test
   void onStartup_whenNotDeferred_andNoManagedExecutor_registersInline() throws Exception {
     System.clearProperty(RatchetRuntimeStart.DEFER_PROPERTY);
-    var schedulerService = mock(JobSchedulerService.class);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
-    var processor = newProcessor(schedulerService);
+    var processor = newProcessor(invocationSubmissionService);
 
     processor.onStartup(new Object());
 
     // No ExecutorProvider is injected via this constructor, matching the documented plain-CDI/SE/
     // unit-test path: registration happens inline on the calling thread, not deferred.
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).submit();
   }
 
@@ -94,26 +96,29 @@ class RecurringJobProcessorDeferredStartTest {
     // The realistic Quarkus scenario: the defer flag stays true for the whole process lifetime,
     // and RatchetRuntimeStart is the only thing that ever triggers registration.
     System.setProperty(RatchetRuntimeStart.DEFER_PROPERTY, "true");
-    var schedulerService = mock(JobSchedulerService.class);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
-    var processor = newProcessor(schedulerService);
+    var processor = newProcessor(invocationSubmissionService);
 
     processor.onRuntimeStart(new RatchetRuntimeStart());
 
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).submit();
   }
 
   @Test
   void onRuntimeStart_whenRegistrationIsNotCommitted_retriesOnManagedScheduler() throws Exception {
     System.setProperty(RatchetRuntimeStart.DEFER_PROPERTY, "true");
-    var schedulerService = mock(JobSchedulerService.class);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
-    var processor = newProcessor(schedulerService);
+    var processor = newProcessor(invocationSubmissionService);
 
     var managedScheduler = mock(ScheduledExecutorService.class);
     var executorProvider = mock(ExecutorProvider.class);
@@ -134,8 +139,8 @@ class RecurringJobProcessorDeferredStartTest {
 
     retry.getValue().run();
 
-    verify(schedulerService, times(2))
-        .scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService, times(2))
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder, times(2)).submit();
     verify(recurringJobStore, times(2)).findRecurringByBusinessKey("leader-gate-job");
   }
@@ -143,11 +148,12 @@ class RecurringJobProcessorDeferredStartTest {
   @Test
   void onRuntimeStart_whenRegistrationNeverCommits_stopsAfterBoundedAttempts() throws Exception {
     System.setProperty(RatchetRuntimeStart.DEFER_PROPERTY, "true");
-    var schedulerService = mock(JobSchedulerService.class);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
-    var processor = newProcessor(schedulerService);
+    var processor = newProcessor(invocationSubmissionService);
 
     Deque<Runnable> retries = new ArrayDeque<>();
     var managedScheduler = mock(ScheduledExecutorService.class);
@@ -171,20 +177,21 @@ class RecurringJobProcessorDeferredStartTest {
       retries.removeFirst().run();
     }
 
-    verify(schedulerService, times(10))
-        .scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService, times(10))
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder, times(10)).submit();
     verify(recurringJobStore, times(10)).findRecurringByBusinessKey("leader-gate-job");
     verify(managedScheduler, times(9))
         .schedule(any(Runnable.class), eq(500L), eq(TimeUnit.MILLISECONDS));
   }
 
-  private RecurringJobProcessor newProcessor(JobSchedulerService schedulerService) {
+  private RecurringJobProcessor newProcessor(
+      InvocationSubmissionService invocationSubmissionService) {
     var beanManager = mock(BeanManager.class);
     Set<Bean<?>> beans = Set.of(beanFor(RecurringBean.class));
     when(beanManager.getBeans(any(), any())).thenReturn(beans);
     return new RecurringJobProcessor(
-        schedulerService,
+        invocationSubmissionService,
         mock(JobBatchStatusStore.class),
         mock(RecurringAnnotationMaintenanceService.class),
         beanManager,

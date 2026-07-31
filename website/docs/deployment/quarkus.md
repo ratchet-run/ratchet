@@ -201,8 +201,21 @@ schema details.
 ## Submitting jobs
 
 Inject `JobSchedulerService` and submit a method reference, as in the [Quickstart](#quickstart).
-Recurring jobs, signals, and batches work the same as on a Jakarta EE server. Every job target class
-must be permitted by the class allowlist.
+Recurring jobs, signals, and batches work the same as on a Jakarta EE server, on the JVM and in a
+native image. Every job target class must be permitted by the class allowlist.
+
+Lambdas that capture arguments work too, so a job can carry parameters:
+
+```java
+String orderId = order.id();
+scheduler.enqueueNow(() -> shipping.dispatch(orderId));
+```
+
+Captured values are persisted with the job, so they must be JSON-representable. Strings, numbers,
+and booleans round-trip as themselves; your own records and classes are serialized and rebuilt by
+JSON-B, so they need the usual JSON-B shape and must be permitted by the class allowlist. A bound
+method reference on an unmanaged object, `new Report(id)::send`, is not supported — the receiver's
+state has nowhere to live in the persisted job. Capture the values in a lambda instead.
 
 ## MongoDB flavor
 
@@ -245,9 +258,36 @@ mvn package -Pnative -Dquarkus.native.container-build=false
 
 Build on a host GraalVM or Mandrel. The extension registers the reflection, runtime-init, and
 lambda-serialization metadata the engine needs, and it includes the schema migrations in the image,
-so method-reference jobs and `auto-migrate` both work in native. Inline lambdas such as `() ->
-svc.work(arg)` are JVM-only; for a job you want to run in native, pass a method reference or a bean
-method instead.
+so jobs and `auto-migrate` both work in native.
+
+Method references and capturing lambdas both run in a native image. A method reference names its
+target directly, so it needs nothing extra. An inline lambda does not — resolving `() ->
+svc.work(arg)` into a persistable job means reading the lambda body's bytecode, and a native image
+ships no class files by default. The extension therefore includes the bytecode of each class that
+submits jobs, which it finds by looking for a `JobSchedulerService` field or method parameter.
+
+::: warning Submitting without injecting the scheduler
+That detection covers ordinary injection — a field, a setter, or a constructor parameter. It does
+not cover a class that looks the scheduler up instead, such as
+`CDI.current().select(JobSchedulerService.class).get()`, a lookup helper, or a base class
+submitting on behalf of subclasses. An inline lambda submitted from such a class fails at runtime in
+native with `IllegalStateException: Bytecode not found`. Annotate the class with
+`@RegisterJobSubmitter` to register it explicitly:
+
+```java
+import run.ratchet.quarkus.runtime.RegisterJobSubmitter;
+
+@RegisterJobSubmitter
+public class OrderSubmitter {
+  public void submit(String orderId) {
+    JobSchedulerService scheduler = CDI.current().select(JobSchedulerService.class).get();
+    scheduler.enqueueNow(() -> shipping.dispatch(orderId));
+  }
+}
+```
+
+The annotation is a no-op in JVM mode, and method references never need it.
+:::
 
 ## What the extension handles
 
@@ -266,6 +306,9 @@ method instead.
   an authenticated request records that caller. It reads the identity defensively, so submitting from
   a background thread with no active request simply records no caller instead of failing.
 - Keeps Ratchet's beans from being pruned by ArC and registers the native metadata.
+- Registers each job-submitting class for lambda serialization and includes its bytecode in the
+  native image, so capturing lambdas resolve at runtime. Classes that do not inject
+  `JobSchedulerService` opt in with `@RegisterJobSubmitter`.
 
 ## Differences from a Jakarta EE server
 

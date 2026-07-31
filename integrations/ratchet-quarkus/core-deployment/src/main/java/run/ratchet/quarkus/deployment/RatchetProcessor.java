@@ -26,10 +26,16 @@ import io.quarkus.deployment.builditem.FeatureBuildItem;
 import io.quarkus.deployment.builditem.IndexDependencyBuildItem;
 import io.quarkus.deployment.builditem.SystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.LambdaCapturingTypeBuildItem;
+import io.quarkus.deployment.builditem.nativeimage.NativeImageResourceBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageSystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveMethodBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.RuntimeInitializedClassBuildItem;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import org.jboss.jandex.AnnotationInstance;
+import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
 import org.jboss.jandex.FieldInfo;
@@ -39,6 +45,7 @@ import run.ratchet.quarkus.runtime.QuarkusPrincipalSource;
 import run.ratchet.quarkus.runtime.QuarkusRatchetExecutorProvider;
 import run.ratchet.quarkus.runtime.RatchetRuntimeProducers;
 import run.ratchet.quarkus.runtime.RatchetStartupTrigger;
+import run.ratchet.quarkus.runtime.RegisterJobSubmitter;
 import run.ratchet.ri.cdi.RatchetRuntimeStart;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.util.JobPlaceholders;
@@ -52,6 +59,9 @@ class RatchetProcessor {
   private static final String FEATURE = "ratchet";
   private static final DotName JOB_SCHEDULER_SERVICE =
       DotName.createSimple("run.ratchet.api.JobSchedulerService");
+
+  private static final DotName REGISTER_JOB_SUBMITTER =
+      DotName.createSimple(RegisterJobSubmitter.class.getName());
 
   @BuildStep
   FeatureBuildItem feature() {
@@ -168,7 +178,9 @@ class RatchetProcessor {
     if (applicationClasses.length > 0) {
       reflective.produce(
           ReflectiveClassBuildItem.builder(applicationClasses)
-              .constructors(false)
+              // JSON-B reconstructs captured POJO receivers and arguments at execution. Registering
+              // application constructors costs image size, but is required for that native path.
+              .constructors(true)
               .methods(true)
               .build());
     }
@@ -183,11 +195,43 @@ class RatchetProcessor {
   @BuildStep
   void lambdaCapturingTypes(
       CombinedIndexBuildItem index, BuildProducer<LambdaCapturingTypeBuildItem> lambdas) {
+    for (ClassInfo candidate : lambdaCapturingClasses(index)) {
+      lambdas.produce(new LambdaCapturingTypeBuildItem(candidate.name().toString()));
+    }
+  }
+
+  /**
+   * Ship bytecode only for lambda-capturing classes: {@code AsmLambdaAnalyzer} reads these class
+   * resources at runtime for inline lambdas. Restricting the set bounds the native image-size cost.
+   */
+  @BuildStep
+  void lambdaCapturingClassResources(
+      CombinedIndexBuildItem index, BuildProducer<NativeImageResourceBuildItem> resources) {
+    for (ClassInfo candidate : lambdaCapturingClasses(index)) {
+      String internalName = candidate.name().toString().replace('.', '/');
+      resources.produce(new NativeImageResourceBuildItem(internalName + ".class"));
+    }
+  }
+
+  /**
+   * Classes that may declare an inline lambda body the engine has to resolve: those injecting
+   * {@link run.ratchet.api.JobSchedulerService}, plus those opting in with {@link
+   * RegisterJobSubmitter} because they obtain the scheduler some other way.
+   */
+  private static List<ClassInfo> lambdaCapturingClasses(CombinedIndexBuildItem index) {
+    Map<DotName, ClassInfo> selected = new LinkedHashMap<>();
     for (ClassInfo candidate : index.getIndex().getKnownClasses()) {
       if (injectsJobScheduler(candidate)) {
-        lambdas.produce(new LambdaCapturingTypeBuildItem(candidate.name().toString()));
+        selected.put(candidate.name(), candidate);
       }
     }
+    for (AnnotationInstance annotation : index.getIndex().getAnnotations(REGISTER_JOB_SUBMITTER)) {
+      if (annotation.target().kind() == AnnotationTarget.Kind.CLASS) {
+        ClassInfo annotated = annotation.target().asClass();
+        selected.put(annotated.name(), annotated);
+      }
+    }
+    return List.copyOf(selected.values());
   }
 
   private static boolean injectsJobScheduler(ClassInfo candidate) {

@@ -35,12 +35,42 @@ public class ItResource {
   @Inject JobSchedulerService scheduler;
   @Inject ItJobs jobs;
   @Inject RatchetOptions options;
+  @Inject UnmanagedSubmitter unmanagedSubmitter;
 
   @POST
   @Path("/submit")
   @Produces(MediaType.TEXT_PLAIN)
   public String submit() {
     scheduler.enqueueNow(jobs::recordRun);
+    return "submitted";
+  }
+
+  @POST
+  @Path("/submit-value")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String submitValue() {
+    String captured = valueToCapture();
+    scheduler.enqueueNow(() -> jobs.recordValue(captured));
+    return "submitted";
+  }
+
+  @POST
+  @Path("/submit-arg")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String submitArg() {
+    DemoArg captured = argToCapture();
+    scheduler.enqueueNow(() -> jobs.recordArg(captured));
+    return "submitted";
+  }
+
+  /**
+   * Submits from a class the auto-detection heuristic cannot see; see {@link UnmanagedSubmitter}.
+   */
+  @POST
+  @Path("/submit-unmanaged")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String submitUnmanaged() {
+    unmanagedSubmitter.submit(jobs);
     return "submitted";
   }
 
@@ -74,6 +104,27 @@ public class ItResource {
   }
 
   @GET
+  @Path("/executed-value")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String executedValue() {
+    return jobs.executedValue();
+  }
+
+  @GET
+  @Path("/executed-arg")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String executedArg() {
+    return jobs.executedArg();
+  }
+
+  @GET
+  @Path("/executed-unmanaged")
+  @Produces(MediaType.TEXT_PLAIN)
+  public String executedUnmanaged() {
+    return jobs.executedUnmanaged();
+  }
+
+  @GET
   @Path("/recurring-executed")
   @Produces(MediaType.TEXT_PLAIN)
   public String recurringExecuted() {
@@ -85,5 +136,14 @@ public class ItResource {
   @Produces(MediaType.TEXT_PLAIN)
   public String autoMigrateEnabled() {
     return Boolean.toString(options.schema().autoMigrate());
+  }
+
+  // Resolve captures through method calls so javac cannot fold literals into the lambda bodies.
+  private static String valueToCapture() {
+    return "hello-native";
+  }
+
+  private static DemoArg argToCapture() {
+    return new DemoArg("demo", 7);
   }
 }
