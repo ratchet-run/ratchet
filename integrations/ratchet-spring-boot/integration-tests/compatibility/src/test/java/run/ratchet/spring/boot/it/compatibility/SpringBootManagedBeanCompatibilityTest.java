@@ -33,7 +33,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.aop.support.AopUtils;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -55,6 +55,7 @@ import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -64,7 +65,9 @@ import run.ratchet.store.spi.JobTerminalStore;
 class SpringBootManagedBeanCompatibilityTest {
 
   private final ApplicationContextRunner contextRunner =
-      new ApplicationContextRunner().withUserConfiguration(ManagedApplication.class);
+      new ApplicationContextRunner()
+          .withConfiguration(AutoConfigurations.of(RatchetAutoConfiguration.class))
+          .withUserConfiguration(ManagedApplication.class);
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
@@ -148,7 +151,6 @@ class SpringBootManagedBeanCompatibilityTest {
   }
 
   @Configuration(proxyBeanMethods = false)
-  @EnableAutoConfiguration
   @EnableTransactionManagement
   static class ManagedApplication {
 

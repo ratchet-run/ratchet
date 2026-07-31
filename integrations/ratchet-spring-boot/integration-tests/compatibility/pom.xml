@@ -21,6 +21,17 @@
     <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
 
+  <dependencyManagement>
+    <dependencies>
+      <!-- Boot 3.5's Hibernate and Spring Data JPA declarations otherwise diverge. -->
+      <dependency>
+        <groupId>org.antlr</groupId>
+        <artifactId>antlr4-runtime</artifactId>
+        <version>4.13.2</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <dependencies>
     <dependency>
       <groupId>run.ratchet</groupId>

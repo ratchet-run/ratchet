@@ -28,9 +28,8 @@ import java.nio.file.Path;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.context.annotation.Configuration;
 import run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration;
 import run.ratchet.spring.boot.autoconfigure.jpa.RatchetJpaAutoConfiguration;
 
@@ -42,15 +41,18 @@ class SpringBootCompatibilitySmokeTest {
       "META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports";
 
   private final ApplicationContextRunner contextRunner =
-      new ApplicationContextRunner().withUserConfiguration(EmptyApplication.class);
+      new ApplicationContextRunner()
+          .withConfiguration(
+              AutoConfigurations.of(
+                  RatchetAutoConfiguration.class, RatchetJpaAutoConfiguration.class));
 
   @Test
-  void sqlStarterLoadsBothEmptyAutoConfigurationsAndTheirMetadata() throws Exception {
+  void sqlStarterKeepsJpaAutoConfigurationGatedWithoutADialectStore() throws Exception {
     contextRunner.run(
         context -> {
           assertTrue(context.isRunning());
           assertNotNull(context.getBean(RatchetAutoConfiguration.class));
-          assertNotNull(context.getBean(RatchetJpaAutoConfiguration.class));
+          assertTrue(context.getBeansOfType(RatchetJpaAutoConfiguration.class).isEmpty());
           assertFalse(context.containsBean("dataSource"));
           assertFalse(context.containsBean("entityManagerFactory"));
           assertFalse(context.containsBean("mongo"));
@@ -88,8 +90,4 @@ class SpringBootCompatibilitySmokeTest {
       return new String(jar.getInputStream(entry).readAllBytes(), StandardCharsets.UTF_8);
     }
   }
-
-  @Configuration(proxyBeanMethods = false)
-  @EnableAutoConfiguration
-  static class EmptyApplication {}
 }
