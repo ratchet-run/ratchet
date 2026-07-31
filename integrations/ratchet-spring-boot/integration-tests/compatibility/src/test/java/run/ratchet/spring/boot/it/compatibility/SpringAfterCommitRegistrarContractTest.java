@@ -41,7 +41,8 @@ class SpringAfterCommitRegistrarContractTest {
 
   private final ApplicationContextRunner contextRunner =
       new ApplicationContextRunner()
-          .withConfiguration(AutoConfigurations.of(RatchetAutoConfiguration.class));
+          .withConfiguration(AutoConfigurations.of(RatchetAutoConfiguration.class))
+          .withPropertyValues("ratchet.allow-empty-class-policy=true");
 
   @Test
   void autoConfigurationProvidesTheSpringRegistrarInsteadOfTheJakartaCatalogAdapter() {

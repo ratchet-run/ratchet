@@ -270,10 +270,14 @@ public class SpringRecurringCompatibilityTest {
     private Fixture(AnnotationConfigApplicationContext context, ClassPolicy classPolicy) {
       this.context = context;
       context.register(RatchetAutoConfiguration.class);
-      context.registerBean(ClassPolicy.class, () -> classPolicy);
-      context.registerBean(JobSchedulerService.class, scheduler::service);
       context.registerBean(
-          RecurringAnnotationMaintenanceService.class, () -> (registeredIds, nodeStartTime) -> 0);
+          ClassPolicy.class, () -> classPolicy, definition -> definition.setPrimary(true));
+      context.registerBean(
+          JobSchedulerService.class, scheduler::service, definition -> definition.setPrimary(true));
+      context.registerBean(
+          RecurringAnnotationMaintenanceService.class,
+          () -> (registeredIds, nodeStartTime) -> 0,
+          definition -> definition.setPrimary(true));
       context.registerBean(
           StartupCoordinator.class,
           () ->
@@ -285,7 +289,8 @@ public class SpringRecurringCompatibilityTest {
 
                 @Override
                 public void release(String actionName) {}
-              });
+              },
+          definition -> definition.setPrimary(true));
       context.registerBean(
           ExecutorProvider.class,
           () ->
@@ -299,10 +304,16 @@ public class SpringRecurringCompatibilityTest {
                 public ScheduledExecutorService getScheduledExecutor() {
                   return null;
                 }
-              });
-      context.registerBean(JobStore.class, store::jobStore);
-      context.registerBean(RatchetOptions.class, RatchetOptions::defaults);
-      context.registerBean(Clock.class, Clock::systemUTC);
+              },
+          definition -> definition.setPrimary(true));
+      context.registerBean(
+          JobStore.class, store::jobStore, definition -> definition.setPrimary(true));
+      context.registerBean(
+          RatchetOptions.class,
+          RatchetOptions::defaults,
+          definition -> definition.setPrimary(true));
+      context.registerBean(
+          Clock.class, Clock::systemUTC, definition -> definition.setPrimary(true));
       context.refresh();
 
       methodInvoker = context.getBean(RecurringMethodInvoker.class);

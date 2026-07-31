@@ -28,10 +28,13 @@ import java.nio.file.Path;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import run.ratchet.ri.runtime.RatchetRuntimeComponentCatalog;
 import run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration;
 import run.ratchet.spring.boot.autoconfigure.jpa.RatchetJpaAutoConfiguration;
+import run.ratchet.store.spi.BatchStore;
 
 class SpringBootCompatibilitySmokeTest {
 
@@ -44,7 +47,8 @@ class SpringBootCompatibilitySmokeTest {
       new ApplicationContextRunner()
           .withConfiguration(
               AutoConfigurations.of(
-                  RatchetAutoConfiguration.class, RatchetJpaAutoConfiguration.class));
+                  RatchetAutoConfiguration.class, RatchetJpaAutoConfiguration.class))
+          .withPropertyValues("ratchet.allow-empty-class-policy=true");
 
   @Test
   void sqlStarterKeepsJpaAutoConfigurationGatedWithoutADialectStore() throws Exception {
@@ -52,7 +56,23 @@ class SpringBootCompatibilitySmokeTest {
         context -> {
           assertTrue(context.isRunning());
           assertNotNull(context.getBean(RatchetAutoConfiguration.class));
-          assertTrue(context.getBeansOfType(RatchetJpaAutoConfiguration.class).isEmpty());
+          ConfigurableListableBeanFactory beanFactory = context.getBeanFactory();
+          assertEquals(
+              0,
+              beanFactory.getBeanNamesForType(RatchetJpaAutoConfiguration.class, true, false)
+                  .length);
+          assertEquals(0, beanFactory.getBeanNamesForType(BatchStore.class, true, false).length);
+          RatchetRuntimeComponentCatalog.components().stream()
+              .filter(
+                  descriptor ->
+                      context.containsBeanDefinition(descriptor.componentType().getName()))
+              .forEach(
+                  descriptor ->
+                      assertFalse(
+                          beanFactory.containsSingleton(descriptor.componentType().getName()),
+                          () ->
+                              "No-store startup eagerly instantiated "
+                                  + descriptor.componentType().getName()));
           assertFalse(context.containsBean("dataSource"));
           assertFalse(context.containsBean("entityManagerFactory"));
           assertFalse(context.containsBean("mongo"));

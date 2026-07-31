@@ -52,7 +52,8 @@ class PostgresqlNegativeStartupTest extends PostgresqlIntegrationTestSupport {
             context -> {
               assertThat(context).hasFailed();
               assertThat(failureMessages(context.getStartupFailure()))
-                  .contains("requires exactly one JpaTransactionManager bean, but found");
+                  .contains("could not select a JpaTransactionManager bean from candidates")
+                  .contains("ratchet.transaction-manager-bean-name");
             });
   }
 

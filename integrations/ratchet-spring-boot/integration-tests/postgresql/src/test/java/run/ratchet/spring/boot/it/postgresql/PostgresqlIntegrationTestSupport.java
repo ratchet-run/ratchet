@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -46,6 +47,8 @@ import run.ratchet.store.postgresql.PostgresqlJobStore;
 @ExtendWith(PostgresqlContainerExtension.class)
 abstract class PostgresqlIntegrationTestSupport {
 
+  private static final String CONSUMER_PACKAGE = "run.ratchet.spring.boot.it.postgresql";
+
   @BeforeEach
   void resetDatabase() throws SQLException {
     executeSql("DROP SCHEMA public CASCADE", "CREATE SCHEMA public");
@@ -57,14 +60,19 @@ abstract class PostgresqlIntegrationTestSupport {
     configurations[0] = application;
     System.arraycopy(
         additionalConfigurations, 0, configurations, 1, additionalConfigurations.length);
+    RatchetOptions consumerOptions =
+        options.toBuilder()
+            .security(security -> security.classPolicyAllowedPackages(Set.of(CONSUMER_PACKAGE)))
+            .build();
 
     return new ApplicationContextRunner()
         .withUserConfiguration(configurations)
         .withInitializer(
             context ->
                 ((GenericApplicationContext) context)
-                    .registerBean(RatchetOptions.class, () -> options))
+                    .registerBean(RatchetOptions.class, () -> consumerOptions))
         .withPropertyValues(
+            "ratchet.class-policy.allowed-packages=" + CONSUMER_PACKAGE,
             "spring.jpa.hibernate.ddl-auto=none",
             "spring.jpa.open-in-view=false",
             "spring.jpa.show-sql=false",

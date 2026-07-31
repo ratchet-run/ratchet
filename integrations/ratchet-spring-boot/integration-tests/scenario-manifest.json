@@ -94,7 +94,7 @@
           "kind": "surefire",
           "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringBootManagedBeanCompatibilityTest.xml",
           "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringBootManagedBeanCompatibilityTest",
-          "minimumExecutedTests": 4
+          "minimumExecutedTests": 8
         },
         {
           "afterCommand": "jvm-matrix",
@@ -102,7 +102,7 @@
           "kind": "surefire",
           "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringBootManagedBeanCompatibilityTest.xml",
           "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringBootManagedBeanCompatibilityTest",
-          "minimumExecutedTests": 4
+          "minimumExecutedTests": 8
         },
         {
           "afterCommand": "jvm-matrix",
@@ -183,6 +183,70 @@
           "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringRecurringCompatibilityTest.xml",
           "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringRecurringCompatibilityTest",
           "minimumExecutedTests": 9
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringDefaultsCompatibilityTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringDefaultsCompatibilityTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringDefaultsCompatibilityTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringDefaultsCompatibilityTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringJsonbEventCompatibilityTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringJsonbEventCompatibilityTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringJsonbEventCompatibilityTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringJsonbEventCompatibilityTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringPrincipalCompatibilityTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringPrincipalCompatibilityTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringPrincipalCompatibilityTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringPrincipalCompatibilityTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringDependencyClasspathCompatibilityTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringDependencyClasspathCompatibilityTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/compatibility/surefire-reports/TEST-run.ratchet.spring.boot.it.compatibility.SpringDependencyClasspathCompatibilityTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.compatibility.SpringDependencyClasspathCompatibilityTest",
+          "minimumExecutedTests": 4
         }
       ],
       "sourceSentinels": [
@@ -221,6 +285,22 @@
         {
           "kind": "file-exists",
           "path": "integrations/ratchet-spring-boot/integration-tests/compatibility/src/test/java/run/ratchet/spring/boot/it/compatibility/SpringRecurringCompatibilityTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "ratchet-api/src/main/java/run/ratchet/api/RatchetConfigCatalog.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "ratchet/src/main/java/run/ratchet/ri/runtime/RatchetRuntimeDefaults.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure/src/main/java/run/ratchet/spring/boot/autoconfigure/RatchetProperties.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "ratchet/src/main/java/run/ratchet/ri/core/BatchRecoveryService.java"
         }
       ],
       "conformanceArtifact": {

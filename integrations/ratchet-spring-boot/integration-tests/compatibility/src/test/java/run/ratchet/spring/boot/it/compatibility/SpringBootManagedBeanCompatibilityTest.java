@@ -16,6 +16,7 @@
 package run.ratchet.spring.boot.it.compatibility;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -27,7 +28,9 @@ import java.lang.reflect.Field;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -38,12 +41,15 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.DefaultTransactionStatus;
+import run.ratchet.api.JobStatus;
+import run.ratchet.ri.core.BatchRecoveryService;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.JobStateManager;
 import run.ratchet.ri.core.PollerScheduler;
@@ -52,14 +58,19 @@ import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.ri.runtime.RatchetRuntimeComponentCatalog;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration;
+import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
 class SpringBootManagedBeanCompatibilityTest {
@@ -67,6 +78,7 @@ class SpringBootManagedBeanCompatibilityTest {
   private final ApplicationContextRunner contextRunner =
       new ApplicationContextRunner()
           .withConfiguration(AutoConfigurations.of(RatchetAutoConfiguration.class))
+          .withPropertyValues("ratchet.allow-empty-class-policy=true")
           .withUserConfiguration(ManagedApplication.class);
 
   @ParameterizedTest
@@ -137,6 +149,101 @@ class SpringBootManagedBeanCompatibilityTest {
             });
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void everyCataloguedTransactionalComponentIsManagedAndAdvised(boolean proxyTargetClass) {
+    fullGraphRunner(proxyTargetClass)
+        .run(
+            context -> {
+              RatchetRuntimeComponentCatalog.components().stream()
+                  .filter(descriptor -> descriptor.transactional())
+                  .forEach(
+                      descriptor -> {
+                        Object bean = context.getBean(descriptor.componentType().getName());
+                        assertTrue(
+                            AopUtils.isAopProxy(bean),
+                            () -> descriptor.componentType().getName() + " is not advised");
+                      });
+
+              BatchRecoveryService recoveryService = context.getBean(BatchRecoveryService.class);
+              BatchRecoveryService target = AopTestUtils.getTargetObject(recoveryService);
+              assertSame(
+                  context.getBean(BatchStore.class),
+                  field(target, BatchRecoveryService.class, "batchStore"),
+                  "The catalog constructor must win over the classpath-visible @Inject constructor");
+            });
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void batchRecoveryUsesRequiresNewWhileOrdinaryChildCompletionUsesRequired(
+      boolean proxyTargetClass) {
+    fullGraphRunner(proxyTargetClass)
+        .run(
+            context -> {
+              UUID batchId = UUID.randomUUID();
+              BatchEntity batch = new BatchEntity();
+              batch.setId(batchId);
+              JobEntity parent = new JobEntity();
+              parent.setId(batchId);
+              parent.setStatus(JobStatus.PENDING);
+              BatchStore batchStore = context.getBean(BatchStore.class);
+              JobCrudStore jobCrudStore = context.getBean(JobCrudStore.class);
+              when(batchStore.findRecoverableBatchIds(100)).thenReturn(List.of(batchId));
+              when(batchStore.findBatchesByIds(List.of(batchId))).thenReturn(List.of(batch));
+              when(jobCrudStore.findByIds(List.of(batchId))).thenReturn(List.of(parent));
+              when(batchStore.markBatchCompleteIfReady(batchId)).thenReturn(false);
+
+              BatchService batchService = context.getBean(BatchService.class);
+              RecordingTransactionManager transactionManager =
+                  context.getBean(RecordingTransactionManager.class);
+              transactionManager.clear();
+
+              assertEquals(0, batchService.recoverStuckBatches());
+              assertEquals(List.of("BEGIN(REQUIRES_NEW)", "COMMIT"), transactionManager.events());
+
+              transactionManager.clear();
+              assertFalse(batchService.markChildSucceeded(new JobEntity()));
+              assertEquals(List.of("BEGIN(REQUIRED)", "COMMIT"), transactionManager.events());
+            });
+  }
+
+  private static ApplicationContextRunner fullGraphRunner(boolean proxyTargetClass) {
+    return new ApplicationContextRunner()
+        .withConfiguration(AutoConfigurations.of(RatchetAutoConfiguration.class))
+        .withInitializer(context -> registerStoreFixtures((GenericApplicationContext) context))
+        .withUserConfiguration(FullGraphApplication.class)
+        .withPropertyValues(
+            "ratchet.class-policy.allowed-packages=run.ratchet",
+            "spring.aop.proxy-target-class=" + proxyTargetClass);
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private static void registerStoreFixtures(GenericApplicationContext context) {
+    context.registerBean("fullGraphJobStore", JobStore.class, () -> mock(JobStore.class));
+    Set<Class<?>> storeCapabilities = new LinkedHashSet<>();
+    RatchetRuntimeComponentCatalog.components().stream()
+        .flatMap(descriptor -> descriptor.constructorParameterTypes().stream())
+        .filter(type -> type.getPackageName().equals("run.ratchet.store.spi"))
+        .filter(type -> !type.isAssignableFrom(JobStore.class))
+        .forEach(storeCapabilities::add);
+    for (Class<?> capability : storeCapabilities) {
+      context.registerBean(
+          "fullGraph." + capability.getName(), (Class) capability, () -> mock(capability));
+    }
+  }
+
+  private static Object field(Object target, Class<?> declaringType, String name) {
+    try {
+      Field field = declaringType.getDeclaredField(name);
+      field.setAccessible(true);
+      return field.get(target);
+    } catch (ReflectiveOperationException exception) {
+      throw new AssertionError(
+          "Unable to inspect " + declaringType.getName() + "." + name, exception);
+    }
+  }
+
   private static DeadLetterService injectedDeadLetterService(
       PostExecutionHandler postExecutionHandler) {
     try {
@@ -187,11 +294,13 @@ class SpringBootManagedBeanCompatibilityTest {
     }
 
     @Bean
+    @Primary
     SingletonLeaseService singletonLeaseService() {
       return mock(SingletonLeaseService.class);
     }
 
     @Bean
+    @Primary
     InternalEventPublisher internalEventPublisher() {
       return mock(InternalEventPublisher.class);
     }
@@ -211,16 +320,19 @@ class SpringBootManagedBeanCompatibilityTest {
     }
 
     @Bean
+    @Primary
     BatchService batchService() {
       return nonAdvisedMock(BatchService.class);
     }
 
     @Bean
+    @Primary
     WorkflowScheduler workflowScheduler() {
       return nonAdvisedMock(WorkflowScheduler.class);
     }
 
     @Bean
+    @Primary
     PollerScheduler pollerScheduler() {
       return mock(PollerScheduler.class);
     }
@@ -240,6 +352,16 @@ class SpringBootManagedBeanCompatibilityTest {
     @Primary
     DeadLetterService nonTransactionalDeadLetterService() {
       return ManagedApplication.nonAdvisedMock(DeadLetterService.class);
+    }
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @EnableTransactionManagement
+  static class FullGraphApplication {
+
+    @Bean
+    RecordingTransactionManager transactionManager() {
+      return new RecordingTransactionManager();
     }
   }
 
