@@ -7,13 +7,13 @@
   <parent>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-parent</artifactId>
-    <version>0.3.0-SNAPSHOT</version>
+    <version>0.3.1-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus-parent</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.3.1-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>Ratchet :: Quarkus Extension :: Parent</name>
 
