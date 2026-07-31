@@ -52,6 +52,7 @@ class PostgresqlMigrationTruthTest extends PostgresqlIntegrationTestSupport {
   @Test
   void autoMigrateDisabledDoesNotCreateAnySchemaObjects() {
     contextRunner(RatchetOnlyApplication.class, noMigrationOptions())
+        .withPropertyValues("ratchet.lifecycle.defer-auto-start=true")
         .run(
             context -> {
               assertThat(context).hasNotFailed();

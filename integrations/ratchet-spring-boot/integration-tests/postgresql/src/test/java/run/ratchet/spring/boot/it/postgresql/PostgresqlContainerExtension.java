@@ -35,7 +35,7 @@ public final class PostgresqlContainerExtension implements BeforeAllCallback {
             .getRoot()
             .getStore(NAMESPACE)
             .getOrComputeIfAbsent(
-                RESOURCE_KEY, ignored -> new ContainerResource(), ContainerResource.class);
+                RESOURCE_KEY, ignored -> currentOrCreateResource(), ContainerResource.class);
   }
 
   public static String jdbcUrl() {
@@ -51,11 +51,22 @@ public final class PostgresqlContainerExtension implements BeforeAllCallback {
   }
 
   private static PostgreSQLContainer container() {
+    return currentOrCreateResource().container;
+  }
+
+  private static ContainerResource currentOrCreateResource() {
     ContainerResource current = resource;
-    if (current == null) {
-      throw new IllegalStateException("PostgreSQL test container has not been started");
+    if (current != null) {
+      return current;
     }
-    return current.container;
+    synchronized (PostgresqlContainerExtension.class) {
+      current = resource;
+      if (current == null) {
+        current = new ContainerResource();
+        resource = current;
+      }
+      return current;
+    }
   }
 
   private static final class ContainerResource implements ExtensionContext.Store.CloseableResource {
