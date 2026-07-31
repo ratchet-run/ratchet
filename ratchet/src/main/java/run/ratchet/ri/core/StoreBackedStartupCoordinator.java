@@ -27,7 +27,7 @@ import run.ratchet.store.spi.LockStore;
 
 /** Default {@link StartupCoordinator} backed by the store's distributed lock/lease mechanism. */
 @ApplicationScoped
-class StoreBackedStartupCoordinator implements StartupCoordinator {
+public class StoreBackedStartupCoordinator implements StartupCoordinator {
 
   private static final Logger log = Logger.getLogger(StoreBackedStartupCoordinator.class);
   private static final String LOCK_PREFIX = "startup:";

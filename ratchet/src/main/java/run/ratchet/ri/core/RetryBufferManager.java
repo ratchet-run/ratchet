@@ -43,7 +43,7 @@ import run.ratchet.store.spi.ExecutionTargetFilter;
  * buffer per {@link JobExecutionType}, drained by {@link RetryBufferDrainer}.
  */
 @ApplicationScoped
-class RetryBufferManager {
+public class RetryBufferManager {
 
   static final int MAX_BUFFER_SIZE_PER_TYPE = 1000;
 

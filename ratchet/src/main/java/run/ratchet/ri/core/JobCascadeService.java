@@ -46,7 +46,7 @@ import run.ratchet.store.spi.JobPauseStore;
  */
 @ApplicationScoped
 @Transactional
-class JobCascadeService {
+public class JobCascadeService {
 
   private static final int DEPENDANT_PAGE_SIZE = JobCrudStore.DEFAULT_PAGE_LIMIT;
 

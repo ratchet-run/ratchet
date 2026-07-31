@@ -17,10 +17,11 @@ package run.ratchet.ri.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
+import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
 import jakarta.transaction.Transactional;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
@@ -33,31 +34,75 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.jar.JarFile;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import run.ratchet.ri.cdi.CdiBeanResolver;
-import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.JobStateManager;
-import run.ratchet.ri.core.internal.DeadLetterService;
-import run.ratchet.ri.core.internal.DefaultRatchetRuntime;
-import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
-import run.ratchet.ri.core.internal.PostExecutionHandler;
-import run.ratchet.ri.core.internal.RecurringMethodRegistrar;
-import run.ratchet.ri.core.internal.RecurringRegistrationState;
 
 class RatchetRuntimeComponentCatalogTest {
 
-  private static final List<Class<?>> EXPECTED_COMPONENT_ORDER =
+  private static final List<String> EXPECTED_COMPONENT_ORDER =
       List.of(
-          JakartaAfterCommitRegistrar.class,
-          CdiBeanResolver.class,
-          RecurringMethodInvoker.class,
-          RecurringRegistrationState.class,
-          RecurringMethodRegistrar.class,
-          JobStateManager.class,
-          DeadLetterService.class,
-          PostExecutionHandler.class,
-          DefaultRatchetRuntime.class);
+          "JakartaAfterCommitRegistrar",
+          "CdiBeanResolver",
+          "RecurringMethodInvoker",
+          "InternalEventPublisher",
+          "CallerPrincipalProvider",
+          "JobPayloadInputValidator",
+          "JobSecurityValidator",
+          "DoNotRetryPolicy",
+          "PreExecutionValidator",
+          "DefaultDrainController",
+          "JobTypeRateLimiter",
+          "PoolRegistry",
+          "DynamicHeartbeatCalculator",
+          "DefaultNodeIdentityProvider",
+          "SingletonLeaseService",
+          "StoreBackedStartupCoordinator",
+          "RecurringRegistrationState",
+          "JobPayloadInvoker",
+          "ExecutionObserver",
+          "JobSuccessFinalizer",
+          "DefaultJobLoggerFactory",
+          "DefaultResultPersistenceStrategy",
+          "ExecutionTargetRouter",
+          "WorkflowConditionEvaluator",
+          "ChainScheduler",
+          "WorkflowScheduler",
+          "RecurringJobExecutor",
+          "DefaultRecurringScheduler",
+          "JobWakeupService",
+          "DefaultResourcePermitService",
+          "BatchRecoveryService",
+          "DeadLetterService",
+          "BatchService",
+          "BatchRecoveryTimer",
+          "DefaultJobArchivingService",
+          "LogPurgeTimer",
+          "PostExecutionHandler",
+          "JobStateManager",
+          "RetryBufferManager",
+          "SubmissionGateChecker",
+          "SubmissionFailureHandler",
+          "DefaultJobExecutorService",
+          "JobSubmissionService",
+          "RetryBufferDrainer",
+          "JobExecutionCoordinator",
+          "JobTimeoutHandler",
+          "Poller",
+          "PollerCycleExecutor",
+          "DefaultPollerScheduler",
+          "PollerWakeupListener",
+          "OrphanRecoveryTimer",
+          "JobCascadeService",
+          "DefaultJobCreationService",
+          "DefaultInvocationSubmissionService",
+          "DefaultJobSchedulerService",
+          "DefaultJobQueryService",
+          "DefaultClusterQueryService",
+          "RecurringMethodRegistrar",
+          "DefaultRatchetRuntime");
 
   @Test
   void catalogMatchesTransactionalSourceAndSelectedConstructors() throws Exception {
@@ -66,7 +111,10 @@ class RatchetRuntimeComponentCatalogTest {
 
     assertEquals(
         EXPECTED_COMPONENT_ORDER,
-        descriptors.stream().map(RatchetComponentDescriptor::componentType).toList());
+        descriptors.stream()
+            .map(RatchetComponentDescriptor::componentType)
+            .map(Class::getSimpleName)
+            .toList());
 
     for (RatchetComponentDescriptor descriptor : descriptors) {
       Class<?> componentType = descriptor.componentType();
@@ -74,17 +122,61 @@ class RatchetRuntimeComponentCatalogTest {
           transactionalInventory.contains(componentType),
           descriptor.transactional(),
           () -> componentType.getName() + " has incorrect transactional catalog metadata");
-      assertEquals(
-          componentType == DefaultRatchetRuntime.class
-              || componentType.isAnnotationPresent(ApplicationScoped.class),
-          descriptor.singletonScope());
+      assertTrue(descriptor.singletonScope());
+      if (descriptor.transactional()) {
+        assertTrue(
+            Modifier.isPublic(componentType.getModifiers()),
+            () -> componentType.getName() + " must be public for class-based transaction proxies");
+        assertFalse(
+            Modifier.isFinal(componentType.getModifiers()),
+            () ->
+                componentType.getName() + " must not be final for class-based transaction proxies");
+      }
 
       Class<?>[] parameterTypes = descriptor.constructorParameterTypes().toArray(Class<?>[]::new);
       Constructor<?> constructor = componentType.getDeclaredConstructor(parameterTypes);
-      assertTrue(
-          Modifier.isPublic(constructor.getModifiers())
-              || constructor.isAnnotationPresent(Inject.class));
+      assertTrue(constructor.trySetAccessible());
       assertArrayEquals(parameterTypes, constructor.getParameterTypes());
+      if (componentType != CdiBeanResolver.class) {
+        assertFalse(
+            descriptor.constructorParameterTypes().contains(Instance.class),
+            () -> componentType.getName() + " selects a CDI Instance constructor");
+      }
+      assertFalse(
+          descriptor.constructorParameterTypes().contains(Event.class),
+          () -> componentType.getName() + " selects a CDI Event constructor");
+      assertTrue(
+          descriptor.constructorParameterTypes().stream().noneMatch(Class::isPrimitive),
+          () -> componentType.getName() + " selects a primitive configuration argument");
+    }
+  }
+
+  @Test
+  void catalogClosesEveryRiManagedConstructorDependency() throws Exception {
+    List<RatchetComponentDescriptor> descriptors = RatchetRuntimeComponentCatalog.components();
+    Set<Class<?>> componentTypes =
+        descriptors.stream()
+            .map(RatchetComponentDescriptor::componentType)
+            .collect(Collectors.toSet());
+
+    for (RatchetComponentDescriptor descriptor : descriptors) {
+      Constructor<?> constructor =
+          descriptor
+              .componentType()
+              .getDeclaredConstructor(
+                  descriptor.constructorParameterTypes().toArray(Class<?>[]::new));
+      for (Class<?> parameterType : constructor.getParameterTypes()) {
+        if (!parameterType.getPackageName().startsWith("run.ratchet.ri")) {
+          continue;
+        }
+        assertTrue(
+            parameterType == RecurringMethodDiscovery.class
+                || componentTypes.stream().anyMatch(parameterType::isAssignableFrom),
+            () ->
+                descriptor.componentType().getName()
+                    + " has uncatalogued RI dependency "
+                    + parameterType.getName());
+      }
     }
   }
 

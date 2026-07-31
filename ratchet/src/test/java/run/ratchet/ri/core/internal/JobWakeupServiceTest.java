@@ -86,6 +86,24 @@ class JobWakeupServiceTest {
   }
 
   @Test
+  void portableSupplierWakesTheResolvedLocalPoller() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
+    JobWakeupService portableService =
+        new JobWakeupService(
+            clusterCoordinator,
+            () -> pollerScheduler,
+            metricsCollector,
+            nodeIdentityProvider,
+            afterCommitRegistrar);
+
+    portableService.notify(JobPriority.NORMAL, true, null);
+
+    verify(metricsCollector).localWakeup("job_submit");
+    verify(pollerScheduler).wakeup();
+    verify(clusterCoordinator).notifyNewWork(JobPriority.NORMAL, NODE_IDENTITY, null);
+  }
+
+  @Test
   void notify_registersAfterCommitWhenTransactionActive() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
     when(pollerSchedulerInstance.isResolvable()).thenReturn(true);

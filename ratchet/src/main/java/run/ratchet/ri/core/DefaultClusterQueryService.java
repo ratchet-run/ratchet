@@ -31,7 +31,7 @@ import run.ratchet.store.spi.NodeStore;
 
 /** Default {@link ClusterQueryService} implementation backed by the node store SPI. */
 @ApplicationScoped
-class DefaultClusterQueryService implements ClusterQueryService {
+public class DefaultClusterQueryService implements ClusterQueryService {
 
   private static final int NODE_ROSTER_LIMIT = 1000;
 

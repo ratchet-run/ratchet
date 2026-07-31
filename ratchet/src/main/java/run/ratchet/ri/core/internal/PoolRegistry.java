@@ -17,9 +17,15 @@ package run.ratchet.ri.core.internal;
 
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
+import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.internal.ThreadPoolManager.ThreadPoolHealth;
+import run.ratchet.spi.ExecutionTuningProvider;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
 
 /**
@@ -32,6 +38,8 @@ import run.ratchet.store.entity.JobExecutionType;
  */
 public class PoolRegistry {
 
+  private static final int DEFAULT_VIRTUAL_LIMIT = 1000;
+
   private final Map<String, ThreadPoolManager> pools;
 
   protected PoolRegistry() {
@@ -40,6 +48,74 @@ public class PoolRegistry {
 
   public PoolRegistry(Map<String, ThreadPoolManager> pools) {
     this.pools = Map.copyOf(pools);
+  }
+
+  /**
+   * Creates the configured platform and optional virtual pools without container-specific input.
+   */
+  public PoolRegistry(
+      RatchetOptions options,
+      ExecutorProvider executorProvider,
+      MetricsCollector metricsCollector,
+      ExecutionTuningProvider executionTuningProvider) {
+    this(createPools(options, executorProvider, metricsCollector, executionTuningProvider));
+  }
+
+  private static Map<String, ThreadPoolManager> createPools(
+      RatchetOptions options,
+      ExecutorProvider executorProvider,
+      MetricsCollector metricsCollector,
+      ExecutionTuningProvider executionTuningProvider) {
+    Map<String, ThreadPoolManager> configuredPools = new LinkedHashMap<>();
+
+    Map<JobExecutionType, Integer> platformLimits = new EnumMap<>(JobExecutionType.class);
+    for (JobExecutionType type : JobExecutionType.values()) {
+      platformLimits.put(
+          type,
+          executionTuningProvider.maxConcurrency(
+              type.name(), configuredConcurrency(options, type)));
+    }
+    configuredPools.put(
+        ExecutorTargets.PLATFORM,
+        new ThreadPoolManager(
+            ExecutorTargets.PLATFORM,
+            executorProvider,
+            metricsCollector,
+            ThreadPoolManager.AccountingMode.SEMAPHORE,
+            platformLimits));
+
+    if (options.execution().hasVirtualExecutor()) {
+      Map<JobExecutionType, Integer> virtualLimits = new EnumMap<>(JobExecutionType.class);
+      for (JobExecutionType type : JobExecutionType.values()) {
+        virtualLimits.put(
+            type, executionTuningProvider.virtualThreadLimit(type.name(), DEFAULT_VIRTUAL_LIMIT));
+      }
+      ThreadPoolManager.AccountingMode accountingMode =
+          options.execution().virtualCounterAccounting()
+              ? ThreadPoolManager.AccountingMode.COUNTER
+              : ThreadPoolManager.AccountingMode.SEMAPHORE;
+      configuredPools.put(
+          ExecutorTargets.VIRTUAL,
+          new ThreadPoolManager(
+              ExecutorTargets.VIRTUAL,
+              executorProvider,
+              metricsCollector,
+              accountingMode,
+              virtualLimits));
+    }
+    return configuredPools;
+  }
+
+  private static int configuredConcurrency(RatchetOptions options, JobExecutionType type) {
+    return switch (type) {
+      case SINGLE -> options.execution().maxConcurrency("SINGLE", 20);
+      case RECURRING -> options.execution().maxConcurrency("RECURRING", 5);
+      case BATCH_CHILD -> options.execution().maxConcurrency("BATCH_CHILD", 30);
+      case BATCH_PARENT -> options.execution().maxConcurrency("BATCH_PARENT", 2);
+      case CHAIN_STEP -> options.execution().maxConcurrency("CHAIN_STEP", 10);
+      case WORKFLOW_BRANCH -> options.execution().maxConcurrency("WORKFLOW_BRANCH", 10);
+      case WORKFLOW_JOIN -> options.execution().maxConcurrency("WORKFLOW_JOIN", 10);
+    };
   }
 
   /** Returns true when a pool is registered under {@code name}. */

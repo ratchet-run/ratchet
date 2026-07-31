@@ -25,6 +25,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.store.entity.NodeEntity;
@@ -108,6 +109,23 @@ public class OrphanRecoveryTimer {
     this.singletonLeaseService = singletonLeaseService;
     this.orphanGraceSeconds = orphanGraceSeconds;
     this.clock = clock;
+  }
+
+  /** Creates an orphan-recovery timer from the portable Ratchet options model. */
+  public OrphanRecoveryTimer(
+      JobBulkStore jobBulkStore,
+      NodeStore nodeStore,
+      ResourcePermitService resourcePermitService,
+      SingletonLeaseService singletonLeaseService,
+      RatchetOptions options,
+      Clock clock) {
+    this(
+        jobBulkStore,
+        nodeStore,
+        resourcePermitService,
+        singletonLeaseService,
+        options.node().orphanGraceSeconds(),
+        clock);
   }
 
   public synchronized void start(ScheduledExecutorService executor, long intervalMinutes) {

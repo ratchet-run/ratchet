@@ -30,6 +30,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongUnaryOperator;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.JobBulkStore;
@@ -120,6 +121,26 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         dynamicHeartbeatEnabled,
         null,
         Clock.systemUTC());
+  }
+
+  /** Creates a node identity provider from the portable Ratchet options model. */
+  public DefaultNodeIdentityProvider(
+      NodeStore nodeStore,
+      JobBulkStore jobBulkStore,
+      DynamicHeartbeatCalculator heartbeatCalculator,
+      ExecutorProvider executorProvider,
+      RatchetOptions options,
+      Clock clock) {
+    this(
+        nodeStore,
+        jobBulkStore,
+        heartbeatCalculator,
+        executorProvider,
+        options.node().heartbeatIntervalSeconds(),
+        options.node().orphanGraceSeconds(),
+        options.node().dynamicHeartbeatEnabled(),
+        options.node().explicitNodeId().orElse(null),
+        clock);
   }
 
   public DefaultNodeIdentityProvider(

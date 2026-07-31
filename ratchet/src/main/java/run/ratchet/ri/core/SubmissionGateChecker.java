@@ -33,7 +33,7 @@ import run.ratchet.store.entity.JobExecutionType;
  * SubmissionFailureHandler} for release on rejection/failure before execution starts.
  */
 @ApplicationScoped
-class SubmissionGateChecker {
+public class SubmissionGateChecker {
 
   private final DrainController drainController;
   private final JobTypeRateLimiter rateLimiter;

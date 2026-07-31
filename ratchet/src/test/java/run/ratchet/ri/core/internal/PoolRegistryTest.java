@@ -19,12 +19,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.util.EnumMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
@@ -56,6 +61,22 @@ class PoolRegistryTest {
     PoolRegistry registry = twoPools(2, 5);
 
     assertEquals(5, registry.maxAvailableCapacity(JobExecutionType.SINGLE));
+  }
+
+  @Test
+  void portableOptionsConstructorBuildsTheConfiguredPlatformPool() {
+    ExecutionTuningProvider tuningProvider = mock(ExecutionTuningProvider.class);
+    when(tuningProvider.maxConcurrency(anyString(), anyInt())).thenReturn(3);
+
+    PoolRegistry registry =
+        new PoolRegistry(
+            RatchetOptions.defaults(),
+            mock(ExecutorProvider.class),
+            mock(MetricsCollector.class),
+            tuningProvider);
+
+    assertTrue(registry.hasPool(ExecutorTargets.PLATFORM));
+    assertEquals(3, registry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM));
   }
 
   @Test

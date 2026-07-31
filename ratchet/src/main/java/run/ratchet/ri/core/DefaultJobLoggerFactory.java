@@ -26,7 +26,7 @@ import run.ratchet.spi.JobLoggerFactory;
 
 /** Default per-job logger factory backed by JBoss Logging and Ratchet log events. */
 @ApplicationScoped
-class DefaultJobLoggerFactory implements JobLoggerFactory {
+public class DefaultJobLoggerFactory implements JobLoggerFactory {
 
   private final InternalEventPublisher eventPublisher;
   private final Clock clock;

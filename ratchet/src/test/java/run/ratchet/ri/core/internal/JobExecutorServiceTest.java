@@ -50,6 +50,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.PreExecutionArgResolver;
 
 @ExtendWith(MockitoExtension.class)
 class JobExecutorServiceTest {
@@ -93,7 +94,7 @@ class JobExecutorServiceTest {
             null,
             null,
             FIXED_CLOCK,
-            null);
+            (PreExecutionArgResolver) null);
   }
 
   @Test

@@ -69,6 +69,17 @@ public class ExecutionObserver {
     this.delayedJobReadyCallback = delayedJobReadyCallback;
   }
 
+  /** Creates the default observer without an optional delayed-job callback. */
+  public ExecutionObserver(
+      MetricsCollector metricsCollector,
+      TracingCollector tracingCollector,
+      InternalEventPublisher eventPublisher,
+      JobAuditStore executionStore,
+      ExecutorProvider executorProvider) {
+    this(
+        metricsCollector, tracingCollector, eventPublisher, executionStore, executorProvider, null);
+  }
+
   public void recordJobStart(JobEntity job) {
     recordQuietly(
         "jobStarted",

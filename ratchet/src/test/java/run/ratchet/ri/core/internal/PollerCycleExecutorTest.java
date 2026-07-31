@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -50,5 +51,23 @@ class PollerCycleExecutorTest {
 
     verify(poller).tick();
     verify(poller).onWakeup();
+  }
+
+  @Test
+  void portableSupplierResolvesThePollerLazily() {
+    AtomicInteger resolutions = new AtomicInteger();
+    when(poller.tick()).thenReturn(11L);
+    PollerCycleExecutor executor =
+        new PollerCycleExecutor(
+            () -> {
+              resolutions.incrementAndGet();
+              return poller;
+            });
+
+    assertEquals(0, resolutions.get());
+    assertEquals(11L, executor.tick());
+    executor.onWakeup();
+
+    assertEquals(2, resolutions.get());
   }
 }

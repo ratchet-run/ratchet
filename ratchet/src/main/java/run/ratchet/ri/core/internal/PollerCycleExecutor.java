@@ -19,6 +19,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * Runs poller callbacks without a transaction inherited from the thread that scheduled them.
@@ -34,22 +36,31 @@ import jakarta.transaction.Transactional.TxType;
 @Transactional(TxType.NOT_SUPPORTED)
 public class PollerCycleExecutor {
 
-  private final Poller poller;
+  private final Supplier<Poller> pollerSupplier;
 
   protected PollerCycleExecutor() {
-    this.poller = null;
+    this.pollerSupplier = null;
   }
 
   @Inject
   public PollerCycleExecutor(Poller poller) {
-    this.poller = poller;
+    this(() -> poller);
+  }
+
+  /** Creates a cycle executor with lazy poller resolution, breaking the scheduler/poller cycle. */
+  public PollerCycleExecutor(Supplier<Poller> pollerSupplier) {
+    this.pollerSupplier = Objects.requireNonNull(pollerSupplier, "pollerSupplier must not be null");
   }
 
   public long tick() {
-    return poller.tick();
+    return poller().tick();
   }
 
   public void onWakeup() {
-    poller.onWakeup();
+    poller().onWakeup();
+  }
+
+  private Poller poller() {
+    return Objects.requireNonNull(pollerSupplier.get(), "pollerSupplier returned null");
   }
 }

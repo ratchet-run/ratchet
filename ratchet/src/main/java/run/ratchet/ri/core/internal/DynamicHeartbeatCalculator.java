@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.spi.JobCrudStore;
 
 /**
@@ -63,6 +64,17 @@ public class DynamicHeartbeatCalculator {
         pollerMinDelayMs,
         pollerMaxDelayMs,
         Clock.systemUTC());
+  }
+
+  /** Creates a calculator from the portable Ratchet options model. */
+  public DynamicHeartbeatCalculator(
+      JobCrudStore jobCrudStore, RatchetOptions options, Clock clock) {
+    this(
+        jobCrudStore,
+        options.node().heartbeatIntervalSeconds(),
+        options.polling().minDelayMs(),
+        options.polling().maxDelayMs(),
+        clock);
   }
 
   public DynamicHeartbeatCalculator(

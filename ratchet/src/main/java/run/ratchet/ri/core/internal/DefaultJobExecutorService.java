@@ -137,6 +137,53 @@ public class DefaultJobExecutorService implements JobExecutorService {
       PayloadSerializer payloadSerializer,
       Clock clock,
       Instance<PreExecutionArgResolver> argResolver) {
+    this(
+        poolRegistry,
+        timeoutHandler,
+        executorProvider,
+        jobStore,
+        resourcePermitService,
+        postExecutionHandler,
+        nodeIdProvider,
+        executionObserver,
+        preExecutionValidator,
+        payloadInvoker,
+        successFinalizer,
+        retryPolicy,
+        resilienceStrategy,
+        errorSanitizer,
+        pollerScheduler,
+        jobLoggerFactory,
+        resultPersistenceStrategy,
+        authorizationPolicy,
+        payloadSerializer,
+        clock,
+        argResolver != null && argResolver.isResolvable() ? argResolver.get() : null);
+  }
+
+  /** Creates the executor with an optional, directly supplied pre-execution argument resolver. */
+  public DefaultJobExecutorService(
+      PoolRegistry poolRegistry,
+      JobTimeoutHandler timeoutHandler,
+      ExecutorProvider executorProvider,
+      JobStore jobStore,
+      ResourcePermitService resourcePermitService,
+      PostExecutionHandler postExecutionHandler,
+      NodeIdentityProvider nodeIdProvider,
+      ExecutionObserver executionObserver,
+      PreExecutionValidator preExecutionValidator,
+      JobPayloadInvoker payloadInvoker,
+      JobSuccessFinalizer successFinalizer,
+      RetryPolicy retryPolicy,
+      ResilienceStrategy resilienceStrategy,
+      ErrorSanitizer errorSanitizer,
+      PollerScheduler pollerScheduler,
+      JobLoggerFactory jobLoggerFactory,
+      ResultPersistenceStrategy resultPersistenceStrategy,
+      JobAuthorizationPolicy authorizationPolicy,
+      PayloadSerializer payloadSerializer,
+      Clock clock,
+      PreExecutionArgResolver argResolver) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
@@ -157,7 +204,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.authorizationPolicy = authorizationPolicy;
     this.payloadSerializer = payloadSerializer;
     this.clock = clock;
-    this.argResolver = argResolver != null && argResolver.isResolvable() ? argResolver.get() : null;
+    this.argResolver = argResolver;
   }
 
   private static void cancelTimeoutHandles(

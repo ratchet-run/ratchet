@@ -19,6 +19,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.util.Objects;
+import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
@@ -42,7 +44,7 @@ public class JobWakeupService {
   private static final Logger log = Logger.getLogger(JobWakeupService.class);
 
   private final ClusterCoordinator clusterCoordinator;
-  private final Instance<PollerScheduler> pollerSchedulerInstance;
+  private final Supplier<PollerScheduler> pollerSchedulerSupplier;
   private final MetricsCollector metricsCollector;
   private final NodeIdentityProvider nodeIdentityProvider;
   private final AfterCommitRegistrar afterCommitRegistrar;
@@ -53,7 +55,7 @@ public class JobWakeupService {
 
   protected JobWakeupService() {
     this.clusterCoordinator = null;
-    this.pollerSchedulerInstance = null;
+    this.pollerSchedulerSupplier = null;
     this.metricsCollector = null;
     this.nodeIdentityProvider = null;
     this.afterCommitRegistrar = null;
@@ -66,8 +68,27 @@ public class JobWakeupService {
       MetricsCollector metricsCollector,
       NodeIdentityProvider nodeIdentityProvider,
       AfterCommitRegistrar afterCommitRegistrar) {
+    this(
+        clusterCoordinator,
+        () ->
+            pollerSchedulerInstance != null && pollerSchedulerInstance.isResolvable()
+                ? pollerSchedulerInstance.get()
+                : null,
+        metricsCollector,
+        nodeIdentityProvider,
+        afterCommitRegistrar);
+  }
+
+  /** Creates the service with portable, lazy poller-scheduler resolution. */
+  public JobWakeupService(
+      ClusterCoordinator clusterCoordinator,
+      Supplier<PollerScheduler> pollerSchedulerSupplier,
+      MetricsCollector metricsCollector,
+      NodeIdentityProvider nodeIdentityProvider,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this.clusterCoordinator = clusterCoordinator;
-    this.pollerSchedulerInstance = pollerSchedulerInstance;
+    this.pollerSchedulerSupplier =
+        Objects.requireNonNull(pollerSchedulerSupplier, "pollerSchedulerSupplier must not be null");
     this.metricsCollector = metricsCollector;
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.afterCommitRegistrar = afterCommitRegistrar;
@@ -140,15 +161,19 @@ public class JobWakeupService {
   }
 
   private void wakeupLocalPoller() {
-    if (pollerSchedulerInstance == null || !pollerSchedulerInstance.isResolvable()) {
+    if (pollerSchedulerSupplier == null) {
       return;
     }
 
     try {
+      PollerScheduler pollerScheduler = pollerSchedulerSupplier.get();
+      if (pollerScheduler == null) {
+        return;
+      }
       if (metricsCollector != null) {
         metricsCollector.localWakeup("job_submit");
       }
-      pollerSchedulerInstance.get().wakeup();
+      pollerScheduler.wakeup();
     } catch (Exception e) {
       log.warnf(e, "Local wakeup error: %s", e.getMessage());
     }

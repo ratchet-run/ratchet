@@ -61,7 +61,7 @@ import run.ratchet.store.util.PayloadEncryptor;
 
 /** Default {@link JobQueryService} implementation backed by the store SPI. */
 @ApplicationScoped
-class DefaultJobQueryService implements JobQueryService {
+public class DefaultJobQueryService implements JobQueryService {
 
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;

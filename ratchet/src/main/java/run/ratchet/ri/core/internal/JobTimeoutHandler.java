@@ -32,6 +32,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
@@ -190,6 +191,37 @@ public class JobTimeoutHandler {
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.singletonLeaseService = singletonLeaseService;
     this.errorSanitizer = errorSanitizer;
+  }
+
+  /** Creates a timeout handler from injectable collaborators and portable Ratchet options. */
+  public JobTimeoutHandler(
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      AfterCommitRegistrar afterCommitRegistrar,
+      SingletonLeaseService singletonLeaseService,
+      ErrorSanitizer errorSanitizer,
+      RatchetOptions options) {
+    this(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        options.timeout().softTimeoutPercent(),
+        options.timeout().defaultSlaSeconds(),
+        clock,
+        eventPublisher,
+        signalStore,
+        metricsCollector,
+        options.timeout().signalTimeoutBatchSize(),
+        afterCommitRegistrar,
+        singletonLeaseService,
+        errorSanitizer);
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
