@@ -21,6 +21,248 @@
     "ratchet-tck-util"
   ],
   "contracts": {
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractBatchRetryContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractBroadcastSignalContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkCancelEventContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkRetryContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractBusinessKeyContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractDelayedSchedulingContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractExclusiveWorkflowContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractIdempotencyContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractJobAuthorizationContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractJobCancelContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractJobControlReturnContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractJobLifecycleContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryDenialContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractJobRetryContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadEncryptionEngineContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadSizeContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractResilienceStrategyContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractRetryPolicyContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalDecisionContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalPayloadContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-api:run.ratchet.tck.api.AbstractSimpleWorkflowContract": {
+      "sourceArtifact": "ratchet-tck-api",
+      "flavors": {
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
     "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxDlqOrderContract": {
       "sourceArtifact": "ratchet-tck-api",
       "flavors": {
@@ -28,6 +270,12 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        },
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
         }
       }
     },
@@ -38,6 +286,12 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        },
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
         }
       }
     },
@@ -48,6 +302,12 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        },
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
         }
       }
     },
@@ -58,6 +318,12 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        },
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
         }
       }
     },
@@ -68,6 +334,12 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        },
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
         }
       }
     },
@@ -78,6 +350,292 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Spring RatchetTckRuntime lands in PR 8; PR 4 ships driver + registrar adapters only"
+        },
+        "postgresql": {
+          "status": "covered",
+          "scenarios": [
+            "postgresql-runtime"
+          ]
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractActiveBusinessKeyContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractArchiveStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractBatchStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractCoreOnlyStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractDualWriteInvariantContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobAnalyticsStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobAuditStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobBatchStatusStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobBulkStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobClaimStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobCrudStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobExtensionStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobPauseStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobQueryStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobRetryStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobStoreTransactionBoundaryContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJobTerminalStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractJpaRecurringClaimConcurrencyContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractLockStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractNodeStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractPayloadEncryptionStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractRecurringJobStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractResourcePermitStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractSchemaConformanceContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractSchemaMigratorContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractSignalStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractTagStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        }
+      }
+    },
+    "ratchet-tck-store:run.ratchet.tck.store.AbstractWorkflowConditionStoreContract": {
+      "sourceArtifact": "ratchet-tck-store",
+      "flavors": {
+        "postgresql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     }
