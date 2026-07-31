@@ -49,13 +49,14 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.InvocationSubmissionService;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -77,13 +78,15 @@ public class RecurringJobProcessor {
   private static final Duration ORPHAN_CLEANUP_LEASE_TTL = Duration.ofMinutes(5);
   private static final long REGISTRATION_RETRY_DELAY_MS = 500;
   private static final int MAX_REGISTRATION_ATTEMPTS = 10;
+  private static final String RECURRING_INVOKE_DESCRIPTOR =
+      "(Ljava/lang/String;Ljava/lang/String;Z)V";
 
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
   private final Map<String, String> registeredJobIds = new ConcurrentHashMap<>();
 
-  private final JobSchedulerService schedulerService;
+  private final InvocationSubmissionService invocationSubmissionService;
   private final JobBatchStatusStore jobBatchStatusStore;
   private final RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService;
   private final BeanManager beanManager;
@@ -104,7 +107,7 @@ public class RecurringJobProcessor {
   private final AtomicBoolean registrationFinalized = new AtomicBoolean();
 
   protected RecurringJobProcessor() {
-    this.schedulerService = null;
+    this.invocationSubmissionService = null;
     this.jobBatchStatusStore = null;
     this.recurringAnnotationMaintenanceService = null;
     this.beanManager = null;
@@ -117,7 +120,7 @@ public class RecurringJobProcessor {
   }
 
   RecurringJobProcessor(
-      JobSchedulerService schedulerService,
+      InvocationSubmissionService invocationSubmissionService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
@@ -126,7 +129,7 @@ public class RecurringJobProcessor {
       RecurringRegistrationState registrationState,
       RatchetOptions options) {
     this(
-        schedulerService,
+        invocationSubmissionService,
         jobBatchStatusStore,
         recurringAnnotationMaintenanceService,
         beanManager,
@@ -139,7 +142,7 @@ public class RecurringJobProcessor {
 
   @Inject
   public RecurringJobProcessor(
-      JobSchedulerService schedulerService,
+      InvocationSubmissionService invocationSubmissionService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
@@ -149,7 +152,7 @@ public class RecurringJobProcessor {
       RatchetOptions options,
       Clock clock) {
     this(
-        schedulerService,
+        invocationSubmissionService,
         jobBatchStatusStore,
         recurringAnnotationMaintenanceService,
         beanManager,
@@ -162,7 +165,7 @@ public class RecurringJobProcessor {
   }
 
   RecurringJobProcessor(
-      JobSchedulerService schedulerService,
+      InvocationSubmissionService invocationSubmissionService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
@@ -172,7 +175,7 @@ public class RecurringJobProcessor {
       RatchetOptions options,
       Set<Class<?>> discoveredRecurringBeanClasses) {
     this(
-        schedulerService,
+        invocationSubmissionService,
         jobBatchStatusStore,
         recurringAnnotationMaintenanceService,
         beanManager,
@@ -185,7 +188,7 @@ public class RecurringJobProcessor {
   }
 
   RecurringJobProcessor(
-      JobSchedulerService schedulerService,
+      InvocationSubmissionService invocationSubmissionService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
@@ -195,7 +198,7 @@ public class RecurringJobProcessor {
       RatchetOptions options,
       Set<Class<?>> discoveredRecurringBeanClasses,
       Clock clock) {
-    this.schedulerService = schedulerService;
+    this.invocationSubmissionService = invocationSubmissionService;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
     this.beanManager = beanManager;
@@ -208,7 +211,7 @@ public class RecurringJobProcessor {
   }
 
   RecurringJobProcessor(
-      JobSchedulerService schedulerService,
+      InvocationSubmissionService invocationSubmissionService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
@@ -216,7 +219,7 @@ public class RecurringJobProcessor {
       StartupCoordinator startupCoordinator,
       RecurringRegistrationState registrationState) {
     this(
-        schedulerService,
+        invocationSubmissionService,
         jobBatchStatusStore,
         recurringAnnotationMaintenanceService,
         beanManager,
@@ -519,10 +522,15 @@ public class RecurringJobProcessor {
     String className = beanClass.getName();
 
     RecurringJobBuilder builder =
-        schedulerService.scheduleRecurring(
+        invocationSubmissionService.scheduleRecurringInvocation(
             annotation.cron(),
             registration.zone(),
-            () -> methodInvoker.invoke(className, methodName, hasJobContextParam));
+            new JobInvocation(
+                RecurringMethodInvoker.class.getName(),
+                "invoke",
+                RECURRING_INVOKE_DESCRIPTOR,
+                false,
+                List.of(className, methodName, hasJobContextParam)));
 
     JobOptions options =
         JobOptions.defaults()

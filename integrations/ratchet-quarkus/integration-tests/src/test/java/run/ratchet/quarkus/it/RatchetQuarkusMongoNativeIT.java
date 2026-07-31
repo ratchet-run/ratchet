@@ -50,6 +50,86 @@ class RatchetQuarkusMongoNativeIT {
   }
 
   @Test
+  void capturedStringArgumentJobExecutesInNativeMongoApp() {
+    given().when().post("/jobs/submit-value").then().statusCode(200).body(is("submitted"));
+
+    Awaitility.await()
+        .atMost(30, TimeUnit.SECONDS)
+        .pollInterval(Duration.ofMillis(250))
+        .until(
+            () ->
+                given()
+                    .when()
+                    .get("/jobs/executed-value")
+                    .then()
+                    .extract()
+                    .body()
+                    .asString()
+                    .equals("hello-native"));
+  }
+
+  @Test
+  void capturedRecordArgumentJobExecutesInNativeMongoApp() {
+    given().when().post("/jobs/submit-arg").then().statusCode(200).body(is("submitted"));
+
+    Awaitility.await()
+        .atMost(30, TimeUnit.SECONDS)
+        .pollInterval(Duration.ofMillis(250))
+        .until(
+            () ->
+                given()
+                    .when()
+                    .get("/jobs/executed-arg")
+                    .then()
+                    .extract()
+                    .body()
+                    .asString()
+                    .equals("demo:7"));
+  }
+
+  /**
+   * Proves {@code @RegisterJobSubmitter} substitutes for the auto-detection heuristic: {@link
+   * UnmanagedSubmitter} declares no {@code JobSchedulerService} field or parameter, so without the
+   * annotation its bytecode would be absent from the image and submission would fail here.
+   */
+  @Test
+  void unmanagedSubmitterJobExecutesInNativeMongoApp() {
+    given().when().post("/jobs/submit-unmanaged").then().statusCode(200).body(is("submitted"));
+
+    Awaitility.await()
+        .atMost(30, TimeUnit.SECONDS)
+        .pollInterval(Duration.ofMillis(250))
+        .until(
+            () ->
+                given()
+                    .when()
+                    .get("/jobs/executed-unmanaged")
+                    .then()
+                    .extract()
+                    .body()
+                    .asString()
+                    .equals("unmanaged-native"));
+  }
+
+  /** Guards the native inline-lambda regression in recurring registration. */
+  @Test
+  void recurringJobRegisteredViaOnRuntimeStartExecutesInNativeMongoApp() {
+    Awaitility.await()
+        .atMost(60, TimeUnit.SECONDS)
+        .pollInterval(Duration.ofMillis(250))
+        .until(
+            () ->
+                given()
+                    .when()
+                    .get("/jobs/recurring-executed")
+                    .then()
+                    .extract()
+                    .body()
+                    .asString()
+                    .equals("true"));
+  }
+
+  @Test
   void classPolicyRejectsDisallowedJobTargetInNativeMongoApp() {
     given().when().post("/jobs/reject-class-policy").then().statusCode(200).body(is("rejected"));
   }

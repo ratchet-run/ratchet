@@ -19,7 +19,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.Serializable;
 import java.time.Duration;
+import java.time.ZoneId;
 import java.util.Objects;
+import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.InvocationBatchBuilder;
 import run.ratchet.spi.InvocationJobBuilder;
@@ -65,6 +67,16 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
     Objects.requireNonNull(invocation, "invocation must not be null");
     return new DefaultInvocationJobBuilder(
         DefaultJobBuilder.create(jobCreationService, new InvocationAdapter(invocation), delay));
+  }
+
+  @Override
+  public RecurringJobBuilder scheduleRecurringInvocation(
+      String cron, ZoneId zone, JobInvocation invocation) {
+    Objects.requireNonNull(cron, "cron must not be null");
+    Objects.requireNonNull(zone, "zone must not be null");
+    Objects.requireNonNull(invocation, "invocation must not be null");
+    return new DefaultRecurringJobBuilder(
+        cron, zone, new InvocationAdapter(invocation), jobCreationService);
   }
 
   @Override

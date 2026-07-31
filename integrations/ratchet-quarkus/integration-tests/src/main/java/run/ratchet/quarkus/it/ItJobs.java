@@ -35,6 +35,9 @@ public class ItJobs {
   private static final Logger LOG = Logger.getLogger(ItJobs.class);
 
   private final AtomicReference<String> executedOnThread = new AtomicReference<>();
+  private final AtomicReference<String> executedValue = new AtomicReference<>();
+  private final AtomicReference<DemoArg> executedArg = new AtomicReference<>();
+  private final AtomicReference<String> executedUnmanaged = new AtomicReference<>();
   private final AtomicBoolean recurringExecuted = new AtomicBoolean();
 
   /** Job body. Submitted as the method reference {@code itJobs::recordRun}. */
@@ -46,6 +49,37 @@ public class ItJobs {
 
   public boolean hasExecuted() {
     return executedOnThread.get() != null;
+  }
+
+  public void recordValue(String value) {
+    executedValue.set(value);
+    LOG.infof("ItJobs.recordValue executed with value %s", value);
+  }
+
+  public String executedValue() {
+    String value = executedValue.get();
+    return value == null ? "none" : value;
+  }
+
+  public void recordArg(DemoArg arg) {
+    executedArg.set(arg);
+    LOG.infof("ItJobs.recordArg executed with argument %s:%s", arg.name(), arg.count());
+  }
+
+  public String executedArg() {
+    DemoArg arg = executedArg.get();
+    return arg == null ? "none" : arg.name() + ":" + arg.count();
+  }
+
+  /** Job body for the lambda submitted by {@link UnmanagedSubmitter}. */
+  public void recordUnmanaged(String value) {
+    executedUnmanaged.set(value);
+    LOG.infof("ItJobs.recordUnmanaged executed with value %s", value);
+  }
+
+  public String executedUnmanaged() {
+    String value = executedUnmanaged.get();
+    return value == null ? "none" : value;
   }
 
   /** Registered via onRuntimeStart() at Quarkus boot; fires every second. */

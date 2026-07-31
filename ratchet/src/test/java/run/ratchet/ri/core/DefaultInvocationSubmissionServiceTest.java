@@ -26,6 +26,7 @@ import static org.mockito.Mockito.verify;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -54,6 +55,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -99,6 +101,9 @@ class DefaultInvocationSubmissionServiceTest {
     lenient()
         .when(jobCrudStore.create(any(JobEntity.class)))
         .thenAnswer(DefaultInvocationSubmissionServiceTest::persist);
+    lenient()
+        .when(recurringJobStore.createRecurring(any(RecurringJobDefinition.class)))
+        .thenAnswer(invocation -> invocation.<RecurringJobDefinition>getArgument(0).id());
   }
 
   private DefaultJobCreationService newCreationService(ClassPolicy classPolicy) {
@@ -153,6 +158,21 @@ class DefaultInvocationSubmissionServiceTest {
     ArgumentCaptor<JobEntity> captor = ArgumentCaptor.forClass(JobEntity.class);
     verify(jobCrudStore).create(captor.capture());
     assertEquals(Instant.parse("2026-05-27T12:05:00Z"), captor.getValue().getScheduledTime());
+  }
+
+  @Test
+  void scheduleRecurringInvocation_persistsThePreResolvedInvocation() {
+    service
+        .scheduleRecurringInvocation("0 0 12 * * ?", ZoneId.of("UTC"), sendInvoiceInvocation())
+        .submit();
+
+    ArgumentCaptor<RecurringJobDefinition> captor =
+        ArgumentCaptor.forClass(RecurringJobDefinition.class);
+    verify(recurringJobStore).createRecurring(captor.capture());
+    assertEquals(TARGET, captor.getValue().payload().target());
+    assertEquals("sendInvoice", captor.getValue().payload().method());
+    assertEquals("(Ljava/lang/String;)V", captor.getValue().payload().methodDescriptor());
+    assertEquals(List.of("inv_123"), captor.getValue().payload().args());
   }
 
   @Test
