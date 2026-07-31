@@ -27,12 +27,12 @@ Add the extension, a store, and the matching Quarkus JDBC driver.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus</artifactId>
-  <version>0.3.0</version>
+  <version>0.3.1</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-postgresql</artifactId>
-  <version>0.3.0</version>
+  <version>0.3.1</version>
 </dependency>
 <dependency>
   <groupId>io.quarkus</groupId>
