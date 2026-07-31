@@ -7,7 +7,7 @@ fail() {
   exit 1
 }
 
-for command in jq perl; do
+for command in git jq perl; do
   command -v "$command" >/dev/null 2>&1 \
     || fail "required command is not available: $command"
 done
@@ -52,10 +52,32 @@ TOPOLOGY="$SPRING_ROOT/publication-topology.json"
 ROOT_POM="$ROOT/pom.xml"
 BOM_POM="$ROOT/ratchet-bom/pom.xml"
 RELEASE_WORKFLOW="$ROOT/.github/workflows/release.yml"
+ATTESTATION="$SPRING_ROOT/integration-tests/target/qualification-attestation.json"
 
 for file in "$TOPOLOGY" "$ROOT_POM" "$BOM_POM" "$RELEASE_WORKFLOW"; do
   [[ -f "$file" ]] || fail "required file is missing: ${file#"$ROOT/"}"
 done
+
+qualification_eligible="$(
+  jq -r '
+    first(
+      .coordinates[]?
+      | select(
+          (.requiredQualificationScenarios? | type == "array" and length > 0)
+          and (
+            .snapshotEligible == true
+            or .centralEligible == true
+            or .bomManaged == true
+            or .releaseInventory == true
+          )
+        )
+      | .artifactId
+    ) // empty
+  ' "$TOPOLOGY" 2>/dev/null || true
+)"
+if [[ -n "$qualification_eligible" ]]; then
+  fail "qualification-required coordinate must remain release-ineligible: $qualification_eligible"
+fi
 
 if ! jq -e '
   type == "object"
@@ -94,6 +116,159 @@ if ! jq -e '
   )
 ' "$TOPOLOGY" >/dev/null; then
   fail "publication-topology.json is malformed or enables the PR 1 publication gate"
+fi
+
+if [[ -e "$ATTESTATION" && ! -f "$ATTESTATION" ]]; then
+  fail "qualification attestation is not a regular file: ${ATTESTATION#"$ROOT/"}"
+fi
+if [[ -f "$ATTESTATION" ]]; then
+  if ! jq -e '
+    def sha256:
+      type == "string" and test("^[0-9a-f]{64}$");
+    def nonempty_strings:
+      type == "array"
+      and length > 0
+      and all(type == "string" and length > 0)
+      and ((unique | length) == length);
+
+    type == "object"
+    and .schemaVersion == 1
+    and .algorithm == "SHA-256"
+    and (.projectVersion | type == "string" and length > 0)
+    and (.commit
+         | type == "string"
+           and test("^[0-9a-f]{40}([0-9a-f]{24})?$"))
+    and (.scenario
+         | type == "object"
+           and (.name | type == "string" and length > 0)
+           and (.sha256 | sha256))
+    and (.scenarios | nonempty_strings)
+    and (.coordinates
+         | type == "array"
+           and length > 0
+           and all(
+             type == "object"
+             and (.coordinate
+                  | type == "string"
+                    and test("^run\\.ratchet:ratchet-spring-boot-[a-z0-9-]+:(jar|pom)$"))
+             and (.source == "installed" or .source == "jvm-matrix")
+             and (.sha256 | sha256)
+             and (.scenarios | nonempty_strings)
+           ))
+    and ((.coordinates | map(.coordinate) | unique | length)
+         == (.coordinates | length))
+    and (.runtimeDependencies
+         | type == "array"
+           and length > 0
+           and all(
+             type == "object"
+             and (.lane | type == "string" and length > 0)
+             and (.flavor | type == "string" and length > 0)
+             and (.treeSha256 | sha256)
+             and (.dependencies
+                  | type == "array"
+                    and length > 0
+                    and all(
+                      type == "object"
+                      and (.coordinate | type == "string" and length > 0)
+                      and (.sha256 | sha256)
+                      and (.scopes
+                           | type == "array"
+                             and length > 0
+                             and all(. == "compile" or . == "runtime")
+                             and ((unique | length) == length))
+                    ))
+           ))
+    and ((.runtimeDependencies | map([.lane, .flavor]) | unique | length)
+         == (.runtimeDependencies | length))
+    and (.reports
+         | type == "array"
+           and length > 0
+           and all(
+             type == "object"
+             and (.path | type == "string" and length > 0)
+             and (.lane | type == "string" and length > 0)
+             and (.afterCommand | type == "string" and length > 0)
+             and (.kind == "surefire" or .kind == "failsafe")
+             and (.reportClass | type == "string" and length > 0)
+             and (.sha256 | sha256)
+           ))
+    and ((.reports | map(.path) | unique | length) == (.reports | length))
+    and (.conformance
+         | type == "array"
+           and length > 0
+           and all(
+             type == "object"
+             and (.path | type == "string" and length > 0)
+             and (.sha256 | sha256)
+           ))
+    and ((.conformance | map(.path) | unique | length)
+         == (.conformance | length))
+    and (.toolchain
+         | type == "object"
+           and (.javaVersion | type == "string" and length > 0)
+           and (.javaSpecificationVersion
+                | type == "number" and . >= 1 and floor == .)
+           and (.mavenVersion | type == "string" and length > 0)
+           and (.consumerJavaRuntime
+                | type == "number" and . >= 1 and floor == .)
+           and (.consumerJavaRuntime == .javaSpecificationVersion))
+  ' "$ATTESTATION" >/dev/null; then
+    fail "qualification attestation is malformed"
+  fi
+
+  if ! current_commit="$(git -C "$ROOT" rev-parse --verify HEAD 2>/dev/null)"; then
+    fail "cannot determine current Git commit for qualification attestation"
+  fi
+  attested_commit="$(jq -r '.commit' "$ATTESTATION")"
+  if [[ "$attested_commit" != "$current_commit" ]]; then
+    fail "qualification attestation commit is stale: $attested_commit; expected $current_commit"
+  fi
+
+  while IFS= read -r required_scenario; do
+    if ! jq -e --arg scenario "$required_scenario" \
+        '.scenarios | index($scenario) != null' "$ATTESTATION" >/dev/null; then
+      fail "qualification attestation is missing required scenario: $required_scenario"
+    fi
+  done < <(
+    jq -r '[.coordinates[].requiredQualificationScenarios[]] | unique[]' \
+      "$TOPOLOGY"
+  )
+
+  while IFS=$'\t' read -r artifact packaging required_scenario; do
+    coordinate="run.ratchet:$artifact:$packaging"
+    evidence_count="$(
+      jq --arg coordinate "$coordinate" \
+        '[.coordinates[] | select(.coordinate == $coordinate)] | length' \
+        "$ATTESTATION"
+    )"
+    if [[ "$evidence_count" == "0" ]]; then
+      fail "qualification attestation is missing coordinate evidence: $coordinate"
+    fi
+    if [[ "$evidence_count" != "1" ]]; then
+      fail "qualification attestation has duplicate coordinate evidence: $coordinate"
+    fi
+    if ! jq -e \
+        --arg coordinate "$coordinate" \
+        --arg scenario "$required_scenario" '
+          any(
+            .coordinates[];
+            .coordinate == $coordinate
+            and (.scenarios | index($scenario) != null)
+          )
+        ' "$ATTESTATION" >/dev/null; then
+      fail "qualification attestation coordinate $coordinate does not cover scenario: $required_scenario"
+    fi
+  done < <(
+    jq -r '
+      .coordinates[]
+      | .artifactId as $artifact
+      | .packaging as $packaging
+      | .requiredQualificationScenarios[]
+      | [$artifact, $packaging, .]
+      | @tsv
+    ' "$TOPOLOGY"
+  )
 fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/ratchet-spring-topology.XXXXXX")"

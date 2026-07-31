@@ -55,6 +55,121 @@ assert_failure() {
   fi
 }
 
+fixture_head() {
+  local fixture="$1"
+  local tree
+  local commit
+
+  git -C "$fixture" init -q
+  git -C "$fixture" add .
+  tree="$(git -C "$fixture" write-tree)"
+  commit="$(
+    GIT_AUTHOR_NAME="Ratchet Fixture" \
+    GIT_AUTHOR_EMAIL="fixture@ratchet.run" \
+    GIT_COMMITTER_NAME="Ratchet Fixture" \
+    GIT_COMMITTER_EMAIL="fixture@ratchet.run" \
+      git -C "$fixture" commit-tree "$tree" -m "fixture"
+  )"
+  git -C "$fixture" update-ref refs/heads/main "$commit"
+  git -C "$fixture" symbolic-ref HEAD refs/heads/main
+  printf '%s\n' "$commit"
+}
+
+write_valid_attestation() {
+  local fixture="$1"
+  local commit="$2"
+  local topology="$fixture/integrations/ratchet-spring-boot/publication-topology.json"
+  local target="$fixture/integrations/ratchet-spring-boot/integration-tests/target"
+
+  mkdir -p "$target"
+  jq -n \
+    --arg commit "$commit" \
+    --slurpfile topology "$topology" '
+      def digest:
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+      {
+        schemaVersion: 1,
+        algorithm: "SHA-256",
+        commit: $commit,
+        projectVersion: "fixture",
+        scenario: {
+          name: "postgresql-runtime",
+          sha256: digest
+        },
+        scenarios: ["postgresql-runtime"],
+        coordinates: [
+          $topology[0].coordinates[]
+          | select(.requiredQualificationScenarios | length > 0)
+          | {
+              coordinate: (
+                "run.ratchet:" + .artifactId + ":" + .packaging
+              ),
+              source: (
+                if .packaging == "pom"
+                then "installed"
+                else "jvm-matrix"
+                end
+              ),
+              sha256: digest,
+              scenarios: .requiredQualificationScenarios
+            }
+        ],
+        runtimeDependencies: [
+          {
+            lane: "boot-3.5",
+            flavor: "postgresql",
+            treeSha256: digest,
+            dependencies: [
+              {
+                coordinate: "org.example:runtime:jar:1.0",
+                sha256: digest,
+                scopes: ["runtime"]
+              }
+            ]
+          },
+          {
+            lane: "boot-4.1",
+            flavor: "postgresql",
+            treeSha256: digest,
+            dependencies: [
+              {
+                coordinate: "org.example:runtime:jar:2.0",
+                sha256: digest,
+                scopes: ["runtime"]
+              }
+            ]
+          }
+        ],
+        reports: [
+          {
+            path: "reports/TEST-fixture.xml",
+            lane: "boot-3.5",
+            afterCommand: "jvm-matrix",
+            kind: "surefire",
+            reportClass: "run.ratchet.FixtureTest",
+            sha256: digest
+          }
+        ],
+        conformance: [
+          {
+            path: "conformance/boot-3.5/report.md",
+            sha256: digest
+          },
+          {
+            path: "conformance/boot-4.1/report.md",
+            sha256: digest
+          }
+        ],
+        toolchain: {
+          javaVersion: "17.0.0",
+          javaSpecificationVersion: 17,
+          mavenVersion: "3.9.0",
+          consumerJavaRuntime: 17
+        }
+      }
+    ' > "$target/qualification-attestation.json"
+}
+
 success_fixture="$(make_fixture success)"
 bash "$success_fixture/scripts/test-spring-boot-publication-topology.sh" >/dev/null
 
@@ -152,5 +267,76 @@ perl -0pi -e \
 assert_failure \
   "$release_ready_fixture" \
   "publication-topology.json is malformed or enables the PR 1 publication gate"
+
+qualification_eligible_fixture="$(make_fixture qualification-eligible)"
+jq '.coordinates[0].snapshotEligible = true' \
+  "$qualification_eligible_fixture/integrations/ratchet-spring-boot/publication-topology.json" \
+  > "$qualification_eligible_fixture/topology.tmp"
+mv \
+  "$qualification_eligible_fixture/topology.tmp" \
+  "$qualification_eligible_fixture/integrations/ratchet-spring-boot/publication-topology.json"
+assert_failure \
+  "$qualification_eligible_fixture" \
+  "qualification-required coordinate must remain release-ineligible: ratchet-spring-boot-parent"
+
+valid_current_fixture="$(make_fixture valid-current)"
+valid_current_commit="$(fixture_head "$valid_current_fixture")"
+write_valid_attestation "$valid_current_fixture" "$valid_current_commit"
+bash "$valid_current_fixture/scripts/test-spring-boot-publication-topology.sh" >/dev/null
+
+stale_commit_fixture="$(make_fixture stale-commit)"
+stale_current_commit="$(fixture_head "$stale_commit_fixture")"
+write_valid_attestation "$stale_commit_fixture" "$stale_current_commit"
+jq --arg commit "0000000000000000000000000000000000000000" \
+  '.commit = $commit' \
+  "$stale_commit_fixture/integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json" \
+  > "$stale_commit_fixture/attestation.tmp"
+mv \
+  "$stale_commit_fixture/attestation.tmp" \
+  "$stale_commit_fixture/integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json"
+assert_failure \
+  "$stale_commit_fixture" \
+  "qualification attestation commit is stale"
+
+missing_scenario_fixture="$(make_fixture missing-scenario)"
+missing_scenario_commit="$(fixture_head "$missing_scenario_fixture")"
+write_valid_attestation "$missing_scenario_fixture" "$missing_scenario_commit"
+jq '.scenarios = ["another-scenario"]' \
+  "$missing_scenario_fixture/integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json" \
+  > "$missing_scenario_fixture/attestation.tmp"
+mv \
+  "$missing_scenario_fixture/attestation.tmp" \
+  "$missing_scenario_fixture/integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json"
+assert_failure \
+  "$missing_scenario_fixture" \
+  "qualification attestation is missing required scenario: postgresql-runtime"
+
+missing_coordinate_fixture="$(make_fixture missing-coordinate)"
+missing_coordinate_commit="$(fixture_head "$missing_coordinate_fixture")"
+write_valid_attestation "$missing_coordinate_fixture" "$missing_coordinate_commit"
+jq 'del(.coordinates[0])' \
+  "$missing_coordinate_fixture/integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json" \
+  > "$missing_coordinate_fixture/attestation.tmp"
+mv \
+  "$missing_coordinate_fixture/attestation.tmp" \
+  "$missing_coordinate_fixture/integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json"
+assert_failure \
+  "$missing_coordinate_fixture" \
+  "qualification attestation is missing coordinate evidence: run.ratchet:ratchet-spring-boot-parent:pom"
+
+missing_coordinate_coverage_fixture="$(make_fixture missing-coordinate-coverage)"
+missing_coordinate_coverage_commit="$(fixture_head "$missing_coordinate_coverage_fixture")"
+write_valid_attestation \
+  "$missing_coordinate_coverage_fixture" \
+  "$missing_coordinate_coverage_commit"
+jq '.coordinates[0].scenarios = ["another-scenario"]' \
+  "$missing_coordinate_coverage_fixture/integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json" \
+  > "$missing_coordinate_coverage_fixture/attestation.tmp"
+mv \
+  "$missing_coordinate_coverage_fixture/attestation.tmp" \
+  "$missing_coordinate_coverage_fixture/integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json"
+assert_failure \
+  "$missing_coordinate_coverage_fixture" \
+  "qualification attestation coordinate run.ratchet:ratchet-spring-boot-parent:pom does not cover scenario: postgresql-runtime"
 
 echo "Spring Boot publication topology script checks passed"
