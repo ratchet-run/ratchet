@@ -74,6 +74,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private final MetricsCollector metricsCollector;
   private final RatchetOptions options;
   private EntityManager em;
+  private boolean initialized;
 
   private PostgresqlStoreContext ctx;
   private PostgresqlBusinessKeyReservations reservations;
@@ -796,6 +797,13 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @PostConstruct
   void checkIsolationLevel() {
+    initialize();
+  }
+
+  synchronized void initialize() {
+    if (initialized) {
+      return;
+    }
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
@@ -810,6 +818,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
             + " connection pool override (e.g. hibernate.connection.isolation=2).",
         options.store().isolationCheckMode());
     initDelegates();
+    initialized = true;
   }
 
   private void initDelegates() {
