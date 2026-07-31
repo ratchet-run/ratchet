@@ -166,7 +166,7 @@
     <mssql-jdbc.version>12.8.2.jre11</mssql-jdbc.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
     <artemis.version>2.54.0</artemis.version>
-    <netty.version>4.1.135.Final</netty.version>
+    <netty.version>4.1.136.Final</netty.version>
     <commons-configuration2.version>2.15.0</commons-configuration2.version>
     <jackson-core.version>2.22.1</jackson-core.version>
     <infinispan.version>15.1.7.Final</infinispan.version>
