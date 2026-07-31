@@ -238,6 +238,11 @@ class RatchetOptionsFactoryTest {
                     Map.entry("ratchet.schema.migration-prefix", "ddl/custom"),
                     Map.entry("ratchet.payload.max-payload-kb", "26"),
                     Map.entry("ratchet.jobs.max-result-bytes", "27"),
+                    Map.entry(
+                        "ratchet.class-policy.allowed-packages", " com.acme.jobs , ,org.example "),
+                    Map.entry(
+                        "ratchet.class-policy.allowed-result-type-packages",
+                        "com.acme.results, org.example.dto"),
                     Map.entry("ratchet.security.redact-emails", "false"),
                     Map.entry("ratchet.priority-boost-interval-minutes", "28"),
                     Map.entry("ratchet.circuit-breaker.enabled", "false"),
@@ -285,6 +290,11 @@ class RatchetOptionsFactoryTest {
     assertEquals("ddl/custom", options.schema().migrationPrefix());
     assertEquals(26, options.payload().maxPayloadKb());
     assertEquals(27L, options.payload().maxResultBytes());
+    assertEquals(
+        Set.of("com.acme.jobs", "org.example"), options.security().classPolicyAllowedPackages());
+    assertEquals(
+        Set.of("com.acme.results", "org.example.dto"),
+        options.security().classPolicyAllowedResultTypePackages());
     assertFalse(options.security().redactEmails());
     assertEquals(28, options.store().priorityBoostIntervalMinutes());
     assertFalse(options.circuitBreaker().enabled());

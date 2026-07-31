@@ -22,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import run.ratchet.spi.CallerPrincipalResolver;
 
@@ -228,6 +229,9 @@ public class RatchetOptions {
     builder.security.allowEmptyClassPolicy = security.allowEmptyClassPolicy();
     builder.security.redactEmails = security.redactEmails();
     builder.security.maskPayloads = security.maskPayloads();
+    builder.security.classPolicyAllowedPackages = security.classPolicyAllowedPackages();
+    builder.security.classPolicyAllowedResultTypePackages =
+        security.classPolicyAllowedResultTypePackages();
 
     builder.store.isolationCheckMode = store.isolationCheckMode();
     builder.store.priorityBoostIntervalMinutes = store.priorityBoostIntervalMinutes();
@@ -748,9 +752,28 @@ public class RatchetOptions {
    *     job result; {@code false} (default) leaves them unmasked. Map masking is key-based and
    *     result masking walks the serialized JSON; free-text fields such as {@code lastError} are
    *     not masked. The durable store payload is never affected.
+   * @param classPolicyAllowedPackages package prefixes allowed for invocation targets
+   * @param classPolicyAllowedResultTypePackages package prefixes allowed for deserialized result
+   *     types
    */
   public record SecurityOptions(
-      boolean allowEmptyClassPolicy, boolean redactEmails, boolean maskPayloads) {}
+      boolean allowEmptyClassPolicy,
+      boolean redactEmails,
+      boolean maskPayloads,
+      Set<String> classPolicyAllowedPackages,
+      Set<String> classPolicyAllowedResultTypePackages) {
+
+    /** Retained for callers compiled against the original security-options surface. */
+    public SecurityOptions(
+        boolean allowEmptyClassPolicy, boolean redactEmails, boolean maskPayloads) {
+      this(allowEmptyClassPolicy, redactEmails, maskPayloads, Set.of(), Set.of());
+    }
+
+    public SecurityOptions {
+      classPolicyAllowedPackages = Set.copyOf(classPolicyAllowedPackages);
+      classPolicyAllowedResultTypePackages = Set.copyOf(classPolicyAllowedResultTypePackages);
+    }
+  }
 
   /**
    * Store-layer tuning.
@@ -1422,6 +1445,8 @@ public class RatchetOptions {
     private boolean allowEmptyClassPolicy;
     private boolean redactEmails = true;
     private boolean maskPayloads;
+    private Set<String> classPolicyAllowedPackages = Set.of();
+    private Set<String> classPolicyAllowedResultTypePackages = Set.of();
 
     private SecurityBuilder() {}
 
@@ -1432,6 +1457,17 @@ public class RatchetOptions {
 
     public SecurityBuilder redactEmails(boolean redactEmails) {
       this.redactEmails = redactEmails;
+      return this;
+    }
+
+    public SecurityBuilder classPolicyAllowedPackages(Set<String> classPolicyAllowedPackages) {
+      this.classPolicyAllowedPackages = Set.copyOf(classPolicyAllowedPackages);
+      return this;
+    }
+
+    public SecurityBuilder classPolicyAllowedResultTypePackages(
+        Set<String> classPolicyAllowedResultTypePackages) {
+      this.classPolicyAllowedResultTypePackages = Set.copyOf(classPolicyAllowedResultTypePackages);
       return this;
     }
 
@@ -1448,7 +1484,12 @@ public class RatchetOptions {
     }
 
     private SecurityOptions build() {
-      return new SecurityOptions(allowEmptyClassPolicy, redactEmails, maskPayloads);
+      return new SecurityOptions(
+          allowEmptyClassPolicy,
+          redactEmails,
+          maskPayloads,
+          classPolicyAllowedPackages,
+          classPolicyAllowedResultTypePackages);
     }
   }
 

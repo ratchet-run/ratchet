@@ -121,6 +121,8 @@ class RatchetOptionsTest {
     assertEquals(25, options.timeout().signalTimeoutBatchSize());
     assertTrue(options.security().allowEmptyClassPolicy());
     assertFalse(options.security().redactEmails());
+    assertEquals(Set.of(), options.security().classPolicyAllowedPackages());
+    assertEquals(Set.of(), options.security().classPolicyAllowedResultTypePackages());
     assertEquals(RatchetOptions.IsolationCheckMode.WARN, options.store().isolationCheckMode());
     assertEquals(0, options.store().priorityBoostIntervalMinutes());
   }
@@ -291,7 +293,12 @@ class RatchetOptionsTest {
             .payload(payload -> payload.maxPayloadKb(101).maxResultBytes(65537L))
             .security(
                 security ->
-                    security.allowEmptyClassPolicy(true).redactEmails(false).maskPayloads(true))
+                    security
+                        .allowEmptyClassPolicy(true)
+                        .redactEmails(false)
+                        .maskPayloads(true)
+                        .classPolicyAllowedPackages(Set.of("com.acme.jobs"))
+                        .classPolicyAllowedResultTypePackages(Set.of("com.acme.results")))
             .store(
                 store ->
                     store
@@ -330,6 +337,23 @@ class RatchetOptionsTest {
     assertEquals(original.circuitBreaker(), roundTripped.circuitBreaker());
     assertEquals(original.encryption(), roundTripped.encryption());
     assertSame(original.callerPrincipalResolver(), roundTripped.callerPrincipalResolver());
+  }
+
+  @Test
+  void securityOptionsDefensivelyCopyClassPolicySets() {
+    Set<String> invocationPackages = new java.util.HashSet<>(Set.of("com.acme.jobs"));
+    Set<String> resultPackages = new java.util.HashSet<>(Set.of("com.acme.results"));
+
+    RatchetOptions.SecurityOptions options =
+        new RatchetOptions.SecurityOptions(false, true, false, invocationPackages, resultPackages);
+    invocationPackages.add("com.example.jobs");
+    resultPackages.add("com.example.results");
+
+    assertEquals(Set.of("com.acme.jobs"), options.classPolicyAllowedPackages());
+    assertEquals(Set.of("com.acme.results"), options.classPolicyAllowedResultTypePackages());
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> options.classPolicyAllowedPackages().add("com.other"));
   }
 
   @Test

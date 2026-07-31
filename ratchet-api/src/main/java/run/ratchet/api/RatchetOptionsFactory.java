@@ -16,7 +16,9 @@
 package run.ratchet.api;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import run.ratchet.api.internal.DefaultRatchetConfig;
 import run.ratchet.api.internal.EnvironmentRatchetConfigSource;
 import run.ratchet.api.internal.MicroProfileRatchetConfigSource;
@@ -122,6 +124,13 @@ public final class RatchetOptionsFactory {
             security ->
                 security
                     .allowEmptyClassPolicy(config.get(RatchetConfigKeys.ALLOW_EMPTY_CLASS_POLICY))
+                    .classPolicyAllowedPackages(
+                        commaSeparatedSet(
+                            config.get(RatchetConfigKeys.CLASS_POLICY_ALLOWED_PACKAGES)))
+                    .classPolicyAllowedResultTypePackages(
+                        commaSeparatedSet(
+                            config.get(
+                                RatchetConfigKeys.CLASS_POLICY_ALLOWED_RESULT_TYPE_PACKAGES)))
                     .redactEmails(config.get(RatchetConfigKeys.REDACT_EMAILS))
                     .maskPayloads(config.get(RatchetConfigKeys.MASK_PAYLOADS)))
         .store(
@@ -133,7 +142,8 @@ public final class RatchetOptionsFactory {
         .circuitBreaker(
             circuitBreaker -> {
               circuitBreaker.enabled(config.get(RatchetConfigKeys.CIRCUIT_BREAKER_ENABLED));
-              for (CircuitBreakerProfile profile : CircuitBreakerProfile.values()) {
+              for (CircuitBreakerProfile profile :
+                  RatchetConfigVocabulary.CIRCUIT_BREAKER_PROFILES) {
                 configureCircuitBreakerProfile(config, circuitBreaker, profile);
               }
             });
@@ -232,27 +242,12 @@ public final class RatchetOptionsFactory {
         .coordinatorThreadFactoryJndi(config.get(RatchetConfigKeys.COORDINATOR_THREAD_FACTORY_JNDI))
         .virtualExecutorJndi(config.get(RatchetConfigKeys.WORKER_VIRTUAL_EXECUTOR_JNDI))
         .virtualCounterAccounting(config.get(RatchetConfigKeys.WORKER_VIRTUAL_COUNTER_ACCOUNTING))
-        .queueSize(config.get(RatchetConfigKeys.THREAD_POOL_QUEUE_SIZE))
-        .maxConcurrency("SINGLE", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_SINGLE))
-        .maxConcurrency("RECURRING", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_RECURRING))
-        .maxConcurrency("BATCH_CHILD", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_BATCH_CHILD))
-        .maxConcurrency("BATCH_PARENT", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_BATCH_PARENT))
-        .maxConcurrency("CHAIN_STEP", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_CHAIN))
-        .maxConcurrency(
-            "WORKFLOW_BRANCH", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_WORKFLOW_BRANCH))
-        .maxConcurrency(
-            "WORKFLOW_JOIN", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_WORKFLOW_JOIN));
+        .queueSize(config.get(RatchetConfigKeys.THREAD_POOL_QUEUE_SIZE));
 
-    for (String type :
-        new String[] {
-          "SINGLE",
-          "RECURRING",
-          "BATCH_CHILD",
-          "BATCH_PARENT",
-          "CHAIN_STEP",
-          "WORKFLOW_BRANCH",
-          "WORKFLOW_JOIN"
-        }) {
+    for (RatchetConfigVocabulary.ExecutionType executionType :
+        RatchetConfigVocabulary.EXECUTION_TYPES) {
+      String type = executionType.name();
+      execution.maxConcurrency(type, config.get(executionType.concurrencyKey()));
       int virtualThreadLimit = config.get(RatchetConfigKeys.virtualThreadLimit(type));
       if (virtualThreadLimit > 0) {
         execution.virtualThreadLimit(type, virtualThreadLimit);
@@ -315,5 +310,16 @@ public final class RatchetOptionsFactory {
     RatchetConfigKey<Long> waitMs =
         RatchetConfigKeys.circuitBreakerWaitMs(profileName, defaultValue);
     return config.get(waitMs);
+  }
+
+  private static Set<String> commaSeparatedSet(String raw) {
+    Set<String> values = new LinkedHashSet<>();
+    for (String value : raw.split(",")) {
+      String trimmed = value.trim();
+      if (!trimmed.isEmpty()) {
+        values.add(trimmed);
+      }
+    }
+    return Set.copyOf(values);
   }
 }

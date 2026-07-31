@@ -15,6 +15,7 @@
  */
 package run.ratchet.api.internal;
 
+import java.util.List;
 import java.util.Locale;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.RatchetConfigKey;
@@ -203,6 +204,14 @@ public final class RatchetConfigKeys {
       longKey("ratchet.jobs.max-result-bytes", "RATCHET_JOB_RESULT_MAX_BYTES", 65536L, 0L);
   public static final RatchetConfigKey<Boolean> ALLOW_EMPTY_CLASS_POLICY =
       boolKey("ratchet.allow-empty-class-policy", "RATCHET_ALLOW_EMPTY_CLASS_POLICY", false);
+  public static final RatchetConfigKey<String> CLASS_POLICY_ALLOWED_PACKAGES =
+      stringKey(
+          "ratchet.class-policy.allowed-packages", "RATCHET_CLASS_POLICY_ALLOWED_PACKAGES", "");
+  public static final RatchetConfigKey<String> CLASS_POLICY_ALLOWED_RESULT_TYPE_PACKAGES =
+      stringKey(
+          "ratchet.class-policy.allowed-result-type-packages",
+          "RATCHET_CLASS_POLICY_ALLOWED_RESULT_TYPE_PACKAGES",
+          "");
   public static final RatchetConfigKey<Boolean> REDACT_EMAILS =
       boolKey("ratchet.security.redact-emails", "RATCHET_REDACT_EMAILS", true);
   public static final RatchetConfigKey<Boolean> MASK_PAYLOADS =
@@ -222,7 +231,74 @@ public final class RatchetConfigKeys {
   public static final RatchetConfigKey<Boolean> CIRCUIT_BREAKER_ENABLED =
       boolKey("ratchet.circuit-breaker.enabled", "RATCHET_CIRCUIT_BREAKER_ENABLED", true);
 
+  private static final List<RatchetConfigKey<?>> FIXED_KEYS =
+      List.of(
+          POLLER_BATCH_SIZE,
+          POLLER_BURST_DELAY_MS,
+          POLLER_MIN_DELAY_MS,
+          POLLER_MAX_DELAY_MS,
+          POLLER_DEEP_IDLE_DELAY_MS,
+          POLLER_DEEP_IDLE_THRESHOLD_MS,
+          POLLER_IDLE_THRESHOLD,
+          POLLER_CLAIM_HEADROOM_FACTOR,
+          WORKER_DEFAULT_THREADING_MODE,
+          WORKER_JOB_EXECUTOR_JNDI,
+          WORKER_SCHEDULED_EXECUTOR_JNDI,
+          COORDINATOR_THREAD_FACTORY_JNDI,
+          WORKER_VIRTUAL_EXECUTOR_JNDI,
+          WORKER_VIRTUAL_COUNTER_ACCOUNTING,
+          THREAD_POOL_QUEUE_SIZE,
+          THREAD_POOL_SIZE_SINGLE,
+          THREAD_POOL_SIZE_RECURRING,
+          THREAD_POOL_SIZE_BATCH_CHILD,
+          THREAD_POOL_SIZE_BATCH_PARENT,
+          THREAD_POOL_SIZE_CHAIN,
+          THREAD_POOL_SIZE_WORKFLOW_BRANCH,
+          THREAD_POOL_SIZE_WORKFLOW_JOIN,
+          NODE_ID,
+          NODE_HEARTBEAT_INTERVAL_SECONDS,
+          NODE_ORPHAN_GRACE_SECONDS,
+          ORPHAN_SCAN_INTERVAL_MINUTES,
+          DYNAMIC_HEARTBEAT_ENABLED,
+          RECURRING_BATCH_LIMIT,
+          RECURRING_POLL_MS,
+          RECURRING_MAX_POLL_MS,
+          RECURRING_STARTUP_GRACE_SECONDS,
+          RECURRING_CONVERGENCE_WINDOW_SECONDS,
+          RETRY_BUFFER_DRAIN_INTERVAL_MS,
+          SOFT_TIMEOUT_PERCENT,
+          WORKER_DEFAULT_SLA,
+          SIGNAL_TIMEOUT_BATCH_SIZE,
+          DLQ_PURGE_ENABLED,
+          DLQ_PURGE_CRON,
+          DLQ_PURGE_DAYS,
+          JOB_ARCHIVE_ENABLED,
+          JOB_ARCHIVE_CRON,
+          JOB_RETENTION_DAYS,
+          JOB_ARCHIVE_BATCH_SIZE,
+          LOG_PURGE_ENABLED,
+          LOG_PURGE_CRON,
+          LOG_RETENTION_DAYS,
+          SCHEMA_AUTO_MIGRATE,
+          SCHEMA_MIGRATION_DIALECT,
+          SCHEMA_MIGRATION_PREFIX,
+          MAX_PAYLOAD_KB,
+          MAX_RESULT_BYTES,
+          ALLOW_EMPTY_CLASS_POLICY,
+          CLASS_POLICY_ALLOWED_PACKAGES,
+          CLASS_POLICY_ALLOWED_RESULT_TYPE_PACKAGES,
+          REDACT_EMAILS,
+          MASK_PAYLOADS,
+          ISOLATION_CHECK_MODE,
+          PRIORITY_BOOST_INTERVAL_MINUTES,
+          CIRCUIT_BREAKER_ENABLED);
+
   private RatchetConfigKeys() {}
+
+  /** Returns every fixed canonical key in declaration order. */
+  public static List<RatchetConfigKey<?>> fixedKeys() {
+    return FIXED_KEYS;
+  }
 
   public static RatchetConfigKey<Integer> virtualThreadLimit(String type) {
     String normalized = type.toUpperCase(Locale.ROOT);
