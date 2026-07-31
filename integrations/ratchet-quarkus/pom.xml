@@ -55,7 +55,7 @@
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-core</artifactId>
         <!-- Deliberately above the platform's 2.18.2: GHSA-r7wm-3cxj-wff9 needs 2.18.8+. -->
-        <version>2.18.8</version>
+        <version>2.22.1</version>
       </dependency>
       <dependency>
         <groupId>com.google.protobuf</groupId>
