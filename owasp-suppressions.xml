@@ -73,4 +73,18 @@
         <cpe>cpe:/a:prometheus:prometheus</cpe>
     </suppress>
 
+    <suppress>
+        <notes><![CDATA[
+        False positive: CVE-2019-3826 is a stored DOM-based XSS in the Prometheus
+        SERVER's web UI, fixed in Prometheus server 2.7.1. micrometer-registry-prometheus
+        is the io.micrometer client library that only emits metrics; it has no web UI
+        and is not the Prometheus server. Matched by file path, not packageUrl: this
+        scan reaches the jar nested inside testing/ratchet-loadtest's WAR (WEB-INF/lib),
+        where Dependency-Check assigns the server CPE from the name but no Maven PURL,
+        so packageUrl/cpe rules never match (mirrors the CVE-2026-42154 entry above).
+        ]]></notes>
+        <filePath regex="true">.*/micrometer-registry-prometheus-[^/]+\.jar$</filePath>
+        <cve>CVE-2019-3826</cve>
+    </suppress>
+
 </suppressions>
