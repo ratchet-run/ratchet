@@ -17,6 +17,7 @@ package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -32,21 +33,32 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.persistenceunit.PersistenceUnitManager;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spring.boot.autoconfigure.RatchetProperties;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.migration.SchemaInitializationException;
 import run.ratchet.store.postgresql.PostgresqlJobStore;
 import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
 
 class RatchetJpaAutoConfigurationTest {
+
+  @AfterEach
+  void clearPayloadSerializerHolder() {
+    PayloadSerializerHolder.set(null);
+  }
 
   @Test
   void ordersAfterBothSpringBootHibernateAutoConfigurationNames() {
@@ -59,6 +71,16 @@ class RatchetJpaAutoConfigurationTest {
           "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
         },
         autoConfiguration.afterName());
+  }
+
+  @Test
+  void autoConfigurationBacksOffWhenRatchetIsDisabled() {
+    ConditionalOnProperty condition =
+        RatchetJpaAutoConfiguration.class.getAnnotation(ConditionalOnProperty.class);
+
+    assertArrayEquals(new String[] {RatchetProperties.ENABLED_PROPERTY}, condition.name());
+    assertEquals("true", condition.havingValue());
+    assertTrue(condition.matchIfMissing());
   }
 
   @Test
@@ -83,6 +105,30 @@ class RatchetJpaAutoConfigurationTest {
 
     assertFalse(configuration.proxyBeanMethods());
     assertArrayEquals(new Class<?>[] {PostgresqlJobStore.class}, condition.value());
+  }
+
+  @Test
+  void postgresqlStoreExplicitlyDependsOnPayloadSerializerInstallation() {
+    boolean installationDependency =
+        Stream.of(
+                RatchetJpaAutoConfiguration.PostgresqlStoreConfiguration.class.getDeclaredMethods())
+            .filter(method -> method.getName().equals("postgresqlJobStore"))
+            .flatMap(method -> Stream.of(method.getParameterTypes()))
+            .anyMatch(SpringPayloadSerializerInstallation.class::equals);
+
+    assertTrue(installationDependency);
+  }
+
+  @Test
+  void payloadSerializerInstallationOwnsAndReleasesHolderIdempotently() throws Exception {
+    PayloadSerializer serializer = mock(PayloadSerializer.class);
+    SpringPayloadSerializerInstallation installation =
+        new SpringPayloadSerializerInstallation(serializer);
+
+    assertSame(serializer, PayloadSerializerHolder.get());
+    installation.destroy();
+    assertFalse(PayloadSerializerHolder.get() == serializer);
+    assertDoesNotThrow(installation::destroy);
   }
 
   @Test
@@ -243,10 +289,11 @@ class RatchetJpaAutoConfigurationTest {
     beanFactory.registerSingleton("transactionManager", transactionManager);
 
     RatchetJpaAutoConfiguration.JpaTopology topology =
-        RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory);
+        RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory, properties(null));
 
     assertSame(entityManagerFactory, topology.entityManagerFactory());
     assertSame(transactionManager, topology.transactionManager());
+    assertEquals("transactionManager", topology.transactionManagerName());
   }
 
   @Test
@@ -261,7 +308,7 @@ class RatchetJpaAutoConfigurationTest {
     IllegalStateException failure =
         assertThrows(
             IllegalStateException.class,
-            () -> RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory));
+            () -> RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory, properties(null)));
 
     assertTrue(
         failure
@@ -270,24 +317,156 @@ class RatchetJpaAutoConfigurationTest {
   }
 
   @Test
-  void rejectsMultipleJpaTransactionManagers() {
+  void selectsTheOnlyPrimaryJpaTransactionManager() {
     DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
     EntityManagerFactory entityManagerFactory = mock(EntityManagerFactory.class);
     beanFactory.registerSingleton("entityManagerFactory", entityManagerFactory);
-    beanFactory.registerSingleton(
-        "firstTransactionManager", new JpaTransactionManager(entityManagerFactory));
-    beanFactory.registerSingleton(
-        "secondTransactionManager", new JpaTransactionManager(entityManagerFactory));
+    JpaTransactionManager first = new JpaTransactionManager(entityManagerFactory);
+    JpaTransactionManager primary = new JpaTransactionManager(entityManagerFactory);
+    registerTransactionManager(beanFactory, "firstTransactionManager", first, false);
+    registerTransactionManager(beanFactory, "primaryTransactionManager", primary, true);
+
+    RatchetJpaAutoConfiguration.JpaTopology topology =
+        RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory, properties(null));
+
+    assertSame(primary, topology.transactionManager());
+    assertEquals("primaryTransactionManager", topology.transactionManagerName());
+  }
+
+  @Test
+  void explicitTransactionManagerNameSkipsPrimarySelection() {
+    DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
+    EntityManagerFactory entityManagerFactory = mock(EntityManagerFactory.class);
+    beanFactory.registerSingleton("entityManagerFactory", entityManagerFactory);
+    JpaTransactionManager primary = new JpaTransactionManager(entityManagerFactory);
+    JpaTransactionManager explicitlySelected = new JpaTransactionManager(entityManagerFactory);
+    registerTransactionManager(beanFactory, "primaryTransactionManager", primary, true);
+    registerTransactionManager(
+        beanFactory, "explicitTransactionManager", explicitlySelected, false);
+
+    RatchetJpaAutoConfiguration.JpaTopology topology =
+        RatchetJpaAutoConfiguration.resolveJpaTopology(
+            beanFactory, properties("explicitTransactionManager"));
+
+    assertSame(explicitlySelected, topology.transactionManager());
+    assertEquals("explicitTransactionManager", topology.transactionManagerName());
+  }
+
+  @Test
+  void rejectsMissingExplicitTransactionManagerAndListsCandidates() {
+    DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
+    EntityManagerFactory entityManagerFactory = mock(EntityManagerFactory.class);
+    beanFactory.registerSingleton("entityManagerFactory", entityManagerFactory);
+    registerTransactionManager(
+        beanFactory,
+        "firstTransactionManager",
+        new JpaTransactionManager(entityManagerFactory),
+        false);
+    registerTransactionManager(
+        beanFactory,
+        "secondTransactionManager",
+        new JpaTransactionManager(entityManagerFactory),
+        false);
 
     IllegalStateException failure =
         assertThrows(
             IllegalStateException.class,
-            () -> RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory));
+            () ->
+                RatchetJpaAutoConfiguration.resolveJpaTopology(
+                    beanFactory, properties("missingTransactionManager")));
 
     assertTrue(
         failure
             .getMessage()
-            .contains("requires exactly one JpaTransactionManager bean, but found 2"));
+            .contains(
+                "transaction manager bean 'missingTransactionManager' configured by"
+                    + " 'ratchet.transaction-manager-bean-name' does not exist"));
+    assertTrue(
+        failure
+            .getMessage()
+            .contains(
+                "Available JpaTransactionManager beans: [firstTransactionManager,"
+                    + " secondTransactionManager]"));
+  }
+
+  @Test
+  void rejectsAmbiguousJpaTransactionManagersWithBothRemediations() {
+    DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
+    EntityManagerFactory entityManagerFactory = mock(EntityManagerFactory.class);
+    beanFactory.registerSingleton("entityManagerFactory", entityManagerFactory);
+    registerTransactionManager(
+        beanFactory,
+        "firstTransactionManager",
+        new JpaTransactionManager(entityManagerFactory),
+        false);
+    registerTransactionManager(
+        beanFactory,
+        "secondTransactionManager",
+        new JpaTransactionManager(entityManagerFactory),
+        false);
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory, properties(null)));
+
+    assertTrue(
+        failure
+            .getMessage()
+            .contains("candidates [firstTransactionManager, secondTransactionManager]"));
+    assertTrue(
+        failure.getMessage().contains("Mark exactly one JpaTransactionManager bean @Primary"));
+    assertTrue(failure.getMessage().contains("set 'ratchet.transaction-manager-bean-name'"));
+  }
+
+  @Test
+  void rejectsMultiplePrimaryJpaTransactionManagersAsAmbiguous() {
+    DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
+    EntityManagerFactory entityManagerFactory = mock(EntityManagerFactory.class);
+    beanFactory.registerSingleton("entityManagerFactory", entityManagerFactory);
+    registerTransactionManager(
+        beanFactory,
+        "firstTransactionManager",
+        new JpaTransactionManager(entityManagerFactory),
+        true);
+    registerTransactionManager(
+        beanFactory,
+        "secondTransactionManager",
+        new JpaTransactionManager(entityManagerFactory),
+        true);
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory, properties(null)));
+
+    assertTrue(
+        failure
+            .getMessage()
+            .contains("candidates [firstTransactionManager, secondTransactionManager]"));
+  }
+
+  @Test
+  void rejectsExplicitTransactionManagerWithWrongTypeAndNamesActualType() {
+    DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
+    beanFactory.registerSingleton("entityManagerFactory", mock(EntityManagerFactory.class));
+    beanFactory.registerSingleton("wrongTransactionManager", "not a transaction manager");
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                RatchetJpaAutoConfiguration.resolveJpaTopology(
+                    beanFactory, properties("wrongTransactionManager")));
+
+    assertTrue(
+        failure
+            .getMessage()
+            .contains(
+                "transaction manager bean 'wrongTransactionManager' configured by"
+                    + " 'ratchet.transaction-manager-bean-name' must be a"
+                    + " JpaTransactionManager"));
+    assertTrue(failure.getMessage().contains("actual type is java.lang.String"));
   }
 
   @Test
@@ -301,7 +480,9 @@ class RatchetJpaAutoConfigurationTest {
     IllegalStateException failure =
         assertThrows(
             IllegalStateException.class,
-            () -> RatchetJpaAutoConfiguration.resolveJpaTopology(beanFactory));
+            () ->
+                RatchetJpaAutoConfiguration.resolveJpaTopology(
+                    beanFactory, properties("transactionManager")));
 
     assertTrue(
         failure
@@ -411,6 +592,23 @@ class RatchetJpaAutoConfigurationTest {
     DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
     beanFactory.setBeanClassLoader(classLoader);
     return beanFactory;
+  }
+
+  private static RatchetProperties properties(String transactionManagerBeanName) {
+    RatchetProperties properties = new RatchetProperties();
+    properties.setTransactionManagerBeanName(transactionManagerBeanName);
+    return properties;
+  }
+
+  private static void registerTransactionManager(
+      DefaultListableBeanFactory beanFactory,
+      String beanName,
+      JpaTransactionManager transactionManager,
+      boolean primary) {
+    RootBeanDefinition beanDefinition = new RootBeanDefinition(JpaTransactionManager.class);
+    beanDefinition.setInstanceSupplier(() -> transactionManager);
+    beanDefinition.setPrimary(primary);
+    beanFactory.registerBeanDefinition(beanName, beanDefinition);
   }
 
   private ClassLoader classLoaderWithOrmResources(java.util.Enumeration<URL> resources) {

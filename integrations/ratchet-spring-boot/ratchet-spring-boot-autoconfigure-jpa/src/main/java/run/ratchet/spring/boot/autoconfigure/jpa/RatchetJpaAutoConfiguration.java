@@ -31,6 +31,7 @@ import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.ConfigurableEnvironment;
@@ -44,6 +45,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NoOpMetricsCollector;
+import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spring.boot.autoconfigure.RatchetProperties;
 import run.ratchet.store.postgresql.PostgresqlJobStore;
 import run.ratchet.store.postgresql.PostgresqlJobStoreFactory;
 import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
@@ -59,6 +62,10 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
       "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
     })
 @ConditionalOnClass(name = "run.ratchet.store.postgresql.PostgresqlJobStore")
+@ConditionalOnProperty(
+    name = RatchetProperties.ENABLED_PROPERTY,
+    havingValue = "true",
+    matchIfMissing = true)
 public class RatchetJpaAutoConfiguration {
 
   static final String MAPPING_RESOURCES_PROPERTY = "spring.jpa.mapping-resources";
@@ -123,7 +130,8 @@ public class RatchetJpaAutoConfiguration {
     }
   }
 
-  static JpaTopology resolveJpaTopology(ConfigurableListableBeanFactory beanFactory) {
+  static JpaTopology resolveJpaTopology(
+      ConfigurableListableBeanFactory beanFactory, RatchetProperties properties) {
     String[] entityManagerFactoryNames =
         beanFactory.getBeanNamesForType(EntityManagerFactory.class, true, true);
     if (entityManagerFactoryNames.length != 1) {
@@ -140,17 +148,8 @@ public class RatchetJpaAutoConfiguration {
     EntityManagerFactory entityManagerFactory =
         beanFactory.getBean(entityManagerFactoryName, EntityManagerFactory.class);
 
-    List<NamedJpaTransactionManager> transactionManagers = jpaTransactionManagers(beanFactory);
-    if (transactionManagers.size() != 1) {
-      throw new IllegalStateException(
-          "Ratchet PostgreSQL requires exactly one JpaTransactionManager bean, but found "
-              + transactionManagers.size()
-              + ": "
-              + transactionManagers.stream().map(NamedJpaTransactionManager::name).sorted().toList()
-              + ". Configure one JpaTransactionManager for the application persistence unit.");
-    }
-
-    NamedJpaTransactionManager namedTransactionManager = transactionManagers.get(0);
+    NamedJpaTransactionManager namedTransactionManager =
+        selectJpaTransactionManager(beanFactory, properties);
     EntityManagerFactory transactionManagerEntityManagerFactory =
         namedTransactionManager.transactionManager().getEntityManagerFactory();
     if (transactionManagerEntityManagerFactory != entityManagerFactory) {
@@ -169,6 +168,72 @@ public class RatchetJpaAutoConfiguration {
         entityManagerFactory,
         namedTransactionManager.name(),
         namedTransactionManager.transactionManager());
+  }
+
+  private static NamedJpaTransactionManager selectJpaTransactionManager(
+      ConfigurableListableBeanFactory beanFactory, RatchetProperties properties) {
+    String configuredName = properties.getTransactionManagerBeanName();
+    if (configuredName != null && !configuredName.isBlank()) {
+      return explicitlyNamedTransactionManager(beanFactory, configuredName.trim());
+    }
+
+    List<NamedJpaTransactionManager> transactionManagers = jpaTransactionManagers(beanFactory);
+    if (transactionManagers.size() == 1) {
+      return transactionManagers.get(0);
+    }
+
+    List<NamedJpaTransactionManager> primaryTransactionManagers =
+        transactionManagers.stream()
+            .filter(transactionManager -> isPrimary(beanFactory, transactionManager.name()))
+            .toList();
+    if (primaryTransactionManagers.size() == 1) {
+      return primaryTransactionManagers.get(0);
+    }
+
+    throw new IllegalStateException(
+        "Ratchet PostgreSQL could not select a JpaTransactionManager bean from candidates "
+            + transactionManagerNames(transactionManagers)
+            + ". Mark exactly one JpaTransactionManager bean @Primary or set '"
+            + RatchetProperties.TRANSACTION_MANAGER_BEAN_NAME_PROPERTY
+            + "' to the desired bean name.");
+  }
+
+  private static NamedJpaTransactionManager explicitlyNamedTransactionManager(
+      ConfigurableListableBeanFactory beanFactory, String configuredName) {
+    if (!beanFactory.containsBean(configuredName)) {
+      throw new IllegalStateException(
+          "Ratchet PostgreSQL transaction manager bean '"
+              + configuredName
+              + "' configured by '"
+              + RatchetProperties.TRANSACTION_MANAGER_BEAN_NAME_PROPERTY
+              + "' does not exist. Available JpaTransactionManager beans: "
+              + transactionManagerNames(jpaTransactionManagers(beanFactory))
+              + ".");
+    }
+
+    Object configuredBean = beanFactory.getBean(configuredName);
+    if (!(configuredBean instanceof JpaTransactionManager transactionManager)) {
+      throw new IllegalStateException(
+          "Ratchet PostgreSQL transaction manager bean '"
+              + configuredName
+              + "' configured by '"
+              + RatchetProperties.TRANSACTION_MANAGER_BEAN_NAME_PROPERTY
+              + "' must be a JpaTransactionManager, but its actual type is "
+              + configuredBean.getClass().getName()
+              + ".");
+    }
+    return new NamedJpaTransactionManager(configuredName, transactionManager);
+  }
+
+  private static boolean isPrimary(
+      ConfigurableListableBeanFactory beanFactory, String transactionManagerName) {
+    return beanFactory.containsBeanDefinition(transactionManagerName)
+        && beanFactory.getBeanDefinition(transactionManagerName).isPrimary();
+  }
+
+  private static List<String> transactionManagerNames(
+      List<NamedJpaTransactionManager> transactionManagers) {
+    return transactionManagers.stream().map(NamedJpaTransactionManager::name).sorted().toList();
   }
 
   private static List<NamedJpaTransactionManager> jpaTransactionManagers(
@@ -281,8 +346,15 @@ public class RatchetJpaAutoConfiguration {
   static class PostgresqlStoreConfiguration {
 
     @Bean
-    JpaTopology ratchetJpaTopology(ConfigurableListableBeanFactory beanFactory) {
-      return resolveJpaTopology(beanFactory);
+    JpaTopology ratchetJpaTopology(
+        ConfigurableListableBeanFactory beanFactory, RatchetProperties properties) {
+      return resolveJpaTopology(beanFactory, properties);
+    }
+
+    @Bean
+    SpringPayloadSerializerInstallation ratchetPayloadSerializerInstallation(
+        PayloadSerializer payloadSerializer) {
+      return new SpringPayloadSerializerInstallation(payloadSerializer);
     }
 
     @Bean
@@ -305,9 +377,11 @@ public class RatchetJpaAutoConfiguration {
     PostgresqlJobStore postgresqlJobStore(
         JpaTopology topology,
         RatchetJpaSchemaMigrationInitializer migrationInitializer,
+        SpringPayloadSerializerInstallation payloadSerializerInstallation,
         ObjectProvider<MetricsCollector> metricsCollectorProvider,
         ObjectProvider<RatchetOptions> optionsProvider) {
       Objects.requireNonNull(migrationInitializer, "migrationInitializer");
+      Objects.requireNonNull(payloadSerializerInstallation, "payloadSerializerInstallation");
       EntityManager sharedEntityManager =
           SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
       RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
