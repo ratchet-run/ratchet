@@ -193,6 +193,97 @@ def installed_artifact_path(artifact, version):
     )
 
 
+def dependency_artifact(node, label):
+    group_id = require_string(node.get("groupId"), f"{label}.groupId")
+    artifact_id = require_string(
+        node.get("artifactId"), f"{label}.artifactId"
+    )
+    version = require_string(node.get("version"), f"{label}.version")
+    artifact_type = require_string(node.get("type"), f"{label}.type")
+    classifier = node.get("classifier", "")
+    if not isinstance(classifier, str):
+        fail(f"{label}.classifier must be a string")
+
+    extension = "jar" if artifact_type == "test-jar" else artifact_type
+    coordinate_parts = [group_id, artifact_id, artifact_type]
+    if classifier:
+        coordinate_parts.append(classifier)
+    coordinate_parts.append(version)
+    coordinate = ":".join(coordinate_parts)
+    classifier_suffix = f"-{classifier}" if classifier else ""
+    artifact_path = (
+        maven_repo
+        / pathlib.Path(*group_id.split("."))
+        / artifact_id
+        / version
+        / f"{artifact_id}-{version}{classifier_suffix}.{extension}"
+    )
+    return coordinate, artifact_path
+
+
+def runtime_dependency_evidence(tree_path, lane_id, flavor_id):
+    try:
+        with tree_path.open(encoding="utf-8") as stream:
+            tree = json.load(stream)
+    except (OSError, json.JSONDecodeError) as exc:
+        fail(f"cannot parse runtime dependency tree {tree_path}: {exc}")
+    if not isinstance(tree, dict):
+        fail(f"runtime dependency tree must contain an object: {tree_path}")
+
+    resolved = {}
+
+    def visit(node, label, project_node=False):
+        if not isinstance(node, dict):
+            fail(f"{label} must be an object")
+        if not project_node:
+            scope = require_string(node.get("scope"), f"{label}.scope")
+            if scope in {"compile", "runtime"}:
+                coordinate, artifact_path = dependency_artifact(node, label)
+                if not artifact_path.is_file():
+                    fail(
+                        f"resolved runtime dependency is missing: "
+                        f"{coordinate} ({artifact_path})"
+                    )
+                digest = sha256(artifact_path)
+                prior = resolved.get(coordinate)
+                if prior is None:
+                    prior = {"sha256": digest, "scopes": set()}
+                    resolved[coordinate] = prior
+                elif prior["sha256"] != digest:
+                    fail(
+                        f"resolved runtime dependency changed while reading "
+                        f"the tree: {coordinate}"
+                    )
+                prior["scopes"].add(scope)
+
+        children = node.get("children", [])
+        if not isinstance(children, list):
+            fail(f"{label}.children must be an array")
+        for index, child in enumerate(children):
+            visit(child, f"{label}.children[{index}]")
+
+    visit(tree, "runtimeDependencyTree", project_node=True)
+    if not resolved:
+        fail(
+            f"runtime dependency tree contains no resolved compile/runtime "
+            f"dependencies: {tree_path}"
+        )
+
+    return {
+        "lane": lane_id,
+        "flavor": flavor_id,
+        "treeSha256": sha256(tree_path),
+        "dependencies": [
+            {
+                "coordinate": coordinate,
+                "sha256": evidence["sha256"],
+                "scopes": sorted(evidence["scopes"]),
+            }
+            for coordinate, evidence in sorted(resolved.items())
+        ],
+    }
+
+
 matrix = load_json(matrix_path)
 if matrix.get("schemaVersion") != 1:
     fail("compatibility matrix schemaVersion must be 1")
@@ -453,6 +544,7 @@ baseline_hashes = {
     for coordinate, path in artifact_paths.items()
 }
 lane_hashes = {}
+runtime_dependencies = []
 for lane in lanes:
     lane_id = lane["id"]
     lane_flavors = [
@@ -503,6 +595,34 @@ for lane in lanes:
                 f"Boot lane {lane_id}/{flavor_id} produced no test reports"
             )
 
+        for conformance_report in sorted(
+            consumer_target.glob("tck-*-conformance-report.md")
+        ):
+            destination = (
+                report_archive
+                / "conformance"
+                / flavor_id
+                / lane_id
+                / conformance_report.name
+            )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(conformance_report, destination)
+
+        runtime_dependency_tree = (
+            consumer_target / "runtime-dependency-tree.json"
+        )
+        if flavor_id == "postgresql" and not runtime_dependency_tree.is_file():
+            fail(
+                f"Boot lane {lane_id}/{flavor_id} produced no runtime "
+                "dependency tree"
+            )
+        if runtime_dependency_tree.is_file():
+            runtime_dependencies.append(
+                runtime_dependency_evidence(
+                    runtime_dependency_tree, lane_id, flavor_id
+                )
+            )
+
         current_hashes = {
             coordinate: sha256(path)
             for coordinate, path in artifact_paths.items()
@@ -541,6 +661,7 @@ record = {
         }
         for artifact in artifacts
     ],
+    "runtimeDependencies": runtime_dependencies,
 }
 try:
     with hash_record.open("w", encoding="utf-8") as stream:

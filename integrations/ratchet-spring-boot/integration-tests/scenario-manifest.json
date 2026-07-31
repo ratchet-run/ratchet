@@ -321,13 +321,42 @@
         }
       ]
     },
-    "postgresql-store": {
+    "postgresql-runtime": {
       "bootLanes": [
         "boot-3.5",
         "boot-4.1"
       ],
       "database": "postgresql",
-      "sharedTckContracts": [],
+      "sharedTckContracts": [
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBatchRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBroadcastSignalContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkCancelEventContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBusinessKeyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractDelayedSchedulingContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractExclusiveWorkflowContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractIdempotencyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobAuthorizationContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobCancelContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobControlReturnContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobLifecycleContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryDenialContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadEncryptionEngineContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadSizeContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractResilienceStrategyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractRetryPolicyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalDecisionContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalPayloadContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSimpleWorkflowContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxDlqOrderContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxEnqueueContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxNotSupportedContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiredContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiresNewContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxSupportsContract"
+      ],
       "expectedReports": [
         {
           "afterCommand": "jvm-matrix",
@@ -387,6 +416,262 @@
         },
         {
           "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBatchRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBatchRetryTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBroadcastSignalTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBroadcastSignalTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBulkCancelEventTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBulkCancelEventTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBulkRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBulkRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBusinessKeyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBusinessKeyTckTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringDelayedSchedulingTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringDelayedSchedulingTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringExclusiveWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringExclusiveWorkflowTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringIdempotencyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringIdempotencyTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobAuthorizationTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobAuthorizationTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobCancelTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobCancelTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobControlReturnTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobControlReturnTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobLifecycleTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobLifecycleTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobQueryDenialTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobQueryDenialTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobQueryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobQueryTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringPayloadEncryptionEngineTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringPayloadEncryptionEngineTckTest",
+          "minimumExecutedTests": 8
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringPayloadSizeTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringPayloadSizeTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringResilienceStrategyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringResilienceStrategyTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringRetryPolicyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringRetryPolicyTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringSignalDecisionTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringSignalDecisionTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringSignalPayloadTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringSignalPayloadTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringSimpleWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringSimpleWorkflowTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxDlqOrderTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxDlqOrderTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxEnqueueTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxEnqueueTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxNotSupportedTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxNotSupportedTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxRequiredTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxRequiredTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxRequiresNewTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxRequiresNewTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxSupportsTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxSupportsTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.SpringClassPolicyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.SpringClassPolicyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.SpringRepeatedContextsTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.SpringRepeatedContextsTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.SpringShutdownDrainTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.SpringShutdownDrainTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlSchedulerRuntimeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlSchedulerRuntimeTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
           "lane": "boot-4.1",
           "kind": "surefire",
           "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlDependencyVersionTest.xml",
@@ -440,6 +725,262 @@
           "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlNegativeStartupTest.xml",
           "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlNegativeStartupTest",
           "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBatchRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBatchRetryTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBroadcastSignalTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBroadcastSignalTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBulkCancelEventTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBulkCancelEventTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBulkRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBulkRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringBusinessKeyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringBusinessKeyTckTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringDelayedSchedulingTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringDelayedSchedulingTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringExclusiveWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringExclusiveWorkflowTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringIdempotencyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringIdempotencyTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobAuthorizationTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobAuthorizationTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobCancelTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobCancelTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobControlReturnTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobControlReturnTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobLifecycleTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobLifecycleTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobQueryDenialTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobQueryDenialTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobQueryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobQueryTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringJobRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringJobRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringPayloadEncryptionEngineTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringPayloadEncryptionEngineTckTest",
+          "minimumExecutedTests": 8
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringPayloadSizeTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringPayloadSizeTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringResilienceStrategyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringResilienceStrategyTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringRetryPolicyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringRetryPolicyTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringSignalDecisionTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringSignalDecisionTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringSignalPayloadTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringSignalPayloadTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringSimpleWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringSimpleWorkflowTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxDlqOrderTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxDlqOrderTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxEnqueueTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxEnqueueTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxNotSupportedTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxNotSupportedTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxRequiredTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxRequiredTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxRequiresNewTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxRequiresNewTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.tck.SpringTxSupportsTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.tck.SpringTxSupportsTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.SpringClassPolicyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.SpringClassPolicyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.SpringRepeatedContextsTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.SpringRepeatedContextsTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.SpringShutdownDrainTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.SpringShutdownDrainTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/postgresql/surefire-reports/TEST-run.ratchet.spring.boot.it.postgresql.PostgresqlSchedulerRuntimeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.postgresql.PostgresqlSchedulerRuntimeTest",
+          "minimumExecutedTests": 1
         }
       ],
       "sourceSentinels": [
@@ -485,12 +1026,56 @@
         }
       ],
       "conformanceArtifact": {
-        "applicable": false,
-        "name": null,
-        "path": null
+        "applicable": true,
+        "name": "spring-boot-postgresql-conformance",
+        "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/conformance/postgresql",
+        "expectedFiles": [
+          "boot-3.5/tck-api-conformance-report.md",
+          "boot-4.1/tck-api-conformance-report.md"
+        ]
+      },
+      "qualification": {
+        "attestationPath": "integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json",
+        "matrixHashRecord": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-hashes.json",
+        "runtimeDependencyFlavor": "postgresql",
+        "topologyGuard": "scripts/test-spring-boot-publication-topology.sh",
+        "coordinates": [
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-parent:pom",
+            "hashSource": {
+              "type": "installed"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-autoconfigure:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-autoconfigure-jpa:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-starter:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          }
+        ]
       },
       "requiredCiJob": "spring-boot-postgresql-jvm",
       "commands": [
+        {
+          "id": "tck-coverage",
+          "type": "script",
+          "interpreter": "python3",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-tck-coverage.py",
+          "arguments": [],
+          "producesTests": false
+        },
         {
           "id": "jvm-matrix",
           "type": "script",
