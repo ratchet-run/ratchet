@@ -35,19 +35,6 @@
       <artifactId>postgresql</artifactId>
       <scope>runtime</scope>
     </dependency>
-    <!--
-      The RI scopes jakarta.enterprise.cdi-api as provided, but
-      RatchetRuntimeComponentCatalog's descriptors reference CDI SPI types (e.g.
-      jakarta.enterprise.inject.Instance), so booting the starter's auto-configuration needs
-      the API on the test classpath. The starter-vs-consumer runtime-scope decision is owned
-      by PR 7; this mirrors the compatibility module's test-scoped arrangement. Version comes
-      from the root pom's dependencyManagement.
-    -->
-    <dependency>
-      <groupId>jakarta.enterprise</groupId>
-      <artifactId>jakarta.enterprise.cdi-api</artifactId>
-      <scope>test</scope>
-    </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-postgresql</artifactId>

@@ -21,10 +21,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.RatchetConfigCatalog;
 
 class RatchetAutoConfigurationMetadataTest {
+
+  private static final Pattern NAME_PATTERN =
+      Pattern.compile("\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
 
   @Test
   void buildOutputContainsGeneratedMetadataAndAutoConfigurationImports() throws Exception {
@@ -38,6 +47,57 @@ class RatchetAutoConfigurationMetadataTest {
     assertTrue(
         Files.isRegularFile(imports), () -> "Missing auto-configuration imports: " + imports);
     assertEquals(List.of(RatchetAutoConfiguration.class.getName()), Files.readAllLines(imports));
+  }
+
+  @Test
+  void generatedPropertyMetadataExactlyMatchesTheCanonicalCatalogAndSpringSettings()
+      throws Exception {
+    Path metadata = classesDirectory().resolve("META-INF/spring-configuration-metadata.json");
+    List<String> actualNames = propertyNames(Files.readString(metadata));
+    Set<String> distinctNames = new LinkedHashSet<>(actualNames);
+    Set<String> expectedNames = new LinkedHashSet<>();
+    RatchetConfigCatalog.entries().stream()
+        .map(RatchetConfigCatalog.Entry::propertyName)
+        .forEach(expectedNames::add);
+    expectedNames.add(RatchetProperties.ENABLED_PROPERTY);
+    expectedNames.add(RatchetProperties.TRANSACTION_MANAGER_BEAN_NAME_PROPERTY);
+
+    assertEquals(
+        distinctNames.size(), actualNames.size(), "metadata contains duplicate property entries");
+    assertEquals(expectedNames, distinctNames);
+  }
+
+  private static List<String> propertyNames(String metadata) {
+    int propertiesName = metadata.indexOf("\"properties\"");
+    int arrayStart = metadata.indexOf('[', propertiesName);
+    int arrayEnd = matchingArrayEnd(metadata, arrayStart);
+    Matcher matcher = NAME_PATTERN.matcher(metadata.substring(arrayStart, arrayEnd + 1));
+    List<String> names = new ArrayList<>();
+    while (matcher.find()) {
+      names.add(matcher.group(1));
+    }
+    return names;
+  }
+
+  private static int matchingArrayEnd(String json, int arrayStart) {
+    int depth = 0;
+    boolean quoted = false;
+    boolean escaped = false;
+    for (int index = arrayStart; index < json.length(); index++) {
+      char character = json.charAt(index);
+      if (escaped) {
+        escaped = false;
+      } else if (character == '\\' && quoted) {
+        escaped = true;
+      } else if (character == '"') {
+        quoted = !quoted;
+      } else if (!quoted && character == '[') {
+        depth++;
+      } else if (!quoted && character == ']' && --depth == 0) {
+        return index;
+      }
+    }
+    throw new IllegalArgumentException("metadata properties array is not closed");
   }
 
   private static Path classesDirectory() throws URISyntaxException {

@@ -15,18 +15,176 @@
  */
 package run.ratchet.spring.boot.autoconfigure;
 
+import jakarta.json.bind.Jsonb;
+import jakarta.json.bind.JsonbBuilder;
+import java.time.Clock;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.core.env.Environment;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptionsFactory;
+import run.ratchet.ri.runtime.RatchetRuntimeDefaults;
 import run.ratchet.ri.runtime.RecurringMethodDiscovery;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerManager;
+import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.ExecutionTuningProvider;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.JobInvocationResolver;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.NodeTagAffinityProvider;
+import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.PollingStrategyProvider;
+import run.ratchet.spi.ResilienceStrategy;
+import run.ratchet.spi.RetryPolicy;
+import run.ratchet.spi.TracingCollector;
 
 @AutoConfiguration
+@ConditionalOnProperty(
+    name = RatchetProperties.ENABLED_PROPERTY,
+    havingValue = "true",
+    matchIfMissing = true)
+@EnableConfigurationProperties(RatchetProperties.class)
 @Import(RatchetBeanDefinitionRegistrar.class)
 public class RatchetAutoConfiguration {
+
+  @Bean
+  SpringRatchetConfigSource ratchetConfigSource(Environment environment) {
+    return new SpringRatchetConfigSource(environment);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(RatchetOptions.class)
+  RatchetOptions ratchetOptions(SpringRatchetConfigSource configSource) {
+    return RatchetOptionsFactory.builderFromEnvironment(configSource).build();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(ClassPolicy.class)
+  ClassPolicy classPolicy(RatchetOptions options) {
+    return RatchetRuntimeDefaults.classPolicy(options);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(ExecutorProvider.class)
+  ExecutorProvider executorProvider() {
+    return RatchetRuntimeDefaults.executorProvider();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(MetricsCollector.class)
+  MetricsCollector metricsCollector() {
+    return RatchetRuntimeDefaults.metricsCollector();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(TracingCollector.class)
+  TracingCollector tracingCollector() {
+    return RatchetRuntimeDefaults.tracingCollector();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(ClusterCoordinator.class)
+  ClusterCoordinator clusterCoordinator() {
+    return RatchetRuntimeDefaults.clusterCoordinator();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(ErrorSanitizer.class)
+  ErrorSanitizer errorSanitizer(RatchetOptions options) {
+    return RatchetRuntimeDefaults.errorSanitizer(options);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(NodeTagAffinityProvider.class)
+  NodeTagAffinityProvider nodeTagAffinityProvider(RatchetOptions options) {
+    return RatchetRuntimeDefaults.nodeTagAffinityProvider(options);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(CircuitBreakerConfigProvider.class)
+  CircuitBreakerConfigProvider circuitBreakerConfigProvider(RatchetOptions options) {
+    return RatchetRuntimeDefaults.circuitBreakerConfigProvider(options);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(CircuitBreakerManager.class)
+  CircuitBreakerManager circuitBreakerRegistry(
+      CircuitBreakerConfigProvider configProvider, MetricsCollector metricsCollector) {
+    return RatchetRuntimeDefaults.circuitBreakerRegistry(configProvider, metricsCollector);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(ResilienceStrategy.class)
+  ResilienceStrategy resilienceStrategy(
+      CircuitBreakerManager circuitBreakerRegistry, CircuitBreakerConfigProvider configProvider) {
+    return RatchetRuntimeDefaults.resilienceStrategy(circuitBreakerRegistry, configProvider);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(Clock.class)
+  Clock clock() {
+    return RatchetRuntimeDefaults.clock();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(JobAuthorizationPolicy.class)
+  JobAuthorizationPolicy jobAuthorizationPolicy() {
+    return RatchetRuntimeDefaults.jobAuthorizationPolicy();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(JobInvocationResolver.class)
+  JobInvocationResolver jobInvocationResolver() {
+    return RatchetRuntimeDefaults.jobInvocationResolver();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(PollingStrategyProvider.class)
+  PollingStrategyProvider pollingStrategyProvider() {
+    return RatchetRuntimeDefaults.pollingStrategyProvider();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(ExecutionTuningProvider.class)
+  ExecutionTuningProvider executionTuningProvider(RatchetOptions options) {
+    return RatchetRuntimeDefaults.executionTuningProvider(options);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(RetryPolicy.class)
+  RetryPolicy retryPolicy() {
+    return RatchetRuntimeDefaults.retryPolicy();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean(PayloadSerializer.class)
+  PayloadSerializer payloadSerializer(ObjectProvider<Jsonb> jsonbProvider) {
+    Jsonb jsonb = jsonbProvider.getIfAvailable();
+    if (jsonb != null) {
+      return new SpringJsonbPayloadSerializer(jsonb, false);
+    }
+    return new SpringJsonbPayloadSerializer(JsonbBuilder.create(), true);
+  }
+
+  @Bean
+  @Primary
+  SpringEventBridge ratchetSpringEventBridge(ApplicationEventPublisher publisher) {
+    return new SpringEventBridge(publisher);
+  }
 
   @Bean
   @ConditionalOnMissingBean(AfterCommitRegistrar.class)

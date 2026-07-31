@@ -33,5 +33,11 @@
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-spring-boot-autoconfigure-jpa</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.eclipse</groupId>
+      <artifactId>yasson</artifactId>
+      <version>3.0.4</version>
+      <scope>runtime</scope>
+    </dependency>
   </dependencies>
 </project>

@@ -59,6 +59,18 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+      <version>${spring-boot.compatibility.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-webflux</artifactId>
+      <version>${spring-boot.compatibility.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-aop</artifactId>
       <scope>test</scope>
@@ -66,31 +78,6 @@
     <dependency>
       <groupId>org.springframework</groupId>
       <artifactId>spring-tx</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>jakarta.inject</groupId>
-      <artifactId>jakarta.inject-api</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>jakarta.transaction</groupId>
-      <artifactId>jakarta.transaction-api</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <!--
-      The RI scopes jakarta.enterprise.cdi-api as provided (the container supplies it in
-      production), so it is absent from this module's classpath by default. Several of this
-      module's mocked RI collaborators (e.g. SingletonLeaseService, BatchService,
-      WorkflowScheduler, InternalEventPublisher) reference CDI SPI types such as
-      jakarta.enterprise.inject.Instance and jakarta.enterprise.event.Event in their constructor
-      or field signatures. Mockito/ByteBuddy must resolve those types to instrument the mocked
-      classes, so tests that mock RI collaborators must supply the API themselves. Version comes
-      from the root pom's dependencyManagement (jakarta.cdi-api.version).
-    -->
-    <dependency>
-      <groupId>jakarta.enterprise</groupId>
-      <artifactId>jakarta.enterprise.cdi-api</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -114,6 +101,31 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>write-compatibility-dependency-tree</id>
+            <phase>generate-test-resources</phase>
+            <goals>
+              <goal>tree</goal>
+            </goals>
+            <configuration>
+              <appendOutput>false</appendOutput>
+              <outputFile>${project.build.directory}/dependency-tree.json</outputFile>
+              <outputType>json</outputType>
+              <scope>test</scope>
+              <verbose>true</verbose>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 
   <profiles>
     <profile>

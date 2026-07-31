@@ -16,6 +16,8 @@
 package run.ratchet.spring.boot.autoconfigure.mongodb;
 
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 @AutoConfiguration
+@ConditionalOnProperty(name = "ratchet.enabled", havingValue = "true", matchIfMissing = true)
 public class RatchetMongoAutoConfiguration {}

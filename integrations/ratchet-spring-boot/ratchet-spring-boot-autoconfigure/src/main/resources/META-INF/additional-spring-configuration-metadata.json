@@ -2,8 +2,402 @@
   "groups": [
     {
       "name": "ratchet",
-      "type": "run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration",
+      "type": "run.ratchet.spring.boot.autoconfigure.RatchetProperties",
       "description": "Ratchet Spring Boot configuration namespace."
+    }
+  ],
+  "properties": [
+    {
+      "name": "ratchet.poller.batch-size",
+      "description": "Configures Ratchet poller batch size."
+    },
+    {
+      "name": "ratchet.poller.burst-delay-ms",
+      "description": "Configures Ratchet poller burst delay ms."
+    },
+    {
+      "name": "ratchet.poller.min-delay-ms",
+      "description": "Configures Ratchet poller min delay ms."
+    },
+    {
+      "name": "ratchet.poller.max-delay-ms",
+      "description": "Configures Ratchet poller max delay ms."
+    },
+    {
+      "name": "ratchet.poller.deep-idle-delay-ms",
+      "description": "Configures Ratchet poller deep idle delay ms."
+    },
+    {
+      "name": "ratchet.poller.deep-idle-threshold-ms",
+      "description": "Configures Ratchet poller deep idle threshold ms."
+    },
+    {
+      "name": "ratchet.poller.idle-threshold",
+      "description": "Configures Ratchet poller idle threshold."
+    },
+    {
+      "name": "ratchet.poller.claim-headroom-factor",
+      "description": "Configures Ratchet poller claim headroom factor."
+    },
+    {
+      "name": "ratchet.worker.default-threading-mode",
+      "description": "Configures Ratchet worker default threading mode."
+    },
+    {
+      "name": "ratchet.worker.job-executor-jndi",
+      "description": "Configures Ratchet worker job executor jndi."
+    },
+    {
+      "name": "ratchet.worker.scheduled-executor-jndi",
+      "description": "Configures Ratchet worker scheduled executor jndi."
+    },
+    {
+      "name": "ratchet.coordinator.thread-factory-jndi",
+      "description": "Configures Ratchet coordinator thread factory jndi."
+    },
+    {
+      "name": "ratchet.worker.virtual-executor-jndi",
+      "description": "Configures Ratchet worker virtual executor jndi."
+    },
+    {
+      "name": "ratchet.worker.virtual-counter-accounting",
+      "description": "Configures Ratchet worker virtual counter accounting."
+    },
+    {
+      "name": "ratchet.thread-pool.queue-size",
+      "description": "Configures Ratchet thread pool queue size."
+    },
+    {
+      "name": "ratchet.thread-pool.size.single",
+      "description": "Configures Ratchet thread pool size single."
+    },
+    {
+      "name": "ratchet.thread-pool.size.recurring",
+      "description": "Configures Ratchet thread pool size recurring."
+    },
+    {
+      "name": "ratchet.thread-pool.size.batch-child",
+      "description": "Configures Ratchet thread pool size batch child."
+    },
+    {
+      "name": "ratchet.thread-pool.size.batch-parent",
+      "description": "Configures Ratchet thread pool size batch parent."
+    },
+    {
+      "name": "ratchet.thread-pool.size.chain-step",
+      "description": "Configures Ratchet thread pool size chain step."
+    },
+    {
+      "name": "ratchet.thread-pool.size.workflow-branch",
+      "description": "Configures Ratchet thread pool size workflow branch."
+    },
+    {
+      "name": "ratchet.thread-pool.size.workflow-join",
+      "description": "Configures Ratchet thread pool size workflow join."
+    },
+    {
+      "name": "ratchet.node.id",
+      "description": "Configures Ratchet node id."
+    },
+    {
+      "name": "ratchet.node.heartbeat-interval-seconds",
+      "description": "Configures Ratchet node heartbeat interval seconds."
+    },
+    {
+      "name": "ratchet.node.orphan-grace-seconds",
+      "description": "Configures Ratchet node orphan grace seconds."
+    },
+    {
+      "name": "ratchet.node.orphan-scan-interval-minutes",
+      "description": "Configures Ratchet node orphan scan interval minutes."
+    },
+    {
+      "name": "ratchet.node.dynamic-heartbeat-enabled",
+      "description": "Configures Ratchet node dynamic heartbeat enabled."
+    },
+    {
+      "name": "ratchet.recurring.batch-limit",
+      "description": "Configures Ratchet recurring batch limit."
+    },
+    {
+      "name": "ratchet.recurring.poll-ms",
+      "description": "Configures Ratchet recurring poll ms."
+    },
+    {
+      "name": "ratchet.recurring.max-poll-ms",
+      "description": "Configures Ratchet recurring max poll ms."
+    },
+    {
+      "name": "ratchet.recurring.startup-grace-seconds",
+      "description": "Configures Ratchet recurring startup grace seconds."
+    },
+    {
+      "name": "ratchet.recurring.convergence-window-seconds",
+      "description": "Configures Ratchet recurring convergence window seconds."
+    },
+    {
+      "name": "ratchet.retry-buffer.drain-interval-ms",
+      "description": "Configures Ratchet retry buffer drain interval ms."
+    },
+    {
+      "name": "ratchet.timeout.soft-timeout-percent",
+      "description": "Configures Ratchet timeout soft timeout percent."
+    },
+    {
+      "name": "ratchet.timeout.default-sla-seconds",
+      "description": "Configures Ratchet timeout default sla seconds."
+    },
+    {
+      "name": "ratchet.timeout.signal-timeout-batch-size",
+      "description": "Configures Ratchet timeout signal timeout batch size."
+    },
+    {
+      "name": "ratchet.dlq.purge-enabled",
+      "description": "Configures Ratchet dlq purge enabled."
+    },
+    {
+      "name": "ratchet.dlq.purge-cron",
+      "description": "Configures Ratchet dlq purge cron."
+    },
+    {
+      "name": "ratchet.dlq.purge-days",
+      "description": "Configures Ratchet dlq purge days."
+    },
+    {
+      "name": "ratchet.jobs.archive-enabled",
+      "description": "Configures Ratchet jobs archive enabled."
+    },
+    {
+      "name": "ratchet.jobs.archive-cron",
+      "description": "Configures Ratchet jobs archive cron."
+    },
+    {
+      "name": "ratchet.jobs.retention-days",
+      "description": "Configures Ratchet jobs retention days."
+    },
+    {
+      "name": "ratchet.jobs.archive-batch-size",
+      "description": "Configures Ratchet jobs archive batch size."
+    },
+    {
+      "name": "ratchet.logs.purge-enabled",
+      "description": "Configures Ratchet logs purge enabled."
+    },
+    {
+      "name": "ratchet.logs.purge-cron",
+      "description": "Configures Ratchet logs purge cron."
+    },
+    {
+      "name": "ratchet.logs.retention-days",
+      "description": "Configures Ratchet logs retention days."
+    },
+    {
+      "name": "ratchet.schema.auto-migrate",
+      "description": "Configures Ratchet schema auto migrate."
+    },
+    {
+      "name": "ratchet.schema.migration-dialect",
+      "description": "Configures Ratchet schema migration dialect."
+    },
+    {
+      "name": "ratchet.schema.migration-prefix",
+      "description": "Configures Ratchet schema migration prefix."
+    },
+    {
+      "name": "ratchet.payload.max-payload-kb",
+      "description": "Configures Ratchet payload max payload kb."
+    },
+    {
+      "name": "ratchet.jobs.max-result-bytes",
+      "description": "Configures Ratchet jobs max result bytes."
+    },
+    {
+      "name": "ratchet.allow-empty-class-policy",
+      "description": "Configures Ratchet allow empty class policy."
+    },
+    {
+      "name": "ratchet.class-policy.allowed-packages",
+      "description": "Configures Ratchet class policy allowed packages."
+    },
+    {
+      "name": "ratchet.class-policy.allowed-result-type-packages",
+      "description": "Configures Ratchet class policy allowed result type packages."
+    },
+    {
+      "name": "ratchet.security.redact-emails",
+      "description": "Configures Ratchet security redact emails."
+    },
+    {
+      "name": "ratchet.security.mask-payloads",
+      "description": "Configures Ratchet security mask payloads."
+    },
+    {
+      "name": "ratchet.isolation-check",
+      "description": "Configures Ratchet isolation check."
+    },
+    {
+      "name": "ratchet.priority-boost-interval-minutes",
+      "description": "Configures Ratchet priority boost interval minutes."
+    },
+    {
+      "name": "ratchet.circuit-breaker.enabled",
+      "description": "Configures Ratchet circuit breaker enabled."
+    },
+    {
+      "name": "ratchet.virtual-thread-limit.single",
+      "description": "Configures Ratchet virtual thread limit single."
+    },
+    {
+      "name": "ratchet.rate-limit-per-minute.single",
+      "description": "Configures Ratchet rate limit per minute single."
+    },
+    {
+      "name": "ratchet.virtual-thread-limit.recurring",
+      "description": "Configures Ratchet virtual thread limit recurring."
+    },
+    {
+      "name": "ratchet.rate-limit-per-minute.recurring",
+      "description": "Configures Ratchet rate limit per minute recurring."
+    },
+    {
+      "name": "ratchet.virtual-thread-limit.batch-child",
+      "description": "Configures Ratchet virtual thread limit batch child."
+    },
+    {
+      "name": "ratchet.rate-limit-per-minute.batch-child",
+      "description": "Configures Ratchet rate limit per minute batch child."
+    },
+    {
+      "name": "ratchet.virtual-thread-limit.batch-parent",
+      "description": "Configures Ratchet virtual thread limit batch parent."
+    },
+    {
+      "name": "ratchet.rate-limit-per-minute.batch-parent",
+      "description": "Configures Ratchet rate limit per minute batch parent."
+    },
+    {
+      "name": "ratchet.virtual-thread-limit.chain-step",
+      "description": "Configures Ratchet virtual thread limit chain step."
+    },
+    {
+      "name": "ratchet.rate-limit-per-minute.chain-step",
+      "description": "Configures Ratchet rate limit per minute chain step."
+    },
+    {
+      "name": "ratchet.virtual-thread-limit.workflow-branch",
+      "description": "Configures Ratchet virtual thread limit workflow branch."
+    },
+    {
+      "name": "ratchet.rate-limit-per-minute.workflow-branch",
+      "description": "Configures Ratchet rate limit per minute workflow branch."
+    },
+    {
+      "name": "ratchet.virtual-thread-limit.workflow-join",
+      "description": "Configures Ratchet virtual thread limit workflow join."
+    },
+    {
+      "name": "ratchet.rate-limit-per-minute.workflow-join",
+      "description": "Configures Ratchet rate limit per minute workflow join."
+    },
+    {
+      "name": "ratchet.circuit-breaker.default.failure-rate",
+      "description": "Configures Ratchet circuit breaker default failure rate."
+    },
+    {
+      "name": "ratchet.circuit-breaker.default.window-size",
+      "description": "Configures Ratchet circuit breaker default window size."
+    },
+    {
+      "name": "ratchet.circuit-breaker.default.wait-ms",
+      "description": "Configures Ratchet circuit breaker default wait ms."
+    },
+    {
+      "name": "ratchet.circuit-breaker.default.half-open-calls",
+      "description": "Configures Ratchet circuit breaker default half open calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.default.minimum-calls",
+      "description": "Configures Ratchet circuit breaker default minimum calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.fast.failure-rate",
+      "description": "Configures Ratchet circuit breaker fast failure rate."
+    },
+    {
+      "name": "ratchet.circuit-breaker.fast.window-size",
+      "description": "Configures Ratchet circuit breaker fast window size."
+    },
+    {
+      "name": "ratchet.circuit-breaker.fast.wait-ms",
+      "description": "Configures Ratchet circuit breaker fast wait ms."
+    },
+    {
+      "name": "ratchet.circuit-breaker.fast.half-open-calls",
+      "description": "Configures Ratchet circuit breaker fast half open calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.fast.minimum-calls",
+      "description": "Configures Ratchet circuit breaker fast minimum calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.critical.failure-rate",
+      "description": "Configures Ratchet circuit breaker critical failure rate."
+    },
+    {
+      "name": "ratchet.circuit-breaker.critical.window-size",
+      "description": "Configures Ratchet circuit breaker critical window size."
+    },
+    {
+      "name": "ratchet.circuit-breaker.critical.wait-ms",
+      "description": "Configures Ratchet circuit breaker critical wait ms."
+    },
+    {
+      "name": "ratchet.circuit-breaker.critical.half-open-calls",
+      "description": "Configures Ratchet circuit breaker critical half open calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.critical.minimum-calls",
+      "description": "Configures Ratchet circuit breaker critical minimum calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.external-api.failure-rate",
+      "description": "Configures Ratchet circuit breaker external api failure rate."
+    },
+    {
+      "name": "ratchet.circuit-breaker.external-api.window-size",
+      "description": "Configures Ratchet circuit breaker external api window size."
+    },
+    {
+      "name": "ratchet.circuit-breaker.external-api.wait-ms",
+      "description": "Configures Ratchet circuit breaker external api wait ms."
+    },
+    {
+      "name": "ratchet.circuit-breaker.external-api.half-open-calls",
+      "description": "Configures Ratchet circuit breaker external api half open calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.external-api.minimum-calls",
+      "description": "Configures Ratchet circuit breaker external api minimum calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.claim-path.failure-rate",
+      "description": "Configures Ratchet circuit breaker claim path failure rate."
+    },
+    {
+      "name": "ratchet.circuit-breaker.claim-path.window-size",
+      "description": "Configures Ratchet circuit breaker claim path window size."
+    },
+    {
+      "name": "ratchet.circuit-breaker.claim-path.wait-ms",
+      "description": "Configures Ratchet circuit breaker claim path wait ms."
+    },
+    {
+      "name": "ratchet.circuit-breaker.claim-path.half-open-calls",
+      "description": "Configures Ratchet circuit breaker claim path half open calls."
+    },
+    {
+      "name": "ratchet.circuit-breaker.claim-path.minimum-calls",
+      "description": "Configures Ratchet circuit breaker claim path minimum calls."
     }
   ]
 }

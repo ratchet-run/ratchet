@@ -16,6 +16,7 @@
 package run.ratchet.spring.boot.autoconfigure.mongodb;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URISyntaxException;
@@ -23,6 +24,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.AnnotationUtils;
 
 class RatchetMongoAutoConfigurationMetadataTest {
 
@@ -39,6 +42,18 @@ class RatchetMongoAutoConfigurationMetadataTest {
         Files.isRegularFile(imports), () -> "Missing auto-configuration imports: " + imports);
     assertEquals(
         List.of(RatchetMongoAutoConfiguration.class.getName()), Files.readAllLines(imports));
+  }
+
+  @Test
+  void wholeAutoConfigurationBacksOffWhenRatchetIsDisabled() {
+    ConditionalOnProperty condition =
+        AnnotationUtils.findAnnotation(
+            RatchetMongoAutoConfiguration.class, ConditionalOnProperty.class);
+
+    assertNotNull(condition);
+    assertEquals(List.of("ratchet.enabled"), List.of(condition.name()));
+    assertEquals("true", condition.havingValue());
+    assertTrue(condition.matchIfMissing());
   }
 
   private static Path classesDirectory() throws URISyntaxException {
