@@ -23,9 +23,12 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
@@ -35,6 +38,7 @@ import org.mockito.InOrder;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
+import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -174,6 +178,45 @@ class DefaultRatchetRuntimeTest {
     unwind.verify(installation).uninstall(runtime);
   }
 
+  @Test
+  void boundedStopDrainsBeforeRunningTheExistingStopBody() throws Exception {
+    RuntimeCollaborators collaborators = new RuntimeCollaborators();
+    DefaultRatchetRuntime runtime =
+        collaborators.runtime(mock(NodeIdentityProvider.class), List.of(), List.of());
+    Duration timeout = Duration.ofSeconds(17);
+    when(collaborators.jobExecutorService.awaitIdle(timeout)).thenReturn(true);
+
+    runtime.start();
+    runtime.stop(timeout);
+    runtime.stop(timeout);
+
+    InOrder shutdown =
+        inOrder(
+            collaborators.drainController,
+            collaborators.jobExecutorService,
+            collaborators.recurringRegistration);
+    shutdown.verify(collaborators.drainController).setDraining(true);
+    shutdown.verify(collaborators.jobExecutorService).awaitIdle(timeout);
+    shutdown.verify(collaborators.recurringRegistration).cancel();
+    verify(collaborators.jobExecutorService, times(1)).awaitIdle(timeout);
+  }
+
+  @Test
+  void boundedStopProceedsWhenDrainTimesOut() throws Exception {
+    RuntimeCollaborators collaborators = new RuntimeCollaborators();
+    RuntimeInstallation installation = mock(RuntimeInstallation.class);
+    DefaultRatchetRuntime runtime =
+        collaborators.runtime(mock(NodeIdentityProvider.class), List.of(), List.of(installation));
+    Duration timeout = Duration.ofMillis(1);
+    when(collaborators.jobExecutorService.awaitIdle(timeout)).thenReturn(false);
+
+    runtime.start();
+    runtime.stop(timeout);
+
+    verify(collaborators.recurringRegistration).cancel();
+    verify(installation).uninstall(runtime);
+  }
+
   private static SchedulerLifecycleHook failingBeforeStartHook(
       SchemaInitializationException failure) {
     return new SchedulerLifecycleHook() {
@@ -221,6 +264,7 @@ class DefaultRatchetRuntimeTest {
     private final LogPurgeTimer logPurgeTimer = mock(LogPurgeTimer.class);
     private final JobExecutionCoordinator jobExecutionCoordinator =
         mock(JobExecutionCoordinator.class);
+    private final JobExecutorService jobExecutorService = mock(JobExecutorService.class);
     private final PollerWakeupListener pollerWakeupListener = mock(PollerWakeupListener.class);
     private final DrainController drainController = mock(DrainController.class);
     private final RatchetOptions options = mock(RatchetOptions.class);
@@ -243,6 +287,7 @@ class DefaultRatchetRuntimeTest {
           jobArchivingService,
           logPurgeTimer,
           jobExecutionCoordinator,
+          jobExecutorService,
           pollerWakeupListener,
           drainController,
           null,

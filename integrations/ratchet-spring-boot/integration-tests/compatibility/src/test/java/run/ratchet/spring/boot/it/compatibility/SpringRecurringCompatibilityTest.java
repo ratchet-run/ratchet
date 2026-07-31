@@ -46,6 +46,7 @@ import org.springframework.beans.factory.DisposableBean;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -269,6 +270,7 @@ public class SpringRecurringCompatibilityTest {
 
     private Fixture(AnnotationConfigApplicationContext context, ClassPolicy classPolicy) {
       this.context = context;
+      TestPropertyValues.of("ratchet.lifecycle.defer-auto-start=true").applyTo(context);
       context.register(RatchetAutoConfiguration.class);
       context.registerBean(
           ClassPolicy.class, () -> classPolicy, definition -> definition.setPrimary(true));

@@ -61,6 +61,8 @@ class RatchetAutoConfigurationMetadataTest {
         .forEach(expectedNames::add);
     expectedNames.add(RatchetProperties.ENABLED_PROPERTY);
     expectedNames.add(RatchetProperties.TRANSACTION_MANAGER_BEAN_NAME_PROPERTY);
+    expectedNames.add(RatchetProperties.LIFECYCLE_DEFER_AUTO_START_PROPERTY);
+    expectedNames.add(RatchetProperties.LIFECYCLE_DRAIN_TIMEOUT_PROPERTY);
 
     assertEquals(
         distinctNames.size(), actualNames.size(), "metadata contains duplicate property entries");

@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import com.cronutils.model.Cron;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -26,6 +27,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
+import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.runtime.RatchetRuntime;
 import run.ratchet.spi.ClusterCoordinator;
@@ -46,6 +48,7 @@ public final class DefaultRatchetRuntime implements RatchetRuntime {
   private final JobArchivingService jobArchivingService;
   private final LogPurgeTimer logPurgeTimer;
   private final JobExecutionCoordinator jobExecutionCoordinator;
+  private final JobExecutorService jobExecutorService;
   private final PollerWakeupListener pollerWakeupListener;
   private final DrainController drainController;
   private final ClusterCoordinator clusterCoordinator;
@@ -81,6 +84,50 @@ public final class DefaultRatchetRuntime implements RatchetRuntime {
       Supplier<ScheduledExecutorService> scheduledExecutorSupplier,
       RecurringRegistration recurringRegistration,
       List<RuntimeInstallation> installations) {
+    this(
+        poller,
+        recurringScheduler,
+        orphanRecoveryTimer,
+        batchRecoveryTimer,
+        deadLetterService,
+        jobArchivingService,
+        logPurgeTimer,
+        jobExecutionCoordinator,
+        null,
+        pollerWakeupListener,
+        drainController,
+        clusterCoordinator,
+        nodeIdentityProvider,
+        options,
+        lifecycleHooks,
+        scheduledExecutorSupplier,
+        recurringRegistration,
+        installations);
+  }
+
+  /**
+   * Creates a runtime with bounded-drain support from plain collaborator references suitable for
+   * reflective container construction.
+   */
+  public DefaultRatchetRuntime(
+      Poller poller,
+      RecurringScheduler recurringScheduler,
+      OrphanRecoveryTimer orphanRecoveryTimer,
+      BatchRecoveryTimer batchRecoveryTimer,
+      DeadLetterService deadLetterService,
+      JobArchivingService jobArchivingService,
+      LogPurgeTimer logPurgeTimer,
+      JobExecutionCoordinator jobExecutionCoordinator,
+      JobExecutorService jobExecutorService,
+      PollerWakeupListener pollerWakeupListener,
+      DrainController drainController,
+      ClusterCoordinator clusterCoordinator,
+      NodeIdentityProvider nodeIdentityProvider,
+      RatchetOptions options,
+      List<SchedulerLifecycleHook> lifecycleHooks,
+      Supplier<ScheduledExecutorService> scheduledExecutorSupplier,
+      RecurringRegistration recurringRegistration,
+      List<RuntimeInstallation> installations) {
     this.poller = Objects.requireNonNull(poller, "poller");
     this.recurringScheduler = Objects.requireNonNull(recurringScheduler, "recurringScheduler");
     this.orphanRecoveryTimer = Objects.requireNonNull(orphanRecoveryTimer, "orphanRecoveryTimer");
@@ -90,6 +137,7 @@ public final class DefaultRatchetRuntime implements RatchetRuntime {
     this.logPurgeTimer = Objects.requireNonNull(logPurgeTimer, "logPurgeTimer");
     this.jobExecutionCoordinator =
         Objects.requireNonNull(jobExecutionCoordinator, "jobExecutionCoordinator");
+    this.jobExecutorService = jobExecutorService;
     this.pollerWakeupListener =
         Objects.requireNonNull(pollerWakeupListener, "pollerWakeupListener");
     this.drainController = Objects.requireNonNull(drainController, "drainController");
@@ -173,6 +221,31 @@ public final class DefaultRatchetRuntime implements RatchetRuntime {
     notifyHooks("afterStop", beforeStopSucceeded, SchedulerLifecycleHook::afterStop, false);
     uninstallRuntimeSeams(completed.installed);
     log.info("Ratchet stopped");
+  }
+
+  @Override
+  public synchronized void stop(Duration drainTimeout) {
+    if (state != State.STARTED) {
+      return;
+    }
+    Objects.requireNonNull(drainTimeout, "drainTimeout");
+    drainController.setDraining(true);
+    if (jobExecutorService != null) {
+      boolean idle = false;
+      try {
+        idle = jobExecutorService.awaitIdle(drainTimeout);
+      } catch (InterruptedException exception) {
+        Thread.currentThread().interrupt();
+        log.warnf(
+            exception,
+            "Interrupted while draining Ratchet for %s; proceeding with runtime stop",
+            drainTimeout);
+      }
+      if (!idle) {
+        log.warnf("Ratchet did not drain within %s; proceeding with runtime stop", drainTimeout);
+      }
+    }
+    stop();
   }
 
   private void installRuntimeSeams(Progress attempt) {

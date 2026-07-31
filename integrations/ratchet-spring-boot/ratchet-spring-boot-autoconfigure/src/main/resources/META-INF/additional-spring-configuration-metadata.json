@@ -8,6 +8,18 @@
   ],
   "properties": [
     {
+      "name": "ratchet.lifecycle.defer-auto-start",
+      "type": "java.lang.Boolean",
+      "description": "When true, Ratchet's Spring lifecycle bean does not auto-start the runtime; a consumer must call start() manually.",
+      "defaultValue": false
+    },
+    {
+      "name": "ratchet.lifecycle.drain-timeout",
+      "type": "java.time.Duration",
+      "description": "Maximum time to wait for in-flight Ratchet jobs during Spring context shutdown.",
+      "defaultValue": "PT30S"
+    },
+    {
       "name": "ratchet.poller.batch-size",
       "description": "Configures Ratchet poller batch size."
     },

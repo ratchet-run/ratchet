@@ -32,12 +32,17 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.aop.framework.AopInfrastructureBean;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -73,6 +78,7 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
+@ExtendWith(OutputCaptureExtension.class)
 class SpringBootManagedBeanCompatibilityTest {
 
   private final ApplicationContextRunner contextRunner =
@@ -80,6 +86,20 @@ class SpringBootManagedBeanCompatibilityTest {
           .withConfiguration(AutoConfigurations.of(RatchetAutoConfiguration.class))
           .withPropertyValues("ratchet.allow-empty-class-policy=true")
           .withUserConfiguration(ManagedApplication.class);
+
+  @Test
+  void fullRuntimeStartsWithScheduledBackgroundServicesEnabled(CapturedOutput output) {
+    fullGraphRunner(true)
+        .run(
+            context -> {
+              assertTrue(context.getBean("ratchetLifecycle", SmartLifecycle.class).isRunning());
+              String startupOutput = output.getAll();
+              assertTrue(startupOutput.contains("DefaultPollerScheduler started"));
+              assertFalse(
+                  startupOutput.contains(
+                      "Managed scheduled executor unavailable during Ratchet startup"));
+            });
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})

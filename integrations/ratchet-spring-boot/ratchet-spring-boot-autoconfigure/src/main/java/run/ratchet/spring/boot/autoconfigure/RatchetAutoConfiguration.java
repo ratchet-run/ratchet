@@ -18,9 +18,12 @@ package run.ratchet.spring.boot.autoconfigure;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import java.time.Clock;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Supplier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -31,6 +34,7 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RatchetOptionsFactory;
+import run.ratchet.ri.runtime.RatchetRuntime;
 import run.ratchet.ri.runtime.RatchetRuntimeDefaults;
 import run.ratchet.ri.runtime.RecurringMethodDiscovery;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -51,8 +55,13 @@ import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.spi.JobStore;
 
-@AutoConfiguration
+@AutoConfiguration(
+    afterName = {
+      "run.ratchet.spring.boot.autoconfigure.jpa.RatchetJpaAutoConfiguration",
+      "run.ratchet.spring.boot.autoconfigure.mongodb.RatchetMongoAutoConfiguration"
+    })
 @ConditionalOnProperty(
     name = RatchetProperties.ENABLED_PROPERTY,
     havingValue = "true",
@@ -60,6 +69,16 @@ import run.ratchet.spi.TracingCollector;
 @EnableConfigurationProperties(RatchetProperties.class)
 @Import(RatchetBeanDefinitionRegistrar.class)
 public class RatchetAutoConfiguration {
+
+  @Bean
+  @ConditionalOnBean(JobStore.class)
+  RatchetLifecycle ratchetLifecycle(
+      ObjectProvider<RatchetRuntime> runtimeProvider, RatchetProperties properties) {
+    return new RatchetLifecycle(
+        runtimeProvider,
+        properties.getLifecycle().getDrainTimeout(),
+        properties.getLifecycle().isDeferAutoStart());
+  }
 
   @Bean
   SpringRatchetConfigSource ratchetConfigSource(Environment environment) {
@@ -82,6 +101,15 @@ public class RatchetAutoConfiguration {
   @ConditionalOnMissingBean(ExecutorProvider.class)
   ExecutorProvider executorProvider() {
     return RatchetRuntimeDefaults.executorProvider();
+  }
+
+  @Bean
+  @ConditionalOnMissingBean
+  Supplier<ScheduledExecutorService> ratchetScheduledExecutorSupplier(
+      ExecutorProvider executorProvider) {
+    // Mirrors DefaultRatchetLifecycle's CDI wiring without the JNDI-lookup leg inside
+    // DefaultExecutorProvider, which does not apply outside CDI.
+    return executorProvider::getScheduledExecutor;
   }
 
   @Bean

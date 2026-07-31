@@ -34,6 +34,7 @@ import run.ratchet.ri.cdi.RatchetRuntimeStart;
 import run.ratchet.ri.cdi.RecurringJobProcessor;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
+import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
 import run.ratchet.ri.core.internal.DeadLetterService;
@@ -79,6 +80,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
   private final DrainController drainController;
   private final RatchetOptions options;
   private final JobExecutionCoordinator jobExecutionCoordinator;
+  private final JobExecutorService jobExecutorService;
   private final ClusterCoordinator clusterCoordinator;
   private final Instance<SchedulerLifecycleHook> lifecycleHooks;
   private final EncryptionInstaller encryptionInstaller;
@@ -104,6 +106,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
     this.drainController = null;
     this.options = null;
     this.jobExecutionCoordinator = null;
+    this.jobExecutorService = null;
     this.clusterCoordinator = null;
     this.lifecycleHooks = null;
     this.encryptionInstaller = null;
@@ -190,7 +193,6 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
         null);
   }
 
-  @Inject
   public DefaultRatchetLifecycle(
       Poller poller,
       RecurringScheduler recurringScheduler,
@@ -212,6 +214,53 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       PayloadMaskingPolicyInstaller payloadMaskingPolicyInstaller,
       RecurringJobProcessor recurringJobProcessor,
       Instance<PayloadSerializer> payloadSerializers) {
+    this(
+        poller,
+        recurringScheduler,
+        orphanRecoveryTimer,
+        batchRecoveryTimer,
+        deadLetterService,
+        jobArchivingService,
+        logPurgeTimer,
+        pollerWakeupListener,
+        executorProvider,
+        nodeIdentityProvider,
+        drainController,
+        options,
+        jobExecutionCoordinator,
+        null,
+        clusterCoordinator,
+        lifecycleHooks,
+        encryptionInstaller,
+        ratchetProducer,
+        payloadMaskingPolicyInstaller,
+        recurringJobProcessor,
+        payloadSerializers);
+  }
+
+  @Inject
+  public DefaultRatchetLifecycle(
+      Poller poller,
+      RecurringScheduler recurringScheduler,
+      OrphanRecoveryTimer orphanRecoveryTimer,
+      BatchRecoveryTimer batchRecoveryTimer,
+      DeadLetterService deadLetterService,
+      JobArchivingService jobArchivingService,
+      LogPurgeTimer logPurgeTimer,
+      PollerWakeupListener pollerWakeupListener,
+      ExecutorProvider executorProvider,
+      NodeIdentityProvider nodeIdentityProvider,
+      DrainController drainController,
+      RatchetOptions options,
+      JobExecutionCoordinator jobExecutionCoordinator,
+      JobExecutorService jobExecutorService,
+      ClusterCoordinator clusterCoordinator,
+      Instance<SchedulerLifecycleHook> lifecycleHooks,
+      EncryptionInstaller encryptionInstaller,
+      RatchetProducer ratchetProducer,
+      PayloadMaskingPolicyInstaller payloadMaskingPolicyInstaller,
+      RecurringJobProcessor recurringJobProcessor,
+      Instance<PayloadSerializer> payloadSerializers) {
     this.poller = poller;
     this.recurringScheduler = recurringScheduler;
     this.orphanRecoveryTimer = orphanRecoveryTimer;
@@ -225,6 +274,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
     this.drainController = drainController;
     this.options = options;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
+    this.jobExecutorService = jobExecutorService;
     this.clusterCoordinator = clusterCoordinator;
     this.lifecycleHooks = lifecycleHooks;
     this.encryptionInstaller = encryptionInstaller;
@@ -326,6 +376,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
         jobArchivingService,
         logPurgeTimer,
         jobExecutionCoordinator,
+        jobExecutorService,
         pollerWakeupListener,
         drainController,
         clusterCoordinator,

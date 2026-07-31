@@ -15,6 +15,8 @@
  */
 package run.ratchet.ri.runtime;
 
+import java.time.Duration;
+
 /**
  * Controls the lifecycle of a Ratchet runtime.
  *
@@ -30,4 +32,14 @@ public interface RatchetRuntime {
 
   /** Stops the runtime if it is running. */
   void stop();
+
+  /**
+   * Stops the runtime after allowing in-flight work up to {@code drainTimeout} to finish.
+   *
+   * <p>Container-neutral implementations that do not support bounded draining retain the no-arg
+   * behavior.
+   */
+  default void stop(Duration drainTimeout) {
+    stop();
+  }
 }
