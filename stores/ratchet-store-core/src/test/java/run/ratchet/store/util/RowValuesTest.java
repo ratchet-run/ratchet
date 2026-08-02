@@ -46,14 +46,20 @@ class RowValuesTest {
   }
 
   @Test
-  void instantOrNullInterpretsLocalDateTimeAsUtcRegardlessOfDefaultZone() {
+  void instantOrNullInterpretsLocalDateTimeInTheJvmDefaultZone() {
     TimeZone original = TimeZone.getDefault();
     try {
       TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"));
 
+      // May 12 is EDT (UTC-4).
       assertEquals(
-          Instant.parse("2026-05-12T12:00:00Z"),
+          Instant.parse("2026-05-12T16:00:00Z"),
           RowValues.instantOrNull(LocalDateTime.parse("2026-05-12T12:00:00")));
+
+      // January 12 is EST (UTC-5), documenting that the offset shifts with DST.
+      assertEquals(
+          Instant.parse("2026-01-12T17:00:00Z"),
+          RowValues.instantOrNull(LocalDateTime.parse("2026-01-12T12:00:00")));
     } finally {
       TimeZone.setDefault(original);
     }

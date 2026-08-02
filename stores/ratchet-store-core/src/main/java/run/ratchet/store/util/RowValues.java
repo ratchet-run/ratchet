@@ -23,7 +23,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.Date;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
@@ -76,8 +76,8 @@ public final class RowValues {
   /**
    * Coerces a JDBC temporal column value to an {@link Instant}, accepting every type the supported
    * drivers may return ({@link Instant}, {@link Timestamp}, {@link LocalDateTime}, {@link
-   * OffsetDateTime}, {@link Date}). {@code LocalDateTime} is interpreted as UTC. Returns {@code
-   * null} for {@code null} or an unrecognized type.
+   * OffsetDateTime}, {@link Date}). {@code LocalDateTime} is interpreted in the JVM default zone.
+   * Returns {@code null} for {@code null} or an unrecognized type.
    */
   public static Instant instantOrNull(Object value) {
     if (value == null) {
@@ -93,7 +93,11 @@ public final class RowValues {
       return offsetDateTime.toInstant();
     }
     if (value instanceof LocalDateTime localDateTime) {
-      return localDateTime.toInstant(ZoneOffset.UTC);
+      // JPA providers (Hibernate 7+) materialize driver Timestamps into LocalDateTime via
+      // Timestamp.toLocalDateTime(), which reads wall time in the JVM default zone regardless of
+      // hibernate.jdbc.time_zone. The wall time must be re-interpreted in that same zone to
+      // recover the original instant.
+      return localDateTime.atZone(ZoneId.systemDefault()).toInstant();
     }
     if (value instanceof Date date) {
       return date.toInstant();
