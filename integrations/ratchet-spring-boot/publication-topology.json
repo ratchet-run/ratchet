@@ -146,6 +146,18 @@
       "releaseInventory": false
     },
     {
+      "path": "integrations/ratchet-spring-boot/integration-tests/aot-preflight",
+      "artifactId": "ratchet-spring-boot-it-aot-preflight",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-integration-tests",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
       "path": "integrations/ratchet-spring-boot/integration-tests/native-postgresql",
       "artifactId": "ratchet-spring-boot-it-native-postgresql",
       "packaging": "jar",

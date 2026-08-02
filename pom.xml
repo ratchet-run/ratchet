@@ -967,6 +967,7 @@
                 <excludeArtifact>ratchet-spring-boot-it-compatibility</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-postgresql</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-mongodb</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-it-aot-preflight</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-native-postgresql</excludeArtifact>
                 <excludeArtifact>ratchet-quarkus-integration-tests</excludeArtifact>
                 <!-- Spring Boot production artifacts are temporarily excluded until the

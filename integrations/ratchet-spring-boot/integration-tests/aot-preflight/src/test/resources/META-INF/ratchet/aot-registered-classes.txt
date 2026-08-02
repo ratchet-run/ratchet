@@ -1,0 +1,9 @@
+# ratchet-aot-manifest v1
+run.ratchet.spring.boot.it.aotpreflight.AotPreflightApplication
+run.ratchet.spring.boot.it.aotpreflight.AotPreflightJobs
+run.ratchet.spring.boot.it.aotpreflight.AotPreflightScenarios
+run.ratchet.spring.boot.it.aotpreflight.AotPreflightScenarios$Evidence
+run.ratchet.spring.boot.it.aotpreflight.AotPreflightScenarios$NestedPayload
+run.ratchet.spring.boot.it.aotpreflight.AotPreflightScenarios$PayloadEnvelope
+run.ratchet.spring.boot.it.aotpreflight.AotPreflightScenarios$WrapperCapture
+run.ratchet.spring.boot.it.aotpreflight.AotPreflightWrapperSubmitter
