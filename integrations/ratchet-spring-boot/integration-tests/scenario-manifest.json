@@ -321,6 +321,59 @@
         }
       ]
     },
+    "aot-preflight": {
+      "bootLanes": [
+        "boot-4.1"
+      ],
+      "database": "none",
+      "sharedTckContracts": [],
+      "expectedReports": [
+        {
+          "afterCommand": "aot-preflight",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/aot-preflight/target/surefire-reports/TEST-run.ratchet.spring.boot.it.aotpreflight.AotPreflightJvmControlTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.aotpreflight.AotPreflightJvmControlTest",
+          "minimumExecutedTests": 5
+        }
+      ],
+      "sourceSentinels": [
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-aot-spring7/src/main/java/run/ratchet/spring/boot/aot/RatchetBeanFactoryInitializationAotProcessor.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-aot-spring7/src/main/resources/META-INF/spring/aot.factories"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/native-postgresql/native-toolchain.properties"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/aot-preflight/src/main/java/run/ratchet/spring/boot/it/aotpreflight/AotPreflightApplication.java"
+        }
+      ],
+      "conformanceArtifact": {
+        "applicable": true,
+        "name": "spring-boot-aot-evidence",
+        "path": "integrations/ratchet-spring-boot/integration-tests/aot-preflight/target/spring-boot-aot-evidence",
+        "expectedFiles": [
+          "native-evidence.json"
+        ]
+      },
+      "requiredCiJob": "spring-boot-aot",
+      "commands": [
+        {
+          "id": "aot-preflight",
+          "type": "script",
+          "path": "integrations/ratchet-spring-boot/integration-tests/verify-aot-preflight.sh",
+          "arguments": [],
+          "producesTests": true
+        }
+      ]
+    },
     "postgresql-runtime": {
       "bootLanes": [
         "boot-3.5",
