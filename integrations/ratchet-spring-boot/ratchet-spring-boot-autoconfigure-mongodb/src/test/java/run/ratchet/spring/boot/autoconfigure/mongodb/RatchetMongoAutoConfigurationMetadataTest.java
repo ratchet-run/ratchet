@@ -56,6 +56,15 @@ class RatchetMongoAutoConfigurationMetadataTest {
     assertTrue(condition.matchIfMissing());
   }
 
+  @Test
+  void generatedMetadataIncludesMongoConnectionProperties() throws Exception {
+    Path metadata = classesDirectory().resolve("META-INF/spring-configuration-metadata.json");
+    String content = Files.readString(metadata);
+
+    assertTrue(content.contains("\"name\": \"ratchet.mongodb.connection-string\""));
+    assertTrue(content.contains("\"name\": \"ratchet.mongodb.database\""));
+  }
+
   private static Path classesDirectory() throws URISyntaxException {
     return Path.of(
         RatchetMongoAutoConfiguration.class

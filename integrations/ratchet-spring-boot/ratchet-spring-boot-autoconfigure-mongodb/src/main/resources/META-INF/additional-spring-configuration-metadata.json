@@ -5,5 +5,17 @@
       "type": "run.ratchet.spring.boot.autoconfigure.mongodb.RatchetMongoAutoConfiguration",
       "description": "Ratchet Spring Boot configuration namespace."
     }
+  ],
+  "properties": [
+    {
+      "name": "ratchet.mongodb.connection-string",
+      "type": "java.lang.String",
+      "description": "MongoDB connection string used to create Ratchet's isolated MongoDB client."
+    },
+    {
+      "name": "ratchet.mongodb.database",
+      "type": "java.lang.String",
+      "description": "MongoDB database containing Ratchet collections."
+    }
   ]
 }
