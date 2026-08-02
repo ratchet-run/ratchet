@@ -9,8 +9,36 @@ from pathlib import Path
 from typing import NoReturn
 
 
-POSTGRESQL_FLAVOR = "postgresql"
-POSTGRESQL_SCENARIO = "postgresql-runtime"
+MONGODB_UNSUPPORTED_CONTRACTS = frozenset(
+    {
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxDlqOrderContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxEnqueueContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxNotSupportedContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiredContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiresNewContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxSupportsContract",
+    }
+)
+FLAVOR_POLICIES = {
+    "postgresql": {
+        "scenario": "postgresql-runtime",
+        "artifactStatuses": {
+            "ratchet-tck-api": "covered",
+            "ratchet-tck-store": "unsupported",
+            "ratchet-tck-util": "unsupported",
+        },
+        "unsupportedContracts": frozenset(),
+    },
+    "mongodb": {
+        "scenario": "mongodb-runtime",
+        "artifactStatuses": {
+            "ratchet-tck-api": "covered",
+            "ratchet-tck-store": "unsupported",
+            "ratchet-tck-util": "unsupported",
+        },
+        "unsupportedContracts": MONGODB_UNSUPPORTED_CONTRACTS,
+    },
+}
 CONTRACT_SOURCE_PATHS = {
     "ratchet-tck-api": Path("testing/ratchet-tck/api/src/main/java"),
     "ratchet-tck-store": Path("testing/ratchet-tck/store/src/main/java"),
@@ -100,7 +128,7 @@ def load_coverage(path: Path) -> dict[str, object]:
 
 def validate_coverage(
     document: dict[str, object], discovered: dict[str, tuple[str, str]]
-) -> tuple[int, int]:
+) -> dict[str, dict[str, int]]:
     contract_sources = document.get("contractSources")
     if contract_sources != list(CONTRACT_SOURCE_PATHS):
         fail(
@@ -121,8 +149,10 @@ def validate_coverage(
     if stale:
         fail("coverage entries name nonexistent contracts: " + ", ".join(stale))
 
-    covered = 0
-    unsupported = 0
+    counts = {
+        flavor_name: {"covered": 0, "unsupported": 0}
+        for flavor_name in FLAVOR_POLICIES
+    }
     for key in sorted(discovered):
         source_artifact, _ = discovered[key]
         entry = entries[key]
@@ -135,40 +165,48 @@ def validate_coverage(
         flavors = entry.get("flavors")
         if not isinstance(flavors, dict):
             fail(f"coverage entry flavors must be an object: {key}")
-        flavor = flavors.get(POSTGRESQL_FLAVOR)
-        if not isinstance(flavor, dict):
-            fail(f"coverage entry lacks {POSTGRESQL_FLAVOR} flavor: {key}")
+        for flavor_name, policy in FLAVOR_POLICIES.items():
+            flavor = flavors.get(flavor_name)
+            if not isinstance(flavor, dict):
+                fail(f"coverage entry lacks {flavor_name} flavor: {key}")
 
-        status = flavor.get("status")
-        scenarios = flavor.get("scenarios")
-        if not isinstance(scenarios, list) or not all(
-            isinstance(scenario, str) and scenario for scenario in scenarios
-        ):
-            fail(f"{POSTGRESQL_FLAVOR} scenarios must be an array of names: {key}")
-        if len(scenarios) != len(set(scenarios)):
-            fail(f"{POSTGRESQL_FLAVOR} scenarios contain duplicates: {key}")
+            status = flavor.get("status")
+            scenarios = flavor.get("scenarios")
+            if not isinstance(scenarios, list) or not all(
+                isinstance(scenario, str) and scenario for scenario in scenarios
+            ):
+                fail(f"{flavor_name} scenarios must be an array of names: {key}")
+            if len(scenarios) != len(set(scenarios)):
+                fail(f"{flavor_name} scenarios contain duplicates: {key}")
 
-        expected_status = "covered" if source_artifact == "ratchet-tck-api" else "unsupported"
-        if status != expected_status:
-            fail(
-                f"{POSTGRESQL_FLAVOR} status for {key} must be "
-                f"{expected_status!r}; found {status!r}"
-            )
-        if status == "covered":
-            if scenarios != [POSTGRESQL_SCENARIO]:
+            artifact_statuses = policy["artifactStatuses"]
+            expected_status = artifact_statuses[source_artifact]
+            if key in policy["unsupportedContracts"]:
+                expected_status = "unsupported"
+            if status != expected_status:
                 fail(
-                    f"covered {POSTGRESQL_FLAVOR} contract must name only "
-                    f"{POSTGRESQL_SCENARIO}: {key}"
+                    f"{flavor_name} status for {key} must be "
+                    f"{expected_status!r}; found {status!r}"
                 )
-            covered += 1
-        else:
-            rationale = flavor.get("rationale")
-            if not isinstance(rationale, str) or not rationale.strip():
-                fail(f"unsupported contract lacks a rationale: {key}")
-            if scenarios:
-                fail(f"unsupported contract must not name scenarios: {key}")
-            unsupported += 1
-    return covered, unsupported
+            if status == "covered":
+                expected_scenario = policy["scenario"]
+                if scenarios != [expected_scenario]:
+                    fail(
+                        f"covered {flavor_name} contract must name only "
+                        f"{expected_scenario}: {key}"
+                    )
+            else:
+                rationale = flavor.get("rationale")
+                if not isinstance(rationale, str) or not rationale.strip():
+                    fail(
+                        f"unsupported {flavor_name} contract lacks a rationale: {key}"
+                    )
+                if scenarios:
+                    fail(
+                        f"unsupported {flavor_name} contract must not name scenarios: {key}"
+                    )
+            counts[flavor_name][status] += 1
+    return counts
 
 
 def validate_no_tck_duplication(
@@ -200,14 +238,19 @@ def main() -> None:
     )
     discovered = discover_contracts(root)
     document = load_coverage(coverage_path)
-    covered, unsupported = validate_coverage(document, discovered)
+    counts = validate_coverage(document, discovered)
     validate_no_tck_duplication(
         root, {class_name for _, class_name in discovered.values()}
     )
     print(
         "Spring Boot TCK coverage checks passed: "
-        f"{len(discovered)} contracts "
-        f"({covered} covered, {unsupported} unsupported)"
+        f"{len(discovered)} contracts; "
+        + "; ".join(
+            f"{flavor_name} "
+            f"({flavor_counts['covered']} covered, "
+            f"{flavor_counts['unsupported']} unsupported)"
+            for flavor_name, flavor_counts in counts.items()
+        )
     )
 
 

@@ -29,6 +29,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -39,6 +45,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -51,6 +63,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -61,6 +79,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -73,6 +97,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -83,6 +113,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -95,6 +131,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -105,6 +147,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -117,6 +165,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -127,6 +181,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -139,6 +199,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -149,6 +215,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -161,6 +233,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -171,6 +249,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -183,6 +267,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -193,6 +283,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -205,6 +301,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -215,6 +317,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -227,6 +335,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -237,6 +351,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -249,6 +369,12 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
+          ]
         }
       }
     },
@@ -259,6 +385,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mongodb": {
+          "status": "covered",
+          "scenarios": [
+            "mongodb-runtime"
           ]
         }
       }
@@ -276,6 +408,11 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "The isolated MongoDB lane has no caller transaction manager and the Mongo store does not enlist in caller transactions; rollback-interaction contracts are exercised by the Jakarta RI testsuite's JTA lanes."
         }
       }
     },
@@ -292,6 +429,11 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "The isolated MongoDB lane has no caller transaction manager and the Mongo store does not enlist in caller transactions; rollback-interaction contracts are exercised by the Jakarta RI testsuite's JTA lanes."
         }
       }
     },
@@ -308,6 +450,11 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "The isolated MongoDB lane has no caller transaction manager and the Mongo store does not enlist in caller transactions; rollback-interaction contracts are exercised by the Jakarta RI testsuite's JTA lanes."
         }
       }
     },
@@ -324,6 +471,11 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "The isolated MongoDB lane has no caller transaction manager and the Mongo store does not enlist in caller transactions; rollback-interaction contracts are exercised by the Jakarta RI testsuite's JTA lanes."
         }
       }
     },
@@ -340,6 +492,11 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "The isolated MongoDB lane has no caller transaction manager and the Mongo store does not enlist in caller transactions; rollback-interaction contracts are exercised by the Jakarta RI testsuite's JTA lanes."
         }
       }
     },
@@ -356,6 +513,11 @@
           "scenarios": [
             "postgresql-runtime"
           ]
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "The isolated MongoDB lane has no caller transaction manager and the Mongo store does not enlist in caller transactions; rollback-interaction contracts are exercised by the Jakarta RI testsuite's JTA lanes."
         }
       }
     },
@@ -366,6 +528,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -376,6 +543,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -386,6 +558,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -396,6 +573,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -406,6 +588,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -416,6 +603,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -426,6 +618,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -436,6 +633,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -446,6 +648,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -456,6 +663,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -466,6 +678,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -476,6 +693,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -486,6 +708,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -496,6 +723,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -506,6 +738,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -516,6 +753,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -526,6 +768,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -536,6 +783,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -546,6 +798,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -556,6 +813,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -566,6 +828,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -576,6 +843,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -586,6 +858,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -596,6 +873,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -606,6 +888,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -616,6 +903,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -626,6 +918,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     },
@@ -636,6 +933,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mongodb": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mongodb conformance suite and are not rerun by the Spring runtime qualification scenario"
         }
       }
     }
