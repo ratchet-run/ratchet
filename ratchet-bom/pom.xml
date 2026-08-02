@@ -7,7 +7,7 @@
     <parent>
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-parent</artifactId>
-        <version>0.2.2-SNAPSHOT</version>
+        <version>0.3.2-SNAPSHOT</version>
     </parent>
 
     <artifactId>ratchet-bom</artifactId>
@@ -100,6 +100,37 @@
             <dependency>
                 <groupId>run.ratchet</groupId>
                 <artifactId>ratchet-otel</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- Quarkus extension runtime and deployment artifacts. -->
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-quarkus-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-quarkus-core-deployment</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-quarkus</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-quarkus-deployment</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-quarkus-mongodb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-quarkus-mongodb-deployment</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <!--

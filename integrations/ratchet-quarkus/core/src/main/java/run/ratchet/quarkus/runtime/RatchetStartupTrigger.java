@@ -25,11 +25,12 @@ import run.ratchet.ri.cdi.RatchetRuntimeStart;
 /**
  * Starts the Ratchet engine at RUNTIME_INIT on Quarkus.
  *
- * <p>The engine's own {@code @Observes @Initialized(ApplicationScoped.class)} startup observers fire
- * during STATIC_INIT — before Hibernate's {@code Session} exists (and, for native, at image-build
- * time). The extension's build step sets {@code ratchet.lifecycle.defer-auto-start=true} so those
- * observers no-op, and this bean fires {@link RatchetRuntimeStart} from {@link StartupEvent} —
- * which the engine also observes — to start it once the persistence unit and JTA are ready.
+ * <p>The engine's own {@code @Observes @Initialized(ApplicationScoped.class)} startup observers
+ * fire during STATIC_INIT — before Hibernate's {@code Session} exists (and, for native, at
+ * image-build time). The extension's build step sets {@code
+ * ratchet.lifecycle.defer-auto-start=true} so those observers no-op, and this bean fires {@link
+ * RatchetRuntimeStart} from {@link StartupEvent} — which the engine also observes — to start it
+ * once the persistence unit and JTA are ready.
  */
 @ApplicationScoped
 public class RatchetStartupTrigger {

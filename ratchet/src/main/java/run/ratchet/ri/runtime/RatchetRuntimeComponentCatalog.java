@@ -22,7 +22,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.CdiBeanResolver;
@@ -107,6 +106,7 @@ import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.InvocationSubmissionService;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.JobLoggerFactory;
@@ -442,6 +442,7 @@ public final class RatchetRuntimeComponentCatalog {
               JobSubmitter.class,
               BatchSubmitter.class,
               StreamingBatchSubmitter.class,
+              RecurringJobSubmitter.class,
               JobInvocationResolver.class),
           component(
               DefaultJobSchedulerService.class,
@@ -490,7 +491,7 @@ public final class RatchetRuntimeComponentCatalog {
               Clock.class),
           component(
               RecurringMethodRegistrar.class,
-              JobSchedulerService.class,
+              InvocationSubmissionService.class,
               RecurringAnnotationMaintenanceService.class,
               RecurringMethodDiscovery.class,
               RecurringMethodInvoker.class,

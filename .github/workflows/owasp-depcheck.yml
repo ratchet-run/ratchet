@@ -22,10 +22,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Set up JDK 25
+      - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Cache Maven repository
@@ -83,7 +83,7 @@ jobs:
 
       - name: Upload SARIF to GitHub code scanning
         if: always()
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v4.37.3
         with:
           sarif_file: target/dependency-check-report.sarif
           # Distinct category so these results don't overwrite CodeQL's in the

@@ -57,6 +57,72 @@ class RatchetQuarkusSmokeTest {
                     .equals("true"));
   }
 
+  @Test
+  void capturedStringArgumentJobExecutesOnQuarkus() {
+    given().when().post("/jobs/submit-value").then().statusCode(200).body(is("submitted"));
+
+    Awaitility.await()
+        .atMost(30, TimeUnit.SECONDS)
+        .pollInterval(Duration.ofMillis(250))
+        .until(
+            () ->
+                given()
+                    .when()
+                    .get("/jobs/executed-value")
+                    .then()
+                    .extract()
+                    .body()
+                    .asString()
+                    .equals("hello-native"));
+  }
+
+  /**
+   * Exercises the JSON-B rehydration path in ArgumentMaterializer: the payload round-trip
+   * re-serializes the captured value and reads it back as the declared parameter type.
+   */
+  @Test
+  void capturedRecordArgumentJobExecutesOnQuarkus() {
+    given().when().post("/jobs/submit-arg").then().statusCode(200).body(is("submitted"));
+
+    Awaitility.await()
+        .atMost(30, TimeUnit.SECONDS)
+        .pollInterval(Duration.ofMillis(250))
+        .until(
+            () ->
+                given()
+                    .when()
+                    .get("/jobs/executed-arg")
+                    .then()
+                    .extract()
+                    .body()
+                    .asString()
+                    .equals("demo:7"));
+  }
+
+  /**
+   * Submitted from a class with no {@code JobSchedulerService} field or parameter, so only
+   * {@code @RegisterJobSubmitter} makes it work in native. In JVM mode the annotation is inert;
+   * this run proves the wiring, and the native ITs prove the annotation itself.
+   */
+  @Test
+  void unmanagedSubmitterJobExecutesOnQuarkus() {
+    given().when().post("/jobs/submit-unmanaged").then().statusCode(200).body(is("submitted"));
+
+    Awaitility.await()
+        .atMost(30, TimeUnit.SECONDS)
+        .pollInterval(Duration.ofMillis(250))
+        .until(
+            () ->
+                given()
+                    .when()
+                    .get("/jobs/executed-unmanaged")
+                    .then()
+                    .extract()
+                    .body()
+                    .asString()
+                    .equals("unmanaged-native"));
+  }
+
   /**
    * Registration only happens via {@code RecurringJobProcessor.onRuntimeStart()}, which only fires
    * because the extension's build step defers @Initialized(ApplicationScoped) auto-start and fires

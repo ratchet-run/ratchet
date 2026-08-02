@@ -50,10 +50,10 @@ jobs:
   # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
   # docs-only PRs. Only pull_request events are eligible for that docs skip;
   # pushes to main and release builds (workflow_call) always run the full
-  # pipeline. The merge queue (merge_group) runs a reduced pipeline — build and
-  # spotbugs only — because the heavy lanes already ran on the PR and run again
-  # on the post-merge push to main (see the integration-test / ee11-verify
-  # guards). The leading '**' is the base set; the '!' rules subtract docs from
+  # pipeline. The merge queue (merge_group) runs a reduced pipeline — build,
+  # unit-tests, and spotbugs only — because the heavy lanes already ran on the
+  # PR and run again on the post-merge push to main (see the integration-test /
+  # ee11-verify guards). The leading '**' is the base set; the '!' rules subtract docs from
   # it, so code == 'true' only when a non-doc file changed. On non-PR events the
   # filter step is skipped and the output is empty, which the downstream
   # `!= 'false'` guards read as "run".
@@ -94,13 +94,16 @@ jobs:
             spring-boot:
               - '{integrations/ratchet-spring-boot/**,ratchet-api/**,ratchet/**,stores/**,testing/ratchet-tck/**,pom.xml,.github/workflows/**,scripts/**}'
 
+  # Thin gate that releases the integration-test matrix: compile + format check
+  # only, no tests. The unit suite lives in the unit-tests job below, which runs
+  # in parallel with the matrix instead of in front of it.
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -109,6 +112,27 @@ jobs:
           restore-keys: m2-
       - name: Compile
         run: mvn clean compile -B
+      - name: Format check
+        run: mvn spotless:check -B
+
+  # Runs the unit suite exactly once per pipeline. Deliberately NOT gated on
+  # changes or merge_group: build and spotbugs are the only other jobs that run
+  # in the merge queue, and with build reduced to compile + format this job is
+  # the queue's sole test signal. Gating it there would let queue merges land
+  # with zero tests executed.
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-
       - name: Unit tests
         run: mvn clean test -B
       - name: Upload unit test coverage
@@ -122,8 +146,6 @@ jobs:
         with:
           name: tck-conformance-reports
           path: stores/ratchet-store-*/target/tck-conformance-report.md
-      - name: Format check
-        run: mvn spotless:check -B
 
   spotbugs:
     runs-on: ubuntu-latest
@@ -131,7 +153,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -148,7 +170,7 @@ jobs:
     needs: changes
     # Skipped in the merge queue (merge_group): the full pre-merge validation
     # already ran on the PR, and the post-merge push to main runs it again. The
-    # queue only needs the fast build + spotbugs smoke to merge.
+    # queue only needs the fast build + unit-tests + spotbugs smoke to merge.
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
@@ -174,6 +196,10 @@ jobs:
     # stays fast without leaving main unvalidated.
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
+    # The slowest healthy cell finishes well under 30 minutes; a wedged
+    # container deploy otherwise burns the full 6-hour default before the
+    # runner kills it.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -196,7 +222,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -206,7 +232,28 @@ jobs:
       - name: Integration tests (${{ matrix.server }} / ${{ matrix.database }})
         # spotbugs.skip: the SpotBugs gate is bound to verify but runs once in the
         # dedicated spotbugs job — skip it here so it isn't re-analyzed per matrix cell.
-        run: mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -pl :ratchet-testsuite,:ratchet-coverage -am
+        #
+        # timeout(1) fails the step (exit 124) instead of letting a wedged
+        # container deploy ride to the job-level kill, and TERMs only the
+        # Maven process — the forked JVM and the app server survive as
+        # orphans so the next step can thread-dump them.
+        #
+        # -Dtest=ZZZ_NoMatch skips surefire across the -am dependency closure:
+        # the server/database profiles only affect the testsuite ITs, so
+        # re-running every upstream module's unit tests (Testcontainers suites
+        # included) in all 25 cells is pure redundancy — the unit-tests job
+        # already runs them once. The pom ignores -Dsurefire.skip, hence the
+        # no-match pattern; failsafe filters on -Dit.test, so the ITs still run.
+        run: timeout --kill-after=60 45m mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -Dtest=ZZZ_NoMatch -Dsurefire.failIfNoSpecifiedTests=false -pl :ratchet-testsuite,:ratchet-coverage -am
+      - name: Thread-dump surviving JVMs
+        if: failure()
+        run: |
+          for pid in $(jcmd -l | awk '$2 !~ /jcmd/ {print $1}'); do
+            echo "::group::jcmd ${pid} Thread.print"
+            jcmd "${pid}" VM.command_line || true
+            jcmd "${pid}" Thread.print || true
+            echo "::endgroup::"
+          done
       - name: Upload coverage report
         if: matrix.server == 'wildfly-managed' && matrix.database == 'mysql'
         uses: actions/upload-artifact@v7
@@ -228,7 +275,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -296,16 +343,20 @@ jobs:
           </settings>
           EOF
       - name: Eclipse Dash license check
-        # api.eclipse.org occasionally times out under load. Retry once after
-        # 60s to absorb transient failures without masking real outages.
+        # api.eclipse.org occasionally times out under load. Retry up to six
+        # times with 60s between attempts to absorb transient failures without
+        # masking real outages. The batch size is capped because the default
+        # sends the whole dependency list (~344 items) as one request, which
+        # dies on the foundation's 60-second gateway timeout whenever the
+        # service is slow; batches of 25 finish well inside the window.
         run: |
-          for attempt in 1 2; do
+          for attempt in 1 2 3 4 5 6; do
             mvn org.eclipse.dash:license-tool-plugin:1.1.0:license-check \
-              -Ddash.summary=target/dash-DEPENDENCIES && exit 0
+              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=25 && exit 0
             echo "Attempt $attempt failed; sleeping 60s before retry..."
             sleep 60
           done
-          echo "Eclipse Dash license check failed after 2 attempts."
+          echo "Eclipse Dash license check failed after 6 attempts."
           exit 1
 
   # Deterministic copyleft gate, the offline companion to Eclipse Dash. Installs
@@ -321,7 +372,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
       - uses: actions/cache@v6
         with:
@@ -333,14 +384,10 @@ jobs:
       - name: Copyleft dependency-license gate
         run: bash infra/ci/check-dependency-licenses.sh
 
-  # integrations/ratchet-quarkus is its own standalone reactor (separate parent,
-  # not a root <module>) so it isn't picked up by the release/sign/central
-  # profiles that run against the main reactor. It still depends on run.ratchet
-  # core artifacts by version, so a change here that breaks the extension would
-  # otherwise go unnoticed until someone manually rebuilds it. Install the core
-  # modules the extension depends on, then build+test the extension's own
-  # reactor against that freshly-built (not stale-cached) source.
-  # Runs the ratchet-quarkus extension's full TCK suite once per store. Each
+  # Runs the ratchet-quarkus extension's full TCK suite once per store. The main
+  # build now compiles and unit-tests these reactor modules (including the default
+  # PostgreSQL profile), while this matrix preserves explicit coverage for every
+  # supported SQL store and the MongoDB flavor. Each
   # cell swaps in that store's jar plus the matching quarkus-jdbc-<db> extension
   # or MongoDB flavor via the db-<kind> Maven profile (defined in the
   # integration-tests pom), and the RatchetDatabaseTestResource spins up a
@@ -358,19 +405,14 @@ jobs:
       matrix:
         include:
           - db: postgres
-            store: stores/ratchet-store-postgresql
             profile: db-postgres
           - db: mysql
-            store: stores/ratchet-store-mysql
             profile: db-mysql
           - db: oracle
-            store: stores/ratchet-store-oracle
             profile: db-oracle
           - db: sqlserver
-            store: stores/ratchet-store-sqlserver
             profile: db-sqlserver
           - db: mongodb
-            store: stores/ratchet-store-mongodb
             profile: db-mongo
     steps:
       - uses: actions/checkout@v7
@@ -386,20 +428,12 @@ jobs:
             m2-quarkus-ext-${{ matrix.db }}-
             m2-quarkus-ext-
             m2-
-      - name: Install core modules the extension depends on
-        # The integration-tests module pulls this cell's store jar, ratchet-encryption,
-        # ratchet-tck-api, and ratchet-tck-store in addition to the runtime/deployment deps. -am builds each
-        # listed module's upstream but never its downstream, so store-core alone does not
-        # drag in the store impl. List every module the extension reactor consumes so all
-        # are built from source here rather than resolved from a stale m2 cache.
-        #
-        # ratchet-store-mongodb is listed on every cell, not just the mongodb one. The db-*
-        # profiles only swap the integration-tests dependency; the reactor still builds the
-        # MongoDB flavor modules unconditionally, so the SQL cells need that jar too. It is a
-        # harmless duplicate on the mongodb cell.
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},stores/ratchet-store-mongodb,ratchet-encryption,testing/ratchet-tck/api,testing/ratchet-tck/store -am install
       - name: Build + test the ratchet-quarkus extension
-        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml verify -P${{ matrix.profile }}
+        # SpotBugs runs once for the full reactor in the dedicated job above.
+        run: >-
+          mvn -B -ntp -Dspotbugs.skip=true
+          -pl integrations/ratchet-quarkus/integration-tests -am
+          verify -P${{ matrix.profile }}
 
   # Native smoke gates for MongoDB and the DEFAULT SQL (PostgreSQL/Hibernate) flavor. The SQL cell
   # exercises the Hibernate/JPA-native reflection surface (entities, UuidV7EntityListener,
@@ -416,11 +450,9 @@ jobs:
         include:
           - db: mongodb
             cache: mongo
-            store: stores/ratchet-store-mongodb
             profile: db-mongo,native-mongo
           - db: sql
             cache: sql
-            store: stores/ratchet-store-postgresql
             profile: db-postgres,native-sql
     steps:
       - uses: actions/checkout@v7
@@ -437,10 +469,11 @@ jobs:
             m2-quarkus-ext-native-${{ matrix.cache }}-
             m2-quarkus-ext-
             m2-
-      - name: Install core modules the extension depends on
-        run: mvn -B -ntp -DskipTests -pl ratchet-api,ratchet,stores/ratchet-store-core,${{ matrix.store }},ratchet-encryption,testing/ratchet-tck/api,testing/ratchet-tck/store -am install
       - name: Native smoke test (${{ matrix.db }})
-        run: mvn -B -ntp -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -P${{ matrix.profile }}
+        run: >-
+          mvn -B -ntp -Dspotbugs.skip=true
+          -pl integrations/ratchet-quarkus/integration-tests -am
+          verify -P${{ matrix.profile }}
 
   spring-boot-topology:
     # This job is a required status-check dependency, so it remains present on
@@ -658,7 +691,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -695,7 +728,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-topology, spring-boot-core-compat, spring-boot-postgresql-jvm, spring-boot-mongodb-jvm, a11y]
+    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-topology, spring-boot-core-compat, spring-boot-postgresql-jvm, spring-boot-mongodb-jvm, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

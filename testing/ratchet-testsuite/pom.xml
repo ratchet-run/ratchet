@@ -8,7 +8,7 @@
   <parent>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-parent</artifactId>
-    <version>0.2.2-SNAPSHOT</version>
+    <version>0.3.2-SNAPSHOT</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
@@ -498,9 +498,9 @@
     </profile>
 
     <!--
-      WildFly 40 on Jakarta EE 11 / JDK 25. Mirrors wildfly-managed but pins the
+      WildFly 40 on Jakarta EE 11 / JDK 21. Mirrors wildfly-managed but pins the
       EE 11 distribution and adds the EE 11 test source root (VirtualThreadExecutionIT).
-      The parent same-id profile supplies the JDK 25 enforcer; this profile sets the
+      The parent same-id profile supplies the JDK 21 enforcer; this profile sets the
       EE 11 umbrella (Concurrency 3.1) via jakarta.ee.version below. The test deployment
       declares its own virtual-thread executor (VirtualThreadTestExecutor); Ratchet ships
       none.
@@ -516,7 +516,7 @@
         <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
         <jakarta.ee.version>11.0.0</jakarta.ee.version>
         <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.testRelease>21</maven.compiler.testRelease>
       </properties>
       <dependencies>
         <dependency>
@@ -914,7 +914,7 @@
         <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
         <jakarta.ee.version>11.0.0</jakarta.ee.version>
         <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.testRelease>21</maven.compiler.testRelease>
       </properties>
       <dependencies>
         <dependency>
@@ -1107,7 +1107,7 @@
                       harmless duplication).
                     -->
                     <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile|user\.timezone)=[^&lt;]*&lt;/jvm-options&gt;"
+                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile|user\.timezone|jdk\.virtualThreadScheduler\.parallelism)=[^&lt;]*&lt;/jvm-options&gt;"
                                    replace=""
                                    flags="g"
                                    byline="true"/>
@@ -1119,10 +1119,23 @@
                       claims (jobs stay PENDING). The TZ=UTC failsafe env reaches the
                       Payara adapter's JVM but NOT omnifish's GlassFish JVM, so inject
                       the zone here as a proper jvm-option asadmin honors at launch.
+
+                      Also pin the virtual-thread scheduler's carrier pool. GitHub's
+                      4-core runners give the ForkJoinPool-backed virtual-thread
+                      scheduler 4 carriers by default. On JDK 21, virtual job threads
+                      committing through EclipseLink pin their carrier inside
+                      synchronized sections (JEP 444 — pinned parks are not
+                      compensated), and once pinned waiters consume every carrier,
+                      whichever thread holds the GlassFish connection-pool lock never
+                      gets scheduled again, wedging the deployment's tests. Pinning
+                      stops mattering once the matrix moves to JDK 24
+                      (JEP 491 removes it); until then, widen the carrier pool to 8 so
+                      the testsuite's per-execution-type virtual-thread caps (2) always
+                      leave carriers free.
                     -->
                     <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
                                    match="(\s*)&lt;/java-config&gt;"
-                                   replace="\1  &lt;jvm-options&gt;-Duser.timezone=UTC&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
+                                   replace="\1  &lt;jvm-options&gt;-Duser.timezone=UTC&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Djdk.virtualThreadScheduler.parallelism=8&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
                                    flags="g"
                                    byline="true"/>
                   </target>

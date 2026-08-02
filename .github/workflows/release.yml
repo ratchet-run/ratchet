@@ -76,7 +76,7 @@ jobs:
 
       - uses: actions/setup-java@v5
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: temurin
           cache: maven
           # OSSRH_USERNAME/OSSRH_TOKEN are a Central Portal token generated at
@@ -157,6 +157,15 @@ jobs:
           done
           for m in ratchet-micrometer ratchet-otel; do
             JAR_PATHS="$JAR_PATHS observability/${m}:${m}"
+          done
+          for entry in \
+            core:ratchet-quarkus-core \
+            core-deployment:ratchet-quarkus-core-deployment \
+            runtime:ratchet-quarkus \
+            deployment:ratchet-quarkus-deployment \
+            mongodb:ratchet-quarkus-mongodb \
+            mongodb-deployment:ratchet-quarkus-mongodb-deployment; do
+            JAR_PATHS="$JAR_PATHS integrations/ratchet-quarkus/${entry}"
           done
           for m in util store api jakarta coordinator; do
             JAR_PATHS="$JAR_PATHS testing/ratchet-tck/${m}:ratchet-tck-${m}"

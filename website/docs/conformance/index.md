@@ -94,13 +94,13 @@ mvn verify -P wildfly-managed,mysql -pl :ratchet-testsuite -am
 **Quarkus runtime (API tier, JVM):** pick a store profile; each runs the extension TCK suite against
 a Testcontainers database for that store.
 ```bash
-mvn -f integrations/ratchet-quarkus/pom.xml verify -Pdb-postgres   # or db-mysql, db-oracle, db-sqlserver, db-mongo
+mvn verify -Pdb-postgres -pl integrations/ratchet-quarkus/integration-tests -am   # or db-mysql, db-oracle, db-sqlserver, db-mongo
 ```
 
 **Quarkus native image** (needs GraalVM and Docker):
 ```bash
-mvn -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-postgres,native-sql   # PostgreSQL/Hibernate flavor
-mvn -f integrations/ratchet-quarkus/pom.xml -pl integration-tests -am verify -Pdb-mongo,native-mongo
+mvn verify -Pdb-postgres,native-sql -pl integrations/ratchet-quarkus/integration-tests -am   # PostgreSQL/Hibernate flavor
+mvn verify -Pdb-mongo,native-mongo -pl integrations/ratchet-quarkus/integration-tests -am
 ```
 
 ## Implementing a Conformant Store

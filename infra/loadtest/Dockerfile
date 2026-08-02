@@ -29,7 +29,7 @@ RUN mkdir -p \
 COPY --from=build /drivers/postgresql.jar /opt/jboss/ratchet/drivers/postgresql.jar
 COPY --from=build /drivers/mysql.jar /opt/jboss/ratchet/drivers/mysql.jar
 COPY infra/loadtest/wildfly/${STORE}.cli /opt/jboss/ratchet/store.cli
-COPY --from=build /workspace/testing/ratchet-loadtest/target/ratchet-loadtest-0.2.2-SNAPSHOT.war /opt/jboss/wildfly/standalone/deployments/ROOT.war
+COPY --from=build /workspace/testing/ratchet-loadtest/target/ratchet-loadtest-0.3.2-SNAPSHOT.war /opt/jboss/wildfly/standalone/deployments/ROOT.war
 RUN chown -R jboss:root /opt/jboss/ratchet /opt/jboss/wildfly/standalone \
     && chmod -R ug+rwX /opt/jboss/ratchet /opt/jboss/wildfly/standalone \
     && /opt/jboss/wildfly/bin/jboss-cli.sh --file=/opt/jboss/ratchet/store.cli \

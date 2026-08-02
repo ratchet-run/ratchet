@@ -46,7 +46,7 @@ Import the Ratchet BOM so the TCK, API, and store artifacts use one version:
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.2.1</version>
+      <version>0.3.1</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>

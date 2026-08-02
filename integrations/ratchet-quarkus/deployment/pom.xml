@@ -7,7 +7,7 @@
   <parent>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-quarkus-parent</artifactId>
-    <version>0.2.2-SNAPSHOT</version>
+    <version>0.3.2-SNAPSHOT</version>
   </parent>
 
   <artifactId>ratchet-quarkus-deployment</artifactId>
@@ -42,7 +42,6 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
-          <release>${maven.compiler.release}</release>
           <!--
             The Quarkus extension processor scans @BuildStep methods at compile time and emits
             META-INF/quarkus-build-steps.list (plus Jandex/config metadata). Quarkus loads build

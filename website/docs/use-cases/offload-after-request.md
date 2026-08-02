@@ -12,7 +12,7 @@ The usual escape hatch is a thread pool, or a `@Async` method, or handing the wo
 Ratchet closes that window. You enqueue the follow-up work inside the same transaction that writes the order, so the job and the order row commit together. The request returns as soon as the row is durable. The work runs later, on a worker, with retries, and it cannot get lost, because it was written to the same database as the thing it follows up on.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.2.2-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store.
+The Java on this page compiles against `ratchet-api` `0.3.2-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store.
 :::
 
 ## Enqueue inside the transaction, return now

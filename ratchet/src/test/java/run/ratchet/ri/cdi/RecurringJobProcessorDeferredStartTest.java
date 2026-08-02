@@ -40,7 +40,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
@@ -48,6 +47,7 @@ import run.ratchet.ri.core.internal.RecurringMethodRegistrar;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.runtime.RecurringMethodDiscovery;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.InvocationSubmissionService;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RecurringJobStore;
 
@@ -69,52 +69,61 @@ class RecurringJobProcessorDeferredStartTest {
   @Test
   void onStartup_whenAutoStartDeferred_doesNotRegisterJobs() {
     System.setProperty(RatchetRuntimeStart.DEFER_PROPERTY, "true");
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     RecurringJobProcessor processor =
-        new RecurringJobProcessor(newRegistrar(schedulerService, null, null));
+        new RecurringJobProcessor(newRegistrar(invocationSubmissionService, null, null));
 
     processor.onStartup(new Object());
 
-    verifyNoInteractions(schedulerService);
+    verifyNoInteractions(invocationSubmissionService);
   }
 
   @Test
   void onStartup_whenNotDeferredAndNoManagedExecutor_registersInline() {
     System.clearProperty(RatchetRuntimeStart.DEFER_PROPERTY);
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     RecurringJobProcessor processor =
-        new RecurringJobProcessor(newRegistrar(schedulerService, null, null));
+        new RecurringJobProcessor(newRegistrar(invocationSubmissionService, null, null));
 
     processor.onStartup(new Object());
 
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).submit();
   }
 
   @Test
   void onRuntimeStart_registersJobsEvenWhileAutoStartIsDeferred() {
     System.setProperty(RatchetRuntimeStart.DEFER_PROPERTY, "true");
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     RecurringJobProcessor processor =
-        new RecurringJobProcessor(newRegistrar(schedulerService, null, null));
+        new RecurringJobProcessor(newRegistrar(invocationSubmissionService, null, null));
 
     processor.onRuntimeStart(new RatchetRuntimeStart());
 
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).submit();
   }
 
   @Test
   void runtimeReadyRegistration_whenNotCommitted_retriesOnManagedScheduler() {
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     ScheduledExecutorService managedScheduler = mock(ScheduledExecutorService.class);
     ExecutorProvider executorProvider = executorProvider(managedScheduler);
@@ -124,7 +133,8 @@ class RecurringJobProcessorDeferredStartTest {
             Optional.empty(),
             Optional.of(recurringDefinition(UUID.randomUUID(), "leader-gate-job")));
     RecurringMethodRegistrar registrar =
-        newRegistrar(schedulerService, executorProvider, jobStoreAdvertising(recurringJobStore));
+        newRegistrar(
+            invocationSubmissionService, executorProvider, jobStoreAdvertising(recurringJobStore));
 
     registrar.register();
 
@@ -132,17 +142,19 @@ class RecurringJobProcessorDeferredStartTest {
     verify(managedScheduler).schedule(retry.capture(), eq(500L), eq(TimeUnit.MILLISECONDS));
     retry.getValue().run();
 
-    verify(schedulerService, times(2))
-        .scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService, times(2))
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder, times(2)).submit();
     verify(recurringJobStore, times(2)).findRecurringByBusinessKey("leader-gate-job");
   }
 
   @Test
   void runtimeReadyRegistration_whenNeverCommitted_stopsAfterBoundedAttempts() {
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     Deque<Runnable> retries = new ArrayDeque<>();
     ScheduledExecutorService managedScheduler = mock(ScheduledExecutorService.class);
@@ -157,7 +169,7 @@ class RecurringJobProcessorDeferredStartTest {
         .thenReturn(Optional.empty());
     RecurringMethodRegistrar registrar =
         newRegistrar(
-            schedulerService,
+            invocationSubmissionService,
             executorProvider(managedScheduler),
             jobStoreAdvertising(recurringJobStore));
 
@@ -166,8 +178,8 @@ class RecurringJobProcessorDeferredStartTest {
       retries.removeFirst().run();
     }
 
-    verify(schedulerService, times(10))
-        .scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService, times(10))
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder, times(10)).submit();
     verify(recurringJobStore, times(10)).findRecurringByBusinessKey("leader-gate-job");
     verify(managedScheduler, times(9))
@@ -176,9 +188,11 @@ class RecurringJobProcessorDeferredStartTest {
 
   @Test
   void pendingDeferredRetryBecomesNoOpAfterCancellation() {
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     ScheduledExecutorService managedScheduler = mock(ScheduledExecutorService.class);
     ScheduledFuture<?> scheduledFuture = mock(ScheduledFuture.class);
@@ -189,7 +203,7 @@ class RecurringJobProcessorDeferredStartTest {
         .thenReturn(Optional.empty());
     RecurringMethodRegistrar registrar =
         newRegistrar(
-            schedulerService,
+            invocationSubmissionService,
             executorProvider(managedScheduler),
             jobStoreAdvertising(recurringJobStore));
 
@@ -201,14 +215,16 @@ class RecurringJobProcessorDeferredStartTest {
     verify(scheduledFuture).cancel(false);
     retry.getValue().run();
 
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).submit();
     verify(recurringJobStore).findRecurringByBusinessKey("leader-gate-job");
   }
 
   @Test
   void cancellationWhileSchedulingCancelsTheLateFuture() {
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     ScheduledExecutorService managedScheduler = mock(ScheduledExecutorService.class);
     ScheduledFuture<?> scheduledFuture = mock(ScheduledFuture.class);
     AtomicReference<RecurringMethodRegistrar> registrarReference = new AtomicReference<>();
@@ -219,24 +235,25 @@ class RecurringJobProcessorDeferredStartTest {
               return scheduledFuture;
             });
     RecurringMethodRegistrar registrar =
-        newRegistrar(schedulerService, executorProvider(managedScheduler), null);
+        newRegistrar(invocationSubmissionService, executorProvider(managedScheduler), null);
     registrarReference.set(registrar);
 
     registrar.registerFromApplicationStart();
 
     verify(scheduledFuture).cancel(false);
-    verifyNoInteractions(schedulerService);
+    verifyNoInteractions(invocationSubmissionService);
   }
 
   @Test
   void cancellationIsIdempotent() {
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     ScheduledExecutorService managedScheduler = mock(ScheduledExecutorService.class);
     ScheduledFuture<?> scheduledFuture = mock(ScheduledFuture.class);
     when(managedScheduler.schedule(any(Runnable.class), eq(500L), eq(TimeUnit.MILLISECONDS)))
         .thenAnswer(invocation -> scheduledFuture);
     RecurringMethodRegistrar registrar =
-        newRegistrar(schedulerService, executorProvider(managedScheduler), null);
+        newRegistrar(invocationSubmissionService, executorProvider(managedScheduler), null);
 
     assertDoesNotThrow(
         () -> {
@@ -246,14 +263,16 @@ class RecurringJobProcessorDeferredStartTest {
         });
 
     verify(scheduledFuture).cancel(false);
-    verifyNoInteractions(schedulerService);
+    verifyNoInteractions(invocationSubmissionService);
   }
 
   @Test
   void sameRegistrarRestartUsesNewGenerationAndLeavesStaleRetryInert() {
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     ScheduledExecutorService managedScheduler = mock(ScheduledExecutorService.class);
     ScheduledFuture<?> staleFuture = mock(ScheduledFuture.class);
@@ -264,7 +283,7 @@ class RecurringJobProcessorDeferredStartTest {
         .thenReturn(Optional.of(recurringDefinition(UUID.randomUUID(), "leader-gate-job")));
     RecurringMethodRegistrar registrar =
         newRegistrar(
-            schedulerService,
+            invocationSubmissionService,
             executorProvider(managedScheduler),
             jobStoreAdvertising(recurringJobStore));
 
@@ -277,35 +296,43 @@ class RecurringJobProcessorDeferredStartTest {
     staleRetry.getValue().run();
 
     verify(staleFuture).cancel(false);
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).submit();
     verify(recurringJobStore).findRecurringByBusinessKey("leader-gate-job");
   }
 
   @Test
   void freshRegistrarCanRegisterAfterPreviousRegistrarWasCancelled() {
-    JobSchedulerService oldSchedulerService = mock(JobSchedulerService.class);
-    RecurringMethodRegistrar oldRegistrar = newRegistrar(oldSchedulerService, null, null);
+    InvocationSubmissionService oldInvocationSubmissionService =
+        mock(InvocationSubmissionService.class);
+    RecurringMethodRegistrar oldRegistrar =
+        newRegistrar(oldInvocationSubmissionService, null, null);
     oldRegistrar.cancel();
 
-    JobSchedulerService freshSchedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService freshInvocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(freshSchedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(freshInvocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
-    RecurringMethodRegistrar freshRegistrar = newRegistrar(freshSchedulerService, null, null);
+    RecurringMethodRegistrar freshRegistrar =
+        newRegistrar(freshInvocationSubmissionService, null, null);
 
     freshRegistrar.register();
 
-    verifyNoInteractions(oldSchedulerService);
-    verify(freshSchedulerService)
-        .scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verifyNoInteractions(oldInvocationSubmissionService);
+    verify(freshInvocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).submit();
   }
 
   private static RecurringMethodRegistrar newRegistrar(
-      JobSchedulerService schedulerService, ExecutorProvider executorProvider, JobStore jobStore) {
+      InvocationSubmissionService invocationSubmissionService,
+      ExecutorProvider executorProvider,
+      JobStore jobStore) {
     return new RecurringMethodRegistrar(
-        schedulerService,
+        invocationSubmissionService,
         mock(RecurringAnnotationMaintenanceService.class),
         DISCOVERY,
         mock(RecurringMethodInvoker.class),

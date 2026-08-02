@@ -34,6 +34,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -42,7 +43,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
@@ -52,6 +52,8 @@ import run.ratchet.ri.core.internal.RecurringMethodRegistrar;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.runtime.RecurringMethodDiscovery;
+import run.ratchet.spi.InvocationSubmissionService;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -69,9 +71,10 @@ class RecurringJobProcessorLeaderGateTest {
   @Test
   void cleanup_skippedWhenStartupLeaseNotAcquired() {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
-    var schedulerService = mock(JobSchedulerService.class);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     var coordinator = mock(StartupCoordinator.class);
     when(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)))
@@ -79,7 +82,7 @@ class RecurringJobProcessorLeaderGateTest {
     var registrationState = new RecurringRegistrationState();
     var registrar =
         newRegistrar(
-            schedulerService,
+            invocationSubmissionService,
             maintenance,
             LEADER_GATE_DISCOVERY,
             coordinator,
@@ -90,7 +93,18 @@ class RecurringJobProcessorLeaderGateTest {
 
     registrar.register();
 
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    ArgumentCaptor<JobInvocation> invocationCaptor = ArgumentCaptor.forClass(JobInvocation.class);
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), invocationCaptor.capture());
+    assertEquals(
+        new JobInvocation(
+            RecurringMethodInvoker.class.getName(),
+            "invoke",
+            "(Ljava/lang/String;Ljava/lang/String;Z)V",
+            false,
+            List.of(LeaderGateBean.class.getName(), "run", false)),
+        invocationCaptor.getValue());
     verify(recurringJobBuilder).withBusinessKey("leader-gate-job");
     verify(recurringJobBuilder).submit();
     assertTrue(registrationState.shouldFire("leader-gate-job"));
@@ -102,16 +116,17 @@ class RecurringJobProcessorLeaderGateTest {
   @Test
   void registerRecurringJobs_usesPortableDiscovery() {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
-    var schedulerService = mock(JobSchedulerService.class);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
     var discovery = mock(RecurringMethodDiscovery.class);
     when(discovery.recurringBeanClasses()).thenReturn(Set.of(LeaderGateBean.class));
     when(discovery.isMethodInvocable(eq(LeaderGateBean.class), any())).thenReturn(true);
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     var registrar =
         newRegistrar(
-            schedulerService,
+            invocationSubmissionService,
             maintenance,
             discovery,
             null,
@@ -123,7 +138,8 @@ class RecurringJobProcessorLeaderGateTest {
     registrar.register();
 
     verify(discovery).recurringBeanClasses();
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
   }
 
   @Test
@@ -135,7 +151,7 @@ class RecurringJobProcessorLeaderGateTest {
         .thenReturn(true);
     var registrar =
         newRegistrar(
-            mock(JobSchedulerService.class),
+            mock(InvocationSubmissionService.class),
             maintenance,
             EMPTY_DISCOVERY,
             coordinator,
@@ -160,7 +176,7 @@ class RecurringJobProcessorLeaderGateTest {
     when(maintenance.cancelOrphanedRecurringAnnotationJobs(anySet(), any())).thenReturn(0);
     var registrar =
         newRegistrar(
-            mock(JobSchedulerService.class),
+            mock(InvocationSubmissionService.class),
             maintenance,
             EMPTY_DISCOVERY,
             null,
@@ -184,7 +200,7 @@ class RecurringJobProcessorLeaderGateTest {
         .thenReturn(true);
     var registrar =
         newRegistrar(
-            mock(JobSchedulerService.class),
+            mock(InvocationSubmissionService.class),
             maintenance,
             EMPTY_DISCOVERY,
             coordinator,
@@ -204,14 +220,15 @@ class RecurringJobProcessorLeaderGateTest {
   @Test
   void registerRecurringJobs_doesNotCancelExistingJobWhenSubmitFails() {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
-    var schedulerService = mock(JobSchedulerService.class);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     when(recurringJobBuilder.submit()).thenThrow(new IllegalStateException("store unavailable"));
     var registrar =
         newRegistrar(
-            schedulerService,
+            invocationSubmissionService,
             maintenance,
             LEADER_GATE_DISCOVERY,
             null,
@@ -230,11 +247,12 @@ class RecurringJobProcessorLeaderGateTest {
   void registerRecurringJobs_submitsExistingBusinessKeySoDefinitionCanBeReconciled()
       throws Exception {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
-    var schedulerService = mock(JobSchedulerService.class);
+    var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var recurringJobBuilder = mockRecurringJobBuilder();
     UUID existingId = UUID.randomUUID();
     when(recurringJobBuilder.submit()).thenReturn((JobHandle) () -> existingId);
-    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
         .thenReturn(recurringJobBuilder);
     var registrationState = new RecurringRegistrationState();
     var recurringJobStore = mock(RecurringJobStore.class);
@@ -244,7 +262,7 @@ class RecurringJobProcessorLeaderGateTest {
     when(jobStore.capability(RecurringJobStore.class)).thenReturn(Optional.of(recurringJobStore));
     var registrar =
         newRegistrar(
-            schedulerService,
+            invocationSubmissionService,
             maintenance,
             LEADER_GATE_DISCOVERY,
             null,
@@ -255,7 +273,8 @@ class RecurringJobProcessorLeaderGateTest {
 
     registrar.register();
 
-    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).withBusinessKey("leader-gate-job");
     verify(recurringJobBuilder).submit();
     assertRegisteredJobId(registrar, "leader-gate-job", existingId);
@@ -264,7 +283,7 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   private static RecurringMethodRegistrar newRegistrar(
-      JobSchedulerService schedulerService,
+      InvocationSubmissionService invocationSubmissionService,
       RecurringAnnotationMaintenanceService maintenance,
       RecurringMethodDiscovery discovery,
       StartupCoordinator coordinator,
@@ -273,7 +292,7 @@ class RecurringJobProcessorLeaderGateTest {
       JobStore jobStore,
       Clock clock) {
     return new RecurringMethodRegistrar(
-        schedulerService,
+        invocationSubmissionService,
         maintenance,
         discovery,
         mock(RecurringMethodInvoker.class),

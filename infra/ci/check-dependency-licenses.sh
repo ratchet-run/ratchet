@@ -33,7 +33,18 @@ COPYLEFT='\b(GNU (General|Lesser General|Library General) Public License|GPL|LGP
 
 # Carve-outs that neutralize copyleft for a linking consumer. Matched against
 # the same license names; a hit here clears an otherwise-flagged line.
-EXCEPTIONS='classpath[ -]exception|foss[ -]exception'
+# "apache license" clears dual-licensed artifacts (the report lists every
+# declared license on one line, and a permissive co-license means the
+# artifact is consumable under it — e.g. JNA is Apache-2.0 OR LGPL-2.1).
+EXCEPTIONS='classpath[ -]exception|foss[ -]exception|apache license'
+
+# Reviewed per-artifact exceptions, matched against Maven coordinates.
+# Hibernate ORM is LGPL-2.1-or-later and reaches the Quarkus extension as a
+# declared dependency of quarkus-hibernate-orm — the standard shape of every
+# Apache-2.0 Quarkus ORM extension. Nothing from Hibernate is vendored into
+# a Ratchet artifact; consumers resolve it from the Quarkus platform, and
+# LGPL's own terms permit linking from differently-licensed works.
+ALLOWED_COORDS='org\.hibernate\.orm:hibernate-(core|graalvm):'
 
 echo "Generating third-party license report (compile + runtime scope)..."
 # force=true defeats the plugin's up-to-date short-circuit, which would
@@ -51,7 +62,7 @@ fi
 
 [ -f "$REPORT" ] || { echo "ERROR: $REPORT was not generated." >&2; exit 2; }
 
-hits=$(grep -Ei "$COPYLEFT" "$REPORT" | grep -viE "$EXCEPTIONS" || true)
+hits=$(grep -Ei "$COPYLEFT" "$REPORT" | grep -viE "$EXCEPTIONS" | grep -vE "$ALLOWED_COORDS" || true)
 if [ -n "$hits" ]; then
   echo "FAIL: strong-copyleft license(s) in shipped (compile/runtime) scope:" >&2
   echo "$hits" >&2

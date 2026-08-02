@@ -19,8 +19,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.Serializable;
 import java.time.Duration;
+import java.time.ZoneId;
 import java.util.Objects;
 import run.ratchet.api.JobSubmitter;
+import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.InvocationBatchBuilder;
 import run.ratchet.spi.InvocationJobBuilder;
@@ -40,6 +42,7 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
   private final JobSubmitter jobSubmitter;
   private final BatchSubmitter batchSubmitter;
   private final StreamingBatchSubmitter streamingBatchSubmitter;
+  private final RecurringJobSubmitter recurringJobSubmitter;
   private final JobInvocationResolver jobInvocationResolver;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
@@ -47,6 +50,7 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
     this.jobSubmitter = null;
     this.batchSubmitter = null;
     this.streamingBatchSubmitter = null;
+    this.recurringJobSubmitter = null;
     this.jobInvocationResolver = null;
   }
 
@@ -55,10 +59,12 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
       JobSubmitter jobSubmitter,
       BatchSubmitter batchSubmitter,
       StreamingBatchSubmitter streamingBatchSubmitter,
+      RecurringJobSubmitter recurringJobSubmitter,
       JobInvocationResolver jobInvocationResolver) {
     this.jobSubmitter = jobSubmitter;
     this.batchSubmitter = batchSubmitter;
     this.streamingBatchSubmitter = streamingBatchSubmitter;
+    this.recurringJobSubmitter = recurringJobSubmitter;
     this.jobInvocationResolver = jobInvocationResolver;
   }
 
@@ -75,6 +81,16 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
     Objects.requireNonNull(invocation, "invocation must not be null");
     return new DefaultInvocationJobBuilder(
         DefaultJobBuilder.create(jobSubmitter, new InvocationAdapter(invocation), delay));
+  }
+
+  @Override
+  public RecurringJobBuilder scheduleRecurringInvocation(
+      String cron, ZoneId zone, JobInvocation invocation) {
+    Objects.requireNonNull(cron, "cron must not be null");
+    Objects.requireNonNull(zone, "zone must not be null");
+    Objects.requireNonNull(invocation, "invocation must not be null");
+    return new DefaultRecurringJobBuilder(
+        cron, zone, new InvocationAdapter(invocation), recurringJobSubmitter);
   }
 
   @Override

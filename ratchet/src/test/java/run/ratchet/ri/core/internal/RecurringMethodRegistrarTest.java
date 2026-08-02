@@ -33,28 +33,32 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.runtime.RecurringMethodDiscovery;
+import run.ratchet.spi.InvocationSubmissionService;
 
 class RecurringMethodRegistrarTest {
 
   @Test
   void register_usesOnlyClassesReturnedByPortableDiscovery() {
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     RecurringJobBuilder builder = recurringJobBuilder();
-    when(schedulerService.scheduleRecurring(any(String.class), any(ZoneId.class), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            any(String.class), any(ZoneId.class), any()))
         .thenReturn(builder);
     RecurringMethodInvoker methodInvoker = mock(RecurringMethodInvoker.class);
     RecurringMethodDiscovery discovery = () -> Set.of(IncludedBean.class);
-    RecurringMethodRegistrar registrar = newRegistrar(schedulerService, discovery, methodInvoker);
+    RecurringMethodRegistrar registrar =
+        newRegistrar(invocationSubmissionService, discovery, methodInvoker);
 
     registrar.register();
 
-    verify(schedulerService).scheduleRecurring(any(String.class), any(ZoneId.class), any());
+    verify(invocationSubmissionService)
+        .scheduleRecurringInvocation(any(String.class), any(ZoneId.class), any());
     verify(builder).withBusinessKey("included-job");
     verify(builder, never()).withBusinessKey("omitted-job");
     verify(methodInvoker).validateBeanResolvable(IncludedBean.class);
@@ -79,15 +83,17 @@ class RecurringMethodRegistrarTest {
             return false;
           }
         };
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     RecurringMethodInvoker methodInvoker = mock(RecurringMethodInvoker.class);
-    RecurringMethodRegistrar registrar = newRegistrar(schedulerService, discovery, methodInvoker);
+    RecurringMethodRegistrar registrar =
+        newRegistrar(invocationSubmissionService, discovery, methodInvoker);
 
     registrar.register();
 
     assertSame(RejectedBean.class, checkedBeanClass.get());
     assertEquals("run", checkedMethod.get().getName());
-    verifyNoInteractions(schedulerService);
+    verifyNoInteractions(invocationSubmissionService);
     verify(methodInvoker).validateBeanResolvable(RejectedBean.class);
   }
 
@@ -105,27 +111,30 @@ class RecurringMethodRegistrarTest {
             return true;
           }
         };
-    JobSchedulerService schedulerService = mock(JobSchedulerService.class);
+    InvocationSubmissionService invocationSubmissionService =
+        mock(InvocationSubmissionService.class);
     RecurringJobBuilder builder = recurringJobBuilder();
-    when(schedulerService.scheduleRecurring(any(String.class), any(ZoneId.class), any()))
+    when(invocationSubmissionService.scheduleRecurringInvocation(
+            any(String.class), any(ZoneId.class), any()))
         .thenReturn(builder);
     RecurringMethodInvoker methodInvoker = mock(RecurringMethodInvoker.class);
-    RecurringMethodRegistrar registrar = newRegistrar(schedulerService, discovery, methodInvoker);
+    RecurringMethodRegistrar registrar =
+        newRegistrar(invocationSubmissionService, discovery, methodInvoker);
 
     registrar.register();
 
     verify(methodInvoker).validateBeanResolvable(IncludedBean.class);
     verify(methodInvoker, never()).validateBeanResolvable(DisabledBean.class);
-    verify(schedulerService, times(1))
-        .scheduleRecurring(any(String.class), any(ZoneId.class), any());
+    verify(invocationSubmissionService, times(1))
+        .scheduleRecurringInvocation(any(String.class), any(ZoneId.class), any());
   }
 
   private static RecurringMethodRegistrar newRegistrar(
-      JobSchedulerService schedulerService,
+      InvocationSubmissionService invocationSubmissionService,
       RecurringMethodDiscovery discovery,
       RecurringMethodInvoker methodInvoker) {
     return new RecurringMethodRegistrar(
-        schedulerService,
+        invocationSubmissionService,
         mock(RecurringAnnotationMaintenanceService.class),
         discovery,
         methodInvoker,

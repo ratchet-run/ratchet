@@ -36,8 +36,9 @@ public class QuarkusRatchetMongoProducers {
   private MongoClient managedClient;
 
   /**
-   * Fallback client for hosts that do not use Quarkus' own MongoClient bean. Quarkus' client is also
-   * safe for Ratchet because {@link QuarkusRatchetMongoClientCustomizer} forces STANDARD UUIDs.
+   * Fallback client for hosts that do not use Quarkus' own MongoClient bean. Quarkus' client is
+   * also safe for Ratchet because {@link QuarkusRatchetMongoClientCustomizer} forces STANDARD
+   * UUIDs.
    */
   @Produces
   @ApplicationScoped
@@ -66,9 +67,10 @@ public class QuarkusRatchetMongoProducers {
   }
 
   @PreDestroy
-  void closeManagedClient() {
+  synchronized void closeManagedClient() {
     if (managedClient != null) {
       managedClient.close();
+      managedClient = null;
     }
   }
 }

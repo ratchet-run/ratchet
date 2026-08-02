@@ -44,13 +44,14 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.runtime.RecurringMethodDiscovery;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.InvocationSubmissionService;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -72,13 +73,15 @@ public class RecurringMethodRegistrar implements RecurringRegistration {
   private static final Duration ORPHAN_CLEANUP_LEASE_TTL = Duration.ofMinutes(5);
   private static final long REGISTRATION_RETRY_DELAY_MS = 500;
   private static final int MAX_REGISTRATION_ATTEMPTS = 10;
+  private static final String RECURRING_INVOKE_DESCRIPTOR =
+      "(Ljava/lang/String;Ljava/lang/String;Z)V";
 
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
   private final Map<String, String> registeredJobIds = new ConcurrentHashMap<>();
 
-  private final JobSchedulerService schedulerService;
+  private final InvocationSubmissionService invocationSubmissionService;
   private final RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService;
   private final RecurringMethodDiscovery methodDiscovery;
   private final RecurringMethodInvoker methodInvoker;
@@ -96,7 +99,7 @@ public class RecurringMethodRegistrar implements RecurringRegistration {
   private final AtomicBoolean registrationFinalized = new AtomicBoolean();
 
   protected RecurringMethodRegistrar() {
-    this.schedulerService = null;
+    this.invocationSubmissionService = null;
     this.recurringAnnotationMaintenanceService = null;
     this.methodDiscovery = null;
     this.methodInvoker = null;
@@ -116,7 +119,7 @@ public class RecurringMethodRegistrar implements RecurringRegistration {
    */
   @Inject
   public RecurringMethodRegistrar(
-      JobSchedulerService schedulerService,
+      InvocationSubmissionService invocationSubmissionService,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       RecurringMethodDiscovery methodDiscovery,
       RecurringMethodInvoker methodInvoker,
@@ -126,7 +129,7 @@ public class RecurringMethodRegistrar implements RecurringRegistration {
       ExecutorProvider executorProvider,
       JobStore jobStore,
       Clock clock) {
-    this.schedulerService = schedulerService;
+    this.invocationSubmissionService = invocationSubmissionService;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
     this.methodDiscovery = methodDiscovery;
     this.methodInvoker = methodInvoker;
@@ -520,10 +523,15 @@ public class RecurringMethodRegistrar implements RecurringRegistration {
     String className = beanClass.getName();
 
     RecurringJobBuilder builder =
-        schedulerService.scheduleRecurring(
+        invocationSubmissionService.scheduleRecurringInvocation(
             annotation.cron(),
             registration.zone(),
-            () -> methodInvoker.invoke(className, methodName, hasJobContextParam));
+            new JobInvocation(
+                RecurringMethodInvoker.class.getName(),
+                "invoke",
+                RECURRING_INVOKE_DESCRIPTOR,
+                false,
+                List.of(className, methodName, hasJobContextParam)));
 
     JobOptions options =
         JobOptions.defaults()
