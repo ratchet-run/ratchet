@@ -28,6 +28,7 @@ import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,26 +53,24 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
-import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.RecurringMisfirePolicy;
-import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringMethodRegistrar;
 import run.ratchet.ri.core.internal.RecurringRegistration;
-import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.runtime.RecurringMethodDiscovery;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.InvocationSubmissionService;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration;
 import run.ratchet.spring.boot.autoconfigure.SpringBeanResolver;
 import run.ratchet.spring.boot.autoconfigure.SpringRecurringMethodDiscovery;
-import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -97,12 +96,22 @@ public class SpringRecurringCompatibilityTest {
 
       fixture.registration.register();
 
-      JobPayload payload = fixture.onlyPayload();
-      assertEquals("run.ratchet.ri.cdi.RecurringMethodInvoker", payload.target());
-      assertEquals(CglibRecurringBean.class.getName(), payload.args().get(0));
-      assertFalse(String.valueOf(payload.args().get(0)).contains("$$SpringCGLIB"));
+      RecordedRecurringInvocation submission = fixture.onlySubmission();
+      assertEquals("0 0/5 * * * ?", submission.cron);
+      assertEquals(ZoneId.of("UTC"), submission.zone);
+      assertEquals("spring-cglib", submission.businessKey);
+      assertEquals(RecurringMethodInvoker.class.getName(), submission.invocation.targetClass());
+      assertEquals("invoke", submission.invocation.methodName());
+      assertEquals(
+          "(Ljava/lang/String;Ljava/lang/String;Z)V", submission.invocation.methodDescriptor());
+      assertFalse(submission.invocation.staticMethod());
+      assertEquals(
+          List.of(CglibRecurringBean.class.getName(), "run", false),
+          submission.invocation.arguments());
+      assertFalse(
+          String.valueOf(submission.invocation.arguments().get(0)).contains("$$SpringCGLIB"));
 
-      fixture.onlyCallback().run();
+      fixture.invokeOnlyInvocation();
       assertEquals(1, target.invocations.get());
     }
   }
@@ -117,8 +126,9 @@ public class SpringRecurringCompatibilityTest {
     try (Fixture fixture = fixture("jdkBean", JdkRecurringBean.class, () -> proxy, false)) {
       fixture.registration.register();
 
-      assertEquals(JdkRecurringBean.class.getName(), fixture.onlyPayload().args().get(0));
-      fixture.onlyCallback().run();
+      assertEquals(
+          recurringInvocation(JdkRecurringBean.class, "run", false), fixture.onlyInvocation());
+      fixture.invokeOnlyInvocation();
       assertEquals(1, target.invocations.get());
     }
   }
@@ -133,7 +143,7 @@ public class SpringRecurringCompatibilityTest {
     try (Fixture fixture = fixture("classOnlyBean", JdkClassOnlyBean.class, () -> proxy, false)) {
       fixture.registration.register();
 
-      assertTrue(fixture.scheduler.callbacks.isEmpty());
+      assertTrue(fixture.submissionService.invocations.isEmpty());
       assertTrue(
           output
               .toString()
@@ -150,8 +160,10 @@ public class SpringRecurringCompatibilityTest {
         fixture("inheritedBean", InheritedRecurringBean.class, () -> bean, false)) {
       fixture.registration.register();
 
-      assertEquals(InheritedRecurringBean.class.getName(), fixture.onlyPayload().args().get(0));
-      fixture.onlyCallback().run();
+      assertEquals(
+          recurringInvocation(InheritedRecurringBean.class, "inherited", false),
+          fixture.onlyInvocation());
+      fixture.invokeOnlyInvocation();
       assertEquals(1, bean.invocations.get());
     }
   }
@@ -164,7 +176,8 @@ public class SpringRecurringCompatibilityTest {
     try (Fixture fixture = fixture(context, className -> true)) {
       fixture.registration.register();
 
-      assertEquals(FactoryRecurringBean.class.getName(), fixture.onlyPayload().args().get(0));
+      assertEquals(
+          recurringInvocation(FactoryRecurringBean.class, "run", false), fixture.onlyInvocation());
     }
   }
 
@@ -177,7 +190,7 @@ public class SpringRecurringCompatibilityTest {
       fixture.registration.cancel();
       fixture.registration.register();
 
-      assertEquals(2, fixture.scheduler.submissionCount);
+      assertEquals(2, fixture.submissionService.submissionCount);
       assertEquals(1, fixture.store.definitionCount());
       assertEquals(2, fixture.store.confirmationLookups);
       assertTrue(fixture.store.contains("spring-idempotent"));
@@ -195,7 +208,7 @@ public class SpringRecurringCompatibilityTest {
             className -> false)) {
       fixture.registration.register();
 
-      assertTrue(fixture.scheduler.callbacks.isEmpty());
+      assertTrue(fixture.submissionService.invocations.isEmpty());
       assertEquals(0, fixture.store.definitionCount());
     }
   }
@@ -212,7 +225,7 @@ public class SpringRecurringCompatibilityTest {
       fixture.registration.register();
       int destroyedBeforeInvocation = SuccessfulPrototypeBean.destroyed.get();
 
-      fixture.onlyCallback().run();
+      fixture.invokeOnlyInvocation();
 
       assertEquals(1, SuccessfulPrototypeBean.invocations.get());
       assertEquals(destroyedBeforeInvocation + 1, SuccessfulPrototypeBean.destroyed.get());
@@ -227,7 +240,7 @@ public class SpringRecurringCompatibilityTest {
       fixture.registration.register();
       int destroyedBeforeInvocation = FailingPrototypeBean.destroyed.get();
 
-      assertThrows(IllegalStateException.class, () -> fixture.onlyCallback().run());
+      assertThrows(IllegalStateException.class, fixture::invokeOnlyInvocation);
 
       assertEquals(1, FailingPrototypeBean.invocations.get());
       assertEquals(destroyedBeforeInvocation + 1, FailingPrototypeBean.destroyed.get());
@@ -260,10 +273,21 @@ public class SpringRecurringCompatibilityTest {
     return new Fixture(context, classPolicy);
   }
 
+  private static JobInvocation recurringInvocation(
+      Class<?> beanClass, String methodName, boolean hasJobContextParam) {
+    return new JobInvocation(
+        RecurringMethodInvoker.class.getName(),
+        "invoke",
+        "(Ljava/lang/String;Ljava/lang/String;Z)V",
+        false,
+        List.of(beanClass.getName(), methodName, hasJobContextParam));
+  }
+
   private static final class Fixture implements AutoCloseable {
     private final AnnotationConfigApplicationContext context;
     private final InMemoryRecurringStore store = new InMemoryRecurringStore();
-    private final RecordingScheduler scheduler = new RecordingScheduler(store);
+    private final RecordingInvocationSubmissionService submissionService =
+        new RecordingInvocationSubmissionService(store);
     private final RecurringMethodInvoker methodInvoker;
     private final RecurringMethodRegistrar registrar;
     private final RecurringRegistration registration;
@@ -275,7 +299,9 @@ public class SpringRecurringCompatibilityTest {
       context.registerBean(
           ClassPolicy.class, () -> classPolicy, definition -> definition.setPrimary(true));
       context.registerBean(
-          JobSchedulerService.class, scheduler::service, definition -> definition.setPrimary(true));
+          InvocationSubmissionService.class,
+          submissionService::service,
+          definition -> definition.setPrimary(true));
       context.registerBean(
           RecurringAnnotationMaintenanceService.class,
           () -> (registeredIds, nodeStartTime) -> 0,
@@ -323,13 +349,26 @@ public class SpringRecurringCompatibilityTest {
       registration = context.getBean(RecurringRegistration.class);
     }
 
-    private SerializableCheckedRunnable onlyCallback() {
-      assertEquals(1, scheduler.callbacks.size());
-      return scheduler.callbacks.get(0);
+    private RecordedRecurringInvocation onlySubmission() {
+      assertEquals(1, submissionService.invocations.size());
+      return submissionService.invocations.get(0);
     }
 
-    private JobPayload onlyPayload() {
-      return JobPayloadFactory.fromLambda(onlyCallback());
+    private JobInvocation onlyInvocation() {
+      return onlySubmission().invocation;
+    }
+
+    private void invokeOnlyInvocation() throws Exception {
+      JobInvocation invocation = onlyInvocation();
+      assertEquals(RecurringMethodInvoker.class.getName(), invocation.targetClass());
+      assertEquals("invoke", invocation.methodName());
+      assertEquals("(Ljava/lang/String;Ljava/lang/String;Z)V", invocation.methodDescriptor());
+      assertFalse(invocation.staticMethod());
+      assertEquals(3, invocation.arguments().size());
+      methodInvoker.invoke(
+          (String) invocation.arguments().get(0),
+          (String) invocation.arguments().get(1),
+          (Boolean) invocation.arguments().get(2));
     }
 
     @Override
@@ -338,22 +377,24 @@ public class SpringRecurringCompatibilityTest {
     }
   }
 
-  private static final class RecordingScheduler implements InvocationHandler {
+  private static final class RecordingInvocationSubmissionService implements InvocationHandler {
     private final InMemoryRecurringStore store;
-    private final List<SerializableCheckedRunnable> callbacks = new ArrayList<>();
-    private final Map<String, SerializableCheckedRunnable> definitions = new LinkedHashMap<>();
-    private final JobSchedulerService service;
+    private final List<RecordedRecurringInvocation> invocations = new ArrayList<>();
+    private final Map<String, JobInvocation> definitions = new LinkedHashMap<>();
+    private final InvocationSubmissionService service;
     private int submissionCount;
 
-    private RecordingScheduler(InMemoryRecurringStore store) {
+    private RecordingInvocationSubmissionService(InMemoryRecurringStore store) {
       this.store = store;
       this.service =
-          (JobSchedulerService)
+          (InvocationSubmissionService)
               Proxy.newProxyInstance(
-                  getClass().getClassLoader(), new Class<?>[] {JobSchedulerService.class}, this);
+                  getClass().getClassLoader(),
+                  new Class<?>[] {InvocationSubmissionService.class},
+                  this);
     }
 
-    private JobSchedulerService service() {
+    private InvocationSubmissionService service() {
       return service;
     }
 
@@ -362,31 +403,46 @@ public class SpringRecurringCompatibilityTest {
       if (method.getDeclaringClass() == Object.class) {
         return objectMethod(proxy, method, args);
       }
-      if (method.getName().equals("scheduleRecurring")) {
-        SerializableCheckedRunnable callback = (SerializableCheckedRunnable) args[2];
-        callbacks.add(callback);
-        return new RecordingRecurringJobBuilder(this, callback);
+      if (method.getName().equals("scheduleRecurringInvocation")) {
+        RecordedRecurringInvocation invocation =
+            new RecordedRecurringInvocation(
+                (String) args[0], (ZoneId) args[1], (JobInvocation) args[2]);
+        invocations.add(invocation);
+        return new RecordingRecurringInvocationBuilder(this, invocation);
       }
-      throw new UnsupportedOperationException("Unexpected scheduler call: " + method);
+      throw new UnsupportedOperationException("Unexpected submission call: " + method);
     }
 
-    private JobHandle submit(String businessKey, SerializableCheckedRunnable callback) {
+    private JobHandle submit(RecordedRecurringInvocation invocation) {
       submissionCount++;
-      definitions.put(businessKey, callback);
-      UUID id = store.reconcile(businessKey);
+      definitions.put(invocation.businessKey, invocation.invocation);
+      UUID id = store.reconcile(invocation.businessKey);
       return () -> id;
     }
   }
 
-  private static final class RecordingRecurringJobBuilder implements RecurringJobBuilder {
-    private final RecordingScheduler scheduler;
-    private final SerializableCheckedRunnable callback;
+  private static final class RecordedRecurringInvocation {
+    private final String cron;
+    private final ZoneId zone;
+    private final JobInvocation invocation;
     private String businessKey;
 
-    private RecordingRecurringJobBuilder(
-        RecordingScheduler scheduler, SerializableCheckedRunnable callback) {
-      this.scheduler = scheduler;
-      this.callback = callback;
+    private RecordedRecurringInvocation(String cron, ZoneId zone, JobInvocation invocation) {
+      this.cron = cron;
+      this.zone = zone;
+      this.invocation = invocation;
+    }
+  }
+
+  private static final class RecordingRecurringInvocationBuilder implements RecurringJobBuilder {
+    private final RecordingInvocationSubmissionService submissionService;
+    private final RecordedRecurringInvocation invocation;
+
+    private RecordingRecurringInvocationBuilder(
+        RecordingInvocationSubmissionService submissionService,
+        RecordedRecurringInvocation invocation) {
+      this.submissionService = submissionService;
+      this.invocation = invocation;
     }
 
     @Override
@@ -401,7 +457,7 @@ public class SpringRecurringCompatibilityTest {
 
     @Override
     public RecurringJobBuilder withBusinessKey(String key) {
-      businessKey = key;
+      invocation.businessKey = key;
       return this;
     }
 
@@ -427,7 +483,7 @@ public class SpringRecurringCompatibilityTest {
 
     @Override
     public JobHandle submit() {
-      return scheduler.submit(businessKey, callback);
+      return submissionService.submit(invocation);
     }
   }
 
