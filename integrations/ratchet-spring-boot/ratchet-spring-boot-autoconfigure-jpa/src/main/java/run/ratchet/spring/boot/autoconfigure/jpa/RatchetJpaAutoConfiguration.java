@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -34,6 +35,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.NativeDetector;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
 import org.springframework.core.env.Environment;
@@ -42,6 +44,9 @@ import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import org.springframework.orm.jpa.persistenceunit.PersistenceUnitManager;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionManager;
+import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NoOpMetricsCollector;
@@ -300,12 +305,24 @@ public class RatchetJpaAutoConfiguration {
   }
 
   static boolean isRatchetStoreCoreJarResource(URL ormResource, URL storeCoreAnchor) {
+    return isRatchetStoreCoreJarResource(
+        ormResource, storeCoreAnchor, NativeDetector.inNativeImage());
+  }
+
+  static boolean isRatchetStoreCoreJarResource(
+      URL ormResource, URL storeCoreAnchor, boolean nativeImage) {
     if (ormResource == null || storeCoreAnchor == null) {
       return false;
     }
     String ormRoot = classpathRoot(ormResource, ORM_XML_RESOURCE);
     String anchorRoot = classpathRoot(storeCoreAnchor, STORE_CORE_ANCHOR_RESOURCE);
-    return ormRoot != null && ormRoot.equals(anchorRoot) && identifiesRatchetStoreCoreJar(ormRoot);
+    if (ormRoot == null || !ormRoot.equals(anchorRoot)) {
+      return false;
+    }
+    // process-aot already ran this post-processor's strict jar check on the JVM. Native resource
+    // URLs carry no jar identity, and the closed-world image only exposes resources registered
+    // from that validated build-time classpath.
+    return nativeImage || identifiesRatchetStoreCoreJar(ormRoot);
   }
 
   private static String classpathRoot(URL resource, String resourceName) {
@@ -379,7 +396,20 @@ public class RatchetJpaAutoConfiguration {
       MetricsCollector metricsCollector =
           metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
       RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
-      return PostgresqlJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
+      PostgresqlJobStore store =
+          PostgresqlJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
+
+      // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
+      // annotated implementation behind this factory method. Build a deterministic JDK proxy.
+      ProxyFactory proxyFactory = new ProxyFactory();
+      proxyFactory.setTarget(store);
+      proxyFactory.setInterfaces(PostgresqlJobStore.class);
+      proxyFactory.setProxyTargetClass(false);
+      TransactionManager transactionManager = topology.transactionManager();
+      proxyFactory.addAdvice(
+          new TransactionInterceptor(
+              transactionManager, new AnnotationTransactionAttributeSource()));
+      return (PostgresqlJobStore) proxyFactory.getProxy();
     }
   }
 }

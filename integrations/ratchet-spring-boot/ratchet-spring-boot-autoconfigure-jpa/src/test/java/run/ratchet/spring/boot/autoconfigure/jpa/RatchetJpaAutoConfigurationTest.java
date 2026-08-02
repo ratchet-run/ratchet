@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,12 +29,19 @@ import static org.mockito.Mockito.when;
 import jakarta.persistence.EntityManagerFactory;
 import java.io.IOException;
 import java.net.URL;
+import java.net.URLConnection;
+import java.net.URLStreamHandler;
 import java.sql.SQLException;
+import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Map;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.springframework.aop.framework.Advised;
+import org.springframework.aop.framework.AopProxyUtils;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -44,7 +52,10 @@ import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.persistenceunit.PersistenceUnitManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.interceptor.TransactionInterceptor;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spring.boot.autoconfigure.RatchetProperties;
 import run.ratchet.store.migration.SchemaInitializationException;
 import run.ratchet.store.postgresql.PostgresqlJobStore;
@@ -130,6 +141,30 @@ class RatchetJpaAutoConfigurationTest {
                 + "run/ratchet/store/spi/RatchetEntityManagerProvider.class");
 
     assertFalse(RatchetJpaAutoConfiguration.isRatchetStoreCoreJarResource(ormXml, anchor));
+  }
+
+  @Test
+  void acceptsMatchingResourceRootsInNativeImage() throws Exception {
+    URL ormXml = resourceUrl("/META-INF/orm.xml");
+    URL anchor = resourceUrl("/run/ratchet/store/spi/RatchetEntityManagerProvider.class");
+
+    assertTrue(RatchetJpaAutoConfiguration.isRatchetStoreCoreJarResource(ormXml, anchor, true));
+  }
+
+  @Test
+  void rejectsMismatchedResourceRootsInNativeImage() throws Exception {
+    URL ormXml = resourceUrl("/META-INF/orm.xml");
+    URL anchor = resourceUrl("/other/run/ratchet/store/spi/RatchetEntityManagerProvider.class");
+
+    assertFalse(RatchetJpaAutoConfiguration.isRatchetStoreCoreJarResource(ormXml, anchor, true));
+  }
+
+  @Test
+  void jvmModeStillRejectsMatchingResourceRootsWithoutJarIdentity() throws Exception {
+    URL ormXml = resourceUrl("/META-INF/orm.xml");
+    URL anchor = resourceUrl("/run/ratchet/store/spi/RatchetEntityManagerProvider.class");
+
+    assertFalse(RatchetJpaAutoConfiguration.isRatchetStoreCoreJarResource(ormXml, anchor, false));
   }
 
   @Test
@@ -318,6 +353,56 @@ class RatchetJpaAutoConfigurationTest {
 
     assertSame(explicitlySelected, topology.transactionManager());
     assertEquals("explicitTransactionManager", topology.transactionManagerName());
+  }
+
+  @Test
+  void postgresqlJobStoreIsDeterministicTransactionalJdkProxy() throws Exception {
+    DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
+    EntityManagerFactory entityManagerFactory = mock(EntityManagerFactory.class);
+    JpaTransactionManager transactionManager = new JpaTransactionManager(entityManagerFactory);
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .store(store -> store.isolationCheckMode(RatchetOptions.IsolationCheckMode.DISABLE))
+            .build();
+    beanFactory.registerSingleton("ratchetOptions", options);
+    RatchetJpaAutoConfiguration.JpaTopology topology =
+        new RatchetJpaAutoConfiguration.JpaTopology(
+            "entityManagerFactory", entityManagerFactory, "transactionManager", transactionManager);
+    RatchetJpaSchemaMigrationInitializer migrationInitializer =
+        new RatchetJpaSchemaMigrationInitializer(
+            beanFactory, options, new PostgresqlSchemaMigrationDialect());
+
+    PostgresqlJobStore store =
+        new RatchetJpaAutoConfiguration.PostgresqlStoreConfiguration()
+            .postgresqlJobStore(
+                topology,
+                migrationInitializer,
+                beanFactory.getBeanProvider(MetricsCollector.class),
+                beanFactory.getBeanProvider(RatchetOptions.class));
+
+    assertTrue(AopUtils.isJdkDynamicProxy(store));
+    assertTrue(PostgresqlJobStore.class.isInstance(store));
+    TransactionInterceptor transactionInterceptor =
+        Arrays.stream(((Advised) store).getAdvisors())
+            .map(advisor -> advisor.getAdvice())
+            .filter(TransactionInterceptor.class::isInstance)
+            .map(TransactionInterceptor.class::cast)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("Missing TransactionInterceptor advisor"));
+    assertSame(transactionManager, transactionInterceptor.getTransactionManager());
+    var transactionAttribute =
+        transactionInterceptor
+            .getTransactionAttributeSource()
+            .getTransactionAttribute(
+                PostgresqlJobStore.class.getMethod("upsertHeartbeat", String.class, Instant.class),
+                AopProxyUtils.ultimateTargetClass(store));
+    assertNotNull(transactionAttribute);
+    assertEquals(
+        TransactionDefinition.PROPAGATION_REQUIRES_NEW,
+        transactionAttribute.getPropagationBehavior());
+    assertArrayEquals(
+        AopProxyUtils.completeJdkProxyInterfaces(PostgresqlJobStore.class),
+        store.getClass().getInterfaces());
   }
 
   @Test
@@ -566,6 +651,18 @@ class RatchetJpaAutoConfigurationTest {
     RatchetProperties properties = new RatchetProperties();
     properties.setTransactionManagerBeanName(transactionManagerBeanName);
     return properties;
+  }
+
+  private static URL resourceUrl(String path) throws Exception {
+    return new URL(
+        null,
+        "resource:" + path,
+        new URLStreamHandler() {
+          @Override
+          protected URLConnection openConnection(URL url) {
+            throw new UnsupportedOperationException("Test resource URL must not be opened");
+          }
+        });
   }
 
   private static void registerTransactionManager(
