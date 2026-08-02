@@ -111,6 +111,39 @@ public final class RatchetBeanDefinitionRegistrar implements ImportBeanDefinitio
     return BeanUtils.instantiateClass(constructor, arguments);
   }
 
+  /**
+   * Resolves the catalogued constructor used to instantiate a Ratchet component.
+   *
+   * @param componentType catalogued Ratchet component type
+   * @return the catalogued constructor
+   */
+  public static Constructor<?> resolveConstructor(Class<?> componentType) {
+    RatchetComponentDescriptor descriptor =
+        RatchetRuntimeComponentCatalog.components().stream()
+            .filter(candidate -> candidate.componentType().equals(componentType))
+            .findFirst()
+            .orElseThrow(
+                () ->
+                    new BeanDefinitionStoreException(
+                        "No catalogued Ratchet component for " + componentType.getName()));
+    return selectedConstructor(descriptor);
+  }
+
+  /**
+   * Instantiates a catalogued component from generated Spring AOT bean-registration code.
+   *
+   * <p>The generated registration retains the portable runtime catalog's constructor choice and
+   * argument resolution rather than asking Spring to infer a different constructor.
+   *
+   * @param componentType catalogued Ratchet component type
+   * @param beanFactory Spring bean factory used to resolve constructor arguments
+   * @param <T> component type
+   * @return the constructed, not-yet-post-processed component
+   */
+  public static <T> T instantiateForAot(Class<T> componentType, BeanFactory beanFactory) {
+    return componentType.cast(instantiate(resolveConstructor(componentType), beanFactory));
+  }
+
   private static Object resolveArgument(
       Constructor<?> constructor, int parameterIndex, BeanFactory beanFactory) {
     ResolvableType parameterType =

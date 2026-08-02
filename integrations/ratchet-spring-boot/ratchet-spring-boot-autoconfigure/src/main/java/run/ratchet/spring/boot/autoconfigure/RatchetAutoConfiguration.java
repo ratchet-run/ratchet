@@ -93,8 +93,14 @@ public class RatchetAutoConfiguration {
 
   @Bean
   @ConditionalOnMissingBean(ClassPolicy.class)
-  ClassPolicy classPolicy(RatchetOptions options) {
-    return RatchetRuntimeDefaults.classPolicy(options);
+  ClassPolicy classPolicy(RatchetOptions options, ConfigurableListableBeanFactory beanFactory) {
+    ClassPolicy classPolicy = RatchetRuntimeDefaults.classPolicy(options);
+    return RatchetAotManifest.load(beanFactory.getBeanClassLoader())
+        .<ClassPolicy>map(
+            manifest ->
+                new AotManifestClassPolicy(
+                    classPolicy, manifest, options.security().classPolicyAllowedPackages()))
+        .orElse(classPolicy);
   }
 
   @Bean
