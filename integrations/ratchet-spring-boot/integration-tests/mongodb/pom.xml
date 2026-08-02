@@ -13,10 +13,201 @@
 
   <artifactId>ratchet-spring-boot-it-mongodb</artifactId>
   <name>Ratchet :: Spring Boot :: MongoDB Integration Tests</name>
-  <description>Placeholder for the Ratchet Spring Boot MongoDB integration tests</description>
+  <description>MongoDB integration tests across supported Spring Boot lines</description>
 
   <properties>
+    <spring-boot.compatibility.version>${spring-boot35.version}</spring-boot.compatibility.version>
     <!-- Test infrastructure: never published. -->
     <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-spring-boot-starter-mongodb</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <version>${spring-boot.compatibility.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-store</artifactId>
+      <version>${project.version}</version>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-mongodb</artifactId>
+      <version>${project.version}</version>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mongodb</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>write-mongodb-runtime-dependency-tree</id>
+            <phase>generate-test-resources</phase>
+            <goals>
+              <goal>tree</goal>
+            </goals>
+            <configuration>
+              <appendOutput>false</appendOutput>
+              <outputFile>${project.build.directory}/runtime-dependency-tree.json</outputFile>
+              <outputType>json</outputType>
+              <scope>runtime</scope>
+              <verbose>true</verbose>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <ratchet.tck.runtime.name>SpringMongoRatchetTckRuntime</ratchet.tck.runtime.name>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <profile>
+      <id>boot-3.5</id>
+      <properties>
+        <spring-boot.compatibility.version>${spring-boot35.version}</spring-boot.compatibility.version>
+      </properties>
+      <dependencyManagement>
+        <dependencies>
+          <!--
+            The root pom manages mongodb-driver-sync directly at a different line, and that
+            inherited entry outranks Boot 3.5's imported MongoDB BOM. Import Boot 3.5's MongoDB
+            family first so driver-sync, driver-core, and bson remain on the same 5.5.2 line.
+          -->
+          <dependency>
+            <groupId>org.mongodb</groupId>
+            <artifactId>mongodb-driver-bom</artifactId>
+            <version>5.5.2</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+          <!-- The inherited direct driver-sync pin also outranks this profile's imported BOM. -->
+          <dependency>
+            <groupId>org.mongodb</groupId>
+            <artifactId>mongodb-driver-sync</artifactId>
+            <version>5.5.2</version>
+          </dependency>
+          <!--
+            The root pom manages junit-platform-launcher directly (for the archunit/arquillian
+            modules), and that inherited entry outranks Boot 3.5's imported junit-bom, which
+            otherwise manages junit-platform-launcher together with the rest of the JUnit 5.12.2
+            line. Left alone, this lane resolves junit-platform-launcher:1.14.4 against
+            junit-platform-engine:1.12.2 and the surefire fork fails with NoSuchMethodError on
+            CloseAction.closeAutoCloseables(). Restate the launcher at Boot 3.5's managed version
+            to keep the whole org.junit* set consistent.
+          -->
+          <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <version>1.12.2</version>
+          </dependency>
+          <!-- Keep Testcontainers ahead of Boot 3.5's managed 1.21.4 line. -->
+          <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-bom</artifactId>
+            <version>${testcontainers.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+          <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>${spring-boot.compatibility.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+        </dependencies>
+      </dependencyManagement>
+    </profile>
+    <profile>
+      <id>boot-4.1</id>
+      <properties>
+        <spring-boot.compatibility.version>${spring-boot41.version}</spring-boot.compatibility.version>
+      </properties>
+      <dependencyManagement>
+        <dependencies>
+          <!--
+            The root pom's direct mongodb-driver-sync pin also outranks Boot 4.1's imported
+            MongoDB BOM. Import Boot 4.1's MongoDB family first so driver-sync, driver-core,
+            and bson remain on the same 5.8.0 line.
+          -->
+          <dependency>
+            <groupId>org.mongodb</groupId>
+            <artifactId>mongodb-driver-bom</artifactId>
+            <version>5.8.0</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+          <!-- The inherited direct driver-sync pin also outranks this profile's imported BOM. -->
+          <dependency>
+            <groupId>org.mongodb</groupId>
+            <artifactId>mongodb-driver-sync</artifactId>
+            <version>5.8.0</version>
+          </dependency>
+          <!--
+            Same root-vs-import precedence issue as the boot-3.5 profile above, but Boot 4.1's
+            imported junit-bom manages the unified JUnit 6.0.3 line, so the root's
+            junit-platform-launcher:1.14.4 pin here mismatches junit-platform-engine:6.0.3
+            instead. Restate the launcher at Boot 4.1's managed version.
+          -->
+          <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <version>6.0.3</version>
+          </dependency>
+          <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-bom</artifactId>
+            <version>${testcontainers.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+          <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>${spring-boot.compatibility.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+        </dependencies>
+      </dependencyManagement>
+    </profile>
+  </profiles>
 </project>
