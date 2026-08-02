@@ -385,10 +385,10 @@ if qualification is not None:
             f"scenario {scenario_name}.qualification.topologyGuard must be "
             f"{relative_to_root(expected_topology_guard)}"
         )
-    if runtime_dependency_flavor != "postgresql":
+    if runtime_dependency_flavor not in {"postgresql", "mongodb"}:
         fail(
             f"scenario {scenario_name}.qualification."
-            "runtimeDependencyFlavor must be postgresql"
+            "runtimeDependencyFlavor must be postgresql or mongodb"
         )
 
     coordinate_entries = require_list(
@@ -428,20 +428,36 @@ if qualification is not None:
             }
         )
 
-    expected_qualification_sources = {
-        "run.ratchet:ratchet-spring-boot-parent:pom": "installed",
-        "run.ratchet:ratchet-spring-boot-autoconfigure:jar": "matrix",
-        "run.ratchet:ratchet-spring-boot-autoconfigure-jpa:jar": "matrix",
-        "run.ratchet:ratchet-spring-boot-starter:jar": "matrix",
-    }
-    actual_qualification_sources = {
-        entry["coordinate"]: entry["sourceType"]
+    installed_coordinates = [
+        entry["coordinate"]
         for entry in qualification_coordinates
-    }
-    if actual_qualification_sources != expected_qualification_sources:
+        if entry["sourceType"] == "installed"
+    ]
+    if installed_coordinates != ["run.ratchet:ratchet-spring-boot-parent:pom"]:
         fail(
             f"scenario {scenario_name}.qualification.coordinates must "
-            "declare the parent installed POM and three matrix jars"
+            "declare exactly the parent POM as installed"
+        )
+    matrix_coordinates = [
+        entry["coordinate"]
+        for entry in qualification_coordinates
+        if entry["sourceType"] == "matrix"
+    ]
+    if len(matrix_coordinates) < 2:
+        fail(
+            f"scenario {scenario_name}.qualification.coordinates must "
+            "declare at least two matrix jars"
+        )
+    non_jar_matrix_coordinates = [
+        coordinate
+        for coordinate in matrix_coordinates
+        if not coordinate.endswith(":jar")
+    ]
+    if non_jar_matrix_coordinates:
+        fail(
+            f"scenario {scenario_name}.qualification.coordinates matrix "
+            "entries must all be jars: "
+            + ", ".join(non_jar_matrix_coordinates)
         )
 
     try:
@@ -485,6 +501,25 @@ for index, command in enumerate(commands):
     if not isinstance(command.get("producesTests"), bool):
         fail(f"command {command_id} must declare boolean producesTests")
     command_by_id[command_id] = command
+
+if runtime_dependency_flavor is not None:
+    jvm_matrix_command = command_by_id.get("jvm-matrix")
+    if jvm_matrix_command is None:
+        fail(f"scenario {scenario_name} qualification requires jvm-matrix")
+    jvm_matrix_arguments = require_list(
+        jvm_matrix_command.get("arguments"),
+        "command jvm-matrix.arguments",
+    )
+    if len(jvm_matrix_arguments) != 1 or not isinstance(
+        jvm_matrix_arguments[0], str
+    ):
+        fail("command jvm-matrix.arguments must contain exactly one flavor")
+    if jvm_matrix_arguments[0] != runtime_dependency_flavor:
+        fail(
+            f"scenario {scenario_name}.qualification."
+            "runtimeDependencyFlavor must match the jvm-matrix flavor "
+            f"{jvm_matrix_arguments[0]!r}"
+        )
 
 reports = require_list(
     scenario.get("expectedReports"),

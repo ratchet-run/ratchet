@@ -225,17 +225,44 @@ if [[ -f "$ATTESTATION" ]]; then
     fail "qualification attestation commit is stale: $attested_commit; expected $current_commit"
   fi
 
+  attested_scenario="$(jq -r '.scenario.name' "$ATTESTATION")"
+  scoped_coordinate_count="$(
+    jq --arg scenario "$attested_scenario" '
+      [
+        .coordinates[]
+        | select(
+            .requiredQualificationScenarios
+            | index($scenario) != null
+          )
+      ]
+      | length
+    ' "$TOPOLOGY"
+  )"
+  if [[ "$scoped_coordinate_count" == "0" ]]; then
+    fail "qualification attestation scenario is not required by any coordinate: $attested_scenario"
+  fi
+
   while IFS= read -r required_scenario; do
     if ! jq -e --arg scenario "$required_scenario" \
         '.scenarios | index($scenario) != null' "$ATTESTATION" >/dev/null; then
       fail "qualification attestation is missing required scenario: $required_scenario"
     fi
   done < <(
-    jq -r '[.coordinates[].requiredQualificationScenarios[]] | unique[]' \
-      "$TOPOLOGY"
+    jq -r --arg scenario "$attested_scenario" '
+      [
+        .coordinates[]
+        | select(
+            .requiredQualificationScenarios
+            | index($scenario) != null
+          )
+        | .requiredQualificationScenarios[]
+        | select(. == $scenario)
+      ]
+      | unique[]
+    ' "$TOPOLOGY"
   )
 
-  while IFS=$'\t' read -r artifact packaging required_scenario; do
+  while IFS=$'\t' read -r artifact packaging; do
     coordinate="run.ratchet:$artifact:$packaging"
     evidence_count="$(
       jq --arg coordinate "$coordinate" \
@@ -250,25 +277,46 @@ if [[ -f "$ATTESTATION" ]]; then
     fi
     if ! jq -e \
         --arg coordinate "$coordinate" \
-        --arg scenario "$required_scenario" '
+        --arg scenario "$attested_scenario" '
           any(
             .coordinates[];
             .coordinate == $coordinate
             and (.scenarios | index($scenario) != null)
           )
         ' "$ATTESTATION" >/dev/null; then
-      fail "qualification attestation coordinate $coordinate does not cover scenario: $required_scenario"
+      fail "qualification attestation coordinate $coordinate does not cover scenario: $attested_scenario"
     fi
   done < <(
-    jq -r '
+    jq -r --arg scenario "$attested_scenario" '
       .coordinates[]
-      | .artifactId as $artifact
-      | .packaging as $packaging
-      | .requiredQualificationScenarios[]
-      | [$artifact, $packaging, .]
+      | select(
+          .requiredQualificationScenarios
+          | index($scenario) != null
+        )
+      | [.artifactId, .packaging]
       | @tsv
     ' "$TOPOLOGY"
   )
+
+  skipped_coordinate_count="$(
+    jq --arg scenario "$attested_scenario" '
+      [
+        .coordinates[]
+        | select(
+            (.requiredQualificationScenarios | length > 0)
+            and (
+              .requiredQualificationScenarios
+              | index($scenario) == null
+            )
+          )
+      ]
+      | length
+    ' "$TOPOLOGY"
+  )"
+  if [[ "$skipped_coordinate_count" != "0" ]]; then
+    echo "spring-boot publication topology: qualification attestation for $attested_scenario skips" \
+      "$skipped_coordinate_count coordinate(s) scoped to other scenarios"
+  fi
 fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/ratchet-spring-topology.XXXXXX")"

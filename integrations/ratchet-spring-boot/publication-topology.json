@@ -63,7 +63,9 @@
       "packaging": "jar",
       "parentArtifactId": "ratchet-spring-boot-parent",
       "relativePath": "../pom.xml",
-      "requiredQualificationScenarios": [],
+      "requiredQualificationScenarios": [
+        "mongodb-runtime"
+      ],
       "snapshotEligible": false,
       "centralEligible": false,
       "bomManaged": false,
@@ -75,7 +77,9 @@
       "packaging": "jar",
       "parentArtifactId": "ratchet-spring-boot-parent",
       "relativePath": "../pom.xml",
-      "requiredQualificationScenarios": [],
+      "requiredQualificationScenarios": [
+        "mongodb-runtime"
+      ],
       "snapshotEligible": false,
       "centralEligible": false,
       "bomManaged": false,

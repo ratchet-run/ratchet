@@ -8,7 +8,8 @@
       "mavenProfile": "boot-3.5",
       "flavors": [
         "compatibility",
-        "postgresql"
+        "postgresql",
+        "mongodb"
       ]
     },
     {
@@ -17,7 +18,8 @@
       "mavenProfile": "boot-4.1",
       "flavors": [
         "compatibility",
-        "postgresql"
+        "postgresql",
+        "mongodb"
       ]
     }
   ],
@@ -33,6 +35,14 @@
     {
       "id": "postgresql",
       "consumerPom": "integrations/ratchet-spring-boot/integration-tests/postgresql/pom.xml",
+      "goals": [
+        "clean",
+        "test"
+      ]
+    },
+    {
+      "id": "mongodb",
+      "consumerPom": "integrations/ratchet-spring-boot/integration-tests/mongodb/pom.xml",
       "goals": [
         "clean",
         "test"

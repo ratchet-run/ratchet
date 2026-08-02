@@ -611,7 +611,11 @@ for lane in lanes:
         runtime_dependency_tree = (
             consumer_target / "runtime-dependency-tree.json"
         )
-        if flavor_id == "postgresql" and not runtime_dependency_tree.is_file():
+        # Runtime-store flavors feed qualification and dependency-policy evidence.
+        if (
+            flavor_id in {"postgresql", "mongodb"}
+            and not runtime_dependency_tree.is_file()
+        ):
             fail(
                 f"Boot lane {lane_id}/{flavor_id} produced no runtime "
                 "dependency tree"

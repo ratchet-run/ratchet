@@ -1086,6 +1086,545 @@
           "producesTests": true
         }
       ]
+    },
+    "mongodb-runtime": {
+      "bootLanes": [
+        "boot-3.5",
+        "boot-4.1"
+      ],
+      "database": "mongodb",
+      "sharedTckContracts": [
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBatchRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBroadcastSignalContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkCancelEventContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBusinessKeyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractDelayedSchedulingContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractExclusiveWorkflowContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractIdempotencyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobAuthorizationContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobCancelContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobControlReturnContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobLifecycleContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryDenialContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadEncryptionEngineContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadSizeContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractResilienceStrategyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractRetryPolicyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalDecisionContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalPayloadContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSimpleWorkflowContract"
+      ],
+      "expectedReports": [
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBatchRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBatchRetryTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBroadcastSignalTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBroadcastSignalTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBulkCancelEventTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBulkCancelEventTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBulkRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBulkRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBusinessKeyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBusinessKeyTckTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoDelayedSchedulingTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoDelayedSchedulingTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoExclusiveWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoExclusiveWorkflowTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoIdempotencyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoIdempotencyTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobAuthorizationTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobAuthorizationTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobCancelTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobCancelTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobControlReturnTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobControlReturnTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobLifecycleTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobLifecycleTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobQueryDenialTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobQueryDenialTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobQueryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobQueryTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoPayloadEncryptionEngineTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoPayloadEncryptionEngineTckTest",
+          "minimumExecutedTests": 8
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoPayloadSizeTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoPayloadSizeTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoResilienceStrategyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoResilienceStrategyTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoRetryPolicyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoRetryPolicyTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSignalDecisionTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSignalDecisionTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSignalPayloadTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSignalPayloadTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSimpleWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSimpleWorkflowTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.MongodbSchedulerRuntimeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.MongodbSchedulerRuntimeTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBatchRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBatchRetryTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBroadcastSignalTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBroadcastSignalTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBulkCancelEventTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBulkCancelEventTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBulkRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBulkRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBusinessKeyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoBusinessKeyTckTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoDelayedSchedulingTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoDelayedSchedulingTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoExclusiveWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoExclusiveWorkflowTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoIdempotencyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoIdempotencyTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobAuthorizationTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobAuthorizationTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobCancelTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobCancelTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobControlReturnTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobControlReturnTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobLifecycleTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobLifecycleTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobQueryDenialTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobQueryDenialTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobQueryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobQueryTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoJobRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoPayloadEncryptionEngineTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoPayloadEncryptionEngineTckTest",
+          "minimumExecutedTests": 8
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoPayloadSizeTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoPayloadSizeTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoResilienceStrategyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoResilienceStrategyTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoRetryPolicyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoRetryPolicyTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSignalDecisionTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSignalDecisionTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSignalPayloadTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSignalPayloadTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSimpleWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.tck.SpringMongoSimpleWorkflowTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mongodb/surefire-reports/TEST-run.ratchet.spring.boot.it.mongodb.MongodbSchedulerRuntimeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mongodb.MongodbSchedulerRuntimeTest",
+          "minimumExecutedTests": 1
+        }
+      ],
+      "sourceSentinels": [
+        {
+          "kind": "file-exists",
+          "path": "stores/ratchet-store-mongodb/src/main/java/run/ratchet/store/mongodb/MongoJobStoreFactory.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "stores/ratchet-store-mongodb/src/test/java/run/ratchet/store/mongodb/MongoSharedContainer.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb/src/main/java/run/ratchet/spring/boot/autoconfigure/mongodb/RatchetMongoAutoConfiguration.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb/src/main/java/run/ratchet/spring/boot/autoconfigure/mongodb/RatchetMongoProperties.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mongodb/src/test/java/run/ratchet/spring/boot/it/mongodb/fixture/tck/MongoTckApplication.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mongodb/src/test/java/run/ratchet/spring/boot/it/mongodb/fixture/tck/MongoTckApplicationContextInitializer.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mongodb/src/test/java/run/ratchet/spring/boot/it/mongodb/fixture/tck/SpringMongoRatchetTckRuntime.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mongodb/src/test/java/run/ratchet/spring/boot/it/mongodb/fixture/tck/MongoTckStoreCleaner.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mongodb/src/test/java/run/ratchet/spring/boot/it/mongodb/MongodbSchedulerRuntimeTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-runtime-dependency-graph.py"
+        }
+      ],
+      "conformanceArtifact": {
+        "applicable": true,
+        "name": "spring-boot-mongodb-conformance",
+        "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/conformance/mongodb",
+        "expectedFiles": [
+          "boot-3.5/tck-api-conformance-report.md",
+          "boot-4.1/tck-api-conformance-report.md"
+        ]
+      },
+      "qualification": {
+        "attestationPath": "integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json",
+        "matrixHashRecord": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-hashes.json",
+        "runtimeDependencyFlavor": "mongodb",
+        "topologyGuard": "scripts/test-spring-boot-publication-topology.sh",
+        "coordinates": [
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-parent:pom",
+            "hashSource": {
+              "type": "installed"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-autoconfigure:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-autoconfigure-mongodb:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-starter-mongodb:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          }
+        ]
+      },
+      "dependencyPolicy": {
+        "deniedPatterns": [
+          "^run\\.ratchet:ratchet-store-(postgresql|mysql|oracle|sqlserver)$",
+          "^org\\.springframework:spring-jdbc$",
+          "^org\\.springframework\\.boot:spring-boot-starter-jdbc$",
+          "^com\\.zaxxer:HikariCP$",
+          "^org\\.postgresql:",
+          "^com\\.mysql:",
+          "^org\\.mariadb",
+          "^com\\.oracle\\.database",
+          "^com\\.microsoft\\.sqlserver:",
+          "^com\\.h2database:",
+          "^org\\.hsqldb:",
+          "^org\\.xerial:sqlite-jdbc$",
+          "^jakarta\\.persistence:",
+          "^org\\.hibernate",
+          "^org\\.eclipse\\.persistence",
+          "^org\\.jboss\\.weld",
+          "^io\\.quarkus:quarkus-arc",
+          "^org\\.apache\\.openwebbeans"
+        ],
+        "allowedExceptions": [
+          "jakarta.enterprise:jakarta.enterprise.cdi-api"
+        ]
+      },
+      "requiredCiJob": "spring-boot-mongodb-jvm",
+      "commands": [
+        {
+          "id": "tck-coverage",
+          "type": "script",
+          "interpreter": "python3",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-tck-coverage.py",
+          "arguments": [],
+          "producesTests": false
+        },
+        {
+          "id": "jvm-matrix",
+          "type": "script",
+          "path": "integrations/ratchet-spring-boot/integration-tests/verify-jvm-matrix.sh",
+          "arguments": [
+            "mongodb"
+          ],
+          "producesTests": true
+        },
+        {
+          "id": "dependency-graph",
+          "type": "script",
+          "interpreter": "python3",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-runtime-dependency-graph.py",
+          "arguments": [
+            "mongodb"
+          ],
+          "producesTests": false
+        }
+      ]
     }
   }
 }
