@@ -30,7 +30,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.ProtectedSurface;
-import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.store.converter.JobPayloadSerialization;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -53,8 +53,6 @@ import run.ratchet.store.util.PayloadEncryptor;
 
 /** Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents. */
 public final class DocumentMapper {
-
-  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
 
   private static final JobStatus DEFAULT_JOB_STATUS = JobStatus.PENDING;
   private static final JobPriority DEFAULT_JOB_PRIORITY = JobPriority.NORMAL;
@@ -694,7 +692,7 @@ public final class DocumentMapper {
       return null;
     }
     try {
-      return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload);
+      return JobPayloadSerialization.serialize(payload);
     } catch (RuntimeException e) {
       throw new MappingException("Could not serialize MongoDB job payload", e);
     }

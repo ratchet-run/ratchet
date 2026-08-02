@@ -68,7 +68,7 @@ import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.EncryptionHolder;
-import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.store.converter.JobPayloadSerialization;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -96,8 +96,6 @@ public class DefaultJobCreationService
     implements JobSubmitter, BatchSubmitter, StreamingBatchSubmitter, RecurringJobSubmitter {
 
   private static final Logger log = Logger.getLogger(DefaultJobCreationService.class);
-  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
-
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobTerminalStore jobTerminalStore;
   private final JobCrudStore jobCrudStore;
@@ -413,11 +411,11 @@ public class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(JobBuilder builder) {
-    JOB_PAYLOAD_CONVERTER.beginPreparationScope();
+    JobPayloadSerialization.beginPreparationScope();
     try {
       return submitPrepared(builder);
     } finally {
-      JOB_PAYLOAD_CONVERTER.endPreparationScope();
+      JobPayloadSerialization.endPreparationScope();
     }
   }
 
@@ -573,11 +571,11 @@ public class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(DefaultBatchBuilder builder) {
-    JOB_PAYLOAD_CONVERTER.beginPreparationScope();
+    JobPayloadSerialization.beginPreparationScope();
     try {
       return submitPrepared(builder);
     } finally {
-      JOB_PAYLOAD_CONVERTER.endPreparationScope();
+      JobPayloadSerialization.endPreparationScope();
     }
   }
 
@@ -652,11 +650,11 @@ public class DefaultJobCreationService
   @Override
   @Transactional
   public <T extends Serializable> JobHandle submit(DefaultStreamingBatchBuilder<T> builder) {
-    JOB_PAYLOAD_CONVERTER.beginPreparationScope();
+    JobPayloadSerialization.beginPreparationScope();
     try {
       return submitPrepared(builder);
     } finally {
-      JOB_PAYLOAD_CONVERTER.endPreparationScope();
+      JobPayloadSerialization.endPreparationScope();
     }
   }
 
@@ -733,11 +731,11 @@ public class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(DefaultRecurringJobBuilder builder) {
-    JOB_PAYLOAD_CONVERTER.beginPreparationScope();
+    JobPayloadSerialization.beginPreparationScope();
     try {
       return submitPrepared(builder);
     } finally {
-      JOB_PAYLOAD_CONVERTER.endPreparationScope();
+      JobPayloadSerialization.endPreparationScope();
     }
   }
 
@@ -1148,11 +1146,11 @@ public class DefaultJobCreationService
         try {
           condition.setConditionExpression(
               PayloadEncryptor.encryptArgs(
-                  JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(p),
+                  JobPayloadSerialization.serialize(p),
                   EncryptionHolder.encryptionActiveFor(parentEncrypted),
                   EncryptionTarget.predicate(parentId)));
         } finally {
-          JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(p);
+          JobPayloadSerialization.discardPreparedSerialization(p);
         }
       } else {
         condition.setConditionExpression(expr.toString());
@@ -1192,7 +1190,7 @@ public class DefaultJobCreationService
         && !JobPayloadFactory.isCoordinationPlaceholder(payload)
         && !JobPayloadFactory.isRecurringDispatchShim(payload)
         && !classPolicy.isAllowed(payload.target())) {
-      JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(payload);
+      JobPayloadSerialization.discardPreparedSerialization(payload);
       throw new SecurityException(
           "Class " + payload.target() + " is not allowed for job execution.");
     }
@@ -1236,7 +1234,7 @@ public class DefaultJobCreationService
   }
 
   private static void discardPreparedPayload(JobPayload payload) {
-    JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(payload);
+    JobPayloadSerialization.discardPreparedSerialization(payload);
   }
 
   private void stampCallerPrincipal(JobEntity job, String callerPrincipal) {

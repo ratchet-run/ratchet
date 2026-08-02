@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.PayloadTooLargeException;
-import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.store.converter.JobPayloadSerialization;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.JobPayload;
 
@@ -40,8 +40,6 @@ import run.ratchet.store.entity.JobPayload;
  */
 @ApplicationScoped
 public class JobPayloadInputValidator {
-
-  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
 
   private static final Logger log = Logger.getLogger(JobPayloadInputValidator.class);
   private static final int MAX_CLASS_NAME_LENGTH = 512;
@@ -92,7 +90,7 @@ public class JobPayloadInputValidator {
   private void validateSerializedSize(JobPayload payload) {
     // Revalidation replaces, rather than layers over, a prior attempt. Clear first so a serializer
     // failure or a newly-oversized representation cannot leave older accepted JSON staged.
-    JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(payload);
+    JobPayloadSerialization.discardPreparedSerialization(payload);
     String serialized = PayloadSerializerHolder.get().serialize(payload);
     if (serialized == null) {
       throw new IllegalArgumentException(
@@ -102,7 +100,7 @@ public class JobPayloadInputValidator {
     if (actualBytes > maxPayloadBytes) {
       throw new PayloadTooLargeException(actualBytes, maxPayloadBytes);
     }
-    JOB_PAYLOAD_CONVERTER.prepareForPersistence(payload, serialized);
+    JobPayloadSerialization.prepareForPersistence(payload, serialized);
   }
 
   /** Returns the byte length produced by Java's UTF-8 encoder without allocating a byte array. */
