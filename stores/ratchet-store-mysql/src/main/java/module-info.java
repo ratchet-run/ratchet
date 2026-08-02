@@ -26,7 +26,5 @@ module run.ratchet.store.mysql {
 
   exports run.ratchet.store.mysql;
 
-  opens run.ratchet.store.mysql to
-      jakarta.cdi,
-      jakarta.persistence;
+  opens run.ratchet.store.mysql;
 }

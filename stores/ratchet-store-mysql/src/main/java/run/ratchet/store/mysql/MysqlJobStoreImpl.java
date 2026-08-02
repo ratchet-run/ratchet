@@ -73,6 +73,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   private final MetricsCollector metricsCollector;
   private final RatchetOptions options;
   private EntityManager em;
+  private boolean initialized;
 
   private MysqlJobCrudOperations jobs;
   private MysqlJobQueryOperations query;
@@ -794,6 +795,13 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   @PostConstruct
   @Transactional(Transactional.TxType.NOT_SUPPORTED)
   void checkIsolationLevel() {
+    initialize();
+  }
+
+  synchronized void initialize() {
+    if (initialized) {
+      return;
+    }
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
@@ -807,6 +815,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
             + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.",
         options.store().isolationCheckMode());
     initDelegates();
+    initialized = true;
   }
 
   private void initDelegates() {
