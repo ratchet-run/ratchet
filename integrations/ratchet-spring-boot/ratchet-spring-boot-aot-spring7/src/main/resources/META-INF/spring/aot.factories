@@ -1,0 +1,4 @@
+org.springframework.beans.factory.aot.BeanFactoryInitializationAotProcessor=\
+run.ratchet.spring.boot.aot.RatchetBeanFactoryInitializationAotProcessor
+org.springframework.beans.factory.aot.BeanRegistrationAotProcessor=\
+run.ratchet.spring.boot.aot.RatchetComponentBeanRegistrationAotProcessor
