@@ -67,6 +67,7 @@ updates:
       - /integrations/ratchet-spring-boot/integration-tests
       - /integrations/ratchet-spring-boot/integration-tests/compatibility
       - /integrations/ratchet-spring-boot/integration-tests/postgresql
+      - /integrations/ratchet-spring-boot/integration-tests/mysql
       - /integrations/ratchet-spring-boot/integration-tests/mongodb
       - /integrations/ratchet-spring-boot/integration-tests/native-postgresql
     schedule:
