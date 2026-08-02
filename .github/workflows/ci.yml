@@ -41,6 +41,8 @@ jobs:
         run: scripts/test-sync-version.sh
       - name: Test Spring Boot publication topology guard
         run: scripts/test-test-spring-boot-publication-topology.sh
+      - name: Test Spring Boot runtime dependency graph guard
+        run: scripts/test-check-runtime-dependency-graph.sh
       - name: Test signed commit request generation
         run: scripts/test-gh-signed-commit.sh
 
@@ -588,6 +590,61 @@ jobs:
           path: integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/conformance/postgresql
           if-no-files-found: error
 
+  spring-boot-mongodb-jvm:
+    # This job is a required status-check dependency, so it remains present on
+    # every event. Pull requests outside the Spring dependency surface report
+    # an explicit success instead of skipping the job.
+    needs: changes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip notice (no Spring Boot MongoDB changes)
+        if: needs.changes.outputs['spring-boot'] == 'false'
+        run: echo "No Spring Boot MongoDB inputs changed — skipping verification."
+
+      - uses: actions/checkout@v7
+        if: needs.changes.outputs['spring-boot'] != 'false'
+
+      # Two JDKs: verify-jvm-matrix.sh's consumer lanes must run on the
+      # matrix's declared Java 17 runtime, but the root reactor build
+      # (Spotless, etc.) requires a newer javac. Install 17 first, then 25
+      # second so setup-java leaves JAVA_HOME/PATH pointed at 25 for the
+      # build; the 17 home is exported by setup-java as JAVA_HOME_17_X64 for
+      # the consumer lane below.
+      - uses: actions/setup-java@v5
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: actions/setup-java@v5
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+
+      - uses: actions/cache@v6
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        with:
+          path: ~/.m2/repository
+          key: m2-spring-boot-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-spring-boot-
+            m2-
+
+      - name: Verify Spring Boot MongoDB compatibility
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        env:
+          RATCHET_MATRIX_JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+        run: integrations/ratchet-spring-boot/integration-tests/verify.sh mongodb-runtime
+
+      - name: Upload Spring Boot MongoDB conformance reports
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: spring-boot-mongodb-conformance
+          path: integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/conformance/mongodb
+          if-no-files-found: error
+
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
   # on the web filter so it runs whenever anything under website/ changes —
@@ -638,7 +695,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-topology, spring-boot-core-compat, spring-boot-postgresql-jvm, a11y]
+    needs: [workflow-lint, changes, build, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-topology, spring-boot-core-compat, spring-boot-postgresql-jvm, spring-boot-mongodb-jvm, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed
