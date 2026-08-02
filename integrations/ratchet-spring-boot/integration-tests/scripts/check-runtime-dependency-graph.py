@@ -73,13 +73,14 @@ def scenario_policy(
         if (
             isinstance(qualification, dict)
             and qualification.get("runtimeDependencyFlavor") == flavor
+            and "dependencyPolicy" in raw_scenario
         ):
             matches.append((scenario_name, raw_scenario))
 
     if len(matches) != 1:
         fail(
-            f"expected exactly one scenario with runtime dependency flavor "
-            f"{flavor!r}; found {len(matches)}"
+            f"expected exactly one dependency-policy scenario with runtime "
+            f"dependency flavor {flavor!r}; found {len(matches)}"
         )
 
     scenario_name, scenario = matches[0]

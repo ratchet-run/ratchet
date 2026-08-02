@@ -8,7 +8,8 @@
       "parentArtifactId": "ratchet-parent",
       "relativePath": "../../pom.xml",
       "requiredQualificationScenarios": [
-        "postgresql-runtime"
+        "postgresql-runtime",
+        "dialect-mysql"
       ],
       "snapshotEligible": false,
       "centralEligible": false,
@@ -22,7 +23,8 @@
       "parentArtifactId": "ratchet-spring-boot-parent",
       "relativePath": "../pom.xml",
       "requiredQualificationScenarios": [
-        "postgresql-runtime"
+        "postgresql-runtime",
+        "dialect-mysql"
       ],
       "snapshotEligible": false,
       "centralEligible": false,
@@ -36,7 +38,8 @@
       "parentArtifactId": "ratchet-spring-boot-parent",
       "relativePath": "../pom.xml",
       "requiredQualificationScenarios": [
-        "postgresql-runtime"
+        "postgresql-runtime",
+        "dialect-mysql"
       ],
       "snapshotEligible": false,
       "centralEligible": false,
@@ -50,7 +53,8 @@
       "parentArtifactId": "ratchet-spring-boot-parent",
       "relativePath": "../pom.xml",
       "requiredQualificationScenarios": [
-        "postgresql-runtime"
+        "postgresql-runtime",
+        "dialect-mysql"
       ],
       "snapshotEligible": false,
       "centralEligible": false,
@@ -126,6 +130,18 @@
     {
       "path": "integrations/ratchet-spring-boot/integration-tests/postgresql",
       "artifactId": "ratchet-spring-boot-it-postgresql",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-integration-tests",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/integration-tests/mysql",
+      "artifactId": "ratchet-spring-boot-it-mysql",
       "packaging": "jar",
       "parentArtifactId": "ratchet-spring-boot-integration-tests",
       "relativePath": "../pom.xml",

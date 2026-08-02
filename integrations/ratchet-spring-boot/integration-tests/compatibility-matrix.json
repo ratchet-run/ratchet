@@ -9,7 +9,8 @@
       "flavors": [
         "compatibility",
         "postgresql",
-        "mongodb"
+        "mongodb",
+        "mysql"
       ]
     },
     {
@@ -19,7 +20,8 @@
       "flavors": [
         "compatibility",
         "postgresql",
-        "mongodb"
+        "mongodb",
+        "mysql"
       ]
     }
   ],
@@ -43,6 +45,14 @@
     {
       "id": "mongodb",
       "consumerPom": "integrations/ratchet-spring-boot/integration-tests/mongodb/pom.xml",
+      "goals": [
+        "clean",
+        "test"
+      ]
+    },
+    {
+      "id": "mysql",
+      "consumerPom": "integrations/ratchet-spring-boot/integration-tests/mysql/pom.xml",
       "goals": [
         "clean",
         "test"

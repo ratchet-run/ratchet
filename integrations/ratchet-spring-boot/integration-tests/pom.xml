@@ -24,6 +24,7 @@
   <modules>
     <module>compatibility</module>
     <module>postgresql</module>
+    <module>mysql</module>
     <module>mongodb</module>
     <module>native-postgresql</module>
     <module>aot-preflight</module>

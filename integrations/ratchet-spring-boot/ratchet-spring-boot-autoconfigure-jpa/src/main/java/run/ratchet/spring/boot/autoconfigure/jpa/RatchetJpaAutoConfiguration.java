@@ -30,11 +30,14 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.AnyNestedCondition;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.ConfigurationCondition.ConfigurationPhase;
 import org.springframework.core.NativeDetector;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.EnumerablePropertySource;
@@ -47,25 +50,29 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
+import org.springframework.util.ClassUtils;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NoOpMetricsCollector;
 import run.ratchet.spring.boot.autoconfigure.RatchetProperties;
+import run.ratchet.store.mysql.MysqlJobStore;
+import run.ratchet.store.mysql.MysqlJobStoreFactory;
+import run.ratchet.store.mysql.MysqlSchemaMigrationDialect;
 import run.ratchet.store.postgresql.PostgresqlJobStore;
 import run.ratchet.store.postgresql.PostgresqlJobStoreFactory;
 import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
 /**
- * Auto-configures the PostgreSQL job store against Spring Boot's single, application-owned JPA
- * persistence unit.
+ * Auto-configures a SQL job store against Spring Boot's single, application-owned JPA persistence
+ * unit.
  */
 @AutoConfiguration(
     afterName = {
       "org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration",
       "org.springframework.boot.hibernate.autoconfigure.HibernateJpaAutoConfiguration"
     })
-@ConditionalOnClass(name = "run.ratchet.store.postgresql.PostgresqlJobStore")
+@Conditional(RatchetJpaAutoConfiguration.AnyJpaStoreCondition.class)
 @ConditionalOnProperty(
     name = RatchetProperties.ENABLED_PROPERTY,
     havingValue = "true",
@@ -74,13 +81,30 @@ public class RatchetJpaAutoConfiguration {
 
   static final String MAPPING_RESOURCES_PROPERTY = "spring.jpa.mapping-resources";
   static final String ORM_XML_RESOURCE = "META-INF/orm.xml";
+  static final String POSTGRESQL_JOB_STORE_CLASS_NAME =
+      "run.ratchet.store.postgresql.PostgresqlJobStore";
+  static final String MYSQL_JOB_STORE_CLASS_NAME = "run.ratchet.store.mysql.MysqlJobStore";
 
   private static final String STORE_CORE_ANCHOR_RESOURCE =
       "run/ratchet/store/spi/RatchetEntityManagerProvider.class";
 
   @Bean
   static BeanFactoryPostProcessor ratchetJpaEnvironmentValidator(Environment environment) {
-    return beanFactory -> validateJpaEnvironment(beanFactory, environment);
+    return beanFactory -> {
+      validateSingleStoreDependency(beanFactory.getBeanClassLoader());
+      validateJpaEnvironment(beanFactory, environment);
+    };
+  }
+
+  static void validateSingleStoreDependency(ClassLoader classLoader) {
+    boolean postgresqlPresent = ClassUtils.isPresent(POSTGRESQL_JOB_STORE_CLASS_NAME, classLoader);
+    boolean mysqlPresent = ClassUtils.isPresent(MYSQL_JOB_STORE_CLASS_NAME, classLoader);
+    if (postgresqlPresent && mysqlPresent) {
+      throw new IllegalStateException(
+          "Ratchet JPA auto-configuration found both ratchet-store-postgresql and"
+              + " ratchet-store-mysql on the classpath. Keep exactly one ratchet-store-*"
+              + " dependency.");
+    }
   }
 
   static void validateJpaEnvironment(
@@ -89,7 +113,7 @@ public class RatchetJpaAutoConfiguration {
         beanFactory.getBeanNamesForType(PersistenceUnitManager.class, true, false);
     if (persistenceUnitManagers.length > 0) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL JPA auto-configuration requires Spring Boot's default"
+          "Ratchet JPA auto-configuration requires Spring Boot's default"
               + " PersistenceUnitManager, but found user-provided PersistenceUnitManager bean(s): "
               + beanNames(persistenceUnitManagers)
               + ". Remove the custom PersistenceUnitManager so Spring ORM can discover"
@@ -98,7 +122,7 @@ public class RatchetJpaAutoConfiguration {
 
     if (hasMappingResourcesProperty(environment)) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL JPA auto-configuration cannot run when"
+          "Ratchet JPA auto-configuration cannot run when"
               + " spring.jpa.mapping-resources is set because it suppresses Spring ORM's default"
               + " META-INF/orm.xml discovery. Remove spring.jpa.mapping-resources so the Ratchet"
               + " mapping from ratchet-store-core is included in the application persistence"
@@ -108,13 +132,13 @@ public class RatchetJpaAutoConfiguration {
     List<URL> ormResources = ormXmlResources(beanFactory.getBeanClassLoader());
     if (ormResources.isEmpty()) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL JPA auto-configuration requires exactly one META-INF/orm.xml"
+          "Ratchet JPA auto-configuration requires exactly one META-INF/orm.xml"
               + " resource from ratchet-store-core, but found none. Ensure exactly one"
               + " ratchet-store-core jar is present on the runtime classpath.");
     }
     if (ormResources.size() > 1) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL JPA auto-configuration requires exactly one META-INF/orm.xml"
+          "Ratchet JPA auto-configuration requires exactly one META-INF/orm.xml"
               + " resource from ratchet-store-core, but found "
               + ormResources.size()
               + ": "
@@ -127,7 +151,7 @@ public class RatchetJpaAutoConfiguration {
         RatchetEntityManagerProvider.class.getResource("/" + STORE_CORE_ANCHOR_RESOURCE);
     if (!isRatchetStoreCoreJarResource(ormResource, storeCoreAnchor)) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL JPA auto-configuration requires the single META-INF/orm.xml"
+          "Ratchet JPA auto-configuration requires the single META-INF/orm.xml"
               + " resource to resolve from the ratchet-store-core jar, but it resolved to "
               + ormResource
               + ". Remove the competing mapping resource and retain ratchet-store-core.");
@@ -140,7 +164,7 @@ public class RatchetJpaAutoConfiguration {
         beanFactory.getBeanNamesForType(EntityManagerFactory.class, true, true);
     if (entityManagerFactoryNames.length != 1) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL requires exactly one EntityManagerFactory bean, but found "
+          "Ratchet JPA requires exactly one EntityManagerFactory bean, but found "
               + entityManagerFactoryNames.length
               + ": "
               + beanNames(entityManagerFactoryNames)
@@ -158,7 +182,7 @@ public class RatchetJpaAutoConfiguration {
         namedTransactionManager.transactionManager().getEntityManagerFactory();
     if (transactionManagerEntityManagerFactory != entityManagerFactory) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL requires JpaTransactionManager bean '"
+          "Ratchet JPA requires JpaTransactionManager bean '"
               + namedTransactionManager.name()
               + "' to own the selected EntityManagerFactory bean '"
               + entityManagerFactoryName
@@ -195,7 +219,7 @@ public class RatchetJpaAutoConfiguration {
     }
 
     throw new IllegalStateException(
-        "Ratchet PostgreSQL could not select a JpaTransactionManager bean from candidates "
+        "Ratchet JPA could not select a JpaTransactionManager bean from candidates "
             + transactionManagerNames(transactionManagers)
             + ". Mark exactly one JpaTransactionManager bean @Primary or set '"
             + RatchetProperties.TRANSACTION_MANAGER_BEAN_NAME_PROPERTY
@@ -206,7 +230,7 @@ public class RatchetJpaAutoConfiguration {
       ConfigurableListableBeanFactory beanFactory, String configuredName) {
     if (!beanFactory.containsBean(configuredName)) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL transaction manager bean '"
+          "Ratchet JPA transaction manager bean '"
               + configuredName
               + "' configured by '"
               + RatchetProperties.TRANSACTION_MANAGER_BEAN_NAME_PROPERTY
@@ -218,7 +242,7 @@ public class RatchetJpaAutoConfiguration {
     Object configuredBean = beanFactory.getBean(configuredName);
     if (!(configuredBean instanceof JpaTransactionManager transactionManager)) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL transaction manager bean '"
+          "Ratchet JPA transaction manager bean '"
               + configuredName
               + "' configured by '"
               + RatchetProperties.TRANSACTION_MANAGER_BEAN_NAME_PROPERTY
@@ -298,9 +322,7 @@ public class RatchetJpaAutoConfiguration {
       return Collections.list(classLoader.getResources(ORM_XML_RESOURCE));
     } catch (IOException e) {
       throw new IllegalStateException(
-          "Ratchet PostgreSQL JPA auto-configuration could not enumerate META-INF/orm.xml"
-              + " resources.",
-          e);
+          "Ratchet JPA auto-configuration could not enumerate META-INF/orm.xml resources.", e);
     }
   }
 
@@ -357,15 +379,32 @@ public class RatchetJpaAutoConfiguration {
   private record NamedJpaTransactionManager(
       String name, JpaTransactionManager transactionManager) {}
 
+  static class AnyJpaStoreCondition extends AnyNestedCondition {
+
+    AnyJpaStoreCondition() {
+      super(ConfigurationPhase.PARSE_CONFIGURATION);
+    }
+
+    @ConditionalOnClass(name = POSTGRESQL_JOB_STORE_CLASS_NAME)
+    static class PostgresqlStoreAvailable {}
+
+    @ConditionalOnClass(name = MYSQL_JOB_STORE_CLASS_NAME)
+    static class MysqlStoreAvailable {}
+  }
+
   @Configuration(proxyBeanMethods = false)
-  @ConditionalOnClass(PostgresqlJobStore.class)
-  static class PostgresqlStoreConfiguration {
+  static class JpaTopologyConfiguration {
 
     @Bean
     JpaTopology ratchetJpaTopology(
         ConfigurableListableBeanFactory beanFactory, RatchetProperties properties) {
       return resolveJpaTopology(beanFactory, properties);
     }
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @ConditionalOnClass(PostgresqlJobStore.class)
+  static class PostgresqlStoreConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(PostgresqlSchemaMigrationDialect.class)
@@ -379,7 +418,7 @@ public class RatchetJpaAutoConfiguration {
         ObjectProvider<RatchetOptions> optionsProvider,
         PostgresqlSchemaMigrationDialect dialect) {
       RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
-      return new RatchetJpaSchemaMigrationInitializer(beanFactory, options, dialect);
+      return new RatchetJpaSchemaMigrationInitializer(beanFactory, options, dialect, "postgresql");
     }
 
     @Bean
@@ -410,6 +449,56 @@ public class RatchetJpaAutoConfiguration {
           new TransactionInterceptor(
               transactionManager, new AnnotationTransactionAttributeSource()));
       return (PostgresqlJobStore) proxyFactory.getProxy();
+    }
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @ConditionalOnClass(MysqlJobStore.class)
+  static class MysqlStoreConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean(MysqlSchemaMigrationDialect.class)
+    MysqlSchemaMigrationDialect mysqlSchemaMigrationDialect() {
+      return new MysqlSchemaMigrationDialect();
+    }
+
+    @Bean
+    RatchetJpaSchemaMigrationInitializer mysqlSchemaMigrationInitializer(
+        ConfigurableListableBeanFactory beanFactory,
+        ObjectProvider<RatchetOptions> optionsProvider,
+        MysqlSchemaMigrationDialect dialect) {
+      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
+      return new RatchetJpaSchemaMigrationInitializer(beanFactory, options, dialect, "mysql");
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(MysqlJobStore.class)
+    MysqlJobStore mysqlJobStore(
+        JpaTopology topology,
+        RatchetJpaSchemaMigrationInitializer migrationInitializer,
+        ObjectProvider<MetricsCollector> metricsCollectorProvider,
+        ObjectProvider<RatchetOptions> optionsProvider) {
+      Objects.requireNonNull(migrationInitializer, "migrationInitializer");
+      EntityManager sharedEntityManager =
+          SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
+      RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
+      MetricsCollector metricsCollector =
+          metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
+      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
+      MysqlJobStore store =
+          MysqlJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
+
+      // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
+      // annotated implementation behind this factory method. Build a deterministic JDK proxy.
+      ProxyFactory proxyFactory = new ProxyFactory();
+      proxyFactory.setTarget(store);
+      proxyFactory.setInterfaces(MysqlJobStore.class);
+      proxyFactory.setProxyTargetClass(false);
+      TransactionManager transactionManager = topology.transactionManager();
+      proxyFactory.addAdvice(
+          new TransactionInterceptor(
+              transactionManager, new AnnotationTransactionAttributeSource()));
+      return (MysqlJobStore) proxyFactory.getProxy();
     }
   }
 }

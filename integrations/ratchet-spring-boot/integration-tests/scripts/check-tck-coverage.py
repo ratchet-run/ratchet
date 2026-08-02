@@ -38,6 +38,15 @@ FLAVOR_POLICIES = {
         },
         "unsupportedContracts": MONGODB_UNSUPPORTED_CONTRACTS,
     },
+    "mysql": {
+        "scenario": "dialect-mysql",
+        "artifactStatuses": {
+            "ratchet-tck-api": "covered",
+            "ratchet-tck-store": "unsupported",
+            "ratchet-tck-util": "unsupported",
+        },
+        "unsupportedContracts": frozenset(),
+    },
 }
 CONTRACT_SOURCE_PATHS = {
     "ratchet-tck-api": Path("testing/ratchet-tck/api/src/main/java"),

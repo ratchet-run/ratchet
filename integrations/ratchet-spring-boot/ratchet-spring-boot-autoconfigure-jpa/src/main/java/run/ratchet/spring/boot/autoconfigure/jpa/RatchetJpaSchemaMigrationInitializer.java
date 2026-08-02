@@ -24,11 +24,11 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.migration.SchemaInitializationException;
+import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrator;
-import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
 
 /**
- * Applies PostgreSQL schema migrations before the job-store bean is created.
+ * Applies SQL schema migrations before the job-store bean is created.
  *
  * <p>This object is an explicit dependency of the store bean. It deliberately invokes {@link
  * SchemaMigrator} directly, outside Spring transaction advice, because the migrator owns its JDBC
@@ -36,33 +36,42 @@ import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
  */
 final class RatchetJpaSchemaMigrationInitializer {
 
-  private static final String POSTGRESQL_DIALECT = "postgresql";
-
   RatchetJpaSchemaMigrationInitializer(
       ConfigurableListableBeanFactory beanFactory,
       RatchetOptions options,
-      PostgresqlSchemaMigrationDialect dialect) {
+      SchemaMigrationDialect dialect,
+      String expectedDialectId) {
     Objects.requireNonNull(beanFactory, "beanFactory");
     Objects.requireNonNull(options, "options");
     Objects.requireNonNull(dialect, "dialect");
-    initialize(beanFactory, options.schema(), dialect);
+    Objects.requireNonNull(expectedDialectId, "expectedDialectId");
+    initialize(beanFactory, options.schema(), dialect, expectedDialectId);
   }
 
   private static void initialize(
       ConfigurableListableBeanFactory beanFactory,
       RatchetOptions.SchemaOptions schemaOptions,
-      PostgresqlSchemaMigrationDialect dialect) {
+      SchemaMigrationDialect dialect,
+      String expectedDialectId) {
     if (!schemaOptions.autoMigrate()) {
       return;
     }
 
+    String normalizedExpectedDialectId = expectedDialectId.trim().toLowerCase(Locale.ROOT);
+    if (normalizedExpectedDialectId.isEmpty()) {
+      throw new IllegalArgumentException("expectedDialectId must not be blank");
+    }
+    String dialectDisplayName = dialectDisplayName(normalizedExpectedDialectId);
     String configuredDialect = schemaOptions.migrationDialect();
     if (configuredDialect != null
         && !configuredDialect.isBlank()
-        && !POSTGRESQL_DIALECT.equals(configuredDialect.trim().toLowerCase(Locale.ROOT))) {
+        && !normalizedExpectedDialectId.equals(configuredDialect.trim().toLowerCase(Locale.ROOT))) {
       throw new SchemaInitializationException(
-          "Ratchet PostgreSQL store requires ratchet.schema.migration-dialect to be blank or"
-              + " 'postgresql', but was '"
+          "Ratchet "
+              + dialectDisplayName
+              + " store requires ratchet.schema.migration-dialect to be blank or '"
+              + normalizedExpectedDialectId
+              + "', but was '"
               + configuredDialect
               + "'. Remove the conflicting dialect or use the matching SQL store.");
     }
@@ -71,7 +80,9 @@ final class RatchetJpaSchemaMigrationInitializer {
     if (dataSourceNames.length != 1) {
       throw new SchemaInitializationException(
           "ratchet.schema.auto-migrate=true requires exactly one DataSource bean for the Ratchet"
-              + " PostgreSQL store, but found "
+              + " "
+              + dialectDisplayName
+              + " store, but found "
               + dataSourceNames.length
               + ": "
               + Arrays.stream(dataSourceNames).sorted().toList()
@@ -84,8 +95,17 @@ final class RatchetJpaSchemaMigrationInitializer {
       new SchemaMigrator(dataSource, dialect, schemaOptions.migrationPrefix()).migrate();
     } catch (IOException | SQLException | RuntimeException e) {
       throw new SchemaInitializationException(
-          "Ratchet PostgreSQL schema auto-migration failed: " + exceptionSummary(e), e);
+          "Ratchet " + dialectDisplayName + " schema auto-migration failed: " + exceptionSummary(e),
+          e);
     }
+  }
+
+  private static String dialectDisplayName(String dialectId) {
+    return switch (dialectId) {
+      case "postgresql" -> "PostgreSQL";
+      case "mysql" -> "MySQL";
+      default -> dialectId;
+    };
   }
 
   private static String exceptionSummary(Exception exception) {

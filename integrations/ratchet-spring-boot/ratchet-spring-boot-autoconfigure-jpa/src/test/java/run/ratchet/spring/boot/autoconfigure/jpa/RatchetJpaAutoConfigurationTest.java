@@ -47,6 +47,7 @@ import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.StandardEnvironment;
@@ -58,6 +59,8 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spring.boot.autoconfigure.RatchetProperties;
 import run.ratchet.store.migration.SchemaInitializationException;
+import run.ratchet.store.mysql.MysqlJobStore;
+import run.ratchet.store.mysql.MysqlSchemaMigrationDialect;
 import run.ratchet.store.postgresql.PostgresqlJobStore;
 import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
 
@@ -87,7 +90,25 @@ class RatchetJpaAutoConfigurationTest {
   }
 
   @Test
-  void outerAutoConfigurationSignaturesDoNotLinkToOptionalPostgresqlStoreTypes() {
+  void outerAutoConfigurationUsesAnyStoreCondition() {
+    Conditional condition = RatchetJpaAutoConfiguration.class.getAnnotation(Conditional.class);
+
+    assertArrayEquals(
+        new Class<?>[] {RatchetJpaAutoConfiguration.AnyJpaStoreCondition.class}, condition.value());
+    assertArrayEquals(
+        new String[] {RatchetJpaAutoConfiguration.POSTGRESQL_JOB_STORE_CLASS_NAME},
+        RatchetJpaAutoConfiguration.AnyJpaStoreCondition.PostgresqlStoreAvailable.class
+            .getAnnotation(ConditionalOnClass.class)
+            .name());
+    assertArrayEquals(
+        new String[] {RatchetJpaAutoConfiguration.MYSQL_JOB_STORE_CLASS_NAME},
+        RatchetJpaAutoConfiguration.AnyJpaStoreCondition.MysqlStoreAvailable.class
+            .getAnnotation(ConditionalOnClass.class)
+            .name());
+  }
+
+  @Test
+  void outerAutoConfigurationSignaturesDoNotLinkToOptionalStoreTypes() {
     boolean storeTypeInOuterMethodSignature =
         Stream.of(RatchetJpaAutoConfiguration.class.getDeclaredMethods())
             .flatMap(
@@ -95,7 +116,10 @@ class RatchetJpaAutoConfigurationTest {
                     Stream.concat(
                         Stream.of(method.getReturnType()), Stream.of(method.getParameterTypes())))
             .map(Class::getName)
-            .anyMatch(typeName -> typeName.startsWith("run.ratchet.store.postgresql."));
+            .anyMatch(
+                typeName ->
+                    typeName.startsWith("run.ratchet.store.postgresql.")
+                        || typeName.startsWith("run.ratchet.store.mysql."));
 
     assertFalse(storeTypeInOuterMethodSignature);
   }
@@ -108,6 +132,55 @@ class RatchetJpaAutoConfigurationTest {
 
     assertFalse(configuration.proxyBeanMethods());
     assertArrayEquals(new Class<?>[] {PostgresqlJobStore.class}, condition.value());
+  }
+
+  @Test
+  void mysqlBeansAreIsolatedInGatedNonProxyingNestedConfiguration() {
+    Class<?> configurationClass = RatchetJpaAutoConfiguration.MysqlStoreConfiguration.class;
+    Configuration configuration = configurationClass.getAnnotation(Configuration.class);
+    ConditionalOnClass condition = configurationClass.getAnnotation(ConditionalOnClass.class);
+
+    assertFalse(configuration.proxyBeanMethods());
+    assertArrayEquals(new Class<?>[] {MysqlJobStore.class}, condition.value());
+  }
+
+  @Test
+  void topologyBeanIsOwnedBySharedNonProxyingConfiguration() {
+    Configuration configuration =
+        RatchetJpaAutoConfiguration.JpaTopologyConfiguration.class.getAnnotation(
+            Configuration.class);
+
+    assertFalse(configuration.proxyBeanMethods());
+    assertEquals(
+        "ratchetJpaTopology",
+        Stream.of(RatchetJpaAutoConfiguration.JpaTopologyConfiguration.class.getDeclaredMethods())
+            .filter(
+                method ->
+                    method.getAnnotation(org.springframework.context.annotation.Bean.class) != null)
+            .filter(
+                method ->
+                    RatchetJpaAutoConfiguration.JpaTopology.class.equals(method.getReturnType()))
+            .findFirst()
+            .orElseThrow()
+            .getName());
+  }
+
+  @Test
+  void mysqlAndPostgresqlBeanMethodNamesAreDistinct() {
+    var postgresqlMethodNames =
+        Stream.of(
+                RatchetJpaAutoConfiguration.PostgresqlStoreConfiguration.class.getDeclaredMethods())
+            .map(java.lang.reflect.Method::getName)
+            .collect(java.util.stream.Collectors.toSet());
+    var mysqlMethodNames =
+        Stream.of(RatchetJpaAutoConfiguration.MysqlStoreConfiguration.class.getDeclaredMethods())
+            .map(java.lang.reflect.Method::getName)
+            .collect(java.util.stream.Collectors.toSet());
+
+    assertTrue(Collections.disjoint(postgresqlMethodNames, mysqlMethodNames));
+    assertTrue(mysqlMethodNames.contains("mysqlSchemaMigrationDialect"));
+    assertTrue(mysqlMethodNames.contains("mysqlSchemaMigrationInitializer"));
+    assertTrue(mysqlMethodNames.contains("mysqlJobStore"));
   }
 
   @Test
@@ -184,8 +257,30 @@ class RatchetJpaAutoConfigurationTest {
         failure
             .getMessage()
             .contains(
-                "requires Spring Boot's default PersistenceUnitManager, but found user-provided"
-                    + " PersistenceUnitManager bean(s): [customPersistenceUnitManager]"));
+                "Ratchet JPA auto-configuration requires Spring Boot's default"
+                    + " PersistenceUnitManager, but found user-provided PersistenceUnitManager"
+                    + " bean(s): [customPersistenceUnitManager]"));
+  }
+
+  @Test
+  void dualStoreClasspathFailsBeforeJpaEnvironmentValidation() {
+    DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
+    beanFactory.registerSingleton(
+        "customPersistenceUnitManager", mock(PersistenceUnitManager.class));
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                RatchetJpaAutoConfiguration.ratchetJpaEnvironmentValidator(
+                        new StandardEnvironment())
+                    .postProcessBeanFactory(beanFactory));
+
+    assertEquals(
+        "Ratchet JPA auto-configuration found both ratchet-store-postgresql and"
+            + " ratchet-store-mysql on the classpath. Keep exactly one ratchet-store-*"
+            + " dependency.",
+        failure.getMessage());
   }
 
   @Test
@@ -208,7 +303,11 @@ class RatchetJpaAutoConfigurationTest {
                     beanFactory(getClass().getClassLoader()), environment));
 
     assertTrue(
-        failure.getMessage().contains("cannot run when spring.jpa.mapping-resources is set"));
+        failure
+            .getMessage()
+            .contains(
+                "Ratchet JPA auto-configuration cannot run when"
+                    + " spring.jpa.mapping-resources is set"));
   }
 
   @Test
@@ -228,7 +327,11 @@ class RatchetJpaAutoConfigurationTest {
                     beanFactory(getClass().getClassLoader()), environment));
 
     assertTrue(
-        failure.getMessage().contains("cannot run when spring.jpa.mapping-resources is set"));
+        failure
+            .getMessage()
+            .contains(
+                "Ratchet JPA auto-configuration cannot run when"
+                    + " spring.jpa.mapping-resources is set"));
   }
 
   @Test
@@ -243,7 +346,12 @@ class RatchetJpaAutoConfigurationTest {
                 RatchetJpaAutoConfiguration.validateJpaEnvironment(
                     beanFactory(classLoader), new StandardEnvironment()));
 
-    assertTrue(failure.getMessage().contains("but found none"));
+    assertTrue(
+        failure
+            .getMessage()
+            .contains(
+                "Ratchet JPA auto-configuration requires exactly one META-INF/orm.xml"
+                    + " resource from ratchet-store-core, but found none"));
   }
 
   @Test
@@ -262,7 +370,12 @@ class RatchetJpaAutoConfigurationTest {
                 RatchetJpaAutoConfiguration.validateJpaEnvironment(
                     beanFactory(classLoader), new StandardEnvironment()));
 
-    assertTrue(failure.getMessage().contains("but found 2"));
+    assertTrue(
+        failure
+            .getMessage()
+            .contains(
+                "Ratchet JPA auto-configuration requires exactly one META-INF/orm.xml"
+                    + " resource from ratchet-store-core, but found 2"));
   }
 
   @Test
@@ -280,7 +393,11 @@ class RatchetJpaAutoConfigurationTest {
                     beanFactory(classLoader), new StandardEnvironment()));
 
     assertTrue(
-        failure.getMessage().contains("resource to resolve from the ratchet-store-core jar"));
+        failure
+            .getMessage()
+            .contains(
+                "Ratchet JPA auto-configuration requires the single META-INF/orm.xml"
+                    + " resource to resolve from the ratchet-store-core jar"));
   }
 
   @Test
@@ -316,7 +433,7 @@ class RatchetJpaAutoConfigurationTest {
     assertTrue(
         failure
             .getMessage()
-            .contains("requires exactly one EntityManagerFactory bean, but found 2"));
+            .contains("Ratchet JPA requires exactly one EntityManagerFactory bean, but found 2"));
   }
 
   @Test
@@ -370,7 +487,7 @@ class RatchetJpaAutoConfigurationTest {
             "entityManagerFactory", entityManagerFactory, "transactionManager", transactionManager);
     RatchetJpaSchemaMigrationInitializer migrationInitializer =
         new RatchetJpaSchemaMigrationInitializer(
-            beanFactory, options, new PostgresqlSchemaMigrationDialect());
+            beanFactory, options, new PostgresqlSchemaMigrationDialect(), "postgresql");
 
     PostgresqlJobStore store =
         new RatchetJpaAutoConfiguration.PostgresqlStoreConfiguration()
@@ -406,6 +523,56 @@ class RatchetJpaAutoConfigurationTest {
   }
 
   @Test
+  void mysqlJobStoreIsDeterministicTransactionalJdkProxy() throws Exception {
+    DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
+    EntityManagerFactory entityManagerFactory = mock(EntityManagerFactory.class);
+    JpaTransactionManager transactionManager = new JpaTransactionManager(entityManagerFactory);
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .store(store -> store.isolationCheckMode(RatchetOptions.IsolationCheckMode.DISABLE))
+            .build();
+    beanFactory.registerSingleton("ratchetOptions", options);
+    RatchetJpaAutoConfiguration.JpaTopology topology =
+        new RatchetJpaAutoConfiguration.JpaTopology(
+            "entityManagerFactory", entityManagerFactory, "transactionManager", transactionManager);
+    RatchetJpaSchemaMigrationInitializer migrationInitializer =
+        new RatchetJpaSchemaMigrationInitializer(
+            beanFactory, options, new MysqlSchemaMigrationDialect(), "mysql");
+
+    MysqlJobStore store =
+        new RatchetJpaAutoConfiguration.MysqlStoreConfiguration()
+            .mysqlJobStore(
+                topology,
+                migrationInitializer,
+                beanFactory.getBeanProvider(MetricsCollector.class),
+                beanFactory.getBeanProvider(RatchetOptions.class));
+
+    assertTrue(AopUtils.isJdkDynamicProxy(store));
+    assertTrue(MysqlJobStore.class.isInstance(store));
+    TransactionInterceptor transactionInterceptor =
+        Arrays.stream(((Advised) store).getAdvisors())
+            .map(advisor -> advisor.getAdvice())
+            .filter(TransactionInterceptor.class::isInstance)
+            .map(TransactionInterceptor.class::cast)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("Missing TransactionInterceptor advisor"));
+    assertSame(transactionManager, transactionInterceptor.getTransactionManager());
+    var transactionAttribute =
+        transactionInterceptor
+            .getTransactionAttributeSource()
+            .getTransactionAttribute(
+                MysqlJobStore.class.getMethod("upsertHeartbeat", String.class, Instant.class),
+                AopProxyUtils.ultimateTargetClass(store));
+    assertNotNull(transactionAttribute);
+    assertEquals(
+        TransactionDefinition.PROPAGATION_REQUIRES_NEW,
+        transactionAttribute.getPropagationBehavior());
+    assertArrayEquals(
+        AopProxyUtils.completeJdkProxyInterfaces(MysqlJobStore.class),
+        store.getClass().getInterfaces());
+  }
+
+  @Test
   void rejectsMissingExplicitTransactionManagerAndListsCandidates() {
     DefaultListableBeanFactory beanFactory = beanFactory(getClass().getClassLoader());
     EntityManagerFactory entityManagerFactory = mock(EntityManagerFactory.class);
@@ -432,7 +599,7 @@ class RatchetJpaAutoConfigurationTest {
         failure
             .getMessage()
             .contains(
-                "transaction manager bean 'missingTransactionManager' configured by"
+                "Ratchet JPA transaction manager bean 'missingTransactionManager' configured by"
                     + " 'ratchet.transaction-manager-bean-name' does not exist"));
     assertTrue(
         failure
@@ -466,7 +633,9 @@ class RatchetJpaAutoConfigurationTest {
     assertTrue(
         failure
             .getMessage()
-            .contains("candidates [firstTransactionManager, secondTransactionManager]"));
+            .contains(
+                "Ratchet JPA could not select a JpaTransactionManager bean from candidates"
+                    + " [firstTransactionManager, secondTransactionManager]"));
     assertTrue(
         failure.getMessage().contains("Mark exactly one JpaTransactionManager bean @Primary"));
     assertTrue(failure.getMessage().contains("set 'ratchet.transaction-manager-bean-name'"));
@@ -496,7 +665,9 @@ class RatchetJpaAutoConfigurationTest {
     assertTrue(
         failure
             .getMessage()
-            .contains("candidates [firstTransactionManager, secondTransactionManager]"));
+            .contains(
+                "Ratchet JPA could not select a JpaTransactionManager bean from candidates"
+                    + " [firstTransactionManager, secondTransactionManager]"));
   }
 
   @Test
@@ -516,7 +687,7 @@ class RatchetJpaAutoConfigurationTest {
         failure
             .getMessage()
             .contains(
-                "transaction manager bean 'wrongTransactionManager' configured by"
+                "Ratchet JPA transaction manager bean 'wrongTransactionManager' configured by"
                     + " 'ratchet.transaction-manager-bean-name' must be a"
                     + " JpaTransactionManager"));
     assertTrue(failure.getMessage().contains("actual type is java.lang.String"));
@@ -541,8 +712,8 @@ class RatchetJpaAutoConfigurationTest {
         failure
             .getMessage()
             .contains(
-                "requires JpaTransactionManager bean 'transactionManager' to own the selected"
-                    + " EntityManagerFactory bean 'entityManagerFactory'"));
+                "Ratchet JPA requires JpaTransactionManager bean 'transactionManager' to own the"
+                    + " selected EntityManagerFactory bean 'entityManagerFactory'"));
   }
 
   @Test
@@ -552,7 +723,8 @@ class RatchetJpaAutoConfigurationTest {
             new RatchetJpaSchemaMigrationInitializer(
                 beanFactory(getClass().getClassLoader()),
                 RatchetOptions.defaults(),
-                new PostgresqlSchemaMigrationDialect()));
+                new PostgresqlSchemaMigrationDialect(),
+                "postgresql"));
   }
 
   @Test
@@ -567,7 +739,8 @@ class RatchetJpaAutoConfigurationTest {
                 new RatchetJpaSchemaMigrationInitializer(
                     beanFactory(getClass().getClassLoader()),
                     options,
-                    new PostgresqlSchemaMigrationDialect()));
+                    new PostgresqlSchemaMigrationDialect(),
+                    "postgresql"));
 
     assertTrue(
         failure
@@ -589,7 +762,8 @@ class RatchetJpaAutoConfigurationTest {
                 new RatchetJpaSchemaMigrationInitializer(
                     beanFactory(getClass().getClassLoader()),
                     options,
-                    new PostgresqlSchemaMigrationDialect()));
+                    new PostgresqlSchemaMigrationDialect(),
+                    "postgresql"));
 
     assertTrue(
         failure
@@ -597,6 +771,54 @@ class RatchetJpaAutoConfigurationTest {
             .contains(
                 "requires ratchet.schema.migration-dialect to be blank or 'postgresql', but was"
                     + " 'mysql'"));
+  }
+
+  @Test
+  void migrationInitializerAcceptsExplicitMysqlDialect() {
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .schema(schema -> schema.autoMigrate(true).migrationDialect("mysql"))
+            .build();
+
+    SchemaInitializationException failure =
+        assertThrows(
+            SchemaInitializationException.class,
+            () ->
+                new RatchetJpaSchemaMigrationInitializer(
+                    beanFactory(getClass().getClassLoader()),
+                    options,
+                    new MysqlSchemaMigrationDialect(),
+                    "mysql"));
+
+    assertTrue(
+        failure
+            .getMessage()
+            .contains("requires exactly one DataSource bean for the Ratchet MySQL store"));
+  }
+
+  @Test
+  void migrationInitializerRejectsExplicitDialectConflictingWithMysql() {
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .schema(schema -> schema.autoMigrate(true).migrationDialect("postgresql"))
+            .build();
+
+    SchemaInitializationException failure =
+        assertThrows(
+            SchemaInitializationException.class,
+            () ->
+                new RatchetJpaSchemaMigrationInitializer(
+                    beanFactory(getClass().getClassLoader()),
+                    options,
+                    new MysqlSchemaMigrationDialect(),
+                    "mysql"));
+
+    assertTrue(
+        failure
+            .getMessage()
+            .contains(
+                "requires ratchet.schema.migration-dialect to be blank or 'mysql', but was"
+                    + " 'postgresql'"));
   }
 
   @Test
@@ -612,7 +834,7 @@ class RatchetJpaAutoConfigurationTest {
             SchemaInitializationException.class,
             () ->
                 new RatchetJpaSchemaMigrationInitializer(
-                    beanFactory, options, new PostgresqlSchemaMigrationDialect()));
+                    beanFactory, options, new PostgresqlSchemaMigrationDialect(), "postgresql"));
 
     assertTrue(failure.getMessage().contains("but found 2: [firstDataSource, secondDataSource]"));
   }
@@ -631,7 +853,7 @@ class RatchetJpaAutoConfigurationTest {
             SchemaInitializationException.class,
             () ->
                 new RatchetJpaSchemaMigrationInitializer(
-                    beanFactory, options, new PostgresqlSchemaMigrationDialect()));
+                    beanFactory, options, new PostgresqlSchemaMigrationDialect(), "postgresql"));
 
     assertTrue(
         failure

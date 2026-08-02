@@ -613,7 +613,7 @@ for lane in lanes:
         )
         # Runtime-store flavors feed qualification and dependency-policy evidence.
         if (
-            flavor_id in {"postgresql", "mongodb"}
+            flavor_id in {"postgresql", "mongodb", "mysql"}
             and not runtime_dependency_tree.is_file()
         ):
             fail(

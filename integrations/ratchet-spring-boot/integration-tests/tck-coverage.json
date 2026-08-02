@@ -30,6 +30,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -45,6 +51,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -64,6 +76,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -79,6 +97,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -98,6 +122,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -113,6 +143,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -132,6 +168,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -147,6 +189,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -166,6 +214,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -181,6 +235,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -200,6 +260,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -215,6 +281,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -234,6 +306,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -249,6 +327,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -268,6 +352,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -283,6 +373,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -302,6 +398,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -317,6 +419,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -336,6 +444,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -351,6 +465,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -370,6 +490,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -385,6 +511,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -409,6 +541,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -428,6 +566,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -451,6 +595,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -470,6 +620,12 @@
           "status": "covered",
           "scenarios": [
             "postgresql-runtime"
+          ]
+        },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
           ]
         },
         "mongodb": {
@@ -493,6 +649,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -514,6 +676,12 @@
             "postgresql-runtime"
           ]
         },
+        "mysql": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-mysql"
+          ]
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -528,6 +696,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -544,6 +717,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -558,6 +736,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -574,6 +757,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -588,6 +776,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -604,6 +797,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -618,6 +816,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -634,6 +837,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -648,6 +856,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -664,6 +877,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -678,6 +896,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -694,6 +917,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -708,6 +936,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -724,6 +957,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -738,6 +976,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -754,6 +997,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -768,6 +1016,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -784,6 +1037,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -798,6 +1056,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -814,6 +1077,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -828,6 +1096,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -844,6 +1117,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -858,6 +1136,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -874,6 +1157,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -888,6 +1176,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -904,6 +1197,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -919,6 +1217,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -933,6 +1236,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-postgresql conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "mysql": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-mysql conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",

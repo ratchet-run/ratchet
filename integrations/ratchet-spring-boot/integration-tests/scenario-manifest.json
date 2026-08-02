@@ -1119,6 +1119,15 @@
           }
         ]
       },
+      "dependencyPolicy": {
+        "deniedPatterns": [
+          "^com\\.mysql:",
+          "^run\\.ratchet:ratchet-store-(mysql|oracle|sqlserver)$",
+          "^run\\.ratchet:ratchet-store-mongodb$",
+          "^org\\.mongodb:"
+        ],
+        "allowedExceptions": []
+      },
       "requiredCiJob": "spring-boot-postgresql-jvm",
       "commands": [
         {
@@ -1137,6 +1146,821 @@
             "postgresql"
           ],
           "producesTests": true
+        },
+        {
+          "id": "dependency-graph",
+          "type": "script",
+          "interpreter": "python3",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-runtime-dependency-graph.py",
+          "arguments": [
+            "postgresql"
+          ],
+          "producesTests": false
+        }
+      ]
+    },
+    "dialect-mysql": {
+      "bootLanes": [
+        "boot-3.5",
+        "boot-4.1"
+      ],
+      "database": "mysql",
+      "sharedTckContracts": [
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBatchRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBroadcastSignalContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkCancelEventContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBusinessKeyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractDelayedSchedulingContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractExclusiveWorkflowContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractIdempotencyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobAuthorizationContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobCancelContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobControlReturnContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobLifecycleContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryDenialContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadEncryptionEngineContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadSizeContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractResilienceStrategyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractRetryPolicyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalDecisionContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalPayloadContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSimpleWorkflowContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxDlqOrderContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxEnqueueContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxNotSupportedContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiredContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiresNewContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxSupportsContract"
+      ],
+      "expectedReports": [
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlDependencyVersionTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlDependencyVersionTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlApplicationEntityTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlApplicationEntityTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlTransactionTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlTransactionTruthTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlConcurrencyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlConcurrencyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlMigrationTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlMigrationTruthTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlNegativeStartupTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlNegativeStartupTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlInstantRoundTripTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlInstantRoundTripTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBatchRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBatchRetryTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBroadcastSignalTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBroadcastSignalTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBulkCancelEventTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBulkCancelEventTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBulkRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBulkRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBusinessKeyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBusinessKeyTckTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringDelayedSchedulingTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringDelayedSchedulingTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringExclusiveWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringExclusiveWorkflowTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringIdempotencyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringIdempotencyTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobAuthorizationTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobAuthorizationTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobCancelTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobCancelTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobControlReturnTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobControlReturnTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobLifecycleTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobLifecycleTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobQueryDenialTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobQueryDenialTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobQueryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobQueryTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringPayloadEncryptionEngineTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringPayloadEncryptionEngineTckTest",
+          "minimumExecutedTests": 8
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringPayloadSizeTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringPayloadSizeTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringResilienceStrategyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringResilienceStrategyTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringRetryPolicyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringRetryPolicyTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringSignalDecisionTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringSignalDecisionTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringSignalPayloadTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringSignalPayloadTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringSimpleWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringSimpleWorkflowTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxDlqOrderTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxDlqOrderTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxEnqueueTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxEnqueueTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxNotSupportedTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxNotSupportedTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxRequiredTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxRequiredTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxRequiresNewTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxRequiresNewTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxSupportsTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxSupportsTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.SpringClassPolicyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.SpringClassPolicyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.SpringRepeatedContextsTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.SpringRepeatedContextsTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.SpringShutdownDrainTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.SpringShutdownDrainTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlSchedulerRuntimeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlSchedulerRuntimeTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlDependencyVersionTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlDependencyVersionTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlApplicationEntityTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlApplicationEntityTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlTransactionTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlTransactionTruthTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlConcurrencyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlConcurrencyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlMigrationTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlMigrationTruthTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlNegativeStartupTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlNegativeStartupTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlInstantRoundTripTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlInstantRoundTripTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBatchRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBatchRetryTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBroadcastSignalTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBroadcastSignalTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBulkCancelEventTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBulkCancelEventTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBulkRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBulkRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringBusinessKeyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringBusinessKeyTckTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringDelayedSchedulingTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringDelayedSchedulingTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringExclusiveWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringExclusiveWorkflowTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringIdempotencyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringIdempotencyTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobAuthorizationTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobAuthorizationTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobCancelTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobCancelTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobControlReturnTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobControlReturnTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobLifecycleTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobLifecycleTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobQueryDenialTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobQueryDenialTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobQueryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobQueryTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringJobRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringJobRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringPayloadEncryptionEngineTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringPayloadEncryptionEngineTckTest",
+          "minimumExecutedTests": 8
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringPayloadSizeTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringPayloadSizeTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringResilienceStrategyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringResilienceStrategyTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringRetryPolicyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringRetryPolicyTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringSignalDecisionTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringSignalDecisionTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringSignalPayloadTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringSignalPayloadTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringSimpleWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringSimpleWorkflowTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxDlqOrderTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxDlqOrderTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxEnqueueTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxEnqueueTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxNotSupportedTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxNotSupportedTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxRequiredTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxRequiredTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxRequiresNewTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxRequiresNewTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.tck.SpringTxSupportsTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.tck.SpringTxSupportsTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.SpringClassPolicyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.SpringClassPolicyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.SpringRepeatedContextsTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.SpringRepeatedContextsTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.SpringShutdownDrainTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.SpringShutdownDrainTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/mysql/surefire-reports/TEST-run.ratchet.spring.boot.it.mysql.MysqlSchedulerRuntimeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.mysql.MysqlSchedulerRuntimeTest",
+          "minimumExecutedTests": 1
+        }
+      ],
+      "sourceSentinels": [
+        {
+          "kind": "file-exists",
+          "path": "stores/ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobStoreFactory.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa/src/main/java/run/ratchet/spring/boot/autoconfigure/jpa/RatchetJpaAutoConfiguration.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa/src/main/java/run/ratchet/spring/boot/autoconfigure/jpa/RatchetJpaSchemaMigrationInitializer.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mysql/src/test/java/run/ratchet/spring/boot/it/mysql/MysqlDependencyVersionTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mysql/src/test/java/run/ratchet/spring/boot/it/mysql/MysqlTopologyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mysql/src/test/java/run/ratchet/spring/boot/it/mysql/MysqlApplicationEntityTopologyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mysql/src/test/java/run/ratchet/spring/boot/it/mysql/MysqlTransactionTruthTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mysql/src/test/java/run/ratchet/spring/boot/it/mysql/MysqlConcurrencyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mysql/src/test/java/run/ratchet/spring/boot/it/mysql/MysqlMigrationTruthTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mysql/src/test/java/run/ratchet/spring/boot/it/mysql/MysqlNegativeStartupTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/mysql/src/test/java/run/ratchet/spring/boot/it/mysql/MysqlInstantRoundTripTest.java"
+        }
+      ],
+      "conformanceArtifact": {
+        "applicable": true,
+        "name": "spring-boot-mysql-conformance",
+        "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/conformance/mysql",
+        "expectedFiles": [
+          "boot-3.5/tck-api-conformance-report.md",
+          "boot-4.1/tck-api-conformance-report.md"
+        ]
+      },
+      "qualification": {
+        "attestationPath": "integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json",
+        "matrixHashRecord": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-hashes.json",
+        "runtimeDependencyFlavor": "mysql",
+        "topologyGuard": "scripts/test-spring-boot-publication-topology.sh",
+        "coordinates": [
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-parent:pom",
+            "hashSource": {
+              "type": "installed"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-autoconfigure:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-autoconfigure-jpa:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-starter:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          }
+        ]
+      },
+      "dependencyPolicy": {
+        "deniedPatterns": [
+          "^org\\.postgresql:",
+          "^run\\.ratchet:ratchet-store-(postgresql|oracle|sqlserver)$",
+          "^run\\.ratchet:ratchet-store-mongodb$",
+          "^org\\.mongodb:"
+        ],
+        "allowedExceptions": []
+      },
+      "requiredCiJob": "spring-boot-sql-dialects-jvm",
+      "commands": [
+        {
+          "id": "tck-coverage",
+          "type": "script",
+          "interpreter": "python3",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-tck-coverage.py",
+          "arguments": [],
+          "producesTests": false
+        },
+        {
+          "id": "jvm-matrix",
+          "type": "script",
+          "path": "integrations/ratchet-spring-boot/integration-tests/verify-jvm-matrix.sh",
+          "arguments": [
+            "mysql"
+          ],
+          "producesTests": true
+        },
+        {
+          "id": "dependency-graph",
+          "type": "script",
+          "interpreter": "python3",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-runtime-dependency-graph.py",
+          "arguments": [
+            "mysql"
+          ],
+          "producesTests": false
         }
       ]
     },
