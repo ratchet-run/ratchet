@@ -91,7 +91,9 @@
       "packaging": "jar",
       "parentArtifactId": "ratchet-spring-boot-parent",
       "relativePath": "../pom.xml",
-      "requiredQualificationScenarios": [],
+      "requiredQualificationScenarios": [
+        "native-postgresql"
+      ],
       "snapshotEligible": false,
       "centralEligible": false,
       "bomManaged": false,
