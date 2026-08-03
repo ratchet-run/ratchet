@@ -16,11 +16,12 @@ make_fixture() {
   local fixture="$FIXTURES/$name"
 
   mkdir -p \
-    "$fixture/scripts" \
+    "$fixture/scripts/lib" \
     "$fixture/.github/workflows" \
     "$fixture/ratchet-bom" \
     "$fixture/integrations/ratchet-spring-boot"
   cp "$ROOT/scripts/test-spring-boot-publication-topology.sh" "$fixture/scripts/"
+  cp "$ROOT/scripts/lib/maven-repo-local.sh" "$fixture/scripts/lib/"
   cp "$ROOT/pom.xml" "$fixture/pom.xml"
   cp "$ROOT/ratchet-bom/pom.xml" "$fixture/ratchet-bom/pom.xml"
   cp "$ROOT/.github/workflows/release.yml" "$fixture/.github/workflows/release.yml"
