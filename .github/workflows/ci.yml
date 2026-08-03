@@ -692,6 +692,20 @@ jobs:
           path: integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/conformance/oracle
           if-no-files-found: error
 
+      - name: Verify Spring Boot SQL Server dialect compatibility
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        env:
+          RATCHET_MATRIX_JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+        run: integrations/ratchet-spring-boot/integration-tests/verify.sh dialect-sqlserver
+
+      - name: Upload Spring Boot SQL Server conformance reports
+        if: needs.changes.outputs['spring-boot'] != 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: spring-boot-sqlserver-conformance
+          path: integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/conformance/sqlserver
+          if-no-files-found: error
+
   spring-boot-mongodb-jvm:
     # This job is a required status-check dependency, so it remains present on
     # every event. Pull requests outside the Spring dependency surface report
