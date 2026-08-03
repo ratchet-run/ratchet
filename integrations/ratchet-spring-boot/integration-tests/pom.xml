@@ -19,6 +19,17 @@
   <properties>
     <!-- Test infrastructure: never published. -->
     <maven.deploy.skip>true</maven.deploy.skip>
+    <!--
+      Lane test suites only make sense inside the qualification harness: verify.sh
+      pins the consumer JVM (RATCHET_MATRIX_JAVA_HOME), an isolated Maven repo, and
+      always activates boot-3.5 or boot-4.1, which restate the Boot-managed JUnit
+      launcher. A profile-less build (the CI unit-tests and ee11-verify sweeps, plain
+      mvn test) resolves the root's junit-platform-launcher against the Boot-managed
+      engine — the surefire fork dies on NoSuchMethodError — and would run
+      Java-17-pinned, Docker-backed suites on whatever JVM the sweep uses. Skip lane
+      surefire by default; the boot-* profiles turn it back on.
+    -->
+    <ratchet.spring.lane.surefire.skip>true</ratchet.spring.lane.surefire.skip>
   </properties>
 
   <modules>
@@ -45,6 +56,17 @@
   </dependencyManagement>
 
   <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <configuration>
+            <skip>${ratchet.spring.lane.surefire.skip}</skip>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

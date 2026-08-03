@@ -126,6 +126,7 @@
     <profile>
       <id>boot-3.5</id>
       <properties>
+        <ratchet.spring.lane.surefire.skip>false</ratchet.spring.lane.surefire.skip>
         <spring-boot.compatibility.version>${spring-boot35.version}</spring-boot.compatibility.version>
       </properties>
       <dependencyManagement>
@@ -165,6 +166,7 @@
     <profile>
       <id>boot-4.1</id>
       <properties>
+        <ratchet.spring.lane.surefire.skip>false</ratchet.spring.lane.surefire.skip>
         <spring-boot.compatibility.version>${spring-boot41.version}</spring-boot.compatibility.version>
       </properties>
       <dependencyManagement>
