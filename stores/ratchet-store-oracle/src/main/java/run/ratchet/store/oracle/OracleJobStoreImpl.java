@@ -73,6 +73,7 @@ class OracleJobStoreImpl implements OracleJobStore {
   private final MetricsCollector metricsCollector;
   private final RatchetOptions options;
   private EntityManager em;
+  private boolean initialized;
 
   private OracleJobCrudOperations jobs;
   private OracleJobQueryOperations query;
@@ -794,6 +795,13 @@ class OracleJobStoreImpl implements OracleJobStore {
   @PostConstruct
   @Transactional(Transactional.TxType.NOT_SUPPORTED)
   void checkIsolationLevel() {
+    initialize();
+  }
+
+  synchronized void initialize() {
+    if (initialized) {
+      return;
+    }
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
@@ -817,6 +825,7 @@ class OracleJobStoreImpl implements OracleJobStore {
             + " or hibernate.connection.isolation=2 in persistence.xml.",
         options.store().isolationCheckMode());
     initDelegates();
+    initialized = true;
   }
 
   private void initDelegates() {

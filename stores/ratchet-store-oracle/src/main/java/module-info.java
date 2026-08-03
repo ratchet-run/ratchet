@@ -26,7 +26,5 @@ module run.ratchet.store.oracle {
 
   exports run.ratchet.store.oracle;
 
-  opens run.ratchet.store.oracle to
-      jakarta.cdi,
-      jakarta.persistence;
+  opens run.ratchet.store.oracle;
 }
