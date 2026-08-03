@@ -29,9 +29,19 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
   @Override
   public Outcome registerAfterCommit(Runnable action, String failureDescription) {
     try {
-      if (!TransactionSynchronizationManager.isSynchronizationActive()
-          || !TransactionSynchronizationManager.isActualTransactionActive()) {
+      if (!TransactionSynchronizationManager.isActualTransactionActive()) {
         return Outcome.NO_ACTIVE_TRANSACTION;
+      }
+      if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+        // An actual transaction without active synchronization (e.g. inside another
+        // synchronization's afterCompletion callback) cannot register and must not
+        // be treated as "no transaction" — running the action inline would publish
+        // before the surrounding transaction's outcome is known.
+        log.warn(
+            String.format(
+                failureDescription,
+                "transaction is active but synchronization is not available for registration"));
+        return Outcome.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
       }
 
       TransactionSynchronizationManager.registerSynchronization(

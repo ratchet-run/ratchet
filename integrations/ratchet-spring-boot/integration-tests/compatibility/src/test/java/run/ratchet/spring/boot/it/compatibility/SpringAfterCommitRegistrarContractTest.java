@@ -123,6 +123,28 @@ class SpringAfterCommitRegistrarContractTest {
   }
 
   @Test
+  void actualTransactionWithoutSynchronizationDropsTheActionInsteadOfRunningInline() {
+    AtomicBoolean actionRan = new AtomicBoolean();
+    SpringAfterCommitRegistrar registrar = new SpringAfterCommitRegistrar();
+
+    try (MockedStatic<TransactionSynchronizationManager> transactionManager =
+        mockStatic(TransactionSynchronizationManager.class)) {
+      transactionManager
+          .when(TransactionSynchronizationManager::isSynchronizationActive)
+          .thenReturn(false);
+      transactionManager
+          .when(TransactionSynchronizationManager::isActualTransactionActive)
+          .thenReturn(true);
+
+      AfterCommitRegistrar.Outcome outcome =
+          registrar.registerAfterCommit(() -> actionRan.set(true), "registration failed: %s");
+
+      assertEquals(AfterCommitRegistrar.Outcome.ACTIVE_TRANSACTION_REGISTRATION_FAILED, outcome);
+      assertFalse(actionRan.get());
+    }
+  }
+
+  @Test
   void registrationFailureDropsTheAction() {
     AtomicBoolean actionRan = new AtomicBoolean();
     SpringAfterCommitRegistrar registrar = new SpringAfterCommitRegistrar();
