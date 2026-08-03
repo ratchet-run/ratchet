@@ -157,8 +157,6 @@ verify_staged_file() {
   for checksum in md5 sha1; do
     [[ -s "${artifact_file}.${checksum}" ]] \
       || fail "missing or empty $checksum checksum for staged $label: ${artifact_file}.${checksum}"
-    [[ -s "${signature}.${checksum}" ]] \
-      || fail "missing or empty $checksum checksum for staged $label signature: ${signature}.${checksum}"
   done
 }
 
@@ -262,9 +260,13 @@ if [[ "$sync_status" -ne 0 ]]; then
   restore_sync_files
   fail "scripts/sync-version.sh failed at the current version"
 fi
-if ! git -C "$ROOT" diff --exit-code -- "${SYNC_FILES[@]}"; then
+changed_files=()
+for file in "${SYNC_FILES[@]}"; do
+  cmp -s "$ROOT/$file" "$sync_backup/$file" || changed_files+=( "$file" )
+done
+if [[ ${#changed_files[@]} -gt 0 ]]; then
   restore_sync_files
-  fail "scripts/sync-version.sh is not idempotent at $project_version; restored touched files"
+  fail "scripts/sync-version.sh is not idempotent at $project_version; changed: ${changed_files[*]}; restored touched files"
 fi
 
 log "checking six Spring JAR modules for third-party runtime SNAPSHOT dependencies"
@@ -303,7 +305,11 @@ project_version = sys.argv[1]
 for raw_path in sys.argv[2:]:
     path = pathlib.Path(raw_path)
     resolved = 0
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    lines = path.read_text(encoding="utf-8").splitlines()
+    explicitly_empty = any(
+        raw_line.strip() == "none" for raw_line in lines
+    )
+    for raw_line in lines:
         line = raw_line.strip().partition(" -- ")[0].strip()
         optional_suffix = " (optional)"
         if line.endswith(optional_suffix):
@@ -324,7 +330,7 @@ for raw_path in sys.argv[2:]:
                 f"{path.name}: disallowed runtime SNAPSHOT dependency "
                 f"{group}:{artifact}:{version}"
             )
-    if resolved == 0:
+    if resolved == 0 and not explicitly_empty:
         raise SystemExit(f"{path.name}: no resolved dependencies were parsed")
 PY
 

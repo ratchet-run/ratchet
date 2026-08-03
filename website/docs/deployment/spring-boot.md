@@ -137,9 +137,10 @@ version.
 </dependencies>
 ```
 
-`ratchet-spring-boot-starter-mongodb` bundles `ratchet-store-mongodb` and
-`mongodb-driver-sync`; do not add separate copies. Point the starter at the MongoDB database and
-configure the same job-class allowlist used by the SQL flavor.
+`ratchet-spring-boot-starter-mongodb` bundles `ratchet-store-mongodb` and a version-aligned MongoDB
+driver family through `ratchet-bom`; do not add or override individual `org.mongodb` artifacts.
+Point the starter at the MongoDB database and configure the same job-class allowlist used by the
+SQL flavor.
 
 ```properties
 ratchet.mongodb.connection-string=mongodb://localhost:27017
