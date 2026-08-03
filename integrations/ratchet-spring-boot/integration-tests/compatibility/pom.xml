@@ -63,12 +63,32 @@
       <artifactId>spring-boot-starter-web</artifactId>
       <version>${spring-boot.compatibility.version}</version>
       <scope>test</scope>
+      <exclusions>
+        <!--
+          Every declared path into spring-boot-starter must repeat the
+          starter-logging exclusion: Maven mediates spring-boot-starter through
+          the nearest declaration, and an unexcluded test-scope path here
+          reintroduces logback (strong copyleft per the license gate) into the
+          module's compile scope past the ratchet starter's exclusion.
+        -->
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-webflux</artifactId>
       <version>${spring-boot.compatibility.version}</version>
       <scope>test</scope>
+      <exclusions>
+        <!-- Same starter-logging mediation hazard as spring-boot-starter-web above. -->
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.springframework</groupId>

@@ -75,6 +75,19 @@
       <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <!--
+        Test-scope logging provider: the shipped starters exclude
+        spring-boot-starter-logging (logback is strong copyleft per the license
+        gate), which leaves slf4j-api providerless and silences the output that
+        CapturedOutput-based tests assert on. Test scope restores the binding
+        for the suite without returning logback to any shipped scope.
+      -->
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-logging</artifactId>
+      <version>${spring-boot.compatibility.version}</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

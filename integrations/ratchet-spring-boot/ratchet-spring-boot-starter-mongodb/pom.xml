@@ -22,6 +22,17 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter</artifactId>
+      <exclusions>
+        <!--
+          Logback is EPL/LGPL (strong copyleft by the release license gate) and a
+          logging implementation is the application's choice, not this starter's.
+          Boot applications get their logging stack from their own starters.
+        -->
+        <exclusion>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-logging</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>
