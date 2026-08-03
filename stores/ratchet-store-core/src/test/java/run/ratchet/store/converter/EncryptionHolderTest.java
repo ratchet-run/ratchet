@@ -134,6 +134,21 @@ class EncryptionHolderTest {
   }
 
   @Test
+  void tokenInstall_failedValidationLeavesTheTokenUnclaimed() {
+    Object firstOwner = new Object();
+
+    assertThrows(
+        EncryptionConfigurationException.class,
+        () ->
+            EncryptionHolder.install(firstOwner, List.of(), "alg-1", new StubKeyProvider(), true));
+
+    // The failed install must not have claimed the token, so a different owner can install.
+    PayloadEncryption engine = new StubEngine("alg-2");
+    EncryptionHolder.install(new Object(), List.of(engine), "alg-2", new StubKeyProvider(), true);
+    assertSame(engine, EncryptionHolder.writeEngine());
+  }
+
+  @Test
   void tokenDisable_reservesTheSeamUntilItsOwnerUninstalls() {
     Object owner = new Object();
     EncryptionHolder.disable(owner);

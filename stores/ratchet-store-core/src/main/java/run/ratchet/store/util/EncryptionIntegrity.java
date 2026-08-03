@@ -15,7 +15,6 @@
  */
 package run.ratchet.store.util;
 
-import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jboss.logging.Logger;
@@ -47,23 +46,25 @@ public final class EncryptionIntegrity {
 
   private static final Logger log = Logger.getLogger(EncryptionIntegrity.class);
   private static final long WARN_INTERVAL_MS = 60_000L;
+  private static final String OWNER_CONFLICT_MESSAGE =
+      "Encryption-integrity listener is already installed by a different owner";
 
   private static final AtomicLong flaggedButUnframed = new AtomicLong();
   private static volatile long lastWarnAtMs;
   private static volatile Listener listener;
-  private static Object ownerToken;
+  private static final OwnerTokenGuard OWNER = new OwnerTokenGuard();
 
   private EncryptionIntegrity() {}
 
   /** Installs the metrics bridge. Called at container startup; replaced or cleared on shutdown. */
   public static synchronized void setListener(Listener bridge) {
-    ownerToken = null;
+    OWNER.reset();
     listener = bridge;
   }
 
   /** Removes the metrics bridge. Called at container shutdown and between tests. */
   public static synchronized void clearListener() {
-    ownerToken = null;
+    OWNER.reset();
     listener = null;
   }
 
@@ -79,12 +80,7 @@ public final class EncryptionIntegrity {
    * @throws IllegalStateException if another token currently owns the listener seam
    */
   public static synchronized void install(Object ownerToken, Listener bridge) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (EncryptionIntegrity.ownerToken != null && EncryptionIntegrity.ownerToken != ownerToken) {
-      throw new IllegalStateException(
-          "Encryption-integrity listener is already installed by a different owner");
-    }
-    EncryptionIntegrity.ownerToken = ownerToken;
+    OWNER.claim(ownerToken, OWNER_CONFLICT_MESSAGE);
     listener = bridge;
   }
 
@@ -96,10 +92,8 @@ public final class EncryptionIntegrity {
    * @param ownerToken the non-null identity token for the uninstalling runtime
    */
   public static synchronized void uninstall(Object ownerToken) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (EncryptionIntegrity.ownerToken == ownerToken) {
+    if (OWNER.release(ownerToken)) {
       listener = null;
-      EncryptionIntegrity.ownerToken = null;
     }
   }
 

@@ -18,8 +18,8 @@ package run.ratchet.store.converter;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
-import java.util.Objects;
 import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.store.util.OwnerTokenGuard;
 
 /**
  * Static holder that routes JPA {@link jakarta.persistence.AttributeConverter} JSON I/O through the
@@ -39,9 +39,12 @@ import run.ratchet.spi.PayloadSerializer;
  */
 public final class PayloadSerializerHolder {
 
+  private static final String OWNER_CONFLICT_MESSAGE =
+      "Payload serializer is already installed by a different owner";
+
   private static volatile PayloadSerializer delegate;
 
-  private static Object ownerToken;
+  private static final OwnerTokenGuard OWNER = new OwnerTokenGuard();
 
   private static volatile Jsonb fallbackJsonb;
 
@@ -54,7 +57,7 @@ public final class PayloadSerializerHolder {
    * @param serializer the serializer to install; MAY be {@code null} to revert to the fallback
    */
   public static synchronized void set(PayloadSerializer serializer) {
-    ownerToken = null;
+    OWNER.reset();
     delegate = serializer;
   }
 
@@ -70,13 +73,7 @@ public final class PayloadSerializerHolder {
    * @throws IllegalStateException if another token currently owns the holder
    */
   public static synchronized void install(Object ownerToken, PayloadSerializer serializer) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (PayloadSerializerHolder.ownerToken != null
-        && PayloadSerializerHolder.ownerToken != ownerToken) {
-      throw new IllegalStateException(
-          "Payload serializer is already installed by a different owner");
-    }
-    PayloadSerializerHolder.ownerToken = ownerToken;
+    OWNER.claim(ownerToken, OWNER_CONFLICT_MESSAGE);
     delegate = serializer;
   }
 
@@ -88,10 +85,8 @@ public final class PayloadSerializerHolder {
    * @param ownerToken the non-null identity token for the uninstalling runtime
    */
   public static synchronized void uninstall(Object ownerToken) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (PayloadSerializerHolder.ownerToken == ownerToken) {
+    if (OWNER.release(ownerToken)) {
       delegate = null;
-      PayloadSerializerHolder.ownerToken = null;
     }
   }
 

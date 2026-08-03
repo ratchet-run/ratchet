@@ -39,6 +39,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.EncryptionConfigurationException;
+import run.ratchet.ri.core.internal.ReferenceEncryptionFactory;
 import run.ratchet.spi.EncryptionContext;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.MetricsCollector;

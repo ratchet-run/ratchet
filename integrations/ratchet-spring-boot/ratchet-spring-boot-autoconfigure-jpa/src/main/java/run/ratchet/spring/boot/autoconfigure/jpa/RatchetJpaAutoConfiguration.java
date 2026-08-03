@@ -391,6 +391,38 @@ public class RatchetJpaAutoConfiguration {
     return Arrays.stream(names).sorted().toList();
   }
 
+  @FunctionalInterface
+  private interface StoreFactory<S> {
+    S create(
+        RatchetEntityManagerProvider emProvider, MetricsCollector metrics, RatchetOptions options);
+  }
+
+  private static <S> S createTransactionalStore(
+      Class<S> storeInterface,
+      JpaTopology topology,
+      ObjectProvider<MetricsCollector> metricsCollectorProvider,
+      ObjectProvider<RatchetOptions> optionsProvider,
+      StoreFactory<S> factory) {
+    EntityManager sharedEntityManager =
+        SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
+    RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
+    MetricsCollector metricsCollector =
+        metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
+    RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
+    S store = factory.create(entityManagerProvider, metricsCollector, options);
+
+    // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
+    // annotated implementation behind this factory method. Build a deterministic JDK proxy.
+    ProxyFactory proxyFactory = new ProxyFactory();
+    proxyFactory.setTarget(store);
+    proxyFactory.setInterfaces(storeInterface);
+    proxyFactory.setProxyTargetClass(false);
+    TransactionManager transactionManager = topology.transactionManager();
+    proxyFactory.addAdvice(
+        new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource()));
+    return storeInterface.cast(proxyFactory.getProxy());
+  }
+
   record JpaTopology(
       String entityManagerFactoryName,
       EntityManagerFactory entityManagerFactory,
@@ -456,26 +488,12 @@ public class RatchetJpaAutoConfiguration {
         ObjectProvider<MetricsCollector> metricsCollectorProvider,
         ObjectProvider<RatchetOptions> optionsProvider) {
       Objects.requireNonNull(migrationInitializer, "migrationInitializer");
-      EntityManager sharedEntityManager =
-          SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
-      RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
-      MetricsCollector metricsCollector =
-          metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
-      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
-      PostgresqlJobStore store =
-          PostgresqlJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
-
-      // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
-      // annotated implementation behind this factory method. Build a deterministic JDK proxy.
-      ProxyFactory proxyFactory = new ProxyFactory();
-      proxyFactory.setTarget(store);
-      proxyFactory.setInterfaces(PostgresqlJobStore.class);
-      proxyFactory.setProxyTargetClass(false);
-      TransactionManager transactionManager = topology.transactionManager();
-      proxyFactory.addAdvice(
-          new TransactionInterceptor(
-              transactionManager, new AnnotationTransactionAttributeSource()));
-      return (PostgresqlJobStore) proxyFactory.getProxy();
+      return createTransactionalStore(
+          PostgresqlJobStore.class,
+          topology,
+          metricsCollectorProvider,
+          optionsProvider,
+          PostgresqlJobStoreFactory::create);
     }
   }
 
@@ -506,26 +524,12 @@ public class RatchetJpaAutoConfiguration {
         ObjectProvider<MetricsCollector> metricsCollectorProvider,
         ObjectProvider<RatchetOptions> optionsProvider) {
       Objects.requireNonNull(migrationInitializer, "migrationInitializer");
-      EntityManager sharedEntityManager =
-          SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
-      RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
-      MetricsCollector metricsCollector =
-          metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
-      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
-      MysqlJobStore store =
-          MysqlJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
-
-      // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
-      // annotated implementation behind this factory method. Build a deterministic JDK proxy.
-      ProxyFactory proxyFactory = new ProxyFactory();
-      proxyFactory.setTarget(store);
-      proxyFactory.setInterfaces(MysqlJobStore.class);
-      proxyFactory.setProxyTargetClass(false);
-      TransactionManager transactionManager = topology.transactionManager();
-      proxyFactory.addAdvice(
-          new TransactionInterceptor(
-              transactionManager, new AnnotationTransactionAttributeSource()));
-      return (MysqlJobStore) proxyFactory.getProxy();
+      return createTransactionalStore(
+          MysqlJobStore.class,
+          topology,
+          metricsCollectorProvider,
+          optionsProvider,
+          MysqlJobStoreFactory::create);
     }
   }
 
@@ -556,26 +560,12 @@ public class RatchetJpaAutoConfiguration {
         ObjectProvider<MetricsCollector> metricsCollectorProvider,
         ObjectProvider<RatchetOptions> optionsProvider) {
       Objects.requireNonNull(migrationInitializer, "migrationInitializer");
-      EntityManager sharedEntityManager =
-          SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
-      RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
-      MetricsCollector metricsCollector =
-          metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
-      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
-      OracleJobStore store =
-          OracleJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
-
-      // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
-      // annotated implementation behind this factory method. Build a deterministic JDK proxy.
-      ProxyFactory proxyFactory = new ProxyFactory();
-      proxyFactory.setTarget(store);
-      proxyFactory.setInterfaces(OracleJobStore.class);
-      proxyFactory.setProxyTargetClass(false);
-      TransactionManager transactionManager = topology.transactionManager();
-      proxyFactory.addAdvice(
-          new TransactionInterceptor(
-              transactionManager, new AnnotationTransactionAttributeSource()));
-      return (OracleJobStore) proxyFactory.getProxy();
+      return createTransactionalStore(
+          OracleJobStore.class,
+          topology,
+          metricsCollectorProvider,
+          optionsProvider,
+          OracleJobStoreFactory::create);
     }
   }
 
@@ -606,26 +596,12 @@ public class RatchetJpaAutoConfiguration {
         ObjectProvider<MetricsCollector> metricsCollectorProvider,
         ObjectProvider<RatchetOptions> optionsProvider) {
       Objects.requireNonNull(migrationInitializer, "migrationInitializer");
-      EntityManager sharedEntityManager =
-          SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
-      RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
-      MetricsCollector metricsCollector =
-          metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
-      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
-      SqlserverJobStore store =
-          SqlserverJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
-
-      // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
-      // annotated implementation behind this factory method. Build a deterministic JDK proxy.
-      ProxyFactory proxyFactory = new ProxyFactory();
-      proxyFactory.setTarget(store);
-      proxyFactory.setInterfaces(SqlserverJobStore.class);
-      proxyFactory.setProxyTargetClass(false);
-      TransactionManager transactionManager = topology.transactionManager();
-      proxyFactory.addAdvice(
-          new TransactionInterceptor(
-              transactionManager, new AnnotationTransactionAttributeSource()));
-      return (SqlserverJobStore) proxyFactory.getProxy();
+      return createTransactionalStore(
+          SqlserverJobStore.class,
+          topology,
+          metricsCollectorProvider,
+          optionsProvider,
+          SqlserverJobStoreFactory::create);
     }
   }
 }

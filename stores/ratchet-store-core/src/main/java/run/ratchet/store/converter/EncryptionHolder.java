@@ -18,11 +18,11 @@ package run.ratchet.store.converter;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import run.ratchet.api.exception.EncryptionConfigurationException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.PayloadEncryption;
+import run.ratchet.store.util.OwnerTokenGuard;
 
 /**
  * Static holder that resolves the active payload-encryption engines and key provider for the row
@@ -56,9 +56,11 @@ public final class EncryptionHolder {
       boolean globalEnabled) {}
 
   private static final State DISABLED = new State(Map.of(), null, null, false, false);
+  private static final String OWNER_CONFLICT_MESSAGE =
+      "Encryption is already installed by a different owner";
 
   private static volatile State state = DISABLED;
-  private static Object ownerToken;
+  private static final OwnerTokenGuard OWNER = new OwnerTokenGuard();
 
   private EncryptionHolder() {}
 
@@ -82,7 +84,7 @@ public final class EncryptionHolder {
       KeyProvider keyProvider,
       boolean globalEnabled) {
     state = createState(engines, writeAlgorithmId, keyProvider, globalEnabled);
-    ownerToken = null;
+    OWNER.reset();
   }
 
   /**
@@ -106,13 +108,11 @@ public final class EncryptionHolder {
       String writeAlgorithmId,
       KeyProvider keyProvider,
       boolean globalEnabled) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (EncryptionHolder.ownerToken != null && EncryptionHolder.ownerToken != ownerToken) {
-      throw new IllegalStateException("Encryption is already installed by a different owner");
-    }
-    State installed = createState(engines, writeAlgorithmId, keyProvider, globalEnabled);
-    EncryptionHolder.ownerToken = ownerToken;
-    state = installed;
+    state =
+        OWNER.claim(
+            ownerToken,
+            OWNER_CONFLICT_MESSAGE,
+            () -> createState(engines, writeAlgorithmId, keyProvider, globalEnabled));
   }
 
   private static State createState(
@@ -150,7 +150,7 @@ public final class EncryptionHolder {
 
   /** Reverts to the disabled state. Called at container shutdown and between tests. */
   public static synchronized void disable() {
-    ownerToken = null;
+    OWNER.reset();
     state = DISABLED;
   }
 
@@ -164,11 +164,7 @@ public final class EncryptionHolder {
    * @throws IllegalStateException if another token currently owns the holder
    */
   public static synchronized void disable(Object ownerToken) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (EncryptionHolder.ownerToken != null && EncryptionHolder.ownerToken != ownerToken) {
-      throw new IllegalStateException("Encryption is already installed by a different owner");
-    }
-    EncryptionHolder.ownerToken = ownerToken;
+    OWNER.claim(ownerToken, OWNER_CONFLICT_MESSAGE);
     state = DISABLED;
   }
 
@@ -180,10 +176,8 @@ public final class EncryptionHolder {
    * @param ownerToken the non-null identity token for the uninstalling runtime
    */
   public static synchronized void uninstall(Object ownerToken) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (EncryptionHolder.ownerToken == ownerToken) {
+    if (OWNER.release(ownerToken)) {
       state = DISABLED;
-      EncryptionHolder.ownerToken = null;
     }
   }
 

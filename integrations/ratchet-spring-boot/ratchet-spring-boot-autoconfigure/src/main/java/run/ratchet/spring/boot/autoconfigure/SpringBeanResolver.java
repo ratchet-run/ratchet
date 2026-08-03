@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
@@ -30,6 +31,7 @@ import run.ratchet.spi.BeanResolver;
 public final class SpringBeanResolver implements BeanResolver {
 
   private final ConfigurableListableBeanFactory beanFactory;
+  private final ConcurrentHashMap<Class<?>, String> beanNameCache = new ConcurrentHashMap<>();
 
   public SpringBeanResolver(ConfigurableListableBeanFactory beanFactory) {
     this.beanFactory = Objects.requireNonNull(beanFactory, "beanFactory");
@@ -64,7 +66,7 @@ public final class SpringBeanResolver implements BeanResolver {
   }
 
   private <T> ResolvedBean resolveBean(Class<T> type) {
-    String beanName = selectBeanName(beanFactory, type);
+    String beanName = beanNameCache.computeIfAbsent(type, t -> selectBeanName(beanFactory, t));
     return new ResolvedBean(beanName, beanFactory.getBean(beanName));
   }
 

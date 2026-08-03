@@ -15,7 +15,6 @@
  */
 package run.ratchet.store.util;
 
-import java.util.Objects;
 import run.ratchet.spi.PayloadMaskingPolicy;
 
 /**
@@ -32,10 +31,12 @@ import run.ratchet.spi.PayloadMaskingPolicy;
 public final class PayloadMaskingPolicyHolder {
 
   private static final PayloadMaskingPolicy DEFAULT = new DefaultPayloadMaskingPolicy();
+  private static final String OWNER_CONFLICT_MESSAGE =
+      "Payload masking policy is already installed by a different owner";
 
   private static volatile PayloadMaskingPolicy delegate;
 
-  private static Object ownerToken;
+  private static final OwnerTokenGuard OWNER = new OwnerTokenGuard();
 
   private PayloadMaskingPolicyHolder() {}
 
@@ -46,7 +47,7 @@ public final class PayloadMaskingPolicyHolder {
    * @param policy the policy to install; MAY be {@code null} to revert to the built-in default
    */
   public static synchronized void set(PayloadMaskingPolicy policy) {
-    ownerToken = null;
+    OWNER.reset();
     delegate = policy;
   }
 
@@ -62,13 +63,7 @@ public final class PayloadMaskingPolicyHolder {
    * @throws IllegalStateException if another token currently owns the holder
    */
   public static synchronized void install(Object ownerToken, PayloadMaskingPolicy policy) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (PayloadMaskingPolicyHolder.ownerToken != null
-        && PayloadMaskingPolicyHolder.ownerToken != ownerToken) {
-      throw new IllegalStateException(
-          "Payload masking policy is already installed by a different owner");
-    }
-    PayloadMaskingPolicyHolder.ownerToken = ownerToken;
+    OWNER.claim(ownerToken, OWNER_CONFLICT_MESSAGE);
     delegate = policy;
   }
 
@@ -80,10 +75,8 @@ public final class PayloadMaskingPolicyHolder {
    * @param ownerToken the non-null identity token for the uninstalling runtime
    */
   public static synchronized void uninstall(Object ownerToken) {
-    Objects.requireNonNull(ownerToken, "ownerToken");
-    if (PayloadMaskingPolicyHolder.ownerToken == ownerToken) {
+    if (OWNER.release(ownerToken)) {
       delegate = null;
-      PayloadMaskingPolicyHolder.ownerToken = null;
     }
   }
 

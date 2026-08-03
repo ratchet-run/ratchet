@@ -16,39 +16,9 @@ for command in git jq mvn python3 gpg; do
     || fail "required command is not available: $command"
 done
 
-MAVEN_REPO_ARGUMENT=""
-for argument in "$@"; do
-  case "$argument" in
-    -Dmaven.repo.local=*)
-      candidate="${argument#-Dmaven.repo.local=}"
-      [[ -n "$candidate" ]] || fail "maven.repo.local must not be empty"
-      [[ "$candidate" == /* ]] \
-        || fail "maven.repo.local must be an absolute path: $candidate"
-      if [[ -n "$MAVEN_REPO_ARGUMENT" && "$MAVEN_REPO_ARGUMENT" != "$candidate" ]]; then
-        fail "conflicting maven.repo.local arguments"
-      fi
-      MAVEN_REPO_ARGUMENT="$candidate"
-      ;;
-    *)
-      fail "unexpected argument: $argument"
-      ;;
-  esac
-done
-
-if [[ -n "${MAVEN_REPO_LOCAL:-}" ]]; then
-  [[ "$MAVEN_REPO_LOCAL" == /* ]] \
-    || fail "MAVEN_REPO_LOCAL must be an absolute path: $MAVEN_REPO_LOCAL"
-  if [[ -n "$MAVEN_REPO_ARGUMENT" && "$MAVEN_REPO_ARGUMENT" != "$MAVEN_REPO_LOCAL" ]]; then
-    fail "MAVEN_REPO_LOCAL does not match the maven.repo.local argument"
-  fi
-  MAVEN_REPO_ARGUMENT="$MAVEN_REPO_LOCAL"
-fi
-
-if [[ -n "$MAVEN_REPO_ARGUMENT" \
-      && -n "${HOME:-}" \
-      && "$MAVEN_REPO_ARGUMENT" == "${HOME}/.m2/repository" ]]; then
-  fail "refusing to use the shared Maven repository: $MAVEN_REPO_ARGUMENT"
-fi
+# shellcheck source=lib/maven-repo-local.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/maven-repo-local.sh"
+resolve_maven_repo_local "$@"
 
 [[ -n "$MAVEN_REPO_ARGUMENT" ]] || fail "maven.repo.local is required"
 repo_property="-Dmaven.repo.local=$MAVEN_REPO_ARGUMENT"
