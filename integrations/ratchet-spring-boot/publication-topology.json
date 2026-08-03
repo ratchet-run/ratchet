@@ -1,5 +1,5 @@
 {
-  "releaseReady": false,
+  "releaseReady": true,
   "coordinates": [
     {
       "path": "integrations/ratchet-spring-boot",
@@ -13,8 +13,8 @@
         "dialect-oracle",
         "dialect-sqlserver"
       ],
-      "snapshotEligible": false,
-      "centralEligible": false,
+      "snapshotEligible": true,
+      "centralEligible": true,
       "bomManaged": false,
       "releaseInventory": false
     },
@@ -30,10 +30,10 @@
         "dialect-oracle",
         "dialect-sqlserver"
       ],
-      "snapshotEligible": false,
-      "centralEligible": false,
-      "bomManaged": false,
-      "releaseInventory": false
+      "snapshotEligible": true,
+      "centralEligible": true,
+      "bomManaged": true,
+      "releaseInventory": true
     },
     {
       "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa",
@@ -47,10 +47,10 @@
         "dialect-oracle",
         "dialect-sqlserver"
       ],
-      "snapshotEligible": false,
-      "centralEligible": false,
-      "bomManaged": false,
-      "releaseInventory": false
+      "snapshotEligible": true,
+      "centralEligible": true,
+      "bomManaged": true,
+      "releaseInventory": true
     },
     {
       "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-starter",
@@ -64,10 +64,10 @@
         "dialect-oracle",
         "dialect-sqlserver"
       ],
-      "snapshotEligible": false,
-      "centralEligible": false,
-      "bomManaged": false,
-      "releaseInventory": false
+      "snapshotEligible": true,
+      "centralEligible": true,
+      "bomManaged": true,
+      "releaseInventory": true
     },
     {
       "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb",
@@ -78,10 +78,10 @@
       "requiredQualificationScenarios": [
         "mongodb-runtime"
       ],
-      "snapshotEligible": false,
-      "centralEligible": false,
-      "bomManaged": false,
-      "releaseInventory": false
+      "snapshotEligible": true,
+      "centralEligible": true,
+      "bomManaged": true,
+      "releaseInventory": true
     },
     {
       "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb",
@@ -92,10 +92,10 @@
       "requiredQualificationScenarios": [
         "mongodb-runtime"
       ],
-      "snapshotEligible": false,
-      "centralEligible": false,
-      "bomManaged": false,
-      "releaseInventory": false
+      "snapshotEligible": true,
+      "centralEligible": true,
+      "bomManaged": true,
+      "releaseInventory": true
     },
     {
       "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-aot-spring7",
@@ -106,10 +106,10 @@
       "requiredQualificationScenarios": [
         "native-postgresql"
       ],
-      "snapshotEligible": false,
-      "centralEligible": false,
-      "bomManaged": false,
-      "releaseInventory": false
+      "snapshotEligible": true,
+      "centralEligible": true,
+      "bomManaged": true,
+      "releaseInventory": true
     },
     {
       "path": "integrations/ratchet-spring-boot/integration-tests",

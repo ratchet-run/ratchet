@@ -988,15 +988,6 @@
                 <excludeArtifact>ratchet-spring-boot-it-aot-preflight</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-native-postgresql</excludeArtifact>
                 <excludeArtifact>ratchet-quarkus-integration-tests</excludeArtifact>
-                <!-- Spring Boot production artifacts are temporarily excluded until the
-                     release-candidate gate. -->
-                <excludeArtifact>ratchet-spring-boot-parent</excludeArtifact>
-                <excludeArtifact>ratchet-spring-boot-autoconfigure</excludeArtifact>
-                <excludeArtifact>ratchet-spring-boot-autoconfigure-jpa</excludeArtifact>
-                <excludeArtifact>ratchet-spring-boot-starter</excludeArtifact>
-                <excludeArtifact>ratchet-spring-boot-autoconfigure-mongodb</excludeArtifact>
-                <excludeArtifact>ratchet-spring-boot-starter-mongodb</excludeArtifact>
-                <excludeArtifact>ratchet-spring-boot-aot-spring7</excludeArtifact>
               </excludeArtifacts>
             </configuration>
           </plugin>

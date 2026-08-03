@@ -16,8 +16,6 @@
   <description>MongoDB auto-configuration for Ratchet Spring Boot applications</description>
 
   <properties>
-    <!-- Temporarily unpublished until the Spring release-candidate gate. -->
-    <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
 
   <dependencies>

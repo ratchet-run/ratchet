@@ -133,6 +133,37 @@
                 <artifactId>ratchet-quarkus-mongodb-deployment</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <!-- Spring Boot integration artifacts. -->
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-autoconfigure</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-autoconfigure-jpa</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-autoconfigure-mongodb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-starter-mongodb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-aot-spring7</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <!--
               TCK submodules. The ratchet-tck aggregator (pom-packaging) is intentionally NOT in
               the BOM — pom-packaging artifacts are not useful as managed deps for consumers.

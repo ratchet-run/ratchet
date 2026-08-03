@@ -76,6 +76,11 @@ jobs:
 
       - uses: actions/setup-java@v5
         with:
+          java-version: '17'
+          distribution: temurin
+
+      - uses: actions/setup-java@v5
+        with:
           java-version: '21'
           distribution: temurin
           cache: maven
@@ -111,6 +116,42 @@ jobs:
             echo "RELEASE_TAG=${RELEASE_TAG}"
           } >> "$GITHUB_ENV"
           echo "Releasing ${RELEASE_VERSION}; next development version ${NEXT_VERSION}"
+
+      - name: Download Spring Boot PostgreSQL conformance evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: spring-boot-postgresql-conformance
+          path: ${{ runner.temp }}/spring-boot-rc-evidence/spring-boot-postgresql-conformance
+
+      - name: Download Spring Boot MongoDB conformance evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: spring-boot-mongodb-conformance
+          path: ${{ runner.temp }}/spring-boot-rc-evidence/spring-boot-mongodb-conformance
+
+      - name: Download Spring Boot MySQL conformance evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: spring-boot-mysql-conformance
+          path: ${{ runner.temp }}/spring-boot-rc-evidence/spring-boot-mysql-conformance
+
+      - name: Download Spring Boot Oracle conformance evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: spring-boot-oracle-conformance
+          path: ${{ runner.temp }}/spring-boot-rc-evidence/spring-boot-oracle-conformance
+
+      - name: Download Spring Boot SQL Server conformance evidence
+        uses: actions/download-artifact@v7
+        with:
+          name: spring-boot-sqlserver-conformance
+          path: ${{ runner.temp }}/spring-boot-rc-evidence/spring-boot-sqlserver-conformance
+
+      - name: Release-candidate verification (non-publishing)
+        env:
+          RATCHET_MATRIX_JAVA_HOME: ${{ env.JAVA_HOME_17_X64 }}
+          RATCHET_SPRING_BOOT_RC_EVIDENCE_DIR: ${{ runner.temp }}/spring-boot-rc-evidence
+        run: integrations/ratchet-spring-boot/integration-tests/verify.sh release-candidate
 
       - name: Set release version, build, sign, and deploy to Maven Central
         run: |
@@ -166,6 +207,17 @@ jobs:
             mongodb:ratchet-quarkus-mongodb \
             mongodb-deployment:ratchet-quarkus-mongodb-deployment; do
             JAR_PATHS="$JAR_PATHS integrations/ratchet-quarkus/${entry}"
+          done
+          # These six are the Spring Boot production JARs. Do not spell the parent
+          # artifact ID anywhere in this workflow: the publication-topology guard
+          # scrapes artifact-like tokens from the entire file as release inventory.
+          for m in ratchet-spring-boot-autoconfigure \
+                   ratchet-spring-boot-autoconfigure-jpa \
+                   ratchet-spring-boot-starter \
+                   ratchet-spring-boot-autoconfigure-mongodb \
+                   ratchet-spring-boot-starter-mongodb \
+                   ratchet-spring-boot-aot-spring7; do
+            JAR_PATHS="$JAR_PATHS integrations/ratchet-spring-boot/${m}:${m}"
           done
           for m in util store api jakarta coordinator; do
             JAR_PATHS="$JAR_PATHS testing/ratchet-tck/${m}:ratchet-tck-${m}"

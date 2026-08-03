@@ -38,6 +38,75 @@ make_fixture() {
       | LC_ALL=C sort
   )
 
+  # Direct fixture callers exercise the release-ineligible state, while
+  # make_release_ready_fixture applies the atomic flip below. Once the real
+  # tree is release-ready, reverse that flip in the copy so both states remain
+  # covered instead of inheriting whichever state the checkout happens to use.
+  if jq -e '.releaseReady == true' \
+      "$fixture/integrations/ratchet-spring-boot/publication-topology.json" \
+      >/dev/null; then
+    jq '
+      .releaseReady = false
+      | .coordinates |= map(
+          .snapshotEligible = false
+          | .centralEligible = false
+          | .bomManaged = false
+          | .releaseInventory = false
+        )
+    ' "$fixture/integrations/ratchet-spring-boot/publication-topology.json" \
+      > "$fixture/topology.tmp"
+    mv \
+      "$fixture/topology.tmp" \
+      "$fixture/integrations/ratchet-spring-boot/publication-topology.json"
+
+    for path in \
+      integrations/ratchet-spring-boot \
+      integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure \
+      integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa \
+      integrations/ratchet-spring-boot/ratchet-spring-boot-starter \
+      integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb \
+      integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb \
+      integrations/ratchet-spring-boot/ratchet-spring-boot-aot-spring7; do
+      perl -0pi -e '
+        s{(<properties>)}{$1
+    <!-- Temporarily unpublished until the Spring release-candidate gate. -->
+    <maven.deploy.skip>true</maven.deploy.skip>}
+      ' "$fixture/$path/pom.xml"
+    done
+
+    perl -0pi -e '
+      s{(\n\s*</excludeArtifacts>)}{
+                <excludeArtifact>ratchet-spring-boot-parent</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-autoconfigure</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-autoconfigure-jpa</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-starter</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-autoconfigure-mongodb</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-starter-mongodb</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-aot-spring7</excludeArtifact>$1
+      }x
+    ' "$fixture/pom.xml"
+
+    perl -0pi -e '
+      s{\s*<!--\s*Spring\ Boot\ integration\ artifacts\.\s*-->}{}x;
+      s{
+        \s*<dependency>\s*
+          <groupId>run\.ratchet</groupId>\s*
+          <artifactId>ratchet-spring-boot-
+            (?:autoconfigure(?:-jpa|-mongodb)?|starter(?:-mongodb)?|aot-spring7)
+          </artifactId>\s*
+          <version>\$\{project\.version\}</version>\s*
+        </dependency>
+      }{}gx
+    ' "$fixture/ratchet-bom/pom.xml"
+
+    # The ineligible-state guard rejects any reference to the Spring tree,
+    # including the verifier path outside JAR_PATHS. Neutralize only the copied
+    # workflow; individual fixtures add real tokens back for their assertions.
+    perl -0pi -e \
+      's{ratchet-spring-boot}{fixture-spring-boot}g' \
+      "$fixture/.github/workflows/release.yml"
+  fi
+
   printf '%s\n' "$fixture"
 }
 

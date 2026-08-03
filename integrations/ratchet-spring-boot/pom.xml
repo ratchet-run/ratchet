@@ -19,8 +19,6 @@
   <properties>
     <spring-boot35.version>3.5.16</spring-boot35.version>
     <spring-boot41.version>4.1.0</spring-boot41.version>
-    <!-- Temporarily unpublished until the Spring release-candidate gate. -->
-    <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
 
   <modules>
