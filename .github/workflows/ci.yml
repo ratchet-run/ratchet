@@ -244,7 +244,13 @@ jobs:
         # included) in all 25 cells is pure redundancy — the unit-tests job
         # already runs them once. The pom ignores -Dsurefire.skip, hence the
         # no-match pattern; failsafe filters on -Dit.test, so the ITs still run.
-        run: timeout --kill-after=60 45m mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -Dtest=ZZZ_NoMatch -Dsurefire.failIfNoSpecifiedTests=false -pl :ratchet-testsuite,:ratchet-coverage -am
+        #
+        # install (not verify): the testsuite's ShrinkWrap resolver reads
+        # run.ratchet snapshots from ~/.m2/repository, which the actions cache
+        # seeds from a PREVIOUS run — verify never refreshes it, so deployments
+        # carry stale jars whenever the API changes. install puts this run's
+        # upstream modules into the local repo before the testsuite ITs deploy.
+        run: timeout --kill-after=60 45m mvn install -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -Dtest=ZZZ_NoMatch -Dsurefire.failIfNoSpecifiedTests=false -pl :ratchet-testsuite,:ratchet-coverage -am
       - name: Thread-dump surviving JVMs
         if: failure()
         run: |
