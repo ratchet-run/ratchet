@@ -385,10 +385,10 @@ if qualification is not None:
             f"scenario {scenario_name}.qualification.topologyGuard must be "
             f"{relative_to_root(expected_topology_guard)}"
         )
-    if runtime_dependency_flavor not in {"postgresql", "mongodb", "mysql"}:
+    if runtime_dependency_flavor not in {"postgresql", "mongodb", "mysql", "oracle"}:
         fail(
             f"scenario {scenario_name}.qualification."
-            "runtimeDependencyFlavor must be postgresql, mongodb, or mysql"
+            "runtimeDependencyFlavor must be postgresql, mongodb, mysql, or oracle"
         )
 
     coordinate_entries = require_list(

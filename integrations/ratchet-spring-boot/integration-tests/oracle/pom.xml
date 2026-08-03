@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-spring-boot-integration-tests</artifactId>
+    <version>0.3.2-SNAPSHOT</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>ratchet-spring-boot-it-oracle</artifactId>
+  <name>Ratchet :: Spring Boot :: Oracle Integration Tests</name>
+  <description>Oracle JPA integration tests across supported Spring Boot lines</description>
+
+  <properties>
+    <spring-boot.compatibility.version>${spring-boot35.version}</spring-boot.compatibility.version>
+    <!-- Test infrastructure: never published. -->
+    <maven.deploy.skip>true</maven.deploy.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-spring-boot-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-oracle</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.oracle.database.jdbc</groupId>
+      <artifactId>ojdbc11</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-tck-store</artifactId>
+      <version>${project.version}</version>
+      <type>test-jar</type>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-oracle-free</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-test</artifactId>
+      <version>${spring-boot.compatibility.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.eclipse</groupId>
+      <artifactId>yasson</artifactId>
+      <version>3.0.4</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>write-oracle-runtime-dependency-tree</id>
+            <phase>generate-test-resources</phase>
+            <goals>
+              <goal>tree</goal>
+            </goals>
+            <configuration>
+              <appendOutput>false</appendOutput>
+              <outputFile>${project.build.directory}/runtime-dependency-tree.json</outputFile>
+              <outputType>json</outputType>
+              <scope>runtime</scope>
+              <verbose>true</verbose>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <systemPropertyVariables>
+            <ratchet.tck.runtime.name>SpringRatchetTckRuntime</ratchet.tck.runtime.name>
+          </systemPropertyVariables>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Boot 3.5's Hibernate and Spring Data JPA declarations otherwise diverge. -->
+      <dependency>
+        <groupId>org.antlr</groupId>
+        <artifactId>antlr4-runtime</artifactId>
+        <version>4.13.2</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <profiles>
+    <profile>
+      <id>boot-3.5</id>
+      <properties>
+        <spring-boot.compatibility.version>${spring-boot35.version}</spring-boot.compatibility.version>
+      </properties>
+      <dependencyManagement>
+        <dependencies>
+          <!--
+            The root pom manages junit-platform-launcher directly (for the archunit/arquillian
+            modules), and that inherited entry outranks Boot 3.5's imported junit-bom, which
+            otherwise manages junit-platform-launcher together with the rest of the JUnit 5.12.2
+            line. Left alone, this lane resolves junit-platform-launcher:1.14.4 against
+            junit-platform-engine:1.12.2 and the surefire fork fails with NoSuchMethodError on
+            CloseAction.closeAutoCloseables(). Restate the launcher at Boot 3.5's managed version
+            to keep the whole org.junit* set consistent.
+          -->
+          <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <version>1.12.2</version>
+          </dependency>
+          <!-- Keep Testcontainers ahead of Boot 3.5's managed 1.21.4 line. -->
+          <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-bom</artifactId>
+            <version>${testcontainers.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+          <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>${spring-boot.compatibility.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+        </dependencies>
+      </dependencyManagement>
+    </profile>
+    <profile>
+      <id>boot-4.1</id>
+      <properties>
+        <spring-boot.compatibility.version>${spring-boot41.version}</spring-boot.compatibility.version>
+      </properties>
+      <dependencyManagement>
+        <dependencies>
+          <!--
+            The root pom manages hibernate-core at Boot 3.5's line with test scope for the
+            store modules; that inherited entry outranks the imported Boot 4.1 BOM, so this
+            lane must restate Boot 4.1's Hibernate version (and drop the scope override) or
+            Boot 4.1's Hibernate auto-configuration fails on Hibernate 7-only classes.
+          -->
+          <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-core</artifactId>
+            <version>7.4.1.Final</version>
+          </dependency>
+          <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <version>3.2.0</version>
+          </dependency>
+          <!--
+            Same root-vs-import precedence issue as the boot-3.5 profile above, but Boot 4.1's
+            imported junit-bom manages the unified JUnit 6.0.3 line, so the root's
+            junit-platform-launcher:1.14.4 pin here mismatches junit-platform-engine:6.0.3
+            instead. Restate the launcher at Boot 4.1's managed version.
+          -->
+          <dependency>
+            <groupId>org.junit.platform</groupId>
+            <artifactId>junit-platform-launcher</artifactId>
+            <version>6.0.3</version>
+          </dependency>
+          <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers-bom</artifactId>
+            <version>${testcontainers.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+          <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-dependencies</artifactId>
+            <version>${spring-boot.compatibility.version}</version>
+            <type>pom</type>
+            <scope>import</scope>
+          </dependency>
+        </dependencies>
+      </dependencyManagement>
+    </profile>
+  </profiles>
+</project>

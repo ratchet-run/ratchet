@@ -1122,6 +1122,7 @@
       "dependencyPolicy": {
         "deniedPatterns": [
           "^com\\.mysql:",
+          "^com\\.oracle\\.database",
           "^run\\.ratchet:ratchet-store-(mysql|oracle|sqlserver)$",
           "^run\\.ratchet:ratchet-store-mongodb$",
           "^org\\.mongodb:"
@@ -1927,6 +1928,7 @@
       "dependencyPolicy": {
         "deniedPatterns": [
           "^org\\.postgresql:",
+          "^com\\.oracle\\.database",
           "^run\\.ratchet:ratchet-store-(postgresql|oracle|sqlserver)$",
           "^run\\.ratchet:ratchet-store-mongodb$",
           "^org\\.mongodb:"
@@ -1959,6 +1961,812 @@
           "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-runtime-dependency-graph.py",
           "arguments": [
             "mysql"
+          ],
+          "producesTests": false
+        }
+      ]
+    },
+    "dialect-oracle": {
+      "bootLanes": [
+        "boot-3.5",
+        "boot-4.1"
+      ],
+      "database": "oracle",
+      "sharedTckContracts": [
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBatchRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBroadcastSignalContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkCancelEventContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBulkRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractBusinessKeyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractDelayedSchedulingContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractExclusiveWorkflowContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractIdempotencyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobAuthorizationContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobCancelContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobControlReturnContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobLifecycleContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobQueryDenialContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractJobRetryContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadEncryptionEngineContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractPayloadSizeContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractResilienceStrategyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractRetryPolicyContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalDecisionContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSignalPayloadContract",
+        "ratchet-tck-api:run.ratchet.tck.api.AbstractSimpleWorkflowContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxDlqOrderContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxEnqueueContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxNotSupportedContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiredContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxRequiresNewContract",
+        "ratchet-tck-api:run.ratchet.tck.api.transaction.AbstractTxSupportsContract"
+      ],
+      "expectedReports": [
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleDependencyVersionTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleDependencyVersionTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleApplicationEntityTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleApplicationEntityTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleTransactionTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleTransactionTruthTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleConcurrencyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleConcurrencyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleMigrationTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleMigrationTruthTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleNegativeStartupTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleNegativeStartupTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleInstantRoundTripTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleInstantRoundTripTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBatchRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBatchRetryTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBroadcastSignalTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBroadcastSignalTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBulkCancelEventTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBulkCancelEventTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBulkRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBulkRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBusinessKeyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBusinessKeyTckTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringDelayedSchedulingTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringDelayedSchedulingTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringExclusiveWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringExclusiveWorkflowTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringIdempotencyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringIdempotencyTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobAuthorizationTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobAuthorizationTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobCancelTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobCancelTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobControlReturnTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobControlReturnTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobLifecycleTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobLifecycleTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobQueryDenialTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobQueryDenialTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobQueryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobQueryTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringPayloadEncryptionEngineTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringPayloadEncryptionEngineTckTest",
+          "minimumExecutedTests": 8
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringPayloadSizeTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringPayloadSizeTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringResilienceStrategyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringResilienceStrategyTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringRetryPolicyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringRetryPolicyTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringSignalDecisionTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringSignalDecisionTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringSignalPayloadTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringSignalPayloadTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringSimpleWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringSimpleWorkflowTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxDlqOrderTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxDlqOrderTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxEnqueueTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxEnqueueTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxNotSupportedTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxNotSupportedTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxRequiredTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxRequiredTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxRequiresNewTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxRequiresNewTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxSupportsTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxSupportsTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.SpringClassPolicyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.SpringClassPolicyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.SpringRepeatedContextsTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.SpringRepeatedContextsTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.SpringShutdownDrainTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.SpringShutdownDrainTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-3.5",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-3.5/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleSchedulerRuntimeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleSchedulerRuntimeTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleDependencyVersionTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleDependencyVersionTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleApplicationEntityTopologyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleApplicationEntityTopologyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleTransactionTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleTransactionTruthTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleConcurrencyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleConcurrencyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleMigrationTruthTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleMigrationTruthTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleNegativeStartupTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleNegativeStartupTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleInstantRoundTripTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleInstantRoundTripTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBatchRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBatchRetryTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBroadcastSignalTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBroadcastSignalTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBulkCancelEventTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBulkCancelEventTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBulkRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBulkRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringBusinessKeyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringBusinessKeyTckTest",
+          "minimumExecutedTests": 6
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringDelayedSchedulingTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringDelayedSchedulingTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringExclusiveWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringExclusiveWorkflowTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringIdempotencyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringIdempotencyTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobAuthorizationTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobAuthorizationTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobCancelTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobCancelTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobControlReturnTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobControlReturnTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobLifecycleTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobLifecycleTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobQueryDenialTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobQueryDenialTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobQueryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobQueryTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringJobRetryTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringJobRetryTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringPayloadEncryptionEngineTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringPayloadEncryptionEngineTckTest",
+          "minimumExecutedTests": 8
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringPayloadSizeTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringPayloadSizeTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringResilienceStrategyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringResilienceStrategyTckTest",
+          "minimumExecutedTests": 3
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringRetryPolicyTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringRetryPolicyTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringSignalDecisionTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringSignalDecisionTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringSignalPayloadTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringSignalPayloadTckTest",
+          "minimumExecutedTests": 5
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringSimpleWorkflowTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringSimpleWorkflowTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxDlqOrderTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxDlqOrderTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxEnqueueTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxEnqueueTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxNotSupportedTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxNotSupportedTckTest",
+          "minimumExecutedTests": 2
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxRequiredTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxRequiredTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxRequiresNewTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxRequiresNewTckTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.tck.SpringTxSupportsTckTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.tck.SpringTxSupportsTckTest",
+          "minimumExecutedTests": 4
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.SpringClassPolicyTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.SpringClassPolicyTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.SpringRepeatedContextsTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.SpringRepeatedContextsTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.SpringShutdownDrainTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.SpringShutdownDrainTest",
+          "minimumExecutedTests": 1
+        },
+        {
+          "afterCommand": "jvm-matrix",
+          "lane": "boot-4.1",
+          "kind": "surefire",
+          "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/boot-4.1/oracle/surefire-reports/TEST-run.ratchet.spring.boot.it.oracle.OracleSchedulerRuntimeTest.xml",
+          "reportClass": "run.ratchet.spring.boot.it.oracle.OracleSchedulerRuntimeTest",
+          "minimumExecutedTests": 1
+        }
+      ],
+      "sourceSentinels": [
+        {
+          "kind": "file-exists",
+          "path": "stores/ratchet-store-oracle/src/main/java/run/ratchet/store/oracle/OracleJobStoreFactory.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa/src/main/java/run/ratchet/spring/boot/autoconfigure/jpa/RatchetJpaAutoConfiguration.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa/src/main/java/run/ratchet/spring/boot/autoconfigure/jpa/RatchetJpaSchemaMigrationInitializer.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/oracle/src/test/java/run/ratchet/spring/boot/it/oracle/OracleDependencyVersionTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/oracle/src/test/java/run/ratchet/spring/boot/it/oracle/OracleTopologyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/oracle/src/test/java/run/ratchet/spring/boot/it/oracle/OracleApplicationEntityTopologyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/oracle/src/test/java/run/ratchet/spring/boot/it/oracle/OracleTransactionTruthTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/oracle/src/test/java/run/ratchet/spring/boot/it/oracle/OracleConcurrencyTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/oracle/src/test/java/run/ratchet/spring/boot/it/oracle/OracleMigrationTruthTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/oracle/src/test/java/run/ratchet/spring/boot/it/oracle/OracleNegativeStartupTest.java"
+        },
+        {
+          "kind": "file-exists",
+          "path": "integrations/ratchet-spring-boot/integration-tests/oracle/src/test/java/run/ratchet/spring/boot/it/oracle/OracleInstantRoundTripTest.java"
+        }
+      ],
+      "conformanceArtifact": {
+        "applicable": true,
+        "name": "spring-boot-oracle-conformance",
+        "path": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-reports/conformance/oracle",
+        "expectedFiles": [
+          "boot-3.5/tck-api-conformance-report.md",
+          "boot-4.1/tck-api-conformance-report.md"
+        ]
+      },
+      "qualification": {
+        "attestationPath": "integrations/ratchet-spring-boot/integration-tests/target/qualification-attestation.json",
+        "matrixHashRecord": "integrations/ratchet-spring-boot/integration-tests/target/jvm-matrix-hashes.json",
+        "runtimeDependencyFlavor": "oracle",
+        "topologyGuard": "scripts/test-spring-boot-publication-topology.sh",
+        "coordinates": [
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-parent:pom",
+            "hashSource": {
+              "type": "installed"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-autoconfigure:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-autoconfigure-jpa:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          },
+          {
+            "coordinate": "run.ratchet:ratchet-spring-boot-starter:jar",
+            "hashSource": {
+              "type": "matrix"
+            }
+          }
+        ]
+      },
+      "dependencyPolicy": {
+        "deniedPatterns": [
+          "^org\\.postgresql:",
+          "^com\\.mysql:",
+          "^run\\.ratchet:ratchet-store-(postgresql|mysql|sqlserver)$",
+          "^run\\.ratchet:ratchet-store-mongodb$",
+          "^org\\.mongodb:"
+        ],
+        "allowedExceptions": []
+      },
+      "requiredCiJob": "spring-boot-sql-dialects-jvm",
+      "commands": [
+        {
+          "id": "tck-coverage",
+          "type": "script",
+          "interpreter": "python3",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-tck-coverage.py",
+          "arguments": [],
+          "producesTests": false
+        },
+        {
+          "id": "jvm-matrix",
+          "type": "script",
+          "path": "integrations/ratchet-spring-boot/integration-tests/verify-jvm-matrix.sh",
+          "arguments": [
+            "oracle"
+          ],
+          "producesTests": true
+        },
+        {
+          "id": "dependency-graph",
+          "type": "script",
+          "interpreter": "python3",
+          "path": "integrations/ratchet-spring-boot/integration-tests/scripts/check-runtime-dependency-graph.py",
+          "arguments": [
+            "oracle"
           ],
           "producesTests": false
         }

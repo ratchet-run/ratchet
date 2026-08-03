@@ -47,6 +47,15 @@ FLAVOR_POLICIES = {
         },
         "unsupportedContracts": frozenset(),
     },
+    "oracle": {
+        "scenario": "dialect-oracle",
+        "artifactStatuses": {
+            "ratchet-tck-api": "covered",
+            "ratchet-tck-store": "unsupported",
+            "ratchet-tck-util": "unsupported",
+        },
+        "unsupportedContracts": frozenset(),
+    },
 }
 CONTRACT_SOURCE_PATHS = {
     "ratchet-tck-api": Path("testing/ratchet-tck/api/src/main/java"),

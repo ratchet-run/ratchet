@@ -10,7 +10,8 @@
         "compatibility",
         "postgresql",
         "mongodb",
-        "mysql"
+        "mysql",
+        "oracle"
       ]
     },
     {
@@ -21,7 +22,8 @@
         "compatibility",
         "postgresql",
         "mongodb",
-        "mysql"
+        "mysql",
+        "oracle"
       ]
     }
   ],
@@ -53,6 +55,14 @@
     {
       "id": "mysql",
       "consumerPom": "integrations/ratchet-spring-boot/integration-tests/mysql/pom.xml",
+      "goals": [
+        "clean",
+        "test"
+      ]
+    },
+    {
+      "id": "oracle",
+      "consumerPom": "integrations/ratchet-spring-boot/integration-tests/oracle/pom.xml",
       "goals": [
         "clean",
         "test"

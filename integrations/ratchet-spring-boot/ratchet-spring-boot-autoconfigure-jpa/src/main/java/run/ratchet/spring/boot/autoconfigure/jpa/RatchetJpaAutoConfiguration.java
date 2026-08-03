@@ -58,6 +58,9 @@ import run.ratchet.spring.boot.autoconfigure.RatchetProperties;
 import run.ratchet.store.mysql.MysqlJobStore;
 import run.ratchet.store.mysql.MysqlJobStoreFactory;
 import run.ratchet.store.mysql.MysqlSchemaMigrationDialect;
+import run.ratchet.store.oracle.OracleJobStore;
+import run.ratchet.store.oracle.OracleJobStoreFactory;
+import run.ratchet.store.oracle.OracleSchemaMigrationDialect;
 import run.ratchet.store.postgresql.PostgresqlJobStore;
 import run.ratchet.store.postgresql.PostgresqlJobStoreFactory;
 import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
@@ -84,6 +87,7 @@ public class RatchetJpaAutoConfiguration {
   static final String POSTGRESQL_JOB_STORE_CLASS_NAME =
       "run.ratchet.store.postgresql.PostgresqlJobStore";
   static final String MYSQL_JOB_STORE_CLASS_NAME = "run.ratchet.store.mysql.MysqlJobStore";
+  static final String ORACLE_JOB_STORE_CLASS_NAME = "run.ratchet.store.oracle.OracleJobStore";
 
   private static final String STORE_CORE_ANCHOR_RESOURCE =
       "run/ratchet/store/spi/RatchetEntityManagerProvider.class";
@@ -97,13 +101,22 @@ public class RatchetJpaAutoConfiguration {
   }
 
   static void validateSingleStoreDependency(ClassLoader classLoader) {
-    boolean postgresqlPresent = ClassUtils.isPresent(POSTGRESQL_JOB_STORE_CLASS_NAME, classLoader);
-    boolean mysqlPresent = ClassUtils.isPresent(MYSQL_JOB_STORE_CLASS_NAME, classLoader);
-    if (postgresqlPresent && mysqlPresent) {
+    List<String> presentStores = new ArrayList<>();
+    if (ClassUtils.isPresent(POSTGRESQL_JOB_STORE_CLASS_NAME, classLoader)) {
+      presentStores.add("ratchet-store-postgresql");
+    }
+    if (ClassUtils.isPresent(MYSQL_JOB_STORE_CLASS_NAME, classLoader)) {
+      presentStores.add("ratchet-store-mysql");
+    }
+    if (ClassUtils.isPresent(ORACLE_JOB_STORE_CLASS_NAME, classLoader)) {
+      presentStores.add("ratchet-store-oracle");
+    }
+    if (presentStores.size() > 1) {
       throw new IllegalStateException(
-          "Ratchet JPA auto-configuration found both ratchet-store-postgresql and"
-              + " ratchet-store-mysql on the classpath. Keep exactly one ratchet-store-*"
-              + " dependency.");
+          "Ratchet JPA auto-configuration found multiple ratchet-store-* dependencies on the"
+              + " classpath: "
+              + presentStores
+              + ". Keep exactly one ratchet-store-* dependency.");
     }
   }
 
@@ -390,6 +403,9 @@ public class RatchetJpaAutoConfiguration {
 
     @ConditionalOnClass(name = MYSQL_JOB_STORE_CLASS_NAME)
     static class MysqlStoreAvailable {}
+
+    @ConditionalOnClass(name = ORACLE_JOB_STORE_CLASS_NAME)
+    static class OracleStoreAvailable {}
   }
 
   @Configuration(proxyBeanMethods = false)
@@ -499,6 +515,56 @@ public class RatchetJpaAutoConfiguration {
           new TransactionInterceptor(
               transactionManager, new AnnotationTransactionAttributeSource()));
       return (MysqlJobStore) proxyFactory.getProxy();
+    }
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @ConditionalOnClass(OracleJobStore.class)
+  static class OracleStoreConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean(OracleSchemaMigrationDialect.class)
+    OracleSchemaMigrationDialect oracleSchemaMigrationDialect() {
+      return new OracleSchemaMigrationDialect();
+    }
+
+    @Bean
+    RatchetJpaSchemaMigrationInitializer oracleSchemaMigrationInitializer(
+        ConfigurableListableBeanFactory beanFactory,
+        ObjectProvider<RatchetOptions> optionsProvider,
+        OracleSchemaMigrationDialect dialect) {
+      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
+      return new RatchetJpaSchemaMigrationInitializer(beanFactory, options, dialect, "oracle");
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(OracleJobStore.class)
+    OracleJobStore oracleJobStore(
+        JpaTopology topology,
+        RatchetJpaSchemaMigrationInitializer migrationInitializer,
+        ObjectProvider<MetricsCollector> metricsCollectorProvider,
+        ObjectProvider<RatchetOptions> optionsProvider) {
+      Objects.requireNonNull(migrationInitializer, "migrationInitializer");
+      EntityManager sharedEntityManager =
+          SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
+      RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
+      MetricsCollector metricsCollector =
+          metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
+      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
+      OracleJobStore store =
+          OracleJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
+
+      // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
+      // annotated implementation behind this factory method. Build a deterministic JDK proxy.
+      ProxyFactory proxyFactory = new ProxyFactory();
+      proxyFactory.setTarget(store);
+      proxyFactory.setInterfaces(OracleJobStore.class);
+      proxyFactory.setProxyTargetClass(false);
+      TransactionManager transactionManager = topology.transactionManager();
+      proxyFactory.addAdvice(
+          new TransactionInterceptor(
+              transactionManager, new AnnotationTransactionAttributeSource()));
+      return (OracleJobStore) proxyFactory.getProxy();
     }
   }
 }

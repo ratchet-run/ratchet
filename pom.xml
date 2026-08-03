@@ -967,6 +967,7 @@
                 <excludeArtifact>ratchet-spring-boot-it-compatibility</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-postgresql</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-mysql</excludeArtifact>
+                <excludeArtifact>ratchet-spring-boot-it-oracle</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-mongodb</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-aot-preflight</excludeArtifact>
                 <excludeArtifact>ratchet-spring-boot-it-native-postgresql</excludeArtifact>

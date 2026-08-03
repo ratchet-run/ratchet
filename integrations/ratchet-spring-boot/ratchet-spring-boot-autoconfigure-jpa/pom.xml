@@ -45,6 +45,11 @@
       <optional>true</optional>
     </dependency>
     <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-oracle</artifactId>
+      <optional>true</optional>
+    </dependency>
+    <dependency>
       <groupId>jakarta.persistence</groupId>
       <artifactId>jakarta.persistence-api</artifactId>
       <scope>provided</scope>

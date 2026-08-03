@@ -290,10 +290,10 @@ scenario_scoped_fixture="$(make_fixture scenario-scoped)"
 scenario_scoped_commit="$(fixture_head "$scenario_scoped_fixture")"
 write_valid_attestation "$scenario_scoped_fixture" "$scenario_scoped_commit"
 if ! jq -e '
-  ([.coordinates[].requiredQualificationScenarios[]] | unique | length) == 4
+  ([.coordinates[].requiredQualificationScenarios[]] | unique | length) == 5
 ' "$scenario_scoped_fixture/integrations/ratchet-spring-boot/publication-topology.json" \
     >/dev/null; then
-  fail "scenario-scoped fixture topology does not contain four scenarios"
+  fail "scenario-scoped fixture topology does not contain five scenarios"
 fi
 if ! jq -e '
   .scenario.name == "postgresql-runtime"

@@ -104,6 +104,7 @@ final class RatchetJpaSchemaMigrationInitializer {
     return switch (dialectId) {
       case "postgresql" -> "PostgreSQL";
       case "mysql" -> "MySQL";
+      case "oracle" -> "Oracle";
       default -> dialectId;
     };
   }
