@@ -42,6 +42,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -69,6 +75,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -100,6 +112,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -127,6 +145,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -158,6 +182,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -185,6 +215,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -216,6 +252,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -243,6 +285,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -274,6 +322,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -301,6 +355,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -332,6 +392,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -359,6 +425,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -390,6 +462,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -417,6 +495,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -448,6 +532,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -475,6 +565,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -506,6 +602,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -533,6 +635,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -564,6 +672,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -591,6 +705,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -622,6 +742,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "covered",
           "scenarios": [
@@ -649,6 +775,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -685,6 +817,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -716,6 +854,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -751,6 +895,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -782,6 +932,12 @@
           "status": "covered",
           "scenarios": [
             "dialect-oracle"
+          ]
+        },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
           ]
         },
         "mongodb": {
@@ -817,6 +973,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -850,6 +1012,12 @@
             "dialect-oracle"
           ]
         },
+        "sqlserver": {
+          "status": "covered",
+          "scenarios": [
+            "dialect-sqlserver"
+          ]
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -874,6 +1042,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -900,6 +1073,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -924,6 +1102,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -950,6 +1133,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -974,6 +1162,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1000,6 +1193,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1024,6 +1222,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1050,6 +1253,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1074,6 +1282,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1100,6 +1313,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1124,6 +1342,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1150,6 +1373,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1174,6 +1402,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1200,6 +1433,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1224,6 +1462,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1250,6 +1493,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1274,6 +1522,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1300,6 +1553,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1324,6 +1582,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1350,6 +1613,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1374,6 +1642,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1400,6 +1673,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1424,6 +1702,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1450,6 +1733,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1474,6 +1762,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",
@@ -1500,6 +1793,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1525,6 +1823,11 @@
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
         "mongodb": {
           "status": "unsupported",
           "scenarios": [],
@@ -1549,6 +1852,11 @@
           "status": "unsupported",
           "scenarios": [],
           "rationale": "Store-tier contracts are exercised by the ratchet-store-oracle conformance suite and are not rerun by the Spring runtime qualification scenario"
+        },
+        "sqlserver": {
+          "status": "unsupported",
+          "scenarios": [],
+          "rationale": "Store-tier contracts are exercised by the ratchet-store-sqlserver conformance suite and are not rerun by the Spring runtime qualification scenario"
         },
         "mongodb": {
           "status": "unsupported",

@@ -10,7 +10,8 @@
       "requiredQualificationScenarios": [
         "postgresql-runtime",
         "dialect-mysql",
-        "dialect-oracle"
+        "dialect-oracle",
+        "dialect-sqlserver"
       ],
       "snapshotEligible": false,
       "centralEligible": false,
@@ -26,7 +27,8 @@
       "requiredQualificationScenarios": [
         "postgresql-runtime",
         "dialect-mysql",
-        "dialect-oracle"
+        "dialect-oracle",
+        "dialect-sqlserver"
       ],
       "snapshotEligible": false,
       "centralEligible": false,
@@ -42,7 +44,8 @@
       "requiredQualificationScenarios": [
         "postgresql-runtime",
         "dialect-mysql",
-        "dialect-oracle"
+        "dialect-oracle",
+        "dialect-sqlserver"
       ],
       "snapshotEligible": false,
       "centralEligible": false,
@@ -58,7 +61,8 @@
       "requiredQualificationScenarios": [
         "postgresql-runtime",
         "dialect-mysql",
-        "dialect-oracle"
+        "dialect-oracle",
+        "dialect-sqlserver"
       ],
       "snapshotEligible": false,
       "centralEligible": false,
@@ -158,6 +162,18 @@
     {
       "path": "integrations/ratchet-spring-boot/integration-tests/oracle",
       "artifactId": "ratchet-spring-boot-it-oracle",
+      "packaging": "jar",
+      "parentArtifactId": "ratchet-spring-boot-integration-tests",
+      "relativePath": "../pom.xml",
+      "requiredQualificationScenarios": [],
+      "snapshotEligible": false,
+      "centralEligible": false,
+      "bomManaged": false,
+      "releaseInventory": false
+    },
+    {
+      "path": "integrations/ratchet-spring-boot/integration-tests/sqlserver",
+      "artifactId": "ratchet-spring-boot-it-sqlserver",
       "packaging": "jar",
       "parentArtifactId": "ratchet-spring-boot-integration-tests",
       "relativePath": "../pom.xml",

@@ -11,7 +11,8 @@
         "postgresql",
         "mongodb",
         "mysql",
-        "oracle"
+        "oracle",
+        "sqlserver"
       ]
     },
     {
@@ -23,7 +24,8 @@
         "postgresql",
         "mongodb",
         "mysql",
-        "oracle"
+        "oracle",
+        "sqlserver"
       ]
     }
   ],
@@ -63,6 +65,14 @@
     {
       "id": "oracle",
       "consumerPom": "integrations/ratchet-spring-boot/integration-tests/oracle/pom.xml",
+      "goals": [
+        "clean",
+        "test"
+      ]
+    },
+    {
+      "id": "sqlserver",
+      "consumerPom": "integrations/ratchet-spring-boot/integration-tests/sqlserver/pom.xml",
       "goals": [
         "clean",
         "test"

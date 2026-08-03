@@ -65,6 +65,9 @@ import run.ratchet.store.postgresql.PostgresqlJobStore;
 import run.ratchet.store.postgresql.PostgresqlJobStoreFactory;
 import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
+import run.ratchet.store.sqlserver.SqlserverJobStore;
+import run.ratchet.store.sqlserver.SqlserverJobStoreFactory;
+import run.ratchet.store.sqlserver.SqlserverSchemaMigrationDialect;
 
 /**
  * Auto-configures a SQL job store against Spring Boot's single, application-owned JPA persistence
@@ -88,6 +91,8 @@ public class RatchetJpaAutoConfiguration {
       "run.ratchet.store.postgresql.PostgresqlJobStore";
   static final String MYSQL_JOB_STORE_CLASS_NAME = "run.ratchet.store.mysql.MysqlJobStore";
   static final String ORACLE_JOB_STORE_CLASS_NAME = "run.ratchet.store.oracle.OracleJobStore";
+  static final String SQLSERVER_JOB_STORE_CLASS_NAME =
+      "run.ratchet.store.sqlserver.SqlserverJobStore";
 
   private static final String STORE_CORE_ANCHOR_RESOURCE =
       "run/ratchet/store/spi/RatchetEntityManagerProvider.class";
@@ -110,6 +115,9 @@ public class RatchetJpaAutoConfiguration {
     }
     if (ClassUtils.isPresent(ORACLE_JOB_STORE_CLASS_NAME, classLoader)) {
       presentStores.add("ratchet-store-oracle");
+    }
+    if (ClassUtils.isPresent(SQLSERVER_JOB_STORE_CLASS_NAME, classLoader)) {
+      presentStores.add("ratchet-store-sqlserver");
     }
     if (presentStores.size() > 1) {
       throw new IllegalStateException(
@@ -406,6 +414,9 @@ public class RatchetJpaAutoConfiguration {
 
     @ConditionalOnClass(name = ORACLE_JOB_STORE_CLASS_NAME)
     static class OracleStoreAvailable {}
+
+    @ConditionalOnClass(name = SQLSERVER_JOB_STORE_CLASS_NAME)
+    static class SqlserverStoreAvailable {}
   }
 
   @Configuration(proxyBeanMethods = false)
@@ -565,6 +576,56 @@ public class RatchetJpaAutoConfiguration {
           new TransactionInterceptor(
               transactionManager, new AnnotationTransactionAttributeSource()));
       return (OracleJobStore) proxyFactory.getProxy();
+    }
+  }
+
+  @Configuration(proxyBeanMethods = false)
+  @ConditionalOnClass(SqlserverJobStore.class)
+  static class SqlserverStoreConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean(SqlserverSchemaMigrationDialect.class)
+    SqlserverSchemaMigrationDialect sqlserverSchemaMigrationDialect() {
+      return new SqlserverSchemaMigrationDialect();
+    }
+
+    @Bean
+    RatchetJpaSchemaMigrationInitializer sqlserverSchemaMigrationInitializer(
+        ConfigurableListableBeanFactory beanFactory,
+        ObjectProvider<RatchetOptions> optionsProvider,
+        SqlserverSchemaMigrationDialect dialect) {
+      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
+      return new RatchetJpaSchemaMigrationInitializer(beanFactory, options, dialect, "sqlserver");
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(SqlserverJobStore.class)
+    SqlserverJobStore sqlserverJobStore(
+        JpaTopology topology,
+        RatchetJpaSchemaMigrationInitializer migrationInitializer,
+        ObjectProvider<MetricsCollector> metricsCollectorProvider,
+        ObjectProvider<RatchetOptions> optionsProvider) {
+      Objects.requireNonNull(migrationInitializer, "migrationInitializer");
+      EntityManager sharedEntityManager =
+          SharedEntityManagerCreator.createSharedEntityManager(topology.entityManagerFactory());
+      RatchetEntityManagerProvider entityManagerProvider = () -> sharedEntityManager;
+      MetricsCollector metricsCollector =
+          metricsCollectorProvider.getIfAvailable(NoOpMetricsCollector::new);
+      RatchetOptions options = optionsProvider.getIfAvailable(RatchetOptions::defaults);
+      SqlserverJobStore store =
+          SqlserverJobStoreFactory.create(entityManagerProvider, metricsCollector, options);
+
+      // Native images cannot create the runtime CGLIB proxy, and Spring AOT cannot see the
+      // annotated implementation behind this factory method. Build a deterministic JDK proxy.
+      ProxyFactory proxyFactory = new ProxyFactory();
+      proxyFactory.setTarget(store);
+      proxyFactory.setInterfaces(SqlserverJobStore.class);
+      proxyFactory.setProxyTargetClass(false);
+      TransactionManager transactionManager = topology.transactionManager();
+      proxyFactory.addAdvice(
+          new TransactionInterceptor(
+              transactionManager, new AnnotationTransactionAttributeSource()));
+      return (SqlserverJobStore) proxyFactory.getProxy();
     }
   }
 }
