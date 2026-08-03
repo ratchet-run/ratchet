@@ -122,6 +122,7 @@ export default defineConfig({
       { text: 'API Reference', link: '/api-reference/overview' },
       { text: 'Deployment', link: '/deployment/overview' },
       { text: 'Quarkus', link: '/deployment/quarkus' },
+      { text: 'Spring Boot', link: '/deployment/spring-boot' },
       { text: 'Conformance', link: '/conformance/' },
     ],
 
@@ -215,6 +216,8 @@ export default defineConfig({
             { text: 'Configuration', link: '/deployment/configuration' },
             { text: 'Configuration reference', link: '/deployment/configuration-reference' },
             { text: 'Quarkus', link: '/deployment/quarkus' },
+            { text: 'Spring Boot', link: '/deployment/spring-boot' },
+            { text: 'Spring Boot Configuration', link: '/deployment/spring-boot-configuration' },
             { text: 'Database Setup', link: '/deployment/database-setup' },
             { text: 'Rolling Upgrades', link: '/deployment/rolling-upgrades' },
             { text: 'MySQL', link: '/deployment/mysql' },

@@ -13,7 +13,7 @@ while IFS= read -r path; do
   mkdir -p "$FIXTURE/$(dirname "$path")"
   cp "$ROOT/$path" "$FIXTURE/$path"
 done < <(
-  git -C "$ROOT" ls-files \
+  git -C "$ROOT" ls-files --cached --others --exclude-standard \
     README.md \
     integrations/ratchet-quarkus/README.md \
     website/docs \
@@ -76,6 +76,8 @@ printf '\njar xf ratchet-store-sqlserver-0.1.1.jar ddl/sqlserver-schema.sql\n' \
 env -u RELEASE_VERSION "$FIXTURE/scripts/sync-version.sh" 9.8.7-SNAPSHOT >/dev/null
 assert_contains README.md "<version>$initial_public_version</version>"
 assert_count website/docs/deployment/quarkus.md "<version>$initial_quarkus_version</version>" 4
+assert_count website/docs/deployment/spring-boot.md "<version>$initial_public_version</version>" 2
+assert_count website/docs/deployment/spring-boot-configuration.md "<version>$initial_public_version</version>" 0
 assert_count integrations/ratchet-quarkus/README.md "<version>$initial_quarkus_version</version>" 2
 assert_contains README.md 'Ratchet is in **9.8.7-SNAPSHOT**.'
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.7-SNAPSHOT.war'
@@ -88,6 +90,8 @@ assert_contains website/docs/deployment/database-setup.md 'ratchet-store-postgre
 assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.jar'
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
 assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 4
+assert_count website/docs/deployment/spring-boot.md '<version>9.8.7</version>' 2
+assert_count website/docs/deployment/spring-boot-configuration.md '<version>9.8.7</version>' 0
 assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
 
 # The following development bump keeps public snippets on the release while
@@ -100,6 +104,8 @@ assert_contains website/docs/use-cases/durable-llm-workflows.md '`ratchet-api` `
 assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.jar'
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
 assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 4
+assert_count website/docs/deployment/spring-boot.md '<version>9.8.7</version>' 2
+assert_count website/docs/deployment/spring-boot-configuration.md '<version>9.8.7</version>' 0
 assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.8-SNAPSHOT.war'
 

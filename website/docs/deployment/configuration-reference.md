@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **57 fixed keys**.
+This build exposes **59 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -67,6 +67,8 @@ This build exposes **57 fixed keys**.
 | `ratchet.payload.max-payload-kb` | `RATCHET_MAX_PAYLOAD_KB` | `100` | `MAX_PAYLOAD_KB` |
 | `ratchet.jobs.max-result-bytes` | `RATCHET_JOB_RESULT_MAX_BYTES` | `65536` | `MAX_RESULT_BYTES` |
 | `ratchet.allow-empty-class-policy` | `RATCHET_ALLOW_EMPTY_CLASS_POLICY` | `false` | `ALLOW_EMPTY_CLASS_POLICY` |
+| `ratchet.class-policy.allowed-packages` | `RATCHET_CLASS_POLICY_ALLOWED_PACKAGES` | `(empty string)` | `CLASS_POLICY_ALLOWED_PACKAGES` |
+| `ratchet.class-policy.allowed-result-type-packages` | `RATCHET_CLASS_POLICY_ALLOWED_RESULT_TYPE_PACKAGES` | `(empty string)` | `CLASS_POLICY_ALLOWED_RESULT_TYPE_PACKAGES` |
 | `ratchet.security.redact-emails` | `RATCHET_REDACT_EMAILS` | `true` | `REDACT_EMAILS` |
 | `ratchet.security.mask-payloads` | `RATCHET_MASK_PAYLOADS` | `false` | `MASK_PAYLOADS` |
 | `ratchet.isolation-check` | `RATCHET_ISOLATION_CHECK_MODE` | `FAIL` | `ISOLATION_CHECK_MODE` |

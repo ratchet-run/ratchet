@@ -99,6 +99,8 @@ PUBLIC_MAVEN_FILES=(
   "website/docs/deployment/overview.md"            # ratchet-bom
   "website/docs/deployment/mongodb.md"             # ratchet-store-mongodb
   "website/docs/deployment/quarkus.md"              # ratchet-quarkus flavors
+  "website/docs/deployment/spring-boot.md"          # ratchet-spring-boot quickstarts
+  "website/docs/deployment/spring-boot-configuration.md"  # Spring Boot configuration
   "website/docs/deployment/monitoring.md"          # ratchet-micrometer
   "website/docs/deployment/performance-tuning.md"  # ratchet-micrometer
   "integrations/ratchet-quarkus/README.md"          # ratchet-quarkus flavors
