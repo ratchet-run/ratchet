@@ -5,10 +5,12 @@ description: "Run Ratchet with Spring Boot on the JVM, or with PostgreSQL as a G
 
 # Spring Boot Deployment
 
-Ratchet runs as Spring-managed infrastructure on Spring Boot. The integration supplies the runtime
-beans and lifecycle, joins the application's persistence unit for SQL stores, and exposes the usual
-`JobSchedulerService` for job submission. Choose either the JPA starter plus exactly one SQL store,
-or the isolated MongoDB starter.
+Ratchet runs as Spring-managed infrastructure on Spring Boot. As in the Jakarta EE containers, it
+is designed to live off the land: jobs use the application's own persistence setup, transaction
+manager, beans, and lifecycle rather than a parallel stack that Ratchet brings along. The
+integration supplies the runtime beans and lifecycle wiring, joins the application's persistence
+unit for SQL stores, and exposes the usual `JobSchedulerService` for job submission. Choose either
+the JPA starter plus exactly one SQL store, or the isolated MongoDB starter.
 
 ## PostgreSQL quickstart
 
