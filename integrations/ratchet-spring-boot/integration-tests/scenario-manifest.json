@@ -4849,6 +4849,48 @@
           "producesTests": true
         }
       ]
+    },
+    "release-candidate": {
+      "bootLanes": [
+        "boot-3.5",
+        "boot-4.1"
+      ],
+      "database": "all",
+      "sharedTckContracts": [],
+      "sourceSentinels": [
+        {
+          "kind": "file-exists",
+          "path": "scripts/verify-spring-boot-release-candidate.sh"
+        },
+        {
+          "kind": "file-exists",
+          "path": "scripts/test-spring-boot-publication-topology.sh"
+        }
+      ],
+      "conformanceArtifact": {
+        "applicable": true,
+        "name": "spring-boot-release-candidate",
+        "path": "integrations/ratchet-spring-boot/integration-tests/target/release-candidate-evidence",
+        "expectedFiles": [
+          "spring-boot-postgresql-conformance/qualification-attestation.json",
+          "spring-boot-mongodb-conformance/qualification-attestation.json",
+          "spring-boot-mysql-conformance/qualification-attestation.json",
+          "spring-boot-oracle-conformance/qualification-attestation.json",
+          "spring-boot-sqlserver-conformance/qualification-attestation.json"
+        ]
+      },
+      "requiredCiJob": "spring-boot-release-candidate",
+      "commands": [
+        {
+          "id": "release-candidate",
+          "type": "script",
+          "path": "scripts/verify-spring-boot-release-candidate.sh",
+          "interpreter": "bash",
+          "arguments": [],
+          "producesTests": false
+        }
+      ],
+      "expectedReports": []
     }
   }
 }

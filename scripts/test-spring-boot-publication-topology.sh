@@ -60,19 +60,23 @@ done
 
 qualification_eligible="$(
   jq -r '
-    first(
-      .coordinates[]?
-      | select(
-          (.requiredQualificationScenarios? | type == "array" and length > 0)
-          and (
-            .snapshotEligible == true
-            or .centralEligible == true
-            or .bomManaged == true
-            or .releaseInventory == true
+    if .releaseReady == false then
+      first(
+        .coordinates[]?
+        | select(
+            (.requiredQualificationScenarios? | type == "array" and length > 0)
+            and (
+              .snapshotEligible == true
+              or .centralEligible == true
+              or .bomManaged == true
+              or .releaseInventory == true
+            )
           )
-        )
-      | .artifactId
-    ) // empty
+        | .artifactId
+      ) // empty
+    else
+      empty
+    end
   ' "$TOPOLOGY" 2>/dev/null || true
 )"
 if [[ -n "$qualification_eligible" ]]; then
@@ -80,6 +84,41 @@ if [[ -n "$qualification_eligible" ]]; then
 fi
 
 if ! jq -e '
+  def production_artifacts:
+    [
+      "ratchet-spring-boot-parent",
+      "ratchet-spring-boot-autoconfigure",
+      "ratchet-spring-boot-autoconfigure-jpa",
+      "ratchet-spring-boot-starter",
+      "ratchet-spring-boot-autoconfigure-mongodb",
+      "ratchet-spring-boot-starter-mongodb",
+      "ratchet-spring-boot-aot-spring7"
+    ];
+  def production_jar_artifacts:
+    production_artifacts[1:];
+  def integration_test_artifacts:
+    [
+      "ratchet-spring-boot-integration-tests",
+      "ratchet-spring-boot-it-compatibility",
+      "ratchet-spring-boot-it-postgresql",
+      "ratchet-spring-boot-it-mysql",
+      "ratchet-spring-boot-it-oracle",
+      "ratchet-spring-boot-it-sqlserver",
+      "ratchet-spring-boot-it-mongodb",
+      "ratchet-spring-boot-it-aot-preflight",
+      "ratchet-spring-boot-it-native-postgresql"
+    ];
+  def all_release_flags_false:
+    (.snapshotEligible | not)
+    and (.centralEligible | not)
+    and (.bomManaged | not)
+    and (.releaseInventory | not);
+  def all_release_flags_true:
+    .snapshotEligible == true
+    and .centralEligible == true
+    and .bomManaged == true
+    and .releaseInventory == true;
+
   type == "object"
   and (.releaseReady | type == "boolean")
   and (.coordinates | type == "array" and length > 0)
@@ -104,18 +143,35 @@ if ! jq -e '
   )
   and ((.coordinates | map(.path) | unique | length) == (.coordinates | length))
   and ((.coordinates | map(.artifactId) | unique | length) == (.coordinates | length))
-  and (.releaseReady == false)
   and (
-    .coordinates
-    | all(
-        (.snapshotEligible | not)
-        and (.centralEligible | not)
-        and (.bomManaged | not)
-        and (.releaseInventory | not)
+    if .releaseReady == false then
+      .coordinates | all(all_release_flags_false)
+    else
+      (.coordinates | length) == 16
+      and (
+        (.coordinates | map(.artifactId) | sort)
+        == ((production_artifacts + integration_test_artifacts) | sort)
       )
+      and (
+        .coordinates
+        | all(
+            . as $coordinate
+            | if $coordinate.artifactId == "ratchet-spring-boot-parent" then
+                $coordinate.snapshotEligible == true
+                and $coordinate.centralEligible == true
+                and ($coordinate.bomManaged | not)
+                and ($coordinate.releaseInventory | not)
+              elif (production_jar_artifacts | index($coordinate.artifactId)) != null then
+                $coordinate | all_release_flags_true
+              else
+                $coordinate | all_release_flags_false
+              end
+          )
+      )
+    end
   )
 ' "$TOPOLOGY" >/dev/null; then
-  fail "publication-topology.json is malformed or enables the PR 1 publication gate"
+  fail "publication-topology.json is malformed or violates release-readiness invariants"
 fi
 
 if [[ -e "$ATTESTATION" && ! -f "$ATTESTATION" ]]; then
@@ -634,7 +690,8 @@ while IFS= read -r artifact; do
 done < <(
   comm -13 "$TMP/expected-release-inventory" "$TMP/actual-release-inventory"
 )
-if grep -Fq "ratchet-spring-boot" "$RELEASE_WORKFLOW"; then
+if [[ ! -s "$TMP/expected-release-inventory" ]] \
+    && grep -Fq "ratchet-spring-boot" "$RELEASE_WORKFLOW"; then
   fail "release workflow references the Spring Boot tree while releaseInventory=false"
 fi
 

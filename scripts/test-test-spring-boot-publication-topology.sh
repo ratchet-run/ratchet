@@ -41,6 +41,133 @@ make_fixture() {
   printf '%s\n' "$fixture"
 }
 
+make_release_ready_fixture() {
+  local name="$1"
+  local fixture
+  local artifact
+  local path
+  local production_artifacts=(
+    ratchet-spring-boot-parent
+    ratchet-spring-boot-autoconfigure
+    ratchet-spring-boot-autoconfigure-jpa
+    ratchet-spring-boot-starter
+    ratchet-spring-boot-autoconfigure-mongodb
+    ratchet-spring-boot-starter-mongodb
+    ratchet-spring-boot-aot-spring7
+  )
+  local production_paths=(
+    integrations/ratchet-spring-boot
+    integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure
+    integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa
+    integrations/ratchet-spring-boot/ratchet-spring-boot-starter
+    integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb
+    integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb
+    integrations/ratchet-spring-boot/ratchet-spring-boot-aot-spring7
+  )
+
+  fixture="$(make_fixture "$name")"
+
+  jq '
+    def production_jar_artifacts:
+      [
+        "ratchet-spring-boot-autoconfigure",
+        "ratchet-spring-boot-autoconfigure-jpa",
+        "ratchet-spring-boot-starter",
+        "ratchet-spring-boot-autoconfigure-mongodb",
+        "ratchet-spring-boot-starter-mongodb",
+        "ratchet-spring-boot-aot-spring7"
+      ];
+    .releaseReady = true
+    | .coordinates |= map(
+        . as $coordinate
+        | if $coordinate.artifactId == "ratchet-spring-boot-parent" then
+            .snapshotEligible = true
+            | .centralEligible = true
+            | .bomManaged = false
+            | .releaseInventory = false
+          elif (production_jar_artifacts | index($coordinate.artifactId)) != null then
+            .snapshotEligible = true
+            | .centralEligible = true
+            | .bomManaged = true
+            | .releaseInventory = true
+          else
+            .snapshotEligible = false
+            | .centralEligible = false
+            | .bomManaged = false
+            | .releaseInventory = false
+          end
+      )
+  ' "$fixture/integrations/ratchet-spring-boot/publication-topology.json" \
+    > "$fixture/topology.tmp"
+  mv \
+    "$fixture/topology.tmp" \
+    "$fixture/integrations/ratchet-spring-boot/publication-topology.json"
+
+  for path in "${production_paths[@]}"; do
+    perl -0pi -e '
+      s{
+        \n\s*<!--\s*Temporarily\ unpublished\ until\ the\ Spring
+        \ release-candidate\ gate\.\s*-->
+        \s*<maven\.deploy\.skip>true</maven\.deploy\.skip>
+      }{}x
+    ' "$fixture/$path/pom.xml"
+  done
+
+  for artifact in "${production_artifacts[@]}"; do
+    perl -0pi -e \
+      "s{\\s*<excludeArtifact>${artifact}</excludeArtifact>}{}" \
+      "$fixture/pom.xml"
+  done
+
+  perl -0pi -e '
+    s{(\n\s*</dependencies>)}{
+            <!-- Spring Boot production artifacts. -->
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-autoconfigure</artifactId>
+                <version>\${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-autoconfigure-jpa</artifactId>
+                <version>\${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-starter</artifactId>
+                <version>\${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-autoconfigure-mongodb</artifactId>
+                <version>\${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-starter-mongodb</artifactId>
+                <version>\${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-spring-boot-aot-spring7</artifactId>
+                <version>\${project.version}</version>
+            </dependency>$1
+    }x
+  ' "$fixture/ratchet-bom/pom.xml"
+
+  perl -0pi -e '
+    s{JAR_PATHS=""}{JAR_PATHS=""
+          JAR_PATHS="\$JAR_PATHS integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure:ratchet-spring-boot-autoconfigure"
+          JAR_PATHS="\$JAR_PATHS integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa:ratchet-spring-boot-autoconfigure-jpa"
+          JAR_PATHS="\$JAR_PATHS integrations/ratchet-spring-boot/ratchet-spring-boot-starter:ratchet-spring-boot-starter"
+          JAR_PATHS="\$JAR_PATHS integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb:ratchet-spring-boot-autoconfigure-mongodb"
+          JAR_PATHS="\$JAR_PATHS integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb:ratchet-spring-boot-starter-mongodb"
+          JAR_PATHS="\$JAR_PATHS integrations/ratchet-spring-boot/ratchet-spring-boot-aot-spring7:ratchet-spring-boot-aot-spring7"}
+  ' "$fixture/.github/workflows/release.yml"
+
+  printf '%s\n' "$fixture"
+}
+
 assert_failure() {
   local fixture="$1"
   local expected="$2"
@@ -267,24 +394,92 @@ assert_failure \
   "$glob_release_collection_fixture" \
   "release workflow references the Spring Boot tree while releaseInventory=false"
 
-release_ready_fixture="$(make_fixture release-ready)"
-perl -0pi -e \
-  's{"releaseReady": false}{"releaseReady": true}' \
-  "$release_ready_fixture/integrations/ratchet-spring-boot/publication-topology.json"
-assert_failure \
-  "$release_ready_fixture" \
-  "publication-topology.json is malformed or enables the PR 1 publication gate"
+for eligibility_flag in \
+    snapshotEligible centralEligible bomManaged releaseInventory; do
+  qualification_eligible_fixture="$(
+    make_fixture "qualification-eligible-$eligibility_flag"
+  )"
+  jq --arg eligibilityFlag "$eligibility_flag" \
+    '(.coordinates[0][$eligibilityFlag]) = true' \
+    "$qualification_eligible_fixture/integrations/ratchet-spring-boot/publication-topology.json" \
+    > "$qualification_eligible_fixture/topology.tmp"
+  mv \
+    "$qualification_eligible_fixture/topology.tmp" \
+    "$qualification_eligible_fixture/integrations/ratchet-spring-boot/publication-topology.json"
+  assert_failure \
+    "$qualification_eligible_fixture" \
+    "qualification-required coordinate must remain release-ineligible: ratchet-spring-boot-parent"
+done
 
-qualification_eligible_fixture="$(make_fixture qualification-eligible)"
-jq '.coordinates[0].snapshotEligible = true' \
-  "$qualification_eligible_fixture/integrations/ratchet-spring-boot/publication-topology.json" \
-  > "$qualification_eligible_fixture/topology.tmp"
-mv \
-  "$qualification_eligible_fixture/topology.tmp" \
-  "$qualification_eligible_fixture/integrations/ratchet-spring-boot/publication-topology.json"
+release_ready_fixture="$(make_release_ready_fixture release-ready)"
+bash "$release_ready_fixture/scripts/test-spring-boot-publication-topology.sh" >/dev/null
+
+release_ready_exclusion_fixture="$(
+  make_release_ready_fixture release-ready-missing-exclusion-removal
+)"
+perl -0pi -e '
+  s{(\n\s*</excludeArtifacts>)}{
+                <excludeArtifact>ratchet-spring-boot-starter</excludeArtifact>$1
+  }x
+' "$release_ready_exclusion_fixture/pom.xml"
 assert_failure \
-  "$qualification_eligible_fixture" \
-  "qualification-required coordinate must remain release-ineligible: ratchet-spring-boot-parent"
+  "$release_ready_exclusion_fixture" \
+  "unexpected Spring Central exclusion not declared by publication-topology.json: ratchet-spring-boot-starter"
+
+release_ready_bom_fixture="$(
+  make_release_ready_fixture release-ready-missing-bom-entry
+)"
+perl -0pi -e '
+  s{
+    \s*<dependency>\s*
+      <groupId>run\.ratchet</groupId>\s*
+      <artifactId>ratchet-spring-boot-starter</artifactId>\s*
+      <version>\$\{project\.version\}</version>\s*
+    </dependency>
+  }{}x
+' "$release_ready_bom_fixture/ratchet-bom/pom.xml"
+assert_failure \
+  "$release_ready_bom_fixture" \
+  "ratchet-spring-boot-starter must have exactly one ratchet-bom entry while bomManaged=true; found 0"
+
+release_ready_inventory_fixture="$(
+  make_release_ready_fixture release-ready-missing-release-inventory
+)"
+perl -0pi -e '
+  s{
+    \n\s*JAR_PATHS="\$JAR_PATHS\ integrations/ratchet-spring-boot/
+    ratchet-spring-boot-starter:ratchet-spring-boot-starter"
+  }{}x
+' "$release_ready_inventory_fixture/.github/workflows/release.yml"
+assert_failure \
+  "$release_ready_inventory_fixture" \
+  "ratchet-spring-boot-starter release inventory presence is false; expected true"
+
+release_ready_deploy_skip_fixture="$(
+  make_release_ready_fixture release-ready-deploy-skip
+)"
+perl -0pi -e '
+  s{(<properties>)}{$1\n    <maven.deploy.skip>true</maven.deploy.skip>}
+' "$release_ready_deploy_skip_fixture/integrations/ratchet-spring-boot/ratchet-spring-boot-starter/pom.xml"
+assert_failure \
+  "$release_ready_deploy_skip_fixture" \
+  "ratchet-spring-boot-starter/pom.xml still declares maven.deploy.skip=true while snapshotEligible=true"
+
+release_ready_it_eligible_fixture="$(
+  make_release_ready_fixture release-ready-integration-test-eligible
+)"
+jq '
+  (.coordinates[]
+   | select(.artifactId == "ratchet-spring-boot-it-compatibility")
+   | .snapshotEligible) = true
+' "$release_ready_it_eligible_fixture/integrations/ratchet-spring-boot/publication-topology.json" \
+  > "$release_ready_it_eligible_fixture/topology.tmp"
+mv \
+  "$release_ready_it_eligible_fixture/topology.tmp" \
+  "$release_ready_it_eligible_fixture/integrations/ratchet-spring-boot/publication-topology.json"
+assert_failure \
+  "$release_ready_it_eligible_fixture" \
+  "publication-topology.json is malformed or violates release-readiness invariants"
 
 scenario_scoped_fixture="$(make_fixture scenario-scoped)"
 scenario_scoped_commit="$(fixture_head "$scenario_scoped_fixture")"
