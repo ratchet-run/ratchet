@@ -74,6 +74,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   private final MetricsCollector metricsCollector;
   private final RatchetOptions options;
   private EntityManager em;
+  private boolean initialized;
 
   private SqlserverStoreContext ctx;
   private SqlserverBusinessKeyReservations reservations;
@@ -808,6 +809,13 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
 
   @PostConstruct
   void checkIsolationLevel() {
+    initialize();
+  }
+
+  synchronized void initialize() {
+    if (initialized) {
+      return;
+    }
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
@@ -823,6 +831,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
             + " override that raises the level (e.g. hibernate.connection.isolation).",
         options.store().isolationCheckMode());
     initDelegates();
+    initialized = true;
   }
 
   private void initDelegates() {
