@@ -59,6 +59,18 @@ public final class SqlserverContainerExtension implements BeforeAllCallback {
     return container().getPassword();
   }
 
+  String currentJdbcUrl() {
+    return container().getJdbcUrl();
+  }
+
+  String currentUsername() {
+    return container().getUsername();
+  }
+
+  String currentPassword() {
+    return container().getPassword();
+  }
+
   private static MSSQLServerContainer container() {
     return currentOrCreateResource().container;
   }
