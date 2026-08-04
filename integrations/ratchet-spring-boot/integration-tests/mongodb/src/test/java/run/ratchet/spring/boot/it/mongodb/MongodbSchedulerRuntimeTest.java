@@ -41,8 +41,8 @@ import org.springframework.context.annotation.Bean;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.spi.PayloadSerializer;
-import run.ratchet.spring.boot.it.mongodb.fixture.tck.MongoTckApplication;
-import run.ratchet.spring.boot.it.mongodb.fixture.tck.MongoTckApplicationContextInitializer;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.TckApplication;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.TckApplicationContextInitializer;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.tck.api.ListenerProbe;
 
@@ -63,10 +63,10 @@ public class MongodbSchedulerRuntimeTest {
     RuntimeEvidence evidence;
 
     try (ConfigurableApplicationContext context =
-        new SpringApplicationBuilder(MongoTckApplication.class, RuntimeTestConfiguration.class)
+        new SpringApplicationBuilder(TckApplication.class, RuntimeTestConfiguration.class)
             .web(WebApplicationType.NONE)
             .registerShutdownHook(false)
-            .initializers(new MongoTckApplicationContextInitializer())
+            .initializers(new TckApplicationContextInitializer())
             .run("--spring.main.banner-mode=off")) {
       evidence = context.getBean(RuntimeEvidence.class);
       lifecycle = context.getBean("ratchetLifecycle", SmartLifecycle.class);
