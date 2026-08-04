@@ -1161,8 +1161,8 @@
             <!--
               The java step above only targets src/main/java and src/test/java,
               so it never sees the profile-only test roots (java-wildfly /
-              java-ee11). This generic format stamps and gates the license header
-              on those roots. module-info.java is handled separately by the
+              java-ee11) or the bare shared Spring TCK roots. This generic format
+              stamps and gates the license header on those roots. module-info.java is handled separately by the
               maven-antrun header check below, because spotless's LicenseHeaderStep
               special-cases (skips) module descriptors entirely.
             -->
@@ -1171,6 +1171,8 @@
                 <includes>
                   <include>src/test/java-wildfly/**/*.java</include>
                   <include>src/test/java-ee11/**/*.java</include>
+                  <include>integrations/ratchet-spring-boot/integration-tests/shared-tck-core/src/test/java/**/*.java</include>
+                  <include>integrations/ratchet-spring-boot/integration-tests/shared-tck-sql/src/test/java/**/*.java</include>
                 </includes>
                 <licenseHeader>
                   <delimiter>(package|module|open|import|/\*\*)</delimiter>
