@@ -41,8 +41,8 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.SchedulerLifecycleHook;
-import run.ratchet.spring.boot.it.oracle.fixture.tck.TckApplication;
-import run.ratchet.spring.boot.it.oracle.fixture.tck.TckApplicationContextInitializer;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.TckApplication;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.TckApplicationContextInitializer;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.tck.api.ListenerProbe;
 

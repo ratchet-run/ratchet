@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.ConfigurableApplicationContext;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.spi.ClassPolicy;
-import run.ratchet.spring.boot.it.oracle.fixture.tck.TckContexts;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.TckContexts;
 import run.ratchet.tck.api.TckJobs;
 
 /** Spring-local proof that the fixture's explicit package allowlist rejects foreign targets. */

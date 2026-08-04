@@ -31,8 +31,8 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ConfigurableApplicationContext;
 import run.ratchet.api.JobHandle;
-import run.ratchet.spring.boot.it.oracle.fixture.tck.SpringRatchetTckRuntime;
-import run.ratchet.spring.boot.it.oracle.fixture.tck.TckContexts;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.SpringRatchetTckRuntime;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.TckContexts;
 import run.ratchet.tck.api.TckJobs;
 
 /** Spring-local proof that context close drains work before datasource destruction. */
