@@ -21,8 +21,8 @@ import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ConfigurableApplicationContext;
 import run.ratchet.api.JobHandle;
-import run.ratchet.spring.boot.it.postgresql.fixture.tck.SpringRatchetTckRuntime;
-import run.ratchet.spring.boot.it.postgresql.fixture.tck.TckContexts;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.SpringRatchetTckRuntime;
+import run.ratchet.spring.boot.it.sharedtck.fixture.tck.TckContexts;
 import run.ratchet.tck.api.TckJobs;
 
 /** Spring-local proof that the same consumer fixture can restart against one database. */
