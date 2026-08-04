@@ -140,7 +140,7 @@ final class MongoJobCrudOperations {
               () -> {
                 reservations.syncForJob(session, job);
                 ctx.jobs().insertOne(session, doc);
-                return null;
+                return Boolean.TRUE;
               });
         }
       } else {
@@ -193,7 +193,7 @@ final class MongoJobCrudOperations {
                         + expectedVersion
                         + ")");
               }
-              return null;
+              return Boolean.TRUE;
             });
       }
     } catch (RuntimeException e) {
@@ -224,7 +224,7 @@ final class MongoJobCrudOperations {
           () -> {
             reservations.releaseByOwner(session, id);
             ctx.jobs().deleteOne(session, eq(ID, id));
-            return null;
+            return Boolean.TRUE;
           });
     }
   }
@@ -548,7 +548,7 @@ final class MongoJobCrudOperations {
                   reservations.syncForJob(session, job);
                 }
                 ctx.jobs().insertMany(session, docs);
-                return null;
+                return Boolean.TRUE;
               });
         }
       } else {

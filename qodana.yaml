@@ -38,6 +38,14 @@ exclude:
       - stores/ratchet-store-oracle/src/main/java/run/ratchet/store/oracle/OracleJobStoreImpl.java
       - stores/ratchet-store-sqlserver/src/main/java/run/ratchet/store/sqlserver/SqlserverJobStoreImpl.java
 
+  - name: ClassEscapesItsScope
+    paths:
+      # Interface methods are forced public by the language; the public proxy seam is asserted by
+      # JobCreationSubmitterProxySeamTest, while builder types stay package-private deliberately.
+      - ratchet/src/main/java/run/ratchet/ri/core/DefaultJobCreationService.java
+      - ratchet/src/main/java/run/ratchet/ri/core/RecurringJobSubmitter.java
+      - ratchet/src/main/java/run/ratchet/ri/core/StreamingBatchSubmitter.java
+
   - name: SqlSourceToSinkFlow
     paths:
       # SQL text here is assembled from bundled migrations, fixed dialect templates, or enum-backed
@@ -57,8 +65,23 @@ exclude:
       - testing/ratchet-tck/api/src/main/java/run/ratchet/tck/api/AbstractSimpleWorkflowContract.java
       # Retry re-execution has no callback or returned child handle, so the TCK polls its probe.
       - testing/ratchet-tck/api/src/main/java/run/ratchet/tck/api/AbstractJobControlReturnContract.java
+      # Bounded-deadline polling of observable effects, matching the existing TCK rationale.
+      - testing/ratchet-tck/api/src/main/java/run/ratchet/tck/api/AbstractExclusiveWorkflowContract.java
+      - testing/ratchet-tck/api/src/main/java/run/ratchet/tck/api/AbstractBulkRetryContract.java
+      - testing/ratchet-tck/api/src/main/java/run/ratchet/tck/api/transaction/AbstractTxDlqOrderContract.java
       # Sleep inside the reconnect retry loop is exponential backoff with jitter, not polling.
       - coordinators/ratchet-coordinator-jms/src/main/java/run/ratchet/coordinator/jms/JmsConnectionLifecycle.java
+
+  - name: InstantiationOfUtilityClass
+    paths:
+      # RatchetRuntimeStart is a CDI event payload carrying only constants; instantiation is the
+      # event fire.
+      - integrations/ratchet-quarkus/core/src/main/java/run/ratchet/quarkus/runtime/RatchetStartupTrigger.java
+
+  - name: EmptyTryBlock
+    paths:
+      # This try-with-resources exists to close the Spring context; its body is intentionally empty.
+      - integrations/ratchet-spring-boot/integration-tests/native-postgresql/src/main/java/run/ratchet/spring/boot/it/nativepostgresql/NativePostgresqlApplication.java
 
   - name: SynchronizationOnLocalVariableOrMethodParameter
     paths:

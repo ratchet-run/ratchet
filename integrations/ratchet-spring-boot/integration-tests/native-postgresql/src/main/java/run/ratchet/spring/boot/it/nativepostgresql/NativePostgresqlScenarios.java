@@ -285,7 +285,7 @@ public class NativePostgresqlScenarios {
         () -> {
           JobHandle master =
               scheduler.scheduleRecurringUtc("*/1 * * * * ?", jobs::recurringJob).submit();
-          boolean canceled = false;
+          boolean canceled;
           try {
             awaitCondition(
                 () -> jobs.recurringExecutions() >= 1,

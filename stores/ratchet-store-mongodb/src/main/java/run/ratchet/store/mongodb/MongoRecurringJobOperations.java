@@ -272,7 +272,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
               () -> {
                 reservations.reserveRecurring(session, d.businessKey(), d.id());
                 ctx.recurringJobs().insertOne(session, doc);
-                return null;
+                return Boolean.TRUE;
               });
         }
       }

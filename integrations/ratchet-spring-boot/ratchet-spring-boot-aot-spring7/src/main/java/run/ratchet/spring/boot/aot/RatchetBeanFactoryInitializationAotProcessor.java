@@ -761,7 +761,7 @@ public final class RatchetBeanFactoryInitializationAotProcessor
         .forEach(packages::add);
     if (AutoConfigurationPackages.has(beanFactory)) {
       AutoConfigurationPackages.get(beanFactory).stream()
-          .filter(packageName -> packageName != null && !packageName.isBlank())
+          .filter(packageName -> !packageName.isBlank())
           .forEach(packages::add);
     }
     return packages;
@@ -785,19 +785,32 @@ public final class RatchetBeanFactoryInitializationAotProcessor
       for (Field field : current.getDeclaredFields()) {
         if (field.getType() == JobSchedulerService.class) {
           declaresInjectionPoint = true;
+          break;
         }
       }
-      for (Method method : current.getDeclaredMethods()) {
-        for (Class<?> parameterType : method.getParameterTypes()) {
-          if (parameterType == JobSchedulerService.class) {
-            declaresInjectionPoint = true;
+      if (!declaresInjectionPoint) {
+        for (Method method : current.getDeclaredMethods()) {
+          for (Class<?> parameterType : method.getParameterTypes()) {
+            if (parameterType == JobSchedulerService.class) {
+              declaresInjectionPoint = true;
+              break;
+            }
+          }
+          if (declaresInjectionPoint) {
+            break;
           }
         }
       }
-      for (Constructor<?> constructor : current.getDeclaredConstructors()) {
-        for (Class<?> parameterType : constructor.getParameterTypes()) {
-          if (parameterType == JobSchedulerService.class) {
-            declaresInjectionPoint = true;
+      if (!declaresInjectionPoint) {
+        for (Constructor<?> constructor : current.getDeclaredConstructors()) {
+          for (Class<?> parameterType : constructor.getParameterTypes()) {
+            if (parameterType == JobSchedulerService.class) {
+              declaresInjectionPoint = true;
+              break;
+            }
+          }
+          if (declaresInjectionPoint) {
+            break;
           }
         }
       }

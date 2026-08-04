@@ -67,11 +67,11 @@ public class SubmissionGateChecker {
    * work owned by this node. The permit and rate-limit gates are separate best-effort checks; a
    * rate-limited job may hold a permit briefly before this method releases it.
    */
-  public GateCheckResult check(JobEntity job, boolean isFirstAttempt) {
+  GateCheckResult check(JobEntity job, boolean isFirstAttempt) {
     return checkInternal(job.getJobType(), job.getId(), job.getExecutionTarget(), isFirstAttempt);
   }
 
-  public GateCheckResult check(JobClaimDto claim, boolean isFirstAttempt) {
+  GateCheckResult check(JobClaimDto claim, boolean isFirstAttempt) {
     return checkInternal(claim.jobType(), claim.id(), claim.executionTarget(), isFirstAttempt);
   }
 

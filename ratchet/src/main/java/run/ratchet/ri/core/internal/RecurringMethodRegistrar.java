@@ -273,7 +273,7 @@ public class RecurringMethodRegistrar implements RecurringRegistration {
         pendingRegistrationRetry = scheduledRetry;
       }
     }
-    if (cancelled && scheduledRetry != null) {
+    if (cancelled) {
       scheduledRetry.cancel(false);
     }
   }
