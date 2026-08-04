@@ -106,8 +106,17 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-simple</artifactId>
+      <!--
+        Sole test-scope slf4j provider, replacing slf4j-simple: SimpleLogger
+        caches the real System.err before OutputCaptureExtension swaps the
+        streams, so CapturedOutput saw nothing once the shipped starter stopped
+        carrying logback. Logback plays well with Boot's output capture and was
+        the provider these tests ran against while it still arrived at compile
+        scope. Test scope keeps it invisible to the copyleft license gate.
+      -->
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-logging</artifactId>
+      <version>${spring-boot.compatibility.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
