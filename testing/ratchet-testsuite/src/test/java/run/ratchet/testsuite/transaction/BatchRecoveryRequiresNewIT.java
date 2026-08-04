@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.annotation.Resource;
 import jakarta.inject.Inject;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.UserTransaction;
@@ -56,7 +57,11 @@ class BatchRecoveryRequiresNewIT extends BaseRatchetIT {
 
   @Inject private UserTransaction utx;
 
-  @Inject private TransactionSynchronizationRegistry transactionRegistry;
+  // @Resource, not @Inject: only UserTransaction is a required CDI built-in bean.
+  // WildFly and Liberty expose the registry as a CDI bean anyway; GlassFish and
+  // Payara provide it solely through JNDI, so @Inject fails enrichment there.
+  @Resource(lookup = "java:comp/TransactionSynchronizationRegistry")
+  private TransactionSynchronizationRegistry transactionRegistry;
 
   @Inject private TestTransactionRunner txRunner;
 
