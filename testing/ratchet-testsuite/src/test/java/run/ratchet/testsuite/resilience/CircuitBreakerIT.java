@@ -46,6 +46,7 @@ import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerManager;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NoOpMetricsCollector;
 import run.ratchet.testsuite.app.CircuitBreakerTestService;
@@ -88,6 +89,7 @@ public class CircuitBreakerIT {
             CircuitBreakerTestService.TestCircuitBreakerConfigProvider.class,
             CircuitBreakerConfig.class,
             CircuitBreakerConfigProvider.class,
+            CircuitBreakerManager.class,
             CircuitBreakerInterceptor.class,
             CircuitBreaker.class,
             CircuitBreakerConfiguration.class,
