@@ -50,6 +50,18 @@ public final class MysqlContainerExtension implements BeforeAllCallback {
     return container().getPassword();
   }
 
+  String currentJdbcUrl() {
+    return container().getJdbcUrl();
+  }
+
+  String currentUsername() {
+    return container().getUsername();
+  }
+
+  String currentPassword() {
+    return container().getPassword();
+  }
+
   private static MySQLContainer container() {
     return currentOrCreateResource().container;
   }
