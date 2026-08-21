@@ -137,7 +137,7 @@
     <spotless-maven-plugin.version>2.46.1</spotless-maven-plugin.version>
     <google-java-format.version>1.35.0</google-java-format.version>
     <testcontainers.version>2.0.5</testcontainers.version>
-    <micrometer.version>1.14.4</micrometer.version>
+    <micrometer.version>1.15.12</micrometer.version>
     <micrometer.tracing.version>1.4.4</micrometer.tracing.version>
     <opentelemetry.version>1.62.0</opentelemetry.version>
     <mockito.version>5.23.0</mockito.version>
