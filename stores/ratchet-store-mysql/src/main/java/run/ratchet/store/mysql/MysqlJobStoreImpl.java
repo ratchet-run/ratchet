@@ -814,14 +814,12 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
-    IsolationCheck.verifyReadCommitted(
+    IsolationCheck.verifySupported(
         em,
         "MySQL",
         List.of("SELECT @@SESSION.transaction_isolation", "SELECT @@SESSION.tx_isolation"),
-        "READ-COMMITTED",
-        "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue during claim"
-            + " queries. Set hibernate.connection.isolation=2 in persistence.xml or"
-            + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.",
+        List.of("READ-COMMITTED", "REPEATABLE-READ"),
+        "Use MySQL default REPEATABLE READ or READ COMMITTED for Ratchet transactions.",
         options.store().isolationCheckMode());
     initDelegates();
   }

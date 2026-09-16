@@ -661,28 +661,81 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void emptySignalTimeoutProbeDoesNotAcquireLease() {
+    SingletonLeaseService leaseService = org.mockito.Mockito.mock(SingletonLeaseService.class);
+    JobTimeoutHandler leasedHandler = newLeasedHandler(leaseService);
+    when(signalStore.findTimedOutSignalJobs(any(Instant.class), eq(1))).thenReturn(List.of());
+
+    leasedHandler.scanSignalTimeouts();
+
+    verify(signalStore).findTimedOutSignalJobs(any(Instant.class), eq(1));
+    org.mockito.Mockito.verifyNoInteractions(leaseService);
+  }
+
+  @Test
   void scanSignalTimeoutsSkippedWhenSingletonLeaseNotHeld() {
     SingletonLeaseService leaseService = org.mockito.Mockito.mock(SingletonLeaseService.class);
     when(leaseService.tryAcquire(anyString(), any(Duration.class))).thenReturn(Optional.empty());
+    JobEntity expired = waitingJob(UUID.randomUUID(), 0);
+    when(signalStore.findTimedOutSignalJobs(any(Instant.class), eq(1)))
+        .thenReturn(List.of(expired));
     JobTimeoutHandler leasedHandler = newLeasedHandler(leaseService);
 
     leasedHandler.scanSignalTimeouts();
 
-    verify(signalStore, never()).findTimedOutSignalJobs(any(Instant.class), anyInt());
+    verify(signalStore).findTimedOutSignalJobs(any(Instant.class), eq(1));
+    verify(signalStore, never())
+        .findTimedOutSignalJobs(
+            any(Instant.class), eq(JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE));
     verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
   }
 
   @Test
-  void scanSignalTimeoutsRunsWhenSingletonLeaseGranted() {
+  void signalTimeoutProbeIsRecheckedUnderLeaseAndDoesNotCacheEmptyResults() {
     SingletonLeaseService leaseService = org.mockito.Mockito.mock(SingletonLeaseService.class);
-    when(leaseService.tryAcquire(anyString(), any(Duration.class)))
-        .thenReturn(Optional.of(new SingletonLease(null, "signalTimeoutScan", "node-1")));
+    var lockStore = org.mockito.Mockito.mock(run.ratchet.store.spi.LockStore.class);
+    SingletonLease lease = new SingletonLease(lockStore, "signalTimeoutScan", "node-1");
+    when(leaseService.tryAcquire(anyString(), any(Duration.class))).thenReturn(Optional.of(lease));
     JobTimeoutHandler leasedHandler = newLeasedHandler(leaseService);
-    when(signalStore.findTimedOutSignalJobs(any(Instant.class), anyInt())).thenReturn(List.of());
+    JobEntity expired = waitingJob(UUID.randomUUID(), 0);
+    when(signalStore.findTimedOutSignalJobs(any(Instant.class), eq(1)))
+        .thenReturn(List.of(), List.of(expired));
+    when(signalStore.findTimedOutSignalJobs(
+            any(Instant.class), eq(JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE)))
+        .thenReturn(List.of());
 
     leasedHandler.scanSignalTimeouts();
+    org.mockito.Mockito.verifyNoInteractions(leaseService);
+    leasedHandler.scanSignalTimeouts();
 
-    verify(signalStore).findTimedOutSignalJobs(any(Instant.class), anyInt());
+    var order = org.mockito.Mockito.inOrder(signalStore, leaseService, lockStore);
+    order.verify(signalStore, times(2)).findTimedOutSignalJobs(any(Instant.class), eq(1));
+    order.verify(leaseService).tryAcquire(anyString(), any(Duration.class));
+    order
+        .verify(signalStore)
+        .findTimedOutSignalJobs(
+            any(Instant.class), eq(JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE));
+    order.verify(lockStore).unlock("signalTimeoutScan", "node-1");
+    org.mockito.Mockito.verifyNoInteractions(jobCrudStore);
+  }
+
+  @Test
+  void signalTimeoutScanFailureStillReleasesLease() {
+    SingletonLeaseService leaseService = org.mockito.Mockito.mock(SingletonLeaseService.class);
+    var lockStore = org.mockito.Mockito.mock(run.ratchet.store.spi.LockStore.class);
+    SingletonLease lease = new SingletonLease(lockStore, "signalTimeoutScan", "node-1");
+    when(leaseService.tryAcquire(anyString(), any(Duration.class))).thenReturn(Optional.of(lease));
+    JobEntity expired = waitingJob(UUID.randomUUID(), 0);
+    when(signalStore.findTimedOutSignalJobs(any(Instant.class), eq(1)))
+        .thenReturn(List.of(expired));
+    when(signalStore.findTimedOutSignalJobs(
+            any(Instant.class), eq(JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE)))
+        .thenThrow(new IllegalStateException("store down"));
+
+    assertThrows(
+        IllegalStateException.class, () -> newLeasedHandler(leaseService).scanSignalTimeouts());
+
+    verify(lockStore).unlock("signalTimeoutScan", "node-1");
   }
 
   @Test

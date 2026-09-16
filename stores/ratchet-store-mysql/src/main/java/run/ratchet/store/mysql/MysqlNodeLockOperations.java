@@ -44,14 +44,30 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
     /*
-     * Transaction contract: MysqlJobStoreImpl invokes this under REQUIRES_NEW, keeping the UPDATE
-     * and fallback INSERT IGNORE in one independent transaction. The INSERT row count still decides the race.
+     * MysqlJobStoreImpl runs both statements in one REQUIRES_NEW transaction. The no-op
+     * upsert takes an exclusive record lock even when another node owns the lease. Only
+     * the conditional UPDATE decides ownership; upsert counts depend on CLIENT_FOUND_ROWS.
      */
     try {
       requireLockName(name);
       requirePositiveDuration(ttl, "ttl");
       Objects.requireNonNull(nodeId, "nodeId");
       long ttlMicros = durationMicros(ttl);
+      // Duplicate-key INSERT IGNORE takes shared locks that can deadlock when the holder
+      // deletes its lease. Acquire the row exclusively before checking whether it is available.
+      String ensureRowSql =
+          """
+          INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
+          VALUES (?, ?, NOW(6), DATE_ADD(NOW(6), INTERVAL ? MICROSECOND))
+          ON DUPLICATE KEY UPDATE lock_name = lock_name
+          """;
+      ctx.em()
+          .createNativeQuery(ensureRowSql)
+          .setParameter(1, name)
+          .setParameter(2, nodeId)
+          .setParameter(3, ttlMicros)
+          .executeUpdate();
+
       // language=MySQL
       String updateSql =
           """
@@ -73,24 +89,7 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
               .setParameter(3, name)
               .setParameter(4, nodeId)
               .executeUpdate();
-      if (updated > 0) {
-        return true;
-      }
-
-      // language=MySQL
-      String insertSql =
-          """
-          INSERT IGNORE INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
-          VALUES (?, ?, NOW(6), DATE_ADD(NOW(6), INTERVAL ? MICROSECOND))
-          """;
-      int inserted =
-          ctx.em()
-              .createNativeQuery(insertSql)
-              .setParameter(1, name)
-              .setParameter(2, nodeId)
-              .setParameter(3, ttlMicros)
-              .executeUpdate();
-      return inserted > 0;
+      return updated > 0;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("try lock", e);
     }

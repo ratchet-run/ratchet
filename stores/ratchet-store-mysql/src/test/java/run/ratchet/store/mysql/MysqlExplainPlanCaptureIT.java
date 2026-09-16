@@ -50,22 +50,11 @@ class MysqlExplainPlanCaptureIT {
 
   private static String explainJson(Statement statement) throws SQLException {
     String sql =
-        """
-        EXPLAIN FORMAT=JSON
-        SELECT job_id, status, job_type, priority, scheduled_time,
-               version, timeout_sec, picked_by, picked_at, business_key,
-               attempts, max_retries
-        FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
-        WHERE status = 'PENDING'
-          AND scheduled_time <= NOW(3)
-          AND job_type = 'SINGLE'
-        ORDER BY
-          (priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))) / 15)) DESC,
-          scheduled_time ASC,
-          job_id ASC
-        LIMIT 50
-        FOR UPDATE SKIP LOCKED
-        """;
+        "EXPLAIN FORMAT=JSON "
+            + MysqlJobClaimOperations.buildClaimSql(
+                    "job_id", "job_type = 'SINGLE'", "", "", "scheduled_time", 15)
+                .replaceFirst("\\?", "15")
+                .replaceFirst("\\?", "50");
     try (ResultSet rs = statement.executeQuery(sql)) {
       assertTrue(rs.next(), "EXPLAIN FORMAT=JSON should return one row");
       return rs.getString(1);
@@ -132,10 +121,10 @@ class MysqlExplainPlanCaptureIT {
           "scheduler_job_queue",
           table.getString("table_name", null),
           "claim plan should target scheduler_job_queue: " + plan);
-      assertEquals(
-          "idx_claim_executable",
-          table.getString("key", null),
-          "claim plan should use idx_claim_executable: " + plan);
+      assertTrue(
+          java.util.Set.of("idx_claim_executable", "idx_claim_pending_priority")
+              .contains(table.getString("key", null)),
+          "candidate lookup should use a claim index: " + plan);
       assertNotEquals(
           "ALL",
           table.getString("access_type", null),
@@ -151,12 +140,7 @@ class MysqlExplainPlanCaptureIT {
       statement.execute("ANALYZE TABLE scheduler_job_queue");
       String sql =
           MysqlJobClaimOperations.buildClaimSql(
-                  MysqlJobClaimOperations.claimSelectClause(),
-                  "job_type = 'SINGLE'",
-                  "",
-                  "",
-                  "scheduled_time",
-                  0)
+                  "job_id", "job_type = 'SINGLE'", "", "", "scheduled_time", 0)
               .replace("LIMIT ?", "LIMIT 50");
       try (ResultSet rs = statement.executeQuery("EXPLAIN FORMAT=JSON " + sql)) {
         assertTrue(rs.next());
@@ -193,12 +177,7 @@ class MysqlExplainPlanCaptureIT {
       statement.execute("ANALYZE TABLE scheduler_job_queue");
       String sql =
           MysqlJobClaimOperations.buildClaimSql(
-                  MysqlJobClaimOperations.claimSelectClause(),
-                  "job_type = 'SINGLE'",
-                  "",
-                  "",
-                  "scheduled_time",
-                  0)
+                  "job_id", "job_type = 'SINGLE'", "", "", "scheduled_time", 0)
               .replace("LIMIT ?", "LIMIT 50");
       try (ResultSet rs = statement.executeQuery("EXPLAIN FORMAT=JSON " + sql)) {
         assertTrue(rs.next());

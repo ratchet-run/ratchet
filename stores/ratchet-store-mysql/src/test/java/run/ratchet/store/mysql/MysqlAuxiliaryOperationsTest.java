@@ -81,7 +81,9 @@ class MysqlAuxiliaryOperationsTest {
                 new Class<?>[] {EntityManager.class},
                 (proxy, method, args) -> {
                   return switch (method.getName()) {
-                    case "createNativeQuery" -> queryReturningExistingPermit(expectedJobId);
+                    case "createNativeQuery" ->
+                        queryReturningExistingPermit(
+                            expectedJobId, ((String) args[0]).contains("max_concurrent"));
                     case "persist" ->
                         throw new AssertionError("existing permit must not insert another row");
                     default -> throw new UnsupportedOperationException(method.getName());
@@ -90,24 +92,18 @@ class MysqlAuxiliaryOperationsTest {
     return new MysqlStoreContext(em, null);
   }
 
-  private static Query queryReturningExistingPermit(UUID expectedJobId) {
+  private static Query queryReturningExistingPermit(UUID expectedJobId, boolean limit) {
     return (Query)
         Proxy.newProxyInstance(
             Query.class.getClassLoader(),
             new Class<?>[] {Query.class},
             (proxy, method, args) -> {
               return switch (method.getName()) {
-                case "setParameter" -> {
-                  if ((int) args[0] == 3) {
-                    byte[] expected = UuidByteArrayConverter.toBytes(expectedJobId);
-                    byte[] actual = (byte[]) args[1];
-                    if (!java.util.Arrays.equals(expected, actual)) {
-                      throw new AssertionError("job_id parameter should use MySQL UUID bytes");
-                    }
-                  }
-                  yield proxy;
-                }
-                case "getResultList" -> Collections.singletonList(new Object[] {2, 1, 1});
+                case "setParameter" -> proxy;
+                case "getResultList" ->
+                    limit
+                        ? java.util.List.of(2)
+                        : Collections.singletonList(UuidByteArrayConverter.toBytes(expectedJobId));
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });

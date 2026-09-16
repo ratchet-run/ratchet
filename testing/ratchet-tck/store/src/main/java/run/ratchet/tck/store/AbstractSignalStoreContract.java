@@ -241,6 +241,21 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
   }
 
   @Test
+  void findTimedOutSignalJobs_probeDoesNotConsumeWork() {
+    Instant cutoff = Instant.now();
+    persist(newWaitingJob("probe-future", cutoff.plusSeconds(3600)));
+    assertTrue(signalStore().findTimedOutSignalJobs(cutoff, 1).isEmpty());
+
+    JobEntity expired = persist(newWaitingJob("probe-expired", cutoff.minusSeconds(30)));
+    persist(newWaitingJob("probe-expired-second", cutoff.minusSeconds(20)));
+    assertEquals(1, signalStore().findTimedOutSignalJobs(cutoff, 1).size());
+
+    List<JobEntity> batch = signalStore().findTimedOutSignalJobs(cutoff, 500);
+    assertEquals(2, batch.size(), "a probe must leave all expired jobs available for the scan");
+    assertTrue(batch.stream().anyMatch(job -> job.getId().equals(expired.getId())));
+  }
+
+  @Test
   void findTimedOutSignalJobs_honorsLimit() {
     persist(newWaitingJob("expired-limit-1", Instant.now().minusSeconds(30)));
     persist(newWaitingJob("expired-limit-2", Instant.now().minusSeconds(20)));

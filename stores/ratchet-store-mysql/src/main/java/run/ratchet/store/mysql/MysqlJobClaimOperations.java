@@ -72,8 +72,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           AND %s <= NOW(3)
           AND %s%s%s
         ORDER BY %s
-        LIMIT ?
-        FOR UPDATE SKIP LOCKED"""
+        LIMIT ?"""
         .formatted(
             selectClause,
             timeColumn,
@@ -128,27 +127,93 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     }
   }
 
-  @SuppressWarnings("unchecked")
   private List<Object[]> selectClaimCandidates(int limit, NodeTagFilter tagFilter) {
+    return selectClaimCandidates(limit, null, tagFilter, null);
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<Object[]> selectClaimCandidates(
+      int limit,
+      JobExecutionType jobType,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
     int boostInterval = ctx.priorityBoostIntervalMinutes();
+    String typeSql = jobType == null ? EXECUTABLE_JOB_TYPE_FILTER : "job_type = ?";
     String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
-    var query =
-        ctx.em()
-            .createNativeQuery(
-                buildClaimSql(
-                    CLAIM_SELECT_COLUMNS,
-                    EXECUTABLE_JOB_TYPE_FILTER,
-                    "",
-                    tagSql,
-                    "scheduled_time",
-                    boostInterval));
-    int parameter = 1;
-    parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
-    if (boostInterval > 0) {
-      query.setParameter(parameter++, boostInterval);
+    String targetSql =
+        jobType == null
+            ? ""
+            : JobClaimSqlSupport.buildExecutionTargetFilterSql(
+                executionTargetFilter, "execution_target");
+    List<Object[]> claimed = new ArrayList<>();
+    Set<UUID> selectedIds = new HashSet<>();
+    // Range locking reads take next-key locks under REPEATABLE READ, including on an empty
+    // queue. Discover candidates without locks, then lock their primary keys and recheck every
+    // eligibility predicate against the current row. Move past locked candidates within this
+    // call; bound work so a poller cannot scan an entire contended backlog in one transaction.
+    int candidateOffset = 0;
+    for (int page = 0; page < 16 && claimed.size() < limit; page++) {
+      int remaining = limit - claimed.size();
+      var candidates =
+          ctx.em()
+              .createNativeQuery(
+                  buildClaimSql(
+                          "job_id", typeSql, targetSql, tagSql, "scheduled_time", boostInterval)
+                      + " OFFSET ?");
+      int parameter = bindClaimFilters(candidates, jobType, executionTargetFilter, tagFilter, 1);
+      if (boostInterval > 0) candidates.setParameter(parameter++, boostInterval);
+      candidates.setParameter(parameter++, remaining);
+      // Each preceding page requested the remaining capacity, so track the actual offset.
+      candidates.setParameter(parameter, candidateOffset);
+      List<?> ids = candidates.getResultList();
+      if (ids.isEmpty()) break;
+      candidateOffset += ids.size();
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      var locked =
+          ctx.em()
+              .createNativeQuery(
+                  "SELECT "
+                      + CLAIM_SELECT_COLUMNS
+                      + " FROM scheduler_job_queue FORCE INDEX (PRIMARY)"
+                      + " WHERE job_id IN ("
+                      + placeholders
+                      + ") AND status = 'PENDING'"
+                      + " AND scheduled_time <= NOW(3) AND "
+                      + typeSql
+                      + targetSql
+                      + tagSql
+                      + " FOR UPDATE SKIP LOCKED");
+      parameter = 1;
+      List<UUID> order = new ArrayList<>();
+      for (Object id : ids) {
+        UUID uuid = MysqlJobRowMapper.uuidOrNull(id);
+        order.add(uuid);
+        locked.setParameter(parameter++, UuidByteArrayConverter.toBytes(uuid));
+      }
+      bindClaimFilters(locked, jobType, executionTargetFilter, tagFilter, parameter);
+      List<Object[]> rows = locked.getResultList();
+      for (Object[] row :
+          JobClaimSqlSupport.reorderById(rows, order, value -> new ClaimRow(value).jobId())) {
+        // At READ COMMITTED, concurrent priority changes/inserts can shift an earlier page.
+        if (selectedIds.add(new ClaimRow(row).jobId())) claimed.add(row);
+      }
+      if (ids.size() < remaining) break;
     }
-    query.setParameter(parameter, limit);
-    return query.getResultList();
+    return claimed;
+  }
+
+  private int bindClaimFilters(
+      Query query,
+      JobExecutionType jobType,
+      ExecutionTargetFilter executionTargetFilter,
+      NodeTagFilter tagFilter,
+      int parameter) {
+    if (jobType != null) {
+      query.setParameter(parameter++, jobType.name());
+      parameter =
+          JobClaimSqlSupport.bindExecutionTargetFilter(query, executionTargetFilter, parameter);
+    }
+    return JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
   }
 
   // SQL template is a compile-time constant defined in this package; runtime values are bound as
@@ -166,34 +231,11 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     }
 
     try {
-      int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
-      String executionTargetSql =
-          JobClaimSqlSupport.buildExecutionTargetFilterSql(
-              executionTargetFilter, "execution_target");
-      var query =
-          ctx.em()
-              .createNativeQuery(
-                  buildClaimSql(
-                      CLAIM_SELECT_COLUMNS,
-                      "job_type = ?",
-                      executionTargetSql,
-                      tagSql,
-                      "scheduled_time",
-                      boostInterval));
-      int parameter = 1;
-      query.setParameter(parameter++, jobType.name());
-      parameter =
-          JobClaimSqlSupport.bindExecutionTargetFilter(query, executionTargetFilter, parameter);
-      parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
-      if (boostInterval > 0) {
-        query.setParameter(parameter++, boostInterval);
-      }
-      query.setParameter(parameter, limit);
-
       List<Object[]> rows =
           ctx.timedStoreOperation(
-              "claim_lookup", query::getResultList, result -> result.isEmpty() ? "empty" : "hit");
+              "claim_lookup",
+              () -> selectClaimCandidates(limit, jobType, tagFilter, executionTargetFilter),
+              result -> result.isEmpty() ? "empty" : "hit");
 
       if (rows.isEmpty()) {
         return List.of();
@@ -377,13 +419,17 @@ final class MysqlJobClaimOperations implements JobClaimStore {
        * statement. The caller already holds candidate row locks from FOR UPDATE SKIP LOCKED, so every
        * locked candidate is still PENDING at UPDATE time and the affected-row count equals the
        * candidate count: the whole candidate set is claimed. A read-back SELECT is kept only as a
-       * defensive fallback for the lock-impossible count mismatch, matching PostgreSQL's two
-       * round-trip claim instead of paying a third.
+       * defensive fallback for the lock-impossible count mismatch, avoiding another read after
+       * candidate discovery, primary-key locking, and this batch update.
+       *
+       * Keep the update on PRIMARY too. Near queue drain, MySQL can otherwise choose the pending
+       * priority index even for a tiny ID set. Under REPEATABLE READ that locks unrelated pending
+       * rows and reverses the primary/secondary lock order between competing claimers.
        */
       // language=MySQL
       String updateSql =
           """
-          UPDATE scheduler_job_queue
+          UPDATE scheduler_job_queue FORCE INDEX (PRIMARY)
           SET status = 'RUNNING', picked_by = ?, picked_at = ?, updated_at = ?,
               version = version + 1
           WHERE job_id IN (%s) AND status = 'PENDING'

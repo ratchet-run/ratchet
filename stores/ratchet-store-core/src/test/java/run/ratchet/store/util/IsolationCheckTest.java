@@ -48,6 +48,34 @@ class IsolationCheckTest {
     when(em.createNativeQuery("SHOW transaction_isolation")).thenReturn(query8);
   }
 
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(strings = {"READ-COMMITTED", "REPEATABLE-READ"})
+  void acceptsEverySupportedIsolation(String actual) {
+    when(query8.getSingleResult()).thenReturn(actual);
+    IsolationCheck.verifySupported(
+        em,
+        "MySQL",
+        List.of("SELECT @@SESSION.transaction_isolation"),
+        List.of("READ-COMMITTED", "REPEATABLE-READ"),
+        "fix",
+        RatchetOptions.IsolationCheckMode.FAIL);
+  }
+
+  @Test
+  void stillRejectsUnsupportedIsolation() {
+    when(query8.getSingleResult()).thenReturn("SERIALIZABLE");
+    assertThrows(
+        IsolationCheckFailedException.class,
+        () ->
+            IsolationCheck.verifySupported(
+                em,
+                "MySQL",
+                List.of("SELECT @@SESSION.transaction_isolation"),
+                List.of("READ-COMMITTED", "REPEATABLE-READ"),
+                "fix",
+                RatchetOptions.IsolationCheckMode.FAIL));
+  }
+
   @Test
   void verifyPassesOnExactMatch() {
     when(query8.getSingleResult()).thenReturn("READ-COMMITTED");

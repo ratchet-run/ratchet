@@ -188,7 +188,6 @@ You should see the same core tables as PostgreSQL, with MySQL-specific column ty
     password=your-secure-password, \
     min-pool-size=5, \
     max-pool-size=20, \
-    transaction-isolation=TRANSACTION_READ_COMMITTED, \
     valid-connection-checker-class-name=org.jboss.jca.adapters.jdbc.extensions.mysql.MySQLValidConnectionChecker)
 ```
 
@@ -196,7 +195,7 @@ You should see the same core tables as PostgreSQL, with MySQL-specific column ty
 
 ```xml
 <!-- server.xml -->
-<dataSource id="RatchetDS" jndiName="java:/RatchetDS" isolationLevel="TRANSACTION_READ_COMMITTED">
+<dataSource id="RatchetDS" jndiName="java:/RatchetDS">
   <jdbcDriver libraryRef="mysqlLib"/>
   <properties.mysql
       serverName="localhost"
@@ -208,15 +207,11 @@ You should see the same core tables as PostgreSQL, with MySQL-specific column ty
 </dataSource>
 ```
 
-:::caution MySQL Isolation Level
-MySQL defaults to `REPEATABLE READ`, which acquires gap locks on `SELECT ... FOR UPDATE` that block concurrent inserts. This causes lock wait timeouts under production load. **Always** configure `READ COMMITTED` isolation via one of:
-
-- **DataSource property**: `transaction-isolation=TRANSACTION_READ_COMMITTED`
-- **JDBC URL parameter**: `?sessionVariables=transaction_isolation='READ-COMMITTED'`
-- **persistence.xml**: `<property name="hibernate.connection.isolation" value="2"/>`
-- **WildFly `-ds.xml`**: `<transaction-isolation>TRANSACTION_READ_COMMITTED</transaction-isolation>`
-
-Verify the effective level on a live connection with `SELECT @@transaction_isolation;` (MySQL) or `SHOW default_transaction_isolation;` (PostgreSQL, which already defaults to `READ COMMITTED`).
+:::info MySQL isolation level
+The current MySQL store supports default `REPEATABLE READ` and `READ COMMITTED`.
+No datasource isolation override is required. Existing `READ COMMITTED` configurations
+remain supported. See [MySQL isolation](./mysql.md#transaction-isolation) for verification
+and guidance when upgrading older builds.
 :::
 
 ### MySQL-Specific Notes

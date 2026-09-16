@@ -11,7 +11,7 @@ Ratchet on MySQL 8+.
 - MySQL 8.0 or later
 - InnoDB storage engine (required for row-level locking)
 - `utf8mb4` character set with `utf8mb4_unicode_ci` collation
-- `READ COMMITTED` transaction isolation level
+- Default `REPEATABLE READ` or `READ COMMITTED` transaction isolation
 
 ## Schema Setup
 
@@ -78,7 +78,6 @@ Configure your data source for MySQL:
   <exclude-unlisted-classes>true</exclude-unlisted-classes>
   <properties>
     <property name="hibernate.dialect" value="org.hibernate.dialect.MySQLDialect" />
-    <property name="hibernate.connection.isolation" value="2" />
   </properties>
 </persistence-unit>
 ```
@@ -121,21 +120,21 @@ Or via WildFly CLI:
     password=secret, \
     min-pool-size=5, \
     max-pool-size=20, \
-    transaction-isolation=TRANSACTION_READ_COMMITTED, \
     valid-connection-checker-class-name=org.jboss.jca.adapters.jdbc.extensions.mysql.MySQLValidConnectionChecker)
 ```
 
-:::caution MySQL Isolation Level
-MySQL defaults to `REPEATABLE READ`, which acquires gap locks on `SELECT ... FOR UPDATE` that block concurrent inserts into the same table. This causes lock wait timeouts under production job scheduling load. **Always** configure `READ COMMITTED` isolation via one of:
+:::info MySQL isolation level
+The MySQL store supports the server default, `REPEATABLE READ`, and `READ COMMITTED`.
+No datasource isolation override is required. Existing `READ COMMITTED` configurations
+remain supported.
 
-- WildFly DataSource: `transaction-isolation=TRANSACTION_READ_COMMITTED`
-- JDBC URL: `?sessionVariables=transaction_isolation='READ-COMMITTED'`
-- persistence.xml: `<property name="hibernate.connection.isolation" value="2"/>`
-- WildFly -ds.xml: `<transaction-isolation>TRANSACTION_READ_COMMITTED</transaction-isolation>`
+Claims discover candidates without locking a range, then lock specific primary keys
+and recheck eligibility. Resource-permit acquisition reads current permit state while
+holding the resource lock, even if the caller already has an older transaction snapshot.
+The startup check accepts both isolation levels; it still rejects unsupported levels
+such as `SERIALIZABLE` by default.
 
-Ratchet checks this at startup and fails by default when the active session is not
-`READ COMMITTED`. Use `RatchetOptions.builder().store(s -> s.isolationCheckMode(RatchetOptions.IsolationCheckMode.WARN))`
-only as an explicit temporary opt-out.
+Verify a live application connection with `SELECT @@SESSION.transaction_isolation;`.
 :::
 
 ### MySQL-Specific Settings
@@ -217,11 +216,17 @@ max_connections = 200
 
 ### Transaction Isolation
 
-Set globally for all connections:
+Upgrade older Ratchet builds that reject `REPEATABLE READ` before removing existing
+isolation overrides; disabling their startup check does not add support.
 
-```ini
-[mysqld]
-transaction_isolation = READ-COMMITTED
+No server-wide isolation change is needed. Both `REPEATABLE READ` and `READ COMMITTED`
+are supported. Choose the isolation level for the application's transaction semantics;
+compare throughput with the same workload before choosing either for performance.
+
+Check the effective value from an application connection:
+
+```sql
+SELECT @@SESSION.transaction_isolation;
 ```
 
 ## Monitoring

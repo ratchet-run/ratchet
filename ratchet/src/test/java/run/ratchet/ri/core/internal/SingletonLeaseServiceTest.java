@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.LockStore;
@@ -67,6 +69,7 @@ class SingletonLeaseServiceTest {
     Optional<SingletonLease> lease = service.tryAcquire("jobArchiver", Duration.ofMinutes(5));
 
     assertTrue(lease.isEmpty());
+    verify(lockStore).tryLock("jobArchiver", Duration.ofMinutes(5), "node-1");
   }
 
   @Test
@@ -79,6 +82,39 @@ class SingletonLeaseServiceTest {
     Optional<SingletonLease> lease = service.tryAcquire("jobArchiver", Duration.ofMinutes(5));
 
     assertTrue(lease.isEmpty());
+    verify(lockStore).tryLock("jobArchiver", Duration.ofMinutes(5), "node-1");
+  }
+
+  @Test
+  void tryAcquire_retriesTransientFailureBeforeGrantingLease() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    when(lockStore.tryLock("jobArchiver", Duration.ofMinutes(5), "node-1"))
+        .thenThrow(new RatchetTransientStoreException("deadlock"))
+        .thenReturn(true);
+
+    assertTrue(service.tryAcquire("jobArchiver", Duration.ofMinutes(5)).isPresent());
+    verify(lockStore, times(2)).tryLock("jobArchiver", Duration.ofMinutes(5), "node-1");
+  }
+
+  @Test
+  void tryAcquire_stopsAfterThreeTransientFailures() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    when(lockStore.tryLock("jobArchiver", Duration.ofMinutes(5), "node-1"))
+        .thenThrow(new RatchetTransientStoreException("deadlock"));
+
+    assertTrue(service.tryAcquire("jobArchiver", Duration.ofMinutes(5)).isEmpty());
+    verify(lockStore, times(3)).tryLock("jobArchiver", Duration.ofMinutes(5), "node-1");
+  }
+
+  @Test
+  void tryAcquire_stopsWhenRetryFindsLegitimateContention() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    when(lockStore.tryLock("jobArchiver", Duration.ofMinutes(5), "node-1"))
+        .thenThrow(new RatchetTransientStoreException("deadlock"))
+        .thenReturn(false);
+
+    assertTrue(service.tryAcquire("jobArchiver", Duration.ofMinutes(5)).isEmpty());
+    verify(lockStore, times(2)).tryLock("jobArchiver", Duration.ofMinutes(5), "node-1");
   }
 
   @Test

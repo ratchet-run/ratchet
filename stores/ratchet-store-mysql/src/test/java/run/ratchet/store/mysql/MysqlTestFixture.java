@@ -89,17 +89,14 @@ public class MysqlTestFixture extends JpaContainerFixture {
 
   @Override
   protected Map<String, Object> jpaProperties() {
-    // No hibernate.dialect pin — Hibernate 6 auto-detects from the JDBC URL. Remaining keys are
-    // opt-in Hibernate tuning and no-op under any other JPA provider. connection.isolation=2
-    // maps to READ_COMMITTED (TRANSACTION_READ_COMMITTED on java.sql.Connection), matching the
-    // Arquillian/WildFly test stack and avoiding MySQL REPEATABLE-READ gap-lock deadlocks under
-    // concurrent claim.
+    // Exercise MySQL's default isolation. The test-only override runs the same contracts at
+    // READ COMMITTED too, without requiring either setting from library users.
     return Map.of(
         "hibernate.hbm2ddl.auto", "none",
         "hibernate.show_sql", "false",
         "hibernate.format_sql", "false",
         "hibernate.connection.provider_disables_autocommit", "false",
-        "hibernate.connection.isolation", "2");
+        "hibernate.connection.isolation", System.getProperty("ratchet.mysql.test.isolation", "4"));
   }
 
   @Override
@@ -111,6 +108,12 @@ public class MysqlTestFixture extends JpaContainerFixture {
   protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
     MysqlJobStoreImpl store = new MysqlJobStoreImpl(() -> em, metrics, RatchetOptions.defaults());
     store.checkIsolationLevel();
+    String expected =
+        "2".equals(System.getProperty("ratchet.mysql.test.isolation", "4"))
+            ? "READ-COMMITTED"
+            : "REPEATABLE-READ";
+    org.junit.jupiter.api.Assertions.assertEquals(
+        expected, em.createNativeQuery("SELECT @@SESSION.transaction_isolation").getSingleResult());
     return store;
   }
 }

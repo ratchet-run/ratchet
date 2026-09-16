@@ -23,13 +23,11 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 
 /**
- * Verifies that the database session uses the {@code READ COMMITTED} isolation level required by
- * Ratchet's poll/claim path.
+ * Verifies the database session isolation against the levels supported by a store.
  *
- * <p>Both MySQL ({@code REPEATABLE READ} default) and PostgreSQL can be configured with stricter
- * isolation that breaks claim semantics. Operators don't realize until they hit deadlocks or stale
- * reads in production. This helper runs at {@code @PostConstruct} time in each store implementation
- * and either logs a warning, throws an exception, or skips the check based on {@link
+ * <p>Each store supplies its supported levels. MySQL supports READ COMMITTED and REPEATABLE READ;
+ * other callers of {@link #verifyReadCommitted} retain their READ COMMITTED requirement. The check
+ * runs at {@code @PostConstruct} time and either warns, fails, or skips according to {@link
  * RatchetOptions.StoreOptions#isolationCheckMode()}.
  *
  * <h2>Why per-store callers</h2>
@@ -88,6 +86,17 @@ public final class IsolationCheck {
       String expectedValueIgnoreCase,
       String remediation,
       RatchetOptions.IsolationCheckMode mode) {
+    verifySupported(em, dbName, queries, List.of(expectedValueIgnoreCase), remediation, mode);
+  }
+
+  /** Verifies isolation against the levels supported by a particular store. */
+  public static void verifySupported(
+      EntityManager em,
+      String dbName,
+      List<String> queries,
+      List<String> supportedValues,
+      String remediation,
+      RatchetOptions.IsolationCheckMode mode) {
     if (mode == RatchetOptions.IsolationCheckMode.DISABLE) {
       log.debugf("%s isolation check disabled by RatchetOptions", dbName);
       return;
@@ -119,11 +128,14 @@ public final class IsolationCheck {
       return;
     }
 
-    if (!normalize(expectedValueIgnoreCase).equals(normalize(actual))) {
+    String normalizedActual = normalize(actual);
+    if (supportedValues.stream()
+        .map(IsolationCheck::normalize)
+        .noneMatch(normalizedActual::equals)) {
       String message =
           String.format(
               "%s session isolation is '%s' — Ratchet requires %s. %s",
-              dbName, actual, expectedValueIgnoreCase, remediation);
+              dbName, actual, String.join(" or ", supportedValues), remediation);
       if (mode == RatchetOptions.IsolationCheckMode.FAIL) {
         throw new IsolationCheckFailedException(message);
       }
