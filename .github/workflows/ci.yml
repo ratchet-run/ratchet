@@ -84,9 +84,9 @@ jobs:
             web:
               - 'website/**'
 
-  # Thin gate that releases the integration-test matrix: compile + format check
-  # only, no tests. The unit suite lives in the unit-tests job below, which runs
-  # in parallel with the matrix instead of in front of it.
+  # Gate the integration matrix on compilation, formatting, and a focused
+  # publishing-profile install. Tests run in the unit-tests job below, in
+  # parallel with the matrix.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -104,6 +104,12 @@ jobs:
         run: mvn clean compile -B
       - name: Format check
         run: mvn spotless:check -B
+      - name: Check publishing-profile dependency resolution
+        # Install locally to exercise flattened POMs without uploading artifacts.
+        run: >-
+          mvn -B -ntp clean install -P github
+          -pl :ratchet-quarkus-observability-integration-tests -am
+          -DskipTests -Dspotbugs.skip=true
 
   # Runs the unit suite exactly once per pipeline. Deliberately NOT gated on
   # changes or merge_group: build and spotbugs are the only other jobs that run
