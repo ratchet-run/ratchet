@@ -58,8 +58,8 @@ import run.ratchet.store.spi.JobStore;
 
 /**
  * Executes jobs on the configured executor. A permit must be acquired before calling {@link
- * #execute}; it is released automatically on completion. Jakarta EE deployments should provide a
- * managed executor through {@link ExecutorProvider}.
+ * #execute}; it is released exactly once on completion, rejection, or cancellation. Jakarta EE
+ * deployments should provide a managed executor through {@link ExecutorProvider}.
  */
 @ApplicationScoped
 public class DefaultJobExecutorService implements JobExecutorService {
@@ -172,18 +172,49 @@ public class DefaultJobExecutorService implements JobExecutorService {
   public ExecutionResult execute(JobEntity job, String poolName) {
     JobExecutionType jobType = job.getJobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
-    Callable<Void> callable =
-        createPermitAwareRunner(jobType, poolName, handlesRef, task -> task.init(job));
-    return execute(job.getId(), job.getTimeoutSec(), callable, handlesRef, poolName);
+    Runnable release = permitRelease(jobType, poolName, handlesRef);
+    try {
+      Callable<Void> callable =
+          createPermitAwareRunner(jobType, poolName, handlesRef, task -> task.init(job));
+      return execute(job.getId(), job.getTimeoutSec(), callable, handlesRef, poolName, release);
+    } catch (RuntimeException | Error failure) {
+      release.run();
+      throw failure;
+    }
   }
 
   @Override
   public ExecutionResult execute(JobClaimDto claim, String poolName) {
     JobExecutionType jobType = claim.jobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
-    Callable<Void> callable =
-        createPermitAwareRunner(jobType, poolName, handlesRef, task -> task.initFromClaim(claim));
-    return execute(claim.id(), claim.timeoutSec(), callable, handlesRef, poolName);
+    Runnable release = permitRelease(jobType, poolName, handlesRef);
+    try {
+      Callable<Void> callable =
+          createPermitAwareRunner(jobType, poolName, handlesRef, task -> task.initFromClaim(claim));
+      return execute(claim.id(), claim.timeoutSec(), callable, handlesRef, poolName, release);
+    } catch (RuntimeException | Error failure) {
+      release.run();
+      throw failure;
+    }
+  }
+
+  private Runnable permitRelease(
+      JobExecutionType type,
+      String poolName,
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
+    AtomicBoolean released = new AtomicBoolean();
+    return () -> {
+      if (released.compareAndSet(false, true)) {
+        try {
+          poolRegistry.pool(poolName).releasePermit(type);
+        } finally {
+          cancelTimeoutHandles(handlesRef);
+          if (pollerScheduler != null) {
+            pollerScheduler.wakeup();
+          }
+        }
+      }
+    };
   }
 
   private ExecutionResult execute(
@@ -192,11 +223,22 @@ public class DefaultJobExecutorService implements JobExecutorService {
       Callable<Void> callable,
       AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef,
       String poolName) {
+    return execute(jobId, timeoutSec, callable, handlesRef, poolName, () -> {});
+  }
+
+  private ExecutionResult execute(
+      UUID jobId,
+      int timeoutSec,
+      Callable<Void> callable,
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef,
+      String poolName,
+      Runnable release) {
     Instant executionStartTime = effective().instant();
     TrackingFutureTask task;
     try {
-      task = prepareTask(callable);
+      task = prepareTask(callable, release);
     } catch (RejectedExecutionException e) {
+      release.run();
       return ExecutionResult.rejected(e);
     }
 
@@ -209,10 +251,18 @@ public class DefaultJobExecutorService implements JobExecutorService {
         cancelTimeoutHandles(handlesRef);
       }
       return ExecutionResult.success(task);
-    } catch (RejectedExecutionException e) {
+    } catch (RuntimeException e) {
+      // An executor is allowed to fail after handing the task to a runner. Once execution has
+      // begun, keep ownership here instead of rebuffering another execution of the same claim.
+      if (!task.cancelBeforeStart()) {
+        log.warnf(e, "Executor reported failure after starting job %s", jobId);
+        return ExecutionResult.success(task);
+      }
       cancelTimeoutHandles(handlesRef);
-      task.cancel(true);
-      return ExecutionResult.rejected(e);
+      return ExecutionResult.rejected(
+          e instanceof RejectedExecutionException rejected
+              ? rejected
+              : new RejectedExecutionException("Could not schedule execution", e));
     }
   }
 
@@ -294,10 +344,6 @@ public class DefaultJobExecutorService implements JobExecutorService {
       try {
         return task.call();
       } finally {
-        poolRegistry.pool(poolName).releasePermit(jobType);
-        if (pollerScheduler != null) {
-          pollerScheduler.wakeup();
-        }
         cancelTimeoutHandles(handlesRef);
       }
     };
@@ -336,8 +382,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
     }
   }
 
-  private TrackingFutureTask prepareTask(Callable<Void> callable) {
-    TrackingFutureTask task = new TrackingFutureTask(callable);
+  private TrackingFutureTask prepareTask(Callable<Void> callable, Runnable release) {
+    TrackingFutureTask task = new TrackingFutureTask(callable, release);
     synchronized (submissionLock) {
       if (!acceptingExecutions.get()) {
         throw new RejectedExecutionException("Job executor is shutting down");
@@ -358,7 +404,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
         throw new RejectedExecutionException("Job execution was canceled during submission");
       }
     } catch (RuntimeException e) {
-      activeFutures.remove(task);
+      // Cancellation or the actual runner exit owns tracking cleanup. An executor may throw
+      // after starting the task; removing it here would hide an interruption-ignoring runner.
       if (e instanceof RejectedExecutionException rejected) {
         throw rejected;
       }
@@ -374,19 +421,34 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
     private final AtomicBoolean runnerStarted = new AtomicBoolean(false);
     private final CountDownLatch runnerExited = new CountDownLatch(1);
+    private final Runnable release;
 
-    private TrackingFutureTask(Callable<Void> callable) {
+    private TrackingFutureTask(Callable<Void> callable, Runnable release) {
       super(callable);
+      this.release = release;
     }
 
     @Override
     public void run() {
-      runnerStarted.set(true);
+      synchronized (this) {
+        if (isCancelled()) {
+          return;
+        }
+        runnerStarted.set(true);
+      }
       try {
         super.run();
       } finally {
         markRunnerExited();
       }
+    }
+
+    private synchronized boolean cancelBeforeStart() {
+      if (runnerStarted.get()) {
+        return false;
+      }
+      cancel(false);
+      return true;
     }
 
     @Override
@@ -401,8 +463,12 @@ public class DefaultJobExecutorService implements JobExecutorService {
     }
 
     private void markRunnerExited() {
-      activeFutures.remove(this);
-      runnerExited.countDown();
+      try {
+        release.run();
+      } finally {
+        activeFutures.remove(this);
+        runnerExited.countDown();
+      }
     }
   }
 }

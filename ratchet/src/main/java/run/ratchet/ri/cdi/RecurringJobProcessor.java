@@ -41,9 +41,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobHandle;
@@ -104,7 +104,11 @@ public class RecurringJobProcessor {
   @Inject private ExecutorProvider executorProvider;
   @Inject private Instance<RecurringJobStore> recurringJobStoreInstance;
 
-  private final AtomicBoolean registrationFinalized = new AtomicBoolean();
+  // Guarded by this: publication arms the grace gate; cleanup may need subsequent attempts.
+  private boolean registrationPublished;
+  private boolean cleanupCompleted;
+  private Set<String> publishedJobIds;
+  private Instant cleanupCutoff;
 
   protected RecurringJobProcessor() {
     this.invocationSubmissionService = null;
@@ -246,7 +250,7 @@ public class RecurringJobProcessor {
     if (scheduler == null) {
       // Plain-CDI / SE / unit tests: no managed executor, and the calling thread already carries a
       // usable transaction context, so register inline.
-      registerRecurringJobs();
+      registerInline();
       return;
     }
     // On a Jakarta EE container the @Initialized(ApplicationScoped) observer can fire before the
@@ -265,7 +269,7 @@ public class RecurringJobProcessor {
           RatchetRuntimeStart event) {
     ScheduledExecutorService scheduler = resolveScheduledExecutor();
     if (scheduler == null) {
-      registerRecurringJobs();
+      registerInline();
       return;
     }
     attemptDeferredRegistration(scheduler, 1);
@@ -285,27 +289,63 @@ public class RecurringJobProcessor {
     }
   }
 
-  private void scheduleDeferredRegistration(ScheduledExecutorService scheduler, int attempt) {
-    scheduler.schedule(
-        () -> attemptDeferredRegistration(scheduler, attempt),
-        REGISTRATION_RETRY_DELAY_MS,
-        TimeUnit.MILLISECONDS);
+  private synchronized void registerInline() {
+    try {
+      registerRecurringJobs();
+    } catch (RuntimeException e) {
+      if (!registrationPublished) {
+        throw e;
+      }
+      log.warn(
+          "Orphan cleanup abandoned after one inline attempt; no managed executor for retries", e);
+    }
   }
 
-  private void attemptDeferredRegistration(ScheduledExecutorService scheduler, int attempt) {
+  private synchronized void scheduleDeferredRegistration(
+      ScheduledExecutorService scheduler, int attempt) {
     try {
-      boolean committed = registerRecurringJobs();
-      if (!committed && attempt < MAX_REGISTRATION_ATTEMPTS) {
-        log.infof(
-            "@Recurring registration not yet committed (attempt %s/%s); retrying",
-            attempt, MAX_REGISTRATION_ATTEMPTS);
-        scheduleDeferredRegistration(scheduler, attempt + 1);
+      scheduler.schedule(
+          () -> attemptDeferredRegistration(scheduler, attempt),
+          REGISTRATION_RETRY_DELAY_MS,
+          TimeUnit.MILLISECONDS);
+    } catch (RejectedExecutionException e) {
+      log.warnf(
+          e,
+          "%s; scheduling rejected for attempt %s/%s",
+          registrationPublished
+              ? "Orphan cleanup abandoned"
+              : "@Recurring registration and orphan cleanup abandoned",
+          attempt,
+          MAX_REGISTRATION_ATTEMPTS);
+    }
+  }
+
+  private synchronized void attemptDeferredRegistration(
+      ScheduledExecutorService scheduler, int attempt) {
+    try {
+      if (registerRecurringJobs()) {
+        return;
       }
+      log.infof(
+          "@Recurring registration not yet committed (attempt %s/%s)",
+          attempt, MAX_REGISTRATION_ATTEMPTS);
     } catch (RuntimeException e) {
-      log.error("@Recurring registration attempt failed", e);
-      if (attempt < MAX_REGISTRATION_ATTEMPTS) {
-        scheduleDeferredRegistration(scheduler, attempt + 1);
-      }
+      log.warnf(
+          e,
+          "%s attempt %s/%s failed",
+          registrationPublished ? "Orphan cleanup" : "@Recurring registration",
+          attempt,
+          MAX_REGISTRATION_ATTEMPTS);
+    }
+    if (attempt < MAX_REGISTRATION_ATTEMPTS) {
+      scheduleDeferredRegistration(scheduler, attempt + 1);
+    } else {
+      log.warnf(
+          "%s after %s registration attempts",
+          registrationPublished
+              ? "Orphan cleanup abandoned"
+              : "@Recurring registration and orphan cleanup abandoned",
+          attempt);
     }
   }
 
@@ -315,9 +355,14 @@ public class RecurringJobProcessor {
    * while still applying annotation changes.
    *
    * @return {@code true} once every discovered master is confirmed present in the store (or the
-   *     store does not advertise the recurring capability), so the caller can stop retrying
+   *     store does not advertise the recurring capability) and cleanup has completed or been
+   *     skipped for lease contention, so the caller can stop retrying
    */
-  boolean registerRecurringJobs() {
+  synchronized boolean registerRecurringJobs() {
+    if (registrationPublished) {
+      completeCleanup();
+      return true;
+    }
     Instant startTime = effective().instant();
     log.info("Starting registration of @Recurring annotated jobs");
 
@@ -357,22 +402,28 @@ public class RecurringJobProcessor {
   }
 
   private void finalizeRegistration(Instant startTime, Set<String> discoveredJobIds) {
-    if (!registrationFinalized.compareAndSet(false, true)) {
-      return; // already finalized by an earlier attempt
-    }
-    log.infof("Completed registration of %s recurring jobs", registeredJobIds.size());
-
-    // Publish the discovered key set to the shared registration state BEFORE running cleanup,
-    // so the executor's shouldFire gate is armed even if cleanup is delayed (e.g. another node
-    // holds the startup lease, or cleanup throws and is retried).
+    // Called under the registration monitor, so overlapping startup callbacks cannot clean up
+    // concurrently. Freeze the snapshot and cutoff before publishing; retries only repeat cleanup.
+    publishedJobIds = Set.copyOf(discoveredJobIds);
+    cleanupCutoff = startTime.minusSeconds(options.recurring().convergenceWindowSeconds());
     if (registrationState != null) {
-      registrationState.markRegistrationComplete(discoveredJobIds);
+      registrationState.markRegistrationComplete(publishedJobIds);
     }
-
-    cleanupOrphanedRecurringJobs(startTime, discoveredJobIds);
+    registrationPublished = true;
+    log.infof("Completed registration of %s recurring jobs", registeredJobIds.size());
+    completeCleanup();
   }
 
-  private void cleanupOrphanedRecurringJobs(Instant startTime, Set<String> discoveredJobIds) {
+  private void completeCleanup() {
+    if (cleanupCompleted) {
+      return;
+    }
+    cleanupOrphanedRecurringJobs();
+    // An exception leaves cleanup pending. Explicit lease contention is a completed skip.
+    cleanupCompleted = true;
+  }
+
+  private void cleanupOrphanedRecurringJobs() {
     // Cleanup is DESTRUCTIVE — cancel jobs whose business_key is not in this node's local
     // annotation set. Two guards are required for multi-node safety:
     //
@@ -393,17 +444,14 @@ public class RecurringJobProcessor {
       log.info("Another node holds the startup lease, skipping orphan cleanup");
       return;
     }
-    Instant cutoff = startTime.minusSeconds(options.recurring().convergenceWindowSeconds());
     try {
       int canceled =
           recurringAnnotationMaintenanceService.cancelOrphanedRecurringAnnotationJobs(
-              discoveredJobIds, cutoff);
+              publishedJobIds, cleanupCutoff);
       if (canceled > 0) {
         log.infof(
             "Canceled %s orphaned recurring jobs (annotations removed from codebase)", canceled);
       }
-    } catch (Exception e) {
-      log.error("Orphan cleanup error", e);
     } finally {
       if (startupCoordinator != null) {
         try {

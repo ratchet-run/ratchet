@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.LockStore;
 
@@ -66,6 +68,18 @@ class StoreBackedStartupCoordinatorTest {
 
     assertFalse(
         coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)));
+  }
+
+  @Test
+  void tryAcquire_propagatesTransientStoreFailure() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    var failure = new RatchetTransientStoreException("deadlock");
+    when(lockStore.tryLock("startup:cleanup", Duration.ofMinutes(5), "node-1")).thenThrow(failure);
+    assertSame(
+        failure,
+        assertThrows(
+            RatchetTransientStoreException.class,
+            () -> coordinator.tryAcquire("cleanup", Duration.ofMinutes(5))));
   }
 
   @Test

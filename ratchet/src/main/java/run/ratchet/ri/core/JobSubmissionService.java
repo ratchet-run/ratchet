@@ -25,8 +25,7 @@ import run.ratchet.store.entity.JobExecutionType;
  * Orchestrates job submission: checks gates, executes, handles failures.
  *
  * <p>A clear gate check transfers a thread-pool permit to {@link JobExecutorService}. The executor
- * releases that permit in the job runner's {@code finally} block; rejection and pre-execution
- * failure paths release it through {@link SubmissionFailureHandler}.
+ * owns that permit from execute entry, releasing it once on completion, rejection, or cancellation.
  */
 @ApplicationScoped
 public class JobSubmissionService {
@@ -136,7 +135,18 @@ public class JobSubmissionService {
 
   /** Accepts a lightweight {@link JobClaimDto}; full entity loading is deferred until execution. */
   public void submit(JobClaimDto claim) {
-    trySubmit(claim, true, claimSubmissionOperations);
+    try {
+      trySubmit(claim, true, claimSubmissionOperations);
+    } catch (Exception exception) {
+      // Gate failures happen before executor ownership and can otherwise strand an already
+      // committed claim.
+      failureHandler.handleUnexpectedException(claim, claim.jobType(), null, exception);
+    }
+  }
+
+  /** Last-resort retention after dispatch failed before executor acceptance. */
+  public void retainUnsubmittedClaim(JobClaimDto claim) {
+    failureHandler.retainUnsubmittedClaim(claim);
   }
 
   void submitBuffered(JobEntity job) {

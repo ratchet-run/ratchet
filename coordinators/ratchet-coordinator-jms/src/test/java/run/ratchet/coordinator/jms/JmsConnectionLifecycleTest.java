@@ -324,6 +324,96 @@ class JmsConnectionLifecycleTest {
     assertEquals(freshProducer, lifecycle.currentProducer());
   }
 
+  @Test
+  void rejectedReconnectThreadDoesNotKeepOwnershipOrEscapeStartup() {
+    AtomicInteger attempts = new AtomicInteger();
+    java.util.concurrent.ThreadFactory factory =
+        runnable -> {
+          if (attempts.getAndIncrement() == 0) {
+            throw new java.util.concurrent.RejectedExecutionException("factory unavailable");
+          }
+          return new Thread(runnable);
+        };
+    when(cf.createContext(anyInt()))
+        .thenThrow(new JMSRuntimeException("initial fault"))
+        .thenReturn(ctx, senderCtx);
+    JmsConnectionLifecycle lifecycle =
+        new JmsConnectionLifecycle(
+            cf, topic, config, m -> {}, () -> {}, CoordinatorThreading.managed("test", factory));
+    created.add(lifecycle);
+    assertDoesNotThrow(() -> lifecycle.start(identity("nodeA")));
+    assertNull(lifecycle.currentContext());
+    lifecycle.triggerReconnect();
+    await().atMost(Duration.ofSeconds(3)).until(() -> lifecycle.currentContext() == ctx);
+  }
+
+  @Test
+  void immediateFaultInReplacementReceiverDoesNotLoseReconnect() throws Exception {
+    JMSContext recoveredConsumer = mock(JMSContext.class);
+    JMSContext recoveredSender = mock(JMSContext.class);
+    JMSConsumer recoveredReceiver = mock(JMSConsumer.class);
+    when(recoveredConsumer.createConsumer(any(Topic.class), anyString()))
+        .thenReturn(recoveredReceiver);
+    when(recoveredSender.createProducer()).thenReturn(mock(JMSProducer.class));
+    when(recoveredReceiver.receive(anyLong())).thenAnswer(blockingQuietReceive());
+    when(cf.createContext(anyInt()))
+        .thenThrow(new JMSRuntimeException("initial fault"))
+        .thenReturn(ctx, senderCtx, recoveredConsumer, recoveredSender);
+    when(consumer.receive(anyLong())).thenThrow(new JMSRuntimeException("replacement fault"));
+    AtomicInteger receivers = new AtomicInteger();
+    java.util.concurrent.ThreadFactory factory =
+        runnable ->
+            new Thread(runnable) {
+              @Override
+              public synchronized void start() {
+                super.start();
+                if (getName().contains("-receive-") && receivers.incrementAndGet() == 1) {
+                  try {
+                    join(2000);
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                  }
+                }
+              }
+            };
+    JmsConnectionLifecycle lifecycle =
+        new JmsConnectionLifecycle(
+            cf, topic, config, m -> {}, () -> {}, CoordinatorThreading.managed("test", factory));
+    created.add(lifecycle);
+    lifecycle.start(identity("nodeA"));
+    await()
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> lifecycle.currentContext() == recoveredConsumer);
+    verify(ctx).close();
+    verify(senderCtx).close();
+  }
+
+  @Test
+  void failedSendSideReconnectClosesPreviousGeneration() throws Exception {
+    JmsConnectionLifecycle lifecycle = newLifecycle();
+    lifecycle.start(identity("nodeA"));
+    CountDownLatch attempted = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    when(cf.createContext(anyInt()))
+        .thenAnswer(
+            inv -> {
+              attempted.countDown();
+              release.await(2, TimeUnit.SECONDS);
+              throw new JMSRuntimeException("replacement unavailable");
+            });
+    lifecycle.triggerReconnect();
+    try {
+      assertTrue(attempted.await(2, TimeUnit.SECONDS));
+      verify(ctx).close();
+      verify(senderCtx).close();
+    } finally {
+      release.countDown();
+      lifecycle.close();
+    }
+    verify(ctx, times(1)).close();
+    verify(senderCtx, times(1)).close();
+  }
+
   // ─── close() ─────────────────────────────────────────────────────────────────
 
   @Test
