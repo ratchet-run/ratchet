@@ -119,6 +119,44 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
   }
 
   @Test
+  void completionPreservesBothUnchangedAndChangedAttemptCounts() {
+    for (JobStatus terminal : java.util.List.of(JobStatus.SUCCEEDED, JobStatus.FAILED)) {
+      for (int plannedAttempts : new int[] {2, 5}) {
+        var job = newPendingJob();
+        job.setAttempts(2);
+        job = persist(job);
+        store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+        Instant now = Instant.now();
+        var plan =
+            new run.ratchet.store.dto.JobCompletionPlan(
+                job.getId(),
+                JobStatus.RUNNING,
+                terminal,
+                null,
+                null,
+                "test completion",
+                plannedAttempts,
+                now,
+                now,
+                0L,
+                0L,
+                null,
+                null,
+                java.util.List.of());
+
+        assertTrue(store().commitCompletion(plan).committed());
+
+        var completed = store().findById(job.getId()).orElseThrow();
+        assertEquals(terminal, completed.getStatus());
+        assertEquals(
+            plannedAttempts,
+            completed.getAttempts(),
+            "Terminal history must retain the planned attempt count");
+      }
+    }
+  }
+
+  @Test
   void completionCommitsDependencyUnlockAndIsIdempotent() {
     var parent = persist(newPendingJob());
     var child = newPendingJob();

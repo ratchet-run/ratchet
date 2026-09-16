@@ -59,7 +59,7 @@ public final class SqlJobCompletion {
                           lockSql(
                               "scheduler_job_queue",
                               "job_id",
-                              "status, version, scheduled_time",
+                              "status, version, scheduled_time, attempts",
                               sqlServer))
                       .setParameter(1, uuid.apply(id))
                       .getResultList();
@@ -105,10 +105,14 @@ public final class SqlJobCompletion {
     }
     // Failure APIs historically accept RUNNING only. WAITING timeouts use the guarded terminal
     // CAS, after setting the attempts in the same transaction so terminal history remains exact.
-    em.createNativeQuery("UPDATE scheduler_job_queue SET attempts = ? WHERE job_id = ?")
-        .setParameter(1, plan.attempts())
-        .setParameter(2, uuid.apply(plan.jobId()))
-        .executeUpdate();
+    // The row is already locked. Most completions retain its attempt count, so avoid an
+    // extra write while preserving plans that deliberately change terminal history.
+    if (((Number) primary[3]).intValue() != plan.attempts()) {
+      em.createNativeQuery("UPDATE scheduler_job_queue SET attempts = ? WHERE job_id = ?")
+          .setParameter(1, plan.attempts())
+          .setParameter(2, uuid.apply(plan.jobId()))
+          .executeUpdate();
+    }
     boolean transitioned =
         switch (plan.terminalStatus()) {
           case SUCCEEDED ->

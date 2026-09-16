@@ -25,9 +25,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.WeakHashMap;
 import java.util.function.IntBinaryOperator;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
@@ -55,6 +57,13 @@ import run.ratchet.spi.LambdaDescriptor;
  * degrade gracefully without corrupting the analysis.
  */
 public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
+
+  private static final int MAX_CACHED_CLASSES_PER_LOADER = 128;
+
+  // Trees contain bytecode metadata, not captured arguments or application Class objects.
+  // Weak loader keys allow undeployed applications to be collected; each loader is bounded.
+  private static final Map<ClassLoader, Map<String, ClassNode>> BYTECODE_BY_LOADER =
+      new WeakHashMap<>();
 
   public AsmLambdaAnalyzer() {}
 
@@ -351,23 +360,41 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   }
 
   private static ClassNode readClassNode(String classInternalName) {
-    String classFileResource = classInternalName + ".class";
-
     ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
     if (contextClassLoader == null) {
       contextClassLoader = AsmLambdaAnalyzer.class.getClassLoader();
     }
 
-    try (InputStream classFileStream = contextClassLoader.getResourceAsStream(classFileResource)) {
+    Map<String, ClassNode> cache;
+    synchronized (BYTECODE_BY_LOADER) {
+      cache =
+          BYTECODE_BY_LOADER.computeIfAbsent(
+              contextClassLoader, ignored -> new LinkedHashMap<>(16, 0.75f, true));
+    }
+    synchronized (cache) {
+      ClassNode cached = cache.get(classInternalName);
+      if (cached != null) {
+        return cached;
+      }
+      ClassNode parsed = loadClassNode(contextClassLoader, classInternalName);
+      cache.put(classInternalName, parsed);
+      if (cache.size() > MAX_CACHED_CLASSES_PER_LOADER) {
+        var oldest = cache.keySet().iterator();
+        oldest.next();
+        oldest.remove();
+      }
+      return parsed;
+    }
+  }
+
+  private static ClassNode loadClassNode(ClassLoader loader, String classInternalName) {
+    try (InputStream classFileStream = loader.getResourceAsStream(classInternalName + ".class")) {
       if (classFileStream == null) {
         throw new IllegalStateException("Bytecode not found for " + classInternalName);
       }
-
       ClassReader bytecodeReader = new ClassReader(classFileStream);
       ClassNode classStructure = new ClassNode();
-
       bytecodeReader.accept(classStructure, ClassReader.SKIP_FRAMES);
-
       return classStructure;
     } catch (IOException ioException) {
       throw new IllegalStateException("Cannot read class " + classInternalName, ioException);
