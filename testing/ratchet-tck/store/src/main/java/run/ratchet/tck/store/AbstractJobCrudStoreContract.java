@@ -160,6 +160,45 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void idempotencyKeySurvivesDeletionAndRejectsReuse() {
+    var saved = persist(newPendingJob());
+    store().delete(saved.getId());
+    assertEquals(
+        java.util.Optional.of(saved.getId()),
+        store().findOriginalJobIdByIdempotencyKey(saved.getIdempotencyKey()));
+    var duplicate = newPendingJob();
+    duplicate.setIdempotencyKey(saved.getIdempotencyKey());
+    assertThrows(
+        run.ratchet.api.exception.DuplicateIdempotencyKeyException.class,
+        () -> store().create(duplicate));
+    assertEquals(
+        java.util.Optional.of(saved.getId()),
+        store().findOriginalJobIdByIdempotencyKey(saved.getIdempotencyKey()));
+  }
+
+  @Test
+  void idempotencyKeySurvivesArchiveAndPurge() {
+    var saved = persist(newPendingJob());
+    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(
+            saved.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 1000L, 0L);
+    var archive = archiveStore();
+    archive.archiveAndDeleteJobsBatch(
+        List.of(store().findById(saved.getId()).orElseThrow()), "tck", "tck");
+    archive.purgeArchivedJobs(Instant.now().plusSeconds(60));
+    assertFalse(store().findById(saved.getId()).isPresent());
+    assertEquals(
+        java.util.Optional.of(saved.getId()),
+        store().findOriginalJobIdByIdempotencyKey(saved.getIdempotencyKey()));
+    var duplicate = newPendingJob();
+    duplicate.setIdempotencyKey(saved.getIdempotencyKey());
+    assertThrows(
+        run.ratchet.api.exception.DuplicateIdempotencyKeyException.class,
+        () -> store().create(duplicate));
+  }
+
+  @Test
   void save_concurrentMutation_oneThreadObservesStaleWrite() {
     // Skip cleanly if this fixture does not surface optimistic-lock failures (e.g., MongoDB
     // standalone without replica-set transactions). Without this gate the test fails with a

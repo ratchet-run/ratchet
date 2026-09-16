@@ -4,3 +4,5 @@ V003__workflow_evaluation_order.sql
 V004__recurring_misfire_policy.sql
 V005__remove_dead_dlq_alert_subsystem.sql
 V006__drop_recurring_master_fk.sql
+V007__permanent_idempotency_keys.sql
+V008__priority_ordered_claim_index.sql

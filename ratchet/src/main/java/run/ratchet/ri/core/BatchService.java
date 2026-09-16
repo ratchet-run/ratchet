@@ -42,11 +42,15 @@ import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
+import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.WorkflowCompletionPlan;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -264,9 +268,6 @@ public class BatchService {
 
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean recoverCompletedBatch(UUID batchId, BatchEntity batch, JobEntity parent) {
-    if (!batchStore.markBatchCompleteIfReady(batchId)) {
-      return false;
-    }
     JobStatus before = parent.getStatus();
     boolean scheduledNext = processBatchCompletion(batchId, batch, parent);
     return scheduledNext || before == JobStatus.PENDING && parent.getStatus() != JobStatus.PENDING;
@@ -342,28 +343,30 @@ public class BatchService {
     if (parent.getStatus() != JobStatus.PENDING) {
       return false;
     }
-    // Skip-execute the parent into terminal SUCCEEDED/FAILED. Post hot/cold-split,
-    // save() can't mutate the hot row's status; the equivalent is a synthetic pickup
-    // followed by mark-terminal so the hot DELETE + cold UPDATE + bkres DELETE all
-    // run atomically through the store.
-    if (!jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-      return false;
-    }
-
     boolean succeeded = batch.getFailedItems() == 0;
     Instant nowTs = effective().instant();
-    JobStatus terminalStatus = succeeded ? JobStatus.SUCCEEDED : JobStatus.FAILED;
-    if (!markBatchParentTerminal(parentId, batch, succeeded, nowTs)) {
-      resetSyntheticBatchPickup(parentId);
-      return false;
-    }
-    parent.setStatus(terminalStatus);
+    parent.setStatus(succeeded ? JobStatus.SUCCEEDED : JobStatus.FAILED);
+    parent.setExecutionStartTime(nowTs);
+    parent.setExecutionEndTime(nowTs);
+    parent.setExecutionDurationMs(0L);
+    parent.setQueueWaitMs(0L);
     if (!succeeded) {
       parent.setAttempts(0);
       parent.setLastError(batchFailureMessage(batch));
     }
-
-    batchStore.finalizeBatchMetrics(parentId);
+    WorkflowCompletionPlan workflow = workflowScheduler.planCompletion(parent, false);
+    JobCompletionResult committed =
+        jobTerminalStore.commitCompletion(
+            PostExecutionHandler.completionPlan(
+                parent,
+                JobStatus.PENDING,
+                new JobCompletionPlan.BatchCompletion(
+                    batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems()),
+                workflow));
+    if (!committed.committed()) {
+      parent.setStatus(JobStatus.PENDING);
+      return false;
+    }
 
     Long totalDurationMs =
         batchStore
@@ -375,53 +378,13 @@ public class BatchService {
     }
 
     publishBatchEvents(batch, parent, succeeded, totalDurationMs);
+    workflowScheduler.publishCompletion(workflow);
 
     log.infof(
         "Batch %s completed: %d total, %d succeeded, %d failed",
         parentId, batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems());
 
-    return workflowScheduler.scheduleNext(parent);
-  }
-
-  private boolean markBatchParentTerminal(
-      UUID parentId, BatchEntity batch, boolean succeeded, Instant nowTs) {
-    try {
-      if (succeeded) {
-        return jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
-      }
-      return jobTerminalStore.markJobFailedTerminal(parentId, batchFailureMessage(batch), 0);
-    } catch (RuntimeException e) {
-      resetSyntheticBatchPickup(parentId, e);
-      throw e;
-    }
-  }
-
-  private void resetSyntheticBatchPickup(UUID parentId) {
-    resetSyntheticBatchPickup(parentId, null);
-  }
-
-  private void resetSyntheticBatchPickup(UUID parentId, RuntimeException cause) {
-    try {
-      if (jobBatchStatusStore.resetRunningJob(
-          parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-        return;
-      }
-    } catch (RuntimeException resetFailure) {
-      if (cause != null) {
-        resetFailure.addSuppressed(cause);
-      }
-      throw resetFailure;
-    }
-
-    IllegalStateException failure =
-        new IllegalStateException(
-            "Batch parent "
-                + parentId
-                + " synthetic pickup could not be reset after terminal transition failure");
-    if (cause != null) {
-      failure.addSuppressed(cause);
-    }
-    throw failure;
+    return workflow.newWorkAvailable();
   }
 
   private void publishBatchEvents(
@@ -578,12 +541,18 @@ public class BatchService {
       return false;
     }
 
-    triggerWithProgress(progress.progressHook(), progress);
+    return afterChildCompletion(progress);
+  }
 
-    if (batchStore.markBatchCompleteIfReady(parentId)) {
-      // markBatchCompleteIfReady can have more than one apparent winner under concurrent commits.
-      // The parent pickup CAS in processBatchCompletion is the exactly-once gate.
-      return processBatchCompletion(parentId, completionSnapshot(parentId, progress));
+  /** Processes a counter snapshot already committed with its child's terminal transition. */
+  // JTA may still associate the completed transaction with an afterCompletion callback thread.
+  // Suspend it before reading counters or committing the synthetic parent's completion.
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public boolean afterChildCompletion(BatchProgress progress) {
+    triggerWithProgress(progress.progressHook(), progress);
+    BatchEntity current = completionSnapshot(progress.batchId(), progress);
+    if (current.getCompletedItems() + current.getFailedItems() >= current.getTotalItems()) {
+      return processBatchCompletion(progress.batchId(), current);
     }
     return false;
   }

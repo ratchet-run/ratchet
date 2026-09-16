@@ -246,8 +246,7 @@ class DefaultJobQueryService implements JobQueryService {
 
     // A filter that targets ONLY recurring masters has to hit RecurringJobStore — the executable
     // queryStore reads scheduler_job + scheduler_job_queue, which don't hold recurring rows. The
-    // scoped filter includes any principal-scoping the auth policy injected, so we apply it in-
-    // memory against the master rows rather than dropping straight to listAll.
+    // scoped filter includes authorization constraints, applied by the store before pagination.
     if (scoped.types() != null
         && scoped.types().size() == 1
         && scoped.types().contains(JobType.RECURRING)) {
@@ -453,57 +452,29 @@ class DefaultJobQueryService implements JobQueryService {
     if (recurringJobStore == null) {
       return new JobPage<>(List.<JobSummary>of(), 0L, limit, offset, false, null);
     }
-    // RecurringJobStore.listAll has no native pagination; recurring-master populations are small
-    // by design (one per business key) so the slice happens in memory. Sort is stable by id to
-    // keep page boundaries deterministic across calls. Copy first — the SPI doesn't guarantee a
-    // mutable list and we don't want to leak side effects back to the store.
-    List<RecurringJobDefinition> filtered = new java.util.ArrayList<>();
-    for (RecurringJobDefinition def : recurringJobStore.listAll()) {
-      if (matchesRecurringFilter(def, scoped)) {
-        filtered.add(def);
-      }
+    boolean cursorMode = scoped.cursor() != null && !scoped.cursor().isBlank();
+    boolean probe = scoped.skipCount() || cursorMode;
+    List<RecurringJobDefinition> rows =
+        recurringJobStore.searchRecurring(scoped, probe ? Math.addExact(limit, 1) : limit, offset);
+    long total = probe ? -1L : recurringJobStore.countRecurring(scoped);
+    boolean more = probe ? rows.size() > limit : (long) offset + rows.size() < total;
+    if (rows.size() > limit) rows = rows.subList(0, limit);
+    List<JobSummary> page = rows.stream().map(DefaultJobQueryService::toRecurringSummary).toList();
+    String cursor = null;
+    if (more && !rows.isEmpty()) {
+      RecurringJobDefinition last = rows.get(rows.size() - 1);
+      JobQuerySortField field =
+          scoped.sortField() == null ? JobQuerySortField.CREATED_AT : scoped.sortField();
+      String value =
+          switch (field) {
+            case CREATED_AT, UPDATED_AT -> toInstantString(last.createdAt());
+            case SCHEDULED_TIME -> toInstantString(last.nextFire());
+            case PRIORITY -> Integer.toString(last.priority());
+            case STATUS -> last.paused() ? JobStatus.PAUSED.name() : JobStatus.PENDING.name();
+          };
+      cursor = new JobQueryCursor(field, scoped.sortAscending(), value, last.id()).encode();
     }
-    filtered.sort((a, b) -> a.id().compareTo(b.id()));
-    long total = filtered.size();
-    int from = Math.min(offset, filtered.size());
-    int to = Math.min(offset + limit, filtered.size());
-    List<JobSummary> page = new java.util.ArrayList<>(to - from);
-    for (RecurringJobDefinition def : filtered.subList(from, to)) {
-      page.add(toRecurringSummary(def));
-    }
-    return new JobPage<>(page, total, limit, offset, to < filtered.size(), null);
-  }
-
-  private static boolean matchesRecurringFilter(RecurringJobDefinition def, JobFilter f) {
-    // callerPrincipal: drives the auth-scoping case as well as caller-supplied filters.
-    if (f.callerPrincipal() != null && !f.callerPrincipal().equals(def.callerPrincipal())) {
-      return false;
-    }
-    if (f.businessKey() != null && !f.businessKey().equals(def.businessKey())) {
-      return false;
-    }
-    if (f.resourceName() != null && !f.resourceName().equals(def.resourceName())) {
-      return false;
-    }
-    if (f.targetClass() != null
-        && (def.payload() == null || !f.targetClass().equals(def.payload().target()))) {
-      return false;
-    }
-    if (f.createdAfter() != null
-        && def.createdAt() != null
-        && def.createdAt().isBefore(f.createdAfter())) {
-      return false;
-    }
-    if (f.createdBefore() != null
-        && def.createdAt() != null
-        && def.createdAt().isAfter(f.createdBefore())) {
-      return false;
-    }
-    // Filter dimensions not yet supported for recurring masters: tags, statuses, idempotencyKey,
-    // priorities, pickedBy, traceCorrelationId, parentJobId, scheduledAfter/Before, updatedAfter.
-    // None of these have natural meaning on a recurring master row; callers that need them on
-    // executable children should query JobType.SINGLE separately.
-    return true;
+    return new JobPage<>(page, total, limit, offset, more, cursor);
   }
 
   private static JobSummary toRecurringSummary(RecurringJobDefinition def) {

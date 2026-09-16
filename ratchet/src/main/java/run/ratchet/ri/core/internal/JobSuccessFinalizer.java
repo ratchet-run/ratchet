@@ -23,7 +23,6 @@ import java.util.function.LongSupplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.JobStore;
 
 /** Persists successful execution using bounded retries and a result-free fallback. */
 @ApplicationScoped
@@ -34,30 +33,33 @@ public class JobSuccessFinalizer {
   private static final long[] BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
   private static final long JITTER_MAX_MS = 25L;
 
-  private final JobStore jobStore;
+  private final PostExecutionHandler lifecycle;
   private final ExecutionObserver observer;
   private final Sleeper sleeper;
   private final LongSupplier jitter;
 
   protected JobSuccessFinalizer() {
-    this.jobStore = null;
+    this.lifecycle = null;
     this.observer = null;
     this.sleeper = null;
     this.jitter = null;
   }
 
   @Inject
-  public JobSuccessFinalizer(JobStore jobStore, ExecutionObserver observer) {
+  public JobSuccessFinalizer(PostExecutionHandler lifecycle, ExecutionObserver observer) {
     this(
-        jobStore,
+        lifecycle,
         observer,
         Thread::sleep,
         () -> ThreadLocalRandom.current().nextLong(JITTER_MAX_MS + 1L));
   }
 
   JobSuccessFinalizer(
-      JobStore jobStore, ExecutionObserver observer, Sleeper sleeper, LongSupplier jitter) {
-    this.jobStore = jobStore;
+      PostExecutionHandler lifecycle,
+      ExecutionObserver observer,
+      Sleeper sleeper,
+      LongSupplier jitter) {
+    this.lifecycle = lifecycle;
     this.observer = observer;
     this.sleeper = sleeper;
     this.jitter = jitter;
@@ -77,8 +79,8 @@ public class JobSuccessFinalizer {
     for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         boolean updated =
-            jobStore.markJobSucceeded(
-                job.getId(), resultJson, resultType, start, end, durationMs, queueWaitMs);
+            lifecycle.completeSuccess(
+                job, resultJson, resultType, start, end, durationMs, queueWaitMs);
         return updated ? Outcome.COMPLETED_FULL : Outcome.TERMINAL_SKIPPED;
       } catch (RatchetTransientStoreException e) {
         observer.recordSuccessFinalizationRetry(job);
@@ -99,8 +101,7 @@ public class JobSuccessFinalizer {
     }
 
     try {
-      boolean updated =
-          jobStore.markJobSucceededMinimal(job.getId(), start, end, durationMs, queueWaitMs);
+      boolean updated = lifecycle.completeSuccessMinimal(job, start, end, durationMs, queueWaitMs);
       if (updated) {
         observer.recordSuccessFinalizationMinimal(job);
         log.warnf(

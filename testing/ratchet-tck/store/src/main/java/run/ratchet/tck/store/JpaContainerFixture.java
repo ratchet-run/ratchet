@@ -96,6 +96,73 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   private final EntityManager emProxy;
   private final JobStore storeProxy;
 
+  public record NativeQueryEvent(String operation, boolean completed, Object result) {}
+
+  private volatile java.util.function.BiConsumer<String, NativeQueryEvent> nativeQueryObserver =
+      (sql, event) -> {};
+
+  /** Test-only synchronization at actual native statement boundaries; all statements still run. */
+  public final void observeNativeQueries(
+      java.util.function.BiConsumer<String, NativeQueryEvent> observer) {
+    nativeQueryObserver = java.util.Objects.requireNonNull(observer);
+  }
+
+  /** Inject a later-plan failure only after a real earlier-master UPDATE has completed. */
+  public final void failBeforeRecurringArchiveAfterAdvance(Runnable work) {
+    var advanced = new java.util.concurrent.atomic.AtomicBoolean();
+    observeNativeQueries(
+        (sql, event) -> {
+          String normalized = sql.stripLeading().toUpperCase(java.util.Locale.ROOT);
+          if (event.completed()
+              && event.operation().equals("executeUpdate")
+              && normalized.startsWith("UPDATE SCHEDULER_RECURRING_JOB SET NEXT_FIRE")) {
+            if (((Number) event.result()).intValue() != 1)
+              throw new AssertionError("Expected one advanced master");
+            advanced.set(true);
+          }
+          if (!event.completed()
+              && event.operation().equals("executeUpdate")
+              && normalized.startsWith("INSERT")
+              && normalized.contains("INTO SCHEDULER_RECURRING_JOB_ARCHIVE")) {
+            if (!advanced.get())
+              throw new AssertionError("Earlier master must advance before injected failure");
+            throw new IllegalStateException(
+                "Injected failure while archiving the later recurring master");
+          }
+        });
+    try {
+      work.run();
+    } finally {
+      observeNativeQueries((sql, event) -> {});
+      if (!advanced.get()) throw new AssertionError("No earlier-master UPDATE was executed");
+    }
+  }
+
+  private jakarta.persistence.Query observeQuery(String sql, jakarta.persistence.Query target) {
+    return (jakarta.persistence.Query)
+        Proxy.newProxyInstance(
+            jakarta.persistence.Query.class.getClassLoader(),
+            new Class<?>[] {jakarta.persistence.Query.class},
+            (proxy, method, args) -> {
+              boolean executes =
+                  java.util.Set.of("getResultList", "getSingleResult", "executeUpdate")
+                      .contains(method.getName());
+              if (executes)
+                nativeQueryObserver.accept(
+                    sql, new NativeQueryEvent(method.getName(), false, null));
+              Object result;
+              try {
+                result = method.invoke(target, args);
+              } catch (InvocationTargetException failure) {
+                throw failure.getCause();
+              }
+              if (executes)
+                nativeQueryObserver.accept(
+                    sql, new NativeQueryEvent(method.getName(), true, result));
+              return result == target ? proxy : result;
+            });
+  }
+
   private static Instant dueScheduledTime() {
     // DB-backed claim paths compare scheduled_time to the database clock, not the JVM clock.
     return Instant.now().minusSeconds(1);
@@ -253,7 +320,12 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
             (proxy, method, args) -> {
               EntityManager target = threadEm.get();
               try {
-                return method.invoke(target, args);
+                Object result = method.invoke(target, args);
+                if (method.getName().equals("createNativeQuery")
+                    && result instanceof jakarta.persistence.Query query) {
+                  return observeQuery((String) args[0], query);
+                }
+                return result;
               } catch (InvocationTargetException ite) {
                 throw ite.getCause();
               }

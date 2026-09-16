@@ -19,6 +19,8 @@ import java.time.Instant;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 
 /**
  * Terminal status transitions for jobs: success / failure / cancel.
@@ -33,6 +35,18 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
  */
 @Incubating
 public interface JobTerminalStore {
+
+  /**
+   * Commits a terminal transition, dependency mutations, and optional batch accounting atomically.
+   * A lost primary status guard returns notCommitted without applying any effects. A stale
+   * dependency or batch guard throws RatchetTransientStoreException and rolls back the entire
+   * operation, so the caller can rebuild its plan. Implementations must use one actual
+   * backing-store transaction (including one Mongo ClientSession); composing independently
+   * committed calls is invalid. Batch child counters and duration are incremented only by the
+   * winning primary transition. completedBatch also sets completion_processed and finalizes batch
+   * metrics in this transaction.
+   */
+  JobCompletionResult commitCompletion(JobCompletionPlan plan);
 
   /**
    * Marks a job as succeeded with a stored result.

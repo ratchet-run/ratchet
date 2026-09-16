@@ -36,6 +36,7 @@ import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.JobWriteSupport;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.SqlIdempotencyKeys;
 
 final class SqlserverJobWriteOperations {
 
@@ -146,6 +147,7 @@ final class SqlserverJobWriteOperations {
     }
 
     try {
+      SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
       executeColdBulkInsert(jobs, nowTs);
       executeHotBulkInsert(jobs, nowTs);
       executeTerminalBackfills(jobs, nowTs);
@@ -177,6 +179,8 @@ final class SqlserverJobWriteOperations {
         job.getStatus() != null && SqlserverJobRowMapper.isTerminalStatus(job.getStatus());
 
     try {
+      SqlIdempotencyKeys.reserve(
+          ctx, List.of(job), nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
       executeColdInsert(job, nowTs);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
@@ -375,13 +379,14 @@ final class SqlserverJobWriteOperations {
       // language=SQL Server
       String sql =
           """
-          UPDATE scheduler_job AS c
+          UPDATE c
           SET terminal_status = v.terminal_status,
               terminal_error = v.terminal_error,
               total_attempts = v.total_attempts,
               terminated_at = v.terminated_at
-          FROM (VALUES %s) AS v(job_id, terminal_status, terminal_error, total_attempts, terminated_at)
-          WHERE c.job_id = v.job_id
+          FROM scheduler_job AS c
+          INNER JOIN (VALUES %s) AS v(job_id, terminal_status, terminal_error, total_attempts, terminated_at)
+              ON c.job_id = v.job_id
           """
               .formatted(values);
       Query query = ctx.em().createNativeQuery(sql);

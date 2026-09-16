@@ -49,7 +49,6 @@ import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.event.BatchChunkFailureEvent;
 import run.ratchet.api.event.JobSignalWaitingEvent;
-import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.ChainScheduler;
@@ -361,9 +360,9 @@ class DefaultJobCreationService
   private JobHandle submitPrepared(JobBuilder builder) {
     JobBuilderState state = (JobBuilderState) builder;
     String idempotencyKey = state.idempotencyKey();
-    Optional<JobEntity> existingByKey = jobCrudStore.findByIdempotencyKey(idempotencyKey);
+    Optional<UUID> existingByKey = jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
     if (existingByKey.isPresent()) {
-      UUID existingId = existingByKey.get().getId();
+      UUID existingId = existingByKey.get();
       log.debugf(
           "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, existingId);
       return () -> existingId;
@@ -439,29 +438,9 @@ class DefaultJobCreationService
     }
     checkCreateAuthorization(job);
 
-    JobEntity saved;
-    try {
-      saved = createJob(job);
-    } catch (DuplicateIdempotencyKeyException e) {
-      // A concurrent submission with the same idempotency key won the race to insert. Converge on
-      // the documented idempotent result: re-resolve and return the existing job rather than
-      // letting the constraint violation escape.
-      JobEntity existing =
-          jobCrudStore
-              .findByIdempotencyKey(idempotencyKey)
-              .orElseThrow(
-                  () ->
-                      new IllegalStateException(
-                          "Idempotency key '"
-                              + idempotencyKey
-                              + "' collided on insert but no job resolves by that key",
-                          e));
-      UUID existingId = existing.getId();
-      log.debugf(
-          "Idempotency key '%s' raced on insert, returning existing job %s",
-          idempotencyKey, existingId);
-      return () -> existingId;
-    }
+    // A concurrent insert can abort the current database transaction. Let its duplicate-key
+    // exception roll back; a fresh submission resolves the permanent reservation above.
+    JobEntity saved = createJob(job);
     UUID jobId = saved.getId();
 
     if (isSignalWaiting && eventPublisher != null) {

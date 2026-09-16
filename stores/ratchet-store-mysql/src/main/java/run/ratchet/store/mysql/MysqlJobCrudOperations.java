@@ -92,6 +92,11 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore, JobAna
   }
 
   @Override
+  public Optional<UUID> findOriginalJobIdByIdempotencyKey(String idempotencyKey) {
+    return reads.findOriginalJobIdByIdempotencyKey(idempotencyKey);
+  }
+
+  @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
     return reads.findByIdempotencyKey(idempotencyKey);
   }

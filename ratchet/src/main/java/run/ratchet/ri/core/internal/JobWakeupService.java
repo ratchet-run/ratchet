@@ -22,6 +22,9 @@ import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Supplier;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import org.jboss.logging.Logger;
@@ -41,6 +44,8 @@ import run.ratchet.store.entity.JobExecutionType;
  */
 @ApplicationScoped
 public class JobWakeupService {
+  private static final String AFTER_COMMIT_ACTIONS_KEY =
+      JobWakeupService.class.getName() + ".afterCommitActions";
 
   private static final Logger log = Logger.getLogger(JobWakeupService.class);
 
@@ -162,13 +167,36 @@ public class JobWakeupService {
   }
 
   public static TransactionSynchronizationRegistry lookupTxRegistry(Logger log) {
+    return lookupTxRegistry(
+        log,
+        () -> {
+          var registry =
+              jakarta
+                  .enterprise
+                  .inject
+                  .spi
+                  .CDI
+                  .current()
+                  .select(TransactionSynchronizationRegistry.class);
+          return registry.isResolvable() ? registry.get() : null;
+        });
+  }
+
+  static TransactionSynchronizationRegistry lookupTxRegistry(
+      Logger log, Supplier<TransactionSynchronizationRegistry> cdiLookup) {
     try {
       return InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
-    } catch (NamingException e) {
-      log.debugf(
-          "TransactionSynchronizationRegistry lookup unavailable; using immediate fallback: %s",
-          e.getMessage());
-      return null;
+    } catch (NamingException unavailable) {
+      // Standalone CDI runtimes such as Quarkus expose the registry as a bean without JNDI.
+      // Treating that as no transaction would publish events and run followups before commit.
+      try {
+        return cdiLookup.get();
+      } catch (IllegalStateException unavailableCdi) {
+        log.debugf(
+            "TransactionSynchronizationRegistry unavailable through JNDI and CDI: %s",
+            unavailableCdi.getMessage());
+        return null;
+      }
     }
   }
 
@@ -204,20 +232,46 @@ public class JobWakeupService {
             "transaction status " + transactionStatus + " does not allow registration");
         return AfterCommitRegistrationResult.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
       }
-      txRegistry.registerInterposedSynchronization(
-          new Synchronization() {
-            @Override
-            public void beforeCompletion() {
-              // no-op
-            }
+      // JTA does not promise FIFO delivery between separate synchronizations. Keep all Ratchet
+      // actions in one transaction-scoped queue so terminal events precede dependent events and
+      // parent followups. The registry discards this resource with the transaction.
+      synchronized (txRegistry) {
+        @SuppressWarnings("unchecked")
+        List<Runnable> existing = (List<Runnable>) txRegistry.getResource(AFTER_COMMIT_ACTIONS_KEY);
+        List<Runnable> actions = existing;
+        if (actions == null) {
+          actions = new ArrayList<>();
+          List<Runnable> registeredActions = actions;
+          txRegistry.registerInterposedSynchronization(
+              new Synchronization() {
+                @Override
+                public void beforeCompletion() {}
 
-            @Override
-            public void afterCompletion(int status) {
-              if (status == Status.STATUS_COMMITTED) {
-                action.run();
-              }
-            }
-          });
+                @Override
+                public void afterCompletion(int status) {
+                  List<Runnable> ready;
+                  synchronized (txRegistry) {
+                    ready =
+                        status == Status.STATUS_COMMITTED
+                            ? List.copyOf(registeredActions)
+                            : List.of();
+                    registeredActions.clear();
+                  }
+                  for (Runnable callback : ready) {
+                    try {
+                      callback.run();
+                    } catch (RuntimeException failure) {
+                      log.warn("After-commit action failed; continuing remaining actions", failure);
+                    }
+                  }
+                }
+              });
+          // If resource storage fails, the registered callback retains an empty queue and cannot
+          // execute an action whose registration was reported as failed.
+          txRegistry.putResource(AFTER_COMMIT_ACTIONS_KEY, actions);
+        }
+        actions.add(action);
+      }
       return AfterCommitRegistrationResult.REGISTERED;
     } catch (Exception e) {
       log.warnf(e, failureMessage, e.getMessage());

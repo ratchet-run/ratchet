@@ -64,6 +64,7 @@ import run.ratchet.store.spi.ExecutionTargetFilter;
 public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   private final Map<UUID, JobEntity> jobs = new HashMap<>();
+  private final Map<String, UUID> idempotencyKeys = new HashMap<>();
   private final Map<UUID, List<JobExecutionEntity>> executions = new HashMap<>();
   private final Clock clock;
 
@@ -79,6 +80,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   /** Resets all stored state. Called from clocked TCK runtimes. */
   public synchronized void reset() {
     jobs.clear();
+    idempotencyKeys.clear();
     executions.clear();
   }
 
@@ -92,6 +94,12 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     if (job.getVersion() == null) {
       job.setVersion(0);
     }
+    if (job.getIdempotencyKey() != null) {
+      UUID previous = idempotencyKeys.putIfAbsent(job.getIdempotencyKey(), job.getId());
+      if (previous != null && !previous.equals(job.getId()))
+        throw new run.ratchet.api.exception.DuplicateIdempotencyKeyException(
+            job.getIdempotencyKey(), null);
+    }
     jobs.put(job.getId(), job);
     return job;
   }
@@ -103,6 +111,12 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     }
     if (job.getVersion() == null) {
       job.setVersion(0);
+    }
+    if (job.getIdempotencyKey() != null) {
+      UUID previous = idempotencyKeys.putIfAbsent(job.getIdempotencyKey(), job.getId());
+      if (previous != null && !previous.equals(job.getId()))
+        throw new run.ratchet.api.exception.DuplicateIdempotencyKeyException(
+            job.getIdempotencyKey(), null);
     }
     jobs.put(job.getId(), job);
     return job;
@@ -116,6 +130,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized Optional<JobEntity> findByIdLatest(UUID id) {
     return Optional.ofNullable(jobs.get(id));
+  }
+
+  @Override
+  public synchronized Optional<UUID> findOriginalJobIdByIdempotencyKey(String key) {
+    return Optional.ofNullable(idempotencyKeys.get(key));
   }
 
   @Override
@@ -273,6 +292,51 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   // ----- JobTerminalStore (real bodies) -----
+
+  @Override
+  public synchronized run.ratchet.store.dto.JobCompletionResult commitCompletion(
+      run.ratchet.store.dto.JobCompletionPlan plan) {
+    JobEntity job = jobs.get(plan.jobId());
+    if (job == null || job.getStatus() != plan.expectedStatus()) {
+      return run.ratchet.store.dto.JobCompletionResult.notCommitted();
+    }
+    // Clocked contracts exercise ordinary jobs and signals; batch state is deliberately
+    // unsupported.
+    if (plan.batchId() != null || plan.completedBatch() != null) {
+      throw new UnsupportedOperationException("Clocked store does not implement batch completion");
+    }
+    for (var change : plan.dependencies()) {
+      JobEntity dependent = jobs.get(change.jobId());
+      if (dependent == null
+          || dependent.getStatus() != change.expectedStatus()
+          || !java.util.Objects.equals(dependent.getVersion(), change.expectedVersion())
+          || !java.util.Objects.equals(
+              dependent.getScheduledTime(), change.expectedScheduledTime())) {
+        throw new run.ratchet.api.exception.RatchetTransientStoreException("Dependency changed");
+      }
+    }
+    // Validate every guard before mutating any entity; the monitor is this fixture's transaction.
+    job.setStatus(plan.terminalStatus());
+    job.setAttempts(plan.attempts());
+    job.setLastError(plan.errorMessage());
+    job.setJobResult(plan.resultJson());
+    job.setResultType(plan.resultType());
+    job.setExecutionStartTime(plan.start());
+    job.setExecutionEndTime(plan.end());
+    job.setExecutionDurationMs(plan.durationMs());
+    job.setQueueWaitMs(plan.queueWaitMs());
+    job.setVersion(job.getVersion() == null ? 1 : job.getVersion() + 1);
+    for (var change : plan.dependencies()) {
+      JobEntity dependent = jobs.get(change.jobId());
+      dependent.setStatus(change.status());
+      if (change.status() != JobStatus.CANCELED) {
+        dependent.setScheduledTime(change.scheduledTime());
+        dependent.setJobType(change.jobType());
+      }
+      dependent.setVersion(dependent.getVersion() == null ? 1 : dependent.getVersion() + 1);
+    }
+    return new run.ratchet.store.dto.JobCompletionResult(true, null);
+  }
 
   @Override
   public synchronized boolean markJobSucceededMinimal(

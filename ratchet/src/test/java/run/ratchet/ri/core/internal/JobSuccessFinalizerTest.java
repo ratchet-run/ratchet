@@ -36,7 +36,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.JobStore;
 
 class JobSuccessFinalizerTest {
 
@@ -44,14 +43,14 @@ class JobSuccessFinalizerTest {
   private static final Instant START = Instant.parse("2026-07-12T12:00:00Z");
   private static final Instant END = START.plusSeconds(1);
 
-  private JobStore jobStore;
+  private PostExecutionHandler lifecycleFacade;
   private ExecutionObserver observer;
   private JobEntity job;
   private List<Long> delays;
 
   @BeforeEach
   void setUp() {
-    jobStore = mock(JobStore.class);
+    lifecycleFacade = mock(PostExecutionHandler.class);
     observer = mock(ExecutionObserver.class);
     job = new JobEntity();
     job.setId(JOB_ID);
@@ -65,7 +64,7 @@ class JobSuccessFinalizerTest {
 
   @Test
   void transientConflictRetriesAndPersistsTheFullResult() {
-    when(jobStore.markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenReturn(true);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
@@ -74,33 +73,33 @@ class JobSuccessFinalizerTest {
 
     assertEquals(JobSuccessFinalizer.Outcome.COMPLETED_FULL, outcome);
     assertEquals(List.of(25L), delays);
-    verify(jobStore, times(2)).markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L);
-    verify(jobStore, never())
-        .markJobSucceededMinimal(any(UUID.class), any(), any(), anyLong(), anyLong());
+    verify(lifecycleFacade, times(2)).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+    verify(lifecycleFacade, never())
+        .completeSuccessMinimal(any(JobEntity.class), any(), any(), anyLong(), anyLong());
     verify(observer).recordSuccessFinalizationRetry(job);
   }
 
   @Test
   void exhaustedFullWritesFallBackToMinimalSuccess() {
-    when(jobStore.markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
-    when(jobStore.markJobSucceededMinimal(JOB_ID, START, END, 1_000L, 25L)).thenReturn(true);
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L)).thenReturn(true);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
 
     JobSuccessFinalizer.Outcome outcome = finalizeSuccess(finalizer);
 
     assertEquals(JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL, outcome);
     assertEquals(List.of(25L, 50L, 100L, 200L), delays);
-    verify(jobStore, times(5)).markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L);
+    verify(lifecycleFacade, times(5)).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
     verify(observer, times(5)).recordSuccessFinalizationRetry(job);
     verify(observer).recordSuccessFinalizationMinimal(job);
   }
 
   @Test
   void minimalWriteConflictReportsStuckWithoutChangingTheOutcomeToFailure() {
-    when(jobStore.markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
-    when(jobStore.markJobSucceededMinimal(JOB_ID, START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
 
@@ -113,7 +112,7 @@ class JobSuccessFinalizerTest {
 
   @Test
   void falseCompareAndSwapReturnsTerminalSkippedWithoutRetrying() {
-    when(jobStore.markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenReturn(false);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
 
@@ -126,9 +125,9 @@ class JobSuccessFinalizerTest {
 
   @Test
   void interruptedRetryPreservesInterruptAndFallsBackToMinimalSuccess() {
-    when(jobStore.markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
-    when(jobStore.markJobSucceededMinimal(JOB_ID, START, END, 1_000L, 25L)).thenReturn(true);
+    when(lifecycleFacade.completeSuccessMinimal(job, START, END, 1_000L, 25L)).thenReturn(true);
     JobSuccessFinalizer finalizer =
         finalizer(
             delay -> {
@@ -142,13 +141,13 @@ class JobSuccessFinalizerTest {
     assertEquals(JobSuccessFinalizer.Outcome.COMPLETED_MINIMAL, outcome);
     assertEquals(List.of(25L), delays);
     assertTrue(Thread.currentThread().isInterrupted());
-    verify(jobStore).markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L);
-    verify(jobStore).markJobSucceededMinimal(JOB_ID, START, END, 1_000L, 25L);
+    verify(lifecycleFacade).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+    verify(lifecycleFacade).completeSuccessMinimal(job, START, END, 1_000L, 25L);
   }
 
   @Test
   void jitterIsAddedToTheConfiguredBackoff() {
-    when(jobStore.markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenReturn(true);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 7L);
@@ -161,7 +160,7 @@ class JobSuccessFinalizerTest {
   @Test
   void nonTransientStoreFailureStillEscapesToTheJobFailurePath() {
     IllegalStateException storeFailure = new IllegalStateException("database unavailable");
-    when(jobStore.markJobSucceeded(JOB_ID, "json", "type", START, END, 1_000L, 25L))
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(storeFailure);
     JobSuccessFinalizer finalizer = finalizer(delays::add, 0L);
 
@@ -173,7 +172,7 @@ class JobSuccessFinalizerTest {
   }
 
   private JobSuccessFinalizer finalizer(JobSuccessFinalizer.Sleeper sleeper, long jitter) {
-    return new JobSuccessFinalizer(jobStore, observer, sleeper, () -> jitter);
+    return new JobSuccessFinalizer(lifecycleFacade, observer, sleeper, () -> jitter);
   }
 
   private JobSuccessFinalizer.Outcome finalizeSuccess(JobSuccessFinalizer finalizer) {

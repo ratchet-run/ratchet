@@ -22,11 +22,12 @@ import static com.mongodb.client.model.Filters.ne;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
 
 import com.mongodb.MongoCommandException;
+import com.mongodb.client.ClientSession;
+import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
-import com.mongodb.client.model.UpdateOptions;
 import java.util.Date;
 import java.util.List;
 import java.util.UUID;
@@ -42,9 +43,16 @@ class MongoCollectionInitializer {
   private static final Logger log = Logger.getLogger(MongoCollectionInitializer.class);
 
   private final MongoDatabase database;
+  private final java.util.function.Supplier<ClientSession> sessions;
 
-  MongoCollectionInitializer(MongoDatabase database) {
+  MongoCollectionInitializer(MongoDatabase database, MongoClient client) {
+    this(database, client::startSession);
+  }
+
+  MongoCollectionInitializer(
+      MongoDatabase database, java.util.function.Supplier<ClientSession> sessions) {
     this.database = database;
+    this.sessions = java.util.Objects.requireNonNull(sessions);
   }
 
   private static void createIndex(MongoCollection<Document> coll, Bson keys, String name) {
@@ -77,12 +85,38 @@ class MongoCollectionInitializer {
     }
   }
 
+  private void backfillIdempotencyKeys() {
+    var migrations = database.getCollection("scheduler_store_migration");
+    if (migrations.find(eq("_id", "permanent-idempotency-v1")).first() != null) return;
+    var ledger = database.getCollection(MongoIdempotencyKeys.COLLECTION);
+    // Old deployments must be stopped during upgrade: keys no longer in scheduler_job cannot be
+    // recovered.
+    for (Document job :
+        database
+            .getCollection("scheduler_job")
+            .find()
+            .projection(
+                new Document("_id", 1).append("idempotency_key", 1).append("created_at", 1))) {
+      String key = job.getString("idempotency_key");
+      if (key == null) throw new IllegalStateException("Stored job has no idempotency key");
+      ledger.updateOne(
+          and(eq("_id", key), eq("original_job_id", job.get("_id"))),
+          new Document("$setOnInsert", new Document("reserved_at", job.getDate("created_at"))),
+          new com.mongodb.client.model.UpdateOptions().upsert(true));
+    }
+    migrations.updateOne(
+        eq("_id", "permanent-idempotency-v1"),
+        new Document("$setOnInsert", new Document("completed_at", new Date())),
+        new com.mongodb.client.model.UpdateOptions().upsert(true));
+  }
+
   void initialize() {
     log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
     createBusinessKeyReservationIndexes();
     createRecurringJobIndexes();
     backfillBusinessKeyReservations();
+    backfillIdempotencyKeys();
     createRecurringJobArchiveIndexes();
     createBatchIndexes();
     createBatchMetricsIndexes();
@@ -137,84 +171,82 @@ class MongoCollectionInitializer {
 
   private void removeStaleBusinessKeyReservations() {
     var reservations = database.getCollection("scheduler_business_key_reservation");
-    for (Document reservation : reservations.find()) {
-      String businessKey = reservation.getString(ID);
-      UUID ownerJobId = reservation.get(OWNER_JOB_ID, UUID.class);
-      String ownerTable = reservation.getString(OWNER_TABLE);
-      if (businessKey == null
-          || ownerJobId == null
-          || !ownerIsActive(businessKey, ownerJobId, ownerTable)) {
-        reservations.deleteOne(
-            and(eq(ID, businessKey), eq(OWNER_JOB_ID, ownerJobId), eq(OWNER_TABLE, ownerTable)));
+    for (Document candidate : reservations.find()) {
+      try (ClientSession session = sessions.get()) {
+        session.withTransaction(
+            () -> {
+              // Serialize with every acquire/release of this reservation before checking its owner.
+              Document reservation =
+                  reservations.findOneAndUpdate(
+                      session,
+                      eq(ID, candidate.get(ID)),
+                      new Document("$inc", new Document("backfill_version", 1L)));
+              if (reservation == null) return null;
+              String key = reservation.getString(ID);
+              UUID owner = reservation.get(OWNER_JOB_ID, UUID.class);
+              String table = reservation.getString(OWNER_TABLE);
+              if (key == null || owner == null || !ownerIsActive(session, key, owner, table))
+                reservations.deleteOne(session, eq(ID, reservation.get(ID)));
+              return null;
+            });
       }
     }
   }
 
-  private boolean ownerIsActive(String businessKey, UUID ownerJobId, String ownerTable) {
-    if (BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(ownerTable)) {
-      return database
-              .getCollection("scheduler_job")
-              .countDocuments(
-                  and(
-                      eq(ID, ownerJobId),
-                      eq(BUSINESS_KEY, businessKey),
-                      in(STATUS, MongoStoreContext.ACTIVE_STATUSES)))
-          > 0;
-    }
-    if (BusinessKeyReservations.OWNER_TABLE_RECURRING.equals(ownerTable)) {
-      return database
-              .getCollection("scheduler_recurring_job")
-              .countDocuments(and(eq(ID, ownerJobId), eq(BUSINESS_KEY, businessKey)))
-          > 0;
-    }
-    return false;
+  private boolean ownerIsActive(ClientSession session, String key, UUID owner, String table) {
+    String collection;
+    Bson filter = and(eq(ID, owner), eq(BUSINESS_KEY, key));
+    if (BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(table)) {
+      collection = "scheduler_job";
+      filter = and(filter, in(STATUS, MongoStoreContext.ACTIVE_STATUSES));
+    } else if (BusinessKeyReservations.OWNER_TABLE_RECURRING.equals(table)) {
+      collection = "scheduler_recurring_job";
+    } else return false;
+    return database.getCollection(collection).countDocuments(session, filter) > 0;
   }
 
-  private void reserveExisting(String businessKey, UUID ownerJobId, String ownerTable) {
-    if (businessKey == null || ownerJobId == null) {
-      return;
+  void reserveExisting(String businessKey, UUID ownerJobId, String ownerTable) {
+    if (businessKey == null || ownerJobId == null) return;
+    String collection =
+        BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(ownerTable)
+            ? "scheduler_job"
+            : "scheduler_recurring_job";
+    Bson ownerFilter = and(eq(ID, ownerJobId), eq(BUSINESS_KEY, businessKey));
+    if (BusinessKeyReservations.OWNER_TABLE_QUEUE.equals(ownerTable))
+      ownerFilter = and(ownerFilter, in(STATUS, MongoStoreContext.ACTIVE_STATUSES));
+    final Bson eligible = ownerFilter;
+    try (ClientSession session = sessions.get()) {
+      session.withTransaction(
+          () -> {
+            // A real owner write (not a snapshot read or no-op update) conflicts with terminal,
+            // cancellation and key changes. Revalidate stale cursor candidates inside this
+            // transaction.
+            long matched =
+                database
+                    .getCollection(collection)
+                    .updateOne(
+                        session,
+                        eligible,
+                        new Document("$inc", new Document("reservation_backfill_version", 1L)))
+                    .getMatchedCount();
+            if (matched == 0) return null;
+            var reservations = database.getCollection("scheduler_business_key_reservation");
+            Document reserved = reservations.find(session, eq(ID, businessKey)).first();
+            if (reserved == null) {
+              reservations.insertOne(
+                  session,
+                  new Document(ID, businessKey)
+                      .append(OWNER_JOB_ID, ownerJobId)
+                      .append(OWNER_TABLE, ownerTable)
+                      .append(RESERVED_AT, new Date()));
+            } else if (!ownerJobId.equals(reserved.get(OWNER_JOB_ID, UUID.class))
+                || !ownerTable.equals(reserved.getString(OWNER_TABLE))) {
+              throw new IllegalStateException(
+                  "Business key is active for multiple MongoDB owners: " + businessKey);
+            }
+            return null;
+          });
     }
-    Bson insert =
-        new Document(
-            "$setOnInsert",
-            new Document(ID, businessKey)
-                .append(OWNER_JOB_ID, ownerJobId)
-                .append(OWNER_TABLE, ownerTable)
-                .append(RESERVED_AT, new Date()));
-    RuntimeException duplicateUpsert = null;
-    try {
-      database
-          .getCollection("scheduler_business_key_reservation")
-          .updateOne(eq(ID, businessKey), insert, new UpdateOptions().upsert(true));
-    } catch (RuntimeException e) {
-      if (!new MongoConstraintDetector().isDuplicateKey(e)) {
-        throw e;
-      }
-      // Two nodes may concurrently backfill the same missing _id. Read the winner below: an
-      // identical owner is idempotent, while a different owner is a real upgrade conflict.
-      duplicateUpsert = e;
-    }
-    Document reserved =
-        database
-            .getCollection("scheduler_business_key_reservation")
-            .find(eq(ID, businessKey))
-            .first();
-    if (reserved != null
-        && ownerJobId.equals(reserved.get(OWNER_JOB_ID, UUID.class))
-        && ownerTable.equals(reserved.getString(OWNER_TABLE))) {
-      return;
-    }
-    throw new IllegalStateException(
-        "Business key "
-            + businessKey
-            + " is active for multiple MongoDB owners; existing reservation="
-            + reserved
-            + ", conflicting owner="
-            + ownerJobId
-            + " ("
-            + ownerTable
-            + ")",
-        duplicateUpsert);
   }
 
   private void createJobPropertiesIndexes() {

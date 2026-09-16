@@ -38,9 +38,10 @@ import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.RecurringClaim;
+import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
-import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 
 /** Claims due recurring masters, spawns child jobs, and advances next-fire times. */
 @ApplicationScoped
@@ -114,12 +115,14 @@ public class RecurringJobExecutor {
   public int process(int batchLimit, String nodeId) {
     NodeTagFilter tagFilter =
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
-    List<RecurringJobDefinition> masters =
-        recurringJobStore.claimDueRecurring(batchLimit, nodeId, tagFilter);
+    List<RecurringClaim> claims =
+        recurringJobStore.claimRecurringExecutions(batchLimit, nodeId, tagFilter);
     Instant now = effective().instant();
-    List<JobEntity> children = new ArrayList<>();
+    List<RecurringExecutionPlan> plans = new ArrayList<>();
     int processedCount = 0;
-    for (RecurringJobDefinition master : masters) {
+    for (RecurringClaim claim : claims) {
+      RecurringJobDefinition master = claim.definition();
+      List<JobEntity> children = new ArrayList<>();
       // Startup grace gate: during the first ratchet.recurring.startup-grace-seconds after this
       // node finished its @Recurring registration pass, refuse to fire any master whose business
       // key is not in the local known-keys set. This closes the rolling-deploy race where Node
@@ -132,7 +135,7 @@ public class RecurringJobExecutor {
             "Recurring master %s (businessKey=%s) skipped — within startup grace and key not"
                 + " in local known set",
             master.id(), master.businessKey());
-        recurringJobStore.releaseClaim(master.id());
+        recurringJobStore.releaseClaim(claim);
         continue;
       }
       Cron cron;
@@ -142,7 +145,7 @@ public class RecurringJobExecutor {
         zone = ZoneId.of(master.zoneId());
       } catch (RuntimeException e) {
         log.warnf(e, "Recurring job %s skipped after scheduling error", master.id());
-        recurringJobStore.releaseClaim(master.id());
+        recurringJobStore.releaseClaim(claim);
         continue;
       }
       ExecutionTime execTime = ExecutionTime.forCron(cron);
@@ -182,19 +185,10 @@ public class RecurringJobExecutor {
 
       processedCount++;
 
-      if (nextOpt.isPresent()) {
-        recurringJobStore.advanceNextFire(master.id(), nextOpt.get());
-        log.infof(
-            "Recurring job %s processed; scheduled=%s; next=%s",
-            master.id(), scheduledCount, nextOpt.get());
-      } else {
-        // Cron exhausted — atomic archive + live-delete + bkres-cleanup.
-        recurringJobStore.cancelRecurringAndArchive(master.id(), ArchiveReason.EXHAUSTED);
-        log.infof("Recurring job %s exhausted; archived as EXHAUSTED", master.id());
-      }
+      plans.add(new RecurringExecutionPlan(claim, children, nextOpt.orElse(null)));
     }
-    if (!children.isEmpty()) {
-      jobBulkStore.bulkInsert(children);
+    if (!plans.isEmpty()) {
+      recurringJobStore.commitRecurringExecutions(plans);
     }
     return processedCount;
   }

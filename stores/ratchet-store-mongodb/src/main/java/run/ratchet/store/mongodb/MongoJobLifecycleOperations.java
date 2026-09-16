@@ -240,6 +240,12 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
+  public run.ratchet.store.dto.JobCompletionResult commitCompletion(
+      run.ratchet.store.dto.JobCompletionPlan plan) {
+    return MongoCompletionOperations.commit(ctx, reservations, plan);
+  }
+
+  @Override
   public boolean markJobSucceeded(
       UUID id,
       String resultJson,

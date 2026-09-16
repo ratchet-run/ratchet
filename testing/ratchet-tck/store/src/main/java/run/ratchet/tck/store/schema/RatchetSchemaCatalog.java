@@ -49,7 +49,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedTable;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 12;
+  public static final int CURRENT_VERSION = 13;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -63,6 +63,7 @@ public final class RatchetSchemaCatalog {
               schedulerRecurringJob(),
               schedulerRecurringJobArchive(),
               schedulerBusinessKeyReservation(),
+              schedulerIdempotencyKey(),
               schedulerJobTag(),
               schedulerBatch(),
               schedulerBatchMetrics(),
@@ -76,6 +77,15 @@ public final class RatchetSchemaCatalog {
           v005Drops());
 
   private RatchetSchemaCatalog() {}
+
+  private static Table schedulerIdempotencyKey() {
+    return Table.builder("scheduler_idempotency_key")
+        .column(required("idempotency_key", TEXT))
+        .column(required("original_job_id", UUID))
+        .column(required("reserved_at", TIMESTAMP_TZ))
+        .primaryKey("idempotency_key")
+        .build();
+  }
 
   private static Table schedulerJob() {
     return Table.builder("scheduler_job")
@@ -160,6 +170,14 @@ public final class RatchetSchemaCatalog {
                 "fk_job_queue_job", "job_id", "scheduler_job", "job_id", OnDeleteAction.CASCADE))
         .index(
             Index.of("idx_claim_executable", "job_type", "scheduled_time", "priority", "job_id")
+                .withPartialPredicate(LogicalPredicate.eq("status", "PENDING")))
+        .index(
+            Index.of(
+                    "idx_claim_pending_priority",
+                    "job_type",
+                    "priority",
+                    "scheduled_time",
+                    "job_id")
                 .withPartialPredicate(LogicalPredicate.eq("status", "PENDING")))
         .index(Index.of("idx_queue_orphan", "status", "picked_at", "picked_by"))
         .index(Index.of("idx_signal_key_status", "signal_key", "status"))

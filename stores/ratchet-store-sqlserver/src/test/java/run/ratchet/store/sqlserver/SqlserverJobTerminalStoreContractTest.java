@@ -42,4 +42,9 @@ class SqlserverJobTerminalStoreContractTest extends AbstractJobTerminalStoreCont
   public void cleanupStore() {
     fixture.cleanupStore();
   }
+
+  @Override
+  protected void inCompletionTransaction(Runnable work) {
+    fixture.runInTransaction(work);
+  }
 }

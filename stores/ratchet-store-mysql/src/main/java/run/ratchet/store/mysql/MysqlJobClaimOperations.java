@@ -56,8 +56,10 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     this.jobs = jobs;
   }
 
+  // Both indexes remain eligible: priority order avoids sorting an unboosted backlog, while
+  // due-time order can be cheaper for mostly-future queues or dynamic priority boosting.
   // language=MySQL
-  private static String buildClaimSql(
+  static String buildClaimSql(
       String selectClause,
       String typeFilter,
       String executionTargetFilterSql,
@@ -65,7 +67,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       String timeColumn,
       int boostInterval) {
     return """
-        SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
+        SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable, idx_claim_pending_priority)
         WHERE status = 'PENDING'
           AND %s <= NOW(3)
           AND %s%s%s

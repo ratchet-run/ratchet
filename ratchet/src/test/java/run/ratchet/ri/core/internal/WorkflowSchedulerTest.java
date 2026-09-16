@@ -112,6 +112,46 @@ class WorkflowSchedulerTest {
   }
 
   @Test
+  void completionPlanPreservesWaitingStatusAndDoesNotWriteBeforeCommit() {
+    JobEntity parent = job(new UUID(0L, 801L), JobStatus.SUCCEEDED);
+    parent.setJobType(JobExecutionType.SINGLE);
+    JobEntity child = job(new UUID(0L, 802L), JobStatus.WAITING);
+    child.setJobType(JobExecutionType.WORKFLOW_BRANCH);
+    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    child.setVersion(7);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+    WorkflowCompletionPlan plan = scheduler.planCompletion(parent, false);
+    assertEquals(1, plan.dependencies().size());
+    var mutation = plan.dependencies().get(0);
+    assertEquals(JobStatus.WAITING, mutation.status());
+    assertEquals(7, mutation.expectedVersion());
+    assertEquals(ChainScheduler.CHAIN_LOCK_TIME, mutation.expectedScheduledTime());
+    assertEquals(FIXED_NOW, mutation.scheduledTime());
+    assertEquals(ChainScheduler.CHAIN_LOCK_TIME, child.getScheduledTime());
+    verify(jobCrudStore, never()).save(any());
+    verify(jobTerminalStore, never()).cancelJob(any());
+    assertTrue(plan.newWorkAvailable());
+  }
+
+  @Test
+  void failedCompletionPlansCancellationOfAllLinearDescendants() {
+    JobEntity parent = job(new UUID(0L, 811L), JobStatus.FAILED);
+    parent.setJobType(JobExecutionType.CHAIN_STEP);
+    JobEntity child = job(new UUID(0L, 812L), JobStatus.PENDING);
+    child.setJobType(JobExecutionType.CHAIN_STEP);
+    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    when(jobCrudStore.findDependants(eq(parent.getId()), anyInt(), anyInt()))
+        .thenReturn(List.of(child));
+    WorkflowCompletionPlan plan = scheduler.planCompletion(parent, false);
+    assertEquals(JobStatus.CANCELED, plan.dependencies().get(0).status());
+    assertEquals(JobStatus.PENDING, child.getStatus());
+    verify(jobTerminalStore, never()).cancelJob(any());
+  }
+
+  @Test
   void scheduleNext_matchedWaitingBranchKeepsWaitingStatusAndUnlocksSchedule() {
     JobEntity parent = job(new UUID(0L, 1L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 2L), JobStatus.WAITING);
