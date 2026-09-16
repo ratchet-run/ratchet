@@ -37,6 +37,15 @@
 
   <dependencyManagement>
     <dependencies>
+      <!-- Override the platform's Micrometer 1.14.x line for CVE-2026-40984.
+           Import first to keep core, observation, commons, and registries aligned. -->
+      <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-bom</artifactId>
+        <version>${micrometer.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <dependency>
         <groupId>io.quarkus</groupId>
         <artifactId>quarkus-bom</artifactId>
