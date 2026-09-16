@@ -44,8 +44,8 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
     /*
-     * Transaction contract: MysqlJobStoreImpl invokes this under REQUIRED, keeping the UPDATE and
-     * fallback INSERT IGNORE in one transaction. The INSERT row count still decides the race.
+     * Transaction contract: MysqlJobStoreImpl invokes this under REQUIRES_NEW, keeping the UPDATE
+     * and fallback INSERT IGNORE in one independent transaction. The INSERT row count still decides the race.
      */
     try {
       requireLockName(name);
