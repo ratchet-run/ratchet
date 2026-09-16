@@ -97,7 +97,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   @Test
-  void submit_convergesToExistingJob_whenIdempotencyKeyRacesOnInsert() {
+  void submit_retryResolvesOriginalAfterInsertCollision() {
     DefaultJobCreationService service = newService();
     String key = "order-42";
     UUID existingId = UUID.randomUUID();
@@ -108,10 +108,10 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
 
     // No job is visible at the pre-insert lookup (the racer has not committed yet), so the insert
     // proceeds and loses the unique-constraint race. The store reports the collision; the
-    // post-insert re-resolve now sees the winner's row.
-    when(jobCrudStore.findByIdempotencyKey(key))
+    // fresh retry sees the winner's permanent reservation.
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(key))
         .thenReturn(Optional.empty())
-        .thenReturn(Optional.of(existing));
+        .thenReturn(Optional.of(existing.getId()));
     when(jobCrudStore.create(any(JobEntity.class)))
         .thenThrow(new DuplicateIdempotencyKeyException(key, new RuntimeException("dup")));
 
@@ -121,11 +121,13 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
                 service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
     builder.withIdempotencyKey(key);
 
+    org.junit.jupiter.api.Assertions.assertThrows(
+        DuplicateIdempotencyKeyException.class, () -> service.submit(builder));
     JobHandle handle = service.submit(builder);
 
     assertEquals(existingId, handle.id());
     verify(jobCrudStore, times(1)).create(any(JobEntity.class));
-    verify(jobCrudStore, times(2)).findByIdempotencyKey(eq(key));
+    verify(jobCrudStore, times(2)).findOriginalJobIdByIdempotencyKey(eq(key));
   }
 
   @Test
@@ -138,7 +140,8 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
     existing.setId(existingId);
     existing.setIdempotencyKey(key);
 
-    when(jobCrudStore.findByIdempotencyKey(key)).thenReturn(Optional.of(existing));
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(key))
+        .thenReturn(Optional.of(existing.getId()));
 
     DefaultJobBuilder builder =
         (DefaultJobBuilder)

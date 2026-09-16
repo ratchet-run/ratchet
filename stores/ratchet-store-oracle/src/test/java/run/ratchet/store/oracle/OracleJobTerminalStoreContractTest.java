@@ -74,4 +74,9 @@ class OracleJobTerminalStoreContractTest extends AbstractJobTerminalStoreContrac
         store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.CANCELED, null));
     assertEquals(JobStatus.CANCELED, store().findById(saved.getId()).orElseThrow().getStatus());
   }
+
+  @Override
+  protected void inCompletionTransaction(Runnable work) {
+    fixture.runInTransaction(work);
+  }
 }

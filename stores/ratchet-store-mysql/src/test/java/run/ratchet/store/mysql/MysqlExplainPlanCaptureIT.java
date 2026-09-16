@@ -144,6 +144,72 @@ class MysqlExplainPlanCaptureIT {
   }
 
   @Test
+  void unboostedBacklogUsesPriorityIndexWithoutFilesort() throws Exception {
+    ExplainPlanTestSupport.seedPendingJobs(FIXTURE, 6000);
+    try (Connection conn = ExplainPlanTestSupport.connection(FIXTURE);
+        Statement statement = conn.createStatement()) {
+      statement.execute("ANALYZE TABLE scheduler_job_queue");
+      String sql =
+          MysqlJobClaimOperations.buildClaimSql(
+                  MysqlJobClaimOperations.claimSelectClause(),
+                  "job_type = 'SINGLE'",
+                  "",
+                  "",
+                  "scheduled_time",
+                  0)
+              .replace("LIMIT ?", "LIMIT 50");
+      try (ResultSet rs = statement.executeQuery("EXPLAIN FORMAT=JSON " + sql)) {
+        assertTrue(rs.next());
+        String plan = rs.getString(1);
+        ExplainPlanTestSupport.writePlan("target/explain-plans/mysql-priority-claim.json", plan);
+        assertEquals(
+            "idx_claim_pending_priority", schedulerJobQueueTable(plan).getString("key"), plan);
+        assertFalse(plan.contains("\"using_filesort\": true"), plan);
+      }
+    }
+  }
+
+  @Test
+  void futureHeavyQueueCanStillUseDueTimeIndex() throws Exception {
+    // Start with future jobs, rather than moving an existing due backlog into the future.
+    // Delete-marked due index entries can distort InnoDB range estimates until purge catches up.
+    try (Connection conn = ExplainPlanTestSupport.connection(FIXTURE);
+        Statement statement = conn.createStatement()) {
+      statement.execute("TRUNCATE TABLE scheduler_job_queue");
+    }
+    Instant now = Instant.now();
+    var jobs = new java.util.ArrayList<JobEntity>();
+    for (int i = 0; i < 6000; i++) {
+      jobs.add(
+          pendingJob(
+              UuidV7Factory.create(),
+              JobExecutionType.SINGLE,
+              JobPriority.values()[i % JobPriority.values().length],
+              i < 10 ? now.minusSeconds(60) : now.plus(Duration.ofDays(1))));
+    }
+    FIXTURE.store().bulkInsert(jobs);
+    try (Connection conn = ExplainPlanTestSupport.connection(FIXTURE);
+        Statement statement = conn.createStatement()) {
+      statement.execute("ANALYZE TABLE scheduler_job_queue");
+      String sql =
+          MysqlJobClaimOperations.buildClaimSql(
+                  MysqlJobClaimOperations.claimSelectClause(),
+                  "job_type = 'SINGLE'",
+                  "",
+                  "",
+                  "scheduled_time",
+                  0)
+              .replace("LIMIT ?", "LIMIT 50");
+      try (ResultSet rs = statement.executeQuery("EXPLAIN FORMAT=JSON " + sql)) {
+        assertTrue(rs.next());
+        String plan = rs.getString(1);
+        ExplainPlanTestSupport.writePlan("target/explain-plans/mysql-future-claim.json", plan);
+        assertEquals("idx_claim_executable", schedulerJobQueueTable(plan).getString("key"), plan);
+      }
+    }
+  }
+
+  @Test
   void optimizedExecutableClaim_excludesFutureAndOtherJobTypes() {
     Instant now = Instant.now();
     UUID dueSingleId = UuidV7Factory.create();

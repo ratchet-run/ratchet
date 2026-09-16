@@ -148,6 +148,11 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
+  public Optional<UUID> findOriginalJobIdByIdempotencyKey(String idempotencyKey) {
+    return jobs.findOriginalJobIdByIdempotencyKey(idempotencyKey);
+  }
+
+  @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
     return jobs.findByIdempotencyKey(idempotencyKey);
   }
@@ -326,6 +331,18 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   @Override
   public boolean tryPickUpJob(UUID id, String nodeId) {
     return lifecycle.tryPickUpJob(id, nodeId);
+  }
+
+  @Override
+  public run.ratchet.store.dto.JobCompletionResult commitCompletion(
+      run.ratchet.store.dto.JobCompletionPlan plan) {
+    return run.ratchet.store.util.SqlJobCompletion.commit(
+        em,
+        this,
+        this,
+        plan,
+        true,
+        run.ratchet.store.sqlserver.converter.UuidByteArrayConverter::toBytes);
   }
 
   @Override
@@ -848,7 +865,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     archives = new SqlserverArchiveOperations(ctx, reads, deletes);
     auxiliary = new SqlserverAuxiliaryOperations(ctx);
     signals = new SqlserverSignalOperations(ctx);
-    recurringJobs = new SqlserverRecurringJobOperations(ctx, reservations);
+    recurringJobs = new SqlserverRecurringJobOperations(ctx, reservations, this::bulkInsert);
     extensions = new SqlserverExtensionOperations(ctx);
   }
 
@@ -858,6 +875,11 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(
       int limit, String nodeId, NodeTagFilter tagFilter) {
     return recurringJobs.claimDueRecurring(limit, nodeId, tagFilter);
+  }
+
+  @Override
+  public void commitRecurringExecutions(List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+    recurringJobs.commitRecurringExecutions(plans);
   }
 
   @Override
@@ -900,6 +922,17 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   public Optional<run.ratchet.store.spi.RecurringJobDefinition> findRecurringByBusinessKey(
       String businessKey) {
     return recurringJobs.findRecurringByBusinessKey(businessKey);
+  }
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> searchRecurring(
+      run.ratchet.api.JobFilter filter, int limit, int offset) {
+    return recurringJobs.searchRecurring(filter, limit, offset);
+  }
+
+  @Override
+  public long countRecurring(run.ratchet.api.JobFilter filter) {
+    return recurringJobs.countRecurring(filter);
   }
 
   @Override

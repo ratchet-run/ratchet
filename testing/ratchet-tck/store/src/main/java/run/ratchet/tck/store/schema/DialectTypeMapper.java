@@ -113,6 +113,12 @@ public interface DialectTypeMapper {
         + " WHERE kcu.table_name = ?";
   }
 
+  /** Resolve a JDBC index column when a dialect exposes a hidden column for descending keys. */
+  default String resolveIndexColumn(
+      Connection connection, String indexName, int position, String column) throws SQLException {
+    return column;
+  }
+
   /**
    * Compose the dialect-specific index column ordering from the catalog's canonical columns and
    * (optional) partial-index predicate. Dialects that support partial indexes (PostgreSQL) return

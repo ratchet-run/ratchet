@@ -212,7 +212,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
 
   @Test
   void chainSteps_inheritRootExecutionTarget() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
@@ -231,7 +231,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
 
   @Test
   void chainSteps_inheritParentEncryptionOptIn() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
@@ -253,7 +253,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
 
   @Test
   void workflowBranches_inheritRootExecutionTarget() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
@@ -269,7 +269,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
 
   @Test
   void workflowBranches_persistBuilderRegistrationOrder() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
@@ -294,7 +294,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
   @Test
   void workflowBranchPredicateExpression_encryptsStoredPayloadArgs() {
     EncryptionTestKit.install(true);
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(

@@ -20,9 +20,9 @@ import java.io.Serial;
 /**
  * Thrown by a store when an insert collides with the unique constraint on a job's idempotency key.
  *
- * <p>This signals a concurrent submission that lost the race to insert. The scheduler converges to
- * the documented idempotent result by re-resolving the existing job and returning its handle, so
- * application code does not normally observe this exception.
+ * <p>A concurrent submission can lose the insertion race and abort its transaction. Retry the
+ * submission in a fresh transaction to resolve the permanent reservation and return the original
+ * job handle, including after retained job history has been deleted.
  */
 public class DuplicateIdempotencyKeyException extends RuntimeException {
 

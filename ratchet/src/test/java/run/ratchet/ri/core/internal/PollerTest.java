@@ -190,6 +190,41 @@ class PollerTest {
   }
 
   @Test
+  void dispatchFailureRetainsFailedClaimAndContinuesWithLaterClaims() {
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(2));
+    JobClaimDto first = claim(92L, JobExecutionType.SINGLE, "first");
+    JobClaimDto second = claim(93L, JobExecutionType.SINGLE, "second");
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE), anyInt(), anyString(), any(), any()))
+        .thenReturn(List.of(first, second));
+    org.mockito.Mockito.doThrow(new IllegalStateException("retention failed"))
+        .when(jobExecutionCoordinator)
+        .submit(first);
+    poller.tick();
+    verify(jobExecutionCoordinator).retainUnsubmittedClaim(first);
+    verify(jobExecutionCoordinator).submit(second);
+    verify(jobExecutionCoordinator, never()).retainUnsubmittedClaim(second);
+  }
+
+  @Test
+  void laterClaimFailureStillSubmitsEarlierCommittedClaims() {
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(1));
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.BATCH_CHILD))
+        .thenReturn(platformCapacity(1));
+    JobClaimDto first = claim(91L, JobExecutionType.SINGLE, "first");
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE), anyInt(), anyString(), any(), any()))
+        .thenReturn(List.of(first));
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.BATCH_CHILD), anyInt(), anyString(), any(), any()))
+        .thenThrow(new RatchetTransientStoreException("later deadlock"));
+    poller.tick();
+    verify(jobExecutionCoordinator).submit(first);
+  }
+
+  @Test
   void tick_transientClaimFailureBacksOff() {
     when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
         .thenReturn(platformCapacity(1));

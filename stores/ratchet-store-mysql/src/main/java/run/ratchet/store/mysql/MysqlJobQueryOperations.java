@@ -20,6 +20,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.query.JobQueryCursor;
+import run.ratchet.store.util.RowValues;
 
 /**
  * Dashboard-oriented search and count queries over the MySQL hot/cold store.
@@ -149,9 +151,9 @@ final class MysqlJobQueryOperations {
   private static final int POS_JOB_ID = 1;
   private static final int POS_PRIORITY = 3;
   private static final int POS_CREATED_AT = 21;
-  private static final int POS_TERMINAL_STATUS = 23;
-  private static final int POS_Q_SCHEDULED_TIME = 36;
-  private static final int POS_Q_UPDATED_AT = 43;
+  private static final int POS_TERMINAL_STATUS = 54;
+  private static final int POS_Q_SCHEDULED_TIME = 55;
+  private static final int POS_Q_UPDATED_AT = 56;
 
   private final MysqlStoreContext ctx;
   private final MysqlJobRowMapper mapper;
@@ -311,8 +313,15 @@ final class MysqlJobQueryOperations {
       List<JobEntity> result = new ArrayList<>(rows.size());
       List<JobEntity> jobsToHydrate = new ArrayList<>(rows.size());
       for (Object[] row : rows) {
-        JobEntity job = mapper.hydrateJobEntity(row);
+        Object[] hydrationRow =
+            archive ? Arrays.copyOf(row, MysqlJobRowMapper.HYDRATION_COL_COUNT) : row;
+        JobEntity job = mapper.hydrateJobEntity(hydrationRow);
         if (job != null) {
+          if (archive) {
+            // Cursor values must be the same effective values used by the UNION ORDER BY.
+            job.setScheduledTime(RowValues.instantOrNull(row[POS_Q_SCHEDULED_TIME - 1]));
+            job.setUpdatedAt(RowValues.instantOrNull(row[POS_Q_UPDATED_AT - 1]));
+          }
           // Skip tag hydration for archive rows (null q.status marks terminal-only rows from
           // archive)
           if (!archive || row[MysqlJobRowMapper.IDX_Q_STATUS] != null) {
@@ -436,12 +445,16 @@ final class MysqlJobQueryOperations {
     return "SELECT * FROM ("
         + "SELECT "
         + MysqlJobRowMapper.HYDRATION_SELECT
+        + ", COALESCE(q.status, c.terminal_status) AS sort_status,"
+        + " COALESCE(q.scheduled_time, c.execution_start_time, c.created_at) AS sort_scheduled_time,"
+        + " COALESCE(q.updated_at, c.terminated_at, c.created_at) AS sort_updated_at"
         + " "
         + HYDRATION_FROM
         + liveWhere
         + " UNION ALL "
         + "SELECT "
         + ARCHIVE_PROJECTION
+        + ", a.final_status, a.original_scheduled_time, a.archived_at"
         + " FROM scheduler_job_archive a"
         + archiveWhere
         + ") AS combined"

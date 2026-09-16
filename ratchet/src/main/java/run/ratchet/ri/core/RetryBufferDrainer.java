@@ -131,36 +131,28 @@ public class RetryBufferDrainer {
 
   private void drainRetryBufferForPool(
       JobExecutionType jobType, ExecutionTargetClaimPlanner.PoolClaimBudget budget) {
-    while (!drainController.isDraining()) {
-      int capacity = poolRegistry.availableCapacity(jobType, budget.poolName());
-      if (capacity <= 0) {
-        break;
+    if (drainController.isDraining()) {
+      return;
+    }
+    int capacity = poolRegistry.availableCapacity(jobType, budget.poolName());
+    if (capacity <= 0) {
+      return;
+    }
+    // Take one snapshot per tick. Rejected/rate-limited claims can be reoffered by submission;
+    // leave those for the next tick rather than polling the same claim in a tight loop.
+    List<BufferedClaim> bufferedJobs =
+        retryBufferManager.pollBatchFromBuffer(jobType, budget.executionTargetFilter(), capacity);
+    for (int i = 0; i < bufferedJobs.size(); i++) {
+      BufferedClaim buffered = bufferedJobs.get(i);
+      if (drainController.isDraining() || !poolRegistry.canAcceptWork(jobType, budget.poolName())) {
+        requeueRemaining(bufferedJobs, i);
+        return;
       }
-
-      List<BufferedClaim> bufferedJobs =
-          retryBufferManager.pollBatchFromBuffer(jobType, budget.executionTargetFilter(), capacity);
-      if (bufferedJobs.isEmpty()) {
-        break;
-      }
-
-      boolean stopDrainingPool = false;
-      for (int i = 0; i < bufferedJobs.size(); i++) {
-        BufferedClaim buffered = bufferedJobs.get(i);
-        if (drainController.isDraining()
-            || !poolRegistry.canAcceptWork(jobType, budget.poolName())) {
-          requeueRemaining(bufferedJobs, i);
-          stopDrainingPool = true;
-          break;
-        }
-        try {
-          jobSubmissionService.submitBuffered(buffered.toClaimDto());
-        } catch (Exception e) {
-          requeueRemaining(bufferedJobs, i);
-          throw e;
-        }
-      }
-      if (stopDrainingPool) {
-        break;
+      try {
+        jobSubmissionService.submitBuffered(buffered.toClaimDto());
+      } catch (Exception e) {
+        requeueRemaining(bufferedJobs, i);
+        throw e;
       }
     }
   }

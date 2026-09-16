@@ -19,14 +19,20 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobTerminalStore;
 
 /**
  * Routes post-execution lifecycle events (batch progress, workflow scheduling, DLQ) on behalf of
@@ -81,15 +87,25 @@ public class PostExecutionHandler {
   }
 
   private final BatchService batchService;
+  private final JobTerminalStore jobTerminalStore;
   private final WorkflowScheduler workflowScheduler;
   private final DeadLetterService deadLetterService;
   private final PollerScheduler pollerScheduler;
 
   protected PostExecutionHandler() {
     this.batchService = null;
+    this.jobTerminalStore = null;
     this.workflowScheduler = null;
     this.deadLetterService = null;
     this.pollerScheduler = null;
+  }
+
+  public PostExecutionHandler(
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler,
+      DeadLetterService deadLetterService,
+      PollerScheduler pollerScheduler) {
+    this(batchService, workflowScheduler, deadLetterService, pollerScheduler, null);
   }
 
   @Inject
@@ -97,11 +113,173 @@ public class PostExecutionHandler {
       BatchService batchService,
       WorkflowScheduler workflowScheduler,
       DeadLetterService deadLetterService,
-      PollerScheduler pollerScheduler) {
+      PollerScheduler pollerScheduler,
+      JobTerminalStore jobTerminalStore) {
+    this.jobTerminalStore = jobTerminalStore;
     this.batchService = batchService;
     this.workflowScheduler = workflowScheduler;
     this.deadLetterService = deadLetterService;
     this.pollerScheduler = pollerScheduler;
+  }
+
+  public boolean completeSuccess(
+      JobEntity source,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      long durationMs,
+      long queueWaitMs) {
+    JobEntity completed = completionSnapshot(source, JobStatus.SUCCEEDED);
+    completed.setJobResult(resultJson);
+    completed.setResultType(resultType);
+    completed.setExecutionStartTime(start);
+    completed.setExecutionEndTime(end);
+    completed.setExecutionDurationMs(durationMs);
+    completed.setQueueWaitMs(queueWaitMs);
+    completed.setLastError(null);
+    return complete(completed, JobStatus.RUNNING, false, null, List.of());
+  }
+
+  public boolean completeSuccessMinimal(
+      JobEntity source, Instant start, Instant end, long durationMs, long queueWaitMs) {
+    return completeSuccess(source, null, null, start, end, durationMs, queueWaitMs);
+  }
+
+  public boolean completeFailure(JobEntity source, JobStatus expectedStatus, boolean cancelChain) {
+    JobEntity completed = completionSnapshot(source, JobStatus.FAILED);
+    String error = completed.getLastError() != null ? completed.getLastError() : "Job failed";
+    completed.setLastError(error);
+    return complete(
+        completed,
+        expectedStatus,
+        cancelChain,
+        null,
+        List.of(
+            new run.ratchet.api.event.JobFailedEvent(
+                completed.getId(),
+                completed.getBusinessKey(),
+                completed.getRecurringMasterId(),
+                completed.getPublicJobType(),
+                completed.getPriority(),
+                completed.getPickedBy(),
+                error,
+                completed.getAttempts())));
+  }
+
+  @Transactional(value = TxType.REQUIRED, rollbackOn = Exception.class)
+  public boolean completeTimeoutFailure(
+      JobEntity source,
+      JobStatus expectedStatus,
+      boolean cancelChain,
+      Throwable cause,
+      List<AbstractJobSchedulerEvent> eventsBeforeDlq) {
+    return complete(
+        completionSnapshot(source, JobStatus.FAILED),
+        expectedStatus,
+        cancelChain,
+        cause,
+        eventsBeforeDlq);
+  }
+
+  private boolean complete(
+      JobEntity completed,
+      JobStatus expectedStatus,
+      boolean cancelChain,
+      Throwable cause,
+      List<AbstractJobSchedulerEvent> failureEvents) {
+    WorkflowCompletionPlan workflow =
+        completed.getJobType() == JobExecutionType.BATCH_CHILD
+            ? WorkflowCompletionPlan.empty()
+            : workflowScheduler.planCompletion(completed, cancelChain);
+    JobCompletionResult result =
+        jobTerminalStore.commitCompletion(
+            completionPlan(completed, expectedStatus, null, workflow));
+    if (!result.committed()) {
+      return false;
+    }
+    if (completed.getStatus() == JobStatus.SUCCEEDED) {
+      workflowScheduler.publishTerminalEvent(
+          new run.ratchet.api.event.JobCompletedEvent(
+              completed.getId(),
+              completed.getBusinessKey(),
+              completed.getRecurringMasterId(),
+              completed.getPublicJobType(),
+              completed.getPriority(),
+              completed.getPickedBy(),
+              completed.getExecutionEndTime(),
+              completed.getExecutionDurationMs()));
+    } else {
+      deadLetterService.recordDlqTransitionInCurrentTransaction(completed, cause, failureEvents);
+    }
+    workflowScheduler.publishCompletion(workflow);
+    wakeupIfNewWorkAvailable(workflow.newWorkAvailable());
+    if (result.batchProgress() != null) {
+      // Child terminal state and counters are already one durable unit. Parent completion is
+      // independently recoverable if this following step fails (notably on Mongo).
+      org.jboss.logging.Logger log = org.jboss.logging.Logger.getLogger(PostExecutionHandler.class);
+      Runnable followup =
+          () -> {
+            try {
+              wakeupIfNewWorkAvailable(batchService.afterChildCompletion(result.batchProgress()));
+            } catch (RuntimeException failure) {
+              log.warnf(
+                  failure,
+                  "Batch %s completion deferred to recovery",
+                  result.batchProgress().batchId());
+            }
+          };
+      if (JobWakeupService.registerAfterCommit(
+              JobWakeupService.lookupTxRegistry(log),
+              followup,
+              log,
+              "Could not register batch completion; recovery will retry: %s")
+          == JobWakeupService.AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+        followup.run();
+      }
+    }
+    return true;
+  }
+
+  public static JobCompletionPlan completionPlan(
+      JobEntity completed,
+      JobStatus expectedStatus,
+      JobCompletionPlan.BatchCompletion batchCompletion,
+      WorkflowCompletionPlan workflow) {
+    return new JobCompletionPlan(
+        completed.getId(),
+        expectedStatus,
+        completed.getStatus(),
+        completed.getJobResult(),
+        completed.getResultType(),
+        completed.getLastError(),
+        completed.getAttempts(),
+        completed.getExecutionStartTime(),
+        completed.getExecutionEndTime(),
+        completed.getExecutionDurationMs(),
+        completed.getQueueWaitMs(),
+        completed.getJobType() == JobExecutionType.BATCH_CHILD ? completed.getDependsOn() : null,
+        batchCompletion,
+        workflow.dependencies());
+  }
+
+  private static JobEntity completionSnapshot(JobEntity source, JobStatus status) {
+    JobEntity snapshot = new JobEntity();
+    snapshot.setId(source.getId());
+    snapshot.setStatus(status);
+    snapshot.setJobType(source.getJobType());
+    snapshot.setPriority(source.getPriority());
+    snapshot.setDependsOn(source.getDependsOn());
+    snapshot.setBusinessKey(source.getBusinessKey());
+    snapshot.setRecurringMasterId(source.getRecurringMasterId());
+    snapshot.setPickedBy(source.getPickedBy());
+    snapshot.setAttempts(source.getAttempts());
+    snapshot.setLastError(source.getLastError());
+    snapshot.setExecutionStartTime(source.getExecutionStartTime());
+    snapshot.setExecutionEndTime(source.getExecutionEndTime());
+    snapshot.setExecutionDurationMs(source.getExecutionDurationMs());
+    snapshot.setQueueWaitMs(source.getQueueWaitMs());
+    return snapshot;
   }
 
   public boolean markBatchChildFailed(JobEntity job) {
@@ -126,19 +304,20 @@ public class PostExecutionHandler {
 
   /**
    * Atomically moves a still-RUNNING job to the DLQ and applies its batch/workflow failure
-   * bookkeeping. The class-level {@code REQUIRES_NEW} boundary is load-bearing: the terminal
-   * transition, ordered failure/DLQ event registration, and downstream bookkeeping either commit
-   * together or roll back together.
+   * bookkeeping through the store's atomic completion operation. SQL stores join this method's
+   * {@code REQUIRES_NEW} transaction; Mongo commits its own session transaction. Ordered events are
+   * registered only after the store reports a successful transition.
    *
    * @return {@code true} when this call won the terminal transition, or {@code false} when the job
    *     had already left RUNNING
    */
   public boolean moveToDlqAndHandlePermanentFailure(JobEntity job, Throwable ex) {
     requireFailureRoutingMetadata(job);
-    if (!deadLetterService.moveToDlq(job, ex)) {
+    job.setLastError(deadLetterService.sanitizeForCompletion(ex));
+    if (!completeFailure(job, JobStatus.RUNNING, false)) {
       return false;
     }
-    wakeupIfNewWorkAvailable(applyPermanentFailureBookkeeping(job));
+    job.setStatus(JobStatus.FAILED);
     return true;
   }
 
@@ -163,11 +342,11 @@ public class PostExecutionHandler {
    * transaction.
    *
    * <p>The callback must perform the complete timeout transition, including the retry-attempt
-   * update and construction of its ordered terminal events. Returning a terminal transition means
-   * the callback won the terminal-state compare-and-swap; permanent-failure routing then registers
-   * the timeout, failure, and DLQ events in one after-commit callback on this same {@link
-   * TxType#REQUIRES_NEW} transaction. An empty result means the job was retried or a competing path
-   * already changed it, so no terminal lifecycle work is performed.
+   * update and construction of its ordered terminal events. The callback invokes {@link
+   * #completeTimeoutFailure}, which commits terminal bookkeeping and registers timeout, failure,
+   * DLQ, and dependent events in order. Returning a terminal transition means that operation won
+   * the terminal-state compare-and-swap. An empty result means the job was retried or a competing
+   * path already changed it; this wrapper never repeats terminal bookkeeping.
    *
    * @param ex timeout failure used for DLQ routing
    * @param cancelChainOnFailure whether a terminal signal timeout must cancel its chain
@@ -186,11 +365,8 @@ public class PostExecutionHandler {
     TerminalTimeoutTransition outcome = terminalTransition.orElseThrow();
     JobEntity job = outcome.job();
     requireFailureRoutingMetadata(job);
-    deadLetterService.recordDlqTransitionInCurrentTransaction(job, ex, outcome.eventsBeforeDlq());
-    wakeupIfNewWorkAvailable(applyPermanentFailureBookkeeping(job));
-    if (cancelChainOnFailure) {
-      workflowScheduler.cancelChain(job);
-    }
+    // The callback's atomic completion already registered timeout/failure/DLQ events and
+    // downstream events in order, in this transaction.
     return true;
   }
 

@@ -274,6 +274,7 @@ public class RatchetArchiveBuilder {
     // same ServiceLoader lookup in this build JVM, so reuse it rather than scanning a second time.
     Class<?> implClass = SqlDialectTestSupportProvider.get().getClass();
     archive.addClass(SqlDialectTestSupport.class);
+    archive.addClass(run.ratchet.tck.store.SqlCleanupRetry.class);
     archive.addClass(implClass);
     archive.addClasses(implClass.getDeclaredClasses());
     archive.addAsResource(

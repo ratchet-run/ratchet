@@ -658,6 +658,90 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void archivedChildrenRemainVisibleThroughParentFilter() {
+    var parent = persist(newPendingJob());
+    var child = newPendingJob();
+    child.setDependsOn(parent.getId());
+    UUID childId = archiveOnly(child);
+    archiveOnly(newPendingJob());
+    var filter = JobFilter.builder().parentJobId(parent.getId()).includeArchived(true).build();
+    assertEquals(
+        List.of(childId),
+        queryStore().searchJobs(filter, 100, 0).stream().map(JobEntity::getId).toList());
+    assertEquals(1, queryStore().countJobs(filter));
+  }
+
+  @Test
+  void archiveUnionSortAndCursorUseTheSameEffectiveValues() {
+    var running = persist(newPendingJob());
+    store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    persist(newPendingJob());
+    var terminal = persist(newPendingJob());
+    store().compareAndSwapStatus(terminal.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(
+            terminal.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 1000L, 0L);
+    var archived = newPendingJob();
+    Instant originalSchedule = Instant.parse("2040-01-01T00:00:00Z");
+    archived.setScheduledTime(originalSchedule);
+    archiveOnly(archived);
+
+    for (var field :
+        List.of(
+            JobQuerySortField.STATUS,
+            JobQuerySortField.SCHEDULED_TIME,
+            JobQuerySortField.UPDATED_AT)) {
+      for (boolean ascending : List.of(true, false)) {
+        var filter =
+            JobFilter.builder()
+                .includeArchived(true)
+                .sortField(field)
+                .sortAscending(ascending)
+                .build();
+        List<JobEntity> all = queryStore().searchJobs(filter, 100, 0);
+        assertEquals(4, all.size());
+        java.util.Comparator<JobEntity> comparator =
+            switch (field) {
+              case STATUS -> java.util.Comparator.comparing(j -> j.getStatus().name());
+              case SCHEDULED_TIME -> java.util.Comparator.comparing(JobEntity::getScheduledTime);
+              case UPDATED_AT -> java.util.Comparator.comparing(JobEntity::getUpdatedAt);
+              default -> throw new IllegalArgumentException();
+            };
+        if (!ascending) comparator = comparator.reversed();
+        comparator = comparator.thenComparing(j -> j.getId().toString());
+        assertEquals(
+            all.stream().sorted(comparator).map(JobEntity::getId).toList(),
+            all.stream().map(JobEntity::getId).toList(),
+            "Results must sort their effective values: " + field);
+        List<UUID> seen = new ArrayList<>();
+        String cursor = null;
+        for (int guard = 0; guard < 6; guard++) {
+          var pageFilter = filter.toBuilder().cursor(cursor).build();
+          var page = queryStore().searchJobs(pageFilter, 1, 0);
+          if (page.isEmpty()) break;
+          var job = page.get(0);
+          seen.add(job.getId());
+          cursor =
+              new JobQueryCursor(field, ascending, cursorValue(job, field), job.getId()).encode();
+        }
+        assertEquals(
+            all.stream().map(JobEntity::getId).toList(),
+            seen,
+            "Every page must advance exactly once: " + field);
+      }
+    }
+  }
+
+  private static String cursorValue(JobEntity job, JobQuerySortField field) {
+    return switch (field) {
+      case STATUS -> job.getStatus().name();
+      case SCHEDULED_TIME -> job.getScheduledTime().toString();
+      case UPDATED_AT -> job.getUpdatedAt().toString();
+      default -> throw new IllegalArgumentException("Unexpected test sort: " + field);
+    };
+  }
+
+  @Test
   void searchIncludeArchived_cursorPaginationOverArchiveVisitsEveryRowOnce() {
     // Give every archived row the same priority so the keyset tiebreaker — not the primary sort —
     // decides ordering. That is the slot where an archive cursor seeking the wrong id field drops

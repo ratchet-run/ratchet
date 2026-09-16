@@ -303,6 +303,23 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
   }
 
   private static final class FakeRecurringJobStore implements RecurringJobStore {
+    @Override
+    public void commitRecurringExecutions(
+        List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+      throw new UnsupportedOperationException("Registration-only test fixture");
+    }
+
+    @Override
+    public List<RecurringJobDefinition> searchRecurring(
+        run.ratchet.api.JobFilter filter, int limit, int offset) {
+      throw new UnsupportedOperationException("Query not used by creation fixture");
+    }
+
+    @Override
+    public long countRecurring(run.ratchet.api.JobFilter filter) {
+      throw new UnsupportedOperationException("Query not used by creation fixture");
+    }
+
     private final Map<String, RecurringJobDefinition> definitionsByBusinessKey =
         new LinkedHashMap<>();
     private final Set<String> singleJobBusinessKeys = new java.util.HashSet<>();

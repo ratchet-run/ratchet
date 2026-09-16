@@ -98,6 +98,96 @@ public abstract class AbstractRecurringJobStoreContract {
     cleanupRecurringStore();
   }
 
+  @Test
+  void recurringCommitInsertsChildAndAdvancesTogether() {
+    UUID id = UuidV7Factory.create();
+    Instant due = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MILLIS);
+    recurringStore().createRecurring(definition(id, "0 * * * * ?", due));
+    var claim = recurringStore().claimRecurringExecutions(1, "node", NodeTagFilter.NONE).get(0);
+    JobEntity child = jobFixture().newPendingJob();
+    child.setRecurringMasterId(id);
+    Instant next = due.plusSeconds(3600);
+    recurringStore()
+        .commitRecurringExecutions(
+            List.of(new run.ratchet.store.spi.RecurringExecutionPlan(claim, List.of(child), next)));
+    assertTrue(jobFixture().store().findById(child.getId()).isPresent());
+    assertEquals(next, recurringStore().getRecurring(id).orElseThrow().nextFire());
+  }
+
+  @Test
+  void recurringCommitFailureRollsBackChildrenAndExhaustion() {
+    UUID id = UuidV7Factory.create();
+    Instant due = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MILLIS);
+    recurringStore().createRecurring(definition(id, "0 * * * * ?", due));
+    var claim = recurringStore().claimRecurringExecutions(1, "node", NodeTagFilter.NONE).get(0);
+    JobEntity first = jobFixture().newPendingJob();
+    first.setId(UuidV7Factory.create());
+    first.setRecurringMasterId(id);
+    JobEntity duplicate = jobFixture().newPendingJob();
+    duplicate.setId(first.getId());
+    duplicate.setRecurringMasterId(id);
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            recurringStore()
+                .commitRecurringExecutions(
+                    List.of(
+                        new run.ratchet.store.spi.RecurringExecutionPlan(
+                            claim, List.of(first, duplicate), null))));
+    assertTrue(jobFixture().store().findById(first.getId()).isEmpty());
+    assertEquals(due, recurringStore().getRecurring(id).orElseThrow().nextFire());
+    assertTrue(recurringStore().findArchivedRecurring(id).isEmpty());
+  }
+
+  /**
+   * Mongo advances masters before its child bulk insert; SQL adapters inject after the first
+   * advance.
+   */
+  protected void commitRecurringPlansWithLaterFailure(
+      List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+    recurringStore().commitRecurringExecutions(plans);
+  }
+
+  @Test
+  void laterRecurringPlanFailureRollsBackEarlierMasterAndChild() {
+    Instant due = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MILLIS);
+    UUID firstId = UuidV7Factory.create();
+    UUID secondId = UuidV7Factory.create();
+    recurringStore().createRecurring(definition(firstId, "0 * * * * ?", due));
+    recurringStore().createRecurring(definition(secondId, "0 * * * * ?", due));
+    var claims = recurringStore().claimRecurringExecutions(2, "worker", NodeTagFilter.NONE);
+    assertEquals(2, claims.size());
+    var firstClaim =
+        claims.stream().filter(c -> c.definition().id().equals(firstId)).findFirst().orElseThrow();
+    var secondClaim =
+        claims.stream().filter(c -> c.definition().id().equals(secondId)).findFirst().orElseThrow();
+    JobEntity existing = jobFixture().store().create(jobFixture().newPendingJob());
+    JobEntity firstChild = jobFixture().newPendingJob();
+    firstChild.setId(UuidV7Factory.create());
+    firstChild.setRecurringMasterId(firstId);
+    JobEntity conflictingChild = jobFixture().newPendingJob();
+    conflictingChild.setId(existing.getId());
+    conflictingChild.setRecurringMasterId(secondId);
+    var plans =
+        List.of(
+            new run.ratchet.store.spi.RecurringExecutionPlan(
+                firstClaim, List.of(firstChild), due.plusSeconds(3600)),
+            new run.ratchet.store.spi.RecurringExecutionPlan(
+                secondClaim, List.of(conflictingChild), null));
+    assertThrows(RuntimeException.class, () -> commitRecurringPlansWithLaterFailure(plans));
+    assertEquals(due, recurringStore().getRecurring(firstId).orElseThrow().nextFire());
+    assertEquals(due, recurringStore().getRecurring(secondId).orElseThrow().nextFire());
+    assertTrue(recurringStore().findArchivedRecurring(firstId).isEmpty());
+    assertTrue(recurringStore().findArchivedRecurring(secondId).isEmpty());
+    assertTrue(jobFixture().store().findById(firstChild.getId()).isEmpty());
+    assertTrue(
+        jobFixture()
+            .store()
+            .findOriginalJobIdByIdempotencyKey(firstChild.getIdempotencyKey())
+            .isEmpty());
+    assertTrue(jobFixture().store().findById(existing.getId()).isPresent());
+  }
+
   /** TCK 1 — concurrent claim safety: a single due master is claimed exactly once. */
   @Test
   void claimDueRecurring_concurrentNodesObserveExactlyOnce() {
@@ -108,9 +198,13 @@ public abstract class AbstractRecurringJobStoreContract {
     // store impls open a fresh transaction per call; in containers with shared connections, both
     // calls run sequentially. Either way the second call must NOT also observe the master because
     // claim advances next_fire well into the future as part of the same fire-path operation.
-    List<RecurringJobDefinition> firstBatch = recurringStore().claimDueRecurring(10, "node-1");
+    var firstBatch = recurringStore().claimRecurringExecutions(10, "node-1", NodeTagFilter.NONE);
     assertEquals(1, firstBatch.size());
-    recurringStore().advanceNextFire(id, Instant.now().plusSeconds(3600));
+    recurringStore()
+        .commitRecurringExecutions(
+            List.of(
+                new run.ratchet.store.spi.RecurringExecutionPlan(
+                    firstBatch.get(0), List.of(), Instant.now().plusSeconds(3600))));
 
     List<RecurringJobDefinition> secondBatch = recurringStore().claimDueRecurring(10, "node-2");
     assertTrue(secondBatch.isEmpty(), "post-advance, the master must not re-claim");
@@ -137,13 +231,13 @@ public abstract class AbstractRecurringJobStoreContract {
     Instant pastDue = Instant.now().minusSeconds(60);
     recurringStore().createRecurring(definition(id, "0 * * * * ?", pastDue));
 
-    List<RecurringJobDefinition> firstBatch = recurringStore().claimDueRecurring(10, "node-1");
+    var firstBatch = recurringStore().claimRecurringExecutions(10, "node-1", NodeTagFilter.NONE);
     assertEquals(1, firstBatch.size(), "the past-due master must be claimable initially");
 
     // Without releaseClaim a Mongo lease would hide the row for CLAIM_LEASE_SECONDS; calling
     // releaseClaim drops the lease so the next claim cycle sees it again immediately. The
     // next_fire value must be unchanged — the row goes back to its original schedule.
-    recurringStore().releaseClaim(id);
+    recurringStore().releaseClaim(firstBatch.get(0));
 
     List<RecurringJobDefinition> secondBatch = recurringStore().claimDueRecurring(10, "node-2");
     assertEquals(1, secondBatch.size(), "released claim must be observable on the next cycle");
@@ -670,6 +764,74 @@ public abstract class AbstractRecurringJobStoreContract {
         masterId,
         reread.getRecurringMasterId(),
         "recurring_master_id must round-trip through the child INSERT and the row mapper");
+  }
+
+  @Test
+  void recurringSearchAppliesTagStatusAndAbsentPropertyConstraints() {
+    UUID included = UuidV7Factory.create();
+    UUID excluded = UuidV7Factory.create();
+    Instant fire = Instant.parse("2027-01-01T00:00:00Z");
+    recurringStore().createRecurring(definition(included, "0 * * * * ?", fire));
+    recurringStore().createRecurring(definition(excluded, "0 * * * * ?", fire));
+    tagStore().insertTags(included, List.of("tenant-a"));
+    tagStore().insertTags(excluded, List.of("tenant-b"));
+    recurringStore().pauseRecurring(included);
+    JobFilter filter = JobFilter.builder().tags("tenant-a").statuses(JobStatus.PAUSED).build();
+    assertEquals(
+        List.of(included),
+        recurringStore().searchRecurring(filter, 10, 0).stream()
+            .map(RecurringJobDefinition::id)
+            .toList());
+    assertEquals(1L, recurringStore().countRecurring(filter));
+    JobFilter missingProperty = filter.toBuilder().propertyEquals("tenant", "absent").build();
+    assertTrue(recurringStore().searchRecurring(missingProperty, 10, 0).isEmpty());
+    assertEquals(0L, recurringStore().countRecurring(missingProperty));
+    assertTrue(
+        recurringStore()
+            .searchRecurring(filter.toBuilder().statuses(JobStatus.PENDING).build(), 10, 0)
+            .isEmpty());
+    assertTrue(
+        recurringStore()
+            .searchRecurring(filter.toBuilder().parentJobId(included).build(), 10, 0)
+            .isEmpty());
+  }
+
+  @Test
+  void recurringSearchCursorVisitsEveryMasterForEverySort() {
+    Instant fire = Instant.parse("2027-01-01T00:00:00Z");
+    Set<UUID> expected = new java.util.HashSet<>();
+    for (int i = 0; i < 3; i++) {
+      UUID id = UuidV7Factory.create();
+      expected.add(id);
+      recurringStore().createRecurring(definition(id, "0 * * * * ?", fire));
+      if (i == 0) recurringStore().pauseRecurring(id);
+    }
+    for (var field : run.ratchet.api.JobQuerySortField.values()) {
+      for (boolean ascending : List.of(true, false)) {
+        JobFilter filter = JobFilter.builder().sortField(field).sortAscending(ascending).build();
+        Set<UUID> seen = new java.util.HashSet<>();
+        for (int page = 0; page < 4; page++) {
+          List<RecurringJobDefinition> rows = recurringStore().searchRecurring(filter, 1, 0);
+          if (rows.isEmpty()) break;
+          RecurringJobDefinition last = rows.get(0);
+          assertTrue(seen.add(last.id()), "cursor repeated a master");
+          String value =
+              switch (field) {
+                case CREATED_AT, UPDATED_AT -> last.createdAt().toString();
+                case SCHEDULED_TIME -> last.nextFire().toString();
+                case PRIORITY -> Integer.toString(last.priority());
+                case STATUS -> last.paused() ? "PAUSED" : "PENDING";
+              };
+          filter =
+              filter.toBuilder()
+                  .cursor(
+                      new run.ratchet.store.query.JobQueryCursor(field, ascending, value, last.id())
+                          .encode())
+                  .build();
+        }
+        assertEquals(expected, seen, field + " ascending=" + ascending);
+      }
+    }
   }
 
   private RecurringJobDefinition orphanCandidate(

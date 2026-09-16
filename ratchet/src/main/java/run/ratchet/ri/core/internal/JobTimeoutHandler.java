@@ -329,15 +329,17 @@ public class JobTimeoutHandler {
       return Optional.empty();
     }
 
-    // Step 1: Increment attempts while status is still RUNNING.
-    int newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
-    if (newAttempts < 0) {
-      // Not in RUNNING anymore — worker already transitioned it. Nothing to do.
-      log.infof("Job %s already left RUNNING when timeout handler ran", jobId);
+    if (job.getStatus() != JobStatus.RUNNING) {
       return Optional.empty();
     }
-
-    // Step 2: Retries remain? Try to reschedule.
+    int newAttempts = job.getAttempts() + 1;
+    // Terminal attempts are part of commitCompletion, including for stores without ambient JTA.
+    if (newAttempts <= job.getMaxRetries()) {
+      newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
+      if (newAttempts < 0) {
+        return Optional.empty();
+      }
+    }
     if (newAttempts <= job.getMaxRetries()) {
       Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
       boolean rescheduled =
@@ -360,9 +362,14 @@ public class JobTimeoutHandler {
     }
 
     // Step 3: Retries exhausted — CAS to FAILED and route to DLQ.
+    job.setAttempts(newAttempts);
+    job.setLastError(sanitizedError);
+    TerminalTimeoutTransition outcome =
+        terminalHardTimeoutTransition(
+            job, sanitizedError, newAttempts, timeoutSec, observedElapsedTime);
     boolean marked =
-        jobBatchStatusStore.compareAndSwapStatus(
-            jobId, JobStatus.RUNNING, JobStatus.FAILED, sanitizedError);
+        lifecycleFacade.completeTimeoutFailure(
+            job, JobStatus.RUNNING, false, timeoutEx, outcome.eventsBeforeDlq());
     if (!marked) {
       log.infof("Job %s already in terminal state when timeout handler ran", jobId);
       return Optional.empty();
@@ -371,9 +378,7 @@ public class JobTimeoutHandler {
     job.setAttempts(newAttempts);
     job.setStatus(JobStatus.FAILED);
     job.setLastError(sanitizedError);
-    return Optional.of(
-        terminalHardTimeoutTransition(
-            job, sanitizedError, newAttempts, timeoutSec, observedElapsedTime));
+    return Optional.of(outcome);
   }
 
   private String sanitizeTimeoutError(TimeoutException timeout) {
@@ -406,12 +411,16 @@ public class JobTimeoutHandler {
       log.infof("Job %s no longer exists when signal timeout scanner ran", jobId);
       return Optional.empty();
     }
-    int newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
-    if (newAttempts < 0) {
-      log.infof("Job %s already left WAITING when signal timeout scanner ran", jobId);
+    if (job.getStatus() != JobStatus.WAITING) {
       return Optional.empty();
     }
-
+    int newAttempts = job.getAttempts() + 1;
+    if (newAttempts <= job.getMaxRetries()) {
+      newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
+      if (newAttempts < 0) {
+        return Optional.empty();
+      }
+    }
     if (newAttempts <= job.getMaxRetries()) {
       long backoffMs =
           job.getBackoffPolicy() != null
@@ -437,9 +446,17 @@ public class JobTimeoutHandler {
       return Optional.empty();
     }
 
+    job.setAttempts(newAttempts);
+    job.setLastError(message);
+    TerminalTimeoutTransition outcome =
+        terminalSignalTimeoutTransition(job, message, newAttempts, now);
     boolean marked =
-        jobBatchStatusStore.compareAndSwapStatus(
-            jobId, JobStatus.WAITING, JobStatus.FAILED, message);
+        lifecycleFacade.completeTimeoutFailure(
+            job,
+            JobStatus.WAITING,
+            true,
+            new SignalTimeoutException(message),
+            outcome.eventsBeforeDlq());
     if (!marked) {
       log.infof("Job %s already left WAITING when signal timeout scanner ran", jobId);
       return Optional.empty();
@@ -449,7 +466,10 @@ public class JobTimeoutHandler {
     job.setAttempts(newAttempts);
     job.setLastError(message);
     job.setStatus(JobStatus.FAILED);
-    return Optional.of(terminalSignalTimeoutTransition(job, message, newAttempts, now));
+    if (metricsCollector != null) {
+      metricsCollector.signalTimedOut(job.getId(), job.getPublicJobType(), job.getSignalKey());
+    }
+    return Optional.of(outcome);
   }
 
   private Clock effective() {
@@ -467,9 +487,6 @@ public class JobTimeoutHandler {
 
   private TerminalTimeoutTransition terminalSignalTimeoutTransition(
       JobEntity job, String errorMessage, int retryAttempt, Instant timestamp) {
-    if (metricsCollector != null) {
-      metricsCollector.signalTimedOut(job.getId(), job.getPublicJobType(), job.getSignalKey());
-    }
     if (eventPublisher == null) {
       return new TerminalTimeoutTransition(job, List.of());
     }

@@ -58,6 +58,8 @@ for (JobSummary job : page.items()) {
 
 `JobFilter` fields are optional. A `null` field means "do not constrain this dimension." Vararg filters such as `statuses()` and `types()` ignore empty argument lists, so a UI can safely pass zero selected statuses to mean "all statuses."
 
+With `includeArchived(true)`, sorting and cursor pagination use the same effective values across retained jobs and archives. In SQL stores, terminal jobs no longer retain their live queue row: their `scheduledTime` falls back to execution start time, then creation time. Archival records that effective value as `originalScheduledTime`; it cannot reconstruct a scheduled time already removed with the queue row.
+
 When the store advertises the `JobExtensionStore` capability, jobs can also be filtered by their indexed extension properties:
 
 ```java

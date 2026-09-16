@@ -23,11 +23,10 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.util.BulkRetryFilters;
 
 final class MysqlJobLifecycleOperations
-    implements JobBatchStatusStore, JobRetryStore, JobTerminalStore, JobPauseStore {
+    implements JobBatchStatusStore, JobRetryStore, JobPauseStore {
 
   private final MysqlJobStatusTransitions transitions;
   private final MysqlJobTerminalOperations terminals;
@@ -66,7 +65,6 @@ final class MysqlJobLifecycleOperations
     return transitions.tryPickUpJob(id, nodeId);
   }
 
-  @Override
   public boolean markJobSucceeded(
       UUID id,
       String resultJson,
@@ -79,13 +77,11 @@ final class MysqlJobLifecycleOperations
         id, resultJson, resultType, start, end, durationMs, queueWaitMs);
   }
 
-  @Override
   public boolean markJobSucceededMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     return terminals.markJobSucceededMinimal(id, start, end, durationMs, queueWaitMs);
   }
 
-  @Override
   public boolean markJobSucceededAndUpdateBatch(
       UUID jobId,
       String resultJson,
@@ -104,12 +100,10 @@ final class MysqlJobLifecycleOperations
     return terminals.scheduleJobRetry(id, error, newScheduledTime, attempts);
   }
 
-  @Override
   public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     return terminals.markJobFailedTerminal(id, terminalError, totalAttempts);
   }
 
-  @Override
   public boolean cancelJob(UUID id) {
     return terminals.cancelJob(id);
   }

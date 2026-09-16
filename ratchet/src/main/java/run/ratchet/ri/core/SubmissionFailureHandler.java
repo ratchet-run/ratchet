@@ -86,7 +86,6 @@ class SubmissionFailureHandler {
 
   public void handleRejection(
       JobEntity job, JobExecutionType jobType, String poolName, boolean isFirstAttempt) {
-    releaseSubmissionPermit(jobType, poolName);
 
     if (isFirstAttempt) {
       resetToPendingOrBuffer(job);
@@ -103,7 +102,6 @@ class SubmissionFailureHandler {
   }
 
   public void handleRejection(JobClaimDto claim, JobExecutionType jobType, String poolName) {
-    releaseSubmissionPermit(jobType, poolName);
 
     if (bufferClaim(claim)) {
       log.warnf("Executor for %s rejected job %s - buffered locally", jobType, claim.id());
@@ -124,8 +122,10 @@ class SubmissionFailureHandler {
       String poolName,
       boolean isFirstAttempt,
       Exception exception) {
-    releaseSubmissionPermit(jobType, poolName);
-    log.errorf(exception, "Unexpected exception submitting job %s - permit released", job.getId());
+    log.errorf(
+        exception,
+        "Unexpected exception submitting job %s - retaining claim for retry",
+        job.getId());
 
     if (isFirstAttempt || !retryBufferManager.offer(job)) {
       resetToPendingOrBuffer(job);
@@ -134,13 +134,21 @@ class SubmissionFailureHandler {
 
   public void handleUnexpectedException(
       JobClaimDto claim, JobExecutionType jobType, String poolName, Exception exception) {
-    releaseSubmissionPermit(jobType, poolName);
-    log.errorf(exception, "Unexpected exception submitting job %s - permit released", claim.id());
+    log.errorf(
+        exception,
+        "Unexpected exception submitting job %s - retaining claim for retry",
+        claim.id());
 
     if (bufferClaim(claim)) {
       return;
     }
     jobStateManager.resetJobToPending(claim.id());
+  }
+
+  void retainUnsubmittedClaim(JobClaimDto claim) {
+    if (!retryBufferManager.forceOffer(claim)) {
+      jobStateManager.resetJobToPending(claim.id());
+    }
   }
 
   private ResetOutcome resetToPendingOrBuffer(JobEntity job) {
@@ -167,11 +175,6 @@ class SubmissionFailureHandler {
       case NOT_RECOVERED ->
           log.warnf("%s - job %s was neither reset nor buffered", result.reason(), job.getId());
     }
-  }
-
-  private void releaseSubmissionPermit(JobExecutionType jobType, String poolName) {
-    poolRegistry.pool(poolName).releasePermit(jobType);
-    pollerScheduler.wakeup();
   }
 
   private void recordGateRejected(JobExecutionType jobType, GateCheckResult result) {

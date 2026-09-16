@@ -163,7 +163,7 @@ class DefaultJobQueryServiceTest {
             "alice",
             false,
             RecurringMisfirePolicy.defaults());
-    when(recurringJobStore.listAll()).thenReturn(new java.util.ArrayList<>(List.of(def)));
+    when(recurringJobStore.searchRecurring(any(), eq(10), eq(0))).thenReturn(List.of(def));
 
     JobPage<JobSummary> page = service.getRecurringMasters(10, 0);
 
@@ -274,12 +274,10 @@ class DefaultJobQueryServiceTest {
   }
 
   @Test
-  void findJobs_recurringOnly_appliesPrincipalScopingInMemory() {
+  void findJobs_recurringOnly_passesPrincipalScopeToStore() {
     // Two recurring masters owned by different principals.
-    var aliceMaster = recurringDefWithPrincipal(UUID.randomUUID(), "alice");
     var bobMaster = recurringDefWithPrincipal(UUID.randomUUID(), "bob");
-    when(recurringJobStore.listAll())
-        .thenReturn(new java.util.ArrayList<>(List.of(aliceMaster, bobMaster)));
+    when(recurringJobStore.searchRecurring(any(), eq(10), eq(0))).thenReturn(List.of(bobMaster));
 
     // Auth policy scopes the query to the current caller (bob).
     when(principalProvider.currentPrincipal()).thenReturn(Optional.of("bob"));
@@ -293,14 +291,14 @@ class DefaultJobQueryServiceTest {
     // alice's master must NOT appear in bob's view.
     assertEquals(1, page.items().size(), "principal scoping must filter the recurring listing");
     assertEquals(bobMaster.id(), page.items().get(0).id());
+    verify(recurringJobStore)
+        .searchRecurring(argThat(f -> "bob".equals(f.callerPrincipal())), eq(10), eq(0));
   }
 
   @Test
-  void findJobs_recurringOnly_appliesBusinessKeyFilterInMemory() {
+  void findJobs_recurringOnly_passesBusinessKeyFilterToStore() {
     var matching = recurringDefWithBusinessKey(UUID.randomUUID(), "bk-keep");
-    var skipped = recurringDefWithBusinessKey(UUID.randomUUID(), "bk-drop");
-    when(recurringJobStore.listAll())
-        .thenReturn(new java.util.ArrayList<>(List.of(matching, skipped)));
+    when(recurringJobStore.searchRecurring(any(), eq(10), eq(0))).thenReturn(List.of(matching));
 
     JobPage<JobSummary> page =
         service.findJobs(
@@ -308,6 +306,8 @@ class DefaultJobQueryServiceTest {
 
     assertEquals(1, page.items().size());
     assertEquals(matching.id(), page.items().get(0).id());
+    verify(recurringJobStore)
+        .searchRecurring(argThat(f -> "bk-keep".equals(f.businessKey())), eq(10), eq(0));
   }
 
   @Test
@@ -831,7 +831,8 @@ class DefaultJobQueryServiceTest {
         new java.util.ArrayList<>(
             List.of(recurringDefinition("0 * * * * ?"), recurringDefinition("0 0 * * * ?")));
     masters.add(recurringDefinition("0 0 0 * * ?"));
-    when(recurringJobStore.listAll()).thenReturn(masters);
+    when(recurringJobStore.searchRecurring(any(), eq(2), eq(0))).thenReturn(masters.subList(0, 2));
+    when(recurringJobStore.countRecurring(any())).thenReturn(3L);
 
     JobPage<JobSummary> page = service.getRecurringMasters(2, 0);
 
@@ -839,6 +840,33 @@ class DefaultJobQueryServiceTest {
     assertEquals(3L, page.totalCount());
     assertTrue(page.hasMore());
     verify(queryStore, never()).searchJobs(any(), anyInt(), anyInt());
+  }
+
+  @Test
+  void recurringQueryPreservesTenantPropertiesAndProbePagination() {
+    JobFilter scoped =
+        JobFilter.builder()
+            .types(JobType.RECURRING)
+            .tags("tenant-a")
+            .propertyEquals("tenant", "a")
+            .statuses(JobStatus.PAUSED)
+            .skipCount(true)
+            .build();
+    when(authPolicy.filterForPrincipal(any(), any())).thenReturn(scoped);
+    when(recurringJobStore.searchRecurring(eq(scoped), eq(3), eq(0)))
+        .thenReturn(
+            List.of(
+                recurringDefinition("0 * * * * ?"),
+                recurringDefinition("0 * * * * ?"),
+                recurringDefinition("0 * * * * ?")));
+    JobPage<JobSummary> page =
+        service.findJobs(JobFilter.builder().types(JobType.RECURRING).build(), 2, 0);
+    assertEquals(2, page.items().size());
+    assertEquals(-1L, page.totalCount());
+    assertTrue(page.hasMore());
+    org.junit.jupiter.api.Assertions.assertNotNull(page.nextCursor());
+    verify(recurringJobStore, never()).countRecurring(any());
+    verify(recurringJobStore, never()).listAll();
   }
 
   private static run.ratchet.store.spi.RecurringJobDefinition recurringDefinition(String cron) {

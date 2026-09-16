@@ -37,6 +37,8 @@ class CapturedArgumentRoundTripTest {
   private static volatile long received;
 
   public static final class NumericTarget {
+    public static void mixed(long id, double fraction, String label, int count) {}
+
     public static void process(long id) {
       received = id;
     }
@@ -65,6 +67,18 @@ class CapturedArgumentRoundTripTest {
         null, ArgumentCoercion.coerce(target.getParameterTypes(), reloaded.args().toArray()));
 
     assertEquals(capturedId, received);
+  }
+
+  @Test
+  void capturesAfterWidePrimitivesUseJvmLocalSlots() {
+    long id = 42L;
+    double fraction = 2.5;
+    String label = "tail";
+    int count = 7;
+    JobPayload payload =
+        JobPayloadFactory.fromLambda(
+            (SerializableCheckedRunnable) () -> NumericTarget.mixed(id, fraction, label, count));
+    assertEquals(java.util.List.of(id, fraction, label, count), payload.args());
   }
 
   private static Method resolve(JobPayload payload) throws Exception {

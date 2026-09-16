@@ -99,6 +99,36 @@ class RecurringMethodInvokerTest {
     return handle;
   }
 
+  @Test
+  void invokesInheritedPublicMethodsAndCachesResolution() throws Exception {
+    ChildBean bean = new ChildBean();
+    selectBean(ChildBean.class, bean);
+    invoker.invoke(ChildBean.class.getName(), "inherited", false);
+    invoker.invoke(ChildBean.class.getName(), "inherited", false);
+    run.ratchet.api.JobContext.bind(
+        java.util.UUID.randomUUID(), mock(run.ratchet.spi.JobLogger.class));
+    try {
+      invoker.invoke(ChildBean.class.getName(), "withContext", true);
+    } finally {
+      run.ratchet.api.JobContext.clear();
+    }
+    org.junit.jupiter.api.Assertions.assertEquals(3, bean.calls);
+  }
+
+  public static class ParentBean {
+    int calls;
+
+    public void inherited() {
+      calls++;
+    }
+
+    public void withContext(run.ratchet.api.JobContext context) {
+      calls++;
+    }
+  }
+
+  public static final class ChildBean extends ParentBean {}
+
   public static final class FailingBean {
     private final RuntimeException runtimeFailure = new RuntimeException("boom");
     private final CheckedFailure checkedFailure = new CheckedFailure("checked");

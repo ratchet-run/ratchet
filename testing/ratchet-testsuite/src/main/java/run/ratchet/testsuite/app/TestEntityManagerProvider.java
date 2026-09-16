@@ -27,6 +27,7 @@ import jakarta.persistence.TransactionRequiredException;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.naming.InitialContext;
@@ -124,7 +125,8 @@ public class TestEntityManagerProvider implements RatchetEntityManagerProvider {
       return;
     }
 
-    if (previousTransactionKey != transactionKey) {
+    // The registry guarantees equality, not object identity, for keys of the same transaction.
+    if (!Objects.equals(previousTransactionKey, transactionKey)) {
       transactionKeys.set(transactionKey);
       entityManager.clear();
     }

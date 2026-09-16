@@ -36,6 +36,7 @@ import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.JobWriteSupport;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.SqlIdempotencyKeys;
 
 final class OracleJobWriteOperations {
 
@@ -121,6 +122,7 @@ final class OracleJobWriteOperations {
       assignIdIfMissing(job);
     }
 
+    SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidRawConverter.toBytes(id), true);
     executeColdBulkInsert(jobs, nowTs);
     executeHotBulkInsert(jobs, nowTs);
     executeBusinessKeyBulkInsert(jobs, nowTs);
@@ -145,6 +147,8 @@ final class OracleJobWriteOperations {
         job.getStatus() != null && OracleJobRowMapper.isTerminalStatus(job.getStatus());
 
     try {
+      SqlIdempotencyKeys.reserve(
+          ctx, List.of(job), nowTs, id -> UuidRawConverter.toBytes(id), true);
       executeColdInsert(job, nowTs);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);

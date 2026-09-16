@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.sqlserver;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
@@ -38,6 +39,11 @@ class SqlserverExplainPlanCaptureIT {
    * intent.
    */
   private static String showplanXml(Statement statement) throws SQLException {
+    return showplanXml(statement, true);
+  }
+
+  private static String showplanXml(Statement statement, boolean forceDueIndex)
+      throws SQLException {
     String sql =
         """
         SELECT job_id, status, job_type, priority, scheduled_time, version, timeout_sec,
@@ -49,6 +55,9 @@ class SqlserverExplainPlanCaptureIT {
         ORDER BY priority DESC, scheduled_time ASC, job_id ASC
         OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY
         """;
+    if (!forceDueIndex) {
+      sql = sql.replace("INDEX(idx_claim_executable), ", "");
+    }
     statement.execute("SET SHOWPLAN_XML ON");
     try (ResultSet rs = statement.executeQuery(sql)) {
       assertTrue(rs.next(), "SHOWPLAN_XML should return one plan row");
@@ -73,6 +82,35 @@ class SqlserverExplainPlanCaptureIT {
 
       assertTrue(plan.contains("scheduler_job_queue"), plan);
       assertTrue(plan.contains("idx_claim_executable"), plan);
+    }
+  }
+
+  @Test
+  void unboostedBacklogUsesPriorityIndexWithoutSort() throws Exception {
+    try (Connection conn = ExplainPlanTestSupport.connection(FIXTURE);
+        Statement statement = conn.createStatement()) {
+      statement.executeUpdate(
+          """
+          WITH numbers AS (
+            SELECT TOP (100000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS n
+            FROM sys.all_objects a CROSS JOIN sys.all_objects b
+          )
+          INSERT INTO scheduler_job (job_id, job_type, priority, payload, idempotency_key, created_at)
+          SELECT CONVERT(binary(16), NEWID()), 'SINGLE', n % 5, N'{}',
+                 CONVERT(varchar(36), NEWID()), SYSUTCDATETIME()
+          FROM numbers
+          """);
+      statement.executeUpdate(
+          """
+          INSERT INTO scheduler_job_queue (job_id, job_type, priority, scheduled_time, updated_at)
+          SELECT job_id, job_type, priority, DATEADD(hour, -1, SYSUTCDATETIME()), SYSUTCDATETIME()
+          FROM scheduler_job
+          """);
+      statement.execute("UPDATE STATISTICS scheduler_job_queue WITH FULLSCAN");
+      String plan = showplanXml(statement, false);
+      ExplainPlanTestSupport.writePlan("target/explain-plans/sqlserver-priority-claim.xml", plan);
+      assertTrue(plan.contains("idx_claim_pending_priority"), plan);
+      assertFalse(plan.contains("PhysicalOp=\"Sort\""), plan);
     }
   }
 }

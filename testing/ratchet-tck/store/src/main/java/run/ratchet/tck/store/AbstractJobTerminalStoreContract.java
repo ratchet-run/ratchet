@@ -36,6 +36,244 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     cleanupStore();
   }
 
+  /**
+   * SQL adapters open separate transactions before the contender barrier. Mongo opens its own
+   * sessions.
+   */
+  protected void inCompletionTransaction(Runnable work) {
+    work.run();
+  }
+
+  @Test
+  void competingCompletionsApplyBatchAndDependencyEffectsOnce() throws Exception {
+    var batch = persist(newBatchParentJob());
+    persistBatch(batch.getId(), 1);
+    var child = persist(newPendingJob());
+    var dependent = newPendingJob();
+    dependent.setScheduledTime(Instant.parse("2099-01-01T00:00:00Z"));
+    dependent = persist(dependent);
+    var snapshot = store().findById(dependent.getId()).orElseThrow();
+    store().compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    Instant now = Instant.now();
+    var transition =
+        new run.ratchet.store.dto.JobCompletionPlan.DependencyTransition(
+            snapshot.getId(),
+            snapshot.getStatus(),
+            snapshot.getVersion(),
+            snapshot.getScheduledTime(),
+            JobStatus.PENDING,
+            Instant.parse("2026-01-01T00:00:00Z"),
+            snapshot.getJobType());
+    var plan =
+        new run.ratchet.store.dto.JobCompletionPlan(
+            child.getId(),
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            1L,
+            0L,
+            batch.getId(),
+            null,
+            java.util.List.of(transition));
+    var bothInTransaction = new java.util.concurrent.CountDownLatch(2);
+    var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+    try {
+      java.util.concurrent.Callable<Boolean> complete =
+          () -> {
+            var committed = new java.util.concurrent.atomic.AtomicBoolean();
+            inCompletionTransaction(
+                () -> {
+                  bothInTransaction.countDown();
+                  try {
+                    assertTrue(
+                        bothInTransaction.await(20, java.util.concurrent.TimeUnit.SECONDS),
+                        "both contenders must reach the transaction barrier");
+                  } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                  }
+                  committed.set(store().commitCompletion(plan).committed());
+                });
+            return committed.get();
+          };
+      var first = executor.submit(complete);
+      var second = executor.submit(complete);
+      assertEquals(
+          1,
+          (first.get(30, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0)
+              + (second.get(30, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0));
+    } finally {
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS));
+    }
+    assertEquals(1, batchStore().findBatchById(batch.getId()).orElseThrow().getCompletedItems());
+    var after = store().findById(snapshot.getId()).orElseThrow();
+    assertEquals(transition.scheduledTime(), after.getScheduledTime());
+    assertEquals(snapshot.getVersion() + 1, after.getVersion());
+    assertEquals(JobStatus.SUCCEEDED, store().findById(child.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void completionCommitsDependencyUnlockAndIsIdempotent() {
+    var parent = persist(newPendingJob());
+    var child = newPendingJob();
+    child.setScheduledTime(Instant.parse("2099-01-01T00:00:00Z"));
+    child = persist(child);
+    store().compareAndSwapStatus(parent.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    var snapshot = store().findById(child.getId()).orElseThrow();
+    Instant now = Instant.now();
+    var transition =
+        new run.ratchet.store.dto.JobCompletionPlan.DependencyTransition(
+            child.getId(),
+            snapshot.getStatus(),
+            snapshot.getVersion(),
+            snapshot.getScheduledTime(),
+            JobStatus.PENDING,
+            Instant.parse("2026-01-01T00:00:00Z"),
+            snapshot.getJobType());
+    var plan =
+        new run.ratchet.store.dto.JobCompletionPlan(
+            parent.getId(),
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            java.util.List.of(transition));
+    assertTrue(store().commitCompletion(plan).committed());
+    assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());
+    assertEquals(
+        transition.scheduledTime(),
+        store().findById(child.getId()).orElseThrow().getScheduledTime());
+    assertFalse(store().commitCompletion(plan).committed());
+  }
+
+  @Test
+  void completionRollsBackTerminalMutationWhenBatchAccountingFails() {
+    var job = persist(newPendingJob());
+    store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    Instant now = Instant.now();
+    var plan =
+        new run.ratchet.store.dto.JobCompletionPlan(
+            job.getId(),
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            java.util.UUID.randomUUID(),
+            null,
+            java.util.List.of());
+    org.junit.jupiter.api.Assertions.assertThrows(
+        RuntimeException.class, () -> store().commitCompletion(plan));
+    assertEquals(
+        JobStatus.RUNNING,
+        store().findById(job.getId()).orElseThrow().getStatus(),
+        "Failure after the primary write must roll back the terminal transition");
+  }
+
+  @Test
+  void completionRejectsStaleDependentWithoutFinishingParent() {
+    var parent = persist(newPendingJob());
+    var child = persist(newPendingJob());
+    store().compareAndSwapStatus(parent.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    Instant now = Instant.now();
+    var transition =
+        new run.ratchet.store.dto.JobCompletionPlan.DependencyTransition(
+            child.getId(),
+            JobStatus.PAUSED,
+            child.getVersion(),
+            child.getScheduledTime(),
+            JobStatus.PENDING,
+            now,
+            child.getJobType());
+    var plan =
+        new run.ratchet.store.dto.JobCompletionPlan(
+            parent.getId(),
+            JobStatus.RUNNING,
+            JobStatus.FAILED,
+            null,
+            null,
+            "failed",
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            null,
+            java.util.List.of(transition));
+    org.junit.jupiter.api.Assertions.assertThrows(
+        RuntimeException.class, () -> store().commitCompletion(plan));
+    assertEquals(JobStatus.RUNNING, store().findById(parent.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void completionCountsBatchChildOnceAndCompletesSyntheticParentAtomically() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    var child = persist(newPendingJob());
+    store().compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    Instant now = Instant.now();
+    var childPlan =
+        new run.ratchet.store.dto.JobCompletionPlan(
+            child.getId(),
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            1,
+            now,
+            now,
+            0L,
+            0L,
+            parent.getId(),
+            null,
+            java.util.List.of());
+    var completed = store().commitCompletion(childPlan);
+    assertTrue(completed.committed());
+    assertEquals(1, completed.batchProgress().completedItems());
+    assertFalse(store().commitCompletion(childPlan).committed());
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getCompletedItems());
+    var parentPlan =
+        new run.ratchet.store.dto.JobCompletionPlan(
+            parent.getId(),
+            JobStatus.PENDING,
+            JobStatus.SUCCEEDED,
+            null,
+            null,
+            null,
+            0,
+            now,
+            now,
+            0L,
+            0L,
+            null,
+            new run.ratchet.store.dto.JobCompletionPlan.BatchCompletion(1, 1, 0),
+            java.util.List.of());
+    assertTrue(store().commitCompletion(parentPlan).committed());
+    assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());
+    assertTrue(batchStore().findBatchById(parent.getId()).orElseThrow().getCompletionProcessed());
+  }
+
   @Test
   void markJobSucceeded_updatesStatusAndResult() {
     var saved = persist(newPendingJob());

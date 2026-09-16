@@ -35,6 +35,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.JobWriteSupport;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.SqlIdempotencyKeys;
 
 final class PostgresqlJobWriteOperations {
 
@@ -137,6 +138,7 @@ final class PostgresqlJobWriteOperations {
     }
 
     try {
+      SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> id, false);
       executeColdBulkInsert(jobs, nowTs);
       executeHotBulkInsert(jobs, nowTs);
       executeTerminalBackfills(jobs, nowTs);
@@ -168,6 +170,7 @@ final class PostgresqlJobWriteOperations {
         job.getStatus() != null && PostgresqlJobRowMapper.isTerminalStatus(job.getStatus());
 
     try {
+      SqlIdempotencyKeys.reserve(ctx, List.of(job), nowTs, id -> id, false);
       executeColdInsert(job, nowTs);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);

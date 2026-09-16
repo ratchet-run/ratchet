@@ -73,9 +73,12 @@ class OracleExplainPlanCaptureIT {
       FETCH FIRST 50 ROWS ONLY""";
 
   private static String explainPlan(Statement statement) throws SQLException {
+    return explainPlan(statement, CLAIM_CANDIDATE_SELECT);
+  }
+
+  private static String explainPlan(Statement statement, String sql) throws SQLException {
     statement.execute("DELETE FROM plan_table WHERE statement_id = 'ratchet_claim'");
-    statement.execute(
-        "EXPLAIN PLAN SET STATEMENT_ID = 'ratchet_claim' FOR " + CLAIM_CANDIDATE_SELECT);
+    statement.execute("EXPLAIN PLAN SET STATEMENT_ID = 'ratchet_claim' FOR " + sql);
     StringBuilder plan = new StringBuilder();
     try (ResultSet rs =
         statement.executeQuery(
@@ -118,6 +121,42 @@ class OracleExplainPlanCaptureIT {
       assertFalse(
           plan.contains("TABLE ACCESS FULL"),
           () -> "claim plan should not full-scan scheduler_job_queue:\n" + plan);
+    }
+  }
+
+  @Test
+  void unboostedBacklogUsesPriorityIndexWithoutSort() throws Exception {
+    String sql =
+        """
+        SELECT job_id, status, job_type, priority, scheduled_time, version, timeout_sec,
+               picked_by, picked_at, business_key, attempts, max_retries, execution_target
+        FROM scheduler_job_queue
+        WHERE status = 'PENDING' AND job_type = 'SINGLE'
+          AND scheduled_time <= CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        ORDER BY priority DESC, scheduled_time ASC, job_id ASC
+        FETCH FIRST 50 ROWS ONLY
+        """;
+    try (Connection conn = ExplainPlanTestSupport.connection(FIXTURE);
+        Statement statement = conn.createStatement()) {
+      statement.executeUpdate(
+          """
+          INSERT INTO scheduler_job (job_id, job_type, priority, payload, idempotency_key, created_at)
+          SELECT SYS_GUID(), 'SINGLE', MOD(LEVEL, 5), '{}', TO_CHAR(LEVEL), SYS_EXTRACT_UTC(SYSTIMESTAMP)
+          FROM dual CONNECT BY LEVEL <= 100000
+          """);
+      statement.executeUpdate(
+          """
+          INSERT INTO scheduler_job_queue (job_id, job_type, priority, scheduled_time, updated_at)
+          SELECT job_id, job_type, priority, SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '1' HOUR, SYS_EXTRACT_UTC(SYSTIMESTAMP)
+          FROM scheduler_job
+          """);
+      statement.execute(
+          "BEGIN DBMS_STATS.GATHER_TABLE_STATS(USER, 'SCHEDULER_JOB_QUEUE', cascade => TRUE); END;");
+      String plan = explainPlan(statement, sql);
+      ExplainPlanTestSupport.writePlan("target/explain-plans/oracle-priority-claim.txt", plan);
+      assertTrue(plan.contains("IDX_CLAIM_PENDING_PRIORITY"), plan);
+      assertFalse(plan.contains("SORT ORDER BY"), plan);
+      assertFalse(plan.contains("WINDOW SORT"), plan);
     }
   }
 

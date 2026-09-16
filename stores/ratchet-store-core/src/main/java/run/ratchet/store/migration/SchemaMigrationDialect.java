@@ -25,8 +25,9 @@ import run.ratchet.api.Incubating;
  * <p>The migrator engine owns everything portable — classpath script discovery, checksum
  * validation, statement splitting, the apply loop, and the {@code ratchet_schema_version} ledger.
  * Everything that differs by database lives behind this interface: the migration lock, the version
- * ledger DDL, and the version-record upsert. A store that wants to participate in Ratchet schema
- * auto-migration supplies one implementation; the engine never switches on a database product name.
+ * ledger DDL, the version-record upsert, and native batch execution. A store that wants to
+ * participate in Ratchet schema auto-migration supplies one implementation; the engine never
+ * switches on a database product name.
  *
  * @apiNote This is a store-implementor SPI, not an application-facing API. Implementations may be
  *     stateless and are used from a single migration thread at a time per connection.
@@ -65,6 +66,17 @@ public interface SchemaMigrationDialect {
    * @return a single executable SQL statement with three positional parameters
    */
   String recordVersionSql();
+
+  /**
+   * Whether each migration must be submitted as one JDBC batch instead of splitting at semicolons.
+   * SQL Server uses this to preserve BEGIN/END blocks and local-variable scope. Scripts must be
+   * executable JDBC SQL, without client-side batch separators such as GO.
+   *
+   * <p>The default retains statement splitting, including the explicit single-statement directive.
+   */
+  default boolean executesMigrationAsBatch() {
+    return false;
+  }
 
   /**
    * Whether the migration lock must be held on a dedicated connection separate from the one that

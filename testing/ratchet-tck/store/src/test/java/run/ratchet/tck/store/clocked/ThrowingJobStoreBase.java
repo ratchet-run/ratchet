@@ -124,6 +124,17 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public Optional<UUID> findOriginalJobIdByIdempotencyKey(String key) {
+    return fail("findOriginalJobIdByIdempotencyKey");
+  }
+
+  @Override
+  public run.ratchet.store.dto.JobCompletionResult commitCompletion(
+      run.ratchet.store.dto.JobCompletionPlan plan) {
+    return fail("commitCompletion");
+  }
+
+  @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
     return fail("findByIdempotencyKey");
   }
@@ -734,6 +745,11 @@ public abstract class ThrowingJobStoreBase
   // ----- RecurringJobStore -----
 
   @Override
+  public void commitRecurringExecutions(List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+    fail("commitRecurringExecutions");
+  }
+
+  @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(
       int limit, String nodeId, NodeTagFilter tagFilter) {
     return fail("claimDueRecurring");
@@ -810,6 +826,17 @@ public abstract class ThrowingJobStoreBase
   public Optional<run.ratchet.store.spi.RecurringJobDefinition> findRecurringByBusinessKey(
       String businessKey) {
     return fail("findRecurringByBusinessKey");
+  }
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> searchRecurring(
+      run.ratchet.api.JobFilter filter, int limit, int offset) {
+    return fail("searchRecurring");
+  }
+
+  @Override
+  public long countRecurring(run.ratchet.api.JobFilter filter) {
+    return fail("countRecurring");
   }
 
   @Override

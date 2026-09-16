@@ -215,8 +215,9 @@ public interface JobBuilder {
    * submission returns the original job's handle rather than creating a second job.
    *
    * <p>When two submissions <em>race</em> on the same key, the losing {@code submit()} may throw
-   * instead of merging, but the key still binds to exactly one job: the task executes exactly once,
-   * and a subsequent re-submit with the same key returns the original job's handle.
+   * instead of merging. The key still binds to exactly one job; a subsequent submission in a fresh
+   * transaction returns the original handle, even after job history is purged. Task execution
+   * remains at least once.
    *
    * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column, so it must be at most 36
    * characters. A longer key is rejected when the job is submitted. {@link

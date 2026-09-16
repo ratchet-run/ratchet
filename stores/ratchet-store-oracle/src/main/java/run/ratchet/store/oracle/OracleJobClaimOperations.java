@@ -97,10 +97,14 @@ final class OracleJobClaimOperations implements JobClaimStore {
 
   /**
    * Phase B of the two-phase claim: lock the still-PENDING candidates with FOR UPDATE SKIP LOCKED
-   * and return the Phase-A rows for the locked subset, preserving the boost order. Rows taken or
-   * locked by another node are skipped and never reach the CAS update.
+   * and return current rows for the locked subset, preserving the boost order. Rows taken or locked
+   * by another node are skipped and never reach the CAS update.
    */
-  private List<Object[]> lockClaimCandidates(List<Object[]> candidateRows) {
+  private List<Object[]> lockClaimCandidates(
+      List<Object[]> candidateRows,
+      JobExecutionType jobType,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
     if (candidateRows.isEmpty()) {
       return List.of();
     }
@@ -109,26 +113,45 @@ final class OracleJobClaimOperations implements JobClaimStore {
       ids.add(new ClaimRow(row).jobId());
     }
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    String targetSql =
+        JobClaimSqlSupport.buildExecutionTargetFilterSql(executionTargetFilter, "execution_target");
+    String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
+    // Phase A did not lock: recheck every eligibility condition and read current claim data.
     // language=Oracle
     String sql =
-        "SELECT job_id FROM scheduler_job_queue WHERE job_id IN ("
+        "SELECT "
+            + CLAIM_SELECT_COLUMNS
+            + " FROM scheduler_job_queue WHERE job_id IN ("
             + placeholders
-            + ") AND status = 'PENDING' FOR UPDATE SKIP LOCKED";
+            + ") AND status = 'PENDING'"
+            + " AND scheduled_time <= CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)"
+            + " AND "
+            + (jobType == null ? EXECUTABLE_JOB_TYPE_FILTER : "job_type = ?")
+            + targetSql
+            + tagSql
+            + " FOR UPDATE SKIP LOCKED";
     Query query = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (UUID id : ids) {
       query.setParameter(parameter++, UuidRawConverter.toBytes(id));
     }
+    if (jobType != null) {
+      query.setParameter(parameter++, jobType.name());
+    }
+    parameter =
+        JobClaimSqlSupport.bindExecutionTargetFilter(query, executionTargetFilter, parameter);
+    JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
     @SuppressWarnings("unchecked")
-    List<Object> lockedRows = query.getResultList();
-    Set<UUID> locked = new HashSet<>(lockedRows.size());
-    for (Object lockedRow : lockedRows) {
-      locked.add(OracleJobRowMapper.uuidOrNull(lockedRow));
+    List<Object[]> lockedRows = query.getResultList();
+    Map<UUID, Object[]> locked = new HashMap<>(lockedRows.size());
+    for (Object[] lockedRow : lockedRows) {
+      locked.put(new ClaimRow(lockedRow).jobId(), lockedRow);
     }
     List<Object[]> result = new ArrayList<>(candidateRows.size());
-    for (Object[] row : candidateRows) {
-      if (locked.contains(new ClaimRow(row).jobId())) {
-        result.add(row);
+    for (UUID id : ids) {
+      Object[] current = locked.get(id);
+      if (current != null) {
+        result.add(current);
       }
     }
     return result;
@@ -142,7 +165,12 @@ final class OracleJobClaimOperations implements JobClaimStore {
     }
     List<Object[]> candidateRows;
     try {
-      candidateRows = lockClaimCandidates(selectClaimCandidates(limit, tagFilter));
+      candidateRows =
+          lockClaimCandidates(
+              selectClaimCandidates(limit, tagFilter),
+              null,
+              tagFilter,
+              ExecutionTargetFilter.any());
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim jobs select", e);
     }
@@ -245,7 +273,7 @@ final class OracleJobClaimOperations implements JobClaimStore {
         return List.of();
       }
 
-      rows = lockClaimCandidates(rows);
+      rows = lockClaimCandidates(rows, jobType, tagFilter, executionTargetFilter);
       if (rows.isEmpty()) {
         return List.of();
       }

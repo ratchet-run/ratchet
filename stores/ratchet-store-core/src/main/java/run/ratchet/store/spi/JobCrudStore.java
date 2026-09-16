@@ -97,6 +97,11 @@ public interface JobCrudStore {
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);
 
   /**
+   * Returns the original job ID for a permanently consumed key, including after history deletion.
+   */
+  Optional<UUID> findOriginalJobIdByIdempotencyKey(String idempotencyKey);
+
+  /**
    * Returns a page of direct dependant jobs whose {@code dependsOn} points at the supplied parent.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.

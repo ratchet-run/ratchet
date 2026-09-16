@@ -450,6 +450,7 @@ public abstract class AbstractSchemaConformanceContract {
         }
         boolean nonUnique = rs.getBoolean("NON_UNIQUE");
         short ordinal = rs.getShort("ORDINAL_POSITION");
+        column = mapper().resolveIndexColumn(md.getConnection(), idxName, ordinal, column);
         columnsByIndex
             .computeIfAbsent(idxName.toLowerCase(Locale.ROOT), k -> new TreeMap<>())
             .put(ordinal, column.toLowerCase(Locale.ROOT));

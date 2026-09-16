@@ -30,8 +30,6 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCallbackFailedEvent;
-import run.ratchet.api.event.JobCompletedEvent;
-import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
@@ -563,9 +561,9 @@ public class JobTask implements Callable<Void> {
         safeError = t.getClass().getName();
       }
       try {
-        if (jobStore.compareAndSwapStatus(
-            job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError)) {
-          publishForcedTerminalFailure(t, safeError);
+        job.setLastError(safeError);
+        if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
+          job.setStatus(JobStatus.FAILED);
         }
       } catch (Throwable lastResort) {
         log.errorf(
@@ -699,14 +697,6 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private void handleBatchOrWorkflowPermanentFailure() {
-    if (job.getJobType() == JobExecutionType.BATCH_CHILD) {
-      lifecycleFacade.markBatchChildFailed(job);
-    } else {
-      lifecycleFacade.scheduleNext(job);
-    }
-  }
-
   private void handleFailure(Throwable ex) {
     log.errorf(
         ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
@@ -797,30 +787,6 @@ public class JobTask implements Callable<Void> {
     job.setExecutionDurationMs(executionMs);
     job.setQueueWaitMs(queueMs);
 
-    observabilityFacade.publishEvent(
-        new JobCompletedEvent(
-            job.getId(),
-            job.getBusinessKey(),
-            job.getRecurringMasterId(),
-            job.getPublicJobType(),
-            job.getPriority(),
-            job.getPickedBy(),
-            endTime,
-            executionMs));
-
-    try {
-      lifecycleFacade.handleJobSuccess(job);
-    } catch (Exception e) {
-      log.warnf(
-          e,
-          "Job %s [type=%s, key=%s] succeeded but post-success lifecycle processing failed: %s: %s",
-          job.getId(),
-          job.getJobType(),
-          job.getBusinessKey(),
-          e.getClass().getName(),
-          e.getMessage());
-    }
-
     invokeCallback(job.getOnSuccessPayload(), "onSuccess");
 
     log.infof("Job %s succeeded in %s ms", job.getId(), executionMs);
@@ -870,59 +836,14 @@ public class JobTask implements Callable<Void> {
     }
 
     String sanitized = errorSanitizer.sanitize(ex);
-    if (jobStore.compareAndSwapStatus(
-        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, sanitized)) {
-      job.setAttempts(attempt);
+    job.setAttempts(attempt);
+    job.setLastError(sanitized);
+    if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
       job.setStatus(JobStatus.FAILED);
-      job.setLastError(sanitized);
-      publishTerminalFailureEvent(sanitized, attempt);
-      lifecycleFacade.moveToDlq(job, ex);
-      handleBatchOrWorkflowPermanentFailure();
       invokeCallback(job.getOnFailurePayload(), "onFailure");
       return true;
     }
     return false;
-  }
-
-  private void publishTerminalFailureEvent(String sanitized, int attempt) {
-    Instant timestamp = effective().instant();
-    observabilityFacade.publishEvent(
-        new JobFailedEvent(
-            job.getId(),
-            job.getBusinessKey(),
-            job.getRecurringMasterId(),
-            job.getPublicJobType(),
-            job.getPriority(),
-            job.getPickedBy(),
-            timestamp,
-            sanitized,
-            attempt));
-  }
-
-  private void publishForcedTerminalFailure(Throwable ex, String safeError) {
-    job.setStatus(JobStatus.FAILED);
-    job.setLastError(safeError);
-    int attempt = Math.max(1, job.getAttempts());
-    job.setAttempts(attempt);
-    try {
-      observabilityFacade.publishEvent(
-          new JobFailedEvent(
-              job.getId(),
-              job.getBusinessKey(),
-              job.getRecurringMasterId(),
-              job.getPublicJobType(),
-              job.getPriority(),
-              job.getPickedBy(),
-              safeError,
-              attempt));
-    } catch (Throwable eventError) {
-      log.warnf(eventError, "Fallback failure event publish failed for job %s", job.getId());
-    }
-    try {
-      lifecycleFacade.moveToDlq(job, ex);
-    } catch (Throwable dlqError) {
-      log.warnf(dlqError, "Fallback DLQ handling failed for job %s", job.getId());
-    }
   }
 
   private void invokeCallback(JobPayload callbackPayload, String callbackName) {

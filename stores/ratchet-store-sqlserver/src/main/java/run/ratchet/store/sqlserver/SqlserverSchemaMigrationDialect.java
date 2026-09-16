@@ -75,6 +75,13 @@ public class SqlserverSchemaMigrationDialect implements SchemaMigrationDialect {
   }
 
   @Override
+  public boolean executesMigrationAsBatch() {
+    // Preserve T-SQL scripts verbatim: semicolons inside BEGIN/END blocks are not
+    // statement boundaries, and DECLARE variables are scoped to the entire batch.
+    return true;
+  }
+
+  @Override
   public boolean usesDedicatedLockConnection() {
     return false;
   }

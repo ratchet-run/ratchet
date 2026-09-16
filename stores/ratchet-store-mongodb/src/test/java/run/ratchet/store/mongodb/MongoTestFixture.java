@@ -50,6 +50,15 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
   // hosts; the default 60s would race the "waiting for connections" log line under contention.
   private static final MongoDBContainer MONGO =
       new MongoDBContainer("mongo:7.0")
+          // The full contract suite creates many indexed collections in the shared server.
+          .withCreateContainerCmdModifier(
+              command ->
+                  command
+                      .getHostConfig()
+                      .withUlimits(
+                          java.util.List.of(
+                              new com.github.dockerjava.api.model.Ulimit(
+                                  "nofile", 65536L, 65536L))))
           .withReplicaSet()
           .waitingFor(
               Wait.forLogMessage("(?i).*waiting for connections.*", 1)
@@ -90,7 +99,7 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     // @PostConstruct is CDI-only; instantiation here bypasses it, leaving collections without
     // their unique indexes. Initialize explicitly so contract tests see the same schema as a
     // production deployment.
-    new MongoCollectionInitializer(database).initialize();
+    new MongoCollectionInitializer(database, CLIENT).initialize();
   }
 
   MongoArchiveOperations archiveOperations(Clock clock) {

@@ -259,6 +259,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     -- Executable claim index: filter to due rows first; computed age-boost ordering is sorted
     -- after the index scan.
     INDEX idx_claim_executable (status, job_type, scheduled_time ASC, priority DESC, job_id ASC),
+    -- Priority order for unboosted claims; keep the due-time index for selective scans.
+    INDEX idx_claim_pending_priority (status, job_type, priority DESC, scheduled_time ASC, job_id ASC),
     -- Orphan scan: status='RUNNING' AND picked_at < :cutoff AND picked_by NOT IN (alive).
     INDEX idx_queue_orphan (status, picked_at, picked_by),
     INDEX idx_signal_key_status (signal_key, status),
@@ -503,3 +505,11 @@ CREATE TABLE IF NOT EXISTS scheduler_job_extension_state
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
+
+-- Permanent idempotency tombstones; deliberately independent of retained job history.
+CREATE TABLE IF NOT EXISTS scheduler_idempotency_key (
+    idempotency_key VARCHAR(36) NOT NULL,
+    original_job_id BINARY(16) NOT NULL,
+    reserved_at DATETIME(6) NOT NULL,
+    CONSTRAINT pk_scheduler_idempotency PRIMARY KEY (idempotency_key)
+);
