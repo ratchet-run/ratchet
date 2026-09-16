@@ -16,10 +16,29 @@
 package run.ratchet.store.oracle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeTagFilter;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 
 class OracleJobClaimOperationsTest {
 
@@ -66,6 +85,76 @@ class OracleJobClaimOperationsTest {
   @Test
   void claimSelectProjectsDependsOnFromColdMetadata() {
     assertEquals(expectedClaimSelectClause(), OracleJobClaimOperations.claimSelectClause());
+  }
+
+  @Test
+  void lockedPhaseRechecksEligibilityAndUsesCurrentData() {
+    EntityManager em = mock(EntityManager.class);
+    Query candidates = mock(Query.class);
+    Query locked = mock(Query.class);
+    Query update = mock(Query.class);
+    for (Query query : List.of(candidates, locked, update)) {
+      when(query.setParameter(anyInt(), any())).thenReturn(query);
+    }
+    var sqls = new java.util.ArrayList<String>();
+    when(em.createNativeQuery(anyString()))
+        .thenAnswer(
+            invocation -> {
+              String sql = invocation.getArgument(0);
+              sqls.add(sql);
+              return sql.startsWith("UPDATE")
+                  ? update
+                  : sql.contains("FOR UPDATE") ? locked : candidates;
+            });
+    UUID id = UUID.randomUUID();
+    Object[] before = {
+      UuidRawConverter.toBytes(id),
+      "PENDING",
+      "SINGLE",
+      JobPriority.NORMAL.persistedCode(),
+      Timestamp.from(Instant.EPOCH),
+      0,
+      30,
+      null,
+      null,
+      null,
+      0,
+      3,
+      "worker",
+      null
+    };
+    Object[] current = before.clone();
+    current[5] = 4;
+    current[10] = 2;
+    when(candidates.getResultList()).thenReturn(Collections.singletonList(before));
+    when(locked.getResultList()).thenReturn(Collections.singletonList(current));
+    when(update.executeUpdate()).thenReturn(1);
+    var operations = new OracleJobClaimOperations(new OracleStoreContext(em, null, 0), null);
+    var claims =
+        operations.claimNextBatchOptimized(
+            JobExecutionType.SINGLE,
+            1,
+            "node",
+            new NodeTagFilter(List.of("include"), List.of("exclude")),
+            ExecutionTargetFilter.matching(java.util.Set.of("worker"), false));
+    assertEquals(1, claims.size());
+    assertEquals(4, claims.get(0).version());
+    assertEquals(2, claims.get(0).attempts());
+    String guard = sqls.get(1);
+    assertTrue(guard.contains("scheduled_time <="));
+    assertTrue(guard.contains("job_type = ?"));
+    assertTrue(guard.contains("execution_target"));
+    assertTrue(guard.contains("NOT EXISTS"));
+    assertTrue(guard.contains("scheduler_job_tag"));
+
+    // A rescheduled or retagged candidate no longer matches the locked-phase query.
+    when(locked.getResultList()).thenReturn(List.of());
+    assertTrue(
+        operations
+            .claimNextBatchOptimized(
+                JobExecutionType.SINGLE, 1, "node", NodeTagFilter.NONE, ExecutionTargetFilter.any())
+            .isEmpty());
+    verify(update, times(1)).executeUpdate();
   }
 
   private static String expectedClaimSelectClause() {
