@@ -80,7 +80,15 @@ final class ReferenceEncryptionFactory {
     }
     Map<String, String> base64KeysById = parseKeys(keysSpec);
     String current = resolveCurrentKeyId(currentKeyId, base64KeysById);
-    SecretKeyProvider provider = SecretKeyProvider.fromBase64(base64KeysById, current);
+    SecretKeyProvider provider;
+    try {
+      provider = SecretKeyProvider.fromBase64(base64KeysById, current);
+    } catch (EncryptionConfigurationException invalidConfiguration) {
+      // Any configuration slot can accidentally contain key material, including a key id.
+      // Do not retain a provider cause whose diagnostic may interpolate that input.
+      throw new EncryptionConfigurationException(
+          "Invalid encryption configuration: verify key ids, base64 AES-256 keys, and current key selection");
+    }
     PayloadEncryption engine = new AesGcmPayloadEncryption(new SecureRandom(), nodeEntropy);
     return Optional.of(new ReferenceEncryption(engine, provider));
   }
@@ -95,13 +103,13 @@ final class ReferenceEncryptionFactory {
       int sep = trimmed.indexOf(':');
       if (sep <= 0 || sep == trimmed.length() - 1) {
         throw new EncryptionConfigurationException(
-            "RATCHET_ENCRYPTION_KEYS entry must be 'keyId:base64Key', got: " + trimmed);
+            "RATCHET_ENCRYPTION_KEYS entry must be 'keyId:base64Key'");
       }
       String keyId = trimmed.substring(0, sep).trim();
       String base64 = trimmed.substring(sep + 1).trim();
       if (keys.put(keyId, base64) != null) {
         throw new EncryptionConfigurationException(
-            "RATCHET_ENCRYPTION_KEYS contains duplicate key id: " + keyId);
+            "RATCHET_ENCRYPTION_KEYS contains duplicate key ids");
       }
     }
     if (keys.isEmpty()) {

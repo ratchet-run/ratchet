@@ -241,7 +241,21 @@ public class Poller {
   }
 
   private void handleJobsFound(List<JobClaimDto> claims, int jobCount) {
-    claims.forEach(jobExecutionCoordinator::submit);
+    for (JobClaimDto claim : claims) {
+      try {
+        jobExecutionCoordinator.submit(claim);
+      } catch (RuntimeException failure) {
+        log.errorf(failure, "Dispatch failed for claim %s; retaining it for retry", claim.id());
+        try {
+          jobExecutionCoordinator.retainUnsubmittedClaim(claim);
+        } catch (RuntimeException retentionFailure) {
+          log.errorf(
+              retentionFailure,
+              "Could not retain claim %s; orphan recovery must retry",
+              claim.id());
+        }
+      }
+    }
     log.infov("Claimed {0} job(s) for execution", jobCount);
   }
 
@@ -257,22 +271,25 @@ public class Poller {
       return strategy.recordPollResult(0, pollStartTime);
     }
 
-    List<JobClaimDto> claims;
+    List<JobClaimDto> claims = new ArrayList<>();
     try {
-      claims = claimJobsWithCircuitBreaker();
+      claimJobsWithCircuitBreaker(claims);
     } catch (RatchetTransientStoreException e) {
       publishClaimBreakerState();
       return handleTransientClaimFailure(pollStartTime, e);
     } catch (CircuitBreakerOpenException e) {
       publishClaimBreakerState();
       return handleOpenCircuit(pollStartTime, e);
+    } finally {
+      // Each store claim commits independently. A later claim failure must not discard earlier
+      // work.
+      if (!claims.isEmpty()) {
+        handleJobsFound(claims, claims.size());
+      }
     }
     publishClaimBreakerState();
 
     int jobCount = claims.size();
-    if (jobCount > 0) {
-      handleJobsFound(claims, jobCount);
-    }
 
     updateSystemLoadFactor();
 
@@ -300,10 +317,9 @@ public class Poller {
     return false;
   }
 
-  private List<JobClaimDto> claimJobsByTypeBudget() {
+  private List<JobClaimDto> claimJobsByTypeBudget(List<JobClaimDto> claims) {
     NodeTagFilter tagFilter =
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
-    List<JobClaimDto> claims = new ArrayList<>();
     String nodeId = nodeIdProvider.getNodeId();
     for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
       for (ExecutionTargetClaimPlanner.PoolClaimBudget budget : claimPlanner.budgets(jobType)) {
@@ -312,10 +328,10 @@ public class Poller {
           List<JobClaimDto> claimed =
               jobClaimStore.claimNextBatchOptimized(
                   jobType, claimLimit, nodeId, tagFilter, budget.executionTargetFilter());
+          claims.addAll(claimed);
           if (metricsCollector != null && !claimed.isEmpty()) {
             metricsCollector.jobsClaimed(jobType.name(), claimed.size());
           }
-          claims.addAll(claimed);
         } catch (RatchetTransientStoreException e) {
           if (metricsCollector != null) {
             metricsCollector.claimTransientFailure(jobType.name());
@@ -327,12 +343,12 @@ public class Poller {
     return claims;
   }
 
-  private List<JobClaimDto> claimJobsWithCircuitBreaker() {
+  private List<JobClaimDto> claimJobsWithCircuitBreaker(List<JobClaimDto> claims) {
     if (!claimCircuitBreakerEnabled || claimCircuitBreaker == null) {
-      return claimJobsByTypeBudget();
+      return claimJobsByTypeBudget(claims);
     }
     try {
-      return claimCircuitBreaker.execute(this::claimJobsByTypeBudget);
+      return claimCircuitBreaker.execute(() -> claimJobsByTypeBudget(claims));
     } catch (Exception e) {
       if (e instanceof RatchetTransientStoreException transientStoreException) {
         throw transientStoreException;

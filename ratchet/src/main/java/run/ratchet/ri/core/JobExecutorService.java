@@ -28,6 +28,7 @@ import run.ratchet.store.entity.JobEntity;
  */
 public interface JobExecutorService {
 
+  /** Takes ownership of the acquired pool permit, including rejection and cancellation paths. */
   ExecutionResult execute(JobEntity job, String poolName);
 
   ExecutionResult execute(JobClaimDto claim, String poolName);

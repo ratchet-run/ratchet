@@ -99,6 +99,7 @@ final class JmsConnectionLifecycle {
   private final Object sendLock = new Object();
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final AtomicBoolean reconnectInFlight = new AtomicBoolean(false);
+  private final AtomicBoolean reconnectRequested = new AtomicBoolean(false);
   private final AtomicLong consecutiveFailures = new AtomicLong();
 
   private volatile NodeIdentity localIdentity;
@@ -189,12 +190,19 @@ final class JmsConnectionLifecycle {
     if (closed.get()) {
       return;
     }
+    reconnectRequested.set(true);
     if (!reconnectInFlight.compareAndSet(false, true)) {
       return; // already reconnecting
     }
-    Thread t = threading.newLoopThread("reconnect", this::reconnectLoop);
-    this.reconnectThread = t;
-    t.start();
+    try {
+      Thread t = threading.newLoopThread("reconnect", this::reconnectLoop);
+      this.reconnectThread = t;
+      t.start();
+    } catch (RuntimeException failure) {
+      reconnectThread = null;
+      reconnectInFlight.set(false);
+      log.warnf(failure, "JMS coordinator could not start reconnect worker");
+    }
   }
 
   /**
@@ -369,6 +377,10 @@ final class JmsConnectionLifecycle {
       // isInterrupted() is a second exit condition alongside `closed`: the container may interrupt
       // a managed-factory thread before close() runs (Jakarta Concurrency 3.0 §3.1.4).
       while (!closed.get() && !Thread.currentThread().isInterrupted()) {
+        reconnectRequested.set(false);
+        // Retire the previous generation before acquiring another. A send-side fault leaves
+        // it published; a failed replacement must not orphan its two contexts.
+        closeContextRef();
         try {
           // Full jitter uniform [0, delay] so N nodes don't march in lock-step out of a shared
           // outage. The +1 keeps `delay` itself reachable.
@@ -378,14 +390,23 @@ final class JmsConnectionLifecycle {
           return;
         }
         if (connectOnce(/* failureIsExpected= */ true)) {
-          return;
+          if (!reconnectRequested.get() && connectionRef.get() != null) {
+            return;
+          }
+          continue;
         }
         onTransportFailure.run();
         delay = Math.min(delay * 2, config.reconnectBackoffMaxMs());
       }
     } finally {
-      reconnectInFlight.set(false);
+      // Clear our handle before releasing ownership: another worker may start immediately.
       reconnectThread = null;
+      reconnectInFlight.set(false);
+      if (!closed.get()
+          && !Thread.currentThread().isInterrupted()
+          && (reconnectRequested.get() || connectionRef.get() == null)) {
+        triggerReconnect();
+      }
     }
   }
 

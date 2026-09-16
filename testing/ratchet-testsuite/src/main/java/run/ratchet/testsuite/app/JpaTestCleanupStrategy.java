@@ -16,6 +16,7 @@
 package run.ratchet.testsuite.app;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.logging.Logger;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
+import run.ratchet.tck.store.SqlCleanupRetry;
 import run.ratchet.tck.store.SqlDialectTestSupport;
 
 /**
@@ -52,6 +54,7 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
 
   private static final List<String> TABLES_AFTER_HOT_STATE =
       List.of(
+          "scheduler_idempotency_key",
           "scheduler_business_key_reservation",
           "scheduler_job_queue",
           "scheduler_job",
@@ -62,6 +65,7 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
           "scheduler_node");
 
   @Inject private RatchetEntityManagerProvider entityManagerProvider;
+  @Inject private Instance<JpaTestCleanupStrategy> self;
 
   private static List<String> tablesToClear() {
     List<String> tables = new ArrayList<>(TABLES_BEFORE_HOT_STATE);
@@ -70,8 +74,13 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
   }
 
   @Override
-  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public void truncateAll() {
+    SqlCleanupRetry.run(() -> self.get().truncateInTransaction());
+  }
+
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public void truncateInTransaction() {
     SqlDialectTestSupport dialect = SqlDialectTestSupportProvider.get();
     try {
       dialect.disableForeignKeyChecks(em());

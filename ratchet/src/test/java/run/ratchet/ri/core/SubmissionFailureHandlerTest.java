@@ -108,6 +108,30 @@ class SubmissionFailureHandlerTest {
   }
 
   @Test
+  void lastResortRetentionUsesEmergencyBufferBeforeResettingClaim() {
+    JobClaimDto claim =
+        new JobClaimDto(
+            new UUID(0L, 99L),
+            JobStatus.RUNNING,
+            JobExecutionType.SINGLE,
+            null,
+            null,
+            0,
+            30,
+            "node-1",
+            null,
+            null,
+            0,
+            0,
+            null,
+            null);
+    when(retryBufferManager.forceOffer(claim)).thenReturn(true);
+    handler.retainUnsubmittedClaim(claim);
+    verify(retryBufferManager).forceOffer(claim);
+    verifyNoInteractions(jobStateManager);
+  }
+
+  @Test
   void handleGateFailure_claimRecordsGateMetric() {
     UUID claimJobId = new UUID(0L, 42L);
     JobClaimDto claim =
@@ -185,8 +209,8 @@ class SubmissionFailureHandlerTest {
 
     handler.handleRejection(job, JobExecutionType.SINGLE, "platform", true);
 
-    verify(pool).releasePermit(JobExecutionType.SINGLE);
-    verify(pollerScheduler).wakeup();
+    verify(pool, never()).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler, never()).wakeup();
     verify(jobStateManager).resetJobToPending(job);
     verify(retryBufferManager, never()).offer(job);
   }
@@ -198,8 +222,8 @@ class SubmissionFailureHandlerTest {
 
     handler.handleRejection(job, JobExecutionType.SINGLE, "platform", false);
 
-    verify(pool).releasePermit(JobExecutionType.SINGLE);
-    verify(pollerScheduler).wakeup();
+    verify(pool, never()).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler, never()).wakeup();
     verify(retryBufferManager).offer(job);
     verify(jobStateManager, never()).resetJobToPending(job);
   }
@@ -212,8 +236,8 @@ class SubmissionFailureHandlerTest {
 
     handler.handleRejection(job, JobExecutionType.SINGLE, "platform", false);
 
-    verify(pool).releasePermit(JobExecutionType.SINGLE);
-    verify(pollerScheduler).wakeup();
+    verify(pool, never()).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler, never()).wakeup();
     verify(retryBufferManager).offer(job);
     verify(jobStateManager).resetJobToPending(job);
   }
@@ -244,11 +268,11 @@ class SubmissionFailureHandlerTest {
     assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
     assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
 
-    // Every rejection releases the permit and wakes the poller; the claim is offered to the retry
+    // Executor owns permit release and wakeup; the claim is offered to the retry
     // buffer each time, and only the two calls where the buffer refused fall through to a state
     // reset. Pinning the counts proves which recovery branch ran instead of merely "did not throw".
-    verify(pool, times(3)).releasePermit(JobExecutionType.SINGLE);
-    verify(pollerScheduler, times(3)).wakeup();
+    verify(pool, never()).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler, never()).wakeup();
     verify(retryBufferManager, times(3)).offer(claim);
     verify(jobStateManager, times(2)).resetJobToPending(claimJobId);
   }
@@ -266,8 +290,8 @@ class SubmissionFailureHandlerTest {
     assertSame(JobStatus.PENDING, job.getStatus());
     assertNull(job.getPickedBy());
     assertNull(job.getPickedAt());
-    verify(pool).releasePermit(JobExecutionType.SINGLE);
-    verify(pollerScheduler).wakeup();
+    verify(pool, never()).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler, never()).wakeup();
     verify(jobBatchStatusStore).resetRunningJob(job.getId(), "node-1");
     verify(retryBufferManager, never()).offer(job);
     verify(retryBufferManager, never()).forceOffer(job);
@@ -283,8 +307,8 @@ class SubmissionFailureHandlerTest {
         job, JobExecutionType.SINGLE, "platform", false, new IllegalStateException("boom"));
 
     assertSame(JobStatus.RUNNING, job.getStatus());
-    verify(pool).releasePermit(JobExecutionType.SINGLE);
-    verify(pollerScheduler).wakeup();
+    verify(pool, never()).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler, never()).wakeup();
     verify(retryBufferManager).offer(job);
     verifyNoInteractions(jobBatchStatusStore, nodeIdentityProvider);
   }
@@ -316,8 +340,8 @@ class SubmissionFailureHandlerTest {
     realStateHandler.handleUnexpectedException(
         claim, JobExecutionType.BATCH_CHILD, "platform", new IllegalStateException("boom"));
 
-    verify(pool).releasePermit(JobExecutionType.BATCH_CHILD);
-    verify(pollerScheduler).wakeup();
+    verify(pool, never()).releasePermit(JobExecutionType.BATCH_CHILD);
+    verify(pollerScheduler, never()).wakeup();
     verify(retryBufferManager).offer(claim);
     verify(jobBatchStatusStore).resetRunningJob(claimJobId, "node-1");
   }

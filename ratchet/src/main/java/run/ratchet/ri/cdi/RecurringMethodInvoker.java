@@ -110,15 +110,15 @@ public class RecurringMethodInvoker {
     Method resolved;
     try {
       if (hasJobContextParam) {
-        resolved = beanClass.getDeclaredMethod(methodName, JobContext.class);
+        resolved = beanClass.getMethod(methodName, JobContext.class);
       } else {
-        resolved = beanClass.getDeclaredMethod(methodName);
+        resolved = beanClass.getMethod(methodName);
       }
     } catch (NoSuchMethodException e) {
       // Check if the method exists with the opposite signature (signature change detection)
       try {
         if (hasJobContextParam) {
-          beanClass.getDeclaredMethod(methodName);
+          beanClass.getMethod(methodName);
           throw new NoSuchMethodException(
               "Method signature changed for @Recurring job: "
                   + beanClass.getName()
@@ -128,7 +128,7 @@ public class RecurringMethodInvoker {
                   + " Cancel and re-register the recurring job, or redeploy to pick up the new"
                   + " signature.");
         } else {
-          beanClass.getDeclaredMethod(methodName, JobContext.class);
+          beanClass.getMethod(methodName, JobContext.class);
           throw new NoSuchMethodException(
               "Method signature changed for @Recurring job: "
                   + beanClass.getName()

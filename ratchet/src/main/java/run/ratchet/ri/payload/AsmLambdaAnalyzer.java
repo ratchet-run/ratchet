@@ -24,7 +24,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.IntBinaryOperator;
 import org.objectweb.asm.ClassReader;
@@ -154,6 +156,22 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     for (int i = 0; i < capturedValues.length; i++) {
       capturedValues[i] = serializedLambda.getCapturedArg(i);
     }
+    Map<Integer, Integer> capturesBySlot = new HashMap<>();
+    int captureIndex = 0;
+    int localSlot = 0;
+    if ((lambdaMethod.access & Opcodes.ACC_STATIC) == 0) {
+      if (captureIndex < capturedValues.length) {
+        capturesBySlot.put(localSlot, captureIndex++);
+      }
+      localSlot++;
+    }
+    for (Type argumentType : Type.getArgumentTypes(lambdaMethod.desc)) {
+      if (captureIndex >= capturedValues.length) {
+        break;
+      }
+      capturesBySlot.put(localSlot, captureIndex++);
+      localSlot += argumentType.getSize();
+    }
 
     Deque<Value> operandStack = new ArrayDeque<>();
     List<InvocationStep> invocationList = new ArrayList<>();
@@ -186,8 +204,9 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
 
         case Opcodes.ALOAD, Opcodes.ILOAD, Opcodes.LLOAD, Opcodes.FLOAD, Opcodes.DLOAD -> {
           int varIndex = ((VarInsnNode) node).var;
-          if (varIndex < capturedValues.length) {
-            operandStack.push(new CapturedValue(varIndex));
+          Integer capturedIndex = capturesBySlot.get(varIndex);
+          if (capturedIndex != null) {
+            operandStack.push(new CapturedValue(capturedIndex));
           } else {
             operandStack.push(UnknownValue.INSTANCE);
           }
