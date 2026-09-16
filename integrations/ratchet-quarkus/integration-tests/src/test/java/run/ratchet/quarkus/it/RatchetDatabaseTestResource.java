@@ -51,11 +51,9 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
   private static final String DB_KIND =
       System.getProperty("quarkus.datasource.db-kind", "postgresql");
 
-  private static final DatabaseFixture FIXTURE = createFixture(DB_KIND);
-
-  static {
-    FIXTURE.start();
-  }
+  // Quarkus recreates test resources across profile restarts. Each instance must own
+  // and stop its container rather than leaving databases alive until the JVM exits.
+  private final DatabaseFixture fixture = createFixture(DB_KIND);
 
   @SuppressWarnings("resource")
   private static DatabaseFixture createFixture(String dbKind) {
@@ -81,8 +79,7 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
               // pre-8.0.23 drivers use `serverTimezone`; we set both for safety.
               .withUrlParam("connectionTimeZone", "UTC")
               .withUrlParam("serverTimezone", "UTC")
-              .withInitScript("ddl/mysql-schema.sql")
-              .withReuse(true);
+              .withInitScript("ddl/mysql-schema.sql");
       case "oracle" ->
           new OracleContainer("gvenzl/oracle-free:slim-faststart")
               .withDatabaseName("ratchet_test")
@@ -94,8 +91,7 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
               // hibernate.jdbc.time_zone=UTC rather than vendor URL params.
               .withSharedMemorySize(2L * 1024 * 1024 * 1024)
               .withStartupTimeout(Duration.ofMinutes(5))
-              .withInitScript("ddl/oracle-schema.sql")
-              .withReuse(true);
+              .withInitScript("ddl/oracle-schema.sql");
       case "mssql" -> {
         String image =
             System.getenv()
@@ -169,14 +165,19 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
 
   @Override
   public Map<String, String> start() {
-    return FIXTURE.config();
+    fixture.start();
+    return fixture.config();
   }
 
   @Override
-  public void stop() {}
+  public void stop() {
+    fixture.stop();
+  }
 
   private interface DatabaseFixture {
     void start();
+
+    void stop();
 
     Map<String, String> config();
   }
@@ -198,6 +199,11 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
         provisionRatchetDatabase(container);
         container.withUrlParam("databaseName", "ratchet");
       }
+    }
+
+    @Override
+    public void stop() {
+      container.stop();
     }
 
     @Override
@@ -237,6 +243,11 @@ public class RatchetDatabaseTestResource implements QuarkusTestResourceLifecycle
     @Override
     public void start() {
       container.start();
+    }
+
+    @Override
+    public void stop() {
+      container.stop();
     }
 
     @Override
