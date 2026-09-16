@@ -1,11 +1,12 @@
 import http from 'k6/http';
 import { check, fail, sleep } from 'k6';
 import exec from 'k6/execution';
-import { Counter } from 'k6/metrics';
+import { Counter, Trend } from 'k6/metrics';
 
 const targetUrl = trimTrailingSlash(__ENV.TARGET_URL || 'http://localhost:8080');
 const rate = intEnv('LOAD_RATE', 100);
 const duration = __ENV.LOAD_DURATION || '1m';
+const iterations = intEnv('LOAD_ITERATIONS', 0);
 const preAllocatedVUs = intEnv('LOAD_PRE_ALLOCATED_VUS', 50);
 const maxVUs = intEnv('LOAD_MAX_VUS', 500);
 const httpP95Ms = intEnv('LOAD_HTTP_P95_MS', 1000);
@@ -23,6 +24,7 @@ const enqueueRetryBackoff = floatEnv('LOAD_ENQUEUE_RETRY_BACKOFF', 2);
 
 const enqueueRequests = new Counter('ratchet_enqueue_requests');
 const enqueueFailures = new Counter('ratchet_enqueue_failures');
+const enqueueLatency = new Trend('ratchet_enqueue_latency', true);
 const enqueueRetryAttempts = new Counter('ratchet_enqueue_retry_attempts');
 
 export const options = {
@@ -30,7 +32,12 @@ export const options = {
   setupTimeout: `${Math.max(60, clusterWaitSeconds * 2 + 30)}s`,
   teardownTimeout,
   scenarios: {
-    enqueue: {
+    enqueue: iterations > 0 ? {
+      executor: 'shared-iterations',
+      iterations,
+      vus: preAllocatedVUs,
+      maxDuration: duration,
+    } : {
       executor: 'constant-arrival-rate',
       rate,
       timeUnit: '1s',
@@ -82,7 +89,9 @@ export default function (data) {
     timeoutSeconds: intEnv('JOB_TIMEOUT_SECONDS', 60),
   });
 
+  const started = Date.now();
   const response = postJobWithRetry(payload);
+  enqueueLatency.add(Date.now() - started);
   const acceptedNode = responseHeader(response, 'X-Ratchet-Node-Id') || 'missing';
   enqueueRequests.add(1, { accepted_node: acceptedNode });
 
