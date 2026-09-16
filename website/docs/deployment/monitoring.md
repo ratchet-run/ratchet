@@ -77,23 +77,23 @@ The `type` tag corresponds to `JobType` (`SINGLE`, `RECURRING`, `BATCH`, `CHAIN`
 ### Grafana dashboard queries
 
 **Job throughput (Prometheus):**
-```promql
+```text
 rate(ratchet_jobs_completed_total[5m])
 ```
 
 **Failure rate:**
-```promql
+```text
 rate(ratchet_jobs_failed_total[5m])
   / (rate(ratchet_jobs_completed_total[5m]) + rate(ratchet_jobs_failed_total[5m]))
 ```
 
 **P95 execution time:**
-```promql
+```text
 histogram_quantile(0.95, rate(ratchet_jobs_duration_seconds_bucket[5m]))
 ```
 
 **Failures by exception family:**
-```promql
+```text
 topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 ```
 
