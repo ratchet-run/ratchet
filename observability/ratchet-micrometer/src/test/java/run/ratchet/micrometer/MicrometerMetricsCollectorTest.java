@@ -34,6 +34,31 @@ import run.ratchet.spi.ProtectedSurface;
 class MicrometerMetricsCollectorTest {
 
   @Test
+  void bundledCoordinatorTransportsAndFailuresKeepTheirTags() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+    for (String transport : new String[] {"jms", "postgresql", "hazelcast", "infinispan"}) {
+      for (String outcome :
+          new String[] {
+            "parse_failure",
+            "transport_failure",
+            "listener_failure",
+            "ignored_provider_error",
+            "pre_registration_overflow"
+          }) {
+        collector.clusterWakeupReceived(transport, outcome);
+        assertEquals(
+            1.0,
+            registry
+                .get("ratchet.wakeup.cluster.receive")
+                .tags("transport", transport, "outcome", outcome)
+                .counter()
+                .count());
+      }
+    }
+  }
+
+  @Test
   void encryptionIntegrityViolationPublishesEveryProtectedSurface() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);

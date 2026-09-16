@@ -67,9 +67,16 @@ public final class MicrometerMetricTagPolicy {
             "WORKFLOW_JOIN")
         .allowValues("gate_status", "DRAINING", "RATE_LIMITED", "NO_PERMITS")
         .allowValues("source", "job_submit", "cluster_listener")
-        .allowValues("transport", "jms", "none")
+        .allowValues("transport", "jms", "none", "postgresql", "hazelcast", "infinispan")
         .allowValues("outcome", "success", "failure", "skipped", "delivered", "ignored_self")
         .allowValues("outcome", "empty", "hit", "transient_failure")
+        .allowValues(
+            "outcome",
+            "parse_failure",
+            "transport_failure",
+            "listener_failure",
+            "ignored_provider_error",
+            "pre_registration_overflow")
         .allowValues("store", "mysql", "postgresql", "oracle", "sqlserver", "mongodb")
         .allowValues(
             "operation",
