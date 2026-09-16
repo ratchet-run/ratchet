@@ -175,7 +175,7 @@ mvn spotless:apply       # auto-format (Google Java Format)
 
 ## Project Status
 
-Ratchet is in **0.3.2-SNAPSHOT**. The API is stabilizing; interfaces marked `@Incubating` may change between alpha releases. Feedback and contributions are welcome.
+Ratchet is in **0.4.0-SNAPSHOT**. The API is stabilizing; interfaces marked `@Incubating` may change between alpha releases. Feedback and contributions are welcome.
 
 ## Community
 
