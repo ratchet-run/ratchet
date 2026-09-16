@@ -79,6 +79,9 @@ class PostgresqlExplainPlanCaptureIT {
       // latter inside this rolled-back transaction to verify the claim index remains usable.
       statement.execute("SET LOCAL enable_seqscan = off");
       statement.execute("DROP INDEX idx_signal_timeout_status");
+      // Isolate the retained due-time index. Unforced priority-index selection is covered by
+      // PostgresqlPriorityClaimIndexIT with a realistically sized queue.
+      statement.execute("DROP INDEX idx_claim_pending_priority");
       String plan = explainJson(statement);
       ExplainPlanTestSupport.writePlan(
           "target/explain-plans/postgresql-optimized-claim.json", plan);

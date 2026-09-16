@@ -221,6 +221,12 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
 -- Oracle has no partial index; status is the leading column instead of a WHERE predicate.
 CREATE INDEX IF NOT EXISTS idx_claim_executable
     ON scheduler_job_queue (status, job_type, scheduled_time, priority, job_id);
+
+-- Priority-ordered claims for one job type with priority boosting disabled.
+-- Retain idx_claim_executable for selective due-time scans and boosted claims.
+CREATE INDEX IF NOT EXISTS idx_claim_pending_priority
+    ON scheduler_job_queue (status, job_type, priority DESC, scheduled_time ASC, job_id ASC);
+
 CREATE INDEX IF NOT EXISTS idx_queue_orphan ON scheduler_job_queue (status, picked_at, picked_by);
 CREATE INDEX IF NOT EXISTS idx_signal_key_status ON scheduler_job_queue (signal_key, status);
 CREATE INDEX IF NOT EXISTS idx_signal_timeout_status ON scheduler_job_queue (status, signal_timeout);

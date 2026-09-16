@@ -171,6 +171,14 @@ public final class RatchetSchemaCatalog {
         .index(
             Index.of("idx_claim_executable", "job_type", "scheduled_time", "priority", "job_id")
                 .withPartialPredicate(LogicalPredicate.eq("status", "PENDING")))
+        .index(
+            Index.of(
+                    "idx_claim_pending_priority",
+                    "job_type",
+                    "priority",
+                    "scheduled_time",
+                    "job_id")
+                .withPartialPredicate(LogicalPredicate.eq("status", "PENDING")))
         .index(Index.of("idx_queue_orphan", "status", "picked_at", "picked_by"))
         .index(Index.of("idx_signal_key_status", "signal_key", "status"))
         .index(Index.of("idx_signal_timeout_status", "status", "signal_timeout"))

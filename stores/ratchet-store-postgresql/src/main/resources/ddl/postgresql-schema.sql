@@ -244,6 +244,13 @@ CREATE INDEX IF NOT EXISTS idx_claim_executable
     ON scheduler_job_queue (job_type, scheduled_time ASC, priority DESC, job_id ASC)
     WHERE status = 'PENDING';
 
+-- Priority-ordered claims for one job type with priority boosting disabled.
+-- Retain idx_claim_executable for selective due-time scans and boosted claims.
+CREATE INDEX IF NOT EXISTS idx_claim_pending_priority
+    ON scheduler_job_queue (job_type, priority DESC, scheduled_time ASC, job_id ASC)
+    WHERE status = 'PENDING';
+
+
 -- Orphan-detection scan: status='RUNNING' AND picked_at < cutoff AND picked_by NOT IN (alive).
 CREATE INDEX IF NOT EXISTS idx_queue_orphan
     ON scheduler_job_queue (status, picked_at, picked_by);

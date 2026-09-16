@@ -69,6 +69,39 @@ public abstract class AbstractSchemaMigratorContract {
   }
 
   @Test
+  void priorityClaimMigrationPreservesBothIndexesOnRepeat() throws Exception {
+    resetDatabase();
+    newMigrator().migrate();
+    try (Connection connection = newJdbcConnection();
+        var statement = connection.createStatement()) {
+      // Simulate applying the migration to a consolidated schema whose index already exists.
+      statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '008'");
+    }
+    var result = newMigrator().migrate();
+    assertEquals(
+        List.of("008"),
+        result.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+    try (Connection connection = newJdbcConnection()) {
+      var metadata = connection.getMetaData();
+      String table =
+          metadata.storesUpperCaseIdentifiers() ? "SCHEDULER_JOB_QUEUE" : "scheduler_job_queue";
+      var names = new java.util.HashSet<String>();
+      try (ResultSet rows =
+          metadata.getIndexInfo(
+              connection.getCatalog(), connection.getSchema(), table, false, false)) {
+        while (rows.next()) {
+          String name = rows.getString("INDEX_NAME");
+          if (name != null) {
+            names.add(name.toLowerCase(java.util.Locale.ROOT));
+          }
+        }
+      }
+      assertTrue(names.contains("idx_claim_executable"), names.toString());
+      assertTrue(names.contains("idx_claim_pending_priority"), names.toString());
+    }
+  }
+
+  @Test
   @SuppressWarnings("AutoCloseableResource")
   void parallelMigratorsConvergeUnderAdvisoryLock() throws Exception {
     resetDatabase();

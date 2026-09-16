@@ -115,4 +115,30 @@ final class OracleDialectMapper implements DialectTypeMapper {
     composed.addAll(canonicalColumns);
     return composed;
   }
+
+  @Override
+  public String resolveIndexColumn(
+      java.sql.Connection connection, String indexName, int position, String column)
+      throws java.sql.SQLException {
+    if (!column.startsWith("SYS_NC")) {
+      return column;
+    }
+    // Oracle represents a DESC key as a hidden function-based column in JDBC metadata.
+    // Resolve only a plain quoted column, not arbitrary expressions that could mask drift.
+    try (var statement =
+        connection.prepareStatement(
+            "SELECT column_expression FROM user_ind_expressions WHERE index_name = ? AND column_position = ?")) {
+      statement.setString(1, indexName);
+      statement.setInt(2, position);
+      try (var rows = statement.executeQuery()) {
+        if (rows.next()) {
+          String expression = rows.getString(1);
+          if (expression != null && expression.matches("\"[A-Z][A-Z0-9_$#]*\"")) {
+            return expression.substring(1, expression.length() - 1);
+          }
+        }
+      }
+    }
+    return column;
+  }
 }

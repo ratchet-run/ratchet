@@ -259,6 +259,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     -- Executable claim index: filter to due rows first; computed age-boost ordering is sorted
     -- after the index scan.
     INDEX idx_claim_executable (status, job_type, scheduled_time ASC, priority DESC, job_id ASC),
+    -- Priority order for unboosted claims; keep the due-time index for selective scans.
+    INDEX idx_claim_pending_priority (status, job_type, priority DESC, scheduled_time ASC, job_id ASC),
     -- Orphan scan: status='RUNNING' AND picked_at < :cutoff AND picked_by NOT IN (alive).
     INDEX idx_queue_orphan (status, picked_at, picked_by),
     INDEX idx_signal_key_status (signal_key, status),
