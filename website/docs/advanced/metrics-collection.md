@@ -148,7 +148,7 @@ public class MetricsEndpoint {
 
 Common PromQL queries for a Ratchet monitoring dashboard:
 
-```promql
+```text
 # Job throughput (started per second)
 rate(ratchet_jobs_started_total[5m])
 

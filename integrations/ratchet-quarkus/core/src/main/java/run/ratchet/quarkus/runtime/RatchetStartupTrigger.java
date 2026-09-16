@@ -15,11 +15,13 @@
  */
 package run.ratchet.quarkus.runtime;
 
+import io.quarkus.runtime.ShutdownEvent;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
+import run.ratchet.ri.cdi.RatchetLifecycle;
 import run.ratchet.ri.cdi.RatchetRuntimeStart;
 
 /**
@@ -36,6 +38,13 @@ import run.ratchet.ri.cdi.RatchetRuntimeStart;
 public class RatchetStartupTrigger {
 
   @Inject Event<RatchetRuntimeStart> startEvent;
+  @Inject RatchetLifecycle lifecycle;
+
+  // Quarkus fires this before destroying CDI beans and closing datasource/client resources.
+  // The engine's later @PreDestroy remains an idempotent fallback for other containers.
+  void onStop(@Observes ShutdownEvent event) {
+    lifecycle.onShutdown();
+  }
 
   void onStart(@Observes StartupEvent event) {
     startEvent.fire(new RatchetRuntimeStart());

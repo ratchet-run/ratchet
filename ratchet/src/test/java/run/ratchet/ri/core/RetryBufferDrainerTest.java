@@ -65,6 +65,26 @@ class RetryBufferDrainerTest {
   @Mock private DrainController drainController;
 
   @Test
+  void rebufferedClaimsWaitForTheNextDrainTick() {
+    Runnable task = startAndCaptureTask();
+    RetryBufferManager.BufferedClaim claim = bufferedClaim(99L);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(1));
+    when(poolRegistry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(1);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(true);
+    when(retryBufferManager.pollBatchFromBuffer(eq(JobExecutionType.SINGLE), any(), eq(1)))
+        .thenReturn(List.of(claim));
+    // The claim remains available after submission, as it does when the gate/rejection handler
+    // reoffers it.
+    org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
+        java.time.Duration.ofSeconds(2), task::run);
+    verify(jobSubmissionService).submitBuffered(claim.toClaimDto());
+    verify(retryBufferManager).pollBatchFromBuffer(eq(JobExecutionType.SINGLE), any(), eq(1));
+  }
+
+  @Test
   void scheduledDrainTask_suppressesDrainExceptions() {
     Runnable task = startAndCaptureTask();
     when(drainController.isDraining()).thenThrow(new RuntimeException("drain failed"));

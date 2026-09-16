@@ -97,6 +97,65 @@ class JobExecutorServiceTest {
   }
 
   @Test
+  void acceptedQueuedCancellationReleasesPermitExactlyOnce() throws Exception {
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    when(pool.getExecutor()).thenReturn(jobExecutor);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    run.ratchet.store.entity.JobEntity job = new run.ratchet.store.entity.JobEntity();
+    job.setJobType(run.ratchet.store.entity.JobExecutionType.SINGLE);
+    ExecutionResult result = service.execute(job, "platform");
+    assertFalse(result.isRejected());
+    org.mockito.ArgumentCaptor<Runnable> queued =
+        org.mockito.ArgumentCaptor.forClass(Runnable.class);
+    verify(jobExecutor).execute(queued.capture());
+    result.future().cancel(true);
+    queued.getValue().run();
+    result.future().cancel(true);
+    verify(pool).releasePermit(run.ratchet.store.entity.JobExecutionType.SINGLE);
+    assertTrue(service.awaitIdle(Duration.ZERO));
+  }
+
+  @Test
+  void publicExecutionRejectionReleasesPermitExactlyOnce() {
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    when(pool.getExecutor()).thenReturn(jobExecutor);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    org.mockito.Mockito.doThrow(new RejectedExecutionException("full"))
+        .when(jobExecutor)
+        .execute(any());
+    run.ratchet.store.entity.JobEntity job = new run.ratchet.store.entity.JobEntity();
+    job.setJobType(run.ratchet.store.entity.JobExecutionType.SINGLE);
+    assertTrue(service.execute(job, "platform").isRejected());
+    verify(pool).releasePermit(run.ratchet.store.entity.JobExecutionType.SINGLE);
+  }
+
+  @Test
+  void executorThrowingAfterRunnerStartedDoesNotRejectAcceptedWork() throws Exception {
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    when(pool.getExecutor()).thenReturn(jobExecutor);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    doAnswer(
+            invocation -> {
+              invocation.<Runnable>getArgument(0).run();
+              throw new IllegalStateException("executor failed after running task");
+            })
+        .when(jobExecutor)
+        .execute(any(Runnable.class));
+    java.util.concurrent.atomic.AtomicInteger executions =
+        new java.util.concurrent.atomic.AtomicInteger();
+    ExecutionResult result =
+        invokeExecute(
+            () -> {
+              executions.incrementAndGet();
+              return null;
+            },
+            new AtomicReference<>());
+    assertFalse(result.isRejected());
+    assertTrue(result.future().isDone());
+    org.junit.jupiter.api.Assertions.assertEquals(1, executions.get());
+  }
+
+  @Test
   void immediateCompletionCancelsWatchdogScheduledAfterSubmit() throws Exception {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
