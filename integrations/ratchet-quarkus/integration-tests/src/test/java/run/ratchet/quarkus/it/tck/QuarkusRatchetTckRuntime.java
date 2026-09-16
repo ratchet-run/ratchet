@@ -28,6 +28,7 @@ import run.ratchet.tck.api.RatchetTckProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.RatchetTckRuntimeSupport;
 import run.ratchet.tck.api.TestClock;
+import run.ratchet.tck.store.SqlCleanupRetry;
 
 /** Quarkus {@link RatchetTckRuntime} bridge for the public-API TCK contracts. */
 @ApplicationScoped
@@ -71,7 +72,7 @@ public class QuarkusRatchetTckRuntime implements RatchetTckRuntime {
         "QuarkusRatchetTckRuntime",
         drainController::setDraining,
         executor::awaitIdle,
-        storeCleaner::truncateAll,
+        () -> SqlCleanupRetry.run(storeCleaner::truncateAll),
         probe::reset);
   }
 }

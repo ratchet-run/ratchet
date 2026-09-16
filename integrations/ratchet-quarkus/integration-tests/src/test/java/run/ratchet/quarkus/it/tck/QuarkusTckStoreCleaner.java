@@ -31,6 +31,7 @@ public class QuarkusTckStoreCleaner {
 
   private static final List<String> SCHEDULER_TABLES =
       List.of(
+          "scheduler_idempotency_key",
           "scheduler_business_key_reservation",
           "scheduler_job_queue",
           "scheduler_job_tag",
