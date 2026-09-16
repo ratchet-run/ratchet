@@ -86,6 +86,42 @@ class ReferenceEncryptionFactoryTest {
   }
 
   @Test
+  void malformedSecretIsAbsentFromEntireException() {
+    String secret = key((byte) 93);
+    for (String spec : new String[] {secret, ":" + secret, "k1:" + secret + "!"}) {
+      Exception failure =
+          assertThrows(
+              EncryptionConfigurationException.class,
+              () -> ReferenceEncryptionFactory.build(spec, null, 0L));
+      java.io.StringWriter rendered = new java.io.StringWriter();
+      failure.printStackTrace(new java.io.PrintWriter(rendered));
+      org.junit.jupiter.api.Assertions.assertFalse(rendered.toString().contains(secret));
+    }
+  }
+
+  @Test
+  void misplacedSecretIsAbsentFromEveryConfigurationError() {
+    String secret = key((byte) 94);
+    String[][] malformed = {
+      {secret + ":" + key((byte) 1) + "," + secret + ":" + key((byte) 2), null},
+      {secret + ":!invalid!", null},
+      {secret + ":YQ==", null},
+      {secret + ":  ", null},
+      {"k1:" + key((byte) 1), secret},
+      {"k1:" + secret + "!", "k1"}
+    };
+    for (String[] configuration : malformed) {
+      Exception failure =
+          assertThrows(
+              EncryptionConfigurationException.class,
+              () -> ReferenceEncryptionFactory.build(configuration[0], configuration[1], 0L));
+      java.io.StringWriter rendered = new java.io.StringWriter();
+      failure.printStackTrace(new java.io.PrintWriter(rendered));
+      org.junit.jupiter.api.Assertions.assertFalse(rendered.toString().contains(secret));
+    }
+  }
+
+  @Test
   void nodeEntropy_isStableAndDistinctPerNode() {
     assertEquals(
         ReferenceEncryptionFactory.nodeEntropy("node-a"),
