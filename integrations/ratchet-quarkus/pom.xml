@@ -32,6 +32,7 @@
     <module>mongodb</module>
     <module>mongodb-deployment</module>
     <module>integration-tests</module>
+    <module>observability-integration-tests</module>
   </modules>
 
   <dependencyManagement>
