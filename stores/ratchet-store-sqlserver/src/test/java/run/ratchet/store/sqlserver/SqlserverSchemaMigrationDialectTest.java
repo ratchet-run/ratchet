@@ -108,4 +108,9 @@ class SqlserverSchemaMigrationDialectTest {
     assertEquals(
         "1dd8f2d437ef11447c7f74ef5601aa90d531475568d01349a12d56d4393fbd87", v001.checksum());
   }
+
+  @Test
+  void usesNativeBatchExecution() {
+    assertTrue(dialect.executesMigrationAsBatch());
+  }
 }
