@@ -63,6 +63,10 @@ public class JobExecutionCoordinator {
     jobSubmissionService.submit(claim);
   }
 
+  public void retainUnsubmittedClaim(JobClaimDto claim) {
+    jobSubmissionService.retainUnsubmittedClaim(claim);
+  }
+
   public void initRetryBufferDrainer() {
     retryBufferDrainer.start();
   }
