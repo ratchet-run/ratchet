@@ -464,7 +464,9 @@ final class MongoJobQueryOperations {
     appendPriorityCondition(filter, conditions);
     appendStringEq(MongoFieldNames.BUSINESS_KEY, filter.businessKey(), conditions);
     appendStringEq(MongoFieldNames.TARGET_CLASS, filter.targetClass(), conditions);
-    appendParentJobId(filter, conditions);
+    if (filter.parentJobId() != null) {
+      conditions.add(eq("depended_on", filter.parentJobId()));
+    }
     appendInstantGte(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdAfter(), conditions);
     appendInstantLt(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdBefore(), conditions);
     appendInstantGte(MongoFieldNames.ORIGINAL_SCHEDULED_TIME, filter.scheduledAfter(), conditions);

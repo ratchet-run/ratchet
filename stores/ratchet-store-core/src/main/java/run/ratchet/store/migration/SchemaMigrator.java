@@ -447,9 +447,18 @@ public final class SchemaMigrator {
     // callers should provide an unmanaged migration connection.
     connection.setAutoCommit(false);
     try {
-      for (String sql : splitStatements(script.sql())) {
+      boolean batch = dialect.executesMigrationAsBatch();
+      List<String> statements = batch ? List.of(script.sql()) : splitStatements(script.sql());
+      for (String sql : statements) {
         try (Statement statement = connection.createStatement()) {
-          statement.execute(sql);
+          boolean hasResults = statement.execute(sql);
+          if (batch) {
+            // Drivers can surface an error only after earlier results/update counts have been
+            // consumed. Drain the batch before recording its checksum or committing it.
+            while (hasResults || statement.getUpdateCount() != -1) {
+              hasResults = statement.getMoreResults(Statement.CLOSE_CURRENT_RESULT);
+            }
+          }
         }
       }
       // Upsert so the bundled migrator authoritatively owns the schema-version metadata. If a

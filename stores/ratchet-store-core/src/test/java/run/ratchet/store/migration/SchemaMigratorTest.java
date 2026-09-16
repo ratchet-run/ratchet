@@ -231,6 +231,57 @@ class SchemaMigratorTest {
   }
 
   @Test
+  void nativeBatchPreservesBlocksAndDrainsAllResults() throws Exception {
+    dialect.nativeBatch = true;
+    ResultSet missing = missingVersion();
+    when(selectVersion.executeQuery()).thenReturn(missing);
+    when(statement.execute(startsWith("IF OBJECT_ID"))).thenReturn(true);
+    when(statement.getMoreResults(Statement.CLOSE_CURRENT_RESULT)).thenReturn(false, false);
+    when(statement.getUpdateCount()).thenReturn(3, -1);
+
+    var migrator = migrator("schema-migrator-native-batch");
+    var script = migrator.discoverMigrations().get(0);
+    migrator.migrate();
+
+    verify(statement).execute(script.sql());
+    verify(statement, times(2)).getMoreResults(Statement.CLOSE_CURRENT_RESULT);
+    verify(insertVersion).executeUpdate();
+    verify(connection).commit();
+  }
+
+  @Test
+  void nativeBatchLateFailureRollsBackWithoutRecordingVersion() throws Exception {
+    dialect.nativeBatch = true;
+    ResultSet missing = missingVersion();
+    when(selectVersion.executeQuery()).thenReturn(missing);
+    when(statement.getUpdateCount()).thenReturn(1);
+    SQLException failure = new SQLException("later batch statement failed");
+    when(statement.getMoreResults(Statement.CLOSE_CURRENT_RESULT)).thenThrow(failure);
+
+    assertEquals(
+        failure,
+        assertThrows(SQLException.class, () -> migrator("schema-migrator-native-batch").migrate()));
+
+    verify(connection).rollback();
+    verify(connection, never()).commit();
+    verify(insertVersion, never()).executeUpdate();
+  }
+
+  @Test
+  void matchingNativeBatchChecksumSkipsExecution() throws Exception {
+    dialect.nativeBatch = true;
+    var migrator = migrator("schema-migrator-native-batch");
+    var script = migrator.discoverMigrations().get(0);
+    ResultSet existing = existingVersion(script.checksum());
+    when(selectVersion.executeQuery()).thenReturn(existing);
+
+    assertEquals(1, migrator.migrate().skippedCount());
+
+    verify(statement, never()).execute(script.sql());
+    verify(connection, never()).commit();
+  }
+
+  @Test
   void singleStatementDirectiveRejectsMissingSql() throws Exception {
     Method splitStatements =
         SchemaMigrator.class.getDeclaredMethod("splitStatements", String.class);
@@ -411,6 +462,7 @@ class SchemaMigratorTest {
     private SQLException releaseFailure;
     private int acquireCount;
     private int releaseCount;
+    private boolean nativeBatch;
 
     void failAcquireWith(RuntimeException failure) {
       this.acquireFailure = failure;
@@ -441,6 +493,11 @@ class SchemaMigratorTest {
     @Override
     public String recordVersionSql() {
       return "INSERT INTO ratchet_schema_version (version, description, checksum) VALUES (?, ?, ?)";
+    }
+
+    @Override
+    public boolean executesMigrationAsBatch() {
+      return nativeBatch;
     }
 
     @Override
