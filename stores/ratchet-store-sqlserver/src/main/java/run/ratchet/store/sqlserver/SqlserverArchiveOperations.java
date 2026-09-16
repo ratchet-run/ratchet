@@ -104,6 +104,21 @@ final class SqlserverArchiveOperations implements ArchiveStore {
   @Override
   public int archiveAndDeleteJobsBatch(
       List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+    // Bound ID lookups, locks, extension reads and deletes as well as the archive INSERT.
+    // The facade's REQUIRED transaction covers every chunk, including a later rollback.
+    int deleted = 0;
+    for (int start = 0; start < jobsToArchive.size(); start += 1000) {
+      deleted +=
+          archiveAndDeleteChunk(
+              jobsToArchive.subList(start, Math.min(start + 1000, jobsToArchive.size())),
+              reason,
+              archivedBy);
+    }
+    return deleted;
+  }
+
+  private int archiveAndDeleteChunk(
+      List<JobEntity> jobsToArchive, String reason, String archivedBy) {
     if (jobsToArchive.isEmpty()) {
       return 0;
     }
@@ -126,23 +141,30 @@ final class SqlserverArchiveOperations implements ArchiveStore {
         populateExtensionData(archives.get(i), extensionData, archiveIds.get(i));
       }
 
-      String rows =
-          String.join(
-              ",", Collections.nCopies(archives.size(), SQLSERVER_ARCHIVE_VALUE_PLACEHOLDERS));
-      Query query =
-          ctx.em()
-              .createNativeQuery(
-                  """
+      // 33 bound columns per row; SQL Server accepts at most 2,100 parameters.
+      // Keep every chunk in this transaction so a later failure rolls back the whole move.
+      for (int start = 0; start < archives.size(); start += 63) {
+        List<ArchivedJobEntity> chunk =
+            archives.subList(start, Math.min(start + 63, archives.size()));
+        String rows =
+            String.join(
+                ",", Collections.nCopies(chunk.size(), SQLSERVER_ARCHIVE_VALUE_PLACEHOLDERS));
+        Query query =
+            ctx.em()
+                .createNativeQuery(
+                    """
                   INSERT INTO scheduler_job_archive (%s)
                   VALUES %s
                   """
-                      .formatted(ArchiveParameterBinder.ARCHIVE_COLUMNS, rows));
-      int parameter = 1;
-      for (ArchivedJobEntity archive : archives) {
-        parameter =
-            ArchiveParameterBinder.bind(query, archive, parameter, UuidByteArrayConverter::toBytes);
+                        .formatted(ArchiveParameterBinder.ARCHIVE_COLUMNS, rows));
+        int parameter = 1;
+        for (ArchivedJobEntity archive : chunk) {
+          parameter =
+              ArchiveParameterBinder.bind(
+                  query, archive, parameter, UuidByteArrayConverter::toBytes);
+        }
+        query.executeUpdate();
       }
-      query.executeUpdate();
       return ArchiveHelper.requireAllDeleted(ids, deletes.deleteTerminalJobsByIds(ids));
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("archive and delete jobs batch", e);
