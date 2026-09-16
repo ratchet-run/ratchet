@@ -39,7 +39,7 @@ This separation lets external observers see clean semantic categories while the 
 
 ## SINGLE jobs
 
-The most common type. A SINGLE job executes exactly once at its scheduled time. It supports all standard features: retries, timeouts, priorities, tags, callbacks, and idempotency keys.
+The most common type. A SINGLE job schedules one logical execution, with at-least-once delivery. It supports all standard features: retries, timeouts, priorities, tags, callbacks, and idempotency keys.
 
 ```java
 // Immediate execution

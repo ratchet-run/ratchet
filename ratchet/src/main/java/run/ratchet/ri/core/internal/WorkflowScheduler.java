@@ -20,6 +20,11 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -30,10 +35,14 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.ChainCompletedEvent;
+import run.ratchet.api.event.ChainFailedEvent;
+import run.ratchet.api.event.ChainStartedEvent;
 import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
+import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
@@ -340,6 +349,171 @@ public class WorkflowScheduler extends ChainScheduler {
     }
     return jobCrudStore.findByIds(childIds).stream()
         .collect(Collectors.toMap(JobEntity::getId, Function.identity(), (left, right) -> left));
+  }
+
+  /** Computes durable effects without changing any job or publishing pre-commit events. */
+  public WorkflowCompletionPlan planCompletion(JobEntity parent, boolean cancelAll) {
+    Map<UUID, DependencyTransition> mutations = new LinkedHashMap<>();
+    List<Object> events = new ArrayList<>();
+    if (cancelAll) {
+      planCanceledChain(parent, Set.of(), mutations, events);
+      return new WorkflowCompletionPlan(new ArrayList<>(mutations.values()), events, false);
+    }
+    List<WorkflowConditionEntity> conditions =
+        conditionStore == null
+            ? List.of()
+            : conditionStore.findConditionsByParentJobId(parent.getId());
+    Map<UUID, JobEntity> children = loadChildJobs(conditions);
+    Set<UUID> conditionalIds =
+        conditions.stream().map(WorkflowConditionEntity::getChildJobId).collect(Collectors.toSet());
+    WorkflowConditionEntity selected = null;
+    for (WorkflowConditionEntity condition : conditions) {
+      boolean matched;
+      try {
+        matched = conditionEvaluator.evaluate(condition, parent);
+      } catch (KeyProviderUnavailableException | UnsupportedEnvelopeVersionException deferrable) {
+        throw deferrable;
+      } catch (RuntimeException permanentFailure) {
+        log.warnf(permanentFailure, "Condition %s cannot be evaluated", condition.getId());
+        continue;
+      }
+      JobEntity child = children.get(condition.getChildJobId());
+      if (matched && isUnstarted(child)) {
+        selected = condition;
+        mutations.put(
+            child.getId(),
+            transition(
+                child, child.getStatus(), effective().instant(), JobExecutionType.WORKFLOW_BRANCH));
+        events.add(
+            new WorkflowBranchTriggeredEvent(
+                parent.getId(),
+                parent.getBusinessKey(),
+                parent.getRecurringMasterId(),
+                parent.getPublicJobType(),
+                parent.getPriority(),
+                parent.getPickedBy(),
+                describeCondition(condition),
+                child.getId()));
+        break;
+      }
+    }
+    UUID selectedId = selected == null ? null : selected.getChildJobId();
+    for (WorkflowConditionEntity condition : conditions) {
+      JobEntity child = children.get(condition.getChildJobId());
+      if (!Objects.equals(selectedId, condition.getChildJobId()) && isUnstarted(child)) {
+        mutations.put(
+            child.getId(),
+            transition(child, JobStatus.CANCELED, child.getScheduledTime(), child.getJobType()));
+      }
+    }
+    boolean newWork = selected != null;
+    if (parent.getStatus() == JobStatus.FAILED || parent.getStatus() == JobStatus.CANCELED) {
+      planCanceledChain(parent, conditionalIds, mutations, events);
+    } else {
+      List<JobEntity> linearChildren =
+          findAllDependants(parent.getId()).stream()
+              .filter(child -> !conditionalIds.contains(child.getId()))
+              .toList();
+      if (linearChildren.isEmpty() && parent.getJobType() == JobExecutionType.CHAIN_STEP) {
+        events.add(
+            new ChainCompletedEvent(
+                parent.getId(),
+                parent.getBusinessKey(),
+                parent.getRecurringMasterId(),
+                parent.getPublicJobType(),
+                parent.getPriority(),
+                parent.getPickedBy(),
+                findRootJobId(parent)));
+      }
+      for (JobEntity child : linearChildren) {
+        if (isUnstarted(child) && CHAIN_LOCK_TIME.equals(child.getScheduledTime())) {
+          mutations.put(
+              child.getId(),
+              transition(child, child.getStatus(), effective().instant(), child.getJobType()));
+          newWork = true;
+          if (child.getJobType() == JobExecutionType.CHAIN_STEP
+              && parent.getJobType() != JobExecutionType.CHAIN_STEP) {
+            events.add(
+                new ChainStartedEvent(
+                    child.getId(),
+                    child.getBusinessKey(),
+                    child.getRecurringMasterId(),
+                    child.getPublicJobType(),
+                    child.getPriority(),
+                    child.getPickedBy(),
+                    findRootJobId(parent)));
+          }
+        }
+      }
+    }
+    return new WorkflowCompletionPlan(new ArrayList<>(mutations.values()), events, newWork);
+  }
+
+  private void planCanceledChain(
+      JobEntity parent,
+      Set<UUID> skipped,
+      Map<UUID, DependencyTransition> mutations,
+      List<Object> events) {
+    Deque<UUID> pending = new ArrayDeque<>();
+    Set<UUID> visited = new HashSet<>();
+    pending.push(parent.getId());
+    boolean canceled = false;
+    while (!pending.isEmpty()) {
+      UUID id = pending.pop();
+      if (!visited.add(id)) {
+        continue;
+      }
+      for (JobEntity child : findAllDependants(id)) {
+        if (id.equals(parent.getId()) && skipped.contains(child.getId())) {
+          continue;
+        }
+        if (isUnstarted(child)) {
+          mutations.put(
+              child.getId(),
+              transition(child, JobStatus.CANCELED, child.getScheduledTime(), child.getJobType()));
+          canceled = true;
+        }
+        pending.push(child.getId());
+      }
+    }
+    if (canceled || parent.getJobType() == JobExecutionType.CHAIN_STEP) {
+      events.add(
+          new ChainFailedEvent(
+              parent.getId(),
+              parent.getBusinessKey(),
+              parent.getRecurringMasterId(),
+              parent.getPublicJobType(),
+              parent.getPriority(),
+              parent.getPickedBy(),
+              findRootJobId(parent),
+              parent.getLastError() != null ? parent.getLastError() : parent.getStatus().name()));
+    }
+  }
+
+  private static boolean isUnstarted(JobEntity child) {
+    return child != null
+        && (child.getStatus() == JobStatus.PENDING || child.getStatus() == JobStatus.WAITING);
+  }
+
+  private static DependencyTransition transition(
+      JobEntity child, JobStatus status, java.time.Instant scheduledTime, JobExecutionType type) {
+    return new DependencyTransition(
+        child.getId(),
+        child.getStatus(),
+        child.getVersion(),
+        child.getScheduledTime(),
+        status,
+        scheduledTime,
+        type);
+  }
+
+  public void publishTerminalEvent(Object event) {
+    publishAfterCommit(event);
+  }
+
+  /** Publish the plan's notifications only after its store composite has committed. */
+  public void publishCompletion(WorkflowCompletionPlan plan) {
+    plan.events().forEach(this::publishAfterCommit);
   }
 
   private Clock effective() {

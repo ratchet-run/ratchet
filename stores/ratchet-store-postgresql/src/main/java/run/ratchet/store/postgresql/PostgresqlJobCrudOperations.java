@@ -92,6 +92,11 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore, J
   }
 
   @Override
+  public Optional<UUID> findOriginalJobIdByIdempotencyKey(String idempotencyKey) {
+    return reads.findOriginalJobIdByIdempotencyKey(idempotencyKey);
+  }
+
+  @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
     return reads.findByIdempotencyKey(idempotencyKey);
   }

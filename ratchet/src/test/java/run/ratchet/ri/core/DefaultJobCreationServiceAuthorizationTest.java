@@ -229,7 +229,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Test
   void checkCreate_isCalledAfterPrincipalCapture_withCorrectArgs() {
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
@@ -251,7 +251,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void checkCreate_denial_preventsCreate() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     doThrow(new JobAuthorizationException(null, "create", CAPTURED_PRINCIPAL, "denied"))
         .when(authorizationPolicy)
         .checkCreate(any(), anyString());
@@ -268,7 +268,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Test
   void checkCreate_calledBeforeSave() {
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
@@ -289,7 +289,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     DefaultJobCreationService nullPolicyService = serviceWithoutAuthorizationPolicy();
 
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
@@ -315,7 +315,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             Clock.systemUTC());
 
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
@@ -335,7 +335,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             principalProviderReturningEmpty(), authorizationPolicy, null, null, Clock.systemUTC());
 
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
@@ -361,7 +361,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             () -> Optional.of("resolver-principal"));
 
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
@@ -389,7 +389,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             });
 
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
@@ -413,7 +413,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Test
   void signalWaitingJobPublishesMetric() {
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
@@ -435,7 +435,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     ArgumentCaptor<Synchronization> synchronizationCaptor =
         ArgumentCaptor.forClass(Synchronization.class);
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -460,7 +460,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     ArgumentCaptor<Synchronization> synchronizationCaptor =
         ArgumentCaptor.forClass(Synchronization.class);
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -484,7 +484,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         .when(txRegistry)
         .registerInterposedSynchronization(any());
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -510,7 +510,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             metricsCollector,
             Clock.fixed(fixedNow, ZoneOffset.UTC));
     JobEntity saved = savedEntity();
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -812,7 +812,8 @@ class DefaultJobCreationServiceAuthorizationTest {
     UUID existingId = UUID.randomUUID();
     JobEntity existing = savedEntity();
     existing.setId(existingId);
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.of(existing));
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString()))
+        .thenReturn(Optional.of(existing.getId()));
 
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -828,7 +829,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void checkCreate_calledForEachChainStep() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
 
     DefaultJobBuilder builder =
@@ -846,7 +847,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void checkCreate_calledForWorkflowBranch() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
 
     DefaultJobBuilder builder =

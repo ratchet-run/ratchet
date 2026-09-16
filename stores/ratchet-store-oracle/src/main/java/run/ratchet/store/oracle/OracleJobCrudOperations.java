@@ -92,6 +92,11 @@ final class OracleJobCrudOperations implements JobCrudStore, JobBulkStore, JobAn
   }
 
   @Override
+  public Optional<UUID> findOriginalJobIdByIdempotencyKey(String idempotencyKey) {
+    return reads.findOriginalJobIdByIdempotencyKey(idempotencyKey);
+  }
+
+  @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
     return reads.findByIdempotencyKey(idempotencyKey);
   }

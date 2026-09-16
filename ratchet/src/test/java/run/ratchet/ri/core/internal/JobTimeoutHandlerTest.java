@@ -145,6 +145,33 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void concurrentHardTimeoutIncrementCannotExceedRetryBudget() {
+    JobEntity job = jobWithMaxRetries(1);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(2);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenReturn(true);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt());
+    assertEquals(2, job.getAttempts());
+    assertEquals(JobStatus.FAILED, job.getStatus());
+  }
+
+  @Test
+  void concurrentSignalTimeoutIncrementCannotExceedRetryBudget() {
+    JobEntity job = waitingJobWithMaxRetries(1);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(2);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.WAITING), eq(true), any(), any()))
+        .thenReturn(true);
+    handler.processSignalTimeout(job, Instant.now());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt());
+    assertEquals(2, job.getAttempts());
+    assertEquals(JobStatus.FAILED, job.getStatus());
+  }
+
+  @Test
   void retriesRemainingReschedulesInsteadOfDlq() {
     Instant now = Instant.parse("2026-05-09T12:00:00Z");
     handler =
@@ -171,7 +198,8 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, times(1))
         .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
     verify(eventPublisher, never()).publish(any());
 
@@ -223,16 +251,17 @@ class JobTimeoutHandlerTest {
   void retriesExhaustedCasesToFailedAndEscalatesDlq() {
     JobEntity job = jobWithMaxRetries(0);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
-    verify(jobBatchStatusStore, times(1))
-        .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString());
+    verify(lifecycleFacade, times(1))
+        .completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any());
     verify(lifecycleFacade)
         .handleTimeoutTransition(any(TimeoutException.class), eq(false), any(Supplier.class));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
@@ -252,12 +281,12 @@ class JobTimeoutHandlerTest {
     JobEntity job = jobWithMaxRetries(0);
     job.setBusinessKey("timeout-key");
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, Duration.ofSeconds(31));
 
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(eventPublisher, never()).publish(any());
     assertEquals(job, terminalTimeoutTransition.job());
     assertEquals(2, terminalTimeoutTransition.eventsBeforeDlq().size());
@@ -289,15 +318,16 @@ class JobTimeoutHandlerTest {
     JobEntity job = jobWithMaxRetries(0);
     when(errorSanitizer.sanitize(any(TimeoutException.class))).thenReturn("safe timeout");
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
-    verify(jobBatchStatusStore)
-        .compareAndSwapStatus(JOB_ID, JobStatus.RUNNING, JobStatus.FAILED, "safe timeout");
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(lifecycleFacade)
+        .completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any());
     assertEquals("safe timeout", job.getLastError());
     assertEquals(job, terminalTimeoutTransition.job());
     JobFailedEvent event =
@@ -359,14 +389,14 @@ class JobTimeoutHandlerTest {
     JobEntity job = jobWithMaxRetries(0);
     when(errorSanitizer.sanitize(any(TimeoutException.class))).thenReturn(null);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            JOB_ID, JobStatus.RUNNING, JobStatus.FAILED, TimeoutException.class.getName()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
     assertEquals(TimeoutException.class.getName(), job.getLastError());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(errorSanitizer, times(1)).sanitize(any(TimeoutException.class));
   }
 
@@ -385,14 +415,14 @@ class JobTimeoutHandlerTest {
     when(errorSanitizer.sanitize(any(TimeoutException.class)))
         .thenThrow(new AssertionError("broken sanitizer"));
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            JOB_ID, JobStatus.RUNNING, JobStatus.FAILED, TimeoutException.class.getName()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
     assertEquals(TimeoutException.class.getName(), job.getLastError());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(errorSanitizer, times(1)).sanitize(any(TimeoutException.class));
   }
 
@@ -414,7 +444,8 @@ class JobTimeoutHandlerTest {
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(eventPublisher, never()).publish(any());
   }
 
@@ -429,13 +460,13 @@ class JobTimeoutHandlerTest {
             eventPublisher);
     JobEntity job = jobWithMaxRetries(0);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(false);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(eventPublisher, never()).publish(any());
   }
@@ -449,7 +480,8 @@ class JobTimeoutHandlerTest {
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
     verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
@@ -486,7 +518,8 @@ class JobTimeoutHandlerTest {
     verify(jobCrudStore, never()).findById(any(UUID.class));
     verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(), any(), any(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(errorSanitizer, never()).sanitize(any());
   }
 
@@ -510,7 +543,8 @@ class JobTimeoutHandlerTest {
     assertEquals(1, job.getAttempts());
     assertEquals("Signal timeout exceeded for key: approval", job.getLastError());
     assertEquals(now.plusMillis(2_500), job.getScheduledTime());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
@@ -579,16 +613,17 @@ class JobTimeoutHandlerTest {
   void signalTimeoutRetriesExhaustedFailsAndEscalatesDlq() {
     JobEntity job = waitingJobWithMaxRetries(0);
     Instant now = Instant.now();
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any()))
         .thenReturn(true);
 
     handler.processSignalTimeout(job, now);
 
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
-    verify(jobBatchStatusStore, times(1))
-        .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString());
+    verify(lifecycleFacade, times(1))
+        .completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any());
     assertEquals(JobStatus.FAILED, job.getStatus());
     assertEquals(1, job.getAttempts());
     assertEquals("Signal timeout exceeded for key: approval", job.getLastError());
@@ -601,13 +636,13 @@ class JobTimeoutHandlerTest {
   void signalTimeoutPermanentFailureUsesSignalTimeoutException() {
     JobEntity job = waitingJobWithMaxRetries(0);
     Instant now = Instant.now();
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any()))
         .thenReturn(true);
     handler.processSignalTimeout(job, now);
 
     ArgumentCaptor<Throwable> throwableCaptor = ArgumentCaptor.forClass(Throwable.class);
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(lifecycleFacade)
         .handleTimeoutTransition(throwableCaptor.capture(), eq(true), any(Supplier.class));
     assertInstanceOf(SignalTimeoutException.class, throwableCaptor.getValue());
@@ -661,18 +696,16 @@ class JobTimeoutHandlerTest {
     JobEntity survivor = waitingJob(survivorId, 0);
     when(signalStore.findTimedOutSignalJobs(any(Instant.class), anyInt()))
         .thenReturn(List.of(poisoned, survivor));
-    when(jobRetryStore.incrementRetryAttempt(poisonedId))
-        .thenThrow(new IllegalStateException("store down"));
-    when(jobRetryStore.incrementRetryAttempt(survivorId)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(survivorId), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+    when(jobCrudStore.findById(poisonedId)).thenThrow(new IllegalStateException("store down"));
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any()))
         .thenReturn(true);
 
     scanHandler.scanSignalTimeouts();
 
-    verify(jobBatchStatusStore)
-        .compareAndSwapStatus(
-            eq(survivorId), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString());
+    verify(lifecycleFacade)
+        .completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any());
     verify(lifecycleFacade, times(2))
         .handleTimeoutTransition(any(SignalTimeoutException.class), eq(true), any(Supplier.class));
   }
@@ -682,13 +715,13 @@ class JobTimeoutHandlerTest {
     JobTimeoutHandler metricsHandler =
         newHandler(null, metricsCollector, JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
     JobEntity job = waitingJobWithMaxRetries(0);
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any()))
         .thenReturn(true);
 
     metricsHandler.processSignalTimeout(job, Instant.now());
 
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(metricsCollector).signalTimedOut(JOB_ID, job.getPublicJobType(), "approval");
   }
 
@@ -706,14 +739,14 @@ class JobTimeoutHandlerTest {
     JobEntity job = waitingJobWithMaxRetries(0);
     job.setCreatedAt(createdAt);
     job.setSignalTimeout(createdAt.plusSeconds(30));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobBatchStatusStore.compareAndSwapStatus(
-            eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any()))
         .thenReturn(true);
 
     Instant scanTime = createdAt.plusSeconds(31);
     txHandler.processSignalTimeout(job, scanTime);
 
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(eventPublisher, never()).publish(any());
     assertEquals(job, terminalTimeoutTransition.job());
     assertEquals(2, terminalTimeoutTransition.eventsBeforeDlq().size());
@@ -746,7 +779,8 @@ class JobTimeoutHandlerTest {
 
     handler.processSignalTimeout(job, now);
 
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(eventPublisher, never()).publish(any());
   }
@@ -759,7 +793,8 @@ class JobTimeoutHandlerTest {
     handler.processSignalTimeout(job, Instant.now());
 
     verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 

@@ -91,7 +91,7 @@ class DefaultJobCreationServicePayloadSizeTest {
 
   @Test
   void oversizedOneOffFailsBeforeCreate() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     serializer.oversizeAtCall = 1;
 
     DefaultJobBuilder builder =
@@ -105,7 +105,7 @@ class DefaultJobCreationServicePayloadSizeTest {
 
   @Test
   void oversizedCallbackFailsBeforeCreate() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     serializer.oversizeAtCall = 2;
 
     DefaultJobBuilder builder =
@@ -158,7 +158,7 @@ class DefaultJobCreationServicePayloadSizeTest {
 
   @Test
   void acceptedPayloadUsesPreparedJsonExactlyOnce() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any()))
         .thenAnswer(
             invocation -> {
@@ -179,7 +179,7 @@ class DefaultJobCreationServicePayloadSizeTest {
 
   @Test
   void failedPersistenceCannotLeavePreparedJsonForRetry() {
-    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     JobPayload[] captured = new JobPayload[1];
     when(jobCrudStore.create(any()))
         .thenAnswer(

@@ -59,10 +59,16 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
   private final PostgresqlStoreContext ctx;
   private final PostgresqlBusinessKeyReservations reservations;
 
+  private final java.util.function.Consumer<List<run.ratchet.store.entity.JobEntity>>
+      insertChildren;
+
   PostgresqlRecurringJobOperations(
-      PostgresqlStoreContext ctx, PostgresqlBusinessKeyReservations reservations) {
+      PostgresqlStoreContext ctx,
+      PostgresqlBusinessKeyReservations reservations,
+      java.util.function.Consumer<List<run.ratchet.store.entity.JobEntity>> insertChildren) {
     this.ctx = ctx;
     this.reservations = reservations;
+    this.insertChildren = java.util.Objects.requireNonNull(insertChildren, "insertChildren");
   }
 
   @Override
@@ -96,6 +102,43 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
       return defs;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim recurring (new)", e);
+    }
+  }
+
+  @Override
+  public void commitRecurringExecutions(List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+    for (run.ratchet.store.spi.RecurringExecutionPlan plan : plans) {
+      assertClaimCurrent(plan.claim());
+    }
+    List<run.ratchet.store.entity.JobEntity> children =
+        plans.stream().flatMap(plan -> plan.children().stream()).toList();
+    if (!children.isEmpty()) {
+      insertChildren.accept(children);
+    }
+    for (run.ratchet.store.spi.RecurringExecutionPlan plan : plans) {
+      UUID id = plan.claim().definition().id();
+      if (plan.nextFire() == null) {
+        if (!cancelRecurringAndArchive(
+            id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.EXHAUSTED)) {
+          throw new IllegalStateException("Claimed recurring master disappeared: " + id);
+        }
+      } else {
+        advanceNextFire(id, plan.nextFire());
+      }
+    }
+  }
+
+  private void assertClaimCurrent(run.ratchet.store.spi.RecurringClaim claim) {
+    if (claim.token() != null
+        || ctx.em()
+            .createNativeQuery(
+                "SELECT id FROM scheduler_recurring_job WHERE id = ? AND next_fire = ? AND is_paused = FALSE FOR UPDATE")
+            .setParameter(1, claim.definition().id())
+            .setParameter(2, Timestamp.from(claim.definition().nextFire()))
+            .getResultList()
+            .isEmpty()) {
+      throw new run.ratchet.api.exception.RatchetTransientStoreException(
+          "Recurring claim is stale");
     }
   }
 
@@ -370,6 +413,26 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
       defs.add(hydrate(row));
     }
     return defs;
+  }
+
+  @Override
+  public List<RecurringJobDefinition> searchRecurring(
+      run.ratchet.api.JobFilter filter, int limit, int offset) {
+    return run.ratchet.store.query.RecurringSqlQuery.search(
+        ctx.em(),
+        SELECT_COLUMNS,
+        filter,
+        limit,
+        offset,
+        run.ratchet.store.query.RecurringSqlQuery.Dialect.POSTGRESQL,
+        id -> id,
+        PostgresqlRecurringJobOperations::hydrate);
+  }
+
+  @Override
+  public long countRecurring(run.ratchet.api.JobFilter filter) {
+    return run.ratchet.store.query.RecurringSqlQuery.count(
+        ctx.em(), filter, run.ratchet.store.query.RecurringSqlQuery.Dialect.POSTGRESQL, id -> id);
   }
 
   private int archiveAndDelete(List<UUID> ids, ArchiveReason reason) {

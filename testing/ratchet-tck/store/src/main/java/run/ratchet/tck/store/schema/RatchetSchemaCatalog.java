@@ -49,7 +49,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedTable;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 12;
+  public static final int CURRENT_VERSION = 13;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -63,6 +63,7 @@ public final class RatchetSchemaCatalog {
               schedulerRecurringJob(),
               schedulerRecurringJobArchive(),
               schedulerBusinessKeyReservation(),
+              schedulerIdempotencyKey(),
               schedulerJobTag(),
               schedulerBatch(),
               schedulerBatchMetrics(),
@@ -76,6 +77,15 @@ public final class RatchetSchemaCatalog {
           v005Drops());
 
   private RatchetSchemaCatalog() {}
+
+  private static Table schedulerIdempotencyKey() {
+    return Table.builder("scheduler_idempotency_key")
+        .column(required("idempotency_key", TEXT))
+        .column(required("original_job_id", UUID))
+        .column(required("reserved_at", TIMESTAMP_TZ))
+        .primaryKey("idempotency_key")
+        .build();
+  }
 
   private static Table schedulerJob() {
     return Table.builder("scheduler_job")

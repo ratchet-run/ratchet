@@ -207,6 +207,10 @@ public class DeadLetterService {
         Objects.requireNonNull(eventsBeforeDlq, "eventsBeforeDlq must not be null"));
   }
 
+  String sanitizeForCompletion(Throwable cause) {
+    return sanitizeSafely(cause);
+  }
+
   private String sanitizeSafely(Throwable cause) {
     try {
       String sanitized = errorSanitizer.sanitize(cause);

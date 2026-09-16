@@ -134,17 +134,14 @@ final class MongoJobCrudOperations {
     truncateInstantsToMillis(job);
     try {
       Document doc = DocumentMapper.toDocument(job);
-      if (holdsBusinessKey(job)) {
-        try (ClientSession session = ctx.startSession()) {
-          session.withTransaction(
-              () -> {
-                reservations.syncForJob(session, job);
-                ctx.jobs().insertOne(session, doc);
-                return null;
-              });
-        }
-      } else {
-        ctx.jobs().insertOne(doc);
+      try (ClientSession session = ctx.startSession()) {
+        session.withTransaction(
+            () -> {
+              MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
+              reservations.syncForJob(session, job);
+              ctx.jobs().insertOne(session, doc);
+              return null;
+            });
       }
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateIdempotencyKey(e)) {
@@ -177,6 +174,7 @@ final class MongoJobCrudOperations {
       try (ClientSession session = ctx.startSession()) {
         session.withTransaction(
             () -> {
+              MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
               reservations.syncForJob(session, job);
               UpdateResult result =
                   ctx.jobs()
@@ -205,6 +203,10 @@ final class MongoJobCrudOperations {
       throw e;
     }
     return job;
+  }
+
+  Optional<UUID> findOriginalJobIdByIdempotencyKey(String key) {
+    return MongoIdempotencyKeys.find(ctx.database(), key);
   }
 
   Optional<JobEntity> findById(UUID id) {
@@ -523,6 +525,32 @@ final class MongoJobCrudOperations {
     if (jobList.isEmpty()) {
       return;
     }
+    List<Document> docs = prepareBulkDocuments(jobList);
+    try (ClientSession session = ctx.startSession()) {
+      session.withTransaction(
+          () -> {
+            insertPreparedDocuments(session, jobList, docs);
+            return null;
+          });
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Active business key in use during bulk insert", e);
+      }
+      throw ctx.translateTransientStoreException("bulk insert jobs", e);
+    }
+  }
+
+  /** Joins the caller's Mongo transaction for composite store mutations. */
+  void bulkInsert(ClientSession session, List<JobEntity> jobList) {
+    if (jobList.isEmpty()) {
+      return;
+    }
+    java.util.Objects.requireNonNull(session, "session");
+    insertPreparedDocuments(session, jobList, prepareBulkDocuments(jobList));
+  }
+
+  private List<Document> prepareBulkDocuments(List<JobEntity> jobList) {
     Instant now = Instant.now();
     List<Document> docs = new ArrayList<>(jobList.size());
     for (JobEntity job : jobList) {
@@ -539,28 +567,16 @@ final class MongoJobCrudOperations {
       truncateInstantsToMillis(job);
       docs.add(DocumentMapper.toDocument(job));
     }
-    try {
-      if (jobList.stream().anyMatch(MongoJobCrudOperations::holdsBusinessKey)) {
-        try (ClientSession session = ctx.startSession()) {
-          session.withTransaction(
-              () -> {
-                for (JobEntity job : jobList) {
-                  reservations.syncForJob(session, job);
-                }
-                ctx.jobs().insertMany(session, docs);
-                return null;
-              });
-        }
-      } else {
-        ctx.jobs().insertMany(docs);
-      }
-    } catch (RuntimeException e) {
-      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
-        throw new RatchetTransientStoreException(
-            "Active business key in use during bulk insert", e);
-      }
-      throw ctx.translateTransientStoreException("bulk insert jobs", e);
+    return docs;
+  }
+
+  private void insertPreparedDocuments(
+      ClientSession session, List<JobEntity> jobs, List<Document> docs) {
+    MongoIdempotencyKeys.reserve(ctx.database(), session, jobs);
+    for (JobEntity job : jobs) {
+      reservations.syncForJob(session, job);
     }
+    ctx.jobs().insertMany(session, docs);
   }
 
   int deleteJobsByIds(List<UUID> ids) {

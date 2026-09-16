@@ -124,6 +124,45 @@ class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
     }
   }
 
+  @Test
+  void staleRecurringClaimCannotReleaseOrCommitNewOwnersLease() {
+    UUID id = UuidV7Factory.create();
+    Instant due = Instant.now().minusSeconds(60);
+    recurringStore().createRecurring(definition(id, "0 * * * * ?", due));
+    var oldClaim =
+        recurringStore()
+            .claimRecurringExecutions(1, "old", run.ratchet.api.NodeTagFilter.NONE)
+            .get(0);
+    recurringStore().releaseClaim(oldClaim);
+    var newClaim =
+        recurringStore()
+            .claimRecurringExecutions(1, "new", run.ratchet.api.NodeTagFilter.NONE)
+            .get(0);
+    recurringStore().releaseClaim(oldClaim);
+    recurringStore().releaseClaim(id);
+    org.junit.jupiter.api.Assertions.assertThrows(
+        run.ratchet.api.exception.RatchetTransientStoreException.class,
+        () -> recurringStore().advanceNextFire(id, due.plusSeconds(7200)));
+    org.junit.jupiter.api.Assertions.assertThrows(
+        run.ratchet.api.exception.RatchetTransientStoreException.class,
+        () ->
+            recurringStore()
+                .commitRecurringExecutions(
+                    List.of(
+                        new run.ratchet.store.spi.RecurringExecutionPlan(
+                            oldClaim, List.of(), due.plusSeconds(3600)))));
+    assertTrue(
+        recurringStore()
+            .claimRecurringExecutions(1, "third", run.ratchet.api.NodeTagFilter.NONE)
+            .isEmpty());
+    recurringStore()
+        .commitRecurringExecutions(
+            List.of(
+                new run.ratchet.store.spi.RecurringExecutionPlan(
+                    newClaim, List.of(), due.plusSeconds(3600))));
+    assertTrue(recurringStore().getRecurring(id).orElseThrow().nextFire().isAfter(Instant.now()));
+  }
+
   private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
     return new RecurringJobDefinition(
         id,

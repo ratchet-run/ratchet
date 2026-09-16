@@ -16,6 +16,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -39,6 +40,25 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   @AfterEach
   void cleanupBulkFixture() {
     cleanupStore();
+  }
+
+  @Test
+  void bulkInsert_duplicateInMiddleRollsBackEveryNewJob() {
+    var existing = persist(newPendingJob());
+    var first = newPendingJob();
+    first.setId(UuidV7Factory.create());
+    var duplicate = newPendingJob();
+    duplicate.setId(UuidV7Factory.create());
+    duplicate.setIdempotencyKey(existing.getIdempotencyKey());
+    var last = newPendingJob();
+    last.setId(UuidV7Factory.create());
+    assertThrows(RuntimeException.class, () -> store().bulkInsert(List.of(first, duplicate, last)));
+    assertTrue(
+        store().findById(first.getId()).isEmpty(),
+        "A failed bulk insert must not retain its prefix");
+    assertTrue(store().findById(last.getId()).isEmpty());
+    assertTrue(store().findOriginalJobIdByIdempotencyKey(first.getIdempotencyKey()).isEmpty());
+    assertTrue(store().findById(existing.getId()).isPresent());
   }
 
   @Test

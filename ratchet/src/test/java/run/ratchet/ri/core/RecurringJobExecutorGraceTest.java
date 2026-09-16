@@ -60,6 +60,8 @@ class RecurringJobExecutorGraceTest {
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private JobBulkStore jobBulkStore;
+  @Mock private JobBulkStore plannedChildren;
+  @Mock private RecurringJobStore plannedMasters;
   @Mock private RecurringJobStore recurringJobStore;
 
   private RecurringRegistrationState state;
@@ -67,10 +69,66 @@ class RecurringJobExecutorGraceTest {
 
   @BeforeEach
   void setUp() {
+    // Inspect the emitted plan through recording sinks; the real primitive stores must remain
+    // unused.
+    org.mockito.Mockito.lenient()
+        .doCallRealMethod()
+        .when(recurringJobStore)
+        .claimRecurringExecutions(anyInt(), anyString(), any());
+    org.mockito.Mockito.lenient()
+        .doAnswer(
+            inv -> {
+              run.ratchet.store.spi.RecurringClaim claim = inv.getArgument(0);
+              plannedMasters.releaseClaim(claim.definition().id());
+              return null;
+            })
+        .when(recurringJobStore)
+        .releaseClaim(any(run.ratchet.store.spi.RecurringClaim.class));
+    org.mockito.Mockito.lenient()
+        .doAnswer(
+            inv -> {
+              List<run.ratchet.store.spi.RecurringExecutionPlan> plans = inv.getArgument(0);
+              List<JobEntity> children =
+                  plans.stream().flatMap(plan -> plan.children().stream()).toList();
+              if (!children.isEmpty()) {
+                plannedChildren.bulkInsert(children);
+              }
+              for (var plan : plans) {
+                if (plan.nextFire() == null) {
+                  plannedMasters.cancelRecurringAndArchive(
+                      plan.claim().definition().id(), ArchiveReason.EXHAUSTED);
+                } else {
+                  plannedMasters.advanceNextFire(plan.claim().definition().id(), plan.nextFire());
+                }
+              }
+              return null;
+            })
+        .when(recurringJobStore)
+        .commitRecurringExecutions(any());
     state = new RecurringRegistrationState();
     executor =
         new RecurringJobExecutor(
             jobBulkStore, recurringJobStore, state, () -> NodeTagFilter.NONE, FIXED_CLOCK);
+  }
+
+  @org.junit.jupiter.api.AfterEach
+  void neverWritesPrimitiveStoreOperations() {
+    verify(jobBulkStore, never()).bulkInsert(any());
+    verify(recurringJobStore, never()).advanceNextFire(any(), any());
+    verify(recurringJobStore, never()).cancelRecurringAndArchive(any(), any());
+  }
+
+  @Test
+  void atomicCommitFailurePropagatesWithoutPrimitiveWrites() {
+    state.markRegistrationComplete(Set.of("known-key"));
+    RecurringJobDefinition master = recurringMaster(42L, "known-key");
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(master));
+    org.mockito.Mockito.doThrow(new IllegalStateException("commit failed"))
+        .when(recurringJobStore)
+        .commitRecurringExecutions(any());
+    org.junit.jupiter.api.Assertions.assertThrows(
+        IllegalStateException.class, () -> executor.process(10, "node-A"));
   }
 
   @Test
@@ -87,10 +145,10 @@ class RecurringJobExecutorGraceTest {
 
     // releaseClaim: no-op on SQL (FOR UPDATE row lock drops at tx commit), clears the claim
     // lease on Mongo so the row is claimable again on the next cycle.
-    verify(recurringJobStore).releaseClaim(orphan.id());
-    verify(recurringJobStore, never()).advanceNextFire(any(UUID.class), any(Instant.class));
-    verify(recurringJobStore, never()).cancelRecurringAndArchive(any(UUID.class), any());
-    verify(jobBulkStore, never()).bulkInsert(any());
+    verify(plannedMasters).releaseClaim(orphan.id());
+    verify(plannedMasters, never()).advanceNextFire(any(UUID.class), any(Instant.class));
+    verify(plannedMasters, never()).cancelRecurringAndArchive(any(UUID.class), any());
+    verify(plannedChildren, never()).bulkInsert(any());
   }
 
   @Test
@@ -106,9 +164,9 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, fired);
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    verify(plannedChildren).bulkInsert(childrenCaptor.capture());
     assertEquals(FIXED_NOW.plusSeconds(60), childrenCaptor.getValue().get(0).getScheduledTime());
-    verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
+    verify(plannedMasters).advanceNextFire(eq(known.id()), any(Instant.class));
   }
 
   @Test
@@ -123,7 +181,7 @@ class RecurringJobExecutorGraceTest {
     executor.process(10, "node-A");
 
     ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(children.capture());
+    verify(plannedChildren).bulkInsert(children.capture());
     assertNull(
         children.getValue().get(0).getBusinessKey(),
         "the master's active-unique key must not collide with a fired child");
@@ -143,7 +201,7 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, fired);
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    verify(plannedChildren).bulkInsert(childrenCaptor.capture());
     assertEquals(ExecutorTargets.VIRTUAL, childrenCaptor.getValue().get(0).getExecutionTarget());
   }
 
@@ -161,7 +219,7 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, fired);
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    verify(plannedChildren).bulkInsert(childrenCaptor.capture());
     assertEquals("audit-actor", childrenCaptor.getValue().get(0).getCallerPrincipal());
   }
 
@@ -199,11 +257,11 @@ class RecurringJobExecutorGraceTest {
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired);
-    verify(jobBulkStore).bulkInsert(any());
-    verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
+    verify(plannedChildren).bulkInsert(any());
+    verify(plannedMasters).advanceNextFire(eq(known.id()), any(Instant.class));
     // Both orphaned masters release their claim without re-scheduling.
-    verify(recurringJobStore).releaseClaim(orphan1.id());
-    verify(recurringJobStore).releaseClaim(orphan2.id());
+    verify(plannedMasters).releaseClaim(orphan1.id());
+    verify(plannedMasters).releaseClaim(orphan2.id());
   }
 
   @Test
@@ -238,8 +296,8 @@ class RecurringJobExecutorGraceTest {
     int fired = executor.process(10, "node-A");
 
     assertEquals(0, fired);
-    verify(recurringJobStore, never()).advanceNextFire(any(UUID.class), any(Instant.class));
-    verify(jobBulkStore, never()).bulkInsert(any());
+    verify(plannedMasters, never()).advanceNextFire(any(UUID.class), any(Instant.class));
+    verify(plannedChildren, never()).bulkInsert(any());
   }
 
   @Test
@@ -254,11 +312,11 @@ class RecurringJobExecutorGraceTest {
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired, "malformed recurring masters must not abort the batch");
-    verify(jobBulkStore).bulkInsert(any());
-    verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
+    verify(plannedChildren).bulkInsert(any());
+    verify(plannedMasters).advanceNextFire(eq(known.id()), any(Instant.class));
     // Malformed-cron skip releases the claim so the bad master can be re-observed once an
     // operator fixes the expression, without waiting out the Mongo lease window.
-    verify(recurringJobStore).releaseClaim(malformed.id());
+    verify(plannedMasters).releaseClaim(malformed.id());
   }
 
   @Test
@@ -275,12 +333,12 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, fired);
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    verify(plannedChildren).bulkInsert(childrenCaptor.capture());
     assertEquals(11, childrenCaptor.getValue().size());
-    verify(recurringJobStore, never())
+    verify(plannedMasters, never())
         .cancelRecurringAndArchive(eq(stale.id()), eq(ArchiveReason.EXHAUSTED));
     ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
-    verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
+    verify(plannedMasters).advanceNextFire(eq(stale.id()), next.capture());
     assertTrue(next.getValue().isAfter(FIXED_NOW));
   }
 
@@ -301,11 +359,11 @@ class RecurringJobExecutorGraceTest {
     int processed = executor.process(10, "node-A");
 
     assertEquals(1, processed);
-    verify(jobBulkStore, never()).bulkInsert(any());
+    verify(plannedChildren, never()).bulkInsert(any());
     ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
-    verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
+    verify(plannedMasters).advanceNextFire(eq(stale.id()), next.capture());
     assertTrue(next.getValue().isAfter(FIXED_NOW));
-    verify(recurringJobStore, never())
+    verify(plannedMasters, never())
         .cancelRecurringAndArchive(eq(stale.id()), eq(ArchiveReason.EXHAUSTED));
   }
 
@@ -324,11 +382,11 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, processed);
     ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(children.capture());
+    verify(plannedChildren).bulkInsert(children.capture());
     assertEquals(1, children.getValue().size());
     assertEquals(oldestDue, children.getValue().get(0).getScheduledTime());
     ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
-    verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
+    verify(plannedMasters).advanceNextFire(eq(stale.id()), next.capture());
     assertTrue(next.getValue().isAfter(FIXED_NOW));
   }
 
@@ -347,13 +405,13 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, processed);
     ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(children.capture());
+    verify(plannedChildren).bulkInsert(children.capture());
     assertEquals(3, children.getValue().size());
     assertEquals(oldestDue, children.getValue().get(0).getScheduledTime());
     assertEquals(oldestDue.plusSeconds(1), children.getValue().get(1).getScheduledTime());
     assertEquals(oldestDue.plusSeconds(2), children.getValue().get(2).getScheduledTime());
     ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
-    verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
+    verify(plannedMasters).advanceNextFire(eq(stale.id()), next.capture());
     assertTrue(next.getValue().isAfter(FIXED_NOW));
   }
 
@@ -372,7 +430,7 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, processed);
     ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(children.capture());
+    verify(plannedChildren).bulkInsert(children.capture());
     assertEquals(1, children.getValue().size());
     assertEquals(onlyDue, children.getValue().get(0).getScheduledTime());
   }
@@ -402,9 +460,9 @@ class RecurringJobExecutorGraceTest {
     executor.process(10, "node-A");
 
     ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(children.capture());
+    verify(plannedChildren).bulkInsert(children.capture());
     assertEquals(List.of(Instant.parse("2026-03-07T07:30:00Z")), scheduledTimes(children));
-    verify(recurringJobStore).advanceNextFire(master.id(), Instant.parse("2026-03-09T06:30:00Z"));
+    verify(plannedMasters).advanceNextFire(master.id(), Instant.parse("2026-03-09T06:30:00Z"));
   }
 
   @Test
@@ -432,9 +490,9 @@ class RecurringJobExecutorGraceTest {
     executor.process(10, "node-A");
 
     ArgumentCaptor<List<JobEntity>> children = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(children.capture());
+    verify(plannedChildren).bulkInsert(children.capture());
     assertEquals(List.of(Instant.parse("2026-11-01T05:30:00Z")), scheduledTimes(children));
-    verify(recurringJobStore).advanceNextFire(master.id(), Instant.parse("2026-11-02T06:30:00Z"));
+    verify(plannedMasters).advanceNextFire(master.id(), Instant.parse("2026-11-02T06:30:00Z"));
   }
 
   private static List<Instant> scheduledTimes(ArgumentCaptor<List<JobEntity>> children) {
@@ -454,10 +512,10 @@ class RecurringJobExecutorGraceTest {
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired);
-    verify(recurringJobStore).cancelRecurringAndArchive(exhausted.id(), ArchiveReason.EXHAUSTED);
-    verify(recurringJobStore, never()).advanceNextFire(eq(exhausted.id()), any(Instant.class));
+    verify(plannedMasters).cancelRecurringAndArchive(exhausted.id(), ArchiveReason.EXHAUSTED);
+    verify(plannedMasters, never()).advanceNextFire(eq(exhausted.id()), any(Instant.class));
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    verify(plannedChildren).bulkInsert(childrenCaptor.capture());
     assertEquals(1, childrenCaptor.getValue().size());
     assertEquals(exhausted.id(), childrenCaptor.getValue().get(0).getRecurringMasterId());
   }

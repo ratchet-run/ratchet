@@ -50,4 +50,19 @@ class PostgresqlRecurringJobStoreContractTest extends AbstractRecurringJobStoreC
   protected void cleanupRecurringStore() {
     fixture.cleanupStore();
   }
+
+  @Override
+  protected void commitRecurringPlansWithLaterFailure(
+      java.util.List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+    var second = plans.get(1);
+    // SQL inserts children before advancing masters. Make those inserts valid, then fail
+    // at the second master's archive statement after the first master's UPDATE completed.
+    var validPlans =
+        java.util.List.of(
+            plans.get(0),
+            new run.ratchet.store.spi.RecurringExecutionPlan(
+                second.claim(), java.util.List.of(), second.nextFire()));
+    fixture.failBeforeRecurringArchiveAfterAdvance(
+        () -> recurringStore().commitRecurringExecutions(validPlans));
+  }
 }

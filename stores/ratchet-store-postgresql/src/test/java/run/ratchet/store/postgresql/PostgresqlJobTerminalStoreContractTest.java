@@ -42,4 +42,9 @@ class PostgresqlJobTerminalStoreContractTest extends AbstractJobTerminalStoreCon
   public void cleanupStore() {
     fixture.cleanupStore();
   }
+
+  @Override
+  protected void inCompletionTransaction(Runnable work) {
+    fixture.runInTransaction(work);
+  }
 }

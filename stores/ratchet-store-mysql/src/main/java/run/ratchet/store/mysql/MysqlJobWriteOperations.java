@@ -36,6 +36,7 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.JobWriteSupport;
 import run.ratchet.store.util.RowValues;
+import run.ratchet.store.util.SqlIdempotencyKeys;
 
 final class MysqlJobWriteOperations {
 
@@ -119,6 +120,7 @@ final class MysqlJobWriteOperations {
       assignIdIfMissing(job);
     }
 
+    SqlIdempotencyKeys.reserve(ctx, jobs, nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
     executeColdBulkInsert(jobs, nowTs);
     executeHotBulkInsert(jobs, nowTs);
     executeBusinessKeyBulkInsert(jobs, nowTs);
@@ -143,6 +145,8 @@ final class MysqlJobWriteOperations {
         job.getStatus() != null && MysqlJobRowMapper.isTerminalStatus(job.getStatus());
 
     try {
+      SqlIdempotencyKeys.reserve(
+          ctx, List.of(job), nowTs, id -> UuidByteArrayConverter.toBytes(id), false);
       executeColdInsert(job, nowTs);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);

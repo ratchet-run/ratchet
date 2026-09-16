@@ -73,6 +73,24 @@ class JobWakeupServiceTest {
   }
 
   @Test
+  void registryLookupFallsBackToCdiWhenJndiIsUnavailable() {
+    org.junit.jupiter.api.Assertions.assertSame(
+        txRegistry,
+        JobWakeupService.lookupTxRegistry(
+            org.jboss.logging.Logger.getLogger(getClass()), () -> txRegistry));
+  }
+
+  @Test
+  void registryLookupWithoutEitherRuntimeRemainsAvailableToStandaloneCallers() {
+    org.junit.jupiter.api.Assertions.assertNull(
+        JobWakeupService.lookupTxRegistry(
+            org.jboss.logging.Logger.getLogger(getClass()),
+            () -> {
+              throw new IllegalStateException("no CDI provider");
+            }));
+  }
+
+  @Test
   void notify_wakesLocalPollerAndClusterImmediatelyWithoutTransaction() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
     when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
@@ -215,6 +233,84 @@ class JobWakeupServiceTest {
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
 
     assertEquals(1, actions.get());
+  }
+
+  @Test
+  void transactionQueuePreservesOrderAndContinuesAfterActionFailure() {
+    AtomicReference<Object> resource = new AtomicReference<>();
+    AtomicReference<Synchronization> synchronization = new AtomicReference<>();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    when(txRegistry.getResource(any())).thenAnswer(invocation -> resource.get());
+    doAnswer(
+            invocation -> {
+              resource.set(invocation.getArgument(1));
+              return null;
+            })
+        .when(txRegistry)
+        .putResource(any(), any());
+    doAnswer(
+            invocation -> {
+              synchronization.set(invocation.getArgument(0));
+              return null;
+            })
+        .when(txRegistry)
+        .registerInterposedSynchronization(any());
+    java.util.List<String> order = new java.util.ArrayList<>();
+    JobWakeupService.registerAfterCommit(txRegistry, () -> order.add("terminal"), LOG, "%s");
+    JobWakeupService.registerAfterCommit(
+        txRegistry,
+        () -> {
+          throw new IllegalStateException("observer");
+        },
+        LOG,
+        "%s");
+    JobWakeupService.registerAfterCommit(txRegistry, () -> order.add("dependent"), LOG, "%s");
+    verify(txRegistry).registerInterposedSynchronization(any());
+    assertEquals(java.util.List.of(), order);
+    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
+    assertEquals(java.util.List.of("terminal", "dependent"), order);
+    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
+    assertEquals(2, order.size(), "queue must be cleared after delivery");
+  }
+
+  @Test
+  void resourceStorageFailureCannotPublishAnUnregisteredAction() {
+    AtomicReference<Synchronization> synchronization = new AtomicReference<>();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doAnswer(
+            invocation -> {
+              synchronization.set(invocation.getArgument(0));
+              return null;
+            })
+        .when(txRegistry)
+        .registerInterposedSynchronization(any());
+    doThrow(new IllegalStateException("resource unavailable"))
+        .when(txRegistry)
+        .putResource(any(), any());
+    AtomicInteger actions = new AtomicInteger();
+    assertEquals(
+        AfterCommitRegistrationResult.ACTIVE_TRANSACTION_REGISTRATION_FAILED,
+        JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s"));
+    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
+    assertEquals(0, actions.get());
+  }
+
+  @Test
+  void transactionQueueDiscardsAllActionsOnRollback() {
+    AtomicReference<Synchronization> synchronization = new AtomicReference<>();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    doAnswer(
+            invocation -> {
+              synchronization.set(invocation.getArgument(0));
+              return null;
+            })
+        .when(txRegistry)
+        .registerInterposedSynchronization(any());
+    AtomicInteger actions = new AtomicInteger();
+    JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s");
+    synchronization.get().afterCompletion(Status.STATUS_ROLLEDBACK);
+    synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
+    assertEquals(0, actions.get());
   }
 
   @Test

@@ -105,7 +105,7 @@ class JobTaskAuthorizationTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
-            new JobSuccessFinalizer(jobStore, observabilityFacade),
+            new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
             errorSanitizer,
@@ -162,14 +162,13 @@ class JobTaskAuthorizationTest {
         new JobAuthorizationException(JOB_UUID, "execute", OWNER_PRINCIPAL, "denied");
     doThrow(denial).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
     when(validationFacade.shouldNotRetry(denial)).thenReturn(true);
-    when(jobStore.compareAndSwapStatus(
-            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
         .thenReturn(true);
 
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any());
-    verify(lifecycleFacade).moveToDlq(eq(job), eq(denial));
+    verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
   }
 
   @Test
@@ -183,8 +182,7 @@ class JobTaskAuthorizationTest {
         new JobAuthorizationException(JOB_UUID, "execute", OWNER_PRINCIPAL, "denied");
     doThrow(denial).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
     when(validationFacade.shouldNotRetry(denial)).thenReturn(true);
-    when(jobStore.compareAndSwapStatus(
-            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+    when(lifecycleFacade.completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false)))
         .thenReturn(false);
 
     jobTask.call();
@@ -219,7 +217,7 @@ class JobTaskAuthorizationTest {
     verify(jobStore).incrementRetryAttempt(JOB_UUID);
     verify(retryPolicy).shouldRetry(1, failure);
     verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1));
-    verify(jobStore, never()).compareAndSwapStatus(any(), any(), any(), any());
+    verify(lifecycleFacade, never()).completeFailure(any(JobEntity.class), any(), eq(false));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
   }
 
@@ -250,7 +248,7 @@ class JobTaskAuthorizationTest {
             observabilityFacade,
             validationFacade,
             new JobPayloadInvoker(beanResolver, classPolicy),
-            new JobSuccessFinalizer(jobStore, observabilityFacade),
+            new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
             retryPolicy,
             resilienceStrategy,
             errorSanitizer,
@@ -274,7 +272,7 @@ class JobTaskAuthorizationTest {
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
     // Default DefaultResultPersistenceStrategy is a real object that handles exceptions
-    when(jobStore.markJobSucceeded(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     nullPolicyTask.call();
@@ -334,7 +332,7 @@ class JobTaskAuthorizationTest {
             });
     when(resultPersistenceStrategy.serialize(any(), any()))
         .thenReturn(new SerializedJobResult(null, null));
-    when(jobStore.markJobSucceeded(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
   }
 }

@@ -503,3 +503,11 @@ CREATE TABLE IF NOT EXISTS scheduler_job_extension_state
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
+
+-- Permanent idempotency tombstones; deliberately independent of retained job history.
+CREATE TABLE IF NOT EXISTS scheduler_idempotency_key (
+    idempotency_key VARCHAR(36) NOT NULL,
+    original_job_id BINARY(16) NOT NULL,
+    reserved_at DATETIME(6) NOT NULL,
+    CONSTRAINT pk_scheduler_idempotency PRIMARY KEY (idempotency_key)
+);

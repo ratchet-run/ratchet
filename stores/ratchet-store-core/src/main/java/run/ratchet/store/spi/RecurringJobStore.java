@@ -60,11 +60,40 @@ public interface RecurringJobStore {
    * @param nodeId stable identity of the claiming node; never {@code null} or blank
    * @param tagFilter node-tag affinity filter applied during claim; never {@code null} (use {@link
    *     NodeTagFilter#NONE} to disable)
+   * @deprecated use {@link #claimRecurringExecutions}; this method discards lease ownership.
    * @return claimed definitions, never {@code null}; may be empty when nothing is due
    */
+  @Deprecated
   List<RecurringJobDefinition> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter);
 
-  /** {@link NodeTagFilter#NONE} overload. */
+  /**
+   * Claims masters with ownership evidence. SQL locks remain held by the caller's transaction;
+   * lease-based stores override this method to return an opaque token with each master.
+   */
+  default List<RecurringClaim> claimRecurringExecutions(
+      int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claimDueRecurring(limit, nodeId, tagFilter).stream()
+        .map(definition -> new RecurringClaim(definition, null))
+        .toList();
+  }
+
+  /**
+   * Atomically inserts every child and advances or archives its master. Any stale claim or child
+   * insertion failure must roll back the entire batch. SQL callers must retain the claim
+   * transaction. Custom stores must implement this composite; separate enqueue/advance calls are
+   * not a fallback.
+   */
+  void commitRecurringExecutions(List<RecurringExecutionPlan> plans);
+
+  /** Releases only this claim; lease stores must compare the opaque token before clearing it. */
+  default void releaseClaim(RecurringClaim claim) {
+    releaseClaim(claim.definition().id());
+  }
+
+  /**
+   * @deprecated use {@link #claimRecurringExecutions} with {@link NodeTagFilter#NONE}.
+   */
+  @Deprecated
   default List<RecurringJobDefinition> claimDueRecurring(int limit, String nodeId) {
     return claimDueRecurring(limit, nodeId, NodeTagFilter.NONE);
   }
@@ -75,9 +104,12 @@ public interface RecurringJobStore {
    * {@code next_fire} must clear the lease in the same write so the row becomes claimable again.
    * Transaction attribute: {@code REQUIRED}.
    *
+   * @deprecated use {@link #commitRecurringExecutions}; UUID-only writes cannot prove lease
+   *     ownership.
    * @param id recurring master id to advance; never {@code null}
    * @param nextFire next fire instant to persist; never {@code null}
    */
+  @Deprecated
   void advanceNextFire(UUID id, Instant nextFire);
 
   /**
@@ -89,7 +121,10 @@ public interface RecurringJobStore {
    * drops at transaction commit, so the default implementation is a no-op. Stores that durably mark
    * a claim (MongoDB sets {@code claim_token} + {@code claim_expires_at}) must override.
    * Transaction attribute: {@code REQUIRED}.
+   *
+   * @deprecated use {@link #releaseClaim(RecurringClaim)} to preserve lease ownership.
    */
+  @Deprecated
   default void releaseClaim(UUID id) {
     // No-op for stores whose claim is transaction-scoped.
   }
@@ -202,4 +237,11 @@ public interface RecurringJobStore {
    * recurring-flow integration tests). Transaction attribute: {@code SUPPORTS}.
    */
   List<RecurringJobDefinition> listAll();
+
+  /** Searches live masters with all constraints applied before bounded pagination. */
+  List<RecurringJobDefinition> searchRecurring(
+      run.ratchet.api.JobFilter filter, int limit, int offset);
+
+  /** Counts live masters matching the same constraints as search, excluding cursor position. */
+  long countRecurring(run.ratchet.api.JobFilter filter);
 }

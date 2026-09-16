@@ -271,7 +271,7 @@ public class ChainScheduler {
     this.txRegistry = txRegistry;
   }
 
-  private UUID findRootJobId(JobEntity job) {
+  protected UUID findRootJobId(JobEntity job) {
     UUID rootId = job.getId();
     UUID parentId = job.getDependsOn();
     Set<UUID> seen = new HashSet<>();

@@ -63,6 +63,14 @@ class MongoIndexConformanceTest {
 
   private static final MongoDBContainer MONGO =
       new MongoDBContainer("mongo:7.0")
+          .withCreateContainerCmdModifier(
+              command ->
+                  command
+                      .getHostConfig()
+                      .withUlimits(
+                          List.of(
+                              new com.github.dockerjava.api.model.Ulimit(
+                                  "nofile", 65536L, 65536L))))
           .withReplicaSet()
           .waitingFor(
               Wait.forLogMessage("(?i).*waiting for connections.*", 1)
@@ -80,13 +88,55 @@ class MongoIndexConformanceTest {
     client = MongoClientFactory.create(MONGO.getConnectionString());
     database =
         client.getDatabase("ratchet_idx_test_" + UUID.randomUUID().toString().substring(0, 8));
-    new MongoCollectionInitializer(database).initialize();
+    new MongoCollectionInitializer(database, client).initialize();
   }
 
   @AfterEach
   void tearDown() {
     database.drop();
     client.close();
+  }
+
+  @Test
+  void permanentKeysBackfillSurvivesHistoryDeletionAndRepeatedInitialization() {
+    database.getCollection("scheduler_store_migration").deleteMany(new Document());
+    UUID original = UUID.randomUUID();
+    database
+        .getCollection("scheduler_job")
+        .insertOne(
+            new Document(ID, original)
+                .append(IDEMPOTENCY_KEY, "pre-upgrade-key")
+                .append(STATUS, "SUCCEEDED")
+                .append("created_at", new java.util.Date()));
+    var initializer = new MongoCollectionInitializer(database, client);
+    initializer.initialize();
+    assertEquals(
+        java.util.Optional.of(original), MongoIdempotencyKeys.find(database, "pre-upgrade-key"));
+    database.getCollection("scheduler_job").deleteMany(new Document());
+    initializer.initialize();
+    assertEquals(
+        java.util.Optional.of(original), MongoIdempotencyKeys.find(database, "pre-upgrade-key"));
+  }
+
+  @Test
+  void permanentKeyBackfillRejectsConflictingOwner() {
+    database.getCollection("scheduler_store_migration").deleteMany(new Document());
+    database
+        .getCollection(MongoIdempotencyKeys.COLLECTION)
+        .insertOne(
+            new Document("_id", "conflict-key")
+                .append("original_job_id", UUID.randomUUID())
+                .append("reserved_at", new java.util.Date()));
+    database
+        .getCollection("scheduler_job")
+        .insertOne(
+            new Document(ID, UUID.randomUUID())
+                .append(IDEMPOTENCY_KEY, "conflict-key")
+                .append(STATUS, "SUCCEEDED")
+                .append("created_at", new java.util.Date()));
+    assertThrows(
+        RuntimeException.class,
+        () -> new MongoCollectionInitializer(database, client).initialize());
   }
 
   @Test
@@ -160,6 +210,21 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void staleBackfillCandidateCannotResurrectTerminalOrDeletedOwner() {
+    UUID owner = UUID.randomUUID();
+    var jobs = database.getCollection("scheduler_job");
+    jobs.insertOne(
+        new Document(ID, owner).append(STATUS, "SUCCEEDED").append(BUSINESS_KEY, "finished"));
+    var initializer = new MongoCollectionInitializer(database, client);
+    // Replay a candidate captured while PENDING after the owner has become terminal.
+    initializer.reserveExisting("finished", owner, BusinessKeyReservations.OWNER_TABLE_QUEUE);
+    assertEquals(0L, database.getCollection("scheduler_business_key_reservation").countDocuments());
+    jobs.deleteOne(new Document(ID, owner));
+    initializer.reserveExisting("finished", owner, BusinessKeyReservations.OWNER_TABLE_QUEUE);
+    assertEquals(0L, database.getCollection("scheduler_business_key_reservation").countDocuments());
+  }
+
+  @Test
   void initialize_backfillsExistingActiveOwnersIntoSharedBusinessKeyNamespace() {
     UUID queueId = UUID.randomUUID();
     UUID recurringId = UUID.randomUUID();
@@ -173,8 +238,8 @@ class MongoIndexConformanceTest {
         .getCollection("scheduler_recurring_job")
         .insertOne(new Document(ID, recurringId).append(BUSINESS_KEY, "existing-recurring"));
 
-    new MongoCollectionInitializer(database).initialize();
-    new MongoCollectionInitializer(database).initialize();
+    new MongoCollectionInitializer(database, client).initialize();
+    new MongoCollectionInitializer(database, client).initialize();
 
     assertEquals(
         2L,
@@ -214,8 +279,8 @@ class MongoIndexConformanceTest {
     List<Throwable> failures =
         ConcurrentTestRunner.runAll(
             Duration.ofSeconds(15),
-            () -> new MongoCollectionInitializer(database).initialize(),
-            () -> new MongoCollectionInitializer(database).initialize());
+            () -> new MongoCollectionInitializer(database, client).initialize(),
+            () -> new MongoCollectionInitializer(database, client).initialize());
 
     assertTrue(
         failures.stream().allMatch(Objects::isNull),
@@ -242,13 +307,13 @@ class MongoIndexConformanceTest {
     IllegalStateException thrown =
         assertThrows(
             IllegalStateException.class,
-            () -> new MongoCollectionInitializer(database).initialize());
+            () -> new MongoCollectionInitializer(database, client).initialize());
 
     assertTrue(thrown.getMessage().contains(key));
     assertTrue(thrown.getMessage().contains("multiple MongoDB owners"));
 
     database.getCollection("scheduler_job").deleteOne(new Document(ID, queueId));
-    new MongoCollectionInitializer(database).initialize();
+    new MongoCollectionInitializer(database, client).initialize();
     Document recovered =
         database
             .getCollection("scheduler_business_key_reservation")
@@ -275,7 +340,7 @@ class MongoIndexConformanceTest {
         .getCollection("scheduler_job")
         .createIndex(Indexes.ascending("legacy_tags"), new IndexOptions().name("idx_job_tags"));
 
-    assertDoesNotThrow(() -> new MongoCollectionInitializer(database).initialize());
+    assertDoesNotThrow(() -> new MongoCollectionInitializer(database, client).initialize());
 
     Document index = indexByName("scheduler_job", "idx_job_tags");
     assertNotNull(index);
@@ -293,7 +358,7 @@ class MongoIndexConformanceTest {
     IllegalStateException thrown =
         assertThrows(
             IllegalStateException.class,
-            () -> new MongoCollectionInitializer(database).initialize());
+            () -> new MongoCollectionInitializer(database, client).initialize());
 
     assertTrue(thrown.getMessage().contains(MongoIndexHints.JOB_CLAIM_EXEC));
   }

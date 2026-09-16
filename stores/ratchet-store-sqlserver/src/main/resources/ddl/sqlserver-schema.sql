@@ -469,3 +469,11 @@ CREATE TABLE scheduler_job_extension_state
 );
 
 CREATE INDEX idx_extension_state_key_id ON scheduler_job_extension_state (encryption_key_id);
+
+-- Permanent idempotency tombstones; deliberately independent of retained job history.
+CREATE TABLE scheduler_idempotency_key (
+    idempotency_key VARCHAR(36) NOT NULL,
+    original_job_id BINARY(16) NOT NULL,
+    reserved_at DATETIME2(6) NOT NULL,
+    CONSTRAINT pk_scheduler_idempotency PRIMARY KEY (idempotency_key)
+);
