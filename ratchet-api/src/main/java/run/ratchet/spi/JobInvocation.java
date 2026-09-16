@@ -17,6 +17,8 @@ package run.ratchet.spi;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import run.ratchet.api.Incubating;
 
@@ -46,6 +48,7 @@ public record JobInvocation(
   @Serial private static final long serialVersionUID = 1L;
 
   public JobInvocation {
-    arguments = arguments == null ? List.of() : List.copyOf(arguments);
+    arguments =
+        arguments == null ? List.of() : Collections.unmodifiableList(new ArrayList<>(arguments));
   }
 }
