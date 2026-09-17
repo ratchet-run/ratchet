@@ -818,7 +818,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
         "SERIALIZABLE and REPEATABLE READ both surface SQLState 40001 serialization failures on"
             + " concurrent job claims, which Ratchet's claim loop does not retry. Set"
             + " default_transaction_isolation = 'read committed' in postgresql.conf or unset any"
-            + " connection pool override (e.g. hibernate.connection.isolation=2).",
+            + " connection pool isolation override.",
         options.store().isolationCheckMode());
     initDelegates();
   }

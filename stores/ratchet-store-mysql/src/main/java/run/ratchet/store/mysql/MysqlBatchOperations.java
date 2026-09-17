@@ -28,7 +28,6 @@ import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.BatchStore;
@@ -223,9 +222,6 @@ final class MysqlBatchOperations implements BatchStore {
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
     try {
       if (ctx.em().find(BatchMetricsEntity.class, metrics.getBatchId()) == null) {
-        if (metrics.getBatchJob() == null) {
-          metrics.setBatchJob(ctx.em().getReference(JobEntity.class, metrics.getBatchId()));
-        }
         ctx.em().persist(metrics);
         return metrics;
       }

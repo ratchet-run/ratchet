@@ -29,7 +29,6 @@ import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
-import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.util.BatchProgressRows;
@@ -223,9 +222,6 @@ final class PostgresqlBatchOperations implements BatchStore {
 
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
-    if (metrics.getBatchJob() == null) {
-      metrics.setBatchJob(ctx.em().getReference(JobEntity.class, metrics.getBatchId()));
-    }
     // language=PostgreSQL
     String sql =
         """

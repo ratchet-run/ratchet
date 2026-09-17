@@ -819,14 +819,14 @@ class OracleJobStoreImpl implements OracleJobStore {
     // lifecycle callback), which then derails the first store write after startup — e.g. the
     // @Recurring master INSERT fails with STATUS_MARKED_ROLLBACK. Pass no probe query so the shared
     // check degrades to a safe skip; isolation stays pinned through the datasource and
-    // hibernate.connection.isolation.
+    // connection-pool configuration.
     IsolationCheck.verifyReadCommitted(
         em,
         "Oracle",
         List.of(),
         "READ COMMITTED",
         "Set transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource (Oracle's default)"
-            + " or hibernate.connection.isolation=2 in persistence.xml.",
+            + " or configure the connection pool to use JDBC TRANSACTION_READ_COMMITTED.",
         options.store().isolationCheckMode());
     initDelegates();
   }

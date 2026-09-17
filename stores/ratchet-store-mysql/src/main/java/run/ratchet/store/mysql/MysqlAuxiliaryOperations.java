@@ -72,6 +72,9 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset) {
+    if (limit == 0) {
+      return List.of();
+    }
     // language=JPAQL
     String jpql = "SELECT e FROM JobExecutionEntity e WHERE e.jobId = :jid ORDER BY e.attempt ASC";
     return ctx.em()

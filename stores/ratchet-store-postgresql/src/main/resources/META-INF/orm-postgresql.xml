@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PostgreSQL mapping for scheduler_job's JSONB columns. These column definitions align JPA
+  schema validation with the shipped schema. The SQL store reads and writes these fields through
+  native SQL. Other JSON-bearing entities use TEXT and retain their String JDBC mapping.
+-->
+<entity-mappings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xmlns="https://jakarta.ee/xml/ns/persistence/orm"
+                 xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence/orm
+                                     https://jakarta.ee/xml/ns/persistence/orm/orm_3_1.xsd"
+                 version="3.1">
+
+    <entity class="run.ratchet.store.entity.JobEntity">
+        <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="payload"/>
+        <convert converter="run.ratchet.store.converter.JsonMapConverter" attribute-name="params"/>
+        <convert converter="run.ratchet.store.converter.JsonMapConverter" attribute-name="traceContext"/>
+        <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="onSuccessPayload"/>
+        <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="onFailurePayload"/>
+        <attributes>
+            <basic name="payload">
+                <column name="payload" column-definition="jsonb" nullable="false"/>
+            </basic>
+            <basic name="params">
+                <column name="params" column-definition="jsonb"/>
+            </basic>
+            <basic name="traceContext">
+                <column name="trace_context" column-definition="jsonb"/>
+            </basic>
+            <basic name="onSuccessPayload">
+                <column name="on_success_payload" column-definition="jsonb"/>
+            </basic>
+            <basic name="onFailurePayload">
+                <column name="on_failure_payload" column-definition="jsonb"/>
+            </basic>
+            <basic name="jobResult">
+                <column name="job_result" column-definition="jsonb"/>
+            </basic>
+        </attributes>
+    </entity>
+
+</entity-mappings>
