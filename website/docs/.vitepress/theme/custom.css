@@ -254,6 +254,7 @@ html { color-scheme: light; }
 }
 
 .VPFeatures .container {
+  width: min(1120px, calc(100% - 2rem));
   max-width: 1120px !important;
 }
 

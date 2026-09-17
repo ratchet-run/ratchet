@@ -13,6 +13,7 @@ const facts = [
   { label: 'Apache 2.0', detail: 'no paid tier' },
   { label: 'Java 17+', detail: 'Jakarta EE 10 / 11' },
   { label: 'Quarkus verified', detail: 'JVM + native image, 5 databases', wide: true },
+  { label: 'Spring Boot', detail: 'Boot 3.5 / 4.1 · Java 17 / 21 · JVM', wide: true },
 ]
 </script>
 

@@ -21,6 +21,8 @@ public class OrderService {
 
 **[Full documentation → ratchet.run](https://ratchet.run/)**
 
+Spring Boot applications can use the SQL or MongoDB starters; see the [Spring Boot guide](website/docs/deployment/spring-boot.md).
+
 ---
 
 ## Why Ratchet

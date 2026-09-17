@@ -161,7 +161,7 @@ const rows: Row[] = [
   {
     capability: 'Spring Boot starter',
     cells: [
-      { status: 'no', label: 'Unplanned' },
+      { status: 'yes', footnote: 7 },
       { status: 'yes' },
       { status: 'yes' },
       { status: 'yes', label: 'Native' },
