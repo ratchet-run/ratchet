@@ -15,6 +15,17 @@
   <description>Shared Ratchet Quarkus runtime wiring used by persistence-specific flavors.</description>
 
   <dependencies>
+    <!-- Compile-only types for the conditional Netty native-image compatibility substitution. -->
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-handler</artifactId>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.graalvm.sdk</groupId>
+      <artifactId>nativeimage</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-arc</artifactId>
@@ -61,6 +72,14 @@
 
   <build>
     <plugins>
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <configuration>
+          <!-- Exact native-image type-remapping finding; other cast errors remain gated. -->
+          <excludeBugsFile>${project.basedir}/spotbugs-native-substitution.xml</excludeBugsFile>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>io.quarkus</groupId>
         <artifactId>quarkus-extension-maven-plugin</artifactId>

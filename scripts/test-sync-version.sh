@@ -90,7 +90,7 @@ assert_contains README.md 'Ratchet is in **9.8.7**.'
 assert_contains website/docs/deployment/database-setup.md 'ratchet-store-postgresql-9.8.7.jar'
 assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.jar'
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
-assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 4
+assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 5
 assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
 
 # The following development bump keeps public snippets on the release while
@@ -103,7 +103,7 @@ assert_contains website/docs/use-cases/durable-llm-workflows.md '<version>9.8.7<
 assert_contains website/docs/use-cases/durable-llm-workflows.md '`ratchet-api` `9.8.8-SNAPSHOT`'
 assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.jar'
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
-assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 4
+assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 5
 assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.8-SNAPSHOT.war'
 

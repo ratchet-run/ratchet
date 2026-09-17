@@ -36,6 +36,11 @@ import org.junit.jupiter.api.Test;
 class RatchetQuarkusSqlNativeIT {
 
   @Test
+  void nettyClientSslPreservesProtocolAndHostnameVerification() {
+    given().when().get("/native-netty/tls").then().statusCode(200).body(is("TLSv1.3:HTTPS:true"));
+  }
+
+  @Test
   void methodReferenceJobExecutesInNativeSqlApp() {
     given().when().post("/jobs/submit").then().statusCode(200).body(is("submitted"));
 
