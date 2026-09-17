@@ -216,7 +216,7 @@ export default defineConfig({
             { text: 'Configuration reference', link: '/deployment/configuration-reference' },
             { text: 'Quarkus', link: '/deployment/quarkus' },
             { text: 'Database Setup', link: '/deployment/database-setup' },
-            { text: 'Rolling Upgrades', link: '/deployment/rolling-upgrades' },
+            { text: 'Upgrade to 0.4.0', link: '/deployment/rolling-upgrades' },
             { text: 'MySQL', link: '/deployment/mysql' },
             { text: 'PostgreSQL', link: '/deployment/postgresql' },
             { text: 'Oracle', link: '/deployment/oracle' },

@@ -84,9 +84,9 @@ jobs:
             web:
               - 'website/**'
 
-  # Thin gate that releases the integration-test matrix: compile + format check
-  # only, no tests. The unit suite lives in the unit-tests job below, which runs
-  # in parallel with the matrix instead of in front of it.
+  # Gate the integration matrix on compilation, formatting, and a focused
+  # publishing-profile install. Tests run in the unit-tests job below, in
+  # parallel with the matrix.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -104,6 +104,12 @@ jobs:
         run: mvn clean compile -B
       - name: Format check
         run: mvn spotless:check -B
+      - name: Check publishing-profile dependency resolution
+        # Install locally to exercise flattened POMs without uploading artifacts.
+        run: >-
+          mvn -B -ntp clean install -P github
+          -pl :ratchet-quarkus-observability-integration-tests -am
+          -DskipTests -Dspotbugs.skip=true
 
   # Runs the unit suite exactly once per pipeline. Deliberately NOT gated on
   # changes or merge_group: build and spotbugs are the only other jobs that run
@@ -294,12 +300,11 @@ jobs:
           name: showcase-smoke-server-log
           path: testing/ratchet-showcase/target/wildfly-runs/*/standalone/log/server.log
 
-  # Eclipse Dash vets every dependency's license against the Eclipse Foundation
-  # approved-license list. It is SPDX-aware — it resolves dual licenses and the
-  # GPL Classpath / MySQL FOSS exceptions correctly, which a name-matching gate
-  # cannot — and is wired into ci-required below so a disallowed license blocks
-  # the merge instead of only being reported. Skipped in the merge queue (it ran
-  # on the PR) and on docs-only PRs (no dependency can have changed).
+  # Eclipse Dash resolves SPDX-aware license metadata and reports dependencies
+  # needing review. Its Maven goal can succeed with review-needed entries; the
+  # separate copyleft gate below enforces the shipped-dependency policy. This
+  # required job must complete its metadata queries. Skipped in the merge queue
+  # (it ran on the PR) and on docs-only PRs (no dependency can have changed).
   dash-license-check:
     needs: changes
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
@@ -333,16 +338,12 @@ jobs:
           </settings>
           EOF
       - name: Eclipse Dash license check
-        # api.eclipse.org occasionally times out under load. Retry up to six
-        # times with 60s between attempts to absorb transient failures without
-        # masking real outages. The batch size is capped because the default
-        # sends the whole dependency list (~344 items) as one request, which
-        # dies on the foundation's 60-second gateway timeout whenever the
-        # service is slow; batches of 25 finish well inside the window.
+        # Keep requests to Eclipse and ClearlyDefined small to limit work per
+        # request. Retry transient failures without skipping dependency checks.
         run: |
           for attempt in 1 2 3 4 5 6; do
             mvn org.eclipse.dash:license-tool-plugin:1.1.0:license-check \
-              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=25 && exit 0
+              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=10 && exit 0
             echo "Attempt $attempt failed; sleeping 60s before retry..."
             sleep 60
           done

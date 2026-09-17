@@ -129,7 +129,7 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
 
   @Test
   void checkCancel_isCalledWhenJobIsCancelled() {
-    JobHandle handle = jobService.enqueue(SimpleJob::execute).withMaxRetries(0).submit();
+    JobHandle handle = jobService.schedule(Duration.ofMinutes(5), SimpleJob::execute).submit();
 
     jobService.cancelJob(handle.id());
 
@@ -180,6 +180,8 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
         1,
         StubJobAuthorizationPolicy.getRetryCount(),
         "checkRetry must be called before retryJob evaluates job state");
+
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
   }
 
   @Test

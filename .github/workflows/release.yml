@@ -43,6 +43,11 @@ jobs:
             echo "::error::pom.xml <version> must end in -SNAPSHOT; got: $POM_VERSION"
             exit 1
           fi
+          NOTES_FILE=".github/release-notes/${POM_VERSION%-SNAPSHOT}.md"
+          if [[ ! -s "$NOTES_FILE" ]]; then
+            echo "::error::Reviewed release notes are required: $NOTES_FILE"
+            exit 1
+          fi
           echo "✓ Pre-flight green for ${POM_VERSION%-SNAPSHOT}"
 
   # Full CI matrix as the release gate — the release MUST NOT proceed if any cell is
@@ -208,7 +213,7 @@ jobs:
           # The release-version poms live only on this tag, never on main. Branch
           # protection and the merge queue govern refs/heads/main, not refs/tags/*, so
           # the tag is allowed where a direct push of these commits to main is not.
-          # Deploy already succeeded above, so a tag here means the artifacts are out.
+          # Deploy validated the Central staging bundle; publication is still manual.
           #
           # The tagged commit is made through the GitHub GraphQL createCommitOnBranch
           # mutation so it is signed by GitHub and shows as Verified — no signing key to
@@ -261,44 +266,17 @@ jobs:
           # the bump) start clean rather than on the release-version edits.
           git checkout -- .
 
-          echo "Released ${RELEASE_TAG} 🚀" >> "$GITHUB_STEP_SUMMARY"
+          echo "Staged ${RELEASE_TAG}; publish the validated bundle in Central before announcing it." >> "$GITHUB_STEP_SUMMARY"
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
-      - name: Create GitHub Release
-        # Release notes come from the commit list (Haiku-categorized when an API key is
-        # available, raw list otherwise) — the project keeps no tracked CHANGELOG.
-        # Commit subjects are passed through shell vars + jq --arg, never interpolated
-        # into the script via ${{ }}, so a crafted commit message cannot inject commands.
+      - name: Create draft GitHub Release
+        # Keep the reviewed upgrade instructions intact. Central publication is manual,
+        # so the operator publishes this draft only after verifying public artifacts.
         run: |
           set -euo pipefail
-          # The tag step creates RELEASE_TAG remotely through the API after this job's
-          # checkout already fetched tags, so the local clone doesn't have it yet.
-          git fetch --quiet origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
-          PREV_TAG=$(git describe --tags --abbrev=0 "${RELEASE_TAG}^" 2>/dev/null || echo "")
-          if [ -n "$PREV_TAG" ]; then
-            COMMITS=$(git log "${PREV_TAG}..${RELEASE_TAG}" --pretty=format:"- %s" \
-              | grep -v -E 'Release [0-9]|Start [0-9].*development')
-          else
-            COMMITS=$(git log "${RELEASE_TAG}" --pretty=format:"- %s" \
-              | grep -v -E 'Release [0-9]|Start [0-9].*development')
-          fi
-
-          printf '%s\n' "$COMMITS" > release-notes.md
-          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-            NOTES=$(curl -sf https://api.anthropic.com/v1/messages \
-              -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-              -H "anthropic-version: 2023-06-01" \
-              -H "content-type: application/json" \
-              -d "$(jq -n --arg commits "$COMMITS" '{
-                model: "claude-haiku-4-5-20251001",
-                max_tokens: 1024,
-                messages: [{role: "user", content: ("Categorize these git commits into GitHub release notes. Use these sections as needed: ## New Features, ## Bug Fixes, ## Dependency Updates, ## Other Changes. Use bulleted markdown lists. Only include sections that have entries. Do not add any preamble or explanation, just the categorized notes.\n\nCommits:\n" + $commits)}]
-              }')" | jq -r '.content[0].text') || NOTES=""
-            if [ -n "$NOTES" ]; then
-              printf '%s\n' "$NOTES" > release-notes.md
-            fi
-          fi
+          NOTES_FILE=".github/release-notes/${RELEASE_VERSION}.md"
+          test -s "$NOTES_FILE"
 
           # SBOMs attach as release assets; JARs live on Maven Central. Collect via a
           # counted array so an empty glob is a hard error, not a silent mis-expansion.
@@ -310,17 +288,15 @@ jobs:
           fi
           gh release create "${RELEASE_TAG}" \
             --title "${RELEASE_TAG}" \
-            --notes-file release-notes.md \
-            --latest \
+            --notes-file "$NOTES_FILE" \
+            --draft \
             "${sboms[@]}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
       # Move main to the next -SNAPSHOT through an ordinary PR so the merge queue and
-      # branch protection stay intact. This runs after the release is already out, so a
-      # hiccup here (e.g. the PAT lacking pull-request scope) leaves a pushed branch to
-      # open by hand and never blocks the published release.
+      # branch protection stay intact. Leave the PR for manual merge after Central
+      # publication; its public dependency examples refer to the new release.
       - name: Open next-development version bump PR
         run: |
           set -euo pipefail
@@ -359,28 +335,19 @@ jobs:
           # for the branch already exists, so probe first and only create when none is open.
           EXISTING_STATE="$(gh pr view "$BRANCH" --json state --jq '.state' 2>/dev/null || echo "")"
           if [ "$EXISTING_STATE" = "OPEN" ]; then
-            echo "An open bump PR already exists for ${BRANCH}; enabling auto-merge."
+            echo "An open bump PR already exists for ${BRANCH}."
           else
             gh pr create --base main --head "$BRANCH" \
               --title "Start ${NEXT_VERSION} development" \
-              --body "Automated reactor bump to ${NEXT_VERSION} after the ${RELEASE_TAG} release."
+              --body "Move the reactor to ${NEXT_VERSION}. Merge only after ${RELEASE_TAG} artifacts are publicly available on Maven Central and the draft GitHub release is published."
           fi
 
-          # Enable auto-merge (squash). No `|| true`: a genuine failure here must surface.
-          # This step runs AFTER the release is published, so a failure to merge the bump
-          # does not retro-fail the release — the summary tells the operator what to finish
-          # by hand, but the step still exits non-zero so the failure is visible.
-          if gh pr merge "$BRANCH" --auto --squash; then
-            echo "Auto-merge enabled for the ${NEXT_VERSION} bump PR."
-          else
-            echo "::error::Bump PR for ${BRANCH} could not be set to auto-merge."
-            {
-              echo "### Manual step needed"
-              echo "The ${RELEASE_TAG} release is published. The next-development bump branch"
-              echo "\`$BRANCH\` exists with a Verified commit, but enabling auto-merge failed."
-              echo "Merge its PR by hand to move the reactor to ${NEXT_VERSION}."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
+          {
+            echo "### Finish publication"
+            echo "1. Publish the validated ${RELEASE_TAG} bundle in Central."
+            echo "2. Verify the BOM and library artifacts resolve from Maven Central."
+            echo "3. Publish the draft GitHub release."
+            echo "4. Merge the ${NEXT_VERSION} development bump PR."
+          } >> "$GITHUB_STEP_SUMMARY"
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
