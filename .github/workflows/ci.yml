@@ -102,6 +102,10 @@ jobs:
           path: ~/.m2/repository
           key: m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: m2-
+      - name: Remove cached Ratchet artifacts
+        # Require sibling dependencies to resolve from this checkout. Installed
+        # snapshots can hide broken reactor resolution in documentation builds.
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
       - name: Compile and verify aggregate Javadoc
         run: scripts/build-javadoc.sh
       - name: Format check

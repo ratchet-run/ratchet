@@ -8,7 +8,10 @@ cd "$ROOT"
 # Separate invocations ensure every module has compiled before the root report
 # runs. aggregate-no-fork is not a Maven aggregator goal for task ordering.
 mvn -B -ntp clean compile
-mvn -B -ntp javadoc:aggregate-no-fork@aggregate-javadoc -P javadoc-aggregate
+# Repeat the compile phase in this session so Maven can resolve sibling modules
+# from target/classes when visiting child projects, even without installed JARs.
+# Do not clean here: the root report needs the complete reactor's compiled output.
+mvn -B -ntp compile javadoc:aggregate-no-fork@aggregate-javadoc -P javadoc-aggregate
 
 # Verify the public API and SPI pages as well as the landing page before copying
 # this directory into the website. A successful process alone is insufficient.
