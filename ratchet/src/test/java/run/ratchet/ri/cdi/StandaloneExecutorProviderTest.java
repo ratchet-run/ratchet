@@ -76,6 +76,18 @@ class StandaloneExecutorProviderTest {
   @Test
   void getJobExecutorByTargetResolvesVirtualExecutor() throws Exception {
     StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
+    if (Runtime.version().feature() < 21) {
+      try {
+        IllegalStateException failure =
+            assertThrows(
+                IllegalStateException.class,
+                () -> provider.getJobExecutor(ExecutorTargets.VIRTUAL));
+        assertTrue(failure.getMessage().contains("requires Java 21 or newer"));
+      } finally {
+        provider.shutdown();
+      }
+      return;
+    }
     ExecutorService virtualExecutor = null;
 
     try {

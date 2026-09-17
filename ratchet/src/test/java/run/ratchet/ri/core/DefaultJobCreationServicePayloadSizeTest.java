@@ -40,6 +40,7 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
@@ -223,7 +224,11 @@ class DefaultJobCreationServicePayloadSizeTest {
         null,
         null,
         null,
-        Clock.systemUTC());
+        Clock.systemUTC(),
+        true,
+        true,
+        null,
+        new JakartaAfterCommitRegistrar());
   }
 
   private static JobEntity saved(JobEntity job) {

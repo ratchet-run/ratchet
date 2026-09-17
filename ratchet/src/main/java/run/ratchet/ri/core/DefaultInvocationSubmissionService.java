@@ -47,7 +47,7 @@ public class DefaultInvocationSubmissionService implements InvocationSubmissionS
   }
 
   @Inject
-  DefaultInvocationSubmissionService(
+  public DefaultInvocationSubmissionService(
       DefaultJobCreationService jobCreationService, JobInvocationResolver jobInvocationResolver) {
     this.jobCreationService = jobCreationService;
     this.jobInvocationResolver = jobInvocationResolver;

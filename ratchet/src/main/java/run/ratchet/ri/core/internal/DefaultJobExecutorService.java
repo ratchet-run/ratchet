@@ -22,6 +22,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -34,6 +35,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.ri.core.DrainController;
@@ -137,6 +139,52 @@ public class DefaultJobExecutorService implements JobExecutorService {
       PayloadSerializer payloadSerializer,
       Clock clock,
       Instance<PreExecutionArgResolver> argResolver) {
+    this(
+        argResolver != null && argResolver.isResolvable() ? argResolver.get() : null,
+        poolRegistry,
+        timeoutHandler,
+        executorProvider,
+        jobStore,
+        resourcePermitService,
+        postExecutionHandler,
+        nodeIdProvider,
+        executionObserver,
+        preExecutionValidator,
+        payloadInvoker,
+        successFinalizer,
+        retryPolicy,
+        resilienceStrategy,
+        errorSanitizer,
+        pollerScheduler,
+        jobLoggerFactory,
+        resultPersistenceStrategy,
+        authorizationPolicy,
+        payloadSerializer,
+        clock);
+  }
+
+  public DefaultJobExecutorService(
+      PreExecutionArgResolver argResolver,
+      PoolRegistry poolRegistry,
+      JobTimeoutHandler timeoutHandler,
+      ExecutorProvider executorProvider,
+      JobStore jobStore,
+      ResourcePermitService resourcePermitService,
+      PostExecutionHandler postExecutionHandler,
+      NodeIdentityProvider nodeIdProvider,
+      ExecutionObserver executionObserver,
+      PreExecutionValidator preExecutionValidator,
+      JobPayloadInvoker payloadInvoker,
+      JobSuccessFinalizer successFinalizer,
+      RetryPolicy retryPolicy,
+      ResilienceStrategy resilienceStrategy,
+      ErrorSanitizer errorSanitizer,
+      PollerScheduler pollerScheduler,
+      JobLoggerFactory jobLoggerFactory,
+      ResultPersistenceStrategy resultPersistenceStrategy,
+      JobAuthorizationPolicy authorizationPolicy,
+      PayloadSerializer payloadSerializer,
+      Clock clock) {
     this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
@@ -157,7 +205,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
     this.authorizationPolicy = authorizationPolicy;
     this.payloadSerializer = payloadSerializer;
     this.clock = clock;
-    this.argResolver = argResolver != null && argResolver.isResolvable() ? argResolver.get() : null;
+    this.argResolver = argResolver;
   }
 
   private static void cancelTimeoutHandles(
@@ -417,6 +465,14 @@ public class DefaultJobExecutorService implements JobExecutorService {
     return clock != null ? clock : Clock.systemUTC();
   }
 
+  private volatile Runnable idleNotification = () -> {};
+
+  @Override
+  public BooleanSupplier onIdle(Runnable notification) {
+    idleNotification = Objects.requireNonNull(notification, "notification");
+    return activeFutures::isEmpty;
+  }
+
   private final class TrackingFutureTask extends FutureTask<Void> {
 
     private final AtomicBoolean runnerStarted = new AtomicBoolean(false);
@@ -468,6 +524,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       } finally {
         activeFutures.remove(this);
         runnerExited.countDown();
+        if (activeFutures.isEmpty()) idleNotification.run();
       }
     }
   }

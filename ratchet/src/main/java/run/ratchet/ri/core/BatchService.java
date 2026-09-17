@@ -19,7 +19,6 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
 import java.time.Clock;
@@ -40,11 +39,11 @@ import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
-import run.ratchet.ri.core.internal.JobWakeupService;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
+import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.WorkflowCompletionPlan;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
@@ -83,9 +82,8 @@ public class BatchService {
   private final ClassPolicy classPolicy;
   private final BeanResolver beanResolver;
   private final Clock clock;
-  private final Instance<BatchService> self;
-
-  private volatile TransactionSynchronizationRegistry txRegistry;
+  private final AfterCommitRegistrar afterCommitRegistrar;
+  private final BatchCompletionTransaction batchCompletionTransaction;
 
   protected BatchService() {
     this.batchStore = null;
@@ -99,33 +97,8 @@ public class BatchService {
     this.classPolicy = null;
     this.beanResolver = null;
     this.clock = null;
-    this.self = null;
-  }
-
-  public BatchService(
-      BatchStore batchStore,
-      JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      MetricsCollector metricsCollector,
-      InternalEventPublisher eventPublisher,
-      DeadLetterService deadLetterService,
-      WorkflowScheduler workflowScheduler,
-      ClassPolicy classPolicy,
-      BeanResolver beanResolver) {
-    this(
-        batchStore,
-        jobCrudStore,
-        jobBatchStatusStore,
-        jobTerminalStore,
-        metricsCollector,
-        eventPublisher,
-        deadLetterService,
-        workflowScheduler,
-        classPolicy,
-        beanResolver,
-        Clock.systemUTC(),
-        null);
+    this.afterCommitRegistrar = null;
+    this.batchCompletionTransaction = null;
   }
 
   @Inject
@@ -141,7 +114,8 @@ public class BatchService {
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
       Clock clock,
-      Instance<BatchService> self) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchCompletionTransaction batchCompletionTransaction) {
     this(
         batchStore.isResolvable() ? batchStore.get() : null,
         jobCrudStore,
@@ -154,34 +128,8 @@ public class BatchService {
         classPolicy,
         beanResolver,
         clock,
-        self);
-  }
-
-  BatchService(
-      BatchStore batchStore,
-      JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      MetricsCollector metricsCollector,
-      InternalEventPublisher eventPublisher,
-      DeadLetterService deadLetterService,
-      WorkflowScheduler workflowScheduler,
-      ClassPolicy classPolicy,
-      BeanResolver beanResolver,
-      Clock clock,
-      Instance<BatchService> self) {
-    this.batchStore = batchStore;
-    this.jobCrudStore = jobCrudStore;
-    this.jobBatchStatusStore = jobBatchStatusStore;
-    this.jobTerminalStore = jobTerminalStore;
-    this.metricsCollector = metricsCollector;
-    this.eventPublisher = eventPublisher;
-    this.deadLetterService = deadLetterService;
-    this.workflowScheduler = workflowScheduler;
-    this.classPolicy = classPolicy;
-    this.beanResolver = beanResolver;
-    this.clock = clock;
-    this.self = self;
+        afterCommitRegistrar,
+        batchCompletionTransaction);
   }
 
   public BatchService(
@@ -195,20 +143,22 @@ public class BatchService {
       WorkflowScheduler workflowScheduler,
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
-      Clock clock) {
-    this(
-        batchStore,
-        jobCrudStore,
-        jobBatchStatusStore,
-        jobTerminalStore,
-        metricsCollector,
-        eventPublisher,
-        deadLetterService,
-        workflowScheduler,
-        classPolicy,
-        beanResolver,
-        clock,
-        null);
+      Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchCompletionTransaction batchCompletionTransaction) {
+    this.batchStore = batchStore;
+    this.jobCrudStore = jobCrudStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
+    this.jobTerminalStore = jobTerminalStore;
+    this.metricsCollector = metricsCollector;
+    this.eventPublisher = eventPublisher;
+    this.deadLetterService = deadLetterService;
+    this.workflowScheduler = workflowScheduler;
+    this.classPolicy = classPolicy;
+    this.beanResolver = beanResolver;
+    this.clock = clock;
+    this.afterCommitRegistrar = afterCommitRegistrar;
+    this.batchCompletionTransaction = batchCompletionTransaction;
   }
 
   @PreDestroy
@@ -255,7 +205,8 @@ public class BatchService {
       JobEntity parent = parentMap.get(batchId);
       if (batch != null && parent != null) {
         try {
-          if (recoveryDelegate().recoverCompletedBatch(batchId, batch, parent)) {
+          if (batchCompletionTransaction.complete(
+              () -> recoverCompletedBatch(batchId, batch, parent))) {
             recovered++;
           }
         } catch (RuntimeException ex) {
@@ -266,7 +217,6 @@ public class BatchService {
     return recovered;
   }
 
-  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean recoverCompletedBatch(UUID batchId, BatchEntity batch, JobEntity parent) {
     JobStatus before = parent.getStatus();
     boolean scheduledNext = processBatchCompletion(batchId, batch, parent);
@@ -313,8 +263,10 @@ public class BatchService {
       return;
     }
 
-    Object instance = beanResolver.resolve(cls);
-    method.invoke(instance, ctx);
+    try (BeanResolver.ManagedBean bean = beanResolver.acquire(cls)) {
+      Object instance = bean.instance();
+      ManagedInvocation.exposedMethod(method, instance).invoke(instance, ctx);
+    }
   }
 
   private Class<?> loadProgressHookClass(String targetName) {
@@ -390,7 +342,8 @@ public class BatchService {
   private void publishBatchEvents(
       BatchEntity batch, JobEntity parent, boolean succeeded, Long totalDurationMs) {
     Runnable publish = () -> publishBatchEventsNow(batch, parent, succeeded, totalDurationMs);
-    if (registerAfterCommit(publish) == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (afterCommitRegistrar.registerAfterCommit(publish)
+        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
       publish.run();
     }
   }
@@ -452,32 +405,6 @@ public class BatchService {
 
   private static String batchFailureMessage(BatchEntity batch) {
     return "Batch completed with " + batch.getFailedItems() + " failed children";
-  }
-
-  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
-    return JobWakeupService.registerAfterCommit(
-        resolveTxRegistry(),
-        action,
-        log,
-        "After-commit batch completing event registration failed; events suppressed: %s");
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          reg = JobWakeupService.lookupTxRegistry(log);
-          txRegistry = reg;
-        }
-      }
-    }
-    return reg;
-  }
-
-  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
-    this.txRegistry = txRegistry;
   }
 
   private void trigger(BatchEntity batch) {
@@ -547,8 +474,11 @@ public class BatchService {
   /** Processes a counter snapshot already committed with its child's terminal transition. */
   // JTA may still associate the completed transaction with an afterCompletion callback thread.
   // Suspend it before reading counters or committing the synthetic parent's completion.
-  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean afterChildCompletion(BatchProgress progress) {
+    return batchCompletionTransaction.complete(() -> afterChildCompletionNow(progress));
+  }
+
+  private boolean afterChildCompletionNow(BatchProgress progress) {
     triggerWithProgress(progress.progressHook(), progress);
     BatchEntity current = completionSnapshot(progress.batchId(), progress);
     if (current.getCompletedItems() + current.getFailedItems() >= current.getTotalItems()) {
@@ -581,9 +511,5 @@ public class BatchService {
 
   private Clock effective() {
     return clock != null ? clock : Clock.systemUTC();
-  }
-
-  private BatchService recoveryDelegate() {
-    return self != null && !self.isUnsatisfied() ? self.get() : this;
   }
 }

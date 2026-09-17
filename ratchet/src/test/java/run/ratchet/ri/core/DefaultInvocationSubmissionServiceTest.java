@@ -42,6 +42,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.event.BatchChunkFailureEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
@@ -131,7 +132,11 @@ class DefaultInvocationSubmissionServiceTest {
         classPolicy,
         eventPublisher,
         null,
-        Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC));
+        Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
+        true,
+        true,
+        null,
+        new JakartaAfterCommitRegistrar());
   }
 
   private static JobInvocation sendInvoiceInvocation() {

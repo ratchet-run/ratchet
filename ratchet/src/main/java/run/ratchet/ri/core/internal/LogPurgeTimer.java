@@ -82,7 +82,7 @@ public class LogPurgeTimer {
         clock);
   }
 
-  LogPurgeTimer(
+  public LogPurgeTimer(
       JobAuditStore jobLogStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider,

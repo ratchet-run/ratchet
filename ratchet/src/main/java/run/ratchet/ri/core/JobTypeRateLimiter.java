@@ -28,7 +28,7 @@ import run.ratchet.store.entity.JobExecutionType;
 
 /** Per-type rate limiter using a one-minute sliding window. A value of 0 means unlimited. */
 @ApplicationScoped
-class JobTypeRateLimiter {
+public class JobTypeRateLimiter {
 
   private static final Logger log = Logger.getLogger(JobTypeRateLimiter.class);
 

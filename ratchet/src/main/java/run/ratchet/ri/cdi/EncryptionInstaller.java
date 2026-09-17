@@ -71,6 +71,7 @@ public class EncryptionInstaller {
   private final Instance<MetricsCollector> metricsCollector;
   private final NodeIdentityProvider nodeIdProvider;
   private final RatchetOptions options;
+  @Inject CdiRuntimeContextInstallation runtimeInstallation;
 
   /**
    * No-arg constructor so Weld can instantiate the client-proxy subclass (CDI 4.0 §3.15); never
@@ -125,6 +126,7 @@ public class EncryptionInstaller {
     if (engines == null || keyProvider == null || options == null) {
       return;
     }
+    if (runtimeInstallation != null) runtimeInstallation.installation();
     registerIntegrityMetricsBridge();
     boolean globalEnabled = options.encryption() != null && options.encryption().enabled();
 
@@ -144,7 +146,7 @@ public class EncryptionInstaller {
           ReferenceEncryptionFactory.fromEnvironment(resolveNodeEntropy());
       if (reference.isPresent()) {
         ReferenceEncryption ref = reference.get();
-        EncryptionHolder.install(
+        installEncryption(
             List.of(ref.engine()), ref.engine().algorithmId(), ref.keyProvider(), globalEnabled);
         return;
       }
@@ -154,7 +156,7 @@ public class EncryptionInstaller {
                 + " engine and KeyProvider are installed, and no reference keys are configured"
                 + " (RATCHET_ENCRYPTION_KEYS).");
       }
-      EncryptionHolder.disable();
+      installEncryption(List.of(), null, null, false);
       return;
     }
     if (!hasEngine) {
@@ -167,8 +169,19 @@ public class EncryptionInstaller {
           "A PayloadEncryption engine is installed but no KeyProvider is. Install a provider or"
               + " remove the engine.");
     }
-    EncryptionHolder.install(
+    installEncryption(
         engineList, resolveWriteAlgorithm(engineList), keyProvider.get(), globalEnabled);
+  }
+
+  private void installEncryption(
+      List<PayloadEncryption> engines, String algorithm, KeyProvider keys, boolean global) {
+    if (runtimeInstallation != null) {
+      runtimeInstallation.installation().configureEncryption(engines, algorithm, keys, global);
+    } else if (engines.isEmpty() && keys == null && !global) {
+      EncryptionHolder.disable();
+    } else {
+      EncryptionHolder.install(engines, algorithm, keys, global);
+    }
   }
 
   /**
@@ -254,7 +267,7 @@ public class EncryptionInstaller {
 
   @PreDestroy
   void onShutdown() {
-    EncryptionHolder.disable();
+    if (runtimeInstallation == null) EncryptionHolder.disable();
     EncryptionIntegrity.clearListener();
   }
 }

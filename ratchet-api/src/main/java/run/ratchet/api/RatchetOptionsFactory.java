@@ -28,16 +28,6 @@ import run.ratchet.spi.RatchetConfigSource;
 /** Builds immutable {@link RatchetOptions} from typed configuration keys. */
 public final class RatchetOptionsFactory {
 
-  private static final System.Logger LOG = System.getLogger(RatchetOptionsFactory.class.getName());
-
-  /**
-   * Retired in favour of {@code ratchet.worker.default-threading-mode}. Probed only so a stale
-   * value surfaces a warning instead of being silently ignored.
-   */
-  private static final RatchetConfigKey<String> RETIRED_USE_VIRTUAL_THREADS =
-      RatchetConfigKey.string(
-          "ratchet.worker.use-virtual-threads", "RATCHET_WORKER_USE_VIRTUAL_THREADS", "");
-
   private RatchetOptionsFactory() {}
 
   static RatchetOptions from(DefaultRatchetConfig config) {
@@ -224,7 +214,6 @@ public final class RatchetOptionsFactory {
 
   private static void configureExecution(
       DefaultRatchetConfig config, RatchetOptions.ExecutionBuilder execution) {
-    warnIfRetiredThreadingKeySet(config);
     execution
         .defaultThreadingMode(config.get(RatchetConfigKeys.WORKER_DEFAULT_THREADING_MODE))
         .jobExecutorJndi(config.get(RatchetConfigKeys.WORKER_JOB_EXECUTOR_JNDI))
@@ -262,22 +251,6 @@ public final class RatchetOptionsFactory {
         execution.rateLimitPerMinute(type, rateLimit);
       }
     }
-  }
-
-  private static void warnIfRetiredThreadingKeySet(DefaultRatchetConfig config) {
-    config
-        .raw(RETIRED_USE_VIRTUAL_THREADS)
-        .filter(value -> !value.isBlank())
-        .ifPresent(
-            value ->
-                LOG.log(
-                    System.Logger.Level.WARNING,
-                    "Ignoring retired config 'ratchet.worker.use-virtual-threads' (value '"
-                        + value
-                        + "'). It no longer has any effect. Set"
-                        + " 'ratchet.worker.default-threading-mode' (platform|virtual) to pick the"
-                        + " default pool and 'ratchet.worker.virtual-executor-jndi' to add a virtual"
-                        + " executor."));
   }
 
   private static void configureCircuitBreakerProfile(

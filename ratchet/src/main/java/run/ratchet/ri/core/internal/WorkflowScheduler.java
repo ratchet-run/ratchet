@@ -42,6 +42,7 @@ import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -77,23 +78,6 @@ public class WorkflowScheduler extends ChainScheduler {
     this.clock = null;
   }
 
-  public WorkflowScheduler(
-      JobCrudStore jobCrudStore,
-      JobTerminalStore jobTerminalStore,
-      WorkflowConditionStore conditionStore,
-      WorkflowConditionEvaluator conditionEvaluator) {
-    this(jobCrudStore, jobTerminalStore, conditionStore, conditionEvaluator, Clock.systemUTC());
-  }
-
-  public WorkflowScheduler(
-      JobCrudStore jobCrudStore,
-      JobTerminalStore jobTerminalStore,
-      WorkflowConditionStore conditionStore,
-      WorkflowConditionEvaluator conditionEvaluator,
-      Clock clock) {
-    this(jobCrudStore, jobTerminalStore, conditionStore, conditionEvaluator, clock, null);
-  }
-
   @Inject
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
@@ -101,24 +85,27 @@ public class WorkflowScheduler extends ChainScheduler {
       Instance<WorkflowConditionStore> conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
-      InternalEventPublisher eventPublisher) {
+      InternalEventPublisher eventPublisher,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this(
         jobCrudStore,
         jobTerminalStore,
         conditionStore.isResolvable() ? conditionStore.get() : null,
         conditionEvaluator,
         clock,
-        eventPublisher);
+        eventPublisher,
+        afterCommitRegistrar);
   }
 
-  WorkflowScheduler(
+  public WorkflowScheduler(
       JobCrudStore jobCrudStore,
       JobTerminalStore jobTerminalStore,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock,
-      InternalEventPublisher eventPublisher) {
-    super(jobCrudStore, jobTerminalStore, clock, eventPublisher);
+      InternalEventPublisher eventPublisher,
+      AfterCommitRegistrar afterCommitRegistrar) {
+    super(jobCrudStore, jobTerminalStore, clock, eventPublisher, afterCommitRegistrar);
     this.jobTerminalStore = jobTerminalStore;
     this.conditionStore = conditionStore;
     this.conditionEvaluator = conditionEvaluator;

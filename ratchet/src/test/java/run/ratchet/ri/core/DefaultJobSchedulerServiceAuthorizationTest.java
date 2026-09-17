@@ -42,6 +42,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.CallerPrincipalResolver;
@@ -126,7 +127,11 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             callerProvider,
             authorizationPolicy,
             null,
-            null);
+            null,
+            null,
+            Clock.systemUTC(),
+            null,
+            new JakartaAfterCommitRegistrar());
   }
 
   @Test
@@ -164,7 +169,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         null,
         null,
         Clock.systemUTC(),
-        callerPrincipalResolver);
+        callerPrincipalResolver,
+        new JakartaAfterCommitRegistrar());
   }
 
   @Test
@@ -425,7 +431,11 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             null,
             null,
-            null);
+            null,
+            null,
+            Clock.systemUTC(),
+            null,
+            new JakartaAfterCommitRegistrar());
 
     when(jobBatchStatusStore.compareAndSwapStatus(
             eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any()))

@@ -63,4 +63,28 @@ public class CdiBeanResolver implements BeanResolver {
     }
     return handle.get();
   }
+
+  @Override
+  public ManagedBean acquire(Class<?> type) {
+    Instance<?> instance = allBeans.select(type);
+    if (instance.isUnsatisfied() || instance.isAmbiguous()) {
+      throw new IllegalStateException("Cannot uniquely resolve CDI bean: " + type.getName());
+    }
+    Instance.Handle<?> handle = instance.getHandle();
+    Object bean = handle.get();
+    return new ManagedBean() {
+      private boolean closed;
+
+      public Object instance() {
+        return bean;
+      }
+
+      public void close() {
+        if (!closed && handle.getBean().getScope().equals(Dependent.class)) {
+          closed = true;
+          handle.destroy();
+        }
+      }
+    };
+  }
 }

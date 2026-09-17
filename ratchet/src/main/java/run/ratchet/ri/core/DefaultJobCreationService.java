@@ -20,7 +20,6 @@ import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
 import java.time.Clock;
@@ -54,11 +53,11 @@ import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -90,7 +89,7 @@ import run.ratchet.store.util.PayloadEncryptor;
 
 /** CDI-managed persistence boundary for scheduler builders. */
 @ApplicationScoped
-class DefaultJobCreationService
+public class DefaultJobCreationService
     implements JobSubmitter, BatchSubmitter, StreamingBatchSubmitter, RecurringJobSubmitter {
 
   private static final Logger log = Logger.getLogger(DefaultJobCreationService.class);
@@ -119,7 +118,7 @@ class DefaultJobCreationService
   private final boolean signalCapabilityAvailable;
   private final boolean resourcePermitCapabilityAvailable;
 
-  private volatile TransactionSynchronizationRegistry txRegistry;
+  private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected DefaultJobCreationService() {
     this.jobBatchStatusStore = null;
@@ -142,6 +141,7 @@ class DefaultJobCreationService
     this.eventPublisher = null;
     this.metricsCollector = null;
     this.clock = null;
+    this.afterCommitRegistrar = null;
     this.signalCapabilityAvailable = false;
     this.resourcePermitCapabilityAvailable = false;
   }
@@ -169,7 +169,8 @@ class DefaultJobCreationService
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
       Clock clock,
-      RatchetOptions options) {
+      RatchetOptions options,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this(
         jobBatchStatusStore,
         jobTerminalStore,
@@ -192,110 +193,11 @@ class DefaultJobCreationService
         clock,
         signalStore.isResolvable(),
         resourcePermitStore.isResolvable(),
-        options != null ? options.callerPrincipalResolver() : null);
+        options != null ? options.callerPrincipalResolver() : null,
+        afterCommitRegistrar);
   }
 
-  /**
-   * Constructor for tests that supply stores directly. Signal-waiting job creation is permitted
-   * (assumes the {@code SignalStore} capability is present); pass through the {@code @Inject}
-   * constructor to model an absent capability. No {@link CallerPrincipalResolver} is configured;
-   * use the overload below to exercise resolver-precedence behavior.
-   */
   public DefaultJobCreationService(
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      JobCrudStore jobCrudStore,
-      JobBulkStore jobBulkStore,
-      BatchStore batchStore,
-      TagStore tagStore,
-      WorkflowConditionStore workflowConditionStore,
-      RecurringJobStore recurringJobStore,
-      JobWakeupService wakeupService,
-      RecurringScheduler recurringScheduler,
-      JobInvocationResolver jobInvocationResolver,
-      JobPayloadInputValidator payloadValidator,
-      CallerPrincipalProvider callerPrincipalProvider,
-      TracingCollector tracingCollector,
-      JobAuthorizationPolicy authorizationPolicy,
-      ClassPolicy classPolicy,
-      InternalEventPublisher eventPublisher,
-      MetricsCollector metricsCollector,
-      Clock clock) {
-    this(
-        jobBatchStatusStore,
-        jobTerminalStore,
-        jobCrudStore,
-        jobBulkStore,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        recurringJobStore,
-        wakeupService,
-        recurringScheduler,
-        jobInvocationResolver,
-        payloadValidator,
-        callerPrincipalProvider,
-        tracingCollector,
-        authorizationPolicy,
-        classPolicy,
-        eventPublisher,
-        metricsCollector,
-        clock,
-        null);
-  }
-
-  /**
-   * Constructor for tests that need an application-supplied {@link CallerPrincipalResolver} in
-   * addition to directly-supplied stores. See the no-resolver overload above for the default
-   * (unconfigured) case.
-   */
-  public DefaultJobCreationService(
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      JobCrudStore jobCrudStore,
-      JobBulkStore jobBulkStore,
-      BatchStore batchStore,
-      TagStore tagStore,
-      WorkflowConditionStore workflowConditionStore,
-      RecurringJobStore recurringJobStore,
-      JobWakeupService wakeupService,
-      RecurringScheduler recurringScheduler,
-      JobInvocationResolver jobInvocationResolver,
-      JobPayloadInputValidator payloadValidator,
-      CallerPrincipalProvider callerPrincipalProvider,
-      TracingCollector tracingCollector,
-      JobAuthorizationPolicy authorizationPolicy,
-      ClassPolicy classPolicy,
-      InternalEventPublisher eventPublisher,
-      MetricsCollector metricsCollector,
-      Clock clock,
-      CallerPrincipalResolver callerPrincipalResolver) {
-    this(
-        jobBatchStatusStore,
-        jobTerminalStore,
-        jobCrudStore,
-        jobBulkStore,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        recurringJobStore,
-        wakeupService,
-        recurringScheduler,
-        jobInvocationResolver,
-        payloadValidator,
-        callerPrincipalProvider,
-        tracingCollector,
-        authorizationPolicy,
-        classPolicy,
-        eventPublisher,
-        metricsCollector,
-        clock,
-        true,
-        true,
-        callerPrincipalResolver);
-  }
-
-  private DefaultJobCreationService(
       JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
       JobCrudStore jobCrudStore,
@@ -317,7 +219,8 @@ class DefaultJobCreationService
       Clock clock,
       boolean signalCapabilityAvailable,
       boolean resourcePermitCapabilityAvailable,
-      CallerPrincipalResolver callerPrincipalResolver) {
+      CallerPrincipalResolver callerPrincipalResolver,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
@@ -338,6 +241,7 @@ class DefaultJobCreationService
     this.eventPublisher = eventPublisher;
     this.metricsCollector = metricsCollector;
     this.clock = clock;
+    this.afterCommitRegistrar = afterCommitRegistrar;
     this.signalCapabilityAvailable = signalCapabilityAvailable;
     this.resourcePermitCapabilityAvailable = resourcePermitCapabilityAvailable;
   }
@@ -1186,36 +1090,10 @@ class DefaultJobCreationService
             null,
             signalKey,
             signalTimeout);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (afterCommitRegistrar.registerAfterCommit(() -> eventPublisher.publish(event))
+        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
       eventPublisher.publish(event);
     }
-  }
-
-  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
-    return JobWakeupService.registerAfterCommit(
-        resolveTxRegistry(),
-        action,
-        log,
-        "After-commit signal waiting event registration failed; event suppressed: %s");
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          reg = JobWakeupService.lookupTxRegistry(log);
-          txRegistry = reg;
-        }
-      }
-    }
-    return reg;
-  }
-
-  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
-    this.txRegistry = txRegistry;
   }
 
   /**

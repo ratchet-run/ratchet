@@ -39,7 +39,7 @@ public class InternalEventPublisher {
   private final List<Consumer<Object>> listeners = new CopyOnWriteArrayList<>();
   private final Event<Object> cdiEvent;
 
-  protected InternalEventPublisher() {
+  public InternalEventPublisher() {
     this.cdiEvent = null;
   }
 

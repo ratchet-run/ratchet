@@ -96,6 +96,7 @@ public class RecurringJobProcessor {
   private final RatchetOptions options;
   private final Set<Class<?>> discoveredRecurringBeanClasses;
   private final Clock clock;
+  private RecurringJobStore explicitRecurringJobStore;
 
   // Field-injected (not constructor) so direct-construction test/SE paths leave them null and
   // register inline; the CDI-managed bean uses the managed scheduled executor (a post-deployment
@@ -233,6 +234,34 @@ public class RecurringJobProcessor {
         RatchetOptions.defaults());
   }
 
+  /**
+   * Registers the bean classes discovered by a host framework using the shared registration rules.
+   */
+  public RecurringJobProcessor(
+      InvocationSubmissionService invocationSubmissionService,
+      JobBatchStatusStore jobBatchStatusStore,
+      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
+      RecurringMethodInvoker methodInvoker,
+      StartupCoordinator startupCoordinator,
+      RecurringRegistrationState registrationState,
+      RatchetOptions options,
+      Set<Class<?>> recurringBeanClasses,
+      Clock clock,
+      RecurringJobStore recurringJobStore) {
+    this(
+        invocationSubmissionService,
+        jobBatchStatusStore,
+        recurringAnnotationMaintenanceService,
+        null,
+        methodInvoker,
+        startupCoordinator,
+        registrationState,
+        options,
+        recurringBeanClasses,
+        clock);
+    this.explicitRecurringJobStore = recurringJobStore;
+  }
+
   void onStartup(
       @Observes
           @Priority(RatchetRuntimeStart.PRIORITY_RECURRING_REGISTRATION)
@@ -358,7 +387,7 @@ public class RecurringJobProcessor {
    *     store does not advertise the recurring capability) and cleanup has completed or been
    *     skipped for lease contention, so the caller can stop retrying
    */
-  synchronized boolean registerRecurringJobs() {
+  public synchronized boolean registerRecurringJobs() {
     if (registrationPublished) {
       completeCleanup();
       return true;
@@ -395,6 +424,7 @@ public class RecurringJobProcessor {
   }
 
   private RecurringJobStore resolveRecurringJobStore() {
+    if (beanManager == null) return explicitRecurringJobStore;
     if (recurringJobStoreInstance == null || !recurringJobStoreInstance.isResolvable()) {
       return null;
     }
@@ -476,14 +506,17 @@ public class RecurringJobProcessor {
 
   private List<RecurringMethodRegistration> discoverRecurringMethods() {
     List<RecurringMethodRegistration> registrations = new ArrayList<>();
-    for (Bean<?> bean : recurringBeans()) {
-      processBean(bean, registrations);
+    Set<Class<?>> beanClasses =
+        beanManager == null
+            ? discoveredRecurringBeanClasses
+            : recurringBeans().stream().map(Bean::getBeanClass).collect(Collectors.toSet());
+    for (Class<?> beanClass : beanClasses) {
+      processBean(beanClass, registrations);
     }
     return registrations;
   }
 
-  private void processBean(Bean<?> bean, List<RecurringMethodRegistration> registrations) {
-    Class<?> beanClass = bean.getBeanClass();
+  private void processBean(Class<?> beanClass, List<RecurringMethodRegistration> registrations) {
     // Walk the class hierarchy so @Recurring methods declared on a superclass are picked up.
     // getDeclaredMethods() alone misses inherited methods. Filter synthetic/bridge methods
     // (which Weld and other CDI implementations sometimes generate) and dedupe by signature

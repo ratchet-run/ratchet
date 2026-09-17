@@ -95,9 +95,16 @@ class WorkflowSchedulerTest {
 
   @BeforeEach
   void setUp() {
+    lenient().when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
     scheduler =
         new WorkflowScheduler(
-            jobCrudStore, jobTerminalStore, conditionStore, conditionEvaluator, FIXED_CLOCK);
+            jobCrudStore,
+            jobTerminalStore,
+            conditionStore,
+            conditionEvaluator,
+            FIXED_CLOCK,
+            null,
+            new JakartaAfterCommitRegistrar(txRegistry));
     lenient()
         .when(jobCrudStore.findByIds(anyList()))
         .thenAnswer(
@@ -237,7 +244,8 @@ class WorkflowSchedulerTest {
             conditionStore,
             conditionEvaluator,
             FIXED_CLOCK,
-            eventPublisher);
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     JobEntity parent = job(new UUID(0L, 18L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 19L), JobStatus.PENDING);
     WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
@@ -259,7 +267,6 @@ class WorkflowSchedulerTest {
   @Test
   void scheduleNext_workflowBranchEventPublishesExactlyOnceAfterCommit() {
     scheduler = eventPublishingScheduler();
-    scheduler.setTxRegistryForTesting(txRegistry);
     AtomicReference<Synchronization> synchronization = activeTransaction();
     JobEntity parent = job(new UUID(0L, 180L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 190L), JobStatus.PENDING);
@@ -280,7 +287,6 @@ class WorkflowSchedulerTest {
   @Test
   void scheduleNext_workflowBranchEventIsSuppressedOnRollback() {
     scheduler = eventPublishingScheduler();
-    scheduler.setTxRegistryForTesting(txRegistry);
     AtomicReference<Synchronization> synchronization = activeTransaction();
     JobEntity parent = job(new UUID(0L, 181L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 191L), JobStatus.PENDING);
@@ -298,7 +304,6 @@ class WorkflowSchedulerTest {
   @Test
   void scheduleNext_workflowBranchEventIsSuppressedWhenAfterCommitRegistrationFails() {
     scheduler = eventPublishingScheduler();
-    scheduler.setTxRegistryForTesting(txRegistry);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     doThrow(new IllegalStateException("boom"))
         .when(txRegistry)
@@ -577,7 +582,8 @@ class WorkflowSchedulerTest {
         conditionStore,
         conditionEvaluator,
         FIXED_CLOCK,
-        eventPublisher);
+        eventPublisher,
+        new JakartaAfterCommitRegistrar(txRegistry));
   }
 
   private AtomicReference<Synchronization> activeTransaction() {

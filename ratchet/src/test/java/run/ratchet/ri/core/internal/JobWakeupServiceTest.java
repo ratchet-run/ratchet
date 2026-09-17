@@ -43,7 +43,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.ri.core.PollerScheduler;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
+import run.ratchet.spi.AfterCommitRegistrar.Result;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -69,21 +69,25 @@ class JobWakeupServiceTest {
   void setUp() {
     wakeupService =
         new JobWakeupService(
-            clusterCoordinator, pollerSchedulerInstance, metricsCollector, nodeIdentityProvider);
+            clusterCoordinator,
+            pollerSchedulerInstance,
+            metricsCollector,
+            nodeIdentityProvider,
+            new JakartaAfterCommitRegistrar());
   }
 
   @Test
   void registryLookupFallsBackToCdiWhenJndiIsUnavailable() {
     org.junit.jupiter.api.Assertions.assertSame(
         txRegistry,
-        JobWakeupService.lookupTxRegistry(
+        JakartaAfterCommitRegistrar.lookupTxRegistry(
             org.jboss.logging.Logger.getLogger(getClass()), () -> txRegistry));
   }
 
   @Test
   void registryLookupWithoutEitherRuntimeRemainsAvailableToStandaloneCallers() {
     org.junit.jupiter.api.Assertions.assertNull(
-        JobWakeupService.lookupTxRegistry(
+        JakartaAfterCommitRegistrar.lookupTxRegistry(
             org.jboss.logging.Logger.getLogger(getClass()),
             () -> {
               throw new IllegalStateException("no CDI provider");
@@ -124,7 +128,7 @@ class JobWakeupServiceTest {
             pollerSchedulerInstance,
             metricsCollector,
             nodeIdentityProvider,
-            txRegistry);
+            new JakartaAfterCommitRegistrar(txRegistry));
 
     wakeupService.notify(JobPriority.CRITICAL, true, null);
 
@@ -155,7 +159,7 @@ class JobWakeupServiceTest {
             pollerSchedulerInstance,
             metricsCollector,
             nodeIdentityProvider,
-            txRegistry);
+            new JakartaAfterCommitRegistrar(txRegistry));
 
     wakeupService.notify(JobPriority.CRITICAL, true, null);
     synchronization.get().afterCompletion(Status.STATUS_ROLLEDBACK);
@@ -188,7 +192,7 @@ class JobWakeupServiceTest {
             pollerSchedulerInstance,
             metricsCollector,
             nodeIdentityProvider,
-            txRegistry);
+            new JakartaAfterCommitRegistrar(txRegistry));
 
     wakeupService.notify(JobPriority.HIGH, true, null);
 
@@ -204,10 +208,9 @@ class JobWakeupServiceTest {
   void registerAfterCommit_reportsNoActiveTransactionWithoutRegistry() {
     AtomicInteger actions = new AtomicInteger();
 
-    AfterCommitRegistrationResult result =
-        JobWakeupService.registerAfterCommit(null, actions::incrementAndGet, LOG, "%s");
+    Result result = registerAfterCommit(null, actions::incrementAndGet);
 
-    assertEquals(AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION, result);
+    assertEquals(Result.NO_ACTIVE_TRANSACTION, result);
     assertEquals(0, actions.get());
   }
 
@@ -224,10 +227,9 @@ class JobWakeupServiceTest {
         .when(txRegistry)
         .registerInterposedSynchronization(ArgumentMatchers.any());
 
-    AfterCommitRegistrationResult result =
-        JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s");
+    Result result = registerAfterCommit(txRegistry, actions::incrementAndGet);
 
-    assertEquals(AfterCommitRegistrationResult.REGISTERED, result);
+    assertEquals(Result.REGISTERED, result);
     assertEquals(0, actions.get());
 
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
@@ -256,15 +258,13 @@ class JobWakeupServiceTest {
         .when(txRegistry)
         .registerInterposedSynchronization(any());
     java.util.List<String> order = new java.util.ArrayList<>();
-    JobWakeupService.registerAfterCommit(txRegistry, () -> order.add("terminal"), LOG, "%s");
-    JobWakeupService.registerAfterCommit(
+    registerAfterCommit(txRegistry, () -> order.add("terminal"));
+    registerAfterCommit(
         txRegistry,
         () -> {
           throw new IllegalStateException("observer");
-        },
-        LOG,
-        "%s");
-    JobWakeupService.registerAfterCommit(txRegistry, () -> order.add("dependent"), LOG, "%s");
+        });
+    registerAfterCommit(txRegistry, () -> order.add("dependent"));
     verify(txRegistry).registerInterposedSynchronization(any());
     assertEquals(java.util.List.of(), order);
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
@@ -289,8 +289,8 @@ class JobWakeupServiceTest {
         .putResource(any(), any());
     AtomicInteger actions = new AtomicInteger();
     assertEquals(
-        AfterCommitRegistrationResult.ACTIVE_TRANSACTION_REGISTRATION_FAILED,
-        JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s"));
+        Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED,
+        registerAfterCommit(txRegistry, actions::incrementAndGet));
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
     assertEquals(0, actions.get());
   }
@@ -307,7 +307,7 @@ class JobWakeupServiceTest {
         .when(txRegistry)
         .registerInterposedSynchronization(any());
     AtomicInteger actions = new AtomicInteger();
-    JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s");
+    registerAfterCommit(txRegistry, actions::incrementAndGet);
     synchronization.get().afterCompletion(Status.STATUS_ROLLEDBACK);
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
     assertEquals(0, actions.get());
@@ -321,10 +321,9 @@ class JobWakeupServiceTest {
         .when(txRegistry)
         .registerInterposedSynchronization(ArgumentMatchers.any());
 
-    AfterCommitRegistrationResult result =
-        JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s");
+    Result result = registerAfterCommit(txRegistry, actions::incrementAndGet);
 
-    assertEquals(AfterCommitRegistrationResult.ACTIVE_TRANSACTION_REGISTRATION_FAILED, result);
+    assertEquals(Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED, result);
     assertEquals(0, actions.get());
   }
 
@@ -333,12 +332,16 @@ class JobWakeupServiceTest {
     AtomicInteger actions = new AtomicInteger();
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_MARKED_ROLLBACK);
 
-    AfterCommitRegistrationResult result =
-        JobWakeupService.registerAfterCommit(txRegistry, actions::incrementAndGet, LOG, "%s");
+    Result result = registerAfterCommit(txRegistry, actions::incrementAndGet);
 
-    assertEquals(AfterCommitRegistrationResult.ACTIVE_TRANSACTION_REGISTRATION_FAILED, result);
+    assertEquals(Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED, result);
     assertEquals(0, actions.get());
     verify(txRegistry, never()).registerInterposedSynchronization(any());
+  }
+
+  private static Result registerAfterCommit(
+      TransactionSynchronizationRegistry registry, Runnable action) {
+    return new JakartaAfterCommitRegistrar(registry).registerAfterCommit(action);
   }
 
   @Test

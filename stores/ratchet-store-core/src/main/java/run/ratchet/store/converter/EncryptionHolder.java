@@ -104,12 +104,23 @@ public final class EncryptionHolder {
       throw new EncryptionConfigurationException(
           "Configured write algorithm is not installed: " + writeAlgorithmId);
     }
-    state = new State(Map.copyOf(registry), write, keyProvider, true, globalEnabled);
+    synchronized (RuntimeContextInstallation.class) {
+      RuntimeContextInstallation.checkUnowned();
+      state = new State(Map.copyOf(registry), write, keyProvider, true, globalEnabled);
+    }
+  }
+
+  static Runnable snapshotRestorer() {
+    State previous = state;
+    return () -> state = previous;
   }
 
   /** Reverts to the disabled state. Called at container shutdown and between tests. */
   public static void disable() {
-    state = DISABLED;
+    synchronized (RuntimeContextInstallation.class) {
+      RuntimeContextInstallation.checkUnowned();
+      state = DISABLED;
+    }
   }
 
   /**

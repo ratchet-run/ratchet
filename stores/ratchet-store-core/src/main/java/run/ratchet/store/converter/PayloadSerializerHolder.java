@@ -51,7 +51,10 @@ public final class PayloadSerializerHolder {
    * @param serializer the serializer to install; MAY be {@code null} to revert to the fallback
    */
   public static void set(PayloadSerializer serializer) {
-    delegate = serializer;
+    synchronized (RuntimeContextInstallation.class) {
+      RuntimeContextInstallation.checkUnowned();
+      delegate = serializer;
+    }
   }
 
   /**

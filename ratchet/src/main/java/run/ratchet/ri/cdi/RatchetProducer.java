@@ -25,7 +25,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -43,7 +42,6 @@ import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
-import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PoolRegistry;
@@ -69,6 +67,7 @@ import run.ratchet.spi.PrincipalSource;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.PayloadSerializerHolder;
+import run.ratchet.store.converter.RuntimeContextInstallation;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -95,6 +94,8 @@ public class RatchetProducer {
   /** Per-type default limit for the virtual pool when no explicit limit is configured. */
   private static final int DEFAULT_VIRTUAL_LIMIT = 1000;
 
+  @Inject CdiRuntimeContextInstallation runtimeInstallation;
+
   private final ExecutorProvider executorProvider;
   private final MetricsCollector metricsCollector;
   private final TracingCollector tracingCollector;
@@ -108,8 +109,6 @@ public class RatchetProducer {
   private final PollingStrategyProvider pollingStrategyProvider;
   private final CircuitBreakerConfigProvider circuitBreakerConfigProvider;
   private volatile Instance.Handle<PayloadSerializer> dependentPayloadSerializerHandle;
-
-  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected RatchetProducer() {
     this.executorProvider = null;
@@ -220,23 +219,9 @@ public class RatchetProducer {
         signalStore.isResolvable() ? signalStore.get() : null,
         metricsCollector,
         signalTimeoutBatchSize,
-        resolveTxRegistry(),
+        null,
         singletonLeaseService,
         errorSanitizer);
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          reg = JobWakeupService.lookupTxRegistry(log);
-          txRegistry = reg;
-        }
-      }
-    }
-    return reg;
   }
 
   @Produces
@@ -347,7 +332,8 @@ public class RatchetProducer {
         throw new DeploymentException(message);
       }
       log.errorf(
-          "ClassPolicy allowedPackages is empty and RatchetOptions allows it. ALL job targets will be rejected.");
+          "ClassPolicy allowedPackages is empty and RatchetOptions allows it. ALL job targets will"
+              + " be rejected.");
     }
     return policy;
   }
@@ -424,21 +410,25 @@ public class RatchetProducer {
       @Observes @Initialized(ApplicationScoped.class) Object init,
       Instance<PayloadSerializer> payloadSerializers) {
     if (payloadSerializers.isResolvable()) {
+      RuntimeContextInstallation owner =
+          runtimeInstallation == null ? null : runtimeInstallation.installation();
       destroyDependentPayloadSerializer();
       Instance.Handle<PayloadSerializer> handle = payloadSerializers.getHandle();
-      PayloadSerializerHolder.set(handle.get());
+      if (owner == null) PayloadSerializerHolder.set(handle.get());
+      else owner.setSerializer(handle.get());
       if (handle.getBean().getScope().equals(Dependent.class)) {
         dependentPayloadSerializerHandle = handle;
       }
     } else {
       log.warn(
-          "No PayloadSerializer bean resolvable at startup; JPA converters will use fallback JSON-B.");
+          "No PayloadSerializer bean resolvable at startup; JPA converters will use fallback"
+              + " JSON-B.");
     }
   }
 
   @PreDestroy
   void unregisterPayloadSerializer() {
-    PayloadSerializerHolder.set(null);
+    if (runtimeInstallation == null) PayloadSerializerHolder.set(null);
     destroyDependentPayloadSerializer();
   }
 

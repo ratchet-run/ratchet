@@ -16,6 +16,7 @@
 package run.ratchet.ri.core;
 
 import java.time.Duration;
+import java.util.function.BooleanSupplier;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 
@@ -43,4 +44,10 @@ public interface JobExecutorService {
   boolean awaitIdle(Duration timeout) throws InterruptedException;
 
   int shutdownActiveExecutions();
+
+  /**
+   * Registers the runtime owner's idle notification and returns a container-independent check of
+   * actual runner quiescence. Canceled futures are not idle until their runners have exited.
+   */
+  BooleanSupplier onIdle(Runnable notification);
 }

@@ -33,6 +33,7 @@ import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
+import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.security.MethodLookup;
@@ -84,7 +85,7 @@ public class WorkflowConditionEvaluator {
   }
 
   /** Constructor for tests that supply a store directly (or {@code null} for no batch support). */
-  WorkflowConditionEvaluator(
+  public WorkflowConditionEvaluator(
       BatchStore batchStore,
       BeanResolver beanResolver,
       ClassPolicy classPolicy,
@@ -300,8 +301,13 @@ public class WorkflowConditionEvaluator {
         target = contextArg;
         args = new Object[0];
       } else {
-        target = beanResolver.resolve(cls);
-        args = fillArgs(payload.args(), contextArg);
+        try (BeanResolver.ManagedBean handle = beanResolver.acquire(cls)) {
+          target = handle.instance();
+          method = ManagedInvocation.exposedMethod(method, target);
+          args = fillArgs(payload.args(), contextArg);
+          return Boolean.TRUE.equals(
+              method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args)));
+        }
       }
       Object result =
           method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args));
