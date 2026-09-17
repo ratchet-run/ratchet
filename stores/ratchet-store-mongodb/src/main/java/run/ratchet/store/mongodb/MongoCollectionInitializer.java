@@ -181,13 +181,13 @@ class MongoCollectionInitializer {
                       session,
                       eq(ID, candidate.get(ID)),
                       new Document("$inc", new Document("backfill_version", 1L)));
-              if (reservation == null) return null;
+              if (reservation == null) return true;
               String key = reservation.getString(ID);
               UUID owner = reservation.get(OWNER_JOB_ID, UUID.class);
               String table = reservation.getString(OWNER_TABLE);
               if (key == null || owner == null || !ownerIsActive(session, key, owner, table))
                 reservations.deleteOne(session, eq(ID, reservation.get(ID)));
-              return null;
+              return true;
             });
       }
     }
@@ -229,7 +229,7 @@ class MongoCollectionInitializer {
                         eligible,
                         new Document("$inc", new Document("reservation_backfill_version", 1L)))
                     .getMatchedCount();
-            if (matched == 0) return null;
+            if (matched == 0) return true;
             var reservations = database.getCollection("scheduler_business_key_reservation");
             Document reserved = reservations.find(session, eq(ID, businessKey)).first();
             if (reserved == null) {
@@ -244,7 +244,7 @@ class MongoCollectionInitializer {
               throw new IllegalStateException(
                   "Business key is active for multiple MongoDB owners: " + businessKey);
             }
-            return null;
+            return true;
           });
     }
   }

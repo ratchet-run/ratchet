@@ -119,6 +119,8 @@ public abstract class AbstractBulkRetryContract {
       if (total >= expected) {
         return;
       }
+      // Wait for an observable invocation count; the job exposes no completion callback.
+      //noinspection BusyWait
       Thread.sleep(50L);
     }
     assertEquals(

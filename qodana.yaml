@@ -14,6 +14,8 @@ exclude:
       - stores/ratchet-store-sqlserver/src/main/java
       - testing/ratchet-testsuite/src/main/java/run/ratchet/testsuite/app
       - stores/ratchet-store-core/src/main/java/run/ratchet/store/converter
+      # This helper borrows the store context's EntityManager; the caller owns its lifecycle.
+      - stores/ratchet-store-core/src/main/java/run/ratchet/store/util/SqlIdempotencyKeys.java
       # ExecutorService is used as a test resource
       - testing/ratchet-tck/util/src/main/java/run/ratchet/tck/util/ConcurrentTestRunner.java
       # Jsonb is held as an application-scoped serializer and closed in @PreDestroy.
