@@ -282,6 +282,11 @@ public class JobTimeoutHandler {
       scanSignalTimeoutsWithLease();
       return;
     }
+    // Most polls have no expired signal waits. Avoid writing the shared lease row in that case.
+    // This is only a probe: re-read the batch under the lease before processing any jobs.
+    if (signalStore.findTimedOutSignalJobs(effective().instant(), 1).isEmpty()) {
+      return;
+    }
     Optional<SingletonLease> lease =
         singletonLeaseService.tryAcquire(SIGNAL_TIMEOUT_LEASE_NAME, SIGNAL_TIMEOUT_LEASE_TTL);
     if (lease.isEmpty()) {

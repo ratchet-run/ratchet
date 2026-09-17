@@ -228,34 +228,27 @@ final class MysqlAuxiliaryOperations
       // language=MySQL
       String sql =
           """
-          SELECT max_concurrent,
-                 (SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?),
-                 (SELECT COUNT(*) FROM scheduler_resource_permit
-                  WHERE resource_name = ? AND job_id = ?)
-          FROM scheduler_resource_limit
-          WHERE resource_name = ?
-          FOR UPDATE
+          SELECT max_concurrent FROM scheduler_resource_limit
+          WHERE resource_name = ? FOR UPDATE
           """;
-      @SuppressWarnings("unchecked")
-      List<Object[]> permitResults =
-          ctx.em()
-              .createNativeQuery(sql)
-              .setParameter(1, resource)
-              .setParameter(2, resource)
-              .setParameter(3, UuidByteArrayConverter.toBytes(jobId))
-              .setParameter(4, resource)
-              .getResultList();
-      Object[] limits = permitResults.stream().findFirst().orElse(null);
-
-      if (limits == null) {
+      List<?> limits = ctx.em().createNativeQuery(sql).setParameter(1, resource).getResultList();
+      if (limits.isEmpty()) {
         throw new IllegalArgumentException("Resource is not configured: " + resource);
       }
+      int maxConcurrent = ((Number) limits.get(0)).intValue();
+      // The resource row serializes acquisitions. Read permits after taking that lock, using a
+      // current read: a REPEATABLE READ snapshot may predate a different owner's committed permit.
+      List<?> permits =
+          ctx.em()
+              .createNativeQuery(
+                  "SELECT job_id FROM scheduler_resource_permit WHERE resource_name = ? FOR UPDATE")
+              .setParameter(1, resource)
+              .getResultList();
+      int active = permits.size();
+      boolean existingForJob =
+          permits.stream().anyMatch(id -> jobId.equals(MysqlJobRowMapper.uuidOrNull(id)));
 
-      int maxConcurrent = ((Number) limits[0]).intValue();
-      int active = ((Number) limits[1]).intValue();
-      int existingForJob = ((Number) limits[2]).intValue();
-
-      if (existingForJob > 0) {
+      if (existingForJob) {
         return true;
       }
       if (active >= maxConcurrent) {

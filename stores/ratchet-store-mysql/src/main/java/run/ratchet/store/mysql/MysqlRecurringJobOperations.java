@@ -81,25 +81,54 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     }
     try {
       String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "r", "id");
-      // language=MySQL
-      String sql =
-          ("SELECT "
-                  + SELECT_COLUMNS
-                  + " FROM scheduler_recurring_job r"
-                  + " WHERE r.is_paused = FALSE"
-                  + " AND r.next_fire <= NOW(3)"
-                  + tagSql
-                  + " ORDER BY r.priority DESC, r.next_fire ASC, r.id ASC"
-                  + " LIMIT ? FOR UPDATE SKIP LOCKED")
-              .replaceAll("\\s+", " ");
-      Query q = ctx.em().createNativeQuery(sql);
-      int p = 1;
-      p = JobClaimSqlSupport.bindTagFilter(q, tagFilter, p);
-      q.setParameter(p, limit);
-      List<Object[]> rows = q.getResultList();
-      List<RecurringJobDefinition> defs = new ArrayList<>(rows.size());
-      for (Object[] row : rows) {
-        defs.add(hydrate(row));
+      String eligibility = "r.is_paused = FALSE AND r.next_fire <= NOW(3)" + tagSql;
+      List<RecurringJobDefinition> defs = new ArrayList<>();
+      Set<UUID> selectedIds = new java.util.HashSet<>();
+      int offset = 0;
+      // As with ordinary claims, range discovery must not lock gaps at REPEATABLE READ.
+      // Lock exact primary keys, recheck eligibility, and move past locked candidates.
+      for (int page = 0; page < 16 && defs.size() < limit; page++) {
+        int remaining = limit - defs.size();
+        Query candidates =
+            ctx.em()
+                .createNativeQuery(
+                    "SELECT r.id FROM scheduler_recurring_job r WHERE "
+                        + eligibility
+                        + " ORDER BY r.priority DESC, r.next_fire ASC, r.id ASC LIMIT ? OFFSET ?");
+        int p = JobClaimSqlSupport.bindTagFilter(candidates, tagFilter, 1);
+        candidates.setParameter(p++, remaining);
+        candidates.setParameter(p, offset);
+        List<?> ids = candidates.getResultList();
+        if (ids.isEmpty()) break;
+        offset += ids.size();
+        String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+        Query locked =
+            ctx.em()
+                .createNativeQuery(
+                    "SELECT "
+                        + SELECT_COLUMNS
+                        + " FROM scheduler_recurring_job r FORCE INDEX (PRIMARY)"
+                        + " WHERE r.id IN ("
+                        + placeholders
+                        + ") AND "
+                        + eligibility
+                        + " FOR UPDATE SKIP LOCKED");
+        List<UUID> order = new ArrayList<>();
+        p = 1;
+        for (Object id : ids) {
+          UUID uuid = MysqlJobRowMapper.uuidOrNull(id);
+          order.add(uuid);
+          locked.setParameter(p++, UuidByteArrayConverter.toBytes(uuid));
+        }
+        JobClaimSqlSupport.bindTagFilter(locked, tagFilter, p);
+        List<Object[]> rows = locked.getResultList();
+        List<RecurringJobDefinition> pageDefs =
+            rows.stream().map(MysqlRecurringJobOperations::hydrate).toList();
+        for (var definition :
+            JobClaimSqlSupport.reorderById(pageDefs, order, RecurringJobDefinition::id)) {
+          if (selectedIds.add(definition.id())) defs.add(definition);
+        }
+        if (ids.size() < remaining) break;
       }
       return defs;
     } catch (RuntimeException e) {

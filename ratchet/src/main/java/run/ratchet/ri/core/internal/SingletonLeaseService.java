@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import org.jboss.logging.Logger;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.LockStore;
@@ -29,6 +30,8 @@ import run.ratchet.store.spi.LockStore;
 /** Acquires expiring cluster-wide leases for work that must run on at most one node at a time. */
 @ApplicationScoped
 public class SingletonLeaseService {
+
+  private static final int MAX_ACQUISITION_ATTEMPTS = 3;
 
   private static final Logger log = Logger.getLogger(SingletonLeaseService.class);
 
@@ -83,15 +86,35 @@ public class SingletonLeaseService {
       // orphan recovery, which is core) still runs on this node.
       return Optional.of(new SingletonLease(null, normalizedName, nodeId));
     }
-    try {
-      if (!lockStore.tryLock(normalizedName, ttl, nodeId)) {
+    for (int attempt = 1; ; attempt++) {
+      try {
+        // Each SQL facade call uses REQUIRES_NEW, so a deadlock victim is retried only
+        // after its failed transaction has rolled back. Never retry within that transaction.
+        if (!lockStore.tryLock(normalizedName, ttl, nodeId)) {
+          return Optional.empty();
+        }
+        return Optional.of(new SingletonLease(lockStore, normalizedName, nodeId));
+      } catch (RatchetTransientStoreException e) {
+        if (attempt == MAX_ACQUISITION_ATTEMPTS) {
+          log.errorf(
+              e,
+              "Failed to acquire singleton lease %s for node %s after %s attempts",
+              normalizedName,
+              nodeId,
+              attempt);
+          return Optional.empty();
+        }
+        log.warnf(
+            e,
+            "Transient failure acquiring singleton lease %s for node %s; retrying after attempt %s/%s",
+            normalizedName,
+            nodeId,
+            attempt,
+            MAX_ACQUISITION_ATTEMPTS);
+      } catch (RuntimeException e) {
+        log.errorf(e, "Failed to acquire singleton lease %s for node %s", normalizedName, nodeId);
         return Optional.empty();
       }
-    } catch (RuntimeException e) {
-      log.errorf(e, "Failed to acquire singleton lease %s for node %s", normalizedName, nodeId);
-      return Optional.empty();
     }
-
-    return Optional.of(new SingletonLease(lockStore, normalizedName, nodeId));
   }
 }

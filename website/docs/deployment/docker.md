@@ -117,14 +117,16 @@ module add --name=com.mysql \
     password=${env.DB_PASSWORD:ratchet}, \
     min-pool-size=5, \
     max-pool-size=20, \
-    transaction-isolation=TRANSACTION_READ_COMMITTED, \
     valid-connection-checker-class-name=org.jboss.jca.adapters.jdbc.extensions.mysql.MySQLValidConnectionChecker)
 
 stop-embedded-server
 ```
 
-:::caution MySQL Isolation Level
-MySQL defaults to `REPEATABLE READ`, which causes gap locks on `SELECT ... FOR UPDATE` that block concurrent inserts. Always set `transaction-isolation=TRANSACTION_READ_COMMITTED` on the data source, or append `?sessionVariables=transaction_isolation='READ-COMMITTED'` to the JDBC URL.
+:::info MySQL isolation level
+The current MySQL store supports default `REPEATABLE READ` and `READ COMMITTED`.
+No datasource isolation override is required. Existing `READ COMMITTED` configurations
+remain supported. See [MySQL isolation](./mysql.md#transaction-isolation) for verification
+and guidance when upgrading older builds.
 :::
 
 ## Payara Micro Dockerfile
@@ -242,7 +244,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DB_URL: "jdbc:mysql://mysql:3306/ratchet?sessionVariables=transaction_isolation='READ-COMMITTED'"
+      DB_URL: "jdbc:mysql://mysql:3306/ratchet"
       DB_USERNAME: ratchet
       DB_PASSWORD: ratchet
     depends_on:
@@ -265,7 +267,6 @@ services:
       --default-authentication-plugin=caching_sha2_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
-      --transaction-isolation=READ-COMMITTED
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s

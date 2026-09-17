@@ -1,5 +1,5 @@
 -- Ratchet scheduler schema for MySQL
--- IMPORTANT: configure READ COMMITTED isolation — see IsolationCheck.java
+-- Supported isolation: MySQL default REPEATABLE READ or READ COMMITTED.
 
 -- 0. Schema version ledger (used by external migration tooling or an optional Ratchet migrator)
 CREATE TABLE IF NOT EXISTS ratchet_schema_version

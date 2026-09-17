@@ -147,7 +147,7 @@ Before going to production:
 
 1. **Apply or initialize storage:** run schema SQL for MySQL/PostgreSQL/Oracle/SQL Server; let MongoDB initialize collections and indexes at startup
 2. **Configure the store resource:** JNDI-bound, JTA-managed `DataSource` for SQL stores, or a CDI-produced `MongoDatabase` for MongoDB
-3. **Set isolation level for SQL stores:** MySQL requires `READ COMMITTED` (not the default `REPEATABLE READ`)
+3. **Check store isolation support:** MySQL supports its default `REPEATABLE READ` and `READ COMMITTED`; consult the database-specific guide for other stores
 4. **Tune polling:** adjust `polling.minDelayMs`, `polling.maxDelayMs`, and `polling.batchSize` for your workload
 5. **Set up retention:** configure `maintenance.jobRetentionDays`, `maintenance.dlqPurgeDays`, and `maintenance.logRetentionDays` to prevent unbounded table growth
 6. **Enable metrics:** wire `MetricsCollector` to your monitoring stack

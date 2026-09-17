@@ -48,7 +48,7 @@ class MysqlNodeLockOperationsTest {
   @Test
   void tryLock_returnsTrueFromSuccessfulMutationWithoutOwnerSelect() {
     List<String> sqlStatements = new ArrayList<>();
-    MysqlNodeLockOperations locks = newLocks(sqlStatements, 1);
+    MysqlNodeLockOperations locks = newLocks(sqlStatements, 1, 1);
 
     assertTrue(locks.tryLock("new-lock", Duration.ofMinutes(5), "node-A"));
 
@@ -58,15 +58,23 @@ class MysqlNodeLockOperationsTest {
   }
 
   @Test
+  void tryLock_ignoresMatchedRowCountFromNoOpUpsert() {
+    List<String> sqlStatements = new ArrayList<>();
+    MysqlNodeLockOperations locks = newLocks(sqlStatements, 1, 0);
+
+    assertFalse(locks.tryLock("held-lock", Duration.ofMinutes(5), "node-B"));
+  }
+
+  @Test
   void tryLock_preservesSubSecondTtl() {
     List<String> sqlStatements = new ArrayList<>();
     List<Object> parameters = new ArrayList<>();
-    MysqlNodeLockOperations locks = newLocksCapturingParams(sqlStatements, parameters, 1);
+    MysqlNodeLockOperations locks = newLocksCapturingParams(sqlStatements, parameters, 1, 1);
 
     assertTrue(locks.tryLock("short-lock", Duration.ofMillis(500), "node-A"));
 
     assertTrue(sqlStatements.get(0).contains("DATE_ADD(NOW(6), INTERVAL ? MICROSECOND)"));
-    assertEquals(500_000L, parameters.get(1));
+    assertEquals(500_000L, parameters.get(2));
   }
 
   @Test
