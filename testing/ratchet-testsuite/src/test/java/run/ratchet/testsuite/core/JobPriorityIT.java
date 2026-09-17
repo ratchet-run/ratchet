@@ -23,9 +23,11 @@ import java.util.List;
 import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -33,6 +35,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.PollerControl;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Validates store claim ordering and executable-type filtering. */
@@ -41,6 +44,8 @@ class JobPriorityIT extends BaseRatchetIT {
   @Inject private JobCrudStore jobCrudStore;
 
   @Inject private JobClaimStore jobClaimStore;
+
+  @Inject private PollerScheduler pollerScheduler;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -52,6 +57,15 @@ class JobPriorityIT extends BaseRatchetIT {
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
+  }
+
+  // These tests claim rows directly. Quiesce the engine before cleanup and seeding so its
+  // background poller cannot consume the jobs before the assertions run.
+  @Override
+  @BeforeEach
+  protected void truncateAll() throws Exception {
+    PollerControl.stopAndAwait(pollerScheduler);
+    super.truncateAll();
   }
 
   @Test
