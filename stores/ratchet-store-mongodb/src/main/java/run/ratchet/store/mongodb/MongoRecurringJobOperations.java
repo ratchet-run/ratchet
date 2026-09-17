@@ -209,7 +209,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
             }
             crud.bulkInsert(
                 session, plans.stream().flatMap(plan -> plan.children().stream()).toList());
-            return null;
+            return true;
           });
     }
   }
@@ -362,7 +362,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
               () -> {
                 reservations.reserveRecurring(session, d.businessKey(), d.id());
                 ctx.recurringJobs().insertOne(session, doc);
-                return null;
+                return true;
               });
         }
       }

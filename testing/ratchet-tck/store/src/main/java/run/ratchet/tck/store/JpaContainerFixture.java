@@ -132,10 +132,16 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
         });
     try {
       work.run();
+    } catch (RuntimeException | Error failure) {
+      // Keep an early failure from satisfying the caller's expected rollback exception.
+      if (!advanced.get()) {
+        throw new AssertionError("No earlier-master UPDATE was executed", failure);
+      }
+      throw failure;
     } finally {
       observeNativeQueries((sql, event) -> {});
-      if (!advanced.get()) throw new AssertionError("No earlier-master UPDATE was executed");
     }
+    if (!advanced.get()) throw new AssertionError("No earlier-master UPDATE was executed");
   }
 
   private jakarta.persistence.Query observeQuery(String sql, jakarta.persistence.Query target) {

@@ -47,6 +47,8 @@ public class RatchetStartupTrigger {
   }
 
   void onStart(@Observes StartupEvent event) {
+    // This instance is the CDI startup event, despite the class also holding shared constants.
+    //noinspection InstantiationOfUtilityClass
     startEvent.fire(new RatchetRuntimeStart());
   }
 }

@@ -140,7 +140,7 @@ final class MongoJobCrudOperations {
               MongoIdempotencyKeys.reserve(ctx.database(), session, List.of(job));
               reservations.syncForJob(session, job);
               ctx.jobs().insertOne(session, doc);
-              return null;
+              return true;
             });
       }
     } catch (RuntimeException e) {
@@ -191,7 +191,7 @@ final class MongoJobCrudOperations {
                         + expectedVersion
                         + ")");
               }
-              return null;
+              return true;
             });
       }
     } catch (RuntimeException e) {
@@ -226,7 +226,7 @@ final class MongoJobCrudOperations {
           () -> {
             reservations.releaseByOwner(session, id);
             ctx.jobs().deleteOne(session, eq(ID, id));
-            return null;
+            return true;
           });
     }
   }
@@ -530,7 +530,7 @@ final class MongoJobCrudOperations {
       session.withTransaction(
           () -> {
             insertPreparedDocuments(session, jobList, docs);
-            return null;
+            return true;
           });
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {

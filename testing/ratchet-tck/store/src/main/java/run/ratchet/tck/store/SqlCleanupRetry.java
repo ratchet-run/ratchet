@@ -32,6 +32,8 @@ public final class SqlCleanupRetry {
           throw failure;
         }
         try {
+          // Bounded backoff between fresh cleanup transactions after serialization failures.
+          //noinspection BusyWait
           Thread.sleep(50L * attempt);
         } catch (InterruptedException interrupted) {
           Thread.currentThread().interrupt();
