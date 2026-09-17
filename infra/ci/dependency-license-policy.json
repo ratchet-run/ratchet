@@ -1,0 +1,3995 @@
+{
+  "schemaVersion": 1,
+  "allowedLicenses": [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "EPL-1.0",
+    "EPL-2.0",
+    "MIT",
+    "MIT-0",
+    "UPL-1.0"
+  ],
+  "reactorLicenses": [
+    {
+      "name": "Apache License, Version 2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+    }
+  ],
+  "dependencies": {
+    "aopalliance:aopalliance:1.0": {
+      "licenses": [
+        {
+          "name": "Public Domain",
+          "url": ""
+        }
+      ],
+      "expression": "LicenseRef-AOP-Alliance-Public-Domain",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/aopalliance/aopalliance/1.0/aopalliance-1.0.pom",
+        "https://aopalliance.sourceforge.net/"
+      ],
+      "exception": "AOP Alliance declares its source public domain. Retain the existing use of this exact artifact; the POM omits a license URL."
+    },
+    "com.aayushatharva.brotli4j:brotli4j:1.23.0": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/aayushatharva/brotli4j/brotli4j/1.23.0/brotli4j-1.23.0.pom"
+      ]
+    },
+    "com.aayushatharva.brotli4j:native-linux-x86_64:1.23.0": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/aayushatharva/brotli4j/native-linux-x86_64/1.23.0/native-linux-x86_64-1.23.0.pom"
+      ]
+    },
+    "com.aayushatharva.brotli4j:service:1.23.0": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/aayushatharva/brotli4j/service/1.23.0/service-1.23.0.pom"
+      ]
+    },
+    "com.cronutils:cron-utils:9.2.1": {
+      "licenses": [
+        {
+          "name": "Apache 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/cronutils/cron-utils/9.2.1/cron-utils-9.2.1.pom"
+      ]
+    },
+    "com.fasterxml.jackson.core:jackson-annotations:2.18.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-annotations/2.18.2/jackson-annotations-2.18.2.pom"
+      ]
+    },
+    "com.fasterxml.jackson.core:jackson-core:2.22.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.22.1/jackson-core-2.22.1.pom"
+      ]
+    },
+    "com.fasterxml:classmate:1.7.0": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/fasterxml/classmate/1.7.0/classmate-1.7.0.pom"
+      ]
+    },
+    "com.github.ben-manes.caffeine:caffeine:3.1.8": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/github/ben-manes/caffeine/caffeine/3.1.8/caffeine-3.1.8.pom"
+      ]
+    },
+    "com.github.ben-manes.caffeine:caffeine:3.2.0": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/github/ben-manes/caffeine/caffeine/3.2.0/caffeine-3.2.0.pom"
+      ]
+    },
+    "com.github.docker-java:docker-java-api:3.4.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/github/docker-java/docker-java-api/3.4.1/docker-java-api-3.4.1.pom"
+      ]
+    },
+    "com.github.docker-java:docker-java-api:3.7.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/github/docker-java/docker-java-api/3.7.1/docker-java-api-3.7.1.pom"
+      ]
+    },
+    "com.github.docker-java:docker-java-transport-zerodep:3.4.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/github/docker-java/docker-java-transport-zerodep/3.4.1/docker-java-transport-zerodep-3.4.1.pom"
+      ]
+    },
+    "com.github.docker-java:docker-java-transport-zerodep:3.7.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/github/docker-java/docker-java-transport-zerodep/3.7.1/docker-java-transport-zerodep-3.7.1.pom"
+      ]
+    },
+    "com.github.docker-java:docker-java-transport:3.4.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/github/docker-java/docker-java-transport/3.4.1/docker-java-transport-3.4.1.pom"
+      ]
+    },
+    "com.github.docker-java:docker-java-transport:3.7.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/github/docker-java/docker-java-transport/3.7.1/docker-java-transport-3.7.1.pom"
+      ]
+    },
+    "com.google.errorprone:error_prone_annotations:2.36.0": {
+      "licenses": [
+        {
+          "name": "Apache 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/google/errorprone/error_prone_annotations/2.36.0/error_prone_annotations-2.36.0.pom"
+      ]
+    },
+    "com.google.protobuf:protobuf-java:3.25.9": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://opensource.org/licenses/BSD-3-Clause"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/google/protobuf/protobuf-java/3.25.9/protobuf-java-3.25.9.pom"
+      ]
+    },
+    "com.hazelcast:hazelcast:5.5.0": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/hazelcast/hazelcast/5.5.0/hazelcast-5.5.0.pom"
+      ]
+    },
+    "com.mysql:mysql-connector-j:8.4.0": {
+      "licenses": [
+        {
+          "name": "The GNU General Public License, v2 with Universal FOSS Exception, v1.0",
+          "url": ""
+        }
+      ],
+      "expression": "GPL-2.0-only WITH Universal-FOSS-exception-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/mysql/mysql-connector-j/8.4.0/mysql-connector-j-8.4.0.pom",
+        "https://github.com/mysql/mysql-connector-j/blob/8.4.0/LICENSE"
+      ],
+      "exception": "Existing Connector/J exception: the upstream 8.4.0 license includes the Universal FOSS Exception. Used at runtime by the unpublished load-test application and in store tests; preserve the prior policy for this exact version."
+    },
+    "com.sun.istack:istack-commons-runtime:4.1.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Distribution License - v 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/sun/istack/istack-commons-runtime/4.1.2/istack-commons-runtime-4.1.2.pom"
+      ]
+    },
+    "commons-codec:commons-codec:1.18.0": {
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/commons-codec/commons-codec/1.18.0/commons-codec-1.18.0.pom"
+      ]
+    },
+    "commons-io:commons-io:2.18.0": {
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/commons-io/commons-io/2.18.0/commons-io-2.18.0.pom"
+      ]
+    },
+    "io.agroal:agroal-api:2.7.1": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/agroal/agroal-api/2.7.1/agroal-api-2.7.1.pom"
+      ]
+    },
+    "io.agroal:agroal-narayana:2.7.1": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/agroal/agroal-narayana/2.7.1/agroal-narayana-2.7.1.pom"
+      ]
+    },
+    "io.agroal:agroal-pool:2.7.1": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/agroal/agroal-pool/2.7.1/agroal-pool-2.7.1.pom"
+      ]
+    },
+    "io.github.crac:org-crac:0.1.3": {
+      "licenses": [
+        {
+          "name": "BSD-2-Clause",
+          "url": "https://opensource.org/licenses/BSD-2-Clause"
+        }
+      ],
+      "expression": "BSD-2-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/github/crac/org-crac/0.1.3/org-crac-0.1.3.pom"
+      ]
+    },
+    "io.micrometer:context-propagation:1.1.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/context-propagation/1.1.2/context-propagation-1.1.2.pom"
+      ]
+    },
+    "io.micrometer:context-propagation:1.1.4": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/context-propagation/1.1.4/context-propagation-1.1.4.pom"
+      ]
+    },
+    "io.micrometer:micrometer-commons:1.15.12": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-commons/1.15.12/micrometer-commons-1.15.12.pom"
+      ]
+    },
+    "io.micrometer:micrometer-core:1.15.12": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-core/1.15.12/micrometer-core-1.15.12.pom"
+      ]
+    },
+    "io.micrometer:micrometer-observation:1.15.12": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-observation/1.15.12/micrometer-observation-1.15.12.pom"
+      ]
+    },
+    "io.micrometer:micrometer-registry-prometheus:1.15.12": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-registry-prometheus/1.15.12/micrometer-registry-prometheus-1.15.12.pom"
+      ]
+    },
+    "io.micrometer:micrometer-tracing:1.4.4": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-tracing/1.4.4/micrometer-tracing-1.4.4.pom"
+      ]
+    },
+    "io.netty:netty-buffer:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-buffer/4.1.137.Final/netty-buffer-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-codec-dns:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-dns/4.1.137.Final/netty-codec-dns-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-codec-haproxy:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-haproxy/4.1.137.Final/netty-codec-haproxy-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-codec-http2:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-http2/4.1.137.Final/netty-codec-http2-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-codec-http:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-http/4.1.137.Final/netty-codec-http-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-codec-socks:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-socks/4.1.137.Final/netty-codec-socks-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-codec:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec/4.1.137.Final/netty-codec-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-common:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-common/4.1.137.Final/netty-common-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-handler-proxy:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-handler-proxy/4.1.137.Final/netty-handler-proxy-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-handler:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-handler/4.1.137.Final/netty-handler-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-resolver-dns:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-resolver-dns/4.1.137.Final/netty-resolver-dns-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-resolver:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-resolver/4.1.137.Final/netty-resolver-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-transport-native-unix-common:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-transport-native-unix-common/4.1.137.Final/netty-transport-native-unix-common-4.1.137.Final.pom"
+      ]
+    },
+    "io.netty:netty-transport:4.1.137.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-transport/4.1.137.Final/netty-transport-4.1.137.Final.pom"
+      ]
+    },
+    "io.opentelemetry:opentelemetry-api:1.44.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/opentelemetry/opentelemetry-api/1.44.1/opentelemetry-api-1.44.1.pom"
+      ]
+    },
+    "io.opentelemetry:opentelemetry-api:1.62.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/opentelemetry/opentelemetry-api/1.62.0/opentelemetry-api-1.62.0.pom"
+      ]
+    },
+    "io.opentelemetry:opentelemetry-common:1.62.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/opentelemetry/opentelemetry-common/1.62.0/opentelemetry-common-1.62.0.pom"
+      ]
+    },
+    "io.opentelemetry:opentelemetry-context:1.44.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/opentelemetry/opentelemetry-context/1.44.1/opentelemetry-context-1.44.1.pom"
+      ]
+    },
+    "io.opentelemetry:opentelemetry-context:1.62.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/opentelemetry/opentelemetry-context/1.62.0/opentelemetry-context-1.62.0.pom"
+      ]
+    },
+    "io.projectreactor:reactor-core:3.5.0": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/projectreactor/reactor-core/3.5.0/reactor-core-3.5.0.pom"
+      ]
+    },
+    "io.prometheus:prometheus-metrics-config:1.3.10": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/prometheus/prometheus-metrics-config/1.3.10/prometheus-metrics-config-1.3.10.pom"
+      ]
+    },
+    "io.prometheus:prometheus-metrics-core:1.3.10": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/prometheus/prometheus-metrics-core/1.3.10/prometheus-metrics-core-1.3.10.pom"
+      ]
+    },
+    "io.prometheus:prometheus-metrics-exposition-formats:1.3.10": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/prometheus/prometheus-metrics-exposition-formats/1.3.10/prometheus-metrics-exposition-formats-1.3.10.pom"
+      ]
+    },
+    "io.prometheus:prometheus-metrics-exposition-textformats:1.3.10": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/prometheus/prometheus-metrics-exposition-textformats/1.3.10/prometheus-metrics-exposition-textformats-1.3.10.pom"
+      ]
+    },
+    "io.prometheus:prometheus-metrics-model:1.3.10": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/prometheus/prometheus-metrics-model/1.3.10/prometheus-metrics-model-1.3.10.pom"
+      ]
+    },
+    "io.prometheus:prometheus-metrics-tracer-common:1.3.10": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/prometheus/prometheus-metrics-tracer-common/1.3.10/prometheus-metrics-tracer-common-1.3.10.pom"
+      ]
+    },
+    "io.quarkus.arc:arc-processor:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/arc/arc-processor/3.20.6.2/arc-processor-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus.arc:arc:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/arc/arc/3.20.6.2/arc-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus.gizmo:gizmo:1.8.0": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/gizmo/gizmo/1.8.0/gizmo-1.8.0.pom"
+      ]
+    },
+    "io.quarkus.resteasy.reactive:resteasy-reactive-common-processor:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/resteasy/reactive/resteasy-reactive-common-processor/3.20.6.2/resteasy-reactive-common-processor-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus.resteasy.reactive:resteasy-reactive-common-types:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/resteasy/reactive/resteasy-reactive-common-types/3.20.6.2/resteasy-reactive-common-types-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus.resteasy.reactive:resteasy-reactive-common:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/resteasy/reactive/resteasy-reactive-common/3.20.6.2/resteasy-reactive-common-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus.resteasy.reactive:resteasy-reactive-processor:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/resteasy/reactive/resteasy-reactive-processor/3.20.6.2/resteasy-reactive-processor-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus.resteasy.reactive:resteasy-reactive-vertx:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/resteasy/reactive/resteasy-reactive-vertx/3.20.6.2/resteasy-reactive-vertx-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus.resteasy.reactive:resteasy-reactive:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/resteasy/reactive/resteasy-reactive/3.20.6.2/resteasy-reactive-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus.security:quarkus-security:2.2.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/security/quarkus-security/2.2.1/quarkus-security-2.2.1.pom"
+      ]
+    },
+    "io.quarkus.vertx.utils:quarkus-vertx-utils:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/vertx/utils/quarkus-vertx-utils/3.20.6.2/quarkus-vertx-utils-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-agroal-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-agroal-deployment/3.20.6.2/quarkus-agroal-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-agroal-dev:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-agroal-dev/3.20.6.2/quarkus-agroal-dev-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-agroal-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-agroal-spi/3.20.6.2/quarkus-agroal-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-agroal:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-agroal/3.20.6.2/quarkus-agroal-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-arc-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-arc-deployment/3.20.6.2/quarkus-arc-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-arc-test-supplement:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-arc-test-supplement/3.20.6.2/quarkus-arc-test-supplement-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-arc:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-arc/3.20.6.2/quarkus-arc-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-bootstrap-app-model:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-bootstrap-app-model/3.20.6.2/quarkus-bootstrap-app-model-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-bootstrap-core:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-bootstrap-core/3.20.6.2/quarkus-bootstrap-core-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-bootstrap-runner:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-bootstrap-runner/3.20.6.2/quarkus-bootstrap-runner-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-builder:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-builder/3.20.6.2/quarkus-builder-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-caffeine-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-caffeine-deployment/3.20.6.2/quarkus-caffeine-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-caffeine:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-caffeine/3.20.6.2/quarkus-caffeine-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-class-change-agent:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-class-change-agent/3.20.6.2/quarkus-class-change-agent-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-classloader-commons:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-classloader-commons/3.20.6.2/quarkus-classloader-commons-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-core-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-core-deployment/3.20.6.2/quarkus-core-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-core:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-core/3.20.6.2/quarkus-core-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-credentials-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-credentials-deployment/3.20.6.2/quarkus-credentials-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-credentials:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-credentials/3.20.6.2/quarkus-credentials-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-datasource-common:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-datasource-common/3.20.6.2/quarkus-datasource-common-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-datasource-deployment-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-datasource-deployment-spi/3.20.6.2/quarkus-datasource-deployment-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-datasource-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-datasource-deployment/3.20.6.2/quarkus-datasource-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-datasource:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-datasource/3.20.6.2/quarkus-datasource-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-development-mode-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-development-mode-spi/3.20.6.2/quarkus-development-mode-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-devservices-common:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-devservices-common/3.20.6.2/quarkus-devservices-common-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-devservices-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-devservices-deployment/3.20.6.2/quarkus-devservices-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-devtools-utilities:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-devtools-utilities/3.20.6.2/quarkus-devtools-utilities-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-fs-util:0.0.10": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-fs-util/0.0.10/quarkus-fs-util-0.0.10.pom"
+      ]
+    },
+    "io.quarkus:quarkus-hibernate-orm-deployment-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-hibernate-orm-deployment-spi/3.20.6.2/quarkus-hibernate-orm-deployment-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-hibernate-orm-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-hibernate-orm-deployment/3.20.6.2/quarkus-hibernate-orm-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-hibernate-orm:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-hibernate-orm/3.20.6.2/quarkus-hibernate-orm-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-hibernate-validator-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-hibernate-validator-spi/3.20.6.2/quarkus-hibernate-validator-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-ide-launcher:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-ide-launcher/3.20.6.2/quarkus-ide-launcher-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-jackson-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-jackson-spi/3.20.6.2/quarkus-jackson-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-jdbc-postgresql:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-jdbc-postgresql/3.20.6.2/quarkus-jdbc-postgresql-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-jsonb-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-jsonb-deployment/3.20.6.2/quarkus-jsonb-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-jsonb-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-jsonb-spi/3.20.6.2/quarkus-jsonb-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-jsonb:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-jsonb/3.20.6.2/quarkus-jsonb-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-jsonp-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-jsonp-deployment/3.20.6.2/quarkus-jsonp-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-jsonp:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-jsonp/3.20.6.2/quarkus-jsonp-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-junit4-mock:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-junit4-mock/3.20.6.2/quarkus-junit4-mock-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-kubernetes-service-binding-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-kubernetes-service-binding-spi/3.20.6.2/quarkus-kubernetes-service-binding-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-mongodb-client-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-mongodb-client-deployment/3.20.6.2/quarkus-mongodb-client-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-mongodb-client:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-mongodb-client/3.20.6.2/quarkus-mongodb-client-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-mutiny-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-mutiny-deployment/3.20.6.2/quarkus-mutiny-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-mutiny-reactive-streams-operators-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-mutiny-reactive-streams-operators-deployment/3.20.6.2/quarkus-mutiny-reactive-streams-operators-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-mutiny-reactive-streams-operators:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-mutiny-reactive-streams-operators/3.20.6.2/quarkus-mutiny-reactive-streams-operators-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-mutiny:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-mutiny/3.20.6.2/quarkus-mutiny-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-narayana-jta-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-narayana-jta-deployment/3.20.6.2/quarkus-narayana-jta-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-narayana-jta:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-narayana-jta/3.20.6.2/quarkus-narayana-jta-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-netty-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-netty-deployment/3.20.6.2/quarkus-netty-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-netty:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-netty/3.20.6.2/quarkus-netty-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-panache-common-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-panache-common-deployment/3.20.6.2/quarkus-panache-common-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-panache-common:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-panache-common/3.20.6.2/quarkus-panache-common-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-panache-hibernate-common-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-panache-hibernate-common-deployment/3.20.6.2/quarkus-panache-hibernate-common-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-panache-hibernate-common:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-panache-hibernate-common/3.20.6.2/quarkus-panache-hibernate-common-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-rest-common:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-rest-common/3.20.6.2/quarkus-rest-common-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-rest-server-spi-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-rest-server-spi-deployment/3.20.6.2/quarkus-rest-server-spi-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-rest-spi-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-rest-spi-deployment/3.20.6.2/quarkus-rest-spi-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-rest:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-rest/3.20.6.2/quarkus-rest-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-security-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-security-deployment/3.20.6.2/quarkus-security-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-security-runtime-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-security-runtime-spi/3.20.6.2/quarkus-security-runtime-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-security-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-security-spi/3.20.6.2/quarkus-security-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-security:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-security/3.20.6.2/quarkus-security-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-smallrye-context-propagation-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-smallrye-context-propagation-deployment/3.20.6.2/quarkus-smallrye-context-propagation-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-smallrye-context-propagation-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-smallrye-context-propagation-spi/3.20.6.2/quarkus-smallrye-context-propagation-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-smallrye-context-propagation:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-smallrye-context-propagation/3.20.6.2/quarkus-smallrye-context-propagation-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-smallrye-health-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-smallrye-health-spi/3.20.6.2/quarkus-smallrye-health-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-tls-registry:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-tls-registry/3.20.6.2/quarkus-tls-registry-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-transaction-annotations:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-transaction-annotations/3.20.6.2/quarkus-transaction-annotations-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-vertx-deployment-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-vertx-deployment-spi/3.20.6.2/quarkus-vertx-deployment-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-vertx-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-vertx-deployment/3.20.6.2/quarkus-vertx-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-vertx-http-dev-ui-spi:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-vertx-http-dev-ui-spi/3.20.6.2/quarkus-vertx-http-dev-ui-spi-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-vertx-http:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-vertx-http/3.20.6.2/quarkus-vertx-http-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-vertx-latebound-mdc-provider:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-vertx-latebound-mdc-provider/3.20.6.2/quarkus-vertx-latebound-mdc-provider-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-vertx:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-vertx/3.20.6.2/quarkus-vertx-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-virtual-threads-deployment:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-virtual-threads-deployment/3.20.6.2/quarkus-virtual-threads-deployment-3.20.6.2.pom"
+      ]
+    },
+    "io.quarkus:quarkus-virtual-threads:3.20.6.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/quarkus/quarkus-virtual-threads/3.20.6.2/quarkus-virtual-threads-3.20.6.2.pom"
+      ]
+    },
+    "io.reactivex.rxjava3:rxjava:3.1.10": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/reactivex/rxjava3/rxjava/3.1.10/rxjava-3.1.10.pom"
+      ]
+    },
+    "io.smallrye.certs:smallrye-private-key-pem-parser:0.9.2": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/certs/smallrye-private-key-pem-parser/0.9.2/smallrye-private-key-pem-parser-0.9.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-annotation:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-annotation/2.12.2/smallrye-common-annotation-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-classloader:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-classloader/2.12.2/smallrye-common-classloader-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-constraint:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-constraint/2.12.2/smallrye-common-constraint-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-cpu:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-cpu/2.12.2/smallrye-common-cpu-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-expression:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-expression/2.12.2/smallrye-common-expression-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-function:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-function/2.12.2/smallrye-common-function-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-io:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-io/2.12.2/smallrye-common-io-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-net:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-net/2.12.2/smallrye-common-net-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-os:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-os/2.12.2/smallrye-common-os-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-ref:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-ref/2.12.2/smallrye-common-ref-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.common:smallrye-common-vertx-context:2.12.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/common/smallrye-common-vertx-context/2.12.2/smallrye-common-vertx-context-2.12.2.pom"
+      ]
+    },
+    "io.smallrye.config:smallrye-config-common:3.11.4": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/config/smallrye-config-common/3.11.4/smallrye-config-common-3.11.4.pom"
+      ]
+    },
+    "io.smallrye.config:smallrye-config-core:3.11.4": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/config/smallrye-config-core/3.11.4/smallrye-config-core-3.11.4.pom"
+      ]
+    },
+    "io.smallrye.config:smallrye-config:3.11.4": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/config/smallrye-config/3.11.4/smallrye-config-3.11.4.pom"
+      ]
+    },
+    "io.smallrye.reactive:mutiny-reactive-streams-operators:2.9.5": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/mutiny-reactive-streams-operators/2.9.5/mutiny-reactive-streams-operators-2.9.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:mutiny-smallrye-context-propagation:2.9.5": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/mutiny-smallrye-context-propagation/2.9.5/mutiny-smallrye-context-propagation-2.9.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:mutiny-zero-flow-adapters:1.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/mutiny-zero-flow-adapters/1.1.1/mutiny-zero-flow-adapters-1.1.1.pom"
+      ]
+    },
+    "io.smallrye.reactive:mutiny:2.9.5": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/mutiny/2.9.5/mutiny-2.9.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-mutiny-vertx-auth-common:3.21.5": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-mutiny-vertx-auth-common/3.21.5/smallrye-mutiny-vertx-auth-common-3.21.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-mutiny-vertx-bridge-common:3.21.5": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-mutiny-vertx-bridge-common/3.21.5/smallrye-mutiny-vertx-bridge-common-3.21.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-mutiny-vertx-core:3.21.5": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-mutiny-vertx-core/3.21.5/smallrye-mutiny-vertx-core-3.21.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-mutiny-vertx-runtime:3.21.5": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-mutiny-vertx-runtime/3.21.5/smallrye-mutiny-vertx-runtime-3.21.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-mutiny-vertx-uri-template:3.21.5": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-mutiny-vertx-uri-template/3.21.5/smallrye-mutiny-vertx-uri-template-3.21.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-mutiny-vertx-web-common:3.21.5": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-mutiny-vertx-web-common/3.21.5/smallrye-mutiny-vertx-web-common-3.21.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-mutiny-vertx-web:3.21.5": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-mutiny-vertx-web/3.21.5/smallrye-mutiny-vertx-web-3.21.5.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-reactive-converter-api:3.0.3": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-reactive-converter-api/3.0.3/smallrye-reactive-converter-api-3.0.3.pom"
+      ]
+    },
+    "io.smallrye.reactive:smallrye-reactive-converter-mutiny:3.0.3": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/smallrye-reactive-converter-mutiny/3.0.3/smallrye-reactive-converter-mutiny-3.0.3.pom"
+      ]
+    },
+    "io.smallrye.reactive:vertx-mutiny-generator:3.21.5": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/reactive/vertx-mutiny-generator/3.21.5/vertx-mutiny-generator-3.21.5.pom"
+      ]
+    },
+    "io.smallrye:jandex:3.3.0": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/jandex/3.3.0/jandex-3.3.0.pom"
+      ]
+    },
+    "io.smallrye:smallrye-context-propagation-api:2.2.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/smallrye-context-propagation-api/2.2.1/smallrye-context-propagation-api-2.2.1.pom"
+      ]
+    },
+    "io.smallrye:smallrye-context-propagation-jta:2.2.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/smallrye-context-propagation-jta/2.2.1/smallrye-context-propagation-jta-2.2.1.pom"
+      ]
+    },
+    "io.smallrye:smallrye-context-propagation-storage:2.2.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/smallrye-context-propagation-storage/2.2.1/smallrye-context-propagation-storage-2.2.1.pom"
+      ]
+    },
+    "io.smallrye:smallrye-context-propagation:2.2.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/smallrye-context-propagation/2.2.1/smallrye-context-propagation-2.2.1.pom"
+      ]
+    },
+    "io.smallrye:smallrye-fault-tolerance-vertx:6.9.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/smallrye/smallrye-fault-tolerance-vertx/6.9.2/smallrye-fault-tolerance-vertx-6.9.2.pom"
+      ]
+    },
+    "io.vertx:vertx-auth-common:4.5.25": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "name": "Eclipse Public License - v 1.0",
+          "url": "http://www.eclipse.org/legal/epl-v10.html"
+        }
+      ],
+      "expression": "Apache-2.0 AND EPL-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-auth-common/4.5.25/vertx-auth-common-4.5.25.pom"
+      ],
+      "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
+    },
+    "io.vertx:vertx-bridge-common:4.5.25": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "name": "Eclipse Public License - v 1.0",
+          "url": "http://www.eclipse.org/legal/epl-v10.html"
+        }
+      ],
+      "expression": "Apache-2.0 AND EPL-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-bridge-common/4.5.25/vertx-bridge-common-4.5.25.pom"
+      ],
+      "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
+    },
+    "io.vertx:vertx-codegen:4.5.25": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "name": "Eclipse Public License - v 1.0",
+          "url": "http://www.eclipse.org/legal/epl-v10.html"
+        }
+      ],
+      "expression": "Apache-2.0 AND EPL-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-codegen/4.5.25/vertx-codegen-4.5.25.pom"
+      ],
+      "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
+    },
+    "io.vertx:vertx-core:4.5.25": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "name": "Eclipse Public License - v 2.0",
+          "url": "http://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "Apache-2.0 AND EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-core/4.5.25/vertx-core-4.5.25.pom"
+      ],
+      "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
+    },
+    "io.vertx:vertx-uri-template:4.5.25": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "name": "Eclipse Public License - v 1.0",
+          "url": "http://www.eclipse.org/legal/epl-v10.html"
+        }
+      ],
+      "expression": "Apache-2.0 AND EPL-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-uri-template/4.5.25/vertx-uri-template-4.5.25.pom"
+      ],
+      "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
+    },
+    "io.vertx:vertx-web-common:4.5.25": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "name": "Eclipse Public License - v 1.0",
+          "url": "http://www.eclipse.org/legal/epl-v10.html"
+        }
+      ],
+      "expression": "Apache-2.0 AND EPL-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-web-common/4.5.25/vertx-web-common-4.5.25.pom"
+      ],
+      "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
+    },
+    "io.vertx:vertx-web:4.5.25": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        },
+        {
+          "name": "Eclipse Public License - v 2.0",
+          "url": "http://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "Apache-2.0 AND EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-web/4.5.25/vertx-web-4.5.25.pom"
+      ],
+      "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
+    },
+    "jakarta.activation:jakarta.activation-api:2.1.3": {
+      "licenses": [
+        {
+          "name": "EDL 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/activation/jakarta.activation-api/2.1.3/jakarta.activation-api-2.1.3.pom"
+      ]
+    },
+    "jakarta.annotation:jakarta.annotation-api:3.0.0": {
+      "licenses": [
+        {
+          "name": "EPL 2.0",
+          "url": "https://www.eclipse.org/legal/epl-2.0"
+        },
+        {
+          "name": "GPL2 w/ CPE",
+          "url": "https://www.gnu.org/software/classpath/license.html"
+        }
+      ],
+      "expression": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/annotation/jakarta.annotation-api/3.0.0/jakarta.annotation-api-3.0.0.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/annotation/jakarta.annotation-api/3.0.0/jakarta.annotation-api-3.0.0.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares the EPL/GPL-with-Classpath alternatives; policy accepts the EPL-2.0 alternative."
+    },
+    "jakarta.el:jakarta.el-api:5.0.1": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v. 2.0",
+          "url": "https://www.eclipse.org/org/documents/epl-2.0/EPL-2.0.txt"
+        },
+        {
+          "name": "GNU General Public License, version 2 with the GNU Classpath Exception",
+          "url": "https://www.gnu.org/software/classpath/license.html"
+        }
+      ],
+      "expression": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/el/jakarta.el-api/5.0.1/jakarta.el-api-5.0.1.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/el/jakarta.el-api/5.0.1/jakarta.el-api-5.0.1.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares the EPL/GPL-with-Classpath alternatives; policy accepts the EPL-2.0 alternative."
+    },
+    "jakarta.enterprise:jakarta.enterprise.cdi-api:4.1.0": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/enterprise/jakarta.enterprise.cdi-api/4.1.0/jakarta.enterprise.cdi-api-4.1.0.pom"
+      ]
+    },
+    "jakarta.enterprise:jakarta.enterprise.lang-model:4.1.0": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/enterprise/jakarta.enterprise.lang-model/4.1.0/jakarta.enterprise.lang-model-4.1.0.pom"
+      ]
+    },
+    "jakarta.inject:jakarta.inject-api:2.0.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/inject/jakarta.inject-api/2.0.1/jakarta.inject-api-2.0.1.pom"
+      ]
+    },
+    "jakarta.interceptor:jakarta.interceptor-api:2.2.0": {
+      "licenses": [
+        {
+          "name": "EPL 2.0",
+          "url": "http://www.eclipse.org/legal/epl-2.0"
+        },
+        {
+          "name": "GPL2 w/ CPE",
+          "url": "https://www.gnu.org/software/classpath/license.html"
+        }
+      ],
+      "expression": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/interceptor/jakarta.interceptor-api/2.2.0/jakarta.interceptor-api-2.2.0.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/interceptor/jakarta.interceptor-api/2.2.0/jakarta.interceptor-api-2.2.0.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares the EPL/GPL-with-Classpath alternatives; policy accepts the EPL-2.0 alternative."
+    },
+    "jakarta.json.bind:jakarta.json.bind-api:3.0.1": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License 2.0",
+          "url": "https://projects.eclipse.org/license/epl-2.0"
+        },
+        {
+          "name": "GNU General Public License, version 2 with the GNU Classpath Exception",
+          "url": "https://projects.eclipse.org/license/secondary-gpl-2.0-cp"
+        }
+      ],
+      "expression": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/json/bind/jakarta.json.bind-api/3.0.1/jakarta.json.bind-api-3.0.1.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/json/bind/jakarta.json.bind-api/3.0.1/jakarta.json.bind-api-3.0.1.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares the EPL/GPL-with-Classpath alternatives; policy accepts the EPL-2.0 alternative."
+    },
+    "jakarta.json:jakarta.json-api:2.1.3": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License 2.0",
+          "url": "https://projects.eclipse.org/license/epl-2.0"
+        },
+        {
+          "name": "GNU General Public License, version 2 with the GNU Classpath Exception",
+          "url": "https://projects.eclipse.org/license/secondary-gpl-2.0-cp"
+        }
+      ],
+      "expression": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/json/jakarta.json-api/2.1.3/jakarta.json-api-2.1.3.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/json/jakarta.json-api/2.1.3/jakarta.json-api-2.1.3.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares the EPL/GPL-with-Classpath alternatives; policy accepts the EPL-2.0 alternative."
+    },
+    "jakarta.persistence:jakarta.persistence-api:3.1.0": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v. 2.0",
+          "url": "http://www.eclipse.org/legal/epl-2.0"
+        },
+        {
+          "name": "Eclipse Distribution License v. 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "EPL-2.0 OR BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/persistence/jakarta.persistence-api/3.1.0/jakarta.persistence-api-3.1.0.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/persistence/jakarta.persistence-api/3.1.0/jakarta.persistence-api-3.1.0.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares EPL-2.0 OR BSD-3-Clause."
+    },
+    "jakarta.resource:jakarta.resource-api:2.1.0": {
+      "licenses": [
+        {
+          "name": "EPL 2.0",
+          "url": "http://www.eclipse.org/legal/epl-2.0"
+        },
+        {
+          "name": "GPL2 w/ CPE",
+          "url": "https://www.gnu.org/software/classpath/license.html"
+        }
+      ],
+      "expression": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/resource/jakarta.resource-api/2.1.0/jakarta.resource-api-2.1.0.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/resource/jakarta.resource-api/2.1.0/jakarta.resource-api-2.1.0.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares the EPL/GPL-with-Classpath alternatives; policy accepts the EPL-2.0 alternative."
+    },
+    "jakarta.transaction:jakarta.transaction-api:2.0.1": {
+      "licenses": [
+        {
+          "name": "EPL 2.0",
+          "url": "http://www.eclipse.org/legal/epl-2.0"
+        },
+        {
+          "name": "GPL2 w/ CPE",
+          "url": "https://www.gnu.org/software/classpath/license.html"
+        }
+      ],
+      "expression": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/transaction/jakarta.transaction-api/2.0.1/jakarta.transaction-api-2.0.1.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/transaction/jakarta.transaction-api/2.0.1/jakarta.transaction-api-2.0.1.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares the EPL/GPL-with-Classpath alternatives; policy accepts the EPL-2.0 alternative."
+    },
+    "jakarta.validation:jakarta.validation-api:3.0.2": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/validation/jakarta.validation-api/3.0.2/jakarta.validation-api-3.0.2.pom"
+      ]
+    },
+    "jakarta.ws.rs:jakarta.ws.rs-api:3.1.0": {
+      "licenses": [
+        {
+          "name": "EPL-2.0",
+          "url": "http://www.eclipse.org/legal/epl-2.0"
+        },
+        {
+          "name": "GPL-2.0-with-classpath-exception",
+          "url": "https://www.gnu.org/software/classpath/license.html"
+        }
+      ],
+      "expression": "EPL-2.0 OR GPL-2.0-only WITH Classpath-exception-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/ws/rs/jakarta.ws.rs-api/3.1.0/jakarta.ws.rs-api-3.1.0.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/ws/rs/jakarta.ws.rs-api/3.1.0/jakarta.ws.rs-api-3.1.0.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares the EPL/GPL-with-Classpath alternatives; policy accepts the EPL-2.0 alternative."
+    },
+    "jakarta.xml.bind:jakarta.xml.bind-api:4.0.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Distribution License - v 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/xml/bind/jakarta.xml.bind-api/4.0.2/jakarta.xml.bind-api-4.0.2.pom"
+      ]
+    },
+    "net.bytebuddy:byte-buddy:1.17.5": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/net/bytebuddy/byte-buddy/1.17.5/byte-buddy-1.17.5.pom"
+      ]
+    },
+    "net.java.dev.jna:jna:5.8.0": {
+      "licenses": [
+        {
+          "name": "LGPL, version 2.1",
+          "url": "http://www.gnu.org/licenses/licenses.html"
+        },
+        {
+          "name": "Apache License v2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0 OR LGPL-2.1-or-later",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.8.0/jna-5.8.0.pom",
+        "https://repo.maven.apache.org/maven2/net/java/dev/jna/jna/5.8.0/jna-5.8.0.jar"
+      ],
+      "note": "META-INF/LICENSE explicitly permits choosing Apache-2.0 or LGPL-2.1-or-later."
+    },
+    "org.aesh:aesh:2.8.2": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/aesh/aesh/2.8.2/aesh-2.8.2.pom"
+      ]
+    },
+    "org.aesh:readline:2.6": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/aesh/readline/2.6/readline-2.6.pom"
+      ]
+    },
+    "org.antlr:antlr4-runtime:4.13.0": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://www.antlr.org/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/antlr/antlr4-runtime/4.13.0/antlr4-runtime-4.13.0.pom"
+      ]
+    },
+    "org.apache.commons:commons-compress:1.27.1": {
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/apache/commons/commons-compress/1.27.1/commons-compress-1.27.1.pom"
+      ]
+    },
+    "org.apache.commons:commons-lang3:3.18.0": {
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/apache/commons/commons-lang3/3.18.0/commons-lang3-3.18.0.pom"
+      ]
+    },
+    "org.apiguardian:apiguardian-api:1.1.2": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.pom"
+      ]
+    },
+    "org.checkerframework:checker-qual:3.55.1": {
+      "licenses": [
+        {
+          "name": "The MIT License",
+          "url": "https://opensource.org/licenses/MIT"
+        }
+      ],
+      "expression": "MIT",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/checkerframework/checker-qual/3.55.1/checker-qual-3.55.1.pom"
+      ]
+    },
+    "org.eclipse.angus:angus-activation:2.0.2": {
+      "licenses": [
+        {
+          "name": "EDL 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/angus/angus-activation/2.0.2/angus-activation-2.0.2.pom"
+      ]
+    },
+    "org.eclipse.microprofile.config:microprofile-config-api:3.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/microprofile/config/microprofile-config-api/3.1/microprofile-config-api-3.1.pom"
+      ]
+    },
+    "org.eclipse.microprofile.context-propagation:microprofile-context-propagation-api:1.3": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/microprofile/context-propagation/microprofile-context-propagation-api/1.3/microprofile-context-propagation-api-1.3.pom"
+      ]
+    },
+    "org.eclipse.microprofile.reactive-streams-operators:microprofile-reactive-streams-operators-api:3.0.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/microprofile/reactive-streams-operators/microprofile-reactive-streams-operators-api/3.0.1/microprofile-reactive-streams-operators-api-3.0.1.pom"
+      ]
+    },
+    "org.eclipse.microprofile.reactive-streams-operators:microprofile-reactive-streams-operators-core:3.0.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/microprofile/reactive-streams-operators/microprofile-reactive-streams-operators-core/3.0.1/microprofile-reactive-streams-operators-core-3.0.1.pom"
+      ]
+    },
+    "org.eclipse.parsson:parsson:1.1.7": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License 2.0",
+          "url": "https://projects.eclipse.org/license/epl-2.0"
+        },
+        {
+          "name": "GNU General Public License, version 2 with the GNU Classpath Exception",
+          "url": "https://projects.eclipse.org/license/secondary-gpl-2.0-cp"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/parsson/parsson/1.1.7/parsson-1.1.7.pom",
+        "https://repo.maven.apache.org/maven2/org/eclipse/parsson/parsson/1.1.7/parsson-1.1.7.jar"
+      ],
+      "note": "META-INF/NOTICE.md identifies EPL-2.0 as the declared project license."
+    },
+    "org.eclipse.sisu:org.eclipse.sisu.inject:0.9.0.M3": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License, Version 2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/sisu/org.eclipse.sisu.inject/0.9.0.M3/org.eclipse.sisu.inject-0.9.0.M3.pom"
+      ]
+    },
+    "org.eclipse:yasson:3.0.4": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v. 2.0",
+          "url": "http://www.eclipse.org/legal/epl-v20.html"
+        },
+        {
+          "name": "Eclipse Distribution License v. 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "EPL-2.0 OR BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/yasson/3.0.4/yasson-3.0.4.pom",
+        "https://repo.maven.apache.org/maven2/org/eclipse/yasson/3.0.4/yasson-3.0.4.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares EPL-2.0 OR BSD-3-Clause."
+    },
+    "org.fusesource.jansi:jansi:2.4.0": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/fusesource/jansi/jansi/2.4.0/jansi-2.4.0.pom"
+      ]
+    },
+    "org.glassfish.jaxb:jaxb-core:4.0.5": {
+      "licenses": [
+        {
+          "name": "Eclipse Distribution License - v 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/glassfish/jaxb/jaxb-core/4.0.5/jaxb-core-4.0.5.pom"
+      ]
+    },
+    "org.glassfish.jaxb:jaxb-runtime:4.0.5": {
+      "licenses": [
+        {
+          "name": "Eclipse Distribution License - v 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/glassfish/jaxb/jaxb-runtime/4.0.5/jaxb-runtime-4.0.5.pom"
+      ]
+    },
+    "org.glassfish.jaxb:txw2:4.0.5": {
+      "licenses": [
+        {
+          "name": "Eclipse Distribution License - v 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/glassfish/jaxb/txw2/4.0.5/txw2-4.0.5.pom"
+      ]
+    },
+    "org.graalvm.sdk:nativeimage:23.1.2": {
+      "licenses": [
+        {
+          "name": "Universal Permissive License, Version 1.0",
+          "url": "http://opensource.org/licenses/UPL"
+        }
+      ],
+      "expression": "UPL-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/graalvm/sdk/nativeimage/23.1.2/nativeimage-23.1.2.pom"
+      ]
+    },
+    "org.graalvm.sdk:word:23.1.2": {
+      "licenses": [
+        {
+          "name": "Universal Permissive License, Version 1.0",
+          "url": "http://opensource.org/licenses/UPL"
+        }
+      ],
+      "expression": "UPL-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/graalvm/sdk/word/23.1.2/word-23.1.2.pom"
+      ]
+    },
+    "org.hdrhistogram:HdrHistogram:2.2.2": {
+      "licenses": [
+        {
+          "name": "Public Domain, per Creative Commons CC0",
+          "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+        },
+        {
+          "name": "BSD-2-Clause",
+          "url": "https://opensource.org/licenses/BSD-2-Clause"
+        }
+      ],
+      "expression": "CC0-1.0 OR BSD-2-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/hdrhistogram/HdrHistogram/2.2.2/HdrHistogram-2.2.2.pom",
+        "https://repo.maven.apache.org/maven2/org/hdrhistogram/HdrHistogram/2.2.2/HdrHistogram-2.2.2.jar"
+      ],
+      "note": "META-INF/LICENSE.txt offers BSD-2-Clause as an alternative to the CC0 dedication."
+    },
+    "org.hibernate.common:hibernate-commons-annotations:7.0.3.Final": {
+      "licenses": [
+        {
+          "name": "Apache License Version 2.0",
+          "url": "https://opensource.org/licenses/Apache-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/hibernate/common/hibernate-commons-annotations/7.0.3.Final/hibernate-commons-annotations-7.0.3.Final.pom"
+      ]
+    },
+    "org.hibernate.orm:hibernate-core:6.6.44.Final": {
+      "licenses": [
+        {
+          "name": "GNU Library General Public License v2.1 or later",
+          "url": "https://www.opensource.org/licenses/LGPL-2.1"
+        }
+      ],
+      "expression": "LGPL-2.1-or-later",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/hibernate/orm/hibernate-core/6.6.44.Final/hibernate-core-6.6.44.Final.pom",
+        "https://repo.maven.apache.org/maven2/org/hibernate/orm/hibernate-core/6.6.44.Final/hibernate-core-6.6.44.Final.jar"
+      ],
+      "exception": "Existing Quarkus ORM integration exception: resolved as a separate dependency, with no Hibernate source vendored into Ratchet. Preserve the prior policy for this exact version."
+    },
+    "org.hibernate.orm:hibernate-graalvm:6.6.44.Final": {
+      "licenses": [
+        {
+          "name": "GNU Library General Public License v2.1 or later",
+          "url": "https://www.opensource.org/licenses/LGPL-2.1"
+        }
+      ],
+      "expression": "LGPL-2.1-or-later",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/hibernate/orm/hibernate-graalvm/6.6.44.Final/hibernate-graalvm-6.6.44.Final.pom",
+        "https://repo.maven.apache.org/maven2/org/hibernate/orm/hibernate-graalvm/6.6.44.Final/hibernate-graalvm-6.6.44.Final.jar"
+      ],
+      "exception": "Existing Quarkus ORM integration exception: resolved as a separate dependency, with no Hibernate source vendored into Ratchet. Preserve the prior policy for this exact version."
+    },
+    "org.hibernate:quarkus-local-cache:0.3.1": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/hibernate/quarkus-local-cache/0.3.1/quarkus-local-cache-0.3.1.pom"
+      ]
+    },
+    "org.infinispan.protostream:protostream-processor:5.0.13.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/infinispan/protostream/protostream-processor/5.0.13.Final/protostream-processor-5.0.13.Final.pom"
+      ]
+    },
+    "org.infinispan.protostream:protostream-types:5.0.13.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/infinispan/protostream/protostream-types/5.0.13.Final/protostream-types-5.0.13.Final.pom"
+      ]
+    },
+    "org.infinispan.protostream:protostream:5.0.13.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/infinispan/protostream/protostream/5.0.13.Final/protostream-5.0.13.Final.pom"
+      ]
+    },
+    "org.infinispan:infinispan-commons:15.1.7.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/infinispan/infinispan-commons/15.1.7.Final/infinispan-commons-15.1.7.Final.pom"
+      ]
+    },
+    "org.infinispan:infinispan-core:15.1.7.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/infinispan/infinispan-core/15.1.7.Final/infinispan-core-15.1.7.Final.pom"
+      ]
+    },
+    "org.infinispan:infinispan-counter-api:15.1.7.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/infinispan/infinispan-counter-api/15.1.7.Final/infinispan-counter-api-15.1.7.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.config:arquillian-config-api:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/config/arquillian-config-api/1.10.1.Final/arquillian-config-api-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.config:arquillian-config-impl-base:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/config/arquillian-config-impl-base/1.10.1.Final/arquillian-config-impl-base-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.config:arquillian-config-spi:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/config/arquillian-config-spi/1.10.1.Final/arquillian-config-spi-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.container:arquillian-container-impl-base:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/container/arquillian-container-impl-base/1.10.1.Final/arquillian-container-impl-base-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.container:arquillian-container-spi:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/container/arquillian-container-spi/1.10.1.Final/arquillian-container-spi-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.container:arquillian-container-test-api:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/container/arquillian-container-test-api/1.10.1.Final/arquillian-container-test-api-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.container:arquillian-container-test-impl-base:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/container/arquillian-container-test-impl-base/1.10.1.Final/arquillian-container-test-impl-base-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.container:arquillian-container-test-spi:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/container/arquillian-container-test-spi/1.10.1.Final/arquillian-container-test-spi-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.core:arquillian-core-api:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/core/arquillian-core-api/1.10.1.Final/arquillian-core-api-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.core:arquillian-core-impl-base:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/core/arquillian-core-impl-base/1.10.1.Final/arquillian-core-impl-base-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.core:arquillian-core-spi:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/core/arquillian-core-spi/1.10.1.Final/arquillian-core-spi-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.junit5:arquillian-junit5-container:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/junit5/arquillian-junit5-container/1.10.1.Final/arquillian-junit5-container-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.junit5:arquillian-junit5-core:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/junit5/arquillian-junit5-core/1.10.1.Final/arquillian-junit5-core-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.test:arquillian-test-api:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/test/arquillian-test-api/1.10.1.Final/arquillian-test-api-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.test:arquillian-test-impl-base:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/test/arquillian-test-impl-base/1.10.1.Final/arquillian-test-impl-base-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.arquillian.test:arquillian-test-spi:1.10.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/arquillian/test/arquillian-test-spi/1.10.1.Final/arquillian-test-spi-1.10.1.Final.pom"
+      ]
+    },
+    "org.jboss.invocation:jboss-invocation:2.0.0.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/invocation/jboss-invocation/2.0.0.Final/jboss-invocation-2.0.0.Final.pom"
+      ]
+    },
+    "org.jboss.logging:commons-logging-jboss-logging:1.0.0.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/logging/commons-logging-jboss-logging/1.0.0.Final/commons-logging-jboss-logging-1.0.0.Final.pom"
+      ]
+    },
+    "org.jboss.logging:jboss-logging-annotations:3.0.4.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/logging/jboss-logging-annotations/3.0.4.Final/jboss-logging-annotations-3.0.4.Final.pom"
+      ]
+    },
+    "org.jboss.logging:jboss-logging:3.6.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/logging/jboss-logging/3.6.1.Final/jboss-logging-3.6.1.Final.pom"
+      ]
+    },
+    "org.jboss.logging:jboss-logging:3.6.3.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/logging/jboss-logging/3.6.3.Final/jboss-logging-3.6.3.Final.pom"
+      ]
+    },
+    "org.jboss.logmanager:jboss-logmanager:3.1.2.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/logmanager/jboss-logmanager/3.1.2.Final/jboss-logmanager-3.1.2.Final.pom"
+      ]
+    },
+    "org.jboss.narayana.jta:narayana-jta:7.2.2.Final": {
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/narayana/jta/narayana-jta/7.2.2.Final/narayana-jta-7.2.2.Final.pom"
+      ]
+    },
+    "org.jboss.narayana.jts:narayana-jts-integration:7.2.2.Final": {
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/narayana/jts/narayana-jts-integration/7.2.2.Final/narayana-jts-integration-7.2.2.Final.pom"
+      ]
+    },
+    "org.jboss.shrinkwrap.descriptors:shrinkwrap-descriptors-api-base:2.0.0": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/shrinkwrap/descriptors/shrinkwrap-descriptors-api-base/2.0.0/shrinkwrap-descriptors-api-base-2.0.0.pom"
+      ]
+    },
+    "org.jboss.shrinkwrap.descriptors:shrinkwrap-descriptors-spi:2.0.0": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/shrinkwrap/descriptors/shrinkwrap-descriptors-spi/2.0.0/shrinkwrap-descriptors-spi-2.0.0.pom"
+      ]
+    },
+    "org.jboss.shrinkwrap:shrinkwrap-api:1.2.6": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/shrinkwrap/shrinkwrap-api/1.2.6/shrinkwrap-api-1.2.6.pom"
+      ]
+    },
+    "org.jboss.shrinkwrap:shrinkwrap-impl-base:1.2.6": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/shrinkwrap/shrinkwrap-impl-base/1.2.6/shrinkwrap-impl-base-1.2.6.pom"
+      ]
+    },
+    "org.jboss.shrinkwrap:shrinkwrap-spi:1.2.6": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/shrinkwrap/shrinkwrap-spi/1.2.6/shrinkwrap-spi-1.2.6.pom"
+      ]
+    },
+    "org.jboss.slf4j:slf4j-jboss-logmanager:2.0.0.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "https://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/slf4j/slf4j-jboss-logmanager/2.0.0.Final/slf4j-jboss-logmanager-2.0.0.Final.pom"
+      ]
+    },
+    "org.jboss.threads:jboss-threads:3.6.1.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/threads/jboss-threads/3.6.1.Final/jboss-threads-3.6.1.Final.pom"
+      ]
+    },
+    "org.jboss.threads:jboss-threads:3.8.0.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/threads/jboss-threads/3.8.0.Final/jboss-threads-3.8.0.Final.pom"
+      ]
+    },
+    "org.jboss:jboss-transaction-spi:8.0.0.Final": {
+      "licenses": [
+        {
+          "name": "Public Domain",
+          "url": "http://repository.jboss.org/licenses/cc0-1.0.txt"
+        }
+      ],
+      "expression": "CC0-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jboss/jboss-transaction-spi/8.0.0.Final/jboss-transaction-spi-8.0.0.Final.pom"
+      ]
+    },
+    "org.jctools:jctools-core:4.0.5": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jctools/jctools-core/4.0.5/jctools-core-4.0.5.pom"
+      ]
+    },
+    "org.jetbrains:annotations:26.0.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jetbrains/annotations/26.0.2/annotations-26.0.2.pom"
+      ]
+    },
+    "org.jgroups:jgroups:5.3.15.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jgroups/jgroups/5.3.15.Final/jgroups-5.3.15.Final.pom"
+      ]
+    },
+    "org.jspecify:jspecify:1.0.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jspecify/jspecify/1.0.0/jspecify-1.0.0.pom"
+      ]
+    },
+    "org.junit.jupiter:junit-jupiter-api:5.12.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/jupiter/junit-jupiter-api/5.12.2/junit-jupiter-api-5.12.2.pom"
+      ]
+    },
+    "org.junit.jupiter:junit-jupiter-api:5.14.4": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/jupiter/junit-jupiter-api/5.14.4/junit-jupiter-api-5.14.4.pom"
+      ]
+    },
+    "org.junit.jupiter:junit-jupiter-engine:5.12.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/jupiter/junit-jupiter-engine/5.12.2/junit-jupiter-engine-5.12.2.pom"
+      ]
+    },
+    "org.junit.jupiter:junit-jupiter-engine:5.14.4": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/jupiter/junit-jupiter-engine/5.14.4/junit-jupiter-engine-5.14.4.pom"
+      ]
+    },
+    "org.junit.jupiter:junit-jupiter-params:5.12.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/jupiter/junit-jupiter-params/5.12.2/junit-jupiter-params-5.12.2.pom"
+      ]
+    },
+    "org.junit.jupiter:junit-jupiter-params:5.14.4": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/jupiter/junit-jupiter-params/5.14.4/junit-jupiter-params-5.14.4.pom"
+      ]
+    },
+    "org.junit.jupiter:junit-jupiter:5.12.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/jupiter/junit-jupiter/5.12.2/junit-jupiter-5.12.2.pom"
+      ]
+    },
+    "org.junit.jupiter:junit-jupiter:5.14.4": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/jupiter/junit-jupiter/5.14.4/junit-jupiter-5.14.4.pom"
+      ]
+    },
+    "org.junit.platform:junit-platform-commons:1.12.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/platform/junit-platform-commons/1.12.2/junit-platform-commons-1.12.2.pom"
+      ]
+    },
+    "org.junit.platform:junit-platform-commons:1.14.4": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/platform/junit-platform-commons/1.14.4/junit-platform-commons-1.14.4.pom"
+      ]
+    },
+    "org.junit.platform:junit-platform-engine:1.12.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/platform/junit-platform-engine/1.12.2/junit-platform-engine-1.12.2.pom"
+      ]
+    },
+    "org.junit.platform:junit-platform-engine:1.14.4": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/platform/junit-platform-engine/1.14.4/junit-platform-engine-1.14.4.pom"
+      ]
+    },
+    "org.junit.platform:junit-platform-launcher:1.12.2": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/platform/junit-platform-launcher/1.12.2/junit-platform-launcher-1.12.2.pom"
+      ]
+    },
+    "org.junit.platform:junit-platform-launcher:1.14.4": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v2.0",
+          "url": "https://www.eclipse.org/legal/epl-v20.html"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/junit/platform/junit-platform-launcher/1.14.4/junit-platform-launcher-1.14.4.pom"
+      ]
+    },
+    "org.latencyutils:LatencyUtils:2.0.3": {
+      "licenses": [
+        {
+          "name": "Public Domain, per Creative Commons CC0",
+          "url": "http://creativecommons.org/publicdomain/zero/1.0/"
+        }
+      ],
+      "expression": "CC0-1.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/latencyutils/LatencyUtils/2.0.3/LatencyUtils-2.0.3.pom"
+      ]
+    },
+    "org.mongodb:bson-record-codec:5.3.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/bson-record-codec/5.3.1/bson-record-codec-5.3.1.pom"
+      ]
+    },
+    "org.mongodb:bson-record-codec:5.7.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/bson-record-codec/5.7.0/bson-record-codec-5.7.0.pom"
+      ]
+    },
+    "org.mongodb:bson:5.3.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/bson/5.3.1/bson-5.3.1.pom"
+      ]
+    },
+    "org.mongodb:bson:5.7.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/bson/5.7.0/bson-5.7.0.pom"
+      ]
+    },
+    "org.mongodb:mongodb-crypt:5.3.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-crypt/5.3.1/mongodb-crypt-5.3.1.pom"
+      ]
+    },
+    "org.mongodb:mongodb-driver-core:5.3.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-core/5.3.1/mongodb-driver-core-5.3.1.pom"
+      ]
+    },
+    "org.mongodb:mongodb-driver-core:5.7.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-core/5.7.0/mongodb-driver-core-5.7.0.pom"
+      ]
+    },
+    "org.mongodb:mongodb-driver-reactivestreams:5.3.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-reactivestreams/5.3.1/mongodb-driver-reactivestreams-5.3.1.pom"
+      ]
+    },
+    "org.mongodb:mongodb-driver-sync:5.3.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-sync/5.3.1/mongodb-driver-sync-5.3.1.pom"
+      ]
+    },
+    "org.mongodb:mongodb-driver-sync:5.7.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-sync/5.7.0/mongodb-driver-sync-5.7.0.pom"
+      ]
+    },
+    "org.opentest4j:opentest4j:1.3.0": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.pom"
+      ]
+    },
+    "org.ow2.asm:asm-analysis:9.7.1": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://asm.ow2.io/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-analysis/9.7.1/asm-analysis-9.7.1.pom"
+      ]
+    },
+    "org.ow2.asm:asm-commons:9.7.1": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://asm.ow2.io/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-commons/9.7.1/asm-commons-9.7.1.pom"
+      ]
+    },
+    "org.ow2.asm:asm-tree:9.7.1": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://asm.ow2.io/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-tree/9.7.1/asm-tree-9.7.1.pom"
+      ]
+    },
+    "org.ow2.asm:asm-tree:9.8": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://asm.ow2.io/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-tree/9.8/asm-tree-9.8.pom"
+      ]
+    },
+    "org.ow2.asm:asm-util:9.7.1": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://asm.ow2.io/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/ow2/asm/asm-util/9.7.1/asm-util-9.7.1.pom"
+      ]
+    },
+    "org.ow2.asm:asm:9.7.1": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://asm.ow2.io/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.7.1/asm-9.7.1.pom"
+      ]
+    },
+    "org.ow2.asm:asm:9.8": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://asm.ow2.io/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.8/asm-9.8.pom"
+      ]
+    },
+    "org.postgresql:postgresql:42.7.13": {
+      "licenses": [
+        {
+          "name": "BSD-2-Clause",
+          "url": "https://jdbc.postgresql.org/about/license.html"
+        }
+      ],
+      "expression": "BSD-2-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.pom"
+      ]
+    },
+    "org.reactivestreams:reactive-streams:1.0.4": {
+      "licenses": [
+        {
+          "name": "MIT-0",
+          "url": "https://spdx.org/licenses/MIT-0.html"
+        }
+      ],
+      "expression": "MIT-0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/reactivestreams/reactive-streams/1.0.4/reactive-streams-1.0.4.pom"
+      ]
+    },
+    "org.rnorth.duct-tape:duct-tape:1.0.8": {
+      "licenses": [
+        {
+          "name": "MIT",
+          "url": "http://opensource.org/licenses/MIT"
+        }
+      ],
+      "expression": "MIT",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/rnorth/duct-tape/duct-tape/1.0.8/duct-tape-1.0.8.pom"
+      ]
+    },
+    "org.slf4j:slf4j-api:2.0.6": {
+      "licenses": [
+        {
+          "name": "MIT License",
+          "url": "http://www.opensource.org/licenses/mit-license.php"
+        }
+      ],
+      "expression": "MIT",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/2.0.6/slf4j-api-2.0.6.pom"
+      ]
+    },
+    "org.slf4j:slf4j-api:2.0.7": {
+      "licenses": [
+        {
+          "name": "MIT License",
+          "url": "http://www.opensource.org/licenses/mit-license.php"
+        }
+      ],
+      "expression": "MIT",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/slf4j/slf4j-api/2.0.7/slf4j-api-2.0.7.pom"
+      ]
+    },
+    "org.testcontainers:mongodb:1.20.6": {
+      "licenses": [
+        {
+          "name": "MIT",
+          "url": "http://opensource.org/licenses/MIT"
+        }
+      ],
+      "expression": "MIT",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/testcontainers/mongodb/1.20.6/mongodb-1.20.6.pom"
+      ]
+    },
+    "org.testcontainers:testcontainers:1.20.6": {
+      "licenses": [
+        {
+          "name": "MIT",
+          "url": "http://opensource.org/licenses/MIT"
+        }
+      ],
+      "expression": "MIT",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/testcontainers/testcontainers/1.20.6/testcontainers-1.20.6.pom"
+      ]
+    },
+    "org.testcontainers:testcontainers:2.0.5": {
+      "licenses": [
+        {
+          "name": "MIT",
+          "url": "http://opensource.org/licenses/MIT"
+        }
+      ],
+      "expression": "MIT",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/testcontainers/testcontainers/2.0.5/testcontainers-2.0.5.pom"
+      ]
+    },
+    "org.wildfly.common:wildfly-common:1.7.0.Final": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/wildfly/common/wildfly-common/1.7.0.Final/wildfly-common-1.7.0.Final.pom"
+      ]
+    },
+    "org.wildfly.common:wildfly-common:2.0.1": {
+      "licenses": [
+        {
+          "name": "Apache License 2.0",
+          "url": "http://repository.jboss.org/licenses/apache-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/wildfly/common/wildfly-common/2.0.1/wildfly-common-2.0.1.pom"
+      ]
+    }
+  }
+}
