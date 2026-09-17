@@ -114,7 +114,8 @@ Useful k6 environment variables:
 | --- | ---: | --- |
 | `LOAD_MODE` | `spread` | `spread` validates distribution with short-lived connections; `throughput` uses keep-alive |
 | `LOAD_RATE` | `100` | Constant enqueue request arrival rate per second |
-| `LOAD_DURATION` | `1m` | Duration for the enqueue scenario |
+| `LOAD_DURATION` | `1m` | Duration for arrival-rate runs; maximum duration for fixed-iteration runs |
+| `LOAD_ITERATIONS` | `0` | Positive values run exactly this many submissions with `LOAD_PRE_ALLOCATED_VUS` concurrent clients; zero uses the arrival rate |
 | `MIN_ACCEPT_NODES` | script argument | Minimum nodes that must accept enqueue writes |
 | `NODE_PROBE_REQUESTS` | `200` | Gateway probe requests before load starts |
 | `RUN_ID` | generated | Run ID attached to every enqueued job |
@@ -216,5 +217,64 @@ time scheduling connections than draining queue work.
 The PostgreSQL overlay sets `POSTGRES_SHM_SIZE=1gb` by default via Compose `shm_size`; raise it for
 large runs if status or analytics queries report dynamic shared-memory allocation errors.
 
-For MySQL, the Compose overlay sets `READ-COMMITTED` transaction isolation and raises
-`max-connections` to support larger node counts.
+For MySQL, the Compose overlay uses the server default, `REPEATABLE-READ`, and raises
+`max-connections` to support larger node counts. The JDBC URL and WildFly datasource
+inherit the server isolation. Set `MYSQL_TRANSACTION_ISOLATION=READ-COMMITTED` to
+compare isolation levels with the same library. Rebuild older load-test images to
+remove their baked-in datasource override.
+
+Verify application connections, not just an administrative session:
+
+```sql
+SELECT v.VARIABLE_VALUE, COUNT(*)
+FROM performance_schema.variables_by_thread v
+JOIN performance_schema.threads t USING (THREAD_ID)
+WHERE v.VARIABLE_NAME = 'transaction_isolation'
+  AND t.PROCESSLIST_USER = 'ratchet'
+GROUP BY v.VARIABLE_VALUE;
+```
+
+These are load-test controls; the MySQL library supports both isolation levels
+without requiring a datasource override.
+
+## MySQL performance experiments
+
+Set the database cache explicitly when comparing throughput on larger hosts:
+
+```bash
+MYSQL_BUFFER_POOL_SIZE=4G sh infra/loadtest/run.sh mysql 10
+```
+
+The default remains `128M`. Choose a size that leaves room for application heaps,
+connections, the operating system and other services. Changing this variable takes
+effect when Compose recreates MySQL; it does not resize an already running server.
+
+For a useful comparison, keep the application build, worker count, connection pools,
+job payload, arrival rate and durability settings fixed. Warm the application first
+and drain the queue between runs. Record accepted jobs, HTTP latency, dropped
+arrivals and the time until all accepted jobs finish. A passing HTTP threshold does
+not establish sustained job-processing capacity.
+
+Also record the `lock_deadlocks` and `lock_timeouts` counters from
+`information_schema.INNODB_METRICS`, and capture `SHOW ENGINE INNODB STATUS` when a
+deadlock occurs. Final job success alone does not show whether a maintenance lease
+failed during the run.
+
+### Comparing library changes
+
+Use clean builds of the baseline and candidate with the same Java toolchain.
+Keep the database image, schema, memory, workers, connection pools, workload and
+client concurrency identical. Start each trial with a fresh test database, run
+an equal warm-up, then alternate baseline and candidate trials. Preserve earlier
+test databases separately instead of mixing their history into later trials.
+
+For a fixed amount of work, set `LOAD_ITERATIONS=100000`,
+`LOAD_PRE_ALLOCATED_VUS=500`, `LOAD_DURATION=10m`, and `LOAD_MODE=throughput`.
+The duration is a timeout in this mode. Wait for every accepted job to finish.
+Report enqueue latency separately from completed-job throughput and end-to-end
+job latency; k6 request throughput alone does not measure processing capacity.
+`ratchet_enqueue_latency` includes client retries and excludes control requests.
+
+Record build identities and job counts, and repeat both variants. A correctness
+pass, fewer SQL statements, or one faster run does not establish a throughput gain.
+Profiling and database query logging belong in separate diagnostic runs.
