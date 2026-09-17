@@ -1243,10 +1243,10 @@
 
           Effort is Max for the deepest dataflow analysis. The include filter
           (spotbugs-include.xml) narrows reporting to the high-signal categories
-          (concurrency + definite correctness) so the gate stays low-noise. That
-          scoping IS the baseline — there is no instance-suppression file because
-          the findings present at adoption were fixed, not suppressed, so the gate
-          runs clean and any NEW concurrency/correctness finding fails the build.
+          (concurrency + definite correctness). Both
+          categories remain enabled across the reactor. Quarkus core excludes one
+          native-image type-remapping false positive by its exact instance hash;
+          new concurrency/correctness findings still fail the build.
         -->
         <plugin>
           <groupId>com.github.spotbugs</groupId>

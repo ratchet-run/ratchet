@@ -20,9 +20,9 @@
   DDL migration statements, and CodeQL's taint analysis covers injection more
   thoroughly. Keeping it out avoids a third overlapping suppression surface.
 
-  This category scoping IS the baseline: there is no instance-suppression file
-  because the two real findings were fixed rather than suppressed. To accept a
-  future finding without fixing it, generate a SpotBugs result XML and reference
+  Quarkus core records one native-image type-remapping false positive by instance
+  hash in its module-local spotbugs-native-substitution.xml. To accept another
+  finding without fixing it, generate a SpotBugs result XML and reference
   it via <excludeBugsFile> (hash-based, so it never masks a NEW bug in the same
   method) — do not add broad method/class Match excludes here.
 -->

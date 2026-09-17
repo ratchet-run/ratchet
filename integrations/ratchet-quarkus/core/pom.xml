@@ -73,6 +73,14 @@
   <build>
     <plugins>
       <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <configuration>
+          <!-- Exact native-image type-remapping finding; other cast errors remain gated. -->
+          <excludeBugsFile>${project.basedir}/spotbugs-native-substitution.xml</excludeBugsFile>
+        </configuration>
+      </plugin>
+      <plugin>
         <groupId>io.quarkus</groupId>
         <artifactId>quarkus-extension-maven-plugin</artifactId>
         <version>${quarkus.version}</version>
