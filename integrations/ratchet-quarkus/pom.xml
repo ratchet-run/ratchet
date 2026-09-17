@@ -37,6 +37,15 @@
 
   <dependencyManagement>
     <dependencies>
+      <!-- Keep Netty aligned with the root security baseline. Import before the platform BOM
+           so it cannot restore an older version with known security advisories. -->
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>${netty.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <!-- Override the platform's Micrometer 1.14.x line for CVE-2026-40984.
            Import first to keep core, observation, commons, and registries aligned. -->
       <dependency>

@@ -154,6 +154,42 @@ On Docker Engine 29 or newer, Dev Services may fail to negotiate the Docker API 
 For MySQL, swap in `ratchet-store-mysql` and `quarkus-jdbc-mysql`. Oracle and SQL Server work the same
 way with their own store and driver artifacts.
 
+## Netty dependency alignment
+
+Quarkus 3.20.6.2 manages Netty 4.1.130.Final. For applications using this platform,
+we recommend aligning the Netty 4.1 modules to 4.1.137.Final, which includes the
+[upstream security fixes](https://github.com/netty/netty/releases/tag/netty-4.1.137.Final).
+Ratchet's build uses that version, but its dependency management does not override the
+application's platform BOM. Upgrading Ratchet alone does not guarantee the same Netty version
+in your application.
+
+Import the Netty BOM before the Quarkus BOM in the application's `dependencyManagement`:
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-bom</artifactId>
+      <version>4.1.137.Final</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus.platform</groupId>
+      <artifactId>quarkus-bom</artifactId>
+      <version>3.20.6.2</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+```
+
+Check the application's resolved versions with `mvn dependency:tree -Dincludes=io.netty`
+and run its integration tests. A newer Quarkus platform may already provide the fixes;
+check its resolved Netty version before carrying this override forward.
+
 ## Moving to production
 
 **Datasource.** Point the default datasource at your real database instead of Dev Services:
