@@ -16,6 +16,8 @@
 package run.ratchet.quarkus.it;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.logging.Logger;
@@ -38,6 +40,7 @@ public class ItJobs {
   private final AtomicReference<String> executedValue = new AtomicReference<>();
   private final AtomicReference<DemoArg> executedArg = new AtomicReference<>();
   private final AtomicReference<String> executedUnmanaged = new AtomicReference<>();
+  private final Set<String> submitterCases = ConcurrentHashMap.newKeySet();
   private final AtomicBoolean recurringExecuted = new AtomicBoolean();
 
   /** Job body. Submitted as the method reference {@code itJobs::recordRun}. */
@@ -80,6 +83,18 @@ public class ItJobs {
   public String executedUnmanaged() {
     String value = executedUnmanaged.get();
     return value == null ? "none" : value;
+  }
+
+  public void recordSubmitterCase(String value) {
+    submitterCases.add(value);
+  }
+
+  public void recordLookupReference() {
+    recordSubmitterCase("lookup-reference");
+  }
+
+  public boolean hasSubmitterCase(String value) {
+    return submitterCases.contains(value);
   }
 
   /** Registered via onRuntimeStart() at Quarkus boot; fires every second. */

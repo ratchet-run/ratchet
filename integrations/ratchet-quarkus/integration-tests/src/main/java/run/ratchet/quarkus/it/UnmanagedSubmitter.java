@@ -21,14 +21,8 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.quarkus.runtime.RegisterJobSubmitter;
 
 /**
- * Submits an inline capturing lambda without ever declaring a {@link JobSchedulerService} field or
- * method parameter, so the extension's auto-detection heuristic cannot see it. {@link
- * RegisterJobSubmitter} is the only reason this class's bytecode reaches the native image; drop the
- * annotation and the submission below fails in native with {@code Bytecode not found}.
- *
- * <p>The scheduler is looked up programmatically on purpose. The heuristic inspects fields and
- * method parameters, and a constructor is a method, so constructor injection would still match it
- * and this class would prove nothing.
+ * Submits through a programmatic lookup. The explicit annotation remains supported, although
+ * application-index classes are also registered automatically for native submission.
  */
 @ApplicationScoped
 @RegisterJobSubmitter

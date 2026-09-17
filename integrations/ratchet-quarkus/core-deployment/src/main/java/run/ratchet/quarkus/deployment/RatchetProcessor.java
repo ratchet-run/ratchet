@@ -41,6 +41,7 @@ import org.jboss.jandex.DotName;
 import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
+import run.ratchet.api.JobSchedulerService;
 import run.ratchet.quarkus.runtime.QuarkusPrincipalSource;
 import run.ratchet.quarkus.runtime.QuarkusRatchetExecutorProvider;
 import run.ratchet.quarkus.runtime.RatchetRuntimeProducers;
@@ -58,7 +59,7 @@ class RatchetProcessor {
 
   private static final String FEATURE = "ratchet";
   private static final DotName JOB_SCHEDULER_SERVICE =
-      DotName.createSimple("run.ratchet.api.JobSchedulerService");
+      DotName.createSimple(JobSchedulerService.class.getName());
 
   private static final DotName REGISTER_JOB_SUBMITTER =
       DotName.createSimple(RegisterJobSubmitter.class.getName());
@@ -147,12 +148,7 @@ class RatchetProcessor {
         ReflectiveClassBuildItem.builder("java.util.concurrent.Executors").methods(true).build());
     // Framework-created jobs persist these methods as reflective targets.
     reflectiveMethods.produce(
-        new ReflectiveMethodBuildItem(
-            RecurringMethodInvoker.class.getName(),
-            "invoke",
-            String.class,
-            String.class,
-            boolean.class));
+        new ReflectiveMethodBuildItem(RecurringMethodInvoker.invocationMethod()));
     reflectiveMethods.produce(
         new ReflectiveMethodBuildItem(JobPlaceholders.class.getName(), "noop", new String[0]));
     // Static SecureRandom must be created at image runtime, not captured into the image heap.
@@ -187,41 +183,35 @@ class RatchetProcessor {
   }
 
   /**
-   * Register lambda-capturing classes for serialization so method-reference job submission works in
-   * native (the lambda's {@code writeReplace} -> {@code SerializedLambda} path). Jandex cannot see
-   * call sites, so the heuristic is: any class that injects {@link
-   * run.ratchet.api.JobSchedulerService} is a place jobs are submitted.
+   * Register serialization metadata and class resources together for all application classes.
+   * Lambda ownership follows the lexical class, not necessarily the injection site. Preserve
+   * dependency discovery and explicit opt-in without including every dependency class resource.
    */
   @BuildStep
   void lambdaCapturingTypes(
-      CombinedIndexBuildItem index, BuildProducer<LambdaCapturingTypeBuildItem> lambdas) {
-    for (ClassInfo candidate : lambdaCapturingClasses(index)) {
-      lambdas.produce(new LambdaCapturingTypeBuildItem(candidate.name().toString()));
+      ApplicationIndexBuildItem applicationIndex,
+      CombinedIndexBuildItem index,
+      BuildProducer<LambdaCapturingTypeBuildItem> lambdas,
+      BuildProducer<NativeImageResourceBuildItem> resources) {
+    for (ClassInfo candidate : lambdaCapturingClasses(applicationIndex, index)) {
+      String name = candidate.name().toString();
+      lambdas.produce(new LambdaCapturingTypeBuildItem(name));
+      resources.produce(new NativeImageResourceBuildItem(name.replace('.', '/') + ".class"));
     }
   }
 
   /**
-   * Ship bytecode only for lambda-capturing classes: {@code AsmLambdaAnalyzer} reads these class
-   * resources at runtime for inline lambdas. Restricting the set bounds the native image-size cost.
+   * All application classes, plus indexed dependencies declaring a {@link JobSchedulerService}
+   * injection type or opting in with {@link RegisterJobSubmitter}.
    */
-  @BuildStep
-  void lambdaCapturingClassResources(
-      CombinedIndexBuildItem index, BuildProducer<NativeImageResourceBuildItem> resources) {
-    for (ClassInfo candidate : lambdaCapturingClasses(index)) {
-      String internalName = candidate.name().toString().replace('.', '/');
-      resources.produce(new NativeImageResourceBuildItem(internalName + ".class"));
-    }
-  }
-
-  /**
-   * Classes that may declare an inline lambda body the engine has to resolve: those injecting
-   * {@link run.ratchet.api.JobSchedulerService}, plus those opting in with {@link
-   * RegisterJobSubmitter} because they obtain the scheduler some other way.
-   */
-  private static List<ClassInfo> lambdaCapturingClasses(CombinedIndexBuildItem index) {
+  private static List<ClassInfo> lambdaCapturingClasses(
+      ApplicationIndexBuildItem applicationIndex, CombinedIndexBuildItem index) {
     Map<DotName, ClassInfo> selected = new LinkedHashMap<>();
+    for (ClassInfo candidate : applicationIndex.getIndex().getKnownClasses()) {
+      selected.put(candidate.name(), candidate);
+    }
     for (ClassInfo candidate : index.getIndex().getKnownClasses()) {
-      if (injectsJobScheduler(candidate)) {
+      if (!selected.containsKey(candidate.name()) && injectsJobScheduler(candidate)) {
         selected.put(candidate.name(), candidate);
       }
     }
@@ -231,18 +221,32 @@ class RatchetProcessor {
         selected.put(annotated.name(), annotated);
       }
     }
-    return List.copyOf(selected.values());
+    return selected.values().stream().sorted((a, b) -> a.name().compareTo(b.name())).toList();
+  }
+
+  private static boolean schedulerType(Type type) {
+    if (type.name().equals(JOB_SCHEDULER_SERVICE)) {
+      return true;
+    }
+    if (type.kind() != Type.Kind.PARAMETERIZED_TYPE) {
+      return false;
+    }
+    String wrapper = type.name().toString();
+    return (wrapper.equals("jakarta.enterprise.inject.Instance")
+            || wrapper.equals("jakarta.inject.Provider"))
+        && type.asParameterizedType().arguments().stream()
+            .anyMatch(RatchetProcessor::schedulerType);
   }
 
   private static boolean injectsJobScheduler(ClassInfo candidate) {
     for (FieldInfo field : candidate.fields()) {
-      if (field.type().name().equals(JOB_SCHEDULER_SERVICE)) {
+      if (schedulerType(field.type())) {
         return true;
       }
     }
     for (MethodInfo method : candidate.methods()) {
       for (Type parameter : method.parameterTypes()) {
-        if (parameter.name().equals(JOB_SCHEDULER_SERVICE)) {
+        if (schedulerType(parameter)) {
           return true;
         }
       }

@@ -19,25 +19,23 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import run.ratchet.api.JobSchedulerService;
 
 /**
- * Marks a class that submits Ratchet jobs, so the extension registers it for lambda-capture
- * serialization and ships its bytecode into the native image.
+ * Registers a dependency class for native lambda serialization and includes its bytecode as a
+ * resource. Annotate the class that lexically contains the submitted lambda or method reference.
  *
- * <p>Submitting an inline lambda such as {@code () -> service.work(value)} requires reading the
- * lambda body's bytecode at runtime to resolve the invocation it stands for. A native image ships
- * no class files by default, so the extension registers each submitting class explicitly.
+ * <p>The extension registers all application-index classes automatically. For indexed dependencies,
+ * it also discovers classes declaring a {@link JobSchedulerService} field or method parameter,
+ * including {@code Instance} and {@code Provider} wrappers. Use this annotation for other
+ * dependency submitters, such as classes using a programmatic lookup, an inherited scheduler, or a
+ * lambda in a nested class. The dependency must be indexed by Quarkus for the annotation to be
+ * discovered.
  *
- * <p>The extension finds submitters automatically when the class declares a {@link
- * run.ratchet.api.JobSchedulerService} field or method parameter, which covers ordinary injection.
- * Annotate a class with {@code @RegisterJobSubmitter} when it submits jobs but obtains the
- * scheduler some other way — most commonly {@code CDI.current().select(...)}, a lookup helper, or a
- * base class submitting on behalf of subclasses. Without it, such a class fails in native at
- * submission time with {@code IllegalStateException: Bytecode not found}.
- *
- * <p>This annotation only affects native-image builds; it is a no-op in JVM mode, where class files
- * are always on the classpath. Job targets submitted as method references need no registration,
- * because a method reference names its target directly instead of hiding it in a lambda body.
+ * <p>Both method references and inline lambdas need lambda-serialization metadata in native images.
+ * Inline lambdas additionally need their containing class's bytecode for invocation analysis. This
+ * annotation supplies both; it does not register dependency job targets for reflective execution.
+ * It has no effect in JVM mode.
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target(ElementType.TYPE)
