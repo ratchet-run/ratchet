@@ -20,6 +20,10 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import run.ratchet.store.schema.ForeignKey;
+import run.ratchet.store.schema.LogicalPredicate;
+import run.ratchet.store.schema.LogicalType;
+import run.ratchet.store.schema.OnDeleteAction;
 
 /**
  * Dialect-specific lens onto an introspected schema. Implementations encapsulate every place where

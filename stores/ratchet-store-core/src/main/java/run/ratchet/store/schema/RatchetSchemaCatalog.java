@@ -13,22 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.tck.store.schema;
+package run.ratchet.store.schema;
 
-import static run.ratchet.tck.store.schema.Column.nullable;
-import static run.ratchet.tck.store.schema.Column.required;
-import static run.ratchet.tck.store.schema.LogicalType.BOOLEAN;
-import static run.ratchet.tck.store.schema.LogicalType.INT32;
-import static run.ratchet.tck.store.schema.LogicalType.INT64;
-import static run.ratchet.tck.store.schema.LogicalType.JSON;
-import static run.ratchet.tck.store.schema.LogicalType.TEXT;
-import static run.ratchet.tck.store.schema.LogicalType.TIMESTAMP_TZ;
-import static run.ratchet.tck.store.schema.LogicalType.UUID;
+import static run.ratchet.store.schema.Column.nullable;
+import static run.ratchet.store.schema.Column.required;
+import static run.ratchet.store.schema.LogicalType.BOOLEAN;
+import static run.ratchet.store.schema.LogicalType.INT32;
+import static run.ratchet.store.schema.LogicalType.INT64;
+import static run.ratchet.store.schema.LogicalType.JSON;
+import static run.ratchet.store.schema.LogicalType.TEXT;
+import static run.ratchet.store.schema.LogicalType.TIMESTAMP_TZ;
+import static run.ratchet.store.schema.LogicalType.UUID;
 
 import java.util.List;
-import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedColumn;
-import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
-import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedTable;
+import run.ratchet.store.schema.DeprecatedArtifact.DroppedColumn;
+import run.ratchet.store.schema.DeprecatedArtifact.DroppedIndex;
+import run.ratchet.store.schema.DeprecatedArtifact.DroppedTable;
 
 /**
  * Canonical schema definition covering every persistent table in the Ratchet scheduler schema. The

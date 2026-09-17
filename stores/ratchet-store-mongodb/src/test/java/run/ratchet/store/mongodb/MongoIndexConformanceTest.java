@@ -140,6 +140,27 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void validationRejectsACompoundIndexWithTheSameKeysInReverseOrder() {
+    var jobs = database.getCollection("scheduler_job");
+    jobs.dropIndex(MongoIndexHints.JOB_CLAIM_EXEC);
+    jobs.createIndex(
+        Indexes.compoundIndex(
+            Indexes.ascending(ID),
+            Indexes.ascending(SCHEDULED_TIME),
+            Indexes.descending(PRIORITY),
+            Indexes.ascending(JOB_TYPE),
+            Indexes.ascending(STATUS)),
+        new IndexOptions().name(MongoIndexHints.JOB_CLAIM_EXEC));
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> new MongoCollectionInitializer(database, client).validate());
+
+    assertTrue(failure.getMessage().contains(MongoIndexHints.JOB_CLAIM_EXEC));
+  }
+
+  @Test
   void everyHintNamesAnIndexThatGetsCreated() throws IllegalAccessException {
     Set<String> created = allCreatedIndexNames();
     for (Field field : MongoIndexHints.class.getDeclaredFields()) {

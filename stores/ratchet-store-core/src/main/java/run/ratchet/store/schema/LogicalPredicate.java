@@ -13,14 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.tck.store.schema;
+package run.ratchet.store.schema;
 
 import java.util.List;
 
 /**
  * Dialect-agnostic predicate for partial-index WHERE clauses (and, prospectively, CHECK
- * constraints). The {@link DialectTypeMapper} renders predicates into dialect SQL and parses
- * introspected predicates back into this form for comparison.
+ * constraints). Dialect-specific TCK code renders predicates into SQL and parses introspected
+ * predicates back into this form for comparison.
  */
 public record LogicalPredicate(String column, Op op, List<String> literals) {
 

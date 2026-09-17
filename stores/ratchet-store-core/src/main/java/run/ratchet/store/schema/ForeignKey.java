@@ -13,21 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.tck.store.schema;
+package run.ratchet.store.schema;
 
 /**
- * Logical column types in the canonical Ratchet schema. Dialect mappers translate each value into
- * the set of dialect-specific types that satisfy it (e.g. {@link #INT64} → MySQL {@code BIGINT
- * UNSIGNED} ∪ PostgreSQL {@code bigint}; {@link #UUID} → PostgreSQL {@code uuid}, MySQL {@code
- * BINARY(16)} per Hibernate's default mapping for {@code java.util.UUID}).
+ * Foreign-key constraint with action semantics. Action is part of the contract because cascade
+ * behavior is correctness-critical (e.g. hot-row deletion on parent-job delete depends on {@link
+ * OnDeleteAction#CASCADE}).
  */
-public enum LogicalType {
-  INT32,
-  INT64,
-  UUID,
-  TEXT,
-  CHAR_1,
-  TIMESTAMP_TZ,
-  BOOLEAN,
-  JSON
-}
+public record ForeignKey(
+    String name, String column, String refTable, String refColumn, OnDeleteAction onDelete) {}

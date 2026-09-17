@@ -13,15 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.tck.store.schema;
+package run.ratchet.store.schema;
 
-/** Canonical column declaration. {@code partOfPrimaryKey} is set by the table builder, not here. */
-public record Column(String name, LogicalType type, boolean nullable) {
-  public static Column required(String name, LogicalType type) {
-    return new Column(name, type, false);
-  }
-
-  public static Column nullable(String name, LogicalType type) {
-    return new Column(name, type, true);
-  }
+/** Foreign-key cascade behavior on parent-row delete. */
+public enum OnDeleteAction {
+  NO_ACTION,
+  RESTRICT,
+  CASCADE,
+  SET_NULL,
+  SET_DEFAULT
 }

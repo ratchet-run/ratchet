@@ -13,12 +13,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.tck.store.schema;
+package run.ratchet.store.schema;
+
+import java.util.List;
 
 /**
- * Foreign-key constraint with action semantics. Action is part of the contract because cascade
- * behavior is correctness-critical (e.g. hot-row deletion on parent-job delete depends on {@link
- * OnDeleteAction#CASCADE}).
+ * Canonical Ratchet schema, expressed as logical declarations. Tables list required tables (extras
+ * are tolerated — the contract verifies presence and conformance, not exclusivity). Deprecated
+ * artifacts list what must be absent for the bidirectional check.
  */
-public record ForeignKey(
-    String name, String column, String refTable, String refColumn, OnDeleteAction onDelete) {}
+public record SchemaSpec(int version, List<Table> tables, List<DeprecatedArtifact> deprecated) {
+
+  public SchemaSpec {
+    tables = List.copyOf(tables);
+    deprecated = List.copyOf(deprecated);
+  }
+}

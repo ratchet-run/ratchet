@@ -13,19 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.tck.store.schema;
+package run.ratchet.store.schema;
 
-import java.util.List;
+/** Canonical column declaration. {@code partOfPrimaryKey} is set by the table builder, not here. */
+public record Column(String name, LogicalType type, boolean nullable) {
+  public static Column required(String name, LogicalType type) {
+    return new Column(name, type, false);
+  }
 
-/**
- * Canonical Ratchet schema, expressed as logical declarations. Tables list required tables (extras
- * are tolerated — the contract verifies presence and conformance, not exclusivity). Deprecated
- * artifacts list what must be absent for the bidirectional check.
- */
-public record SchemaSpec(int version, List<Table> tables, List<DeprecatedArtifact> deprecated) {
-
-  public SchemaSpec {
-    tables = List.copyOf(tables);
-    deprecated = List.copyOf(deprecated);
+  public static Column nullable(String name, LogicalType type) {
+    return new Column(name, type, true);
   }
 }

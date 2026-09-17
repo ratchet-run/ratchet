@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.tck.store.schema;
+package run.ratchet.store.schema;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,7 +22,7 @@ import java.util.Optional;
  * Canonical index declaration. {@code partialPredicate} is present iff this is a partial index
  * (e.g. PostgreSQL {@code WHERE status='PENDING'}); dialects that lack partial-index support
  * satisfy the spec by carrying the full index without a predicate (the contract verifies the
- * predicate only when {@link DialectTypeMapper#supportsPartialIndexIntrospection()} is true).
+ * predicate only when its dialect mapper supports partial-index introspection.
  */
 public record Index(
     String name,

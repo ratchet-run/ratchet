@@ -36,18 +36,23 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLStreamHandler;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.store.schema.RatchetSchemaCatalog;
 
 /**
  * Exercises the dialect-agnostic {@link SchemaMigrator} engine — discovery, checksum validation,
@@ -61,6 +66,7 @@ class SchemaMigratorTest {
   private Connection connection;
   private Statement statement;
   private PreparedStatement selectVersion;
+  private PreparedStatement selectHistory;
   private PreparedStatement insertVersion;
   private RecordingDialect dialect;
 
@@ -74,6 +80,42 @@ class SchemaMigratorTest {
     ResultSet resultSet = mock(ResultSet.class);
     when(resultSet.next()).thenReturn(true);
     when(resultSet.getString(1)).thenReturn(checksum);
+    return resultSet;
+  }
+
+  private static ResultSet rows(String label, List<String> values) throws Exception {
+    ResultSet resultSet = mock(ResultSet.class);
+    AtomicInteger index = new AtomicInteger(-1);
+    when(resultSet.next()).thenAnswer(ignored -> index.incrementAndGet() < values.size());
+    when(resultSet.getString(label)).thenAnswer(ignored -> values.get(index.get()));
+    return resultSet;
+  }
+
+  private static ResultSet primaryKeyRows(List<String> columns) throws Exception {
+    ResultSet resultSet = mock(ResultSet.class);
+    AtomicInteger index = new AtomicInteger(-1);
+    when(resultSet.next()).thenAnswer(ignored -> index.incrementAndGet() < columns.size());
+    when(resultSet.getString("COLUMN_NAME")).thenAnswer(ignored -> columns.get(index.get()));
+    when(resultSet.getShort("KEY_SEQ")).thenAnswer(ignored -> (short) (index.get() + 1));
+    return resultSet;
+  }
+
+  private static ResultSet uniqueIndexRows(String name, List<String> columns) throws Exception {
+    ResultSet resultSet = mock(ResultSet.class);
+    AtomicInteger index = new AtomicInteger(-1);
+    when(resultSet.next()).thenAnswer(ignored -> index.incrementAndGet() < columns.size());
+    when(resultSet.getString("INDEX_NAME")).thenReturn(name);
+    when(resultSet.getString("COLUMN_NAME")).thenAnswer(ignored -> columns.get(index.get()));
+    when(resultSet.getShort("ORDINAL_POSITION")).thenAnswer(ignored -> (short) (index.get() + 1));
+    return resultSet;
+  }
+
+  private static ResultSet historyRows(List<List<String>> rows) throws Exception {
+    ResultSet resultSet = mock(ResultSet.class);
+    AtomicInteger index = new AtomicInteger(-1);
+    when(resultSet.next()).thenAnswer(ignored -> index.incrementAndGet() < rows.size());
+    when(resultSet.getString(1)).thenAnswer(ignored -> rows.get(index.get()).get(0));
+    when(resultSet.getString(2)).thenAnswer(ignored -> rows.get(index.get()).get(1));
     return resultSet;
   }
 
@@ -118,15 +160,77 @@ class SchemaMigratorTest {
     connection = mock(Connection.class);
     statement = mock(Statement.class);
     selectVersion = mock(PreparedStatement.class);
+    selectHistory = mock(PreparedStatement.class);
     insertVersion = mock(PreparedStatement.class);
     dialect = new RecordingDialect();
+    DatabaseMetaData metadata = mock(DatabaseMetaData.class);
 
     when(dataSource.getConnection()).thenReturn(connection);
+    when(connection.getMetaData()).thenReturn(metadata);
     when(connection.createStatement()).thenReturn(statement);
     when(connection.getAutoCommit()).thenReturn(true);
     when(connection.prepareStatement(startsWith("SELECT checksum"))).thenReturn(selectVersion);
+    when(connection.prepareStatement(startsWith("SELECT version, checksum")))
+        .thenReturn(selectHistory);
     when(connection.prepareStatement(startsWith("INSERT INTO ratchet_schema_version")))
         .thenReturn(insertVersion);
+    configureCurrentSchemaMetadata(metadata, false);
+  }
+
+  private void configureCurrentSchemaMetadata(DatabaseMetaData metadata, boolean versionTable)
+      throws Exception {
+    List<String> tables =
+        new java.util.ArrayList<>(
+            RatchetSchemaCatalog.CURRENT.tables().stream().map(table -> table.name()).toList());
+    if (versionTable) {
+      tables.add("ratchet_schema_version");
+    }
+    when(metadata.getTables(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()))
+        .thenAnswer(ignored -> rows("TABLE_NAME", tables));
+    Map<String, List<String>> columns = new HashMap<>();
+    RatchetSchemaCatalog.CURRENT
+        .tables()
+        .forEach(
+            table ->
+                columns.put(
+                    table.name(), table.columns().stream().map(column -> column.name()).toList()));
+    when(metadata.getColumns(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()))
+        .thenAnswer(
+            invocation ->
+                rows("COLUMN_NAME", columns.getOrDefault(invocation.getArgument(2), List.of())));
+    Map<String, List<String>> primaryKeys = new HashMap<>();
+    RatchetSchemaCatalog.CURRENT
+        .tables()
+        .forEach(table -> primaryKeys.put(table.name(), table.primaryKey()));
+    when(metadata.getPrimaryKeys(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()))
+        .thenAnswer(
+            invocation ->
+                primaryKeyRows(primaryKeys.getOrDefault(invocation.getArgument(2), List.of())));
+    when(metadata.getIndexInfo(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq(true),
+            org.mockito.ArgumentMatchers.eq(true)))
+        .thenAnswer(
+            invocation -> {
+              String table = invocation.getArgument(2);
+              if ("scheduler_job".equals(table)) {
+                return uniqueIndexRows("uk_idempotency_key", List.of("idempotency_key"));
+              }
+              return uniqueIndexRows("unused", List.of());
+            });
   }
 
   @Test
@@ -310,6 +414,123 @@ class SchemaMigratorTest {
 
     assertEquals(0, result.appliedCount());
     assertEquals(2, result.skippedCount());
+    verify(insertVersion, never()).executeUpdate();
+    verify(connection, never()).commit();
+  }
+
+  @Test
+  void validatesInstalledMigrationsWithoutWritingOrLocking() throws Exception {
+    configureCurrentSchemaMetadata(connection.getMetaData(), true);
+    SchemaMigrator migrator = migrator("schema-migrator");
+    List<SchemaMigrator.MigrationScript> scripts = migrator.discoverMigrations();
+    ResultSet history =
+        historyRows(
+            List.of(
+                List.of(scripts.get(0).version(), scripts.get(0).checksum()),
+                List.of(scripts.get(1).version(), scripts.get(1).checksum())));
+    when(selectHistory.executeQuery()).thenReturn(history);
+
+    SchemaMigrator.ValidationResult result = migrator.validate();
+
+    assertEquals(2, result.validatedCount());
+    assertEquals(List.of("001", "002"), result.validated().stream().map(s -> s.version()).toList());
+    verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
+    verify(insertVersion, never()).executeUpdate();
+    verify(connection, never()).commit();
+    assertEquals(0, dialect.acquireCount());
+    assertEquals(0, dialect.releaseCount());
+  }
+
+  @Test
+  void validationAllowsAnExternallyManagedSchemaWithoutMigrationHistory() throws Exception {
+    SchemaMigrator migrator = migrator("schema-migrator");
+    SchemaMigrator.ValidationResult result = migrator.validate();
+
+    assertEquals(0, result.validatedCount());
+    verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
+    verify(insertVersion, never()).executeUpdate();
+    verify(connection, never()).commit();
+  }
+
+  @Test
+  void validationRejectsMissingRequiredTable() throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    ResultSet noTables = rows("TABLE_NAME", List.of());
+    when(metadata.getTables(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any()))
+        .thenReturn(noTables);
+
+    SchemaMigrationException ex =
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").validate());
+
+    assertTrue(ex.getMessage().contains("scheduler_job"));
+    verify(connection, never()).prepareStatement(startsWith("SELECT version, checksum"));
+  }
+
+  @Test
+  void validationRejectsMissingPrimaryKey() throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    ResultSet noPrimaryKey = primaryKeyRows(List.of());
+    when(metadata.getPrimaryKeys(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq("scheduler_job")))
+        .thenReturn(noPrimaryKey);
+
+    SchemaMigrationException ex =
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").validate());
+
+    assertTrue(ex.getMessage().contains("scheduler_job"));
+    assertTrue(ex.getMessage().contains("primary key"));
+  }
+
+  @Test
+  void validationRejectsMissingIdempotencyUniqueIndex() throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    ResultSet noIdempotencyIndex = uniqueIndexRows("unused", List.of());
+    when(metadata.getIndexInfo(
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.any(),
+            org.mockito.ArgumentMatchers.eq("scheduler_job"),
+            org.mockito.ArgumentMatchers.eq(true),
+            org.mockito.ArgumentMatchers.eq(true)))
+        .thenReturn(noIdempotencyIndex);
+
+    SchemaMigrationException ex =
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").validate());
+
+    assertTrue(ex.getMessage().contains("scheduler_job"));
+    assertTrue(ex.getMessage().contains("uk_idempotency_key"));
+  }
+
+  @Test
+  void validationRejectsFutureMigrationHistory() throws Exception {
+    configureCurrentSchemaMetadata(connection.getMetaData(), true);
+    ResultSet history = historyRows(List.of(List.of("999", "checksum")));
+    when(selectHistory.executeQuery()).thenReturn(history);
+
+    SchemaMigrationException ex =
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").validate());
+
+    assertTrue(ex.getMessage().contains("newer than this runtime supports"));
+  }
+
+  @Test
+  void validationRejectsAnIncompleteExistingMigrationLedger() throws Exception {
+    configureCurrentSchemaMetadata(connection.getMetaData(), true);
+    SchemaMigrator migrator = migrator("schema-migrator");
+    SchemaMigrator.MigrationScript first = migrator.discoverMigrations().get(0);
+    ResultSet history = historyRows(List.of(List.of(first.version(), first.checksum())));
+    when(selectHistory.executeQuery()).thenReturn(history);
+
+    SchemaMigrationException ex = assertThrows(SchemaMigrationException.class, migrator::validate);
+
+    assertTrue(ex.getMessage().contains("missing recorded migration"));
+    assertTrue(ex.getMessage().contains("002"));
+    verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
     verify(insertVersion, never()).executeUpdate();
     verify(connection, never()).commit();
   }

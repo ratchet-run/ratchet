@@ -26,6 +26,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -37,9 +38,11 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -47,6 +50,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import org.jboss.logging.Logger;
+import run.ratchet.store.schema.Index;
+import run.ratchet.store.schema.RatchetSchemaCatalog;
+import run.ratchet.store.schema.Table;
 
 /**
  * Optional classpath SQL migrator for Ratchet-managed schemas.
@@ -61,6 +67,7 @@ public final class SchemaMigrator {
 
   private static final String SINGLE_STATEMENT_DIRECTIVE = "-- ratchet:single-statement";
   private static final String MIGRATION_INDEX_FILE = "index.txt";
+  private static final String VERSION_TABLE = "ratchet_schema_version";
 
   public static final String DEFAULT_MIGRATION_PREFIX = "ddl/migrations";
 
@@ -223,15 +230,7 @@ public final class SchemaMigrator {
    */
   public MigrationResult migrate() throws IOException, SQLException {
     List<MigrationScript> scripts = discoverMigrations();
-    if (scripts.isEmpty()) {
-      throw new SchemaMigrationException(
-          "No Ratchet schema migration scripts were discovered under classpath prefix '"
-              + classpathPrefix
-              + "'. When ratchet.schema.auto-migrate=true, ensure the SQL store migration"
-              + " resources and "
-              + migrationIndexResourceName()
-              + " are on the runtime classpath.");
-    }
+    requireMigrationScripts(scripts);
     List<MigrationScript> applied = new ArrayList<>();
     List<MigrationScript> skipped = new ArrayList<>();
 
@@ -277,6 +276,281 @@ public final class SchemaMigrator {
     }
 
     return new MigrationResult(applied, skipped);
+  }
+
+  /**
+   * Verifies that a live database contains the required Ratchet tables and columns without changing
+   * the database.
+   *
+   * <p>The check validates migration discovery, then reads JDBC metadata against the canonical
+   * Ratchet schema catalog for tables, columns, primary keys, and required unique indexes. A {@code
+   * ratchet_schema_version} table is optional so that schemas managed by Flyway, Liquibase, or an
+   * application-owned consolidated script remain supported. When that table is present, it must
+   * record every bundled migration with its exact checksum. The check does not take a migration
+   * lock, create a table, execute DDL, or write version metadata.
+   *
+   * @return result containing every recorded migration whose checksum was verified
+   * @throws IOException if classpath resources cannot be read
+   * @throws SQLException if JDBC metadata or migration history cannot be read
+   */
+  public ValidationResult validate() throws IOException, SQLException {
+    List<MigrationScript> scripts = discoverMigrations();
+    requireMigrationScripts(scripts);
+
+    try (Connection connection = dataSource.getConnection()) {
+      DatabaseMetaData metadata = connection.getMetaData();
+      Set<String> tables = tableNames(metadata, connection);
+      validateRequiredTablesAndColumns(metadata, connection, tables);
+      return new ValidationResult(validateRecordedMigrations(connection, tables, scripts));
+    }
+  }
+
+  private Set<String> tableNames(DatabaseMetaData metadata, Connection connection)
+      throws SQLException {
+    Set<String> tables = new HashSet<>();
+    try (ResultSet resultSet =
+        metadata.getTables(connection.getCatalog(), connection.getSchema(), "%", null)) {
+      while (resultSet.next()) {
+        String tableName = resultSet.getString("TABLE_NAME");
+        if (tableName != null) {
+          tables.add(normalizeIdentifier(tableName));
+        }
+      }
+    }
+    return tables;
+  }
+
+  private void validateRequiredTablesAndColumns(
+      DatabaseMetaData metadata, Connection connection, Set<String> tables) throws SQLException {
+    for (Table table : RatchetSchemaCatalog.CURRENT.tables()) {
+      if (!tables.contains(normalizeIdentifier(table.name()))) {
+        throw new SchemaMigrationException(
+            "Ratchet schema is missing required table " + table.name());
+      }
+      Set<String> columns = columnNames(metadata, connection, table.name());
+      for (var column : table.columns()) {
+        if (!columns.contains(normalizeIdentifier(column.name()))) {
+          throw new SchemaMigrationException(
+              "Ratchet schema table "
+                  + table.name()
+                  + " is missing required column "
+                  + column.name());
+        }
+      }
+      validatePrimaryKey(metadata, connection, table);
+      validateUniqueIndexes(metadata, connection, table);
+    }
+  }
+
+  private void validatePrimaryKey(DatabaseMetaData metadata, Connection connection, Table table)
+      throws SQLException {
+    TreeMap<Short, String> primaryKey = new TreeMap<>();
+    String metadataTableName = metadataIdentifier(metadata, table.name());
+    try (ResultSet resultSet =
+        metadata.getPrimaryKeys(
+            connection.getCatalog(), connection.getSchema(), metadataTableName)) {
+      while (resultSet.next()) {
+        String column = resultSet.getString("COLUMN_NAME");
+        if (column != null) {
+          primaryKey.put(resultSet.getShort("KEY_SEQ"), normalizeIdentifier(column));
+        }
+      }
+    }
+
+    List<String> expected = normalizeIdentifiers(table.primaryKey());
+    List<String> actual = List.copyOf(primaryKey.values());
+    if (!expected.equals(actual)) {
+      throw new SchemaMigrationException(
+          "Ratchet schema table "
+              + table.name()
+              + " has incorrect primary key; expected "
+              + expected
+              + " but found "
+              + actual);
+    }
+  }
+
+  private void validateUniqueIndexes(DatabaseMetaData metadata, Connection connection, Table table)
+      throws SQLException {
+    List<Index> required = table.indexes().stream().filter(Index::unique).toList();
+    if (required.isEmpty()) {
+      return;
+    }
+    Map<String, MetadataIndex> indexes = new HashMap<>();
+    String metadataTableName = metadataIdentifier(metadata, table.name());
+    try (ResultSet resultSet =
+        metadata.getIndexInfo(
+            connection.getCatalog(), connection.getSchema(), metadataTableName, true, true)) {
+      while (resultSet.next()) {
+        String name = resultSet.getString("INDEX_NAME");
+        String column = resultSet.getString("COLUMN_NAME");
+        if (name == null || name.isBlank() || column == null || column.isBlank()) {
+          continue;
+        }
+        String normalizedName = normalizeIdentifier(name);
+        MetadataIndex index =
+            indexes.computeIfAbsent(normalizedName, ignored -> new MetadataIndex());
+        index.addColumn(resultSet.getShort("ORDINAL_POSITION"), normalizeIdentifier(column));
+        String filterCondition = resultSet.getString("FILTER_CONDITION");
+        if (filterCondition != null && !filterCondition.isBlank()) {
+          index.markFiltered();
+        }
+      }
+    }
+
+    for (Index expected : required) {
+      MetadataIndex actual = indexes.get(normalizeIdentifier(expected.name()));
+      List<String> expectedColumns = normalizeIdentifiers(expected.columns());
+      if (actual == null || actual.filtered() || !expectedColumns.equals(actual.columns())) {
+        throw new SchemaMigrationException(
+            "Ratchet schema table "
+                + table.name()
+                + " is missing required unique index "
+                + expected.name()
+                + " on "
+                + expectedColumns);
+      }
+    }
+  }
+
+  private Set<String> columnNames(DatabaseMetaData metadata, Connection connection, String table)
+      throws SQLException {
+    Set<String> columns = new HashSet<>();
+    String metadataTableName = metadataIdentifier(metadata, table);
+    try (ResultSet resultSet =
+        metadata.getColumns(
+            connection.getCatalog(), connection.getSchema(), metadataTableName, "%")) {
+      while (resultSet.next()) {
+        String columnName = resultSet.getString("COLUMN_NAME");
+        if (columnName != null) {
+          columns.add(normalizeIdentifier(columnName));
+        }
+      }
+    }
+    return columns;
+  }
+
+  private static List<String> normalizeIdentifiers(List<String> identifiers) {
+    return identifiers.stream().map(SchemaMigrator::normalizeIdentifier).toList();
+  }
+
+  private static final class MetadataIndex {
+    private final TreeMap<Short, String> columns = new TreeMap<>();
+    private boolean filtered;
+
+    private MetadataIndex() {}
+
+    private void addColumn(short position, String column) {
+      columns.put(position, column);
+    }
+
+    private List<String> columns() {
+      return List.copyOf(columns.values());
+    }
+
+    private void markFiltered() {
+      filtered = true;
+    }
+
+    private boolean filtered() {
+      return filtered;
+    }
+  }
+
+  private List<MigrationScript> validateRecordedMigrations(
+      Connection connection, Set<String> tables, List<MigrationScript> scripts)
+      throws SQLException {
+    if (!tables.contains(VERSION_TABLE)) {
+      return List.of();
+    }
+
+    Map<String, MigrationScript> scriptsByVersion = new HashMap<>();
+    int latestVersion = 0;
+    for (MigrationScript script : scripts) {
+      scriptsByVersion.put(script.version(), script);
+      latestVersion = Math.max(latestVersion, script.numericVersion());
+    }
+
+    List<MigrationScript> validated = new ArrayList<>();
+    Set<String> recordedVersions = new HashSet<>();
+    try (PreparedStatement statement =
+            connection.prepareStatement("SELECT version, checksum FROM " + VERSION_TABLE);
+        ResultSet resultSet = statement.executeQuery()) {
+      while (resultSet.next()) {
+        String version = resultSet.getString(1);
+        String checksum = resultSet.getString(2);
+        MigrationScript script = scriptsByVersion.get(version);
+        if (script == null) {
+          int numericVersion = numericVersion(version);
+          if (numericVersion > latestVersion) {
+            throw new SchemaMigrationException(
+                "Ratchet schema migration "
+                    + version
+                    + " is newer than this runtime supports (latest "
+                    + latestVersion
+                    + ")");
+          }
+          throw new SchemaMigrationException(
+              "Ratchet schema migration " + version + " is not bundled by this runtime");
+        }
+        if (checksum == null || checksum.isBlank()) {
+          throw new SchemaMigrationException(
+              "Ratchet schema migration " + version + " is already recorded without a checksum");
+        }
+        if (!checksum.equals(script.checksum())) {
+          throw new SchemaMigrationException(
+              "Checksum mismatch for Ratchet schema migration "
+                  + script.version()
+                  + " ("
+                  + script.resourceName()
+                  + ")");
+        }
+        validated.add(script);
+        recordedVersions.add(version);
+      }
+    }
+    for (MigrationScript script : scripts) {
+      if (!recordedVersions.contains(script.version())) {
+        throw new SchemaMigrationException(
+            "Ratchet schema is missing recorded migration " + script.version());
+      }
+    }
+    return validated;
+  }
+
+  private static int numericVersion(String version) {
+    try {
+      return Integer.parseInt(version);
+    } catch (NumberFormatException e) {
+      throw new SchemaMigrationException("Invalid Ratchet schema migration version " + version, e);
+    }
+  }
+
+  private static String metadataIdentifier(DatabaseMetaData metadata, String identifier)
+      throws SQLException {
+    if (metadata.storesUpperCaseIdentifiers()) {
+      return identifier.toUpperCase(Locale.ROOT);
+    }
+    if (metadata.storesLowerCaseIdentifiers()) {
+      return identifier.toLowerCase(Locale.ROOT);
+    }
+    return identifier;
+  }
+
+  private static String normalizeIdentifier(String identifier) {
+    return identifier.toLowerCase(Locale.ROOT);
+  }
+
+  private void requireMigrationScripts(List<MigrationScript> scripts) {
+    if (scripts.isEmpty()) {
+      throw new SchemaMigrationException(
+          "No Ratchet schema migration scripts were discovered under classpath prefix '"
+              + classpathPrefix
+              + "'. When ratchet.schema.auto-migrate=true, ensure the SQL store migration"
+              + " resources and "
+              + migrationIndexResourceName()
+              + " are on the runtime classpath.");
+    }
   }
 
   /**
@@ -575,6 +849,18 @@ public final class SchemaMigrator {
 
     public int skippedCount() {
       return skipped.size();
+    }
+  }
+
+  /** Result of a read-only migration validation. */
+  public record ValidationResult(List<MigrationScript> validated) {
+
+    public ValidationResult {
+      validated = List.copyOf(validated);
+    }
+
+    public int validatedCount() {
+      return validated.size();
     }
   }
 
