@@ -9,6 +9,7 @@ on:
       - 'src/main/javadoc/**'
       - 'pom.xml'
       - 'scripts/*runtime-conformance-reports.sh'
+      - 'scripts/build-javadoc.sh'
       - '.github/workflows/docs.yml'
   workflow_run:
     workflows: [CI]
@@ -63,7 +64,7 @@ jobs:
           restore-keys: m2-
 
       - name: Generate aggregate Javadoc
-        run: mvn clean package -P javadoc-aggregate -DskipTests -B
+        run: scripts/build-javadoc.sh
 
       - name: Copy Javadoc into VitePress public assets
         run: |

@@ -70,6 +70,18 @@ mvn verify -P wildfly-managed,sqlserver -B -pl :ratchet-testsuite,:ratchet-cover
 
 ### Documentation Site
 
+To generate the API reference, run this from the repository root with JDK 21:
+
+```bash
+scripts/build-javadoc.sh
+mkdir -p website/docs/public/javadoc
+cp -r target/reports/apidocs/. website/docs/public/javadoc/
+```
+
+The script compiles the reactor, generates the combined Javadoc, and verifies
+that the API and SPI pages exist. Required CI and the documentation workflow use
+this same script. Then build the site:
+
 ```bash
 cd website
 npm ci
