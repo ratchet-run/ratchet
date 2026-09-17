@@ -44,7 +44,7 @@ public abstract class AbstractJobQueryDenialContract {
   @Test
   void deniedRead_hidesExistenceOfRealJob() {
     JobQueryService denied = deniedQueryService();
-    JobHandle handle = submitTracked();
+    JobHandle handle = submitCompletedJob();
 
     assertTrue(
         denied.getJobDetail(handle.id()).isEmpty(),
@@ -59,7 +59,7 @@ public abstract class AbstractJobQueryDenialContract {
 
   @Test
   void principalScopedFilter_excludesJobsFromFindJobs() {
-    submitTracked();
+    submitCompletedJob();
 
     assertTrue(
         deniedQueryService().findJobs(JobFilter.builder().build(), 100, 0).items().isEmpty(),
@@ -78,9 +78,12 @@ public abstract class AbstractJobQueryDenialContract {
     return Duration.ofSeconds(15);
   }
 
-  private JobHandle submitTracked() {
+  private JobHandle submitCompletedJob() {
     JobHandle handle = runtime().scheduler().enqueue(TckJobs::noop).submit();
     runtime().probe().track(handle);
+    // Finish execution before the test can clear the job and its history.
+    assertTrue(
+        runtime().probe().awaitCompleted(handle, defaultTimeout()), "setup job must complete");
     return handle;
   }
 }

@@ -47,7 +47,7 @@ public abstract class AbstractJobQueryContract {
 
   @Test
   void getJobDetail_returnsSubmittedJob() {
-    JobHandle handle = submitTracked();
+    JobHandle handle = submitCompletedJob();
 
     Optional<UUID> detailId =
         queryService().getJobDetail(handle.id()).map(detail -> detail.summary().id());
@@ -64,7 +64,7 @@ public abstract class AbstractJobQueryContract {
 
   @Test
   void findJobs_includesSubmittedJob() {
-    JobHandle handle = submitTracked();
+    JobHandle handle = submitCompletedJob();
 
     boolean found =
         queryService().findJobs(JobFilter.builder().build(), 100, 0).items().stream()
@@ -74,10 +74,7 @@ public abstract class AbstractJobQueryContract {
 
   @Test
   void getExecutionHistory_recordsAttemptForCompletedJob() {
-    JobHandle handle = submitTracked();
-    assertTrue(
-        runtime().probe().awaitCompleted(handle, defaultTimeout()), "setup job must complete");
-
+    JobHandle handle = submitCompletedJob();
     assertFalse(
         queryService().getExecutionHistory(handle.id()).isEmpty(),
         "getExecutionHistory must record at least one attempt for a completed job");
@@ -112,9 +109,12 @@ public abstract class AbstractJobQueryContract {
     return Duration.ofSeconds(15);
   }
 
-  private JobHandle submitTracked() {
+  private JobHandle submitCompletedJob() {
     JobHandle handle = runtime().scheduler().enqueue(TckJobs::noop).submit();
     runtime().probe().track(handle);
+    // Finish execution before the test can clear the job and its history.
+    assertTrue(
+        runtime().probe().awaitCompleted(handle, defaultTimeout()), "setup job must complete");
     return handle;
   }
 
