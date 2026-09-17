@@ -156,22 +156,24 @@ way with their own store and driver artifacts.
 
 ## Netty dependency alignment
 
-Quarkus 3.20.6.2 manages Netty 4.1.130.Final. For applications using this platform,
-we recommend aligning the Netty 4.1 modules to 4.1.137.Final, which includes the
-[upstream security fixes](https://github.com/netty/netty/releases/tag/netty-4.1.137.Final).
-Ratchet's build uses that version, but its dependency management does not override the
-application's platform BOM. Upgrading Ratchet alone does not guarantee the same Netty version
-in your application.
+Quarkus 3.20.6.2 manages Netty 4.1.130.Final. Ratchet 0.4.0 tests this platform with
+Netty 4.1.137.Final, which includes the
+[upstream security fixes](https://github.com/netty/netty/releases/tag/netty-4.1.137.Final),
+and Brotli4j 1.23.0. Native builds need the matching Brotli4j Java and native libraries
+and Ratchet's conditional SSL compatibility code; a Netty-only override is insufficient.
 
-Import the Netty BOM before the Quarkus BOM in the application's `dependencyManagement`:
+An application's dependency management takes precedence over library dependencies. Upgrading
+Ratchet alone does not guarantee the same Netty version in your application. For a Ratchet 0.4.0
+application on Quarkus 3.20.6.2, you can import Ratchet's Quarkus dependency set before the platform
+BOM to use the versions tested together:
 
 ```xml
 <dependencyManagement>
   <dependencies>
     <dependency>
-      <groupId>io.netty</groupId>
-      <artifactId>netty-bom</artifactId>
-      <version>4.1.137.Final</version>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-quarkus-parent</artifactId>
+      <version>0.4.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -186,9 +188,13 @@ Import the Netty BOM before the Quarkus BOM in the application's `dependencyMana
 </dependencyManagement>
 ```
 
-Check the application's resolved versions with `mvn dependency:tree -Dincludes=io.netty`
-and run its integration tests. A newer Quarkus platform may already provide the fixes;
-check its resolved Netty version before carrying this override forward.
+This imports the full Ratchet Quarkus dependency management, including its security overrides.
+Check your application's resolved versions with
+`mvn dependency:tree -Dincludes=io.netty,com.aayushatharva.brotli4j` and run its integration tests.
+For native applications, also verify a native build because Quarkus adds native libraries during
+augmentation. A newer Quarkus platform may already provide the fixes; check its resolved versions
+before carrying these overrides forward. The SSL compatibility code disables itself when the
+platform already supplies the newer substitution or when the older Netty API is in use.
 
 ## Moving to production
 

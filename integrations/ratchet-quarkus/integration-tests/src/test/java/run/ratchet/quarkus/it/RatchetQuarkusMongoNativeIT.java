@@ -31,6 +31,11 @@ import org.junit.jupiter.api.Test;
 class RatchetQuarkusMongoNativeIT {
 
   @Test
+  void nettyClientSslPreservesProtocolAndHostnameVerification() {
+    given().when().get("/native-netty/tls").then().statusCode(200).body(is("TLSv1.3:HTTPS:true"));
+  }
+
+  @Test
   void methodReferenceJobExecutesInNativeMongoApp() {
     given().when().post("/jobs/submit").then().statusCode(200).body(is("submitted"));
 
