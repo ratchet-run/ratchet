@@ -1,0 +1,79 @@
+name: License audit
+
+on:
+  schedule:
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dash-license-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Install reactor so the audit resolves every module
+        timeout-minutes: 15
+        run: mvn -B -ntp -DskipTests -Dspotbugs.skip=true -Dmaven.javadoc.skip=true install
+      - name: Configure Eclipse Dash plugin repository
+        run: |
+          mkdir -p ~/.m2
+          cat > ~/.m2/settings.xml <<'EOF'
+          <settings>
+            <profiles>
+              <profile>
+                <id>eclipse-dash</id>
+                <pluginRepositories>
+                  <pluginRepository>
+                    <id>dash-licenses</id>
+                    <url>https://repo.eclipse.org/content/repositories/dash-licenses/</url>
+                  </pluginRepository>
+                </pluginRepositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>eclipse-dash</activeProfile>
+            </activeProfiles>
+          </settings>
+          EOF
+      - name: Audit external compile/runtime dependencies
+        # One bounded lookup. An unavailable audit fails this workflow and is
+        # reported separately from a completed audit with review-needed entries.
+        timeout-minutes: 12
+        run: |
+          mkdir -p target/dash-audit
+          status=0
+          timeout --signal=TERM --kill-after=15s 10m \
+            mvn -B -ntp org.eclipse.dash:license-tool-plugin:1.1.0:license-check \
+              -Ddash.summary=target/dash-audit/dependencies.csv \
+              -Ddash.batch=10 -Ddash.fail=false -DincludeScope=runtime \
+              -DexcludeGroupIds=run.ratchet \
+              > target/dash-audit/maven.log 2>&1 || status=$?
+          if grep -q 'could not be resolved at this point of the build but seem to be part of the reactor' \
+            target/dash-audit/maven.log; then
+            status=2
+          fi
+          python3 infra/ci/check_dash_audit.py target/dash-audit/dependencies.csv "$status"
+      - name: Report audit setup failure
+        if: always()
+        run: |
+          if [[ ! -f target/dash-audit/status.txt ]]; then
+            mkdir -p target/dash-audit
+            echo 'Audit unavailable: setup failed or the job was interrupted. No clean license result was established.' \
+              | tee target/dash-audit/status.txt >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+      - name: Retain audit evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dash-license-audit
+          path: target/dash-audit/
+          retention-days: 30
