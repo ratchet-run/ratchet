@@ -465,6 +465,69 @@ jobs:
           -pl integrations/ratchet-quarkus/integration-tests -am
           verify -P${{ matrix.profile }}
 
+  # The consumer reactor deliberately does not inherit ratchet-parent. Each cell first stages the
+  # published Spring artifacts into a fresh Maven repository, then resolves them from that repository
+  # under the selected Boot BOM. This catches accidental reactor-classpath or dependency-management
+  # coupling while exercising the complete SQL/MongoDB database matrix with ordinary Maven commands.
+  spring-boot-consumer:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    name: spring-boot-consumer (Java ${{ matrix.java }}, Boot ${{ matrix.boot }}, ${{ matrix.store }}, ${{ matrix.provider }})
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [17, 21]
+        boot: [3.5.16, 4.1.1]
+        store: [postgresql, mysql, oracle, sqlserver, mongodb]
+        provider: [default]
+        include:
+          - { java: 17, boot: 3.5.16, store: postgresql, provider: eclipselink }
+          - { java: 21, boot: 3.5.16, store: postgresql, provider: eclipselink }
+          - { java: 17, boot: 4.1.1, store: postgresql, provider: eclipselink }
+          - { java: 21, boot: 4.1.1, store: postgresql, provider: eclipselink }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      # Compile shared artifacts on Java 17, then test the selected consumer runtime.
+      - name: Stage Spring Boot artifacts in an isolated Maven repository
+        run: >-
+          mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository"
+          -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
+          -pl :ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-${{ matrix.store }}
+          -am install
+      - uses: actions/setup-java@v5
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+      - name: Verify independent Boot consumer
+        run: |
+          if [ "${{ matrix.store }}" = "mongodb" ]; then
+            consumer=:mongodb-consumer
+          else
+            consumer=:sql-consumer
+          fi
+          profiles=()
+          if [ "${{ matrix.provider }}" = "eclipselink" ]; then
+            profiles=(-P "eclipselink,postgresql")
+          fi
+          mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
+            -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository" \
+            -Dspring-boot.version=${{ matrix.boot }} -Dstore=${{ matrix.store }} \
+            -pl "$consumer" -am "${profiles[@]}" verify
+      - name: Upload Spring Boot consumer reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spring-boot-consumer-java${{ matrix.java }}-${{ matrix.boot }}-${{ matrix.store }}-${{ matrix.provider }}-reports
+          path: |
+            integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
+            integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
+
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
   # on the web filter so it runs whenever anything under website/ changes —
@@ -515,7 +578,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, a11y]
+    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

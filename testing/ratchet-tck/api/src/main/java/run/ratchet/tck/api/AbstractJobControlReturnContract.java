@@ -43,6 +43,8 @@ import run.ratchet.api.event.JobRetryingEvent;
  */
 public abstract class AbstractJobControlReturnContract {
 
+  private static final Duration PAUSE_DELAY = Duration.ofSeconds(2);
+
   private final List<Object> events = new CopyOnWriteArrayList<>();
   private Consumer<Object> listener;
 
@@ -94,12 +96,13 @@ public abstract class AbstractJobControlReturnContract {
 
   @Test
   void pauseAndResume_returnTrueAndPauseIsIdempotent() {
-    JobHandle paused = pauseFreshlyPendingJob();
+    JobHandle paused = pauseDelayedPendingJob();
 
     assertTrue(
         runtime().scheduler().pauseJob(paused.id()),
         "pausing an already-PAUSED job returns true (idempotent)");
     assertTrue(runtime().scheduler().resumeJob(paused.id()), "resuming a PAUSED job returns true");
+    runtime().clock().ifPresent(clock -> clock.advance(PAUSE_DELAY));
     assertTrue(
         runtime().probe().awaitCompleted(paused, defaultTimeout()),
         "a resumed job becomes eligible and runs to completion");
@@ -128,21 +131,13 @@ public abstract class AbstractJobControlReturnContract {
         "resume on a non-PAUSED (SUCCEEDED) job returns false");
   }
 
-  /**
-   * Submits noop jobs and pauses each as soon as it is created, returning the first one paused
-   * before the poller could claim it. The retry loop absorbs the inherent submit/poll race on a
-   * live scheduler without a delayed-scheduling primitive; the unpaused stragglers simply run their
-   * noop body and complete.
-   */
-  private JobHandle pauseFreshlyPendingJob() {
-    for (int attempt = 0; attempt < 10; attempt++) {
-      JobHandle handle = runtime().scheduler().enqueue(TckJobs::noop).submit();
-      runtime().probe().track(handle);
-      if (runtime().scheduler().pauseJob(handle.id())) {
-        return handle;
-      }
-    }
-    return fail("could not pause a freshly-submitted PENDING job before the poller claimed it");
+  /** Keeps the job PENDING while the pause assertions run, without racing an immediate claim. */
+  private JobHandle pauseDelayedPendingJob() {
+    JobHandle handle = runtime().scheduler().schedule(PAUSE_DELAY, TckJobs::noop).submit();
+    runtime().probe().track(handle);
+    assertTrue(
+        runtime().scheduler().pauseJob(handle.id()), "pausing a delayed PENDING job returns true");
+    return handle;
   }
 
   private JobHandle completedJob() {
