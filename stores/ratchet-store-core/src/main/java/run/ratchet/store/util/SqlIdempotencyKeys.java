@@ -27,8 +27,6 @@ import run.ratchet.store.entity.JobEntity;
 public final class SqlIdempotencyKeys {
   private SqlIdempotencyKeys() {}
 
-  // The EntityManager is borrowed from the store context; its owner controls its lifecycle.
-  @SuppressWarnings("AutoCloseableResource")
   public static Optional<UUID> find(AbstractSqlStoreContext ctx, String key) {
     try {
       List<?> rows =
@@ -43,8 +41,6 @@ public final class SqlIdempotencyKeys {
     }
   }
 
-  // The EntityManager is borrowed from the store context; its owner controls its lifecycle.
-  @SuppressWarnings("AutoCloseableResource")
   public static void reserve(
       AbstractSqlStoreContext ctx,
       List<JobEntity> jobs,
