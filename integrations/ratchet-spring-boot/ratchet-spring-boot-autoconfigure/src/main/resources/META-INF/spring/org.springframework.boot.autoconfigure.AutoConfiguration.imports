@@ -1,0 +1,2 @@
+run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration
+run.ratchet.spring.boot.autoconfigure.RatchetEngineAutoConfiguration

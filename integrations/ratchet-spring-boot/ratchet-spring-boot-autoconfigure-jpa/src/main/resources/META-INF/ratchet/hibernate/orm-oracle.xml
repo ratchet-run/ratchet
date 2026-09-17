@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Oracle Hibernate mappings scoped to Ratchet attributes. The shipped schema stores text and
+  serialized payloads in CLOB columns. Retain the existing converters and String JDBC binding;
+  Oracle accepts String values for CLOB columns. Do not apply the EclipseLink UUID converter to
+  Hibernate identifiers: Hibernate already maps Oracle UUID values to RAW(16).
+  Persistent Instant attributes use the existing Timestamp converter because the schema stores
+  timezone-free TIMESTAMP values, not TIMESTAMP WITH TIME ZONE. The application sets UTC JDBC
+  binding consistently with native store queries; these declarations do not alter host entities.
+-->
+<entity-mappings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xmlns="https://jakarta.ee/xml/ns/persistence/orm"
+                 xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence/orm
+                                     https://jakarta.ee/xml/ns/persistence/orm/orm_3_1.xsd"
+                 version="3.1">
+
+    <entity class="run.ratchet.store.entity.JobEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="createdAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="executionStartTime"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="executionEndTime"/>
+        <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="payload"/>
+        <convert converter="run.ratchet.store.converter.JsonMapConverter" attribute-name="params"/>
+        <convert converter="run.ratchet.store.converter.JsonMapConverter" attribute-name="traceContext"/>
+        <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="onSuccessPayload"/>
+        <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="onFailurePayload"/>
+        <attributes>
+            <basic name="payload">
+                <column name="payload" column-definition="CLOB" nullable="false"/>
+            </basic>
+            <basic name="params">
+                <column name="params" column-definition="CLOB"/>
+            </basic>
+            <basic name="traceContext">
+                <column name="trace_context" column-definition="CLOB"/>
+            </basic>
+            <basic name="onSuccessPayload">
+                <column name="on_success_payload" column-definition="CLOB"/>
+            </basic>
+            <basic name="onFailurePayload">
+                <column name="on_failure_payload" column-definition="CLOB"/>
+            </basic>
+            <basic name="jobResult">
+                <column name="job_result" column-definition="CLOB"/>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchEntity">
+        <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="progressHook"/>
+        <attributes>
+            <basic name="progressHook">
+                <column name="progress_hook" column-definition="CLOB"/>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ArchivedJobEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="originalScheduledTime"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="originalCreatedAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="firstExecutionTime"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="completionTime"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="archivedAt"/>
+        <attributes>
+            <basic name="jobResult">
+                <column name="job_result" column-definition="CLOB"/>
+            </basic>
+            <basic name="finalError">
+                <column name="final_error" column-definition="CLOB"/>
+            </basic>
+            <basic name="payloadSummary">
+                <column name="payload_summary" column-definition="CLOB"/>
+            </basic>
+            <basic name="properties">
+                <column name="properties" column-definition="CLOB"/>
+            </basic>
+            <basic name="extensionState">
+                <column name="extension_state" column-definition="CLOB"/>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobExecutionEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="startedAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="endedAt"/>
+        <attributes>
+            <basic name="errorMessage">
+                <column name="error_message" column-definition="CLOB"/>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobLogEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="ts"/>
+        <convert converter="run.ratchet.store.converter.JsonObjectMapConverter" attribute-name="mdc"/>
+        <attributes>
+            <basic name="message">
+                <column name="message" column-definition="CLOB" nullable="false"/>
+            </basic>
+            <basic name="mdc">
+                <column name="mdc" column-definition="CLOB"/>
+            </basic>
+            <basic name="level">
+                <column name="&quot;level&quot;" nullable="false" length="8"/>
+                <enumerated>STRING</enumerated>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.NodeEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="lastHeartbeat"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="startedAt"/>
+        <convert converter="run.ratchet.store.converter.JsonObjectMapConverter" attribute-name="nodeInfo"/>
+        <attributes>
+            <basic name="nodeInfo">
+                <column name="node_info" column-definition="CLOB"/>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.WorkflowConditionEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="createdAt"/>
+        <attributes>
+            <basic name="conditionExpression">
+                <column name="condition_expression" column-definition="CLOB"/>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchMetricsEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="startedAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="completedAt"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ResourceLimitEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="createdAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="updatedAt"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ResourcePermitEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="acquiredAt"/>
+    </entity>
+
+</entity-mappings>
