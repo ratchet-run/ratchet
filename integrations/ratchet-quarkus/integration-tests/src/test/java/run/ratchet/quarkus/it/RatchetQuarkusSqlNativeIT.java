@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
  */
 @QuarkusIntegrationTest
 @QuarkusTestResource(RatchetDatabaseTestResource.class)
-class RatchetQuarkusSqlNativeIT {
+class RatchetQuarkusSqlNativeIT extends NativeSubmitterContract {
 
   @Test
   void nettyClientSslPreservesProtocolAndHostnameVerification() {
@@ -97,11 +97,7 @@ class RatchetQuarkusSqlNativeIT {
                     .equals("demo:7"));
   }
 
-  /**
-   * Proves {@code @RegisterJobSubmitter} substitutes for the auto-detection heuristic: {@link
-   * UnmanagedSubmitter} declares no {@code JobSchedulerService} field or parameter, so without the
-   * annotation its bytecode would be absent from the image and submission would fail here.
-   */
+  /** An explicitly annotated application submitter remains supported. */
   @Test
   void unmanagedSubmitterJobExecutesInNativeSqlApp() {
     given().when().post("/jobs/submit-unmanaged").then().statusCode(200).body(is("submitted"));

@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 /** Native-image smoke subset for the MongoDB Quarkus flavor. */
 @QuarkusIntegrationTest
 @QuarkusTestResource(RatchetDatabaseTestResource.class)
-class RatchetQuarkusMongoNativeIT {
+class RatchetQuarkusMongoNativeIT extends NativeSubmitterContract {
 
   @Test
   void nettyClientSslPreservesProtocolAndHostnameVerification() {
@@ -92,11 +92,7 @@ class RatchetQuarkusMongoNativeIT {
                     .equals("demo:7"));
   }
 
-  /**
-   * Proves {@code @RegisterJobSubmitter} substitutes for the auto-detection heuristic: {@link
-   * UnmanagedSubmitter} declares no {@code JobSchedulerService} field or parameter, so without the
-   * annotation its bytecode would be absent from the image and submission would fail here.
-   */
+  /** An explicitly annotated application submitter remains supported. */
   @Test
   void unmanagedSubmitterJobExecutesInNativeMongoApp() {
     given().when().post("/jobs/submit-unmanaged").then().statusCode(200).body(is("submitted"));

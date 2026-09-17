@@ -36,7 +36,7 @@ import org.junit.jupiter.api.Test;
  */
 @QuarkusTest
 @QuarkusTestResource(RatchetDatabaseTestResource.class)
-class RatchetQuarkusSmokeTest {
+class RatchetQuarkusSmokeTest extends NativeSubmitterContract {
 
   @Test
   void methodReferenceJobExecutesOnQuarkus() {

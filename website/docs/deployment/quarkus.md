@@ -302,33 +302,39 @@ Build on a host GraalVM or Mandrel. The extension registers the reflection, runt
 lambda-serialization metadata the engine needs, and it includes the schema migrations in the image,
 so jobs and `auto-migrate` both work in native.
 
-Method references and capturing lambdas both run in a native image. A method reference names its
-target directly, so it needs nothing extra. An inline lambda does not — resolving `() ->
-svc.work(arg)` into a persistable job means reading the lambda body's bytecode, and a native image
-ships no class files by default. The extension therefore includes the bytecode of each class that
-submits jobs, which it finds by looking for a `JobSchedulerService` field or method parameter.
+Method references and capturing lambdas both require native lambda-serialization metadata. Inline
+lambdas also require the bytecode of the class containing the lambda body: Ratchet reads it to resolve
+an expression such as `() -> svc.work(arg)` into a persistable invocation.
 
-::: warning Submitting without injecting the scheduler
-That detection covers ordinary injection — a field, a setter, or a constructor parameter. It does
-not cover a class that looks the scheduler up instead, such as
-`CDI.current().select(JobSchedulerService.class).get()`, a lookup helper, or a base class
-submitting on behalf of subclasses. An inline lambda submitted from such a class fails at runtime in
-native with `IllegalStateException: Bytecode not found`. Annotate the class with
-`@RegisterJobSubmitter` to register it explicitly:
+The extension registers both kinds of metadata for every class in the application index, including
+nested, local, and anonymous classes. Application submitters work with direct injection,
+`Instance<JobSchedulerService>`, `Provider<JobSchedulerService>`, inherited fields, and programmatic
+lookups. No submitter annotation is needed for application classes. Including their class resources
+increases native image size in proportion to the application's bytecode.
+
+::: warning Submitting from dependency libraries
+For indexed dependencies, the extension retains automatic discovery of classes declaring a
+`JobSchedulerService` field or method parameter, including `Instance` and `Provider` wrappers.
+It also honors `@RegisterJobSubmitter`. Dependency classes that use a lookup helper, inherit their
+scheduler, or contain the actual lambda in a nested class may need explicit registration.
+
+Annotate the **class that lexically contains the lambda or method reference**, which can differ from
+the bean declaring the injected scheduler:
 
 ```java
-import run.ratchet.quarkus.runtime.RegisterJobSubmitter;
-
 @RegisterJobSubmitter
-public class OrderSubmitter {
-  public void submit(String orderId) {
-    JobSchedulerService scheduler = CDI.current().select(JobSchedulerService.class).get();
-    scheduler.enqueueNow(() -> shipping.dispatch(orderId));
-  }
+public class LibrarySubmitter {
+    public void submit(MyJob job, String value) {
+        JobSchedulerService scheduler = CDI.current().select(JobSchedulerService.class).get();
+        scheduler.enqueueNow(() -> job.process(value));
+    }
 }
 ```
 
-The annotation is a no-op in JVM mode, and method references never need it.
+The dependency must be included in Quarkus's index for the annotation to be discovered. Both method
+references and inline lambdas need registration; missing class resources for an inline lambda cause
+`IllegalStateException: Bytecode not found` at submission. Job targets supplied by dependency
+libraries may also need reflection registration. The annotation is a no-op in JVM mode.
 :::
 
 ## What the extension handles

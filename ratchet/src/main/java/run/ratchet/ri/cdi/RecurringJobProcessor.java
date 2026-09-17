@@ -27,6 +27,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Inject;
+import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -46,6 +47,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
+import org.objectweb.asm.Type;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
@@ -78,8 +80,9 @@ public class RecurringJobProcessor {
   private static final Duration ORPHAN_CLEANUP_LEASE_TTL = Duration.ofMinutes(5);
   private static final long REGISTRATION_RETRY_DELAY_MS = 500;
   private static final int MAX_REGISTRATION_ATTEMPTS = 10;
+  private static final Method RECURRING_INVOKE_METHOD = RecurringMethodInvoker.invocationMethod();
   private static final String RECURRING_INVOKE_DESCRIPTOR =
-      "(Ljava/lang/String;Ljava/lang/String;Z)V";
+      Type.getMethodDescriptor(RECURRING_INVOKE_METHOD);
 
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
@@ -372,6 +375,7 @@ public class RecurringJobProcessor {
         registrations.stream()
             .map(RecurringMethodRegistration::jobId)
             .collect(Collectors.toCollection(LinkedHashSet::new));
+    IllegalStateException registrationFailure = null;
     for (RecurringMethodRegistration registration : registrations) {
       try {
         registerJob(registration);
@@ -381,7 +385,15 @@ public class RecurringJobProcessor {
             "@Recurring registration error: %s.%s",
             registration.beanClass().getName(),
             registration.methodName());
+        if (registrationFailure == null) {
+          registrationFailure = new IllegalStateException("Failed to register @Recurring jobs", e);
+        } else {
+          registrationFailure.addSuppressed(e);
+        }
       }
+    }
+    if (registrationFailure != null) {
+      throw registrationFailure;
     }
 
     boolean committed =
@@ -574,8 +586,8 @@ public class RecurringJobProcessor {
             annotation.cron(),
             registration.zone(),
             new JobInvocation(
-                RecurringMethodInvoker.class.getName(),
-                "invoke",
+                RECURRING_INVOKE_METHOD.getDeclaringClass().getName(),
+                RECURRING_INVOKE_METHOD.getName(),
                 RECURRING_INVOKE_DESCRIPTOR,
                 false,
                 List.of(className, methodName, hasJobContextParam)));

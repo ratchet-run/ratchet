@@ -32,6 +32,22 @@ import run.ratchet.spi.ClassPolicy;
 @ApplicationScoped
 public class RecurringMethodInvoker {
 
+  private static final Method INVOCATION_METHOD = resolveInvocationMethod();
+
+  /** The framework invocation target shared by registration and native reflection metadata. */
+  public static Method invocationMethod() {
+    return INVOCATION_METHOD;
+  }
+
+  private static Method resolveInvocationMethod() {
+    try {
+      return RecurringMethodInvoker.class.getDeclaredMethod(
+          "invoke", String.class, String.class, boolean.class);
+    } catch (NoSuchMethodException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+
   private final ConcurrentMap<MethodCacheKey, Method> methodCache = new ConcurrentHashMap<>();
   private final Instance<Object> allBeans;
   private final ClassPolicy classPolicy;

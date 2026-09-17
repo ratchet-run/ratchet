@@ -15,7 +15,6 @@
  */
 package run.ratchet.ri.cdi;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -46,6 +45,7 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.objectweb.asm.Type;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.RatchetOptions;
@@ -103,9 +103,9 @@ class RecurringJobProcessorLeaderGateTest {
             eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), invocationCaptor.capture());
     assertEquals(
         new JobInvocation(
-            RecurringMethodInvoker.class.getName(),
-            "invoke",
-            "(Ljava/lang/String;Ljava/lang/String;Z)V",
+            RecurringMethodInvoker.invocationMethod().getDeclaringClass().getName(),
+            RecurringMethodInvoker.invocationMethod().getName(),
+            Type.getMethodDescriptor(RecurringMethodInvoker.invocationMethod()),
             false,
             List.of(LeaderGateBean.class.getName(), "run", false)),
         invocationCaptor.getValue());
@@ -237,7 +237,7 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   @Test
-  void registerRecurringJobs_doesNotCancelExistingJobWhenSubmitFails() throws Exception {
+  void registerRecurringJobs_doesNotRunCleanupWhenSubmitFails() throws Exception {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     var invocationSubmissionService = mock(InvocationSubmissionService.class);
     var jobBatchStatusStore = mock(JobBatchStatusStore.class);
@@ -260,10 +260,10 @@ class RecurringJobProcessorLeaderGateTest {
             null,
             new RecurringRegistrationState());
 
-    assertDoesNotThrow(processor::registerRecurringJobs);
+    assertThrows(IllegalStateException.class, processor::registerRecurringJobs);
 
     verify(recurringJobBuilder).submit();
-    verify(maintenance).cancelOrphanedRecurringAnnotationJobs(eq(Set.of("leader-gate-job")), any());
+    verify(maintenance, never()).cancelOrphanedRecurringAnnotationJobs(any(), any());
   }
 
   @Test
