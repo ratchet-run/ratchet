@@ -39,6 +39,8 @@ jobs:
         run: scripts/test-materialize-runtime-conformance-reports.sh
       - name: Test release version synchronization
         run: scripts/test-sync-version.sh
+      - name: Test dependency license policy and audit reporting
+        run: python3 -m unittest discover -s infra/ci -p 'test_*.py' -v
       - name: Test signed commit request generation
         run: scripts/test-gh-signed-commit.sh
 
@@ -47,7 +49,7 @@ jobs:
   # docs-only PRs. Only pull_request events are eligible for that docs skip;
   # pushes to main and release builds (workflow_call) always run the full
   # pipeline. The merge queue (merge_group) runs a reduced pipeline — build,
-  # unit-tests, and spotbugs only — because the heavy lanes already ran on the
+  # unit-tests, spotbugs, and the local license gate — because the heavy lanes ran on the
   # PR and run again on the post-merge push to main (see the integration-test /
   # ee11-verify guards). The leading '**' is the base set; the '!' rules subtract docs from
   # it, so code == 'true' only when a non-doc file changed. On non-PR events the
@@ -84,14 +86,14 @@ jobs:
             web:
               - 'website/**'
 
-  # Thin gate that releases the integration-test matrix: compile + format check
-  # only, no tests. The unit suite lives in the unit-tests job below, which runs
-  # in parallel with the matrix instead of in front of it.
+  # Gate the integration matrix on compilation, formatting, and a focused
+  # publishing-profile install. Tests run in the unit-tests job below, in
+  # parallel with the matrix.
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -104,17 +106,22 @@ jobs:
         run: mvn clean compile -B
       - name: Format check
         run: mvn spotless:check -B
+      - name: Check publishing-profile dependency resolution
+        # Install locally to exercise flattened POMs without uploading artifacts.
+        run: >-
+          mvn -B -ntp clean install -P github
+          -pl :ratchet-quarkus-observability-integration-tests -am
+          -DskipTests -Dspotbugs.skip=true
 
   # Runs the unit suite exactly once per pipeline. Deliberately NOT gated on
-  # changes or merge_group: build and spotbugs are the only other jobs that run
-  # in the merge queue, and with build reduced to compile + format this job is
-  # the queue's sole test signal. Gating it there would let queue merges land
+  # changes or merge_group: with build reduced to compile + format, this job is
+  # the queue's sole Java test signal. Gating it there would let queue merges land
   # with zero tests executed.
   unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -141,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -165,7 +172,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -210,7 +217,7 @@ jobs:
             database: sqlserver
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -263,7 +270,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -294,73 +301,16 @@ jobs:
           name: showcase-smoke-server-log
           path: testing/ratchet-showcase/target/wildfly-runs/*/standalone/log/server.log
 
-  # Eclipse Dash vets every dependency's license against the Eclipse Foundation
-  # approved-license list. It is SPDX-aware — it resolves dual licenses and the
-  # GPL Classpath / MySQL FOSS exceptions correctly, which a name-matching gate
-  # cannot — and is wired into ci-required below so a disallowed license blocks
-  # the merge instead of only being reported. Skipped in the merge queue (it ran
-  # on the PR) and on docs-only PRs (no dependency can have changed).
-  dash-license-check:
-    needs: changes
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-      - name: Configure Eclipse Dash plugin repository
-        run: |
-          mkdir -p ~/.m2
-          cat > ~/.m2/settings.xml <<'EOF'
-          <settings>
-            <profiles>
-              <profile>
-                <id>eclipse-dash</id>
-                <pluginRepositories>
-                  <pluginRepository>
-                    <id>dash-licenses</id>
-                    <url>https://repo.eclipse.org/content/repositories/dash-licenses/</url>
-                  </pluginRepository>
-                </pluginRepositories>
-              </profile>
-            </profiles>
-            <activeProfiles>
-              <activeProfile>eclipse-dash</activeProfile>
-            </activeProfiles>
-          </settings>
-          EOF
-      - name: Eclipse Dash license check
-        # api.eclipse.org occasionally times out under load. Retry up to six
-        # times with 60s between attempts to absorb transient failures without
-        # masking real outages. The batch size is capped because the default
-        # sends the whole dependency list (~344 items) as one request, which
-        # dies on the foundation's 60-second gateway timeout whenever the
-        # service is slow; batches of 25 finish well inside the window.
-        run: |
-          for attempt in 1 2 3 4 5 6; do
-            mvn org.eclipse.dash:license-tool-plugin:1.1.0:license-check \
-              -Ddash.summary=target/dash-DEPENDENCIES -Ddash.batch=25 && exit 0
-            echo "Attempt $attempt failed; sleeping 60s before retry..."
-            sleep 60
-          done
-          echo "Eclipse Dash license check failed after 6 attempts."
-          exit 1
-
-  # Deterministic copyleft gate, the offline companion to Eclipse Dash. Installs
-  # the reactor so every module resolves, then fails if any compile/runtime
-  # dependency of a shipped artifact carries GPL/LGPL/AGPL/SSPL without a linking
-  # exception. Narrowly scoped and network-light, so it still gates when
-  # api.eclipse.org is unavailable. Same merge-queue / docs-only skip as Dash.
+  # Required local policy check. Exact dependency versions and license metadata
+  # must match reviewed evidence. Runs in the merge queue and release verification
+  # too; external license-service availability is handled by license-audit.yml.
   license-gate:
     needs: changes
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    if: ${{ needs.changes.outputs.code != 'false' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -371,8 +321,17 @@ jobs:
           restore-keys: m2-
       - name: Install reactor (no tests) so every module resolves
         run: mvn -B -ntp -DskipTests -Dspotbugs.skip=true -Dmaven.javadoc.skip=true install
-      - name: Copyleft dependency-license gate
+      - name: Check reviewed dependency licenses
         run: bash infra/ci/check-dependency-licenses.sh
+      - name: Retain license policy evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dependency-license-policy
+          path: |
+            target/generated-sources/license/dependency-licenses.json
+            target/dependency-licenses-maven.log
+            infra/ci/dependency-license-policy.json
 
   # Runs the ratchet-quarkus extension's full TCK suite once per store. The main
   # build now compiles and unit-tests these reactor modules (including the default
@@ -406,7 +365,7 @@ jobs:
             profile: db-mongo
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '21'
           distribution: 'temurin'
@@ -489,7 +448,7 @@ jobs:
           - { java: 21, boot: 4.1.1, store: postgresql, provider: eclipselink }
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -500,7 +459,7 @@ jobs:
           -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
           -pl :ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-${{ matrix.store }}
           -am install
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with:
           java-version: ${{ matrix.java }}
           distribution: 'temurin'
@@ -578,7 +537,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, dash-license-check, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, a11y]
+    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

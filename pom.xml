@@ -6,7 +6,7 @@
 
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-parent</artifactId>
-  <version>0.3.2-SNAPSHOT</version>
+  <version>0.4.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>Ratchet</name>
@@ -83,7 +83,7 @@
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <!-- Reproducible builds: two builds of the same tag produce identical jar hashes.
          maven-release-plugin refreshes this on each release:prepare. -->
-    <project.build.outputTimestamp>2026-07-31T17:18:07Z</project.build.outputTimestamp>
+    <project.build.outputTimestamp>2026-09-16T23:09:16Z</project.build.outputTimestamp>
     <maven.compiler.source>17</maven.compiler.source>
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.release>17</maven.compiler.release>
@@ -171,7 +171,7 @@
     <mssql-jdbc.version>12.8.2.jre11</mssql-jdbc.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
     <artemis.version>2.54.0</artemis.version>
-    <netty.version>4.1.136.Final</netty.version>
+    <netty.version>4.1.137.Final</netty.version>
     <commons-configuration2.version>2.15.0</commons-configuration2.version>
     <jackson-core.version>2.22.1</jackson-core.version>
     <infinispan.version>15.1.7.Final</infinispan.version>
@@ -1248,10 +1248,10 @@
 
           Effort is Max for the deepest dataflow analysis. The include filter
           (spotbugs-include.xml) narrows reporting to the high-signal categories
-          (concurrency + definite correctness) so the gate stays low-noise. That
-          scoping IS the baseline — there is no instance-suppression file because
-          the findings present at adoption were fixed, not suppressed, so the gate
-          runs clean and any NEW concurrency/correctness finding fails the build.
+          (concurrency + definite correctness). Both
+          categories remain enabled across the reactor. Quarkus core excludes one
+          native-image type-remapping false positive by its exact instance hash;
+          new concurrency/correctness findings still fail the build.
         -->
         <plugin>
           <groupId>com.github.spotbugs</groupId>

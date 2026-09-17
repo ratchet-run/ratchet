@@ -113,7 +113,16 @@ if [[ -n "$PUBLIC_VERSION" ]]; then
     apply "$f" "published-maven-version" \
       's{(<groupId>run\.ratchet</groupId>\s*<artifactId>ratchet[A-Za-z0-9-]*</artifactId>\s*<version>)$ENV{PUBLIC_REF_RE}(</version>)}{$1$ENV{PUBLIC_VERSION}$2}g'
   done
+  apply "examples/quarkus/pom.xml" "published-example-version" \
+    's{(<ratchet\.version>)$ENV{VER_RE}(</ratchet\.version>)}{$1$ENV{PUBLIC_VERSION}$2}g'
+  apply "website/docs/deployment/spring-boot.md" "published-spring-version" \
+    's{(<ratchet\.version>)$ENV{VER_RE}(</ratchet\.version>)}{$1$ENV{PUBLIC_VERSION}$2}g'
 fi
+
+# The independent Spring consumers verify artifacts built from this checkout.
+# Their Ratchet version is not inherited from the root Maven reactor.
+apply "integrations/ratchet-spring-boot/consumer-tests/pom.xml" "consumer-version" \
+  's{(<ratchet\.version>)$ENV{VER_RE}(</ratchet\.version>)}{$1$ENV{VERSION}$2}g'
 
 # 2. Published ratchet-* JAR filenames used by extract-the-DDL snippets.
 #    Oracle and SQL Server are included so future release references cannot

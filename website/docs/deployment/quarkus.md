@@ -154,6 +154,48 @@ On Docker Engine 29 or newer, Dev Services may fail to negotiate the Docker API 
 For MySQL, swap in `ratchet-store-mysql` and `quarkus-jdbc-mysql`. Oracle and SQL Server work the same
 way with their own store and driver artifacts.
 
+## Netty dependency alignment
+
+Quarkus 3.20.6.2 manages Netty 4.1.130.Final. Ratchet 0.4.0 tests this platform with
+Netty 4.1.137.Final, which includes the
+[upstream security fixes](https://github.com/netty/netty/releases/tag/netty-4.1.137.Final),
+and Brotli4j 1.23.0. Native builds need the matching Brotli4j Java and native libraries
+and Ratchet's conditional SSL compatibility code; a Netty-only override is insufficient.
+
+An application's dependency management takes precedence over library dependencies. Upgrading
+Ratchet alone does not guarantee the same Netty version in your application. For a Ratchet 0.4.0
+application on Quarkus 3.20.6.2, you can import Ratchet's Quarkus dependency set before the platform
+BOM to use the versions tested together:
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-quarkus-parent</artifactId>
+      <version>0.4.0</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus.platform</groupId>
+      <artifactId>quarkus-bom</artifactId>
+      <version>3.20.6.2</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+```
+
+This imports the full Ratchet Quarkus dependency management, including its security overrides.
+Check your application's resolved versions with
+`mvn dependency:tree -Dincludes=io.netty,com.aayushatharva.brotli4j` and run its integration tests.
+For native applications, also verify a native build because Quarkus adds native libraries during
+augmentation. A newer Quarkus platform may already provide the fixes; check its resolved versions
+before carrying these overrides forward. The SSL compatibility code disables itself when the
+platform already supplies the newer substitution or when the older Netty API is in use.
+
 ## Moving to production
 
 **Datasource.** Point the default datasource at your real database instead of Dev Services:

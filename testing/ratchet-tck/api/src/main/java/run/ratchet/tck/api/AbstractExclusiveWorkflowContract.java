@@ -124,6 +124,8 @@ public abstract class AbstractExclusiveWorkflowContract {
                           || branch.status() == JobStatus.CANCELED)) {
         return branches;
       }
+      // Wait for terminal child statuses; the workflow does not return child handles.
+      //noinspection BusyWait
       Thread.sleep(200L);
     }
     return branches;

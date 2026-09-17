@@ -15,7 +15,9 @@ while IFS= read -r path; do
 done < <(
   git -C "$ROOT" ls-files \
     README.md \
+    examples/quarkus/pom.xml \
     integrations/ratchet-quarkus/README.md \
+    integrations/ratchet-spring-boot/consumer-tests/pom.xml \
     website/docs \
     infra/loadtest/Dockerfile \
     .github/ISSUE_TEMPLATE/bug_report.yml
@@ -63,6 +65,14 @@ if [[ -z "$initial_quarkus_version" || "$initial_quarkus_version" == *-SNAPSHOT 
   echo "Quarkus public version is missing or unpublished: $initial_quarkus_version" >&2
   exit 1
 fi
+initial_spring_version="$(
+  sed -n 's/.*<ratchet.version>\([^<]*\)<\/ratchet.version>.*/\1/p' \
+    "$FIXTURE/website/docs/deployment/spring-boot.md"
+)"
+if [[ -z "$initial_spring_version" || "$initial_spring_version" == *-SNAPSHOT ]]; then
+  echo "Spring public version is missing or unpublished: $initial_spring_version" >&2
+  exit 1
+fi
 
 # The current public guides omit these JAR commands because neither store was
 # published in 0.1.1. Add fixture-only commands to prove both files participate
@@ -75,33 +85,44 @@ printf '\njar xf ratchet-store-sqlserver-0.1.1.jar ddl/sqlserver-schema.sql\n' \
 # A local development bump must not invent an unpublished public coordinate.
 env -u RELEASE_VERSION "$FIXTURE/scripts/sync-version.sh" 9.8.7-SNAPSHOT >/dev/null
 assert_contains README.md "<version>$initial_public_version</version>"
+assert_contains examples/quarkus/pom.xml "<ratchet.version>$initial_public_version</ratchet.version>"
 assert_count website/docs/deployment/quarkus.md "<version>$initial_quarkus_version</version>" 4
 assert_count integrations/ratchet-quarkus/README.md "<version>$initial_quarkus_version</version>" 2
 assert_contains README.md 'Ratchet is in **9.8.7-SNAPSHOT**.'
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.7-SNAPSHOT.war'
+assert_contains integrations/ratchet-spring-boot/consumer-tests/pom.xml '<ratchet.version>9.8.7-SNAPSHOT</ratchet.version>'
+assert_contains website/docs/deployment/spring-boot.md "<ratchet.version>$initial_spring_version</ratchet.version>"
 
 # Cutting a release advances both public and project references.
 "$FIXTURE/scripts/sync-version.sh" 9.8.7 >/dev/null
 assert_contains README.md '<version>9.8.7</version>'
+assert_contains examples/quarkus/pom.xml '<ratchet.version>9.8.7</ratchet.version>'
 assert_contains README.md 'Ratchet is in **9.8.7**.'
 assert_contains website/docs/deployment/database-setup.md 'ratchet-store-postgresql-9.8.7.jar'
 assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.jar'
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
-assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 4
+assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 5
 assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
+assert_contains integrations/ratchet-spring-boot/consumer-tests/pom.xml '<ratchet.version>9.8.7</ratchet.version>'
+assert_contains website/docs/deployment/spring-boot.md '<ratchet.version>9.8.7</ratchet.version>'
+assert_contains website/docs/deployment/spring-boot.md 'starting with Ratchet **0.4.0**.'
 
 # The following development bump keeps public snippets on the release while
 # advancing source-tree and verified-against references to the next SNAPSHOT.
 RELEASE_VERSION=9.8.7 "$FIXTURE/scripts/sync-version.sh" 9.8.8-SNAPSHOT >/dev/null
 assert_contains README.md '<version>9.8.7</version>'
+assert_contains examples/quarkus/pom.xml '<ratchet.version>9.8.7</ratchet.version>'
 assert_contains README.md 'Ratchet is in **9.8.8-SNAPSHOT**.'
 assert_contains website/docs/use-cases/durable-llm-workflows.md '<version>9.8.7</version>'
 assert_contains website/docs/use-cases/durable-llm-workflows.md '`ratchet-api` `9.8.8-SNAPSHOT`'
 assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.jar'
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
-assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 4
+assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 5
 assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.8-SNAPSHOT.war'
+assert_contains integrations/ratchet-spring-boot/consumer-tests/pom.xml '<ratchet.version>9.8.8-SNAPSHOT</ratchet.version>'
+assert_contains website/docs/deployment/spring-boot.md '<ratchet.version>9.8.7</ratchet.version>'
+assert_contains website/docs/deployment/spring-boot.md 'starting with Ratchet **0.4.0**.'
 
 # Repeating the same transition is idempotent.
 before="$(tree_digest)"

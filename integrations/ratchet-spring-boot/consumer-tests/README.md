@@ -67,6 +67,9 @@ also verify transaction propagation, application entity/converter coexistence, m
 forwarding, schema validation, and actual thread selection on Java 17/21.
 
 CI runs the five stores on Boot 3.5.16 and 4.1.1 with Java 17 and 21. Four additional PostgreSQL
-cells select EclipseLink. See [the CI workflow](../../../.github/workflows/ci.yml) for the commands
+cells select EclipseLink. The root `unit-tests` job also runs the Spring auto-configuration tests
+and architecture rules. Both jobs feed the required `CI required` check. The consumer matrix runs
+on code PRs, pushes to `main`, and release verification; it skips docs-only PRs and the merge queue.
+See [the CI workflow](../../../.github/workflows/ci.yml) for the commands
 and uploaded Surefire/Failsafe reports. Run logs and one-off refactor measurements are review
 artifacts, rather than a second copy of the user documentation.

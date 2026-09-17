@@ -1,0 +1,45 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<BugCollection version="4.9.3" sequence="0" timestamp="0" analysisTimestamp="0">
+  <!--
+  Native-image remaps NettyJdkSslClientContext to io.netty.handler.ssl.JdkSslClientContext,
+  which extends SslContext. SpotBugs analyzes the unmapped JVM types and reports this cast
+  as impossible. The remapped constructor runs in the native executable; both native
+  integration suites exercise its TLS protocol and hostname-verification settings.
+
+  This result records only that finding's instance hash. Do not replace it with a class,
+  method, or bug-pattern exclusion. New findings must continue to fail the build.
+-->
+  <BugInstance instanceOccurrenceNum="0" instanceHash="79c29329004343b9481f0358113ac3d2" cweid="570" rank="9" abbrev="BC" category="CORRECTNESS" priority="1" type="BC_IMPOSSIBLE_CAST" instanceOccurrenceMax="0">
+    <ShortMessage>Impossible cast</ShortMessage>
+    <LongMessage>Impossible cast from run.ratchet.quarkus.runtime.graal.NettyJdkSslClientContext to io.netty.handler.ssl.SslContext in run.ratchet.quarkus.runtime.graal.NettyClientSslCompatibility.newClientContextInternal(SslProvider, Provider, X509Certificate[], TrustManagerFactory, X509Certificate[], PrivateKey, String, KeyManagerFactory, Iterable, CipherSuiteFilter, ApplicationProtocolConfig, String[], long, long, boolean, boolean, SecureRandom, String, String, Map$Entry[])</LongMessage>
+    <Class classname="run.ratchet.quarkus.runtime.graal.NettyClientSslCompatibility" classAnnotationNames="com.oracle.svm.core.annotate.TargetClass" primary="true">
+      <SourceLine classname="run.ratchet.quarkus.runtime.graal.NettyClientSslCompatibility" start="45" end="75" sourcepath="run/ratchet/quarkus/runtime/graal/NettyClientSslCompatibility.java" sourcefile="NettyClientSslCompatibility.java">
+        <Message>At NettyClientSslCompatibility.java:[lines 45-75]</Message>
+      </SourceLine>
+      <Message>In class run.ratchet.quarkus.runtime.graal.NettyClientSslCompatibility</Message>
+    </Class>
+    <Method isStatic="true" classname="run.ratchet.quarkus.runtime.graal.NettyClientSslCompatibility" signature="(Lio/netty/handler/ssl/SslProvider;Ljava/security/Provider;[Ljava/security/cert/X509Certificate;Ljavax/net/ssl/TrustManagerFactory;[Ljava/security/cert/X509Certificate;Ljava/security/PrivateKey;Ljava/lang/String;Ljavax/net/ssl/KeyManagerFactory;Ljava/lang/Iterable;Lio/netty/handler/ssl/CipherSuiteFilter;Lio/netty/handler/ssl/ApplicationProtocolConfig;[Ljava/lang/String;JJZZLjava/security/SecureRandom;Ljava/lang/String;Ljava/lang/String;[Ljava/util/Map$Entry;)Lio/netty/handler/ssl/SslContext;" name="newClientContextInternal" classAnnotationNames="com.oracle.svm.core.annotate.TargetClass" primary="true">
+      <SourceLine endBytecode="32" classname="run.ratchet.quarkus.runtime.graal.NettyClientSslCompatibility" start="71" end="75" sourcepath="run/ratchet/quarkus/runtime/graal/NettyClientSslCompatibility.java" sourcefile="NettyClientSslCompatibility.java" startBytecode="0" />
+      <Message>In method run.ratchet.quarkus.runtime.graal.NettyClientSslCompatibility.newClientContextInternal(SslProvider, Provider, X509Certificate[], TrustManagerFactory, X509Certificate[], PrivateKey, String, KeyManagerFactory, Iterable, CipherSuiteFilter, ApplicationProtocolConfig, String[], long, long, boolean, boolean, SecureRandom, String, String, Map$Entry[])</Message>
+    </Method>
+    <Type role="TYPE_FOUND" descriptor="Lrun/ratchet/quarkus/runtime/graal/NettyJdkSslClientContext;">
+      <SourceLine classname="run.ratchet.quarkus.runtime.graal.NettyJdkSslClientContext" start="121" end="121" sourcepath="run/ratchet/quarkus/runtime/graal/NettyClientSslCompatibility.java" sourcefile="NettyClientSslCompatibility.java">
+        <Message>At NettyClientSslCompatibility.java:[line 121]</Message>
+      </SourceLine>
+      <Message>Actual type run.ratchet.quarkus.runtime.graal.NettyJdkSslClientContext</Message>
+    </Type>
+    <Type role="TYPE_EXPECTED" descriptor="Lio/netty/handler/ssl/SslContext;">
+      <SourceLine classname="io.netty.handler.ssl.SslContext" start="102" end="1397" sourcepath="io/netty/handler/ssl/SslContext.java" sourcefile="SslContext.java">
+        <Message>At SslContext.java:[lines 102-1397]</Message>
+      </SourceLine>
+      <Message>Expected io.netty.handler.ssl.SslContext</Message>
+    </Type>
+    <Method isStatic="false" role="METHOD_RETURN_VALUE_OF" classname="run.ratchet.quarkus.runtime.graal.NettyJdkSslClientContext" signature="(Ljava/security/Provider;[Ljava/security/cert/X509Certificate;Ljavax/net/ssl/TrustManagerFactory;[Ljava/security/cert/X509Certificate;Ljava/security/PrivateKey;Ljava/lang/String;Ljavax/net/ssl/KeyManagerFactory;Ljava/lang/Iterable;Lio/netty/handler/ssl/CipherSuiteFilter;Lio/netty/handler/ssl/ApplicationProtocolConfig;[Ljava/lang/String;JJLjava/security/SecureRandom;Ljava/lang/String;Ljava/lang/String;Lrun/ratchet/quarkus/runtime/graal/NettyResumptionController;)V" name="&lt;init&gt;" classAnnotationNames="com.oracle.svm.core.annotate.TargetClass">
+      <SourceLine endBytecode="234" classname="run.ratchet.quarkus.runtime.graal.NettyJdkSslClientContext" start="121" end="121" sourcepath="run/ratchet/quarkus/runtime/graal/NettyClientSslCompatibility.java" sourcefile="NettyClientSslCompatibility.java" startBytecode="0" />
+      <Message>Return value of new run.ratchet.quarkus.runtime.graal.NettyJdkSslClientContext(Provider, X509Certificate[], TrustManagerFactory, X509Certificate[], PrivateKey, String, KeyManagerFactory, Iterable, CipherSuiteFilter, ApplicationProtocolConfig, String[], long, long, SecureRandom, String, String, NettyResumptionController) of type void</Message>
+    </Method>
+    <SourceLine endBytecode="65" classname="run.ratchet.quarkus.runtime.graal.NettyClientSslCompatibility" start="75" end="75" sourcepath="run/ratchet/quarkus/runtime/graal/NettyClientSslCompatibility.java" sourcefile="NettyClientSslCompatibility.java" startBytecode="65" primary="true">
+      <Message>At NettyClientSslCompatibility.java:[line 75]</Message>
+    </SourceLine>
+  </BugInstance>
+</BugCollection>

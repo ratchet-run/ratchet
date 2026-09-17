@@ -6,7 +6,7 @@ description: Run persistent Ratchet jobs in Spring Boot 3.5 and 4.1 with SQL or 
 # Spring Boot
 
 The SQL and MongoDB starters are published to Maven Central with the other Ratchet modules,
-starting with Ratchet **0.3.2**. Import the Ratchet BOM to keep their versions aligned.
+starting with Ratchet **0.4.0**. Import the Ratchet BOM to keep their versions aligned.
 
 Ratchet runs in Spring Boot 3.5 and 4.1 applications on Java 17 or later. The SQL starter uses the application's existing datasource, entity-manager factory, and transaction manager. The MongoDB starter uses Boot's configured Mongo client and database factory.
 
@@ -18,7 +18,7 @@ Start with a normal Spring Boot application and its Boot parent or BOM. The test
 ```xml
 <properties>
   <java.version>17</java.version>
-  <ratchet.version>0.3.2</ratchet.version>
+  <ratchet.version>0.4.0</ratchet.version>
 </properties>
 ```
 
