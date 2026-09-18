@@ -164,7 +164,7 @@ ratchet.schema.auto-migrate=false
 
 That mode validates compatibility without changing the schema. An externally managed schema may omit Ratchet's migration ledger; if the ledger exists, it must record every bundled migration with its matching checksum. `ratchet.enabled=false` disables migrations, discovery, workers, and Ratchet runtime installation.
 
-MySQL must use `READ_COMMITTED`; the starter checks this before migrating. Configure it at the pool or database according to your operating standard, for example:
+MySQL supports its default `REPEATABLE_READ` as well as `READ_COMMITTED`; the store validates the selected isolation level when the `JobStore` is created, after schema initialization. To select `READ_COMMITTED`, configure it at the pool or database according to your operating standard, for example:
 
 ```properties
 spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED
