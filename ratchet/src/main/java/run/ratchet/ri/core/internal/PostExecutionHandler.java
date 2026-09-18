@@ -93,7 +93,7 @@ public class PostExecutionHandler {
   private final WorkflowScheduler workflowScheduler;
   private final DeadLetterService deadLetterService;
   private final PollerScheduler pollerScheduler;
-  private AfterCommitRegistrar afterCommitRegistrar = new JakartaAfterCommitRegistrar();
+  private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected PostExecutionHandler() {
     this.batchService = null;
@@ -101,6 +101,7 @@ public class PostExecutionHandler {
     this.workflowScheduler = null;
     this.deadLetterService = null;
     this.pollerScheduler = null;
+    this.afterCommitRegistrar = null;
   }
 
   public PostExecutionHandler(

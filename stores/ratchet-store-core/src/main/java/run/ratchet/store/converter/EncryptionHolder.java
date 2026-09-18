@@ -66,7 +66,7 @@ public final class EncryptionHolder {
    *
    * @param engines the available encryption engines; must be non-empty
    * @param writeAlgorithmId the algorithm id of the engine used for new writes; must name one of
-   *     {@code engines}
+   *     {@code engines}, or be null/blank to select the sole installed engine
    * @param keyProvider the key provider; must not be {@code null}
    * @param globalEnabled whether the deployment-wide encryption switch is on; when {@code true}
    *     every job's surfaces are encrypted, when {@code false} only jobs that opt in are
@@ -97,6 +97,16 @@ public final class EncryptionHolder {
       if (registry.putIfAbsent(id, engine) != null) {
         throw new EncryptionConfigurationException(
             "Two PayloadEncryption engines report the same algorithmId: " + id);
+      }
+    }
+    if (writeAlgorithmId == null || writeAlgorithmId.isBlank()) {
+      if (engines.size() == 1) {
+        writeAlgorithmId = engines.iterator().next().algorithmId();
+      } else {
+        throw new EncryptionConfigurationException(
+            "Multiple PayloadEncryption engines are installed but no write algorithm is configured."
+                + " Set RatchetOptions.encryption().writeAlgorithm to the algorithm id new writes"
+                + " should use.");
       }
     }
     PayloadEncryption write = registry.get(writeAlgorithmId);

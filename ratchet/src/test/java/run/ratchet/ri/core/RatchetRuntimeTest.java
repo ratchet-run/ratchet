@@ -71,6 +71,80 @@ class RatchetRuntimeTest {
   }
 
   @Test
+  void afterStartErrorStillStopsHooksThatAlreadyCompletedStartup() {
+    SchedulerLifecycleHook first = mock(SchedulerLifecycleHook.class);
+    SchedulerLifecycleHook failing = mock(SchedulerLifecycleHook.class);
+    SchedulerLifecycleHook last = mock(SchedulerLifecycleHook.class);
+    AssertionError failure = new AssertionError("afterStart failed");
+    doThrow(failure).when(failing).afterStart();
+    RatchetRuntime runtime = runtimeWithHooks(List.of(first, failing, last));
+
+    assertSame(failure, assertThrows(AssertionError.class, runtime::start));
+    runtime.onShutdown();
+
+    var order = inOrder(first, failing, last);
+    order.verify(first).beforeStart();
+    order.verify(failing).beforeStart();
+    order.verify(last).beforeStart();
+    order.verify(first).afterStart();
+    order.verify(failing).afterStart();
+    order.verify(first).beforeStop();
+    order.verify(first).afterStop();
+    verify(first, times(1)).beforeStop();
+    verify(first, times(1)).afterStop();
+    verify(failing, never()).beforeStop();
+    verify(failing, never()).afterStop();
+    verify(last, never()).afterStart();
+    verify(last, never()).beforeStop();
+    verify(last, never()).afterStop();
+  }
+
+  @Test
+  void successfulStartupPairsEveryHookWithShutdownExactlyOnce() {
+    SchedulerLifecycleHook first = mock(SchedulerLifecycleHook.class);
+    SchedulerLifecycleHook second = mock(SchedulerLifecycleHook.class);
+    RatchetRuntime runtime = runtimeWithHooks(List.of(first, second));
+
+    runtime.start();
+    verify(first, never()).beforeStop();
+    verify(second, never()).beforeStop();
+    runtime.onShutdown();
+    runtime.onShutdown();
+
+    for (SchedulerLifecycleHook hook : List.of(first, second)) {
+      var order = inOrder(hook);
+      order.verify(hook).beforeStart();
+      order.verify(hook).afterStart();
+      order.verify(hook).beforeStop();
+      order.verify(hook).afterStop();
+      verifyNoMoreInteractions(hook);
+    }
+  }
+
+  private static RatchetRuntime runtimeWithHooks(List<SchedulerLifecycleHook> hooks) {
+    ExecutorProvider executors = mock(ExecutorProvider.class);
+    when(executors.getScheduledExecutor()).thenReturn(mock(ScheduledExecutorService.class));
+    return new RatchetRuntime(
+        mock(Poller.class),
+        mock(RecurringScheduler.class),
+        mock(OrphanRecoveryTimer.class),
+        mock(BatchRecoveryTimer.class),
+        mock(DeadLetterService.class),
+        mock(JobArchivingService.class),
+        mock(LogPurgeTimer.class),
+        mock(PollerWakeupListener.class),
+        executors,
+        mock(NodeIdentityProvider.class),
+        mock(DrainController.class),
+        RatchetOptions.defaults(),
+        mock(JobExecutionCoordinator.class),
+        mock(ClusterCoordinator.class),
+        () -> hooks,
+        hook -> {},
+        () -> {});
+  }
+
+  @Test
   void shutdownDrainsAcceptedWorkBeforeCancellationAndReset() throws Exception {
     JobExecutorService executor = mock(JobExecutorService.class);
     RetryBufferDrainer retryBuffer = mock(RetryBufferDrainer.class);

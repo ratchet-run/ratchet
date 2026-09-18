@@ -70,7 +70,7 @@ public class JobTimeoutHandler {
   private final long defaultTimeoutSeconds;
   private final Clock clock;
   private final int signalTimeoutBatchSize;
-  private AfterCommitRegistrar afterCommitRegistrar;
+  private final AfterCommitRegistrar afterCommitRegistrar;
   private final SingletonLeaseService singletonLeaseService;
   private final ErrorSanitizer errorSanitizer;
 
@@ -205,23 +205,21 @@ public class JobTimeoutHandler {
       TransactionSynchronizationRegistry txRegistry,
       SingletonLeaseService singletonLeaseService,
       ErrorSanitizer errorSanitizer) {
-    this.jobCrudStore = jobCrudStore;
-    this.jobRetryStore = jobRetryStore;
-    this.jobBatchStatusStore = jobBatchStatusStore;
-    this.lifecycleFacade = lifecycleFacade;
-    this.softTimeoutPercent = softTimeoutPercent;
-    this.defaultTimeoutSeconds = defaultTimeoutSeconds;
-    this.clock = Objects.requireNonNull(clock, "clock must not be null");
-    this.eventPublisher = eventPublisher;
-    this.signalStore = signalStore;
-    this.metricsCollector = metricsCollector;
-    this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
-    this.afterCommitRegistrar =
-        txRegistry == null
-            ? new JakartaAfterCommitRegistrar()
-            : new JakartaAfterCommitRegistrar(txRegistry);
-    this.singletonLeaseService = singletonLeaseService;
-    this.errorSanitizer = errorSanitizer;
+    this(
+        new JakartaAfterCommitRegistrar(txRegistry),
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        eventPublisher,
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        singletonLeaseService,
+        errorSanitizer);
   }
 
   public JobTimeoutHandler(
@@ -239,22 +237,20 @@ public class JobTimeoutHandler {
       int signalTimeoutBatchSize,
       SingletonLeaseService singletonLeaseService,
       ErrorSanitizer errorSanitizer) {
-    this(
-        jobCrudStore,
-        jobRetryStore,
-        jobBatchStatusStore,
-        lifecycleFacade,
-        softTimeoutPercent,
-        defaultTimeoutSeconds,
-        clock,
-        eventPublisher,
-        signalStore,
-        metricsCollector,
-        signalTimeoutBatchSize,
-        (TransactionSynchronizationRegistry) null,
-        singletonLeaseService,
-        errorSanitizer);
+    this.jobCrudStore = jobCrudStore;
+    this.jobRetryStore = jobRetryStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
+    this.lifecycleFacade = lifecycleFacade;
+    this.softTimeoutPercent = softTimeoutPercent;
+    this.defaultTimeoutSeconds = defaultTimeoutSeconds;
+    this.clock = Objects.requireNonNull(clock, "clock must not be null");
+    this.eventPublisher = eventPublisher;
+    this.signalStore = signalStore;
+    this.metricsCollector = metricsCollector;
+    this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
     this.afterCommitRegistrar = afterCommitRegistrar;
+    this.singletonLeaseService = singletonLeaseService;
+    this.errorSanitizer = errorSanitizer;
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -432,7 +428,8 @@ public class JobTimeoutHandler {
     } catch (Throwable sanitizerError) {
       log.warnf(
           sanitizerError,
-          "Error sanitizer failed while preparing hard-timeout metadata; using exception class fallback");
+          "Error sanitizer failed while preparing hard-timeout metadata; using exception class"
+              + " fallback");
       return timeout.getClass().getName();
     }
   }
@@ -482,7 +479,8 @@ public class JobTimeoutHandler {
         return Optional.empty();
       }
       log.infof(
-          "Job %s signal timed out but was already finalized by a competing path — no DLQ escalation",
+          "Job %s signal timed out but was already finalized by a competing path — no DLQ"
+              + " escalation",
           jobId);
       return Optional.empty();
     }

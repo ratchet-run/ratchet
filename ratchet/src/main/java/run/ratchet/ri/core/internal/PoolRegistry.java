@@ -17,9 +17,15 @@ package run.ratchet.ri.core.internal;
 
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.TreeMap;
+import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.internal.ThreadPoolManager.ThreadPoolHealth;
+import run.ratchet.spi.ExecutionTuningProvider;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
 
 /**
@@ -31,6 +37,67 @@ import run.ratchet.store.entity.JobExecutionType;
  * against each concrete pool, while aggregate health remains available for load reporting.
  */
 public class PoolRegistry {
+
+  private static final int DEFAULT_VIRTUAL_LIMIT = 1000;
+
+  /** Creates the standard platform pool and, when enabled, the virtual pool. */
+  public static PoolRegistry create(
+      RatchetOptions options,
+      ExecutorProvider executorProvider,
+      MetricsCollector metricsCollector,
+      ExecutionTuningProvider executionTuningProvider,
+      boolean virtualPool) {
+    Map<String, ThreadPoolManager> pools = new LinkedHashMap<>();
+
+    Map<JobExecutionType, Integer> platformLimits = new EnumMap<>(JobExecutionType.class);
+    for (JobExecutionType type : JobExecutionType.values()) {
+      platformLimits.put(
+          type,
+          executionTuningProvider.maxConcurrency(
+              type.name(),
+              options.execution().maxConcurrency(type.name(), defaultConcurrency(type))));
+    }
+    pools.put(
+        ExecutorTargets.PLATFORM,
+        new ThreadPoolManager(
+            ExecutorTargets.PLATFORM,
+            executorProvider,
+            metricsCollector,
+            ThreadPoolManager.AccountingMode.SEMAPHORE,
+            platformLimits));
+
+    if (virtualPool) {
+      Map<JobExecutionType, Integer> virtualLimits = new EnumMap<>(JobExecutionType.class);
+      for (JobExecutionType type : JobExecutionType.values()) {
+        virtualLimits.put(
+            type, executionTuningProvider.virtualThreadLimit(type.name(), DEFAULT_VIRTUAL_LIMIT));
+      }
+      ThreadPoolManager.AccountingMode accountingMode =
+          options.execution().virtualCounterAccounting()
+              ? ThreadPoolManager.AccountingMode.COUNTER
+              : ThreadPoolManager.AccountingMode.SEMAPHORE;
+      pools.put(
+          ExecutorTargets.VIRTUAL,
+          new ThreadPoolManager(
+              ExecutorTargets.VIRTUAL,
+              executorProvider,
+              metricsCollector,
+              accountingMode,
+              virtualLimits));
+    }
+
+    return new PoolRegistry(pools);
+  }
+
+  private static int defaultConcurrency(JobExecutionType type) {
+    return switch (type) {
+      case SINGLE -> 20;
+      case RECURRING -> 5;
+      case BATCH_CHILD -> 30;
+      case BATCH_PARENT -> 2;
+      case CHAIN_STEP, WORKFLOW_BRANCH, WORKFLOW_JOIN -> 10;
+    };
+  }
 
   private final Map<String, ThreadPoolManager> pools;
 

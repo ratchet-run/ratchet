@@ -305,13 +305,10 @@ public class WorkflowConditionEvaluator {
           target = handle.instance();
           method = ManagedInvocation.exposedMethod(method, target);
           args = fillArgs(payload.args(), contextArg);
-          return Boolean.TRUE.equals(
-              method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args)));
+          return invokeCondition(method, target, args);
         }
       }
-      Object result =
-          method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args));
-      return Boolean.TRUE.equals(result);
+      return invokeCondition(method, target, args);
     } catch (InvocationTargetException e) {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
       log.errorf(cause, "Condition expression evaluation failed: %s", cause.getMessage());
@@ -414,5 +411,11 @@ public class WorkflowConditionEvaluator {
     private WorkflowConditionConfigurationException(String message, Throwable cause) {
       super(message, cause);
     }
+  }
+
+  private static boolean invokeCondition(Method method, Object target, Object[] args)
+      throws InvocationTargetException, IllegalAccessException {
+    return Boolean.TRUE.equals(
+        method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args)));
   }
 }

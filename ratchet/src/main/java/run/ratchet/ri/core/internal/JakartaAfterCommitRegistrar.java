@@ -117,7 +117,7 @@ public class JakartaAfterCommitRegistrar implements AfterCommitRegistrar {
       synchronized (this) {
         registry = txRegistry;
         if (registry == null) {
-          registry = lookupTxRegistry(log);
+          registry = lookupTxRegistry();
           txRegistry = registry;
         }
       }
@@ -125,9 +125,8 @@ public class JakartaAfterCommitRegistrar implements AfterCommitRegistrar {
     return registry;
   }
 
-  public static TransactionSynchronizationRegistry lookupTxRegistry(Logger logger) {
+  public static TransactionSynchronizationRegistry lookupTxRegistry() {
     return lookupTxRegistry(
-        logger,
         () -> {
           var registry = CDI.current().select(TransactionSynchronizationRegistry.class);
           return registry.isResolvable() ? registry.get() : null;
@@ -135,14 +134,14 @@ public class JakartaAfterCommitRegistrar implements AfterCommitRegistrar {
   }
 
   static TransactionSynchronizationRegistry lookupTxRegistry(
-      Logger logger, Supplier<TransactionSynchronizationRegistry> cdiLookup) {
+      Supplier<TransactionSynchronizationRegistry> cdiLookup) {
     try {
       return InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
     } catch (NamingException unavailable) {
       try {
         return cdiLookup.get();
       } catch (IllegalStateException unavailableCdi) {
-        logger.debugf(
+        log.debugf(
             "TransactionSynchronizationRegistry unavailable through JNDI and CDI: %s",
             unavailableCdi.getMessage());
         return null;

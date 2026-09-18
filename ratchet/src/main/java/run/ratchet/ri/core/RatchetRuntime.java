@@ -66,7 +66,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
   private volatile List<SchedulerLifecycleHook> startedHooks = List.of();
   private volatile boolean shutdownComplete;
   private volatile boolean started;
-  private Duration shutdownTimeout = Duration.ZERO;
+  private volatile Duration shutdownTimeout = Duration.ZERO;
 
   private static final Comparator<SchedulerLifecycleHook> HOOK_ORDER =
       Comparator.comparingInt(RatchetRuntime::priorityValue)
@@ -130,7 +130,8 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     try {
       log.info("Ratchet starting");
       List<SchedulerLifecycleHook> beforeStartSucceeded =
-          notifyHooks("beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true);
+          notifyHooks(
+              "beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true, ignored -> {});
 
       beforeWorkers.run();
 
@@ -179,9 +180,12 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
 
       pollerWakeupListener.init();
 
-      startedHooks =
-          notifyHooks(
-              "afterStart", beforeStartSucceeded, SchedulerLifecycleHook::afterStart, false);
+      notifyHooks(
+          "afterStart",
+          beforeStartSucceeded,
+          SchedulerLifecycleHook::afterStart,
+          false,
+          succeeded -> startedHooks = List.copyOf(succeeded));
       log.info("Ratchet started");
     } catch (RuntimeException | Error failure) {
       onShutdown();
@@ -227,7 +231,8 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
 
     log.info("Ratchet stopping");
     List<SchedulerLifecycleHook> beforeStopSucceeded =
-        notifyHooks("beforeStop", hooksToStop, SchedulerLifecycleHook::beforeStop, false);
+        notifyHooks(
+            "beforeStop", hooksToStop, SchedulerLifecycleHook::beforeStop, false, ignored -> {});
     // Drain before stop to prevent new claims
     stopService("drain controller", () -> drainController.setDraining(true));
 
@@ -244,11 +249,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     stopService("log purge timer", logPurgeTimer::stop);
     // Stop background resubmission before resetting RUNNING jobs to PENDING.
     stopService(
-        "job execution coordinator",
-        () -> {
-          if (shutdownTimeout.isZero()) jobExecutionCoordinator.shutdown();
-          else jobExecutionCoordinator.shutdown(shutdownTimeout);
-        });
+        "job execution coordinator", () -> jobExecutionCoordinator.shutdown(shutdownTimeout));
     // Release transport resources after no further notifyNewWork callers can submit.
     // First-party coordinators implement SchedulerLifecycleHook and close themselves via
     // afterStop (invoked below in the hook chain). The direct fallback only fires for
@@ -261,7 +262,8 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       stopService("cluster coordinator", clusterCoordinator::close);
     }
 
-    notifyHooks("afterStop", beforeStopSucceeded, SchedulerLifecycleHook::afterStop, false);
+    notifyHooks(
+        "afterStop", beforeStopSucceeded, SchedulerLifecycleHook::afterStop, false, ignored -> {});
     destroyHooks();
   }
 
@@ -270,8 +272,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       return List.of();
     }
     if (resolvedHooks == null) {
-      List<SchedulerLifecycleHook> resolved = new ArrayList<>();
-      resolved.addAll(lifecycleHooks.get());
+      List<SchedulerLifecycleHook> resolved = new ArrayList<>(lifecycleHooks.get());
       resolved.sort(HOOK_ORDER);
       resolvedHooks = List.copyOf(resolved);
     }
@@ -288,13 +289,14 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       String phase,
       List<SchedulerLifecycleHook> phaseHooks,
       Consumer<SchedulerLifecycleHook> callback,
-      boolean abortOnSchemaFailure) {
+      boolean abortOnSchemaFailure,
+      Consumer<List<SchedulerLifecycleHook>> onProgress) {
     List<SchedulerLifecycleHook> succeeded = new ArrayList<>(phaseHooks.size());
     for (SchedulerLifecycleHook hook : phaseHooks) {
       try {
         callback.accept(hook);
         succeeded.add(hook);
-        if ("afterStart".equals(phase)) startedHooks = List.copyOf(succeeded);
+        onProgress.accept(succeeded);
       } catch (SchemaInitializationException e) {
         if (abortOnSchemaFailure) {
           // Schema initialization failures must abort startup so the scheduler does not begin

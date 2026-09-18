@@ -79,16 +79,13 @@ class JobWakeupServiceTest {
   @Test
   void registryLookupFallsBackToCdiWhenJndiIsUnavailable() {
     org.junit.jupiter.api.Assertions.assertSame(
-        txRegistry,
-        JakartaAfterCommitRegistrar.lookupTxRegistry(
-            org.jboss.logging.Logger.getLogger(getClass()), () -> txRegistry));
+        txRegistry, JakartaAfterCommitRegistrar.lookupTxRegistry(() -> txRegistry));
   }
 
   @Test
   void registryLookupWithoutEitherRuntimeRemainsAvailableToStandaloneCallers() {
     org.junit.jupiter.api.Assertions.assertNull(
         JakartaAfterCommitRegistrar.lookupTxRegistry(
-            org.jboss.logging.Logger.getLogger(getClass()),
             () -> {
               throw new IllegalStateException("no CDI provider");
             }));

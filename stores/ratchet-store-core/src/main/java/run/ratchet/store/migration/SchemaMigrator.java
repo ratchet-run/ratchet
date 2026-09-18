@@ -299,17 +299,18 @@ public final class SchemaMigrator {
 
     try (Connection connection = dataSource.getConnection()) {
       DatabaseMetaData metadata = connection.getMetaData();
-      Set<String> tables = tableNames(metadata, connection);
-      validateRequiredTablesAndColumns(metadata, connection, tables);
+      String catalog = connection.getCatalog();
+      String schema = connection.getSchema();
+      Set<String> tables = tableNames(metadata, catalog, schema);
+      validateRequiredTablesAndColumns(metadata, catalog, schema, tables);
       return new ValidationResult(validateRecordedMigrations(connection, tables, scripts));
     }
   }
 
-  private Set<String> tableNames(DatabaseMetaData metadata, Connection connection)
+  private Set<String> tableNames(DatabaseMetaData metadata, String catalog, String schema)
       throws SQLException {
     Set<String> tables = new HashSet<>();
-    try (ResultSet resultSet =
-        metadata.getTables(connection.getCatalog(), connection.getSchema(), "%", null)) {
+    try (ResultSet resultSet = metadata.getTables(catalog, schema, "%", null)) {
       while (resultSet.next()) {
         String tableName = resultSet.getString("TABLE_NAME");
         if (tableName != null) {
@@ -321,13 +322,14 @@ public final class SchemaMigrator {
   }
 
   private void validateRequiredTablesAndColumns(
-      DatabaseMetaData metadata, Connection connection, Set<String> tables) throws SQLException {
+      DatabaseMetaData metadata, String catalog, String schema, Set<String> tables)
+      throws SQLException {
     for (Table table : RatchetSchemaCatalog.CURRENT.tables()) {
       if (!tables.contains(normalizeIdentifier(table.name()))) {
         throw new SchemaMigrationException(
             "Ratchet schema is missing required table " + table.name());
       }
-      Set<String> columns = columnNames(metadata, connection, table.name());
+      Set<String> columns = columnNames(metadata, catalog, schema, table.name());
       for (var column : table.columns()) {
         if (!columns.contains(normalizeIdentifier(column.name()))) {
           throw new SchemaMigrationException(
@@ -337,18 +339,16 @@ public final class SchemaMigrator {
                   + column.name());
         }
       }
-      validatePrimaryKey(metadata, connection, table);
-      validateUniqueIndexes(metadata, connection, table);
+      validatePrimaryKey(metadata, catalog, schema, table);
+      validateUniqueIndexes(metadata, catalog, schema, table);
     }
   }
 
-  private void validatePrimaryKey(DatabaseMetaData metadata, Connection connection, Table table)
-      throws SQLException {
+  private void validatePrimaryKey(
+      DatabaseMetaData metadata, String catalog, String schema, Table table) throws SQLException {
     TreeMap<Short, String> primaryKey = new TreeMap<>();
     String metadataTableName = metadataIdentifier(metadata, table.name());
-    try (ResultSet resultSet =
-        metadata.getPrimaryKeys(
-            connection.getCatalog(), connection.getSchema(), metadataTableName)) {
+    try (ResultSet resultSet = metadata.getPrimaryKeys(catalog, schema, metadataTableName)) {
       while (resultSet.next()) {
         String column = resultSet.getString("COLUMN_NAME");
         if (column != null) {
@@ -370,8 +370,8 @@ public final class SchemaMigrator {
     }
   }
 
-  private void validateUniqueIndexes(DatabaseMetaData metadata, Connection connection, Table table)
-      throws SQLException {
+  private void validateUniqueIndexes(
+      DatabaseMetaData metadata, String catalog, String schema, Table table) throws SQLException {
     List<Index> required = table.indexes().stream().filter(Index::unique).toList();
     if (required.isEmpty()) {
       return;
@@ -379,8 +379,7 @@ public final class SchemaMigrator {
     Map<String, MetadataIndex> indexes = new HashMap<>();
     String metadataTableName = metadataIdentifier(metadata, table.name());
     try (ResultSet resultSet =
-        metadata.getIndexInfo(
-            connection.getCatalog(), connection.getSchema(), metadataTableName, true, true)) {
+        metadata.getIndexInfo(catalog, schema, metadataTableName, true, true)) {
       while (resultSet.next()) {
         String name = resultSet.getString("INDEX_NAME");
         String column = resultSet.getString("COLUMN_NAME");
@@ -413,13 +412,11 @@ public final class SchemaMigrator {
     }
   }
 
-  private Set<String> columnNames(DatabaseMetaData metadata, Connection connection, String table)
-      throws SQLException {
+  private Set<String> columnNames(
+      DatabaseMetaData metadata, String catalog, String schema, String table) throws SQLException {
     Set<String> columns = new HashSet<>();
     String metadataTableName = metadataIdentifier(metadata, table);
-    try (ResultSet resultSet =
-        metadata.getColumns(
-            connection.getCatalog(), connection.getSchema(), metadataTableName, "%")) {
+    try (ResultSet resultSet = metadata.getColumns(catalog, schema, metadataTableName, "%")) {
       while (resultSet.next()) {
         String columnName = resultSet.getString("COLUMN_NAME");
         if (columnName != null) {
@@ -465,10 +462,9 @@ public final class SchemaMigrator {
     }
 
     Map<String, MigrationScript> scriptsByVersion = new HashMap<>();
-    int latestVersion = 0;
+    int latestVersion = scripts.get(scripts.size() - 1).numericVersion();
     for (MigrationScript script : scripts) {
       scriptsByVersion.put(script.version(), script);
-      latestVersion = Math.max(latestVersion, script.numericVersion());
     }
 
     List<MigrationScript> validated = new ArrayList<>();
@@ -857,10 +853,6 @@ public final class SchemaMigrator {
 
     public ValidationResult {
       validated = List.copyOf(validated);
-    }
-
-    public int validatedCount() {
-      return validated.size();
     }
   }
 

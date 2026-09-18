@@ -36,9 +36,11 @@ import java.time.zone.ZoneRulesException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -98,8 +100,8 @@ public class RecurringJobProcessor {
   private final RatchetOptions options;
   private final Set<Class<?>> discoveredRecurringBeanClasses;
   private final Clock clock;
-  private RecurringJobStore explicitRecurringJobStore;
-  private Function<Class<?>, Map<Method, Recurring>> recurringMethods;
+  private final RecurringJobStore explicitRecurringJobStore;
+  private final Function<Class<?>, Map<Method, Recurring>> recurringMethods;
 
   // Field-injected (not constructor) so direct-construction test/SE paths leave them null and
   // register inline; the CDI-managed bean uses the managed scheduled executor (a post-deployment
@@ -125,6 +127,8 @@ public class RecurringJobProcessor {
     this.options = null;
     this.discoveredRecurringBeanClasses = Set.of();
     this.clock = null;
+    this.explicitRecurringJobStore = null;
+    this.recurringMethods = RecurringJobProcessor::declaredRecurringMethods;
   }
 
   RecurringJobProcessor(
@@ -206,6 +210,34 @@ public class RecurringJobProcessor {
       RatchetOptions options,
       Set<Class<?>> discoveredRecurringBeanClasses,
       Clock clock) {
+    this(
+        invocationSubmissionService,
+        jobBatchStatusStore,
+        recurringAnnotationMaintenanceService,
+        beanManager,
+        methodInvoker,
+        startupCoordinator,
+        registrationState,
+        options,
+        discoveredRecurringBeanClasses,
+        clock,
+        null,
+        RecurringJobProcessor::declaredRecurringMethods);
+  }
+
+  private RecurringJobProcessor(
+      InvocationSubmissionService invocationSubmissionService,
+      JobBatchStatusStore jobBatchStatusStore,
+      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
+      BeanManager beanManager,
+      RecurringMethodInvoker methodInvoker,
+      StartupCoordinator startupCoordinator,
+      RecurringRegistrationState registrationState,
+      RatchetOptions options,
+      Set<Class<?>> discoveredRecurringBeanClasses,
+      Clock clock,
+      RecurringJobStore recurringJobStore,
+      Function<Class<?>, Map<Method, Recurring>> recurringMethods) {
     this.invocationSubmissionService = invocationSubmissionService;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
@@ -216,6 +248,8 @@ public class RecurringJobProcessor {
     this.options = options;
     this.discoveredRecurringBeanClasses = Set.copyOf(discoveredRecurringBeanClasses);
     this.clock = clock;
+    this.explicitRecurringJobStore = recurringJobStore;
+    this.recurringMethods = Objects.requireNonNull(recurringMethods);
   }
 
   RecurringJobProcessor(
@@ -237,34 +271,6 @@ public class RecurringJobProcessor {
         RatchetOptions.defaults());
   }
 
-  /**
-   * Registers the bean classes discovered by a host framework using the shared registration rules.
-   */
-  public RecurringJobProcessor(
-      InvocationSubmissionService invocationSubmissionService,
-      JobBatchStatusStore jobBatchStatusStore,
-      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
-      RecurringMethodInvoker methodInvoker,
-      StartupCoordinator startupCoordinator,
-      RecurringRegistrationState registrationState,
-      RatchetOptions options,
-      Set<Class<?>> recurringBeanClasses,
-      Clock clock,
-      RecurringJobStore recurringJobStore) {
-    this(
-        invocationSubmissionService,
-        jobBatchStatusStore,
-        recurringAnnotationMaintenanceService,
-        null,
-        methodInvoker,
-        startupCoordinator,
-        registrationState,
-        options,
-        recurringBeanClasses,
-        clock);
-    this.explicitRecurringJobStore = recurringJobStore;
-  }
-
   /** Uses host-resolved annotations, including annotations inherited from interfaces. */
   public RecurringJobProcessor(
       InvocationSubmissionService submissions,
@@ -282,14 +288,15 @@ public class RecurringJobProcessor {
         submissions,
         store,
         maintenance,
+        null,
         invoker,
         startup,
         registration,
         options,
         types,
         clock,
-        recurringStore);
-    this.recurringMethods = java.util.Objects.requireNonNull(recurringMethods);
+        recurringStore,
+        recurringMethods);
   }
 
   void onStartup(
@@ -547,13 +554,14 @@ public class RecurringJobProcessor {
   }
 
   private void processBean(Class<?> beanClass, List<RecurringMethodRegistration> registrations) {
-    if (recurringMethods != null) {
-      recurringMethods
-          .apply(beanClass)
-          .forEach(
-              (method, annotation) -> processMethod(beanClass, method, annotation, registrations));
-      return;
-    }
+    recurringMethods
+        .apply(beanClass)
+        .forEach(
+            (method, annotation) -> processMethod(beanClass, method, annotation, registrations));
+  }
+
+  private static Map<Method, Recurring> declaredRecurringMethods(Class<?> beanClass) {
+    Map<Method, Recurring> methods = new LinkedHashMap<>();
     // Walk the class hierarchy so @Recurring methods declared on a superclass are picked up.
     // getDeclaredMethods() alone misses inherited methods. Filter synthetic/bridge methods
     // (which Weld and other CDI implementations sometimes generate) and dedupe by signature
@@ -573,10 +581,11 @@ public class RecurringJobProcessor {
         if (!seen.add(signature)) {
           continue;
         }
-        processMethod(beanClass, method, annotation, registrations);
+        methods.put(method, annotation);
       }
       current = current.getSuperclass();
     }
+    return methods;
   }
 
   private void processMethod(

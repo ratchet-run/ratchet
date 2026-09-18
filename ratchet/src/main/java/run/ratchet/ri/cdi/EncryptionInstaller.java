@@ -170,7 +170,10 @@ public class EncryptionInstaller {
               + " remove the engine.");
     }
     installEncryption(
-        engineList, resolveWriteAlgorithm(engineList), keyProvider.get(), globalEnabled);
+        engineList,
+        options.encryption() == null ? null : options.encryption().writeAlgorithm(),
+        keyProvider.get(),
+        globalEnabled);
   }
 
   private void installEncryption(
@@ -182,28 +185,6 @@ public class EncryptionInstaller {
     } else {
       EncryptionHolder.install(engines, algorithm, keys, global);
     }
-  }
-
-  /**
-   * Picks the algorithm id new writes use. With a single engine installed it is that engine. With
-   * several — the algorithm-rotation case, where an old engine stays installed to decrypt
-   * not-yet-drained rows — the deployment must name the write algorithm via {@code
-   * RatchetOptions.encryption().writeAlgorithm}; an unset selection is a fail-loud misconfiguration
-   * rather than an arbitrary pick. {@link EncryptionHolder#install} validates that the returned id
-   * names an installed engine.
-   */
-  private String resolveWriteAlgorithm(List<PayloadEncryption> engineList) {
-    String configured = options.encryption() == null ? null : options.encryption().writeAlgorithm();
-    if (configured != null && !configured.isBlank()) {
-      return configured;
-    }
-    if (engineList.size() == 1) {
-      return engineList.get(0).algorithmId();
-    }
-    throw new EncryptionConfigurationException(
-        "Multiple PayloadEncryption engines are installed but no write algorithm is configured. Set"
-            + " RatchetOptions.encryption().writeAlgorithm to the algorithm id new writes should"
-            + " use.");
   }
 
   /**

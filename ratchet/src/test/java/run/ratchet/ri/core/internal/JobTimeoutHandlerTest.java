@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -64,6 +65,7 @@ import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
@@ -219,6 +221,54 @@ class JobTimeoutHandlerTest {
     JobRetryingEvent retryingEvent =
         assertInstanceOf(JobRetryingEvent.class, eventCaptor.getAllValues().get(1));
     assertEquals(1, retryingEvent.getRetryAttempt());
+  }
+
+  @Test
+  void hardTimeoutRetryDefersEventsThroughSuppliedRegistrar() {
+    AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
+    when(registrar.registerAfterCommit(any(Runnable.class)))
+        .thenReturn(AfterCommitRegistrar.Result.REGISTERED);
+    Instant now = Instant.parse("2026-05-09T12:00:00Z");
+    handler =
+        new JobTimeoutHandler(
+            registrar,
+            jobCrudStore,
+            jobRetryStore,
+            jobBatchStatusStore,
+            lifecycleFacade,
+            80,
+            60L,
+            Clock.fixed(now, ZoneOffset.UTC),
+            eventPublisher,
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            null,
+            null);
+    JobEntity job = jobWithMaxRetries(3);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+        .thenReturn(true);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    ArgumentCaptor<Runnable> callback = ArgumentCaptor.forClass(Runnable.class);
+    verify(registrar).registerAfterCommit(callback.capture());
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
+    verify(eventPublisher, never()).publish(any());
+
+    callback.getValue().run();
+
+    ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(2)).publish(events.capture());
+    JobExecutionTimedOutEvent timedOut =
+        assertInstanceOf(JobExecutionTimedOutEvent.class, events.getAllValues().get(0));
+    JobRetryingEvent retrying =
+        assertInstanceOf(JobRetryingEvent.class, events.getAllValues().get(1));
+    assertEquals(JOB_ID, timedOut.getJobId());
+    assertEquals(JOB_ID, retrying.getJobId());
+    assertEquals(1, retrying.getRetryAttempt());
   }
 
   @Test

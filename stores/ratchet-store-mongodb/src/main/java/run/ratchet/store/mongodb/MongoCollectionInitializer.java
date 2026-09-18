@@ -29,15 +29,17 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.UpdateOptions;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
-import org.bson.BsonDocument;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
@@ -62,6 +64,7 @@ class MongoCollectionInitializer {
 
   private boolean creating = true;
   private Set<String> existingCollections = Set.of();
+  private Map<String, List<Document>> indexesByCollection = new HashMap<>();
 
   private void createIndex(MongoCollection<Document> coll, Bson keys, String name) {
     createIndex(coll, keys, new IndexOptions().name(name));
@@ -137,6 +140,7 @@ class MongoCollectionInitializer {
 
   private void initialize(boolean create) {
     creating = create;
+    indexesByCollection = new HashMap<>();
     existingCollections = create ? Set.of() : database.listCollectionNames().into(new HashSet<>());
     log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
@@ -189,18 +193,7 @@ class MongoCollectionInitializer {
               + " on "
               + collection);
     }
-    BsonDocument expectedKeys = keys.toBsonDocument(Document.class, coll.getCodecRegistry());
-    Document actualKeys = actual.get("key", Document.class);
-    boolean keysMatch =
-        actualKeys != null
-            && expectedKeys.entrySet().stream()
-                .toList()
-                .equals(
-                    actualKeys
-                        .toBsonDocument(Document.class, coll.getCodecRegistry())
-                        .entrySet()
-                        .stream()
-                        .toList());
+    boolean keysMatch = bsonEquals(keys, actual.get("key"), coll);
     boolean uniqueMatches = options.isUnique() == Boolean.TRUE.equals(actual.getBoolean("unique"));
     boolean partialMatches =
         bsonEquals(
@@ -217,8 +210,12 @@ class MongoCollectionInitializer {
     }
   }
 
-  private static Document findIndex(MongoCollection<Document> collection, String name) {
-    for (Document index : collection.listIndexes()) {
+  private Document findIndex(MongoCollection<Document> collection, String name) {
+    List<Document> indexes =
+        indexesByCollection.computeIfAbsent(
+            collection.getNamespace().getCollectionName(),
+            ignored -> collection.listIndexes().into(new ArrayList<>()));
+    for (Document index : indexes) {
       if (name.equals(index.getString("name"))) {
         return index;
       }

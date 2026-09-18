@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -432,7 +433,9 @@ class SchemaMigratorTest {
 
     SchemaMigrator.ValidationResult result = migrator.validate();
 
-    assertEquals(2, result.validatedCount());
+    verify(connection, atMost(1)).getCatalog();
+    verify(connection, atMost(1)).getSchema();
+    assertEquals(2, result.validated().size());
     assertEquals(List.of("001", "002"), result.validated().stream().map(s -> s.version()).toList());
     verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
     verify(insertVersion, never()).executeUpdate();
@@ -446,7 +449,7 @@ class SchemaMigratorTest {
     SchemaMigrator migrator = migrator("schema-migrator");
     SchemaMigrator.ValidationResult result = migrator.validate();
 
-    assertEquals(0, result.validatedCount());
+    assertEquals(0, result.validated().size());
     verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
     verify(insertVersion, never()).executeUpdate();
     verify(connection, never()).commit();
