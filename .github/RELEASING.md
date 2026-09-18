@@ -29,7 +29,12 @@ examples to the release being staged.
 
 ## Complete publication
 
-1. Inspect the validated staging bundle in the Central Portal and publish it manually.
+1. Run `Publish staged release` on `main` with the successful Release workflow run ID,
+   Central deployment UUID from its logs, and release version. It verifies the source
+   run, tag, reviewed notes, SBOM assets, and Central coordinates before publishing with
+   the existing Actions credentials. Alternatively, inspect and publish the validated
+   bundle in the Central Portal. If publication is interrupted, check the deployment
+   status before retrying; the publication workflow can resume the same deployment.
 2. Confirm the released BOM and every intended library artifact can be downloaded from
    Maven Central. Smoke-test a consumer using the published coordinates, without relying
    on locally installed reactor artifacts.

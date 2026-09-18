@@ -1,0 +1,42 @@
+name: Publish staged release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Successful Release workflow run that staged the bundle
+        required: true
+        type: string
+      deployment_id:
+        description: Central deployment UUID from that run
+        required: true
+        type: string
+      version:
+        description: Release version, without v
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-central-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify and publish the staged Central deployment
+        run: python3 infra/ci/publish_release.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          CENTRAL_DEPLOYMENT_ID: ${{ inputs.deployment_id }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          OSSRH_TOKEN: ${{ secrets.OSSRH_TOKEN }}
