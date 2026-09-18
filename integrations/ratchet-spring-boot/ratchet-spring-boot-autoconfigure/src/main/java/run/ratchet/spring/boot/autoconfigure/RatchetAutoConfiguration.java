@@ -145,6 +145,10 @@ public class RatchetAutoConfiguration {
       }
     }
     String algorithm = options.encryption().writeAlgorithm();
+    if ((algorithm == null || algorithm.isBlank()) && engines.size() > 1)
+      throw new IllegalStateException(
+          "Multiple PayloadEncryption beans are installed; set ratchet.encryption.write-algorithm to one of "
+              + engines.stream().map(PayloadEncryption::algorithmId).toList());
     if ((algorithm == null || algorithm.isBlank()) && engines.size() == 1)
       algorithm = engines.get(0).algorithmId();
     return new RuntimeContextInstallation(

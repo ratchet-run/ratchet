@@ -31,6 +31,28 @@ import run.ratchet.store.spi.JobStore;
 
 class RatchetEncryptionConfigurationTest {
   @Test
+  void multipleEnginesRequireExplicitWriteAlgorithm() {
+    PayloadEncryption first = mock(PayloadEncryption.class);
+    PayloadEncryption second = mock(PayloadEncryption.class);
+    when(first.algorithmId()).thenReturn("first");
+    when(second.algorithmId()).thenReturn("second");
+    new ApplicationContextRunner()
+        .withConfiguration(AutoConfigurations.of(RatchetAutoConfiguration.class))
+        .withPropertyValues("ratchet.allowed-packages=example.jobs")
+        .withBean("first", PayloadEncryption.class, () -> first)
+        .withBean("second", PayloadEncryption.class, () -> second)
+        .withBean(KeyProvider.class, () -> mock(KeyProvider.class))
+        .run(
+            context -> {
+              assertThat(context).hasFailed();
+              assertThat(context.getStartupFailure())
+                  .hasRootCauseMessage(
+                      "Multiple PayloadEncryption beans are installed; set ratchet.encryption.write-algorithm to one of [first, second]");
+            });
+    assertThat(EncryptionHolder.isEnabled()).isFalse();
+  }
+
+  @Test
   void customEncryptionPairTakesPrecedenceOverReferenceProperties() {
     PayloadEncryption engine = mock(PayloadEncryption.class);
     when(engine.algorithmId()).thenReturn("custom");
