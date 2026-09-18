@@ -32,6 +32,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.transaction.PlatformTransactionManager;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RatchetOptionsFactory;
+import run.ratchet.api.internal.RatchetConfigKeys;
 import run.ratchet.ri.cdi.NoOpClusterCoordinator;
 import run.ratchet.ri.cdi.NoOpTracingCollector;
 import run.ratchet.ri.cdi.ReferenceEncryptionFactory;
@@ -61,7 +62,7 @@ import run.ratchet.store.converter.RuntimeContextInstallation;
 public class RatchetAutoConfiguration {
   @Bean
   @ConditionalOnMissingBean
-  RatchetOptions ratchetOptions(Environment environment, RatchetProperties properties) {
+  RatchetOptions ratchetOptions(Environment environment) {
     return RatchetOptionsFactory.builderFromEnvironment(
             (property, variable) -> {
               String value = environment.getProperty(property);
@@ -70,9 +71,11 @@ public class RatchetAutoConfiguration {
                   && virtualThreadsEnabled(environment)) {
                 value = "virtual";
               }
+              if (value == null && property.equals(RatchetConfigKeys.SCHEMA_AUTO_MIGRATE.name())) {
+                value = "true";
+              }
               return Optional.ofNullable(value);
             })
-        .schema(schema -> schema.autoMigrate(properties.getSchema().isAutoMigrate()))
         .encryption(
             encryption ->
                 encryption
@@ -144,18 +147,11 @@ public class RatchetAutoConfiguration {
         keys = reference.get().keyProvider();
       }
     }
-    String algorithm = options.encryption().writeAlgorithm();
-    if ((algorithm == null || algorithm.isBlank()) && engines.size() > 1)
-      throw new IllegalStateException(
-          "Multiple PayloadEncryption beans are installed; set ratchet.encryption.write-algorithm to one of "
-              + engines.stream().map(PayloadEncryption::algorithmId).toList());
-    if ((algorithm == null || algorithm.isBlank()) && engines.size() == 1)
-      algorithm = engines.get(0).algorithmId();
     return new RuntimeContextInstallation(
         serializer,
         masking.getIfAvailable(),
         engines,
-        algorithm,
+        options.encryption().writeAlgorithm(),
         keys,
         options.encryption().enabled());
   }

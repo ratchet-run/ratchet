@@ -39,10 +39,18 @@ import run.ratchet.store.sqlserver.SqlserverSchemaMigrationDialect;
 
 /** Supported SQL stores selected from the application's JDBC metadata. */
 enum SqlStoreVendor {
-  POSTGRESQL,
-  MYSQL,
-  ORACLE,
-  SQLSERVER;
+  POSTGRESQL("META-INF/orm-postgresql.xml", "run.ratchet:ratchet-store-postgresql"),
+  MYSQL("META-INF/orm-mysql.xml", "run.ratchet:ratchet-store-mysql"),
+  ORACLE("META-INF/orm-oracle.xml", "run.ratchet:ratchet-store-oracle"),
+  SQLSERVER("META-INF/orm-sqlserver.xml", "run.ratchet:ratchet-store-sqlserver");
+
+  private final String jpaMappingFile;
+  private final String artifactId;
+
+  SqlStoreVendor(String jpaMappingFile, String artifactId) {
+    this.jpaMappingFile = jpaMappingFile;
+    this.artifactId = artifactId;
+  }
 
   static SqlStoreVendor detect(DataSource dataSource) {
     try (var connection = dataSource.getConnection()) {
@@ -96,12 +104,7 @@ enum SqlStoreVendor {
   }
 
   String jpaMappingFile() {
-    return switch (this) {
-      case POSTGRESQL -> "META-INF/orm-postgresql.xml";
-      case MYSQL -> "META-INF/orm-mysql.xml";
-      case ORACLE -> "META-INF/orm-oracle.xml";
-      case SQLSERVER -> "META-INF/orm-sqlserver.xml";
-    };
+    return jpaMappingFile;
   }
 
   private <T> T requireVendor(String capability, Supplier<T> supplier) {
@@ -121,12 +124,7 @@ enum SqlStoreVendor {
   }
 
   private String artifactId() {
-    return switch (this) {
-      case POSTGRESQL -> "run.ratchet:ratchet-store-postgresql";
-      case MYSQL -> "run.ratchet:ratchet-store-mysql";
-      case ORACLE -> "run.ratchet:ratchet-store-oracle";
-      case SQLSERVER -> "run.ratchet:ratchet-store-sqlserver";
-    };
+    return artifactId;
   }
 
   private static final class PostgresqlVendor {

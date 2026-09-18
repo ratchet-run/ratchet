@@ -17,15 +17,12 @@ package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.TemporalType;
-import java.sql.Connection;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
-import javax.sql.DataSource;
 
 /** Checks application-owned SQL settings without changing the pool or persistence unit. */
 final class RatchetJpaPrerequisites {
@@ -38,18 +35,6 @@ final class RatchetJpaPrerequisites {
           Instant.parse("2024-07-15T12:34:56.123Z"));
 
   private RatchetJpaPrerequisites() {}
-
-  static void validateDataSource(DataSource dataSource, SqlStoreVendor vendor) throws SQLException {
-    if (vendor != SqlStoreVendor.MYSQL) return;
-    try (Connection connection = dataSource.getConnection()) {
-      if (connection.getTransactionIsolation() != Connection.TRANSACTION_READ_COMMITTED) {
-        throw new IllegalStateException(
-            "Ratchet MySQL requires READ_COMMITTED transaction isolation; configure the selected"
-                + " DataSource, for example"
-                + " spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED");
-      }
-    }
-  }
 
   static void validateEntityManagerFactory(EntityManagerFactory factory, SqlStoreVendor vendor) {
     if (vendor != SqlStoreVendor.ORACLE && vendor != SqlStoreVendor.SQLSERVER) return;

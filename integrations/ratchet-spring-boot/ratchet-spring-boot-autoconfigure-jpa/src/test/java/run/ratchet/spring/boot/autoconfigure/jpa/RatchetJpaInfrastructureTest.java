@@ -136,14 +136,15 @@ class RatchetJpaInfrastructureTest {
     register(ambiguousDataSources, "one", DataSource.class, () -> mock(DataSource.class), false);
     register(ambiguousDataSources, "two", DataSource.class, () -> mock(DataSource.class), false);
     assertThatThrownBy(() -> RatchetJpaInfrastructure.selectDataSource(ambiguousDataSources))
-        .hasMessageContaining("multiple DataSource beans");
+        .hasMessageContaining("Ratchet requires one bean for " + DataSource.class.getName());
 
     DefaultListableBeanFactory ambiguousFactories = new DefaultListableBeanFactory();
     registerPersistenceUnit(ambiguousFactories, "first", false);
     registerPersistenceUnit(ambiguousFactories, "second", false);
     assertThatThrownBy(
             () -> RatchetJpaInfrastructure.selectEntityManagerFactoryBeanName(ambiguousFactories))
-        .hasMessageContaining("multiple EntityManagerFactory beans");
+        .hasMessageContaining(
+            "Ratchet requires one bean for " + EntityManagerFactory.class.getName());
 
     DefaultListableBeanFactory ambiguousTransactions = new DefaultListableBeanFactory();
     register(
@@ -162,7 +163,8 @@ class RatchetJpaInfrastructureTest {
             () ->
                 RatchetJpaInfrastructure.selectTransactionManager(
                     ambiguousTransactions, mock(EntityManagerFactory.class)))
-        .hasMessageContaining("multiple PlatformTransactionManager beans");
+        .hasMessageContaining(
+            "Ratchet requires one bean for " + PlatformTransactionManager.class.getName());
 
     DataSource selectedDataSource = mock(DataSource.class);
     DataSource otherDataSource = mock(DataSource.class);

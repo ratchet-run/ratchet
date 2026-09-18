@@ -39,7 +39,6 @@ final class RatchetJpaSchemaInitializer implements InitializingBean {
   @Override
   public void afterPropertiesSet() {
     try {
-      RatchetJpaPrerequisites.validateDataSource(dataSource, vendor);
       SchemaMigrator migrator =
           new SchemaMigrator(
               dataSource, vendor.migrationDialect(), options.schema().migrationPrefix());

@@ -18,8 +18,6 @@ package run.ratchet.spring.boot.autoconfigure.jpa;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -27,36 +25,14 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import jakarta.persistence.TemporalType;
-import java.sql.Connection;
 import java.sql.Timestamp;
 import java.text.SimpleDateFormat;
 import java.util.Locale;
 import java.util.SimpleTimeZone;
 import java.util.TimeZone;
-import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 
 class RatchetJpaPrerequisitesTest {
-  @Test
-  void mysqlRequiresReadCommittedWithoutChangingConnectionSettings() throws Exception {
-    DataSource source = mock(DataSource.class);
-    Connection connection = mock(Connection.class);
-    when(source.getConnection()).thenReturn(connection);
-    when(connection.getTransactionIsolation()).thenReturn(Connection.TRANSACTION_REPEATABLE_READ);
-
-    assertThatThrownBy(
-            () -> RatchetJpaPrerequisites.validateDataSource(source, SqlStoreVendor.MYSQL))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("requires READ_COMMITTED")
-        .hasMessageContaining(
-            "spring.datasource.hikari.transaction-isolation=TRANSACTION_READ_COMMITTED");
-    verify(connection).close();
-    verify(connection, never()).setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
-
-    when(connection.getTransactionIsolation()).thenReturn(Connection.TRANSACTION_READ_COMMITTED);
-    RatchetJpaPrerequisites.validateDataSource(source, SqlStoreVendor.MYSQL);
-  }
-
   @Test
   void utcConfiguredTimezoneIsAcceptedEvenWithNonUtcJvmDefault() {
     TimeZone original = TimeZone.getDefault();
@@ -114,15 +90,11 @@ class RatchetJpaPrerequisitesTest {
   }
 
   @Test
-  void unrelatedVendorsKeepTheirApplicationSettings() throws Exception {
-    DataSource source = mock(DataSource.class);
+  void unrelatedVendorsKeepTheirApplicationSettings() {
     EntityManagerFactory factory = mock(EntityManagerFactory.class);
-    RatchetJpaPrerequisites.validateDataSource(source, SqlStoreVendor.ORACLE);
-    RatchetJpaPrerequisites.validateDataSource(source, SqlStoreVendor.SQLSERVER);
-    RatchetJpaPrerequisites.validateDataSource(source, SqlStoreVendor.POSTGRESQL);
     RatchetJpaPrerequisites.validateEntityManagerFactory(factory, SqlStoreVendor.POSTGRESQL);
     RatchetJpaPrerequisites.validateEntityManagerFactory(factory, SqlStoreVendor.MYSQL);
-    verifyNoInteractions(source, factory);
+    verifyNoInteractions(factory);
   }
 
   private static EntityManagerFactory factory(TimeZone timezone) {

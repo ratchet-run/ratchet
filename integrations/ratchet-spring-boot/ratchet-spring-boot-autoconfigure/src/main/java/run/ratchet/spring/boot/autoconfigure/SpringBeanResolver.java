@@ -15,6 +15,7 @@
  */
 package run.ratchet.spring.boot.autoconfigure;
 
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -57,7 +58,7 @@ public final class SpringBeanResolver implements BeanResolver {
     beanName(type);
   }
 
-  Class<?> targetType(String name) {
+  static Class<?> targetType(ConfigurableListableBeanFactory beanFactory, String name) {
     Object singleton = beanFactory.getSingleton(name);
     if (singleton != null && !(singleton instanceof FactoryBean<?>))
       return AopUtils.getTargetClass(singleton);
@@ -76,15 +77,25 @@ public final class SpringBeanResolver implements BeanResolver {
   }
 
   private String findBeanName(Class<?> type) {
+    return selectBeanName(beanFactory, type);
+  }
+
+  static String selectBeanName(ConfigurableListableBeanFactory beanFactory, Class<?> type) {
     Set<String> candidates = new LinkedHashSet<>();
     for (String name : beanFactory.getBeanNamesForType(type, true, false)) {
       if (!name.startsWith("scopedTarget.")) candidates.add(name);
     }
     for (String name : beanFactory.getBeanDefinitionNames()) {
       if (name.startsWith("scopedTarget.")) continue;
-      Class<?> target = targetType(name);
+      Class<?> target = targetType(beanFactory, name);
       if (target != null && type.isAssignableFrom(target)) candidates.add(name);
     }
+    return selectPrimaryOrUniqueBeanName(beanFactory, type, candidates);
+  }
+
+  /** Selects a unique candidate or the single primary bean without instantiating candidates. */
+  public static String selectPrimaryOrUniqueBeanName(
+      ConfigurableListableBeanFactory beanFactory, Class<?> type, Collection<String> candidates) {
     if (candidates.size() == 1) return candidates.iterator().next();
     var primary =
         candidates.stream()
@@ -95,7 +106,7 @@ public final class SpringBeanResolver implements BeanResolver {
             .toList();
     if (primary.size() == 1) return primary.get(0);
     throw new IllegalStateException(
-        "Ratchet requires one managed job bean for "
+        "Ratchet requires one bean for "
             + type.getName()
             + "; found "
             + candidates

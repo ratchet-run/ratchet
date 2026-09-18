@@ -101,6 +101,28 @@ class SpringAfterCommitRegistrarTest {
   }
 
   @Test
+  void requiresNewRestoresOuterQueueAndCompletionUnbindsIt() {
+    TransactionTemplate outer = new TransactionTemplate(manager);
+    TransactionTemplate inner = new TransactionTemplate(manager);
+    inner.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    List<String> calls = new ArrayList<>();
+    var baseline = TransactionSynchronizationManager.getResourceMap();
+
+    outer.executeWithoutResult(
+        status -> {
+          registrar.registerAfterCommit(() -> calls.add("outer-first"));
+          inner.executeWithoutResult(
+              innerStatus -> registrar.registerAfterCommit(() -> calls.add("inner")));
+          assertEquals(List.of("inner"), calls);
+          assertEquals(
+              Result.REGISTERED, registrar.registerAfterCommit(() -> calls.add("outer-last")));
+        });
+
+    assertEquals(List.of("inner", "outer-first", "outer-last"), calls);
+    assertEquals(baseline, TransactionSynchronizationManager.getResourceMap());
+  }
+
+  @Test
   void notSupportedRunsImmediatelyWhileTheOuterTransactionLaterRollsBack() {
     TransactionTemplate outer = new TransactionTemplate(manager);
     TransactionTemplate suspended = new TransactionTemplate(manager);

@@ -30,6 +30,7 @@ import run.ratchet.spi.AfterCommitRegistrar;
 
 /** Spring transaction-synchronization implementation of Ratchet's after-commit seam. */
 public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
+  private static final Object KEY = new Object();
   private static final Log log = LogFactory.getLog(SpringAfterCommitRegistrar.class);
   private final Supplier<PlatformTransactionManager> transactionManager;
 
@@ -46,8 +47,8 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
     if (!TransactionSynchronizationManager.isSynchronizationActive()) {
       return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
     }
-    QueueSynchronization actions = queueSynchronization();
-    TransactionTemplate boundary = null;
+    QueueSynchronization actions =
+        (QueueSynchronization) TransactionSynchronizationManager.getResource(KEY);
     if (actions == null) {
       // Resolve before registering: ambiguous transaction managers must reject the submission,
       // rather than discover an unusable callback scope only after its transaction has committed.
@@ -60,14 +61,18 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
                 + " PlatformTransactionManager",
             failure);
       }
-      boundary = new TransactionTemplate(manager);
+      TransactionTemplate boundary = new TransactionTemplate(manager);
       boundary.setPropagationBehavior(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
-    }
-    try {
-      if (actions == null) {
+      try {
         actions = new QueueSynchronization(boundary);
         TransactionSynchronizationManager.registerSynchronization(actions);
+        TransactionSynchronizationManager.bindResource(KEY, actions);
+      } catch (RuntimeException failure) {
+        log.warn("After-commit registration failed; action suppressed", failure);
+        return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
       }
+    }
+    try {
       if (actions.completed) {
         return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
       }
@@ -77,14 +82,6 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
       log.warn("After-commit registration failed; action suppressed", failure);
       return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
     }
-  }
-
-  private static QueueSynchronization queueSynchronization() {
-    return TransactionSynchronizationManager.getSynchronizations().stream()
-        .filter(QueueSynchronization.class::isInstance)
-        .map(QueueSynchronization.class::cast)
-        .findFirst()
-        .orElse(null);
   }
 
   private static final class QueueSynchronization implements TransactionSynchronization {
@@ -97,7 +94,18 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
     }
 
     @Override
+    public void suspend() {
+      TransactionSynchronizationManager.unbindResourceIfPossible(KEY);
+    }
+
+    @Override
+    public void resume() {
+      TransactionSynchronizationManager.bindResource(KEY, this);
+    }
+
+    @Override
     public void afterCompletion(int status) {
+      TransactionSynchronizationManager.unbindResourceIfPossible(KEY);
       completed = true;
       if (status != STATUS_COMMITTED) {
         actions.clear();

@@ -35,8 +35,6 @@ public class RatchetProperties {
   /** Additional packages whose classes may be materialized from persisted results. */
   private Set<String> allowedResultTypePackages = new LinkedHashSet<>();
 
-  private final Schema schema = new Schema();
-
   public boolean isEnabled() {
     return enabled;
   }
@@ -69,24 +67,5 @@ public class RatchetProperties {
 
   public void setAllowedResultTypePackages(Set<String> value) {
     allowedResultTypePackages = value;
-  }
-
-  public Schema getSchema() {
-    return schema;
-  }
-
-  public static class Schema {
-    /**
-     * Prepare Ratchet SQL schemas or MongoDB collections and indexes. False validates read-only.
-     */
-    private boolean autoMigrate = true;
-
-    public boolean isAutoMigrate() {
-      return autoMigrate;
-    }
-
-    public void setAutoMigrate(boolean value) {
-      autoMigrate = value;
-    }
   }
 }

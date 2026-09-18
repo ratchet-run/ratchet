@@ -17,7 +17,6 @@ package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import jakarta.persistence.spi.PersistenceProvider;
 import jakarta.persistence.spi.PersistenceUnitInfo;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.util.function.BiFunction;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -37,7 +36,8 @@ final class RatchetPersistenceProvider {
     if (provider == null) {
       if (required)
         throw new IllegalStateException(
-            "Ratchet could not locate the PersistenceProvider for the selected LocalContainerEntityManagerFactoryBean");
+            "Ratchet could not locate the PersistenceProvider for the selected"
+                + " LocalContainerEntityManagerFactoryBean");
       return;
     }
     PersistenceProvider original = provider;
@@ -47,10 +47,6 @@ final class RatchetPersistenceProvider {
                 RatchetPersistenceProvider.class.getClassLoader(),
                 new Class<?>[] {PersistenceProvider.class},
                 (proxy, method, args) -> {
-                  if (method.getDeclaringClass() == Object.class) {
-                    if (method.getName().equals("equals")) return proxy == args[0];
-                    if (method.getName().equals("hashCode")) return System.identityHashCode(proxy);
-                  }
                   if ((method.getName().equals("createContainerEntityManagerFactory")
                           || method.getName().equals("generateSchema"))
                       && args != null
@@ -58,11 +54,7 @@ final class RatchetPersistenceProvider {
                       && args[0] instanceof PersistenceUnitInfo unit) {
                     args[0] = transform.apply(original, unit);
                   }
-                  try {
-                    return method.invoke(original, args);
-                  } catch (InvocationTargetException failure) {
-                    throw failure.getCause();
-                  }
+                  return RatchetProxyInvocation.forward(proxy, original, method, args);
                 }));
   }
 }

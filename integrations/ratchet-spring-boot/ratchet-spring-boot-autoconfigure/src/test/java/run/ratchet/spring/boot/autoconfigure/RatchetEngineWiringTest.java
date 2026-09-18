@@ -34,6 +34,22 @@ import run.ratchet.store.spi.JobStore;
 
 class RatchetEngineWiringTest {
   @Test
+  void schemaAutoMigrationDefaultsToTrueAndHonorsExplicitValues() {
+    runner()
+        .run(
+            context ->
+                assertThat(context.getBean(RatchetOptions.class).schema().autoMigrate()).isTrue());
+    for (boolean enabled : new boolean[] {false, true}) {
+      runner()
+          .withPropertyValues("ratchet.schema.auto-migrate=" + enabled)
+          .run(
+              context ->
+                  assertThat(context.getBean(RatchetOptions.class).schema().autoMigrate())
+                      .isEqualTo(enabled));
+    }
+  }
+
+  @Test
   void customSchedulerPreservesInternalRecurringMaintenance() {
     JobSchedulerService custom = mock(JobSchedulerService.class);
     runner()

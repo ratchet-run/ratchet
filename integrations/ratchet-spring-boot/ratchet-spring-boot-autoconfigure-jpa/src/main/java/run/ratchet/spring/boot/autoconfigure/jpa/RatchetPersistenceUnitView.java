@@ -16,7 +16,6 @@
 package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import jakarta.persistence.spi.PersistenceUnitInfo;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.util.List;
@@ -41,10 +40,6 @@ final class RatchetPersistenceUnitView {
             RatchetPersistenceUnitView.class.getClassLoader(),
             interfaces,
             (proxy, method, args) -> {
-              if (method.getDeclaringClass() == Object.class) {
-                if (method.getName().equals("equals")) return proxy == args[0];
-                if (method.getName().equals("hashCode")) return System.identityHashCode(proxy);
-              }
               if (method.getParameterCount() == 0) {
                 switch (method.getName()) {
                   case "getManagedClassNames":
@@ -57,11 +52,7 @@ final class RatchetPersistenceUnitView {
                     return archives;
                 }
               }
-              try {
-                return method.invoke(original, args);
-              } catch (InvocationTargetException failure) {
-                throw failure.getCause();
-              }
+              return RatchetProxyInvocation.forward(proxy, original, method, args);
             });
   }
 }

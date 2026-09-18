@@ -16,17 +16,46 @@
 package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 import jakarta.transaction.Transactional;
+import java.util.Optional;
 import java.util.UUID;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 class RatchetTransactionalStoreProxyTest {
+
+  @Test
+  void capabilityLookupDoesNotOpenATransaction() {
+    PlatformTransactionManager manager = mock(PlatformTransactionManager.class);
+    CapabilityStore proxy =
+        (CapabilityStore)
+            RatchetTransactionalStoreProxy.createProxy(
+                new CapabilityStoreTarget(), CapabilityStore.class, manager);
+
+    assertThat(proxy.capability(CapabilityStore.class)).contains(proxy);
+    assertThat(proxy.capability(Runnable.class)).isEmpty();
+    verifyNoInteractions(manager);
+  }
+
+  interface CapabilityStore {
+    <T> Optional<T> capability(Class<T> type);
+  }
+
+  @Transactional
+  static class CapabilityStoreTarget implements CapabilityStore {
+    @Override
+    public <T> Optional<T> capability(Class<T> type) {
+      throw new AssertionError("Capability lookup must be handled by the proxy");
+    }
+  }
 
   @Test
   void unannotatedDefaultMethodsReenterConcreteTransactionMetadata() {

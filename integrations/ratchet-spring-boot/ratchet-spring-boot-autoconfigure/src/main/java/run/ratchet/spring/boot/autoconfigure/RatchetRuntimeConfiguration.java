@@ -18,9 +18,6 @@ package run.ratchet.spring.boot.autoconfigure;
 import static run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration.virtualThreadsEnabled;
 
 import java.time.Clock;
-import java.util.EnumMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Objects;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -28,7 +25,6 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
-import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.cdi.StandaloneExecutorProvider;
@@ -62,7 +58,6 @@ import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
-import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
@@ -71,7 +66,6 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.converter.RuntimeContextInstallation;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobStore;
@@ -190,46 +184,8 @@ class RatchetRuntimeConfiguration {
       ExecutorProvider executorProvider,
       MetricsCollector metricsCollector,
       ExecutionTuningProvider tuning) {
-    Map<String, ThreadPoolManager> pools = new LinkedHashMap<>();
-    Map<JobExecutionType, Integer> platform = new EnumMap<>(JobExecutionType.class);
-    for (JobExecutionType type : JobExecutionType.values()) {
-      int fallback =
-          switch (type) {
-            case SINGLE -> 20;
-            case RECURRING -> 5;
-            case BATCH_CHILD -> 30;
-            case BATCH_PARENT -> 2;
-            case CHAIN_STEP, WORKFLOW_BRANCH, WORKFLOW_JOIN -> 10;
-          };
-      platform.put(
-          type,
-          tuning.maxConcurrency(
-              type.name(), options.execution().maxConcurrency(type.name(), fallback)));
-    }
-    pools.put(
-        ExecutorTargets.PLATFORM,
-        new ThreadPoolManager(
-            ExecutorTargets.PLATFORM,
-            executorProvider,
-            metricsCollector,
-            ThreadPoolManager.AccountingMode.SEMAPHORE,
-            platform));
-    if (virtualThreadsEnabled(environment)) {
-      Map<JobExecutionType, Integer> virtual = new EnumMap<>(JobExecutionType.class);
-      for (JobExecutionType type : JobExecutionType.values())
-        virtual.put(type, tuning.virtualThreadLimit(type.name(), 1000));
-      pools.put(
-          ExecutorTargets.VIRTUAL,
-          new ThreadPoolManager(
-              ExecutorTargets.VIRTUAL,
-              executorProvider,
-              metricsCollector,
-              options.execution().virtualCounterAccounting()
-                  ? ThreadPoolManager.AccountingMode.COUNTER
-                  : ThreadPoolManager.AccountingMode.SEMAPHORE,
-              virtual));
-    }
-    return new PoolRegistry(pools);
+    return PoolRegistry.create(
+        options, executorProvider, metricsCollector, tuning, virtualThreadsEnabled(environment));
   }
 
   @Bean

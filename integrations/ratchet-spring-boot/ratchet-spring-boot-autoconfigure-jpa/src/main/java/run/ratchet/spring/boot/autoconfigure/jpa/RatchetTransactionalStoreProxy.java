@@ -44,8 +44,6 @@ final class RatchetTransactionalStoreProxy {
     proxyFactory.setInterfaces(compositeType);
     AtomicReference<Object> proxyReference = new AtomicReference<>();
     proxyFactory.addAdvice(
-        new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource()));
-    proxyFactory.addAdvice(
         (MethodInterceptor)
             invocation -> {
               if (invocation.getMethod().getName().equals("capability")
@@ -56,6 +54,13 @@ final class RatchetTransactionalStoreProxy {
                     ? Optional.of(capabilityType.cast(proxy))
                     : Optional.empty();
               }
+              return invocation.proceed();
+            });
+    proxyFactory.addAdvice(
+        new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource()));
+    proxyFactory.addAdvice(
+        (MethodInterceptor)
+            invocation -> {
               if (invocation.getMethod().isDefault()
                   && target
                       .getClass()

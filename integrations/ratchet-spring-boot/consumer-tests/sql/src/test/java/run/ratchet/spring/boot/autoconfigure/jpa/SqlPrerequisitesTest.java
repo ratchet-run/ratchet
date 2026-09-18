@@ -69,7 +69,14 @@ class SqlPrerequisitesTest {
         assertThat(ratchetThreads()).containsExactlyElementsOf(baselineThreads);
       }
 
-      try (ConfigurableApplicationContext recovered = application(database)) {
+      try (ConfigurableApplicationContext recovered =
+          application(
+              database,
+              database.store().equals("mysql")
+                  ? new String[] {
+                    "--spring.datasource.hikari.transaction-isolation=TRANSACTION_REPEATABLE_READ"
+                  }
+                  : new String[0])) {
         assertThat(heartbeatCount(database)).isPositive();
         assertJobExecution(recovered, "prerequisite-recovery-" + UUID.randomUUID());
       }
@@ -139,7 +146,7 @@ class SqlPrerequisitesTest {
 
   private static String prerequisiteDiagnostic(String store) {
     return switch (store) {
-      case "mysql" -> "Ratchet MySQL requires READ_COMMITTED";
+      case "mysql" -> "MySQL session isolation is";
       case "oracle", "sqlserver" ->
           "Ratchet " + store.toUpperCase() + " requires UTC JDBC timestamp binding";
       case "postgresql" -> null;
@@ -149,8 +156,7 @@ class SqlPrerequisitesTest {
 
   private static String invalidPrerequisite(String store) {
     return switch (store) {
-      case "mysql" ->
-          "--spring.datasource.hikari.transaction-isolation=TRANSACTION_REPEATABLE_READ";
+      case "mysql" -> "--spring.datasource.hikari.transaction-isolation=TRANSACTION_SERIALIZABLE";
       case "oracle", "sqlserver" ->
           "--spring.jpa.properties.hibernate.jdbc.time_zone=America/Los_Angeles";
       default -> throw new IllegalArgumentException("No invalid prerequisite for store: " + store);

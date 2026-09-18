@@ -26,6 +26,7 @@ import org.springframework.orm.jpa.AbstractEntityManagerFactoryBean;
 import org.springframework.orm.jpa.EntityManagerFactoryInfo;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
+import run.ratchet.spring.boot.autoconfigure.SpringBeanResolver;
 
 /** Resolves the one coherent DataSource, entity-manager factory, and JPA transaction manager. */
 final class RatchetJpaInfrastructure {
@@ -84,7 +85,7 @@ final class RatchetJpaInfrastructure {
 
   static String selectPrimaryOrUniqueBeanName(
       ConfigurableListableBeanFactory beanFactory, Class<?> type) {
-    return selectPrimaryOrUniqueBeanName(
+    return SpringBeanResolver.selectPrimaryOrUniqueBeanName(
         beanFactory, type, Arrays.asList(beanFactory.getBeanNamesForType(type, true, false)));
   }
 
@@ -100,7 +101,7 @@ final class RatchetJpaInfrastructure {
             beanFactory.getBeanNamesForType(AbstractEntityManagerFactoryBean.class, true, false)));
     candidates.addAll(
         factoryBeanNames(beanFactory.getBeanNamesForType(EntityManagerFactory.class, true, false)));
-    return selectPrimaryOrUniqueBeanName(
+    return SpringBeanResolver.selectPrimaryOrUniqueBeanName(
         beanFactory, EntityManagerFactory.class, List.copyOf(candidates));
   }
 
@@ -108,31 +109,5 @@ final class RatchetJpaInfrastructure {
     return Arrays.stream(names)
         .map(name -> name.startsWith("&") ? name.substring(1) : name)
         .toList();
-  }
-
-  static String selectPrimaryOrUniqueBeanName(
-      ConfigurableListableBeanFactory beanFactory, Class<?> type, List<String> candidates) {
-    if (candidates.isEmpty()) {
-      throw new IllegalStateException("Ratchet requires a " + type.getSimpleName());
-    }
-    if (candidates.size() == 1) {
-      return candidates.get(0);
-    }
-    List<String> primaries =
-        candidates.stream()
-            .filter(
-                name ->
-                    beanFactory.containsBeanDefinition(name)
-                        && beanFactory.getBeanDefinition(name).isPrimary())
-            .toList();
-    if (primaries.size() == 1) {
-      return primaries.get(0);
-    }
-    throw new IllegalStateException(
-        "Ratchet found multiple "
-            + type.getSimpleName()
-            + " beans "
-            + candidates
-            + "; declare exactly one or mark one @Primary");
   }
 }

@@ -23,6 +23,7 @@ import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import run.ratchet.api.exception.EncryptionConfigurationException;
 import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.spi.KeyProvider;
 import run.ratchet.spi.PayloadEncryption;
@@ -46,8 +47,11 @@ class RatchetEncryptionConfigurationTest {
             context -> {
               assertThat(context).hasFailed();
               assertThat(context.getStartupFailure())
+                  .hasRootCauseInstanceOf(EncryptionConfigurationException.class)
                   .hasRootCauseMessage(
-                      "Multiple PayloadEncryption beans are installed; set ratchet.encryption.write-algorithm to one of [first, second]");
+                      "Multiple PayloadEncryption engines are installed but no write algorithm is"
+                          + " configured. Set RatchetOptions.encryption().writeAlgorithm to the"
+                          + " algorithm id new writes should use.");
             });
     assertThat(EncryptionHolder.isEnabled()).isFalse();
   }
