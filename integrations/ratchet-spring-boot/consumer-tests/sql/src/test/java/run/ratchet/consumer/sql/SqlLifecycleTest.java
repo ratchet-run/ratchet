@@ -325,10 +325,10 @@ class SqlLifecycleTest {
   }
 
   @Test
-  void fatalStartupHookFailureStopsEarlierHooksAndDestroysPrototypeExactlyOnce() {
+  void fatalStartupHookFailureSkipsStopCallbacksAndDestroysPrototypeExactlyOnce() {
     assertThatThrownBy(() -> startWith(true, FailingHooks.class))
         .hasStackTraceContaining("intentional lifecycle startup failure");
-    assertThat(HOOK_STOPPED).hasValue(1);
+    assertThat(HOOK_STOPPED).hasValue(0);
     assertThat(HOOK_DESTROYED).hasValue(1);
     try (var recovered = start()) {
       assertExecution(recovered, "after-hook-failure");

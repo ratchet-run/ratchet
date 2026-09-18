@@ -37,6 +37,42 @@ class ManagedInvocationTest {
     public void hiddenFromProxy() {}
   }
 
+  public interface OtherJob {
+    String execute();
+  }
+
+  @Test
+  void cachesExposedMethodsSeparatelyForEachProxyClass() throws Exception {
+    var declared = ConcreteJob.class.getMethod("execute");
+    Object first =
+        Proxy.newProxyInstance(
+            getClass().getClassLoader(),
+            new Class<?>[] {Runnable.class, Job.class},
+            (proxy, method, args) -> "first");
+    Object second =
+        Proxy.newProxyInstance(
+            getClass().getClassLoader(),
+            new Class<?>[] {OtherJob.class},
+            (proxy, method, args) -> "second");
+    var exposed = ManagedInvocation.exposedMethod(declared, first);
+    assertEquals(Job.class, exposed.getDeclaringClass());
+    assertSame(exposed, ManagedInvocation.exposedMethod(declared, first));
+    assertEquals("first", exposed.invoke(first));
+    assertEquals("second", ManagedInvocation.exposedMethod(declared, second).invoke(second));
+    assertSame(declared, ManagedInvocation.exposedMethod(declared, new ConcreteJob()));
+    var hidden = ConcreteJob.class.getMethod("hiddenFromProxy");
+    for (int attempt = 0; attempt < 2; attempt++) {
+      var failure =
+          assertThrows(
+              ManagedInvocation.UnexposedMethodException.class,
+              () -> ManagedInvocation.exposedMethod(hidden, first));
+      var policy = new DoNotRetryPolicy();
+      assertTrue(policy.shouldNotRetry(failure));
+      assertTrue(policy.shouldNotRetry(new RuntimeException(failure)));
+      assertFalse(policy.shouldNotRetry(new NoSuchMethodException("signature drift")));
+    }
+  }
+
   @Test
   void invokesExposedInterfaceAndReleasesHandleOnSuccessAndFailure() throws Exception {
     AtomicInteger intercepted = new AtomicInteger();

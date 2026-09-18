@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.util.ReflectionUtils;
@@ -28,6 +29,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.ri.cdi.RecurringJobProcessor;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
+import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.spi.InvocationSubmissionService;
@@ -72,6 +74,7 @@ public final class SpringRecurringDiscovery {
 
   public void register() {
     var types = discover();
+    types.forEach(this::validateExposedMethods);
     var processor =
         new RecurringJobProcessor(
             submissions,
@@ -90,12 +93,29 @@ public final class SpringRecurringDiscovery {
           "Ratchet recurring registration did not complete; workers have not started");
   }
 
+  private void validateExposedMethods(Class<?> type) {
+    String name = SpringBeanResolver.selectBeanName(beanFactory, type);
+    Object singleton = beanFactory.getSingleton(name);
+    if (singleton == null || singleton instanceof FactoryBean<?>) return;
+    recurringMethods(type)
+        .forEach(
+            (method, recurring) -> {
+              if (!recurring.enabled()) return;
+              try {
+                ManagedInvocation.exposedMethod(method, singleton);
+              } catch (NoSuchMethodException failure) {
+                throw new IllegalStateException(
+                    "Ratchet cannot invoke @Recurring method through its Spring proxy: " + method,
+                    failure);
+              }
+            });
+  }
+
   Set<Class<?>> discover() {
     Set<Class<?>> types = new LinkedHashSet<>();
-    var resolver = new SpringBeanResolver(beanFactory);
     for (String name : beanFactory.getBeanDefinitionNames()) {
       if (name.startsWith("scopedTarget.")) continue;
-      Class<?> type = resolver.targetType(name);
+      Class<?> type = SpringBeanResolver.targetType(beanFactory, name);
       if (type == null || type.getName().startsWith("org.springframework.")) continue;
       if (recurringMethods(type).values().stream().anyMatch(Recurring::enabled)) types.add(type);
     }
@@ -104,17 +124,11 @@ public final class SpringRecurringDiscovery {
 
   static Map<Method, Recurring> recurringMethods(Class<?> type) {
     Map<Method, Recurring> methods = new LinkedHashMap<>();
-    Set<String> seen = new LinkedHashSet<>();
-    ReflectionUtils.doWithMethods(
-        type,
-        method -> {
-          if (method.isBridge() || method.isSynthetic()) return;
-          Recurring annotation =
-              AnnotatedElementUtils.findMergedAnnotation(method, Recurring.class);
-          if (annotation != null
-              && seen.add(method.getName() + java.util.Arrays.toString(method.getParameterTypes())))
-            methods.put(method, annotation);
-        });
+    for (Method method :
+        ReflectionUtils.getUniqueDeclaredMethods(type, ReflectionUtils.USER_DECLARED_METHODS)) {
+      Recurring annotation = AnnotatedElementUtils.findMergedAnnotation(method, Recurring.class);
+      if (annotation != null) methods.put(method, annotation);
+    }
     return methods;
   }
 }
