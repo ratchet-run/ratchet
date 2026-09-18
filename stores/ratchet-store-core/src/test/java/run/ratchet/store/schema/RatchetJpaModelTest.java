@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.quarkus.deployment;
+package run.ratchet.store.schema;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -29,28 +29,25 @@ import org.junit.jupiter.api.Test;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
-import run.ratchet.store.schema.RatchetJpaModel;
 
 /** Guards the shared Ratchet JPA entity list against drift from the canonical mapping. */
-class RatchetEntityMappingDriftTest {
+class RatchetJpaModelTest {
 
   @Test
   void ratchetJpaModelMatchesCanonicalOrmXml() throws Exception {
     Set<String> ormXmlEntities = loadOrmXmlEntityClasses();
     assertFalse(
         ormXmlEntities.isEmpty(),
-        "META-INF/orm.xml must declare Ratchet entities; check the deployment test classpath.");
+        "META-INF/orm.xml must declare Ratchet entities; check the store-core test classpath.");
 
-    Set<String> processorEntities = new TreeSet<>(RatchetJpaModel.ENTITY_CLASS_NAMES);
+    Set<String> modelEntities = new TreeSet<>(RatchetJpaModel.ENTITY_CLASS_NAMES);
 
-    assertEquals(
-        ormXmlEntities, processorEntities, () -> driftMessage(ormXmlEntities, processorEntities));
+    assertEquals(ormXmlEntities, modelEntities, () -> driftMessage(ormXmlEntities, modelEntities));
   }
 
   private static Set<String> loadOrmXmlEntityClasses() throws Exception {
-    URL ormXml =
-        RatchetEntityMappingDriftTest.class.getClassLoader().getResource("META-INF/orm.xml");
-    assertNotNull(ormXml, "META-INF/orm.xml must be present on the deployment test classpath.");
+    URL ormXml = RatchetJpaModelTest.class.getClassLoader().getResource("META-INF/orm.xml");
+    assertNotNull(ormXml, "META-INF/orm.xml must be present on the store-core test classpath.");
 
     try (InputStream input = ormXml.openStream()) {
       Document document = secureDocumentBuilderFactory().newDocumentBuilder().parse(input);
@@ -81,12 +78,12 @@ class RatchetEntityMappingDriftTest {
     return factory;
   }
 
-  private static String driftMessage(Set<String> ormXmlEntities, Set<String> processorEntities) {
+  private static String driftMessage(Set<String> ormXmlEntities, Set<String> modelEntities) {
     return "Ratchet JPA entity mappings drifted between META-INF/orm.xml and "
         + "RatchetJpaModel.ENTITY_CLASS_NAMES. Missing from ENTITY_CLASS_NAMES: "
-        + difference(ormXmlEntities, processorEntities)
+        + difference(ormXmlEntities, modelEntities)
         + "; missing from META-INF/orm.xml: "
-        + difference(processorEntities, ormXmlEntities)
+        + difference(modelEntities, ormXmlEntities)
         + ". When adding an entity to ratchet-store-core, update "
         + "RatchetJpaModel.ENTITY_CLASS_NAMES.";
   }

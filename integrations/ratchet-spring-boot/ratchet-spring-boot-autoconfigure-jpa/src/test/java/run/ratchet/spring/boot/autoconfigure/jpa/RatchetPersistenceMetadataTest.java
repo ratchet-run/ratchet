@@ -25,10 +25,12 @@ import java.net.URL;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.schema.RatchetJpaModel;
 
 class RatchetPersistenceMetadataTest {
   private static final Set<String> OVERRIDDEN =
@@ -37,6 +39,22 @@ class RatchetPersistenceMetadataTest {
           "getMappingFileNames",
           "getPersistenceUnitRootUrl",
           "getJarFileUrls");
+
+  @Test
+  void postProcessingIncludesEverySharedEntityAndConverter() {
+    PersistenceUnitInfo original = mock(PersistenceUnitInfo.class);
+    when(original.getManagedClassNames()).thenReturn(List.of("example.Entity"));
+    when(original.getMappingFileNames()).thenReturn(List.of());
+    when(original.getClassLoader()).thenReturn(getClass().getClassLoader());
+
+    PersistenceUnitInfo processed =
+        RatchetJpaPersistenceUnitPostProcessor.withRatchetEntities(null, original);
+
+    assertThat(processed.getManagedClassNames())
+        .contains("example.Entity")
+        .containsAll(RatchetJpaModel.ENTITY_CLASS_NAMES)
+        .containsAll(RatchetJpaModel.CONVERTER_CLASS_NAMES);
+  }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
