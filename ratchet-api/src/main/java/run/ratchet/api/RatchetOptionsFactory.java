@@ -17,6 +17,7 @@ package run.ratchet.api;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Logger;
 import run.ratchet.api.internal.DefaultRatchetConfig;
 import run.ratchet.api.internal.EnvironmentRatchetConfigSource;
 import run.ratchet.api.internal.MicroProfileRatchetConfigSource;
@@ -28,6 +29,8 @@ import run.ratchet.spi.RatchetConfigSource;
 /** Builds immutable {@link RatchetOptions} from typed configuration keys. */
 public final class RatchetOptionsFactory {
 
+  private static final Logger LOG = Logger.getLogger(RatchetOptionsFactory.class.getName());
+
   private RatchetOptionsFactory() {}
 
   static RatchetOptions from(DefaultRatchetConfig config) {
@@ -35,6 +38,15 @@ public final class RatchetOptionsFactory {
   }
 
   static RatchetOptions.Builder builderFrom(DefaultRatchetConfig config) {
+    if (config
+        .raw(
+            RatchetConfigKey.bool(
+                "ratchet.worker.use-virtual-threads", "RATCHET_WORKER_USE_VIRTUAL_THREADS", false))
+        .isPresent()) {
+      LOG.warning(
+          "ratchet.worker.use-virtual-threads (RATCHET_WORKER_USE_VIRTUAL_THREADS) is retired and ignored; "
+              + "use ratchet.worker.default-threading-mode (RATCHET_WORKER_DEFAULT_THREADING_MODE) instead.");
+    }
     return RatchetOptions.builder()
         .polling(
             polling ->
