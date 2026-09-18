@@ -118,11 +118,17 @@ strings, numbers, and booleans round-trip as themselves, and your own types are 
 rebuilt by the payload serializer. Implementing `java.io.Serializable` is neither required nor
 sufficient.
 
-If you see `IllegalStateException` during serialization, ensure:
-1. The target class is accessible from the thread context classloader
-2. The method is `public`
-3. Any captured arguments are JSON-representable, and their types are permitted by the class
-   allowlist
+If submission fails while analyzing or serializing a lambda, check the exception cause:
+
+- The target class must be accessible from the thread context classloader and its method must be
+  `public`.
+- Captured arguments must be JSON-representable.
+- In a native image, the class containing the lambda needs serialization metadata and, for inline
+  lambdas, its class resource. See [Quarkus native builds](../deployment/quarkus.md#native-image).
+
+Argument-type policy is checked when the worker reconstructs the payload for execution. A rejected
+argument type raises `SecurityException`; allowlisting that type fixes the execution-time rejection,
+not a submission-time serialization error.
 
 ### Target class not found at execution time
 

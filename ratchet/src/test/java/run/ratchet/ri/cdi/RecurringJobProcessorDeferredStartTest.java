@@ -18,6 +18,7 @@ package run.ratchet.ri.cdi;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -481,6 +482,41 @@ class RecurringJobProcessorDeferredStartTest {
       release.countDown();
       threads.shutdownNow();
     }
+  }
+
+  @Test
+  void failedRegistrationCannotPublishEvenWhenOldMasterExists() throws Exception {
+    var f = new CleanupFixture(false);
+    Set<Bean<?>> recurringBeans = Set.of(beanFor(RecurringBean.class));
+    when(f.beans.getBeans(any(), any())).thenReturn(recurringBeans);
+    var failure = new IllegalArgumentException("invalid invocation descriptor");
+    when(f.submission.scheduleRecurringInvocation(any(), any(), any())).thenThrow(failure);
+    var store = mock(RecurringJobStore.class);
+    when(store.findRecurringByBusinessKey("leader-gate-job"))
+        .thenReturn(Optional.of(recurringDefinition(UUID.randomUUID(), "leader-gate-job")));
+    injectResolvableRecurringStore(f.processor, store);
+
+    var thrown = assertThrows(IllegalStateException.class, f::start);
+    assertEquals(failure, thrown.getCause());
+    verify(f.state, never()).markRegistrationComplete(any());
+    verifyNoInteractions(f.maintenance);
+  }
+
+  @Test
+  void failedRegistrationWithoutStoreRetriesAndReportsAbandonment() throws Exception {
+    var f = new CleanupFixture(true);
+    Set<Bean<?>> recurringBeans = Set.of(beanFor(RecurringBean.class));
+    when(f.beans.getBeans(any(), any())).thenReturn(recurringBeans);
+    when(f.submission.scheduleRecurringInvocation(any(), any(), any()))
+        .thenThrow(new IllegalArgumentException("invalid invocation descriptor"));
+
+    f.start();
+    f.drain();
+
+    verify(f.submission, times(10)).scheduleRecurringInvocation(any(), any(), any());
+    verify(f.state, never()).markRegistrationComplete(any());
+    verifyNoInteractions(f.maintenance);
+    assertWarning("@Recurring registration and orphan cleanup abandoned");
   }
 
   private RecurringJobProcessor newProcessor(
