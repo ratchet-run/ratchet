@@ -62,8 +62,10 @@ class RatchetRuntimeTest {
     verify(poller).init();
     verify(poller).stop();
     verify(drain).setDraining(true);
-    verify(hook).beforeStop();
-    verify(hook).afterStop();
+    verify(hook).beforeStart();
+    verify(hook, never()).afterStart();
+    verify(hook, never()).beforeStop();
+    verify(hook, never()).afterStop();
     assertEquals(1, release.get());
     assertThrows(IllegalStateException.class, runtime::start);
   }

@@ -132,7 +132,6 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       List<SchedulerLifecycleHook> beforeStartSucceeded =
           notifyHooks("beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true);
 
-      startedHooks = beforeStartSucceeded;
       beforeWorkers.run();
 
       // Default node init writes scheduler_node, so it must wait until beforeStart hooks, including
@@ -295,7 +294,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
       try {
         callback.accept(hook);
         succeeded.add(hook);
-        if (abortOnSchemaFailure) startedHooks = List.copyOf(succeeded);
+        if ("afterStart".equals(phase)) startedHooks = List.copyOf(succeeded);
       } catch (SchemaInitializationException e) {
         if (abortOnSchemaFailure) {
           // Schema initialization failures must abort startup so the scheduler does not begin
