@@ -140,6 +140,31 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void validationListsCollectionsOnceAndRefreshesOnNextPass() {
+    var listings = new java.util.concurrent.atomic.AtomicInteger();
+    var observed =
+        (MongoDatabase)
+            java.lang.reflect.Proxy.newProxyInstance(
+                MongoDatabase.class.getClassLoader(),
+                new Class<?>[] {MongoDatabase.class},
+                (proxy, method, args) -> {
+                  if (method.getName().equals("listCollectionNames")) listings.incrementAndGet();
+                  try {
+                    return method.invoke(database, args);
+                  } catch (java.lang.reflect.InvocationTargetException failure) {
+                    throw failure.getCause();
+                  }
+                });
+    var initializer = new MongoCollectionInitializer(observed, client);
+    initializer.validate();
+    assertEquals(1, listings.get());
+    database.getCollection("scheduler_job").drop();
+    var failure = assertThrows(IllegalStateException.class, initializer::validate);
+    assertTrue(failure.getMessage().contains("missing collection scheduler_job"));
+    assertEquals(2, listings.get());
+  }
+
+  @Test
   void validationRejectsACompoundIndexWithTheSameKeysInReverseOrder() {
     var jobs = database.getCollection("scheduler_job");
     jobs.dropIndex(MongoIndexHints.JOB_CLAIM_EXEC);

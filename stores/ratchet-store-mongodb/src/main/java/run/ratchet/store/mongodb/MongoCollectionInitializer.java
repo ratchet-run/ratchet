@@ -33,6 +33,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -60,6 +61,7 @@ class MongoCollectionInitializer {
   }
 
   private boolean creating = true;
+  private Set<String> existingCollections = Set.of();
 
   private void createIndex(MongoCollection<Document> coll, Bson keys, String name) {
     createIndex(coll, keys, new IndexOptions().name(name));
@@ -135,6 +137,7 @@ class MongoCollectionInitializer {
 
   private void initialize(boolean create) {
     creating = create;
+    existingCollections = create ? Set.of() : database.listCollectionNames().into(new HashSet<>());
     log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
     createBusinessKeyReservationIndexes();
@@ -174,7 +177,7 @@ class MongoCollectionInitializer {
 
   private void validateIndex(MongoCollection<Document> coll, Bson keys, IndexOptions options) {
     String collection = coll.getNamespace().getCollectionName();
-    if (!database.listCollectionNames().into(new HashSet<>()).contains(collection)) {
+    if (!existingCollections.contains(collection)) {
       throw new IllegalStateException(
           "MongoDB Ratchet schema validation is missing collection " + collection);
     }
