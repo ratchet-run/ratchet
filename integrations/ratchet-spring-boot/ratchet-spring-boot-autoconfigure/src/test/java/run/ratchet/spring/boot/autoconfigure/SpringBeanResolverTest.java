@@ -54,6 +54,46 @@ class SpringBeanResolverTest {
   }
 
   @Test
+  void lookupCachesNamesWithoutCreatingUnrelatedFactoryBeans() {
+    try (var context = new AnnotationConfigApplicationContext()) {
+      AtomicInteger created = new AtomicInteger();
+      context.registerBean(
+          "task",
+          TaskBean.class,
+          () -> new TaskBean(new AtomicInteger()),
+          d -> d.setScope("prototype"));
+      context.registerBean(
+          "factory",
+          UnknownFactory.class,
+          () -> {
+            created.incrementAndGet();
+            return new UnknownFactory();
+          },
+          d -> d.setLazyInit(true));
+      context.refresh();
+      var factory = org.mockito.Mockito.spy(context.getBeanFactory());
+      var resolver = new SpringBeanResolver(factory);
+      resolver.validateResolvable(TaskBean.class);
+      try (var first = resolver.acquire(TaskBean.class);
+          var second = resolver.acquire(TaskBean.class)) {
+        assertThat(first.instance()).isNotSameAs(second.instance());
+      }
+      org.mockito.Mockito.verify(factory).getBeanDefinitionNames();
+      assertThat(created).hasValue(0);
+    }
+  }
+
+  static class UnknownFactory implements org.springframework.beans.factory.FactoryBean<Object> {
+    public Object getObject() {
+      return new Object();
+    }
+
+    public Class<?> getObjectType() {
+      return null;
+    }
+  }
+
+  @Test
   void concreteLookupRetainsJdkProxyAdvice() throws Exception {
     try (var context = new AnnotationConfigApplicationContext()) {
       AtomicInteger advice = new AtomicInteger();

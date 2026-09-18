@@ -18,14 +18,18 @@ package run.ratchet.spring.boot.autoconfigure;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.springframework.aop.framework.autoproxy.AutoProxyUtils;
 import org.springframework.aop.support.AopUtils;
+import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import run.ratchet.spi.BeanResolver;
 
 /** Resolves application beans while keeping Spring advice on the invocation target. */
 public final class SpringBeanResolver implements BeanResolver {
   private final ConfigurableListableBeanFactory beanFactory;
+  private final ConcurrentMap<Class<?>, String> beanNames = new ConcurrentHashMap<>();
 
   public SpringBeanResolver(ConfigurableListableBeanFactory beanFactory) {
     this.beanFactory = beanFactory;
@@ -48,14 +52,30 @@ public final class SpringBeanResolver implements BeanResolver {
     return SpringManagedBeans.acquire(beanFactory, beanName(type));
   }
 
+  @Override
+  public void validateResolvable(Class<?> type) {
+    beanName(type);
+  }
+
   Class<?> targetType(String name) {
     Object singleton = beanFactory.getSingleton(name);
-    if (singleton != null) return AopUtils.getTargetClass(singleton);
-    return AutoProxyUtils.determineTargetClass(beanFactory, name);
+    if (singleton != null && !(singleton instanceof FactoryBean<?>))
+      return AopUtils.getTargetClass(singleton);
+    if (beanFactory.containsBeanDefinition(name)) {
+      Object target =
+          beanFactory
+              .getMergedBeanDefinition(name)
+              .getAttribute(AutoProxyUtils.ORIGINAL_TARGET_CLASS_ATTRIBUTE);
+      if (target instanceof Class<?> targetClass) return targetClass;
+    }
+    return beanFactory.getType(name, false);
   }
 
   private String beanName(Class<?> type) {
-    Objects.requireNonNull(type, "type");
+    return beanNames.computeIfAbsent(Objects.requireNonNull(type, "type"), this::findBeanName);
+  }
+
+  private String findBeanName(Class<?> type) {
     Set<String> candidates = new LinkedHashSet<>();
     for (String name : beanFactory.getBeanNamesForType(type, true, false)) {
       if (!name.startsWith("scopedTarget.")) candidates.add(name);

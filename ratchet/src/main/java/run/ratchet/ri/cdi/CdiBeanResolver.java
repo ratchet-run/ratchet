@@ -65,6 +65,14 @@ public class CdiBeanResolver implements BeanResolver {
   }
 
   @Override
+  public void validateResolvable(Class<?> type) {
+    Instance<?> instance = allBeans.select(type);
+    if (instance.isUnsatisfied() || instance.isAmbiguous()) {
+      throw new IllegalStateException("Cannot uniquely resolve CDI bean: " + type.getName());
+    }
+  }
+
+  @Override
   public ManagedBean acquire(Class<?> type) {
     Instance<?> instance = allBeans.select(type);
     if (instance.isUnsatisfied() || instance.isAmbiguous()) {

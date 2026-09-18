@@ -81,9 +81,7 @@ public class RecurringMethodInvoker {
       throw new SecurityException(
           "Class " + beanClass.getName() + " is not allowed for recurring job execution.");
     }
-    try (BeanResolver.ManagedBean handle = beanResolver.acquire(beanClass)) {
-      handle.instance();
-    }
+    beanResolver.validateResolvable(beanClass);
   }
 
   @PreDestroy

@@ -30,6 +30,24 @@ import org.junit.jupiter.api.Test;
 class CdiBeanResolverTest {
 
   @Test
+  void validationUsesMetadataWithoutAcquiringAnInstance() {
+    Instance<Object> allBeans = mock(Instance.class);
+    Instance<ApplicationBean> selected = mock(Instance.class);
+    when(allBeans.select(ApplicationBean.class)).thenReturn(selected);
+    CdiBeanResolver resolver = new CdiBeanResolver(allBeans);
+    resolver.validateResolvable(ApplicationBean.class);
+    org.mockito.Mockito.verify(selected, org.mockito.Mockito.never()).getHandle();
+    org.mockito.Mockito.verify(selected, org.mockito.Mockito.never()).get();
+    when(selected.isAmbiguous()).thenReturn(true);
+    assertThrows(
+        IllegalStateException.class, () -> resolver.validateResolvable(ApplicationBean.class));
+    when(selected.isAmbiguous()).thenReturn(false);
+    when(selected.isUnsatisfied()).thenReturn(true);
+    assertThrows(
+        IllegalStateException.class, () -> resolver.validateResolvable(ApplicationBean.class));
+  }
+
+  @Test
   void resolve_defaultDependentScopeFromCdiBeanMetadata_isRejected() {
     Instance<Object> allBeans = mock(Instance.class);
     Instance<DefaultScopedBean> selected = selected(DefaultScopedBean.class, Dependent.class);

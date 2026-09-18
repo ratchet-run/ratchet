@@ -35,6 +35,16 @@ public interface BeanResolver {
    */
   <T> T resolve(Class<T> type);
 
+  /**
+   * Checks whether a type can be resolved. Container implementations should use metadata only. The
+   * compatibility fallback acquires and releases an instance.
+   */
+  default void validateResolvable(Class<?> type) {
+    try (ManagedBean handle = acquire(type)) {
+      handle.instance();
+    }
+  }
+
   /** Acquires a managed invocation target, which may be a proxy exposing its public interfaces. */
   default ManagedBean acquire(Class<?> type) {
     Object bean = resolve(type);

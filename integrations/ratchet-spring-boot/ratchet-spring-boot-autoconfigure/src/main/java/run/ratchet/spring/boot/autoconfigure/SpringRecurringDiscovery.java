@@ -15,8 +15,11 @@
  */
 package run.ratchet.spring.boot.autoconfigure;
 
+import java.lang.reflect.Method;
 import java.time.Clock;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Set;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.core.annotation.AnnotatedElementUtils;
@@ -25,10 +28,8 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.ri.cdi.RecurringJobProcessor;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
-import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
-import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.InvocationSubmissionService;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.spi.JobStore;
@@ -82,7 +83,8 @@ public final class SpringRecurringDiscovery {
             options,
             types,
             clock,
-            store.capability(RecurringJobStore.class).orElse(null));
+            store.capability(RecurringJobStore.class).orElse(null),
+            SpringRecurringDiscovery::recurringMethods);
     if (!processor.registerRecurringJobs())
       throw new IllegalStateException(
           "Ratchet recurring registration did not complete; workers have not started");
@@ -95,22 +97,24 @@ public final class SpringRecurringDiscovery {
       if (name.startsWith("scopedTarget.")) continue;
       Class<?> type = resolver.targetType(name);
       if (type == null || type.getName().startsWith("org.springframework.")) continue;
-      ReflectionUtils.doWithMethods(
-          type,
-          method -> {
-            Recurring annotation =
-                AnnotatedElementUtils.findMergedAnnotation(method, Recurring.class);
-            if (annotation == null || !annotation.enabled()) return;
-            try (var handle = beanFactory.getBean(BeanResolver.class).acquire(type)) {
-              ManagedInvocation.exposedMethod(method, handle.instance());
-            } catch (NoSuchMethodException failure) {
-              throw new IllegalStateException(
-                  "Ratchet cannot invoke @Recurring method through its Spring proxy: " + method,
-                  failure);
-            }
-            types.add(type);
-          });
+      if (recurringMethods(type).values().stream().anyMatch(Recurring::enabled)) types.add(type);
     }
     return Set.copyOf(types);
+  }
+
+  static Map<Method, Recurring> recurringMethods(Class<?> type) {
+    Map<Method, Recurring> methods = new LinkedHashMap<>();
+    Set<String> seen = new LinkedHashSet<>();
+    ReflectionUtils.doWithMethods(
+        type,
+        method -> {
+          if (method.isBridge() || method.isSynthetic()) return;
+          Recurring annotation =
+              AnnotatedElementUtils.findMergedAnnotation(method, Recurring.class);
+          if (annotation != null
+              && seen.add(method.getName() + java.util.Arrays.toString(method.getParameterTypes())))
+            methods.put(method, annotation);
+        });
+    return methods;
   }
 }
