@@ -29,8 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
+import run.ratchet.store.schema.RatchetJpaModel;
 
-/** Guards the Quarkus SQL extension's duplicated Ratchet JPA entity list against drift. */
+/** Guards the shared Ratchet JPA entity list against drift from the canonical mapping. */
 class RatchetEntityMappingDriftTest {
 
   @Test
@@ -40,7 +41,7 @@ class RatchetEntityMappingDriftTest {
         ormXmlEntities.isEmpty(),
         "META-INF/orm.xml must declare Ratchet entities; check the deployment test classpath.");
 
-    Set<String> processorEntities = new TreeSet<>(RatchetSqlProcessor.RATCHET_ENTITY_CLASSES);
+    Set<String> processorEntities = new TreeSet<>(RatchetJpaModel.ENTITY_CLASS_NAMES);
 
     assertEquals(
         ormXmlEntities, processorEntities, () -> driftMessage(ormXmlEntities, processorEntities));
@@ -82,12 +83,12 @@ class RatchetEntityMappingDriftTest {
 
   private static String driftMessage(Set<String> ormXmlEntities, Set<String> processorEntities) {
     return "Ratchet JPA entity mappings drifted between META-INF/orm.xml and "
-        + "RatchetSqlProcessor.RATCHET_ENTITY_CLASSES. Missing from RATCHET_ENTITY_CLASSES: "
+        + "RatchetJpaModel.ENTITY_CLASS_NAMES. Missing from ENTITY_CLASS_NAMES: "
         + difference(ormXmlEntities, processorEntities)
         + "; missing from META-INF/orm.xml: "
         + difference(processorEntities, ormXmlEntities)
         + ". When adding an entity to ratchet-store-core, update "
-        + "RatchetSqlProcessor.RATCHET_ENTITY_CLASSES.";
+        + "RatchetJpaModel.ENTITY_CLASS_NAMES.";
   }
 
   private static Set<String> difference(Set<String> expected, Set<String> actual) {

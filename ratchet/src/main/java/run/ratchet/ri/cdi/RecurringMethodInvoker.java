@@ -17,7 +17,6 @@ package run.ratchet.ri.cdi;
 
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -26,6 +25,8 @@ import java.lang.reflect.Method;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import run.ratchet.api.JobContext;
+import run.ratchet.ri.core.internal.ManagedInvocation;
+import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 
 /** Invokes @Recurring methods on their CDI beans. */
@@ -49,17 +50,21 @@ public class RecurringMethodInvoker {
   }
 
   private final ConcurrentMap<MethodCacheKey, Method> methodCache = new ConcurrentHashMap<>();
-  private final Instance<Object> allBeans;
+  private final BeanResolver beanResolver;
   private final ClassPolicy classPolicy;
 
   protected RecurringMethodInvoker() {
-    this.allBeans = null;
+    this.beanResolver = null;
     this.classPolicy = null;
   }
 
   @Inject
   public RecurringMethodInvoker(@Any Instance<Object> allBeans, ClassPolicy classPolicy) {
-    this.allBeans = allBeans;
+    this(new CdiBeanResolver(allBeans), classPolicy);
+  }
+
+  public RecurringMethodInvoker(BeanResolver beanResolver, ClassPolicy classPolicy) {
+    this.beanResolver = beanResolver;
     this.classPolicy = classPolicy;
   }
 
@@ -72,26 +77,17 @@ public class RecurringMethodInvoker {
     }
     Class<?> beanClass =
         Class.forName(beanClassName, true, Thread.currentThread().getContextClassLoader());
-    Instance<?> instance = allBeans.select(beanClass);
-
-    if (instance.isUnsatisfied()) {
-      throw new IllegalStateException("No CDI bean found for class: " + beanClassName);
-    }
-
-    Instance.Handle<?> handle = instance.getHandle();
-    Object bean = handle.get();
-    try {
-      Method method = getOrResolveMethod(beanClass, methodName, hasJobContextParam);
+    try (BeanResolver.ManagedBean handle = beanResolver.acquire(beanClass)) {
+      Object bean = handle.instance();
+      Method method =
+          ManagedInvocation.exposedMethod(
+              getOrResolveMethod(beanClass, methodName, hasJobContextParam), bean);
 
       if (hasJobContextParam) {
         JobContext context = JobContext.current();
         invokeMethod(method, bean, context);
       } else {
         invokeMethod(method, bean);
-      }
-    } finally {
-      if (handle.getBean().getScope().equals(Dependent.class)) {
-        handle.destroy();
       }
     }
   }
@@ -101,11 +97,7 @@ public class RecurringMethodInvoker {
       throw new SecurityException(
           "Class " + beanClass.getName() + " is not allowed for recurring job execution.");
     }
-    Instance<?> instance = allBeans.select(beanClass);
-    if (instance.isUnsatisfied()) {
-      throw new IllegalStateException(
-          "@Recurring method on unresolvable CDI bean: " + beanClass.getName());
-    }
+    beanResolver.validateResolvable(beanClass);
   }
 
   @PreDestroy

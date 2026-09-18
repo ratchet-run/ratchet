@@ -26,7 +26,7 @@ import run.ratchet.store.entity.JobExecutionType;
 
 /** Handles submission failures by buffering for retry or resetting to PENDING. */
 @ApplicationScoped
-class SubmissionFailureHandler {
+public class SubmissionFailureHandler {
 
   private static final Logger log = Logger.getLogger(SubmissionFailureHandler.class);
 

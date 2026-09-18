@@ -1,7 +1,7 @@
 <template>
   <div class="ratchet-hero-prelude">
     <img src="/img/logo.svg" alt="" class="ratchet-hero-logo" aria-hidden="true" />
-    <p class="ratchet-hero-eyebrow">Jakarta EE background jobs</p>
+    <p class="ratchet-hero-eyebrow">Persistent Java background jobs</p>
   </div>
 </template>
 

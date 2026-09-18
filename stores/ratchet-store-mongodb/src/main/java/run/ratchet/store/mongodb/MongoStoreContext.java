@@ -21,6 +21,8 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import java.util.List;
+import java.util.Objects;
+import java.util.function.Supplier;
 import org.bson.Document;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.ConstraintDetector;
@@ -40,16 +42,16 @@ final class MongoStoreContext extends AbstractStoreContext {
   static final List<String> ACTIVE_STATUSES = List.of("PENDING", "RUNNING", "PAUSED", "WAITING");
   static final List<String> TERMINAL_STATUSES = List.of("SUCCEEDED", "FAILED", "CANCELED");
 
-  private final MongoClient client;
+  private final Supplier<ClientSession> sessions;
   private final MongoDatabase database;
   private final MongoConstraintDetector constraintDetector = new MongoConstraintDetector();
 
   MongoStoreContext(MongoClient client, MongoDatabase database) {
-    this(client, database, noopMetricsCollector(), 15);
+    this(client::startSession, database, noopMetricsCollector(), 15);
   }
 
   MongoStoreContext(MongoClient client, MongoDatabase database, int priorityBoostIntervalMinutes) {
-    this(client, database, noopMetricsCollector(), priorityBoostIntervalMinutes);
+    this(client::startSession, database, noopMetricsCollector(), priorityBoostIntervalMinutes);
   }
 
   MongoStoreContext(
@@ -57,9 +59,17 @@ final class MongoStoreContext extends AbstractStoreContext {
       MongoDatabase database,
       MetricsCollector metricsCollector,
       int priorityBoostIntervalMinutes) {
+    this(client::startSession, database, metricsCollector, priorityBoostIntervalMinutes);
+  }
+
+  MongoStoreContext(
+      Supplier<ClientSession> sessions,
+      MongoDatabase database,
+      MetricsCollector metricsCollector,
+      int priorityBoostIntervalMinutes) {
     super(metricsCollector, priorityBoostIntervalMinutes);
-    this.client = client;
-    this.database = database;
+    this.sessions = Objects.requireNonNull(sessions, "sessions");
+    this.database = Objects.requireNonNull(database, "database");
   }
 
   /**
@@ -71,7 +81,7 @@ final class MongoStoreContext extends AbstractStoreContext {
    * does not support sessions.
    */
   ClientSession startSession() {
-    return client.startSession();
+    return sessions.get();
   }
 
   MongoDatabase database() {

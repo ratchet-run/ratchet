@@ -837,7 +837,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
             + " on concurrent job claims, which Ratchet's claim loop does not retry. Ratchet's SQL"
             + " Server store relies on READ COMMITTED (the engine default; with"
             + " READ_COMMITTED_SNAPSHOT ON it still reports level 2). Clear any connection-pool"
-            + " override that raises the level (e.g. hibernate.connection.isolation).",
+            + " isolation override that raises the level.",
         options.store().isolationCheckMode());
     initDelegates();
   }

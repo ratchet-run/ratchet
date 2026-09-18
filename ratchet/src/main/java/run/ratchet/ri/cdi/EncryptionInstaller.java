@@ -71,6 +71,7 @@ public class EncryptionInstaller {
   private final Instance<MetricsCollector> metricsCollector;
   private final NodeIdentityProvider nodeIdProvider;
   private final RatchetOptions options;
+  @Inject CdiRuntimeContextInstallation runtimeInstallation;
 
   /**
    * No-arg constructor so Weld can instantiate the client-proxy subclass (CDI 4.0 §3.15); never
@@ -125,6 +126,7 @@ public class EncryptionInstaller {
     if (engines == null || keyProvider == null || options == null) {
       return;
     }
+    if (runtimeInstallation != null) runtimeInstallation.installation();
     registerIntegrityMetricsBridge();
     boolean globalEnabled = options.encryption() != null && options.encryption().enabled();
 
@@ -144,7 +146,7 @@ public class EncryptionInstaller {
           ReferenceEncryptionFactory.fromEnvironment(resolveNodeEntropy());
       if (reference.isPresent()) {
         ReferenceEncryption ref = reference.get();
-        EncryptionHolder.install(
+        installEncryption(
             List.of(ref.engine()), ref.engine().algorithmId(), ref.keyProvider(), globalEnabled);
         return;
       }
@@ -154,7 +156,7 @@ public class EncryptionInstaller {
                 + " engine and KeyProvider are installed, and no reference keys are configured"
                 + " (RATCHET_ENCRYPTION_KEYS).");
       }
-      EncryptionHolder.disable();
+      installEncryption(List.of(), null, null, false);
       return;
     }
     if (!hasEngine) {
@@ -167,30 +169,22 @@ public class EncryptionInstaller {
           "A PayloadEncryption engine is installed but no KeyProvider is. Install a provider or"
               + " remove the engine.");
     }
-    EncryptionHolder.install(
-        engineList, resolveWriteAlgorithm(engineList), keyProvider.get(), globalEnabled);
+    installEncryption(
+        engineList,
+        options.encryption() == null ? null : options.encryption().writeAlgorithm(),
+        keyProvider.get(),
+        globalEnabled);
   }
 
-  /**
-   * Picks the algorithm id new writes use. With a single engine installed it is that engine. With
-   * several — the algorithm-rotation case, where an old engine stays installed to decrypt
-   * not-yet-drained rows — the deployment must name the write algorithm via {@code
-   * RatchetOptions.encryption().writeAlgorithm}; an unset selection is a fail-loud misconfiguration
-   * rather than an arbitrary pick. {@link EncryptionHolder#install} validates that the returned id
-   * names an installed engine.
-   */
-  private String resolveWriteAlgorithm(List<PayloadEncryption> engineList) {
-    String configured = options.encryption() == null ? null : options.encryption().writeAlgorithm();
-    if (configured != null && !configured.isBlank()) {
-      return configured;
+  private void installEncryption(
+      List<PayloadEncryption> engines, String algorithm, KeyProvider keys, boolean global) {
+    if (runtimeInstallation != null) {
+      runtimeInstallation.installation().configureEncryption(engines, algorithm, keys, global);
+    } else if (engines.isEmpty() && keys == null && !global) {
+      EncryptionHolder.disable();
+    } else {
+      EncryptionHolder.install(engines, algorithm, keys, global);
     }
-    if (engineList.size() == 1) {
-      return engineList.get(0).algorithmId();
-    }
-    throw new EncryptionConfigurationException(
-        "Multiple PayloadEncryption engines are installed but no write algorithm is configured. Set"
-            + " RatchetOptions.encryption().writeAlgorithm to the algorithm id new writes should"
-            + " use.");
   }
 
   /**
@@ -254,7 +248,7 @@ public class EncryptionInstaller {
 
   @PreDestroy
   void onShutdown() {
-    EncryptionHolder.disable();
+    if (runtimeInstallation == null) EncryptionHolder.disable();
     EncryptionIntegrity.clearListener();
   }
 }

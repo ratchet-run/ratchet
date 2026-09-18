@@ -88,7 +88,7 @@ public class RecurringJobExecutor {
         clock);
   }
 
-  RecurringJobExecutor(
+  public RecurringJobExecutor(
       JobBulkStore jobBulkStore,
       RecurringJobStore recurringJobStore,
       RecurringRegistrationState registrationState,

@@ -6,7 +6,15 @@ description: "What you need to deploy Ratchet: application server, database, mod
 
 # Deployment Overview
 
-Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11. It deploys as a set of JAR modules inside your application, running on Jakarta EE runtimes with the services used by the reference implementation.
+Ratchet runs inside your application. Choose the runtime integration before configuring persistence:
+
+| Runtime | Setup | Execution |
+| --- | --- | --- |
+| [Spring Boot](/deployment/spring-boot) | SQL or MongoDB starter, normal Boot connection properties | Boot 3.5/4.1, Java 17/21, JVM |
+| [Quarkus](/deployment/quarkus) | Quarkus extension and selected store | JVM and native image |
+| Jakarta EE 10/11 | CDI beans, store resources, managed executors | Application server |
+
+The remaining setup on this page describes Jakarta EE. The linked guides cover the other runtimes.
 
 ## What you need
 
@@ -27,7 +35,7 @@ A typical deployment includes three Ratchet JARs:
 ```
 ratchet-api          Public API, events, enums, SPI interfaces (Jakarta EE APIs only)
 ratchet           Reference implementation — core engine, CDI integration, polling
-ratchet-store-*      One of: ratchet-store-mysql, ratchet-store-postgresql, ratchet-store-oracle, ratchet-store-mongodb
+ratchet-store-*      One of: ratchet-store-mysql, ratchet-store-postgresql, ratchet-store-oracle, ratchet-store-sqlserver, ratchet-store-mongodb
 ```
 
 Optional modules:

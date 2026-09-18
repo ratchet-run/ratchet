@@ -1,0 +1,10 @@
+{
+  "properties": [
+    {
+      "name": "ratchet.schema.auto-migrate",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Prepare Ratchet SQL schemas or MongoDB collections and indexes. False validates read-only."
+    }
+  ]
+}

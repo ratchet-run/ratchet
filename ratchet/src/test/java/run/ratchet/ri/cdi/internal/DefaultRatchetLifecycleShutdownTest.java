@@ -83,7 +83,7 @@ class DefaultRatchetLifecycleShutdownTest {
     verify(fixture.deadLetterService).stop();
     verify(fixture.jobArchivingService).stop();
     verify(fixture.logPurgeTimer).stop();
-    verify(fixture.jobExecutionCoordinator).shutdown();
+    verify(fixture.jobExecutionCoordinator).shutdown(java.time.Duration.ZERO);
   }
 
   @Test
@@ -99,7 +99,7 @@ class DefaultRatchetLifecycleShutdownTest {
     verify(fixture.deadLetterService).stop();
     verify(fixture.jobArchivingService).stop();
     verify(fixture.logPurgeTimer).stop();
-    verify(fixture.jobExecutionCoordinator).shutdown();
+    verify(fixture.jobExecutionCoordinator).shutdown(java.time.Duration.ZERO);
     verify(fixture.clusterCoordinator).close();
   }
 
@@ -110,7 +110,7 @@ class DefaultRatchetLifecycleShutdownTest {
     fixture.lifecycle.onShutdown();
 
     InOrder inOrder = inOrder(fixture.jobExecutionCoordinator, fixture.clusterCoordinator);
-    inOrder.verify(fixture.jobExecutionCoordinator).shutdown();
+    inOrder.verify(fixture.jobExecutionCoordinator).shutdown(java.time.Duration.ZERO);
     inOrder.verify(fixture.clusterCoordinator).close();
   }
 

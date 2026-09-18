@@ -77,8 +77,7 @@ final class ReactorStoreModules {
     }
   }
 
-  private static Path findReactorRoot()
-      throws IOException, ParserConfigurationException, SAXException {
+  static Path findReactorRoot() throws IOException, ParserConfigurationException, SAXException {
     LinkedHashSet<Path> starts = new LinkedHashSet<>();
     starts.add(Path.of("").toAbsolutePath().normalize());
     String multiModuleDirectory = System.getProperty("maven.multiModuleProjectDirectory");

@@ -1,0 +1,377 @@
+/*
+ * Copyright 2026 Ratchet Contributors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package run.ratchet.ri.core;
+
+import com.cronutils.model.Cron;
+import jakarta.annotation.Priority;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
+import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.cdi.RatchetLifecycle;
+import run.ratchet.ri.core.internal.BatchRecoveryTimer;
+import run.ratchet.ri.core.internal.DeadLetterService;
+import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
+import run.ratchet.ri.core.internal.JobExecutionCoordinator;
+import run.ratchet.ri.core.internal.LogPurgeTimer;
+import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
+import run.ratchet.ri.core.internal.Poller;
+import run.ratchet.ri.core.internal.PollerWakeupListener;
+import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.SchedulerLifecycleHook;
+import run.ratchet.store.migration.SchemaInitializationException;
+
+/** Framework-neutral owner of one scheduler runtime. A stopped runtime is terminal. */
+public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
+  private static final Logger log = Logger.getLogger(RatchetRuntime.class);
+
+  private final Poller poller;
+  private final RecurringScheduler recurringScheduler;
+  private final OrphanRecoveryTimer orphanRecoveryTimer;
+  private final BatchRecoveryTimer batchRecoveryTimer;
+  private final DeadLetterService deadLetterService;
+  private final JobArchivingService jobArchivingService;
+  private final LogPurgeTimer logPurgeTimer;
+  private final PollerWakeupListener pollerWakeupListener;
+  private final ExecutorProvider executorProvider;
+  private final NodeIdentityProvider nodeIdentityProvider;
+  private final DrainController drainController;
+  private final RatchetOptions options;
+  private final JobExecutionCoordinator jobExecutionCoordinator;
+  private final ClusterCoordinator clusterCoordinator;
+  private final Supplier<List<SchedulerLifecycleHook>> lifecycleHooks;
+  private final Consumer<SchedulerLifecycleHook> releaseHook;
+  private final Runnable beforeWorkers;
+  private volatile List<SchedulerLifecycleHook> resolvedHooks;
+  private volatile List<SchedulerLifecycleHook> startedHooks = List.of();
+  private volatile boolean shutdownComplete;
+  private volatile boolean started;
+  private volatile Duration shutdownTimeout = Duration.ZERO;
+
+  private static final Comparator<SchedulerLifecycleHook> HOOK_ORDER =
+      Comparator.comparingInt(RatchetRuntime::priorityValue)
+          .thenComparing(RatchetRuntime::hookSortName);
+
+  public RatchetRuntime(
+      Poller poller,
+      RecurringScheduler recurringScheduler,
+      OrphanRecoveryTimer orphanRecoveryTimer,
+      BatchRecoveryTimer batchRecoveryTimer,
+      DeadLetterService deadLetterService,
+      JobArchivingService jobArchivingService,
+      LogPurgeTimer logPurgeTimer,
+      PollerWakeupListener pollerWakeupListener,
+      ExecutorProvider executorProvider,
+      NodeIdentityProvider nodeIdentityProvider,
+      DrainController drainController,
+      RatchetOptions options,
+      JobExecutionCoordinator jobExecutionCoordinator,
+      ClusterCoordinator clusterCoordinator,
+      Supplier<List<SchedulerLifecycleHook>> lifecycleHooks,
+      Consumer<SchedulerLifecycleHook> releaseHook,
+      Runnable beforeWorkers) {
+    this.poller = poller;
+    this.recurringScheduler = recurringScheduler;
+    this.orphanRecoveryTimer = orphanRecoveryTimer;
+    this.batchRecoveryTimer = batchRecoveryTimer;
+    this.deadLetterService = deadLetterService;
+    this.jobArchivingService = jobArchivingService;
+    this.logPurgeTimer = logPurgeTimer;
+    this.pollerWakeupListener = pollerWakeupListener;
+    this.executorProvider = executorProvider;
+    this.nodeIdentityProvider = nodeIdentityProvider;
+    this.drainController = drainController;
+    this.options = options;
+    this.jobExecutionCoordinator = jobExecutionCoordinator;
+    this.clusterCoordinator = clusterCoordinator;
+    this.lifecycleHooks = lifecycleHooks;
+    this.releaseHook = releaseHook;
+    this.beforeWorkers = beforeWorkers;
+  }
+
+  /** Sets the drain deadline before the first start. */
+  public synchronized void setShutdownTimeout(Duration timeout) {
+    if (started || shutdownComplete)
+      throw new IllegalStateException("Runtime already started or stopped");
+    if (timeout == null || timeout.isNegative())
+      throw new IllegalArgumentException("Shutdown timeout must be non-negative");
+    shutdownTimeout = timeout;
+  }
+
+  public synchronized void start() {
+    if (shutdownComplete) {
+      throw new IllegalStateException(
+          "A stopped Ratchet runtime cannot be restarted; create a new runtime");
+    }
+    if (started) {
+      return;
+    }
+    started = true;
+    try {
+      log.info("Ratchet starting");
+      List<SchedulerLifecycleHook> beforeStartSucceeded =
+          notifyHooks(
+              "beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true, ignored -> {});
+
+      beforeWorkers.run();
+
+      // Default node init writes scheduler_node, so it must wait until beforeStart hooks, including
+      // Quarkus auto-migration, have succeeded. If migration fails, init is intentionally skipped
+      // for that boot attempt; running it from a finally block would re-hit the missing-schema
+      // failure. Its one-time orphan recovery and heartbeat upsert are coupled to successful
+      // startup,
+      // while cluster peers continue sweeping on their normal orphan-recovery intervals.
+      initializeDefaultNodeIdentityProvider();
+
+      ScheduledExecutorService scheduledExecutor = resolveScheduledExecutorForStartup();
+      if (scheduledExecutor != null) {
+        recurringScheduler.configure(
+            options.recurring().pollMs(),
+            options.recurring().maxPollMs(),
+            options.recurring().batchLimit());
+        poller.init();
+        recurringScheduler.init();
+
+        orphanRecoveryTimer.start(scheduledExecutor, options.node().orphanScanIntervalMinutes());
+        batchRecoveryTimer.start(scheduledExecutor);
+
+        if (options.maintenance().dlqPurgeEnabled()) {
+          Cron dlqCron = RecurringScheduler.PARSER.parse(options.maintenance().dlqPurgeCron());
+          deadLetterService.init(options.maintenance().dlqPurgeDays(), dlqCron);
+        }
+
+        if (options.maintenance().jobArchiveEnabled()) {
+          Cron archiveCron =
+              RecurringScheduler.PARSER.parse(options.maintenance().jobArchiveCron());
+          jobArchivingService.init(
+              true,
+              options.maintenance().jobRetentionDays(),
+              options.maintenance().jobArchiveBatchSize(),
+              archiveCron);
+        }
+
+        if (options.maintenance().logPurgeEnabled()) {
+          Cron logCron = RecurringScheduler.PARSER.parse(options.maintenance().logPurgeCron());
+          logPurgeTimer.init(options.maintenance().logRetentionDays(), logCron);
+        }
+
+        jobExecutionCoordinator.initRetryBufferDrainer();
+      }
+
+      pollerWakeupListener.init();
+
+      notifyHooks(
+          "afterStart",
+          beforeStartSucceeded,
+          SchedulerLifecycleHook::afterStart,
+          false,
+          succeeded -> startedHooks = List.copyOf(succeeded));
+      log.info("Ratchet started");
+    } catch (RuntimeException | Error failure) {
+      onShutdown();
+      throw failure;
+    }
+  }
+
+  private ScheduledExecutorService resolveScheduledExecutorForStartup() {
+    try {
+      return executorProvider.getScheduledExecutor();
+    } catch (RuntimeException e) {
+      RatchetOptions.ExecutionOptions execution = options.execution();
+      log.errorf(
+          e,
+          "Managed scheduled executor unavailable during Ratchet startup; scheduled background"
+              + " services are disabled: polling, recurring scheduling, orphan recovery, batch"
+              + " recovery, DLQ purge, job archiving, log purge, and retry-buffer draining."
+              + " Configure RatchetOptions.execution().scheduledExecutorJndi(...) to a valid"
+              + " ManagedScheduledExecutorService (current scheduledExecutorJndi=%s,"
+              + " jobExecutorJndi=%s, virtualExecutorJndi=%s).",
+          execution.scheduledExecutorJndi(),
+          execution.jobExecutorJndi(),
+          execution.virtualExecutorJndi());
+      return null;
+    }
+  }
+
+  @Override
+  public void close() {
+    onShutdown();
+  }
+
+  @Override
+  public void onShutdown() {
+    List<SchedulerLifecycleHook> hooksToStop;
+    synchronized (this) {
+      if (shutdownComplete) {
+        return;
+      }
+      shutdownComplete = true;
+      hooksToStop = startedHooks;
+    }
+
+    log.info("Ratchet stopping");
+    List<SchedulerLifecycleHook> beforeStopSucceeded =
+        notifyHooks(
+            "beforeStop", hooksToStop, SchedulerLifecycleHook::beforeStop, false, ignored -> {});
+    // Drain before stop to prevent new claims
+    stopService("drain controller", () -> drainController.setDraining(true));
+
+    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
+      stopService("node identity", defaultProvider::shutdown);
+    }
+
+    stopService("poller", poller::stop);
+    stopService("recurring scheduler", recurringScheduler::stop);
+    stopService("orphan recovery timer", orphanRecoveryTimer::stop);
+    stopService("batch recovery timer", batchRecoveryTimer::stop);
+    stopService("dead letter service", deadLetterService::stop);
+    stopService("job archiving service", jobArchivingService::stop);
+    stopService("log purge timer", logPurgeTimer::stop);
+    // Stop background resubmission before resetting RUNNING jobs to PENDING.
+    stopService(
+        "job execution coordinator", () -> jobExecutionCoordinator.shutdown(shutdownTimeout));
+    // Release transport resources after no further notifyNewWork callers can submit.
+    // First-party coordinators implement SchedulerLifecycleHook and close themselves via
+    // afterStop (invoked below in the hook chain). The direct fallback only fires for
+    // coordinators that don't participate in the hook chain — preserves backwards-compat for
+    // third-party implementations while routing the first-party coordinator close through one
+    // consistent path. Coordinator close() is idempotent per SPI, so a hook implementation that
+    // races a direct call is safe.
+    if (clusterCoordinator != null
+        && (lifecycleHooks == null || !(clusterCoordinator instanceof SchedulerLifecycleHook))) {
+      stopService("cluster coordinator", clusterCoordinator::close);
+    }
+
+    notifyHooks(
+        "afterStop", beforeStopSucceeded, SchedulerLifecycleHook::afterStop, false, ignored -> {});
+    destroyHooks();
+  }
+
+  private synchronized List<SchedulerLifecycleHook> hooks() {
+    if (lifecycleHooks == null) {
+      return List.of();
+    }
+    if (resolvedHooks == null) {
+      List<SchedulerLifecycleHook> resolved = new ArrayList<>(lifecycleHooks.get());
+      resolved.sort(HOOK_ORDER);
+      resolvedHooks = List.copyOf(resolved);
+    }
+    return resolvedHooks;
+  }
+
+  private void initializeDefaultNodeIdentityProvider() {
+    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
+      defaultProvider.init();
+    }
+  }
+
+  private List<SchedulerLifecycleHook> notifyHooks(
+      String phase,
+      List<SchedulerLifecycleHook> phaseHooks,
+      Consumer<SchedulerLifecycleHook> callback,
+      boolean abortOnSchemaFailure,
+      Consumer<List<SchedulerLifecycleHook>> onProgress) {
+    List<SchedulerLifecycleHook> succeeded = new ArrayList<>(phaseHooks.size());
+    for (SchedulerLifecycleHook hook : phaseHooks) {
+      try {
+        callback.accept(hook);
+        succeeded.add(hook);
+        onProgress.accept(succeeded);
+      } catch (SchemaInitializationException e) {
+        if (abortOnSchemaFailure) {
+          // Schema initialization failures must abort startup so the scheduler does not begin
+          // claiming jobs against an unmigrated or incompatible schema.
+          log.errorf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
+          throw e;
+        }
+        log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
+      } catch (Exception e) {
+        // SchedulerLifecycleHook allows non-schema hook failures to warn and continue; schema
+        // failures are the one startup-aborting exception because they can make job claims unsafe.
+        log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
+      }
+    }
+    return List.copyOf(succeeded);
+  }
+
+  private static int priorityValue(SchedulerLifecycleHook hook) {
+    Priority priority = findPriority(hook.getClass());
+    return priority == null ? Integer.MAX_VALUE : priority.value();
+  }
+
+  private static Priority findPriority(Class<?> type) {
+    for (Class<?> current = type;
+        current != null && current != Object.class;
+        current = current.getSuperclass()) {
+      Priority priority = current.getAnnotation(Priority.class);
+      if (priority != null) {
+        return priority;
+      }
+      priority = findInterfacePriority(current);
+      if (priority != null) {
+        return priority;
+      }
+    }
+    return null;
+  }
+
+  private static Priority findInterfacePriority(Class<?> type) {
+    for (Class<?> iface : type.getInterfaces()) {
+      Priority priority = iface.getAnnotation(Priority.class);
+      if (priority != null) {
+        return priority;
+      }
+      priority = findInterfacePriority(iface);
+      if (priority != null) {
+        return priority;
+      }
+    }
+    return null;
+  }
+
+  private static String hookSortName(SchedulerLifecycleHook hook) {
+    return hook.getClass().getName();
+  }
+
+  private void stopService(String name, Runnable stopAction) {
+    try {
+      stopAction.run();
+    } catch (Exception e) {
+      log.warnf(e, "Failed to stop %s: %s", name, e.getMessage());
+    }
+  }
+
+  /** Releases resolved hooks to their owning container. */
+  private void destroyHooks() {
+    if (lifecycleHooks == null || resolvedHooks == null) {
+      return;
+    }
+    for (SchedulerLifecycleHook hook : resolvedHooks) {
+      try {
+        releaseHook.accept(hook);
+      } catch (Exception e) {
+        log.warnf(e, "Failed to destroy scheduler lifecycle hook: %s", e.getMessage());
+      }
+    }
+  }
+}

@@ -31,7 +31,6 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
-import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -49,27 +48,7 @@ import run.ratchet.store.spi.RecurringJobStore;
 
 /** Persisted record of a scheduled task. @see JobStatus @see JobExecutionType */
 @Entity
-@Table(
-    name = "scheduler_job",
-    indexes = {
-      @Index(name = "idx_job_due", columnList = "status, scheduled_time"),
-      @Index(name = "idx_job_priority_due", columnList = "priority, scheduled_time"),
-      @Index(name = "idx_job_picked_by", columnList = "picked_by"),
-      @Index(name = "idx_target_class", columnList = "target_class"),
-      @Index(name = "idx_method_name", columnList = "method_name"),
-      @Index(name = "idx_job_poll_composite", columnList = "status, priority, scheduled_time"),
-      @Index(
-          name = "idx_job_claim_cover",
-          columnList = "status, job_type, priority, scheduled_time, job_id"),
-      @Index(name = "idx_job_type", columnList = "job_type"),
-      @Index(name = "idx_job_depends_on", columnList = "depends_on"),
-      @Index(name = "idx_job_superseded_by", columnList = "superseded_by"),
-      @Index(name = "idx_job_business_key", columnList = "business_key"),
-      @Index(name = "idx_job_created_at", columnList = "created_at"),
-      @Index(name = "idx_job_updated_at", columnList = "updated_at"),
-      @Index(name = "idx_signal_key_status", columnList = "signal_key, status"),
-      @Index(name = "idx_signal_timeout_status", columnList = "status, signal_timeout")
-    })
+@Table(name = "scheduler_job")
 @EntityListeners(UuidV7EntityListener.class)
 public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
@@ -77,16 +56,13 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "job_id")
   private UUID id;
 
-  @Enumerated(EnumType.STRING)
-  @Column(nullable = false, length = 16)
-  private JobStatus status = JobStatus.PENDING;
+  // Live queue state is hydrated by native store projections from scheduler_job_queue. It must
+  // remain a POJO carrier so lifecycle code can use it, but is not a scheduler_job JPA column.
+  @Transient private JobStatus status = JobStatus.PENDING;
 
-  @Enumerated(EnumType.STRING)
-  @Column(name = "paused_from_status", length = 20)
-  private JobStatus pausedFromStatus;
+  @Transient private JobStatus pausedFromStatus;
 
-  @Column(name = "scheduled_time", nullable = false)
-  private Instant scheduledTime;
+  @Transient private Instant scheduledTime;
 
   @Enumerated(EnumType.STRING)
   @Column(name = "job_type", nullable = false, length = 16)
@@ -96,8 +72,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(nullable = false)
   private JobPriority priority = JobPriority.NORMAL;
 
-  @Column(nullable = false)
-  private int attempts = 0;
+  @Transient private int attempts = 0;
 
   @Column(name = "max_retries", nullable = false)
   private int maxRetries = 0;
@@ -203,14 +178,11 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "recurring_master_id")
   private UUID recurringMasterId;
 
-  @Column(name = "picked_by", length = 64)
-  private String pickedBy;
+  @Transient private String pickedBy;
 
-  @Column(name = "picked_at")
-  private Instant pickedAt;
+  @Transient private Instant pickedAt;
 
-  @Column(name = "last_error")
-  private String lastError;
+  @Transient private String lastError;
 
   @Column(name = "created_at", updatable = false)
   private Instant createdAt;
@@ -218,8 +190,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "caller_principal", updatable = false, length = 255)
   private String callerPrincipal;
 
-  @Column(name = "updated_at")
-  private Instant updatedAt;
+  @Transient private Instant updatedAt;
 
   @Column(name = "execution_start_time")
   private Instant executionStartTime;
@@ -239,36 +210,25 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "result_type", length = 100)
   private String resultType;
 
-  @Version
-  @Column(name = "version")
-  private Integer version;
+  @Transient private Integer version;
 
-  @Column(name = "signal_key", length = 255)
-  private String signalKey;
+  @Transient private String signalKey;
 
-  @Column(name = "signal_timeout")
-  private Instant signalTimeout;
+  @Transient private Instant signalTimeout;
 
-  @Column(name = "signal_payload", columnDefinition = "TEXT")
-  private String signalPayload;
+  @Transient private String signalPayload;
 
-  @Column(name = "signal_payload_type", length = 16)
-  private String signalPayloadType;
+  @Transient private String signalPayloadType;
 
-  @Column(name = "signal_outcome", length = 32)
-  private String signalOutcome;
+  @Transient private String signalOutcome;
 
-  @Column(name = "signal_rejection_reason", columnDefinition = "TEXT")
-  private String signalRejectionReason;
+  @Transient private String signalRejectionReason;
 
-  @Column(name = "signal_delivered_at")
-  private Instant signalDeliveredAt;
+  @Transient private Instant signalDeliveredAt;
 
-  @Column(name = "signal_delivered_by", length = 255)
-  private String signalDeliveredBy;
+  @Transient private String signalDeliveredBy;
 
-  @Column(name = "signal_delivery_id", length = 36)
-  private String signalDeliveryId;
+  @Transient private String signalDeliveryId;
 
   // populated by MysqlJobStore hydrator from cold.terminal_status; never persisted via JPA
   // (PG schema does not have the column yet — added in CP3).

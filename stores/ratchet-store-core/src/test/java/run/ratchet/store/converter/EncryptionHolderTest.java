@@ -58,6 +58,25 @@ class EncryptionHolderTest {
   }
 
   @Test
+  void install_missingWriteAlgorithmDefaultsOnlyForASingleEngine() {
+    PayloadEncryption first = new StubEngine("alg-1");
+    PayloadEncryption second = new StubEngine("alg-2");
+    for (String algorithm : new String[] {null, "", "  "}) {
+      EncryptionHolder.install(List.of(first), algorithm, new StubKeyProvider(), true);
+      assertSame(first, EncryptionHolder.writeEngine());
+      EncryptionHolder.disable();
+      EncryptionConfigurationException failure =
+          assertThrows(
+              EncryptionConfigurationException.class,
+              () ->
+                  EncryptionHolder.install(
+                      List.of(first, second), algorithm, new StubKeyProvider(), true));
+      assertTrue(failure.getMessage().contains("Multiple PayloadEncryption engines"));
+      assertFalse(EncryptionHolder.isEnabled());
+    }
+  }
+
+  @Test
   void install_multipleEngines_dispatchesReadByAlgorithmId() {
     PayloadEncryption v1 = new StubEngine("alg-1");
     PayloadEncryption v2 = new StubEngine("alg-2");

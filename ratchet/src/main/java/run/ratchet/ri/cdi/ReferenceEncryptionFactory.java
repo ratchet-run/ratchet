@@ -40,7 +40,7 @@ import run.ratchet.spi.PayloadEncryption;
  * out of {@link run.ratchet.api.RatchetOptions} deliberately — secret material belongs in the
  * environment, not the in-memory options object.
  */
-final class ReferenceEncryptionFactory {
+public final class ReferenceEncryptionFactory {
 
   static final String KEYS_ENV = "RATCHET_ENCRYPTION_KEYS";
   static final String CURRENT_KEY_ENV = "RATCHET_ENCRYPTION_CURRENT_KEY";
@@ -48,7 +48,7 @@ final class ReferenceEncryptionFactory {
   static final String CURRENT_KEY_PROPERTY = "ratchet.encryption.current-key";
 
   /** The bundled reference engine and key provider, ready to install. */
-  record ReferenceEncryption(PayloadEncryption engine, KeyProvider keyProvider) {}
+  public record ReferenceEncryption(PayloadEncryption engine, KeyProvider keyProvider) {}
 
   private ReferenceEncryptionFactory() {}
 
@@ -67,13 +67,14 @@ final class ReferenceEncryptionFactory {
 
   /**
    * Builds the reference stack from already-resolved configuration strings, or empty when {@code
-   * keysSpec} is blank. Package-visible for direct unit testing without touching the environment.
+   * keysSpec} is blank. Framework adapters resolve their own property sources before calling this
+   * method.
    *
    * @param keysSpec comma-separated {@code keyId:base64Key} entries, or {@code null}/blank
    * @param currentKeyId the current write key id, or {@code null} to default to the sole key
    * @param nodeEntropy per-node entropy mixed into the engine's nonce epoch
    */
-  static Optional<ReferenceEncryption> build(
+  public static Optional<ReferenceEncryption> build(
       String keysSpec, String currentKeyId, long nodeEntropy) {
     if (keysSpec == null || keysSpec.isBlank()) {
       return Optional.empty();
@@ -87,7 +88,8 @@ final class ReferenceEncryptionFactory {
       // Any configuration slot can accidentally contain key material, including a key id.
       // Do not retain a provider cause whose diagnostic may interpolate that input.
       throw new EncryptionConfigurationException(
-          "Invalid encryption configuration: verify key ids, base64 AES-256 keys, and current key selection");
+          "Invalid encryption configuration: verify key ids, base64 AES-256 keys, and current key"
+              + " selection");
     }
     PayloadEncryption engine = new AesGcmPayloadEncryption(new SecureRandom(), nodeEntropy);
     return Optional.of(new ReferenceEncryption(engine, provider));
@@ -141,7 +143,7 @@ final class ReferenceEncryptionFactory {
    * A stable 64-bit hash (FNV-1a) of the node id, mixed into the engine's nonce epoch so two nodes
    * sharing a key produce disjoint nonce spaces even if their RNGs were seeded identically.
    */
-  static long nodeEntropy(String nodeId) {
+  public static long nodeEntropy(String nodeId) {
     if (nodeId == null || nodeId.isEmpty()) {
       return 0L;
     }

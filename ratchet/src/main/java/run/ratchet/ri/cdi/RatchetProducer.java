@@ -25,13 +25,8 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
-import java.util.EnumMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import org.jboss.logging.Logger;
-import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.PollerScheduler;
@@ -43,18 +38,17 @@ import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
-import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
-import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -69,7 +63,7 @@ import run.ratchet.spi.PrincipalSource;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.PayloadSerializerHolder;
-import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.converter.RuntimeContextInstallation;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
@@ -92,8 +86,7 @@ public class RatchetProducer {
 
   private static final Logger log = Logger.getLogger(RatchetProducer.class);
 
-  /** Per-type default limit for the virtual pool when no explicit limit is configured. */
-  private static final int DEFAULT_VIRTUAL_LIMIT = 1000;
+  @Inject CdiRuntimeContextInstallation runtimeInstallation;
 
   private final ExecutorProvider executorProvider;
   private final MetricsCollector metricsCollector;
@@ -108,8 +101,6 @@ public class RatchetProducer {
   private final PollingStrategyProvider pollingStrategyProvider;
   private final CircuitBreakerConfigProvider circuitBreakerConfigProvider;
   private volatile Instance.Handle<PayloadSerializer> dependentPayloadSerializerHandle;
-
-  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected RatchetProducer() {
     this.executorProvider = null;
@@ -157,43 +148,12 @@ public class RatchetProducer {
   @Produces
   @ApplicationScoped
   public PoolRegistry poolRegistry() {
-    Map<String, ThreadPoolManager> pools = new LinkedHashMap<>();
-
-    Map<JobExecutionType, Integer> platformLimits = new EnumMap<>(JobExecutionType.class);
-    for (JobExecutionType type : JobExecutionType.values()) {
-      platformLimits.put(
-          type, executionTuningProvider.maxConcurrency(type.name(), configuredConcurrency(type)));
-    }
-    pools.put(
-        ExecutorTargets.PLATFORM,
-        new ThreadPoolManager(
-            ExecutorTargets.PLATFORM,
-            executorProvider,
-            metricsCollector,
-            ThreadPoolManager.AccountingMode.SEMAPHORE,
-            platformLimits));
-
-    if (options.execution().hasVirtualExecutor()) {
-      Map<JobExecutionType, Integer> virtualLimits = new EnumMap<>(JobExecutionType.class);
-      for (JobExecutionType type : JobExecutionType.values()) {
-        virtualLimits.put(
-            type, executionTuningProvider.virtualThreadLimit(type.name(), DEFAULT_VIRTUAL_LIMIT));
-      }
-      ThreadPoolManager.AccountingMode accountingMode =
-          options.execution().virtualCounterAccounting()
-              ? ThreadPoolManager.AccountingMode.COUNTER
-              : ThreadPoolManager.AccountingMode.SEMAPHORE;
-      pools.put(
-          ExecutorTargets.VIRTUAL,
-          new ThreadPoolManager(
-              ExecutorTargets.VIRTUAL,
-              executorProvider,
-              metricsCollector,
-              accountingMode,
-              virtualLimits));
-    }
-
-    return new PoolRegistry(pools);
+    return PoolRegistry.create(
+        options,
+        executorProvider,
+        metricsCollector,
+        executionTuningProvider,
+        options.execution().hasVirtualExecutor());
   }
 
   @Produces
@@ -203,12 +163,14 @@ public class RatchetProducer {
       InternalEventPublisher eventPublisher,
       Instance<SignalStore> signalStore,
       SingletonLeaseService singletonLeaseService,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      AfterCommitRegistrar afterCommitRegistrar) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
     int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
 
     return new JobTimeoutHandler(
+        afterCommitRegistrar,
         jobCrudStore,
         jobRetryStore,
         jobBatchStatusStore,
@@ -220,23 +182,8 @@ public class RatchetProducer {
         signalStore.isResolvable() ? signalStore.get() : null,
         metricsCollector,
         signalTimeoutBatchSize,
-        resolveTxRegistry(),
         singletonLeaseService,
         errorSanitizer);
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          reg = JobWakeupService.lookupTxRegistry(log);
-          txRegistry = reg;
-        }
-      }
-    }
-    return reg;
   }
 
   @Produces
@@ -347,7 +294,8 @@ public class RatchetProducer {
         throw new DeploymentException(message);
       }
       log.errorf(
-          "ClassPolicy allowedPackages is empty and RatchetOptions allows it. ALL job targets will be rejected.");
+          "ClassPolicy allowedPackages is empty and RatchetOptions allows it. ALL job targets will"
+              + " be rejected.");
     }
     return policy;
   }
@@ -424,21 +372,25 @@ public class RatchetProducer {
       @Observes @Initialized(ApplicationScoped.class) Object init,
       Instance<PayloadSerializer> payloadSerializers) {
     if (payloadSerializers.isResolvable()) {
+      RuntimeContextInstallation owner =
+          runtimeInstallation == null ? null : runtimeInstallation.installation();
       destroyDependentPayloadSerializer();
       Instance.Handle<PayloadSerializer> handle = payloadSerializers.getHandle();
-      PayloadSerializerHolder.set(handle.get());
+      if (owner == null) PayloadSerializerHolder.set(handle.get());
+      else owner.setSerializer(handle.get());
       if (handle.getBean().getScope().equals(Dependent.class)) {
         dependentPayloadSerializerHandle = handle;
       }
     } else {
       log.warn(
-          "No PayloadSerializer bean resolvable at startup; JPA converters will use fallback JSON-B.");
+          "No PayloadSerializer bean resolvable at startup; JPA converters will use fallback"
+              + " JSON-B.");
     }
   }
 
   @PreDestroy
   void unregisterPayloadSerializer() {
-    PayloadSerializerHolder.set(null);
+    if (runtimeInstallation == null) PayloadSerializerHolder.set(null);
     destroyDependentPayloadSerializer();
   }
 
@@ -452,17 +404,5 @@ public class RatchetProducer {
         log.warnf(e, "PayloadSerializer destruction failed during Ratchet shutdown");
       }
     }
-  }
-
-  private int configuredConcurrency(JobExecutionType type) {
-    return switch (type) {
-      case SINGLE -> options.execution().maxConcurrency("SINGLE", 20);
-      case RECURRING -> options.execution().maxConcurrency("RECURRING", 5);
-      case BATCH_CHILD -> options.execution().maxConcurrency("BATCH_CHILD", 30);
-      case BATCH_PARENT -> options.execution().maxConcurrency("BATCH_PARENT", 2);
-      case CHAIN_STEP -> options.execution().maxConcurrency("CHAIN_STEP", 10);
-      case WORKFLOW_BRANCH -> options.execution().maxConcurrency("WORKFLOW_BRANCH", 10);
-      case WORKFLOW_JOIN -> options.execution().maxConcurrency("WORKFLOW_JOIN", 10);
-    };
   }
 }

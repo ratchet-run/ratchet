@@ -35,6 +35,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
@@ -93,7 +94,11 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
         null,
         null,
         null,
-        Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC));
+        Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC),
+        true,
+        true,
+        null,
+        new JakartaAfterCommitRegistrar());
   }
 
   @Test

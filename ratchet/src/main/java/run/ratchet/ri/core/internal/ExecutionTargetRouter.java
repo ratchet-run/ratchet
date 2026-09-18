@@ -79,7 +79,7 @@ public class ExecutionTargetRouter {
     if (warnedTargets.add(requested)) {
       log.warnf(
           "Execution target '%s' has no configured pool; jobs requesting it run on '%s'."
-              + " Configure 'ratchet.worker.virtual-executor-jndi' to add a virtual pool.",
+              + " Configure an executor pool for the requested target to enable it.",
           requested, ExecutorTargets.PLATFORM);
     }
     if (metricsCollector != null) {

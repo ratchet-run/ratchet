@@ -34,6 +34,7 @@ module run.ratchet.store.core {
   exports run.ratchet.store.migration;
   exports run.ratchet.store.spi;
   exports run.ratchet.store.query;
+  exports run.ratchet.store.schema;
   exports run.ratchet.store.util;
 
   // Store-implementor scaffolding (abstract context bases). Internal to the bundled store modules,

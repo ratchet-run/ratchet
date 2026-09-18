@@ -6,7 +6,7 @@ description: High-level architecture of Ratchet and how it fits into a Jakarta E
 
 # Architecture Overview
 
-Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11 applications. It provides persistent, cluster-safe background job scheduling with a fluent API -- covering batching, chaining, workflows, and transactional enqueueing out of the box.
+Ratchet is a persistent job scheduler for Jakarta EE 10/11, Quarkus, and [Spring Boot](/deployment/spring-boot). The CDI examples on this page describe the Jakarta EE integration; the job APIs are shared across runtimes. It provides persistent, cluster-safe background job scheduling with a fluent API -- covering batching, chaining, workflows, and transactional enqueueing out of the box.
 
 ## Where Ratchet Fits
 
@@ -335,7 +335,9 @@ public void onJobFailed(@Observes JobFailedEvent event) {
 }
 ```
 
-In non-CDI environments, register a programmatic listener:
+In Spring Boot, observe the same events with Spring's `@EventListener`; see the
+[Spring Boot guide](/deployment/spring-boot#configuration-and-overrides).
+You can also register a programmatic listener in any runtime:
 
 ```java
 scheduler.addEventListener(event -> {

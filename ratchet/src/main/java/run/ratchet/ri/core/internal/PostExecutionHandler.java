@@ -24,10 +24,12 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
+import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
@@ -91,6 +93,7 @@ public class PostExecutionHandler {
   private final WorkflowScheduler workflowScheduler;
   private final DeadLetterService deadLetterService;
   private final PollerScheduler pollerScheduler;
+  private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected PostExecutionHandler() {
     this.batchService = null;
@@ -98,6 +101,7 @@ public class PostExecutionHandler {
     this.workflowScheduler = null;
     this.deadLetterService = null;
     this.pollerScheduler = null;
+    this.afterCommitRegistrar = null;
   }
 
   public PostExecutionHandler(
@@ -108,18 +112,35 @@ public class PostExecutionHandler {
     this(batchService, workflowScheduler, deadLetterService, pollerScheduler, null);
   }
 
-  @Inject
   public PostExecutionHandler(
       BatchService batchService,
       WorkflowScheduler workflowScheduler,
       DeadLetterService deadLetterService,
       PollerScheduler pollerScheduler,
       JobTerminalStore jobTerminalStore) {
+    this(
+        batchService,
+        workflowScheduler,
+        deadLetterService,
+        pollerScheduler,
+        jobTerminalStore,
+        new JakartaAfterCommitRegistrar());
+  }
+
+  @Inject
+  public PostExecutionHandler(
+      BatchService batchService,
+      WorkflowScheduler workflowScheduler,
+      DeadLetterService deadLetterService,
+      PollerScheduler pollerScheduler,
+      JobTerminalStore jobTerminalStore,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this.jobTerminalStore = jobTerminalStore;
     this.batchService = batchService;
     this.workflowScheduler = workflowScheduler;
     this.deadLetterService = deadLetterService;
     this.pollerScheduler = pollerScheduler;
+    this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
   public boolean completeSuccess(
@@ -217,7 +238,7 @@ public class PostExecutionHandler {
     if (result.batchProgress() != null) {
       // Child terminal state and counters are already one durable unit. Parent completion is
       // independently recoverable if this following step fails (notably on Mongo).
-      org.jboss.logging.Logger log = org.jboss.logging.Logger.getLogger(PostExecutionHandler.class);
+      Logger log = Logger.getLogger(PostExecutionHandler.class);
       Runnable followup =
           () -> {
             try {
@@ -229,12 +250,8 @@ public class PostExecutionHandler {
                   result.batchProgress().batchId());
             }
           };
-      if (JobWakeupService.registerAfterCommit(
-              JobWakeupService.lookupTxRegistry(log),
-              followup,
-              log,
-              "Could not register batch completion; recovery will retry: %s")
-          == JobWakeupService.AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+      if (afterCommitRegistrar.registerAfterCommit(followup)
+          == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
         followup.run();
       }
     }

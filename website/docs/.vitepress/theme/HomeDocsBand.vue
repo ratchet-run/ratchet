@@ -1,6 +1,18 @@
 <script setup lang="ts">
 const docs = [
   {
+    title: 'Spring Boot quickstart',
+    href: '/deployment/spring-boot',
+    description: 'Add a starter, connect SQL or MongoDB, and submit a Spring bean method.',
+    event: 'spring-boot',
+  },
+  {
+    title: 'Quarkus quickstart',
+    href: '/deployment/quarkus',
+    description: 'Run persistent jobs on the JVM or as a native image with the Quarkus extension.',
+    event: 'quarkus',
+  },
+  {
     title: 'Install Ratchet',
     href: '/getting-started/installation',
     description: 'Import the BOM, choose a store, apply the schema, and configure runtime options.',

@@ -28,6 +28,7 @@ import io.quarkus.hibernate.orm.deployment.spi.AdditionalJpaModelBuildItem;
 import io.quarkus.maven.dependency.ResolvedDependency;
 import java.util.List;
 import run.ratchet.quarkus.runtime.QuarkusRatchetEntityManagerProvider;
+import run.ratchet.store.schema.RatchetJpaModel;
 
 /** Hibernate-backed SQL flavor wiring for the existing {@code ratchet-quarkus} artifact. */
 class RatchetSqlProcessor {
@@ -58,20 +59,6 @@ class RatchetSqlProcessor {
               "run.ratchet.store.sqlserver.SqlserverSchemaMigrationDialect",
               "run.ratchet.store.sqlserver.SqlserverEntityManagerProvider",
               "run.ratchet.store.sqlserver.converter"));
-
-  // Package-private for the orm.xml drift test.
-  static final List<String> RATCHET_ENTITY_CLASSES =
-      List.of(
-          "run.ratchet.store.entity.ArchivedJobEntity",
-          "run.ratchet.store.entity.BatchEntity",
-          "run.ratchet.store.entity.BatchMetricsEntity",
-          "run.ratchet.store.entity.JobEntity",
-          "run.ratchet.store.entity.JobExecutionEntity",
-          "run.ratchet.store.entity.JobLogEntity",
-          "run.ratchet.store.entity.NodeEntity",
-          "run.ratchet.store.entity.ResourceLimitEntity",
-          "run.ratchet.store.entity.ResourcePermitEntity",
-          "run.ratchet.store.entity.WorkflowConditionEntity");
 
   /** Registers SQL-flavor beans only for the Hibernate-backed extension. */
   @BuildStep
@@ -117,14 +104,14 @@ class RatchetSqlProcessor {
   void ratchetJpaModel(
       BuildProducer<AdditionalJpaModelBuildItem> additionalJpaModels,
       BuildProducer<JpaModelPersistenceUnitContributionBuildItem> persistenceUnitContributions) {
-    RATCHET_ENTITY_CLASSES.forEach(
+    RatchetJpaModel.ENTITY_CLASS_NAMES.forEach(
         className -> additionalJpaModels.produce(new AdditionalJpaModelBuildItem(className)));
 
     persistenceUnitContributions.produce(
         new JpaModelPersistenceUnitContributionBuildItem(
             QuarkusRatchetEntityManagerProvider.PERSISTENCE_UNIT_NAME,
             null,
-            RATCHET_ENTITY_CLASSES,
+            RatchetJpaModel.ENTITY_CLASS_NAMES,
             List.of("no-file")));
   }
 

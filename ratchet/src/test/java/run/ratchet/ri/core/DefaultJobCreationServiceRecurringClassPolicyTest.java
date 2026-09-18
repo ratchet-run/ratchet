@@ -36,6 +36,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
@@ -98,7 +99,11 @@ class DefaultJobCreationServiceRecurringClassPolicyTest {
             new PackagePrefixClassPolicy(Set.of("run.ratchet.ri.core.")),
             null,
             null,
-            Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC));
+            Clock.fixed(Instant.parse("2026-07-01T12:00:00Z"), ZoneOffset.UTC),
+            true,
+            true,
+            null,
+            new JakartaAfterCommitRegistrar());
     DefaultRecurringJobBuilder builder =
         new DefaultRecurringJobBuilder(
             "0 0 12 * * ?", ZoneId.of("UTC"), AppRecurringBean::doWork, service);

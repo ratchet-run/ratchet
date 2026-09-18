@@ -31,6 +31,14 @@ module run.ratchet.ri {
   requires org.objectweb.asm;
   requires org.objectweb.asm.tree;
 
+  exports run.ratchet.ri.cdi to run.ratchet.spring.boot.autoconfigure;
+  exports run.ratchet.ri.cdi.internal to run.ratchet.spring.boot.autoconfigure;
+  exports run.ratchet.ri.core to run.ratchet.spring.boot.autoconfigure;
+  exports run.ratchet.ri.core.internal to run.ratchet.spring.boot.autoconfigure;
+  exports run.ratchet.ri.payload to run.ratchet.spring.boot.autoconfigure;
+  exports run.ratchet.ri.resilience to run.ratchet.spring.boot.autoconfigure;
+  exports run.ratchet.ri.security to run.ratchet.spring.boot.autoconfigure;
+
   provides jakarta.enterprise.inject.spi.Extension with
       run.ratchet.ri.cdi.RecurringMethodDiscoveryExtension;
 

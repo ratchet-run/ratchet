@@ -75,6 +75,8 @@ public class LayeringArchitectureTest {
     assertPackageNonEmpty(imported, "run.ratchet.store.mysql");
     assertPackageNonEmpty(imported, "run.ratchet.store.postgresql");
     assertPackageNonEmpty(imported, "run.ratchet.store.mongodb");
+    assertPackageNonEmpty(imported, "run.ratchet.store.oracle");
+    assertPackageNonEmpty(imported, "run.ratchet.store.sqlserver");
     assertPackageNonEmpty(imported, "run.ratchet.ri");
     assertPackageNonEmpty(imported, "run.ratchet.coordinator");
   }
@@ -237,6 +239,16 @@ public class LayeringArchitectureTest {
 
   // --- JPA purity for SQL stores ---
 
+  @ArchTest
+  static final ArchRule sharedRuntimeDoesNotDependOnSpring =
+      noClasses()
+          .that()
+          .resideInAnyPackage(API, SPI, RI, STORE_CORE)
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage("org.springframework..", "run.ratchet.spring..")
+          .because("Spring dependencies belong in the integration modules");
+
   /**
    * Classes in the SQL store modules and shared store-core main sources must not import
    * provider-specific JPA APIs. This is a hard project constraint — a Hibernate-specific annotation
@@ -248,7 +260,7 @@ public class LayeringArchitectureTest {
   static final ArchRule sqlStoresUseStandardJpaOnly =
       noClasses()
           .that()
-          .resideInAnyPackage(STORE_CORE, STORE_MYSQL, STORE_POSTGRESQL)
+          .resideInAnyPackage(API, SPI, RI, STORE_CORE)
           .should()
           .dependOnClassesThat()
           .resideInAnyPackage("org.hibernate..", "org.eclipse.persistence..")

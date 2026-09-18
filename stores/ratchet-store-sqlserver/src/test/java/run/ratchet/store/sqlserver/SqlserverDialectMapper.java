@@ -16,10 +16,10 @@
 package run.ratchet.store.sqlserver;
 
 import java.util.Set;
+import run.ratchet.store.schema.ForeignKey;
+import run.ratchet.store.schema.LogicalType;
+import run.ratchet.store.schema.OnDeleteAction;
 import run.ratchet.tck.store.schema.DialectTypeMapper;
-import run.ratchet.tck.store.schema.ForeignKey;
-import run.ratchet.tck.store.schema.LogicalType;
-import run.ratchet.tck.store.schema.OnDeleteAction;
 
 /**
  * SQL Server type/action acceptance for the schema conformance contract.

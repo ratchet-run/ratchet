@@ -84,7 +84,14 @@ class ChainSchedulerTest {
 
   @BeforeEach
   void setUp() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK);
+    lenient().when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            null,
+            new JakartaAfterCommitRegistrar(txRegistry));
     lenient().when(jobTerminalStore.cancelJob(any(UUID.class))).thenReturn(true);
   }
 
@@ -100,7 +107,13 @@ class ChainSchedulerTest {
 
   @Test
   void scheduleNext_finalChainStepPublishesChainCompletedEvent() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     JobEntity root = pendingJob();
     root.setJobType(JobExecutionType.SINGLE);
     JobEntity finished = pendingJob();
@@ -122,8 +135,13 @@ class ChainSchedulerTest {
 
   @Test
   void scheduleNext_chainCompletedEventPublishesExactlyOnceAfterCommit() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
-    scheduler.setTxRegistryForTesting(txRegistry);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     AtomicReference<Synchronization> synchronization = activeTransaction();
     JobEntity root = pendingJob();
     root.setJobType(JobExecutionType.SINGLE);
@@ -145,8 +163,13 @@ class ChainSchedulerTest {
 
   @Test
   void scheduleNext_chainCompletedEventIsSuppressedOnRollback() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
-    scheduler.setTxRegistryForTesting(txRegistry);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     AtomicReference<Synchronization> synchronization = activeTransaction();
     JobEntity root = pendingJob();
     root.setJobType(JobExecutionType.SINGLE);
@@ -181,7 +204,13 @@ class ChainSchedulerTest {
 
   @Test
   void scheduleNext_firstChainStepPublishesChainStartedEvent() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     JobEntity root = pendingJob();
     root.setJobType(JobExecutionType.SINGLE);
     JobEntity child = pendingJob();
@@ -202,8 +231,13 @@ class ChainSchedulerTest {
 
   @Test
   void scheduleNext_chainStartedEventPublishesExactlyOnceAfterCommit() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
-    scheduler.setTxRegistryForTesting(txRegistry);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     AtomicReference<Synchronization> synchronization = activeTransaction();
     JobEntity root = pendingJob();
     root.setJobType(JobExecutionType.SINGLE);
@@ -357,7 +391,13 @@ class ChainSchedulerTest {
 
   @Test
   void cancelChain_publishesChainFailedEventWhenDependantsAreCanceled() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     JobEntity failed = pendingJob();
     failed.setJobType(JobExecutionType.SINGLE);
     failed.setLastError("boom");
@@ -380,8 +420,13 @@ class ChainSchedulerTest {
 
   @Test
   void cancelChain_chainFailedEventIsSuppressedOnRollback() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
-    scheduler.setTxRegistryForTesting(txRegistry);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     AtomicReference<Synchronization> synchronization = activeTransaction();
     JobEntity failed = pendingJob();
     failed.setJobType(JobExecutionType.SINGLE);
@@ -400,8 +445,13 @@ class ChainSchedulerTest {
 
   @Test
   void cancelChain_chainFailedEventIsSuppressedWhenAfterCommitRegistrationFails() {
-    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
-    scheduler.setTxRegistryForTesting(txRegistry);
+    scheduler =
+        new ChainScheduler(
+            jobCrudStore,
+            jobTerminalStore,
+            FIXED_CLOCK,
+            eventPublisher,
+            new JakartaAfterCommitRegistrar(txRegistry));
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     doThrow(new IllegalStateException("boom"))
         .when(txRegistry)

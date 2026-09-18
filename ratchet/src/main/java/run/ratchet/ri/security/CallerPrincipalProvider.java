@@ -18,6 +18,7 @@ package run.ratchet.ri.security;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Vetoed;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.spi.PrincipalSource;
 import run.ratchet.spi.PrincipalSourceInstances;
@@ -63,14 +64,42 @@ public class CallerPrincipalProvider {
 
   private static final Logger log = Logger.getLogger(CallerPrincipalProvider.class);
 
-  private final Instance<PrincipalSource> sources;
+  private final Supplier<Optional<String>> principalSupplier;
 
   protected CallerPrincipalProvider() {
-    this.sources = null;
+    this((Instance<PrincipalSource>) null);
   }
 
   public CallerPrincipalProvider(Instance<PrincipalSource> sources) {
-    this.sources = sources;
+    this(
+        () ->
+            PrincipalSourceInstances.currentPrincipal(
+                sources,
+                CallerPrincipalProvider::sourcePrincipal,
+                "PrincipalSource Instance was not injected",
+                CallerPrincipalProvider::lookupFailed));
+  }
+
+  private CallerPrincipalProvider(Supplier<Optional<String>> principalSupplier) {
+    this.principalSupplier = principalSupplier;
+  }
+
+  /** Adapts a host container's current-principal lookup without CDI instance wrappers. */
+  public static CallerPrincipalProvider fromSupplier(Supplier<Optional<String>> principalSupplier) {
+    return new CallerPrincipalProvider(
+        () -> {
+          try {
+            Optional<String> principal = principalSupplier.get();
+            return principal == null ? Optional.empty() : principal.filter(name -> !name.isEmpty());
+          } catch (RuntimeException e) {
+            lookupFailed(e);
+            return Optional.empty();
+          }
+        });
+  }
+
+  private static void lookupFailed(RuntimeException failure) {
+    log.warnf(failure, "PrincipalSource lookup failed; capturing null caller principal");
   }
 
   /**
@@ -79,11 +108,7 @@ public class CallerPrincipalProvider {
    * (unauthenticated request, or non-EE runtime).
    */
   public Optional<String> currentPrincipal() {
-    return PrincipalSourceInstances.currentPrincipal(
-        sources,
-        CallerPrincipalProvider::sourcePrincipal,
-        "PrincipalSource Instance was not injected",
-        e -> log.warnf(e, "PrincipalSource lookup failed; capturing null caller principal"));
+    return principalSupplier.get();
   }
 
   private static Optional<String> sourcePrincipal(PrincipalSource source) {

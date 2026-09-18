@@ -98,7 +98,7 @@ public class DefaultJobArchivingService implements JobArchivingService {
         clock);
   }
 
-  DefaultJobArchivingService(
+  public DefaultJobArchivingService(
       ArchiveStore archiveStore,
       SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider,

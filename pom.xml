@@ -62,6 +62,11 @@
     <module>observability/ratchet-micrometer</module>
     <module>observability/ratchet-otel</module>
     <module>integrations/ratchet-quarkus</module>
+    <module>integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure</module>
+    <module>integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-jpa</module>
+    <module>integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb</module>
+    <module>integrations/ratchet-spring-boot/ratchet-spring-boot-starter</module>
+    <module>integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb</module>
     <module>ratchet-bom</module>
     <module>testing/ratchet-tck</module>
     <module>testing/ratchet-testsuite</module>

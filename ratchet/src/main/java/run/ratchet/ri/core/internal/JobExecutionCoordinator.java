@@ -17,6 +17,7 @@ package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Duration;
 import org.jboss.logging.Logger;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.JobStateManager;
@@ -72,7 +73,19 @@ public class JobExecutionCoordinator {
   }
 
   public void shutdown() {
+    shutdown(Duration.ZERO);
+  }
+
+  /** Stops submissions, drains accepted work, then cancels tasks that exceeded the deadline. */
+  public void shutdown(Duration timeout) {
     retryBufferDrainer.shutdown();
+    if (!timeout.isZero() && !timeout.isNegative()) {
+      try {
+        jobExecutorService.awaitIdle(timeout);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
     int activeExecutions = jobExecutorService.shutdownActiveExecutions();
     if (activeExecutions > 0) {
       log.warnf(

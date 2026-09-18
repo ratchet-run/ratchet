@@ -8,28 +8,24 @@ description: Frequently asked questions about Ratchet job scheduling, deployment
 
 ## Can I use Ratchet without CDI?
 
-Ratchet is designed as a CDI-first library. The reference implementation (`ratchet`) uses CDI for dependency injection, bean resolution, and event publishing. However, the architecture separates concerns through SPI interfaces:
+Yes. The [Spring Boot integration](/deployment/spring-boot) wires the scheduler with Spring beans,
+transactions, lifecycle events, and Boot connection properties. It does not need a CDI container.
+Use the SQL or MongoDB starter and follow that runtime's guide. Quarkus has its own
+[extension](/deployment/quarkus).
 
-- `BeanResolver`: abstracts how job target beans are obtained
-- `ExecutorProvider`: abstracts thread pool management
-- `ClassPolicy`, `RetryPolicy`, `ResilienceStrategy`: all are pluggable interfaces
-
-You could wire these manually without CDI, but you would need to:
-1. Construct all beans and their dependency graphs yourself
-2. Provide a `BeanResolver` implementation that resolves beans without CDI
-3. Replace the CDI event bridge with your own event dispatch
-
-This is not a supported configuration. If you need a non-CDI scheduler, consider whether Ratchet is the right fit. The library is purpose-built for Jakarta EE environments with CDI.
+The Jakarta EE integration uses CDI. Manually constructing the implementation graph is not the
+recommended application setup; use the supported integration for your runtime.
 
 ## What databases are supported?
 
-Ratchet ships with four store modules:
+Ratchet ships with five store modules:
 
 | Module | Database | Minimum Version |
 |---|---|---|
 | `ratchet-store-mysql` | MySQL | 8.0+ |
 | `ratchet-store-postgresql` | PostgreSQL | 14+ |
 | `ratchet-store-oracle` | Oracle | 23ai+ |
+| `ratchet-store-sqlserver` | SQL Server | 2022+ |
 | `ratchet-store-mongodb` | MongoDB | 6.0+ |
 
 The SQL modules provide DDL scripts (`src/main/resources/ddl/`) as plain SQL files. Apply them however you manage your schema (Flyway, Liquibase, manual scripts, etc.). The MongoDB module initializes its collections and indexes at startup.

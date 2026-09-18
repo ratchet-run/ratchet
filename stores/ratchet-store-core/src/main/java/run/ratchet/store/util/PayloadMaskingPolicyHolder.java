@@ -16,6 +16,7 @@
 package run.ratchet.store.util;
 
 import run.ratchet.spi.PayloadMaskingPolicy;
+import run.ratchet.store.converter.RuntimeContextInstallation;
 
 /**
  * Static holder that resolves the active {@link PayloadMaskingPolicy} used by {@link
@@ -43,7 +44,10 @@ public final class PayloadMaskingPolicyHolder {
    * @param policy the policy to install; MAY be {@code null} to revert to the built-in default
    */
   public static void set(PayloadMaskingPolicy policy) {
-    delegate = policy;
+    synchronized (RuntimeContextInstallation.class) {
+      RuntimeContextInstallation.checkUnowned();
+      delegate = policy;
+    }
   }
 
   /**

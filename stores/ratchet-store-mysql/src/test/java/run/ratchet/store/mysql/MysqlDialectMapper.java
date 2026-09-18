@@ -19,10 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import run.ratchet.store.schema.LogicalPredicate;
+import run.ratchet.store.schema.LogicalType;
+import run.ratchet.store.schema.OnDeleteAction;
 import run.ratchet.tck.store.schema.DialectTypeMapper;
-import run.ratchet.tck.store.schema.LogicalPredicate;
-import run.ratchet.tck.store.schema.LogicalType;
-import run.ratchet.tck.store.schema.OnDeleteAction;
 
 /**
  * MySQL 8 type/action acceptance for the schema conformance contract. MySQL has no introspectable

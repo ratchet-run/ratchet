@@ -84,9 +84,12 @@ public class JobPayloadInvoker {
   public Object invoke(JobPayload payload) throws Exception {
     Class<?> targetClass = loadAllowedClass(payload.target());
     Method method = resolveMethod(targetClass, payload);
-    Object target = payload.isStatic() ? null : resolveBean(targetClass, payload);
     List<Object> args = payload.args() != null ? payload.args() : List.of();
-    return invokeTargetMethod(method, target, args);
+    if (payload.isStatic()) return invokeTargetMethod(method, null, args);
+    try (BeanResolver.ManagedBean handle = resolveBean(targetClass, payload)) {
+      Object target = handle.instance();
+      return invokeTargetMethod(ManagedInvocation.exposedMethod(method, target), target, args);
+    }
   }
 
   /**
@@ -168,9 +171,9 @@ public class JobPayloadInvoker {
         payload.method() + " with descriptor " + payload.methodDescriptor());
   }
 
-  private Object resolveBean(Class<?> targetClass, JobPayload payload) {
+  private BeanResolver.ManagedBean resolveBean(Class<?> targetClass, JobPayload payload) {
     try {
-      return beanResolver.resolve(targetClass);
+      return beanResolver.acquire(targetClass);
     } catch (Exception e) {
       throw new IllegalStateException(
           "Cannot resolve bean for instance method "

@@ -479,7 +479,7 @@ PostgreSQL rejects `CREATE INDEX CONCURRENTLY` inside a transaction block, and t
 
 ### MongoDB
 
-MongoDB does not participate in `auto-migrate`; its collections and named indexes are created unconditionally during store startup. The `auto-migrate` flag is JDBC-only by contract.
+In Spring Boot, `ratchet.schema.auto-migrate=true` creates MongoDB collections and required indexes and runs data migrations. With `false`, startup validates existing collections, indexes, and migration markers without writing; provision the schema before starting the application. Outside Spring Boot, MongoDB store startup creates collections and indexes by default.
 
 ## Backup Strategy
 

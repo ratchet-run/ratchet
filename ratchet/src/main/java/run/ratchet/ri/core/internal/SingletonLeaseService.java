@@ -56,7 +56,7 @@ public class SingletonLeaseService {
   }
 
   /** Constructor for tests that supply a lock store directly (or {@code null} for no-op leases). */
-  SingletonLeaseService(LockStore lockStore, NodeIdentityProvider nodeIdentityProvider) {
+  public SingletonLeaseService(LockStore lockStore, NodeIdentityProvider nodeIdentityProvider) {
     this.lockStore = lockStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
   }

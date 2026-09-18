@@ -140,6 +140,96 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void validationListsCollectionsOnceAndRefreshesOnNextPass() {
+    var listings = new java.util.concurrent.atomic.AtomicInteger();
+    var observed =
+        (MongoDatabase)
+            java.lang.reflect.Proxy.newProxyInstance(
+                MongoDatabase.class.getClassLoader(),
+                new Class<?>[] {MongoDatabase.class},
+                (proxy, method, args) -> {
+                  if (method.getName().equals("listCollectionNames")) listings.incrementAndGet();
+                  try {
+                    return method.invoke(database, args);
+                  } catch (java.lang.reflect.InvocationTargetException failure) {
+                    throw failure.getCause();
+                  }
+                });
+    var initializer = new MongoCollectionInitializer(observed, client);
+    initializer.validate();
+    assertEquals(1, listings.get());
+    database.getCollection("scheduler_job").drop();
+    var failure = assertThrows(IllegalStateException.class, initializer::validate);
+    assertTrue(failure.getMessage().contains("missing collection scheduler_job"));
+    assertEquals(2, listings.get());
+  }
+
+  @Test
+  void validationListsIndexesOncePerCollectionAndRefreshesOnNextPass() {
+    var listings = new java.util.HashMap<String, Integer>();
+    var observed =
+        (MongoDatabase)
+            java.lang.reflect.Proxy.newProxyInstance(
+                MongoDatabase.class.getClassLoader(),
+                new Class<?>[] {MongoDatabase.class},
+                (proxy, method, args) -> {
+                  try {
+                    Object result = method.invoke(database, args);
+                    if (method.getName().equals("getCollection")) {
+                      String name = (String) args[0];
+                      return java.lang.reflect.Proxy.newProxyInstance(
+                          com.mongodb.client.MongoCollection.class.getClassLoader(),
+                          new Class<?>[] {com.mongodb.client.MongoCollection.class},
+                          (collectionProxy, collectionMethod, collectionArgs) -> {
+                            if (collectionMethod.getName().equals("listIndexes")) {
+                              listings.merge(name, 1, Integer::sum);
+                            }
+                            try {
+                              return collectionMethod.invoke(result, collectionArgs);
+                            } catch (java.lang.reflect.InvocationTargetException failure) {
+                              throw failure.getCause();
+                            }
+                          });
+                    }
+                    return result;
+                  } catch (java.lang.reflect.InvocationTargetException failure) {
+                    throw failure.getCause();
+                  }
+                });
+    var initializer = new MongoCollectionInitializer(observed, client);
+    initializer.validate();
+    assertTrue(listings.size() > 1);
+    assertTrue(listings.values().stream().allMatch(count -> count == 1));
+    initializer.validate();
+    assertTrue(listings.values().stream().allMatch(count -> count == 2));
+    database.getCollection("scheduler_job").dropIndex(MongoIndexHints.JOB_CLAIM_EXEC);
+    var failure = assertThrows(IllegalStateException.class, initializer::validate);
+    assertTrue(failure.getMessage().contains(MongoIndexHints.JOB_CLAIM_EXEC));
+    assertEquals(3, listings.get("scheduler_job"));
+  }
+
+  @Test
+  void validationRejectsACompoundIndexWithTheSameKeysInReverseOrder() {
+    var jobs = database.getCollection("scheduler_job");
+    jobs.dropIndex(MongoIndexHints.JOB_CLAIM_EXEC);
+    jobs.createIndex(
+        Indexes.compoundIndex(
+            Indexes.ascending(ID),
+            Indexes.ascending(SCHEDULED_TIME),
+            Indexes.descending(PRIORITY),
+            Indexes.ascending(JOB_TYPE),
+            Indexes.ascending(STATUS)),
+        new IndexOptions().name(MongoIndexHints.JOB_CLAIM_EXEC));
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> new MongoCollectionInitializer(database, client).validate());
+
+    assertTrue(failure.getMessage().contains(MongoIndexHints.JOB_CLAIM_EXEC));
+  }
+
+  @Test
   void everyHintNamesAnIndexThatGetsCreated() throws IllegalAccessException {
     Set<String> created = allCreatedIndexNames();
     for (Field field : MongoIndexHints.class.getDeclaredFields()) {

@@ -20,6 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.schema.Column;
+import run.ratchet.store.schema.DeprecatedArtifact;
+import run.ratchet.store.schema.Index;
+import run.ratchet.store.schema.RatchetSchemaCatalog;
+import run.ratchet.store.schema.Table;
 
 class RatchetSchemaCatalogTest {
 

@@ -6,6 +6,10 @@ description: CDI producer setup, beans.xml requirements, and the required Ratche
 
 # Configuration
 
+:::tip Spring Boot
+For the starter-based setup and `application.properties`, use the [Spring Boot guide](/deployment/spring-boot). The CDI producer examples below apply to Jakarta EE.
+:::
+
 Ratchet is designed to run in Jakarta EE without static global configuration. CDI owns the runtime objects, Ratchet consumes one immutable `RatchetOptions` bean that your application produces, and store-specific resources remain normal CDI resources.
 
 :::important Required producer
