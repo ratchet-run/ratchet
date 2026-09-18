@@ -32,19 +32,6 @@ import run.ratchet.store.entity.JobEntity;
 /** Shared utilities for archiving jobs across JPA-based store implementations. */
 public final class ArchiveHelper {
 
-  /** JPQL for finding terminal jobs older than a cutoff, used by both JPA store implementations. */
-  // language=JPAQL
-  public static final String FIND_JOBS_FOR_ARCHIVING_JPQL =
-      """
-      SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags
-      WHERE j.status IN (
-        run.ratchet.api.JobStatus.SUCCEEDED,
-        run.ratchet.api.JobStatus.FAILED,
-        run.ratchet.api.JobStatus.CANCELED)
-        AND j.updatedAt < :cutoff
-      ORDER BY j.updatedAt ASC
-      """;
-
   private ArchiveHelper() {}
 
   /**
