@@ -491,6 +491,118 @@ jobs:
             integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
 
+  spring-boot-runtime:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    name: spring-boot-runtime (Java ${{ matrix.java }}, Boot ${{ matrix.boot }})
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [17, 21]
+        boot: [3.5.16, 4.1.1]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Stage current Spring artifacts
+        run: >-
+          mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-runtime-repository"
+          -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
+          -pl :ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-postgresql
+          -am install
+      - uses: actions/setup-java@v6
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+      - name: Verify Spring runtime failure scenarios
+        run: |
+          set -o pipefail
+          profiles=runtime
+          if [ "${{ matrix.boot }}" = "4.1.1" ]; then profiles=runtime,runtime-boot4; fi
+          mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
+            -Dmaven.repo.local="$RUNNER_TEMP/ratchet-runtime-repository" \
+            -Dspring-boot.version=${{ matrix.boot }} -Dstore=postgresql \
+            -P "$profiles" verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false \
+            '-Dit.test=*RuntimeIT' -Dfailsafe.failIfNoSpecifiedTests=false 2>&1 | tee spring-runtime.log
+      - name: Retain runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spring-boot-runtime-java${{ matrix.java }}-${{ matrix.boot }}
+          path: |
+            spring-runtime.log
+            integrations/ratchet-spring-boot/consumer-tests/**/target/runtime-*.log
+            integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
+
+  # Native executables are launched by a JVM Testcontainers harness. Keep every Boot/store cell
+  # required, even though the regular Java 17/21 matrix above remains the compatibility gate.
+  spring-boot-native:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    name: spring-boot-native (Boot ${{ matrix.boot }}, ${{ matrix.store }})
+    strategy:
+      fail-fast: false
+      matrix:
+        boot: [3.5.16, 4.1.1]
+        store: [postgresql, mysql, oracle, sqlserver, mongodb]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Stage current Spring artifacts
+        run: |
+          set -o pipefail
+          mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-native-repository" \
+            -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true \
+            -pl :ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-${{ matrix.store }} \
+            -am install 2>&1 | tee native-stage.log
+      - name: Verify generated AOT application on the JVM
+        run: |
+          set -o pipefail
+          consumer=:sql-consumer
+          if [ "${{ matrix.store }}" = "mongodb" ]; then consumer=:mongodb-consumer; fi
+          mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
+            -Dmaven.repo.local="$RUNNER_TEMP/ratchet-native-repository" \
+            -Dspring-boot.version=${{ matrix.boot }} -Dstore=${{ matrix.store }} \
+            -pl "$consumer" -am -Paot clean verify \
+            -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tee aot-build.log
+          mkdir -p aot-evidence
+          cp -r integrations/ratchet-spring-boot/consumer-tests/*/target/failsafe-reports aot-evidence/
+          find integrations/ratchet-spring-boot/consumer-tests -path '*/target/*.log' -exec cp {} aot-evidence/ \;
+      - name: Build and verify native executable
+        run: |
+          set -o pipefail
+          consumer=:sql-consumer
+          if [ "${{ matrix.store }}" = "mongodb" ]; then consumer=:mongodb-consumer; fi
+          mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
+            -Dmaven.repo.local="$RUNNER_TEMP/ratchet-native-repository" \
+            -Dspring-boot.version=${{ matrix.boot }} -Dstore=${{ matrix.store }} \
+            -pl "$consumer" -am -Pnative clean verify \
+            -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tee native-build.log
+      - name: Retain native and AOT evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spring-boot-native-${{ matrix.boot }}-${{ matrix.store }}
+          path: |
+            native-stage.log
+            aot-build.log
+            native-build.log
+            aot-evidence/
+            integrations/ratchet-spring-boot/consumer-tests/**/target/*.log
+            integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
+            integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
+            integrations/ratchet-spring-boot/consumer-tests/**/target/spring-aot/main/resources/
+
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
   # on the web filter so it runs whenever anything under website/ changes —
@@ -541,7 +653,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, a11y]
+    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, spring-boot-runtime, spring-boot-native, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

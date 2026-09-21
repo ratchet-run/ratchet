@@ -309,7 +309,42 @@ verify actual virtual threads, explicit platform routing, transaction advice, an
 application writes using only Boot's setting. Java 17 runs verify platform execution and fallback
 with the same setting.
 
-Native-image support is not part of this integration yet.
+## Native images
+
+Native support is verified with Boot 3.5.16 and 4.1.1 on GraalVM 25 for all five stores.
+SQL native images use Hibernate. Install exactly one Ratchet SQL store artifact when building;
+the executable validates the actual database vendor at startup. EclipseLink native images are
+outside this support matrix.
+
+Spring AOT discovers application package classes and registered application bean types, including
+nested, local, and anonymous lambda submitters. It includes target reflection, payload binding,
+lambda serialization metadata, and the class resources Ratchet's lambda analyzer reads.
+Ordinary application jobs need no registration annotation. Classes whose optional dependencies are absent are skipped during package scanning; missing dependencies of registered beans or explicitly registered types still fail the build. Dependency-library types can opt in:
+
+```java
+import run.ratchet.spring.boot.autoconfigure.RegisterRatchetTypes;
+
+@Configuration(proxyBeanMethods = false)
+@RegisterRatchetTypes(value = {LibrarySubmitter.class, LibraryPayload.class},
+    basePackageClasses = LibraryJobsPackage.class)
+class LibraryJobsConfiguration {}
+```
+
+Registration does not change `ClassPolicy`. Authorize library job packages separately with
+`ratchet.allowed-packages` or a policy bean. Result deserialization authorization remains separate.
+The marker includes its package and subpackages; explicit classes also include their nested types.
+
+Supply profiles and conditions selecting beans during Boot's `process-aot` phase. Database
+credentials, encryption keys, and job parameters remain runtime configuration. AOT does not connect
+to a database, migrate schemas, start workers, or instantiate lazy/prototype jobs. Rebuild from
+`clean` when changing stores, profiles, framework versions, or available job types.
+
+The [independent consumer reactor](https://github.com/ratchet-run/ratchet/blob/main/integrations/ratchet-spring-boot/consumer-tests/README.md#aot-and-native-verification)
+has `aot` and `native` profiles. After staging current artifacts, each native cell runs through
+one `mvn -Pnative clean verify` invocation with the selected Boot version and store. The native
+profile explicitly binds AOT, reachability metadata, compilation, and executable integration tests;
+applications that do not inherit Boot's parent need these bindings too. Testcontainers and test
+assertions remain in the JVM process.
 
 ## Compatibility and verification
 
@@ -317,6 +352,7 @@ Native-image support is not part of this integration yet.
 | --- | --- | --- | --- |
 | Boot 3.5.16 | 17 and 21 | PostgreSQL, MySQL, Oracle, SQL Server, MongoDB | JVM |
 | Boot 4.1.1 | 17 and 21 | PostgreSQL, MySQL, Oracle, SQL Server, MongoDB | JVM |
+| Boot 3.5.16 and 4.1.1 | GraalVM 25 | PostgreSQL, MySQL, Oracle, SQL Server, MongoDB | Native executable CI matrix |
 | EclipseLink 5.0.1 / JPA 3.2, both Boot versions | 17 and 21 | PostgreSQL | JVM; Hibernate excluded |
 
 The independent consumer reactor imports its own Boot BOM and resolves the same staged Ratchet
