@@ -17,7 +17,12 @@ package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.sql.SQLException;
+import java.sql.SQLRecoverableException;
+import java.sql.SQLTransientException;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.LongSupplier;
 import org.jboss.logging.Logger;
@@ -82,7 +87,8 @@ public class JobSuccessFinalizer {
             lifecycle.completeSuccess(
                 job, resultJson, resultType, start, end, durationMs, queueWaitMs);
         return updated ? Outcome.COMPLETED_FULL : Outcome.TERMINAL_SKIPPED;
-      } catch (RatchetTransientStoreException e) {
+      } catch (RuntimeException e) {
+        if (!isTransientStoreFailure(e)) throw e;
         observer.recordSuccessFinalizationRetry(job);
         if (attempt == MAX_ATTEMPTS) {
           log.warnf(
@@ -110,7 +116,8 @@ public class JobSuccessFinalizer {
         return Outcome.COMPLETED_MINIMAL;
       }
       return Outcome.TERMINAL_SKIPPED;
-    } catch (RatchetTransientStoreException e) {
+    } catch (RuntimeException e) {
+      if (!isTransientStoreFailure(e)) throw e;
       observer.recordSuccessFinalizationStuck(job);
       log.errorf(
           e,
@@ -118,6 +125,24 @@ public class JobSuccessFinalizer {
           job.getId());
       return Outcome.STUCK;
     }
+  }
+
+  /** Transaction interceptors can fail before the store translates a JDBC exception. */
+  static boolean isTransientStoreFailure(Throwable failure) {
+    var visited = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+    for (Throwable cause = failure; cause != null && visited.add(cause); cause = cause.getCause()) {
+      if (cause instanceof RatchetTransientStoreException
+          || cause instanceof SQLTransientException
+          || cause instanceof SQLRecoverableException) return true;
+      if (cause instanceof SQLException sql) {
+        String state = sql.getSQLState();
+        if (state != null && (state.startsWith("08") || state.startsWith("40"))) return true;
+        // Hikari's closed-connection sentinel has no SQL state. It can replace the original
+        // connection exception when Spring rolls back a failed completion transaction.
+        if (state == null && "Connection is closed".equals(sql.getMessage())) return true;
+      }
+    }
+    return false;
   }
 
   private boolean sleepBeforeRetry(JobEntity job, int attempt) {

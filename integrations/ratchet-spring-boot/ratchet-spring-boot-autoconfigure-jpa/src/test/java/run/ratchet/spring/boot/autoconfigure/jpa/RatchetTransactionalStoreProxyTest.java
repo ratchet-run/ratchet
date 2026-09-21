@@ -16,8 +16,12 @@
 package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import jakarta.transaction.Transactional;
 import java.util.Optional;
@@ -27,10 +31,51 @@ import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 class RatchetTransactionalStoreProxyTest {
+
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+  void rollbackFailurePreservesTransientStoreClassificationOnly(boolean transientFailure) {
+    var manager = mock(PlatformTransactionManager.class);
+    var status = mock(TransactionStatus.class);
+    when(manager.getTransaction(any())).thenReturn(status);
+    var rollbackFailure = new IllegalStateException("connection closed during rollback");
+    doThrow(rollbackFailure).when(manager).rollback(status);
+    RuntimeException original =
+        transientFailure
+            ? new RatchetTransientStoreException("connection lost")
+            : new IllegalArgumentException("permanent failure");
+    var proxy =
+        (FailingStore)
+            RatchetTransactionalStoreProxy.createProxy(
+                new FailingStoreTarget(original), FailingStore.class, manager);
+    Throwable failure = catchThrowable(proxy::write);
+    if (transientFailure) {
+      assertThat(failure)
+          .isInstanceOf(RatchetTransientStoreException.class)
+          .hasCause(rollbackFailure);
+      assertThat(failure.getSuppressed()).containsExactly(original);
+    } else {
+      assertThat(failure).isSameAs(rollbackFailure);
+    }
+  }
+
+  interface FailingStore {
+    void write();
+  }
+
+  private record FailingStoreTarget(RuntimeException failure) implements FailingStore {
+    @Override
+    @Transactional
+    public void write() {
+      throw failure;
+    }
+  }
 
   @Test
   void capabilityLookupDoesNotOpenATransaction() {

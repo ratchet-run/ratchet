@@ -16,6 +16,7 @@
 package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import org.aopalliance.intercept.MethodInterceptor;
@@ -23,6 +24,7 @@ import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 import org.springframework.transaction.interceptor.TransactionInterceptor;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.spi.JobStore;
 
 /** Creates a JDK transaction proxy while keeping capability views on that same proxy. */
@@ -57,7 +59,37 @@ final class RatchetTransactionalStoreProxy {
               return invocation.proceed();
             });
     proxyFactory.addAdvice(
-        new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource()));
+        new TransactionInterceptor(transactionManager, new AnnotationTransactionAttributeSource()) {
+          @Override
+          protected Object invokeWithinTransaction(
+              Method method, Class<?> targetClass, InvocationCallback invocation) throws Throwable {
+            var storeFailure = new AtomicReference<RatchetTransientStoreException>();
+            try {
+              return super.invokeWithinTransaction(
+                  method,
+                  targetClass,
+                  () -> {
+                    try {
+                      return invocation.proceedWithInvocation();
+                    } catch (RatchetTransientStoreException failure) {
+                      storeFailure.set(failure);
+                      throw failure;
+                    }
+                  });
+            } catch (RuntimeException boundaryFailure) {
+              if (storeFailure.get() == null || storeFailure.get() == boundaryFailure)
+                throw boundaryFailure;
+              // A broken connection can also fail rollback, replacing the translated store error
+              // with a framework exception that has neither its cause nor its SQL state.
+              var failure =
+                  new RatchetTransientStoreException(
+                      "Transaction cleanup failed after a transient store failure",
+                      boundaryFailure);
+              failure.addSuppressed(storeFailure.get());
+              throw failure;
+            }
+          }
+        });
     proxyFactory.addAdvice(
         (MethodInterceptor)
             invocation -> {
