@@ -20,6 +20,7 @@ import java.sql.SQLException;
 import java.util.Locale;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
+import org.springframework.util.ClassUtils;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.migration.SchemaMigrationDialect;
@@ -55,10 +56,11 @@ enum SqlStoreVendor {
   static SqlStoreVendor detect(DataSource dataSource) {
     try (var connection = dataSource.getConnection()) {
       String product = connection.getMetaData().getDatabaseProductName().toLowerCase(Locale.ROOT);
-      if (product.contains("postgres")) return POSTGRESQL;
-      if (product.contains("mysql") || product.contains("mariadb")) return MYSQL;
-      if (product.contains("oracle")) return ORACLE;
-      if (product.contains("sql server") || product.contains("microsoft")) return SQLSERVER;
+      if (product.contains("postgres")) return validateAotVendor(POSTGRESQL);
+      if (product.contains("mysql") || product.contains("mariadb")) return validateAotVendor(MYSQL);
+      if (product.contains("oracle")) return validateAotVendor(ORACLE);
+      if (product.contains("sql server") || product.contains("microsoft"))
+        return validateAotVendor(SQLSERVER);
       throw new IllegalStateException(
           "Ratchet does not support database product '" + product + "'");
     } catch (SQLException e) {
@@ -66,41 +68,73 @@ enum SqlStoreVendor {
     }
   }
 
+  private static SqlStoreVendor validateAotVendor(SqlStoreVendor detected) {
+    String expected = RatchetJpaAotSettings.get("vendor");
+    if (expected != null && !detected.name().equals(expected)) {
+      throw new IllegalStateException(
+          "Ratchet executable was built for "
+              + expected
+              + " but the configured database is "
+              + detected);
+    }
+    return detected;
+  }
+
+  String storeClassName() {
+    String title =
+        switch (this) {
+          case POSTGRESQL -> "Postgresql";
+          case MYSQL -> "Mysql";
+          case ORACLE -> "Oracle";
+          case SQLSERVER -> "Sqlserver";
+        };
+    return "run.ratchet.store." + name().toLowerCase(Locale.ROOT) + "." + title + "JobStore";
+  }
+
+  String adapterClassName() {
+    return SqlStoreVendor.class.getName()
+        + "$"
+        + switch (this) {
+          case POSTGRESQL -> "PostgresqlVendor";
+          case MYSQL -> "MysqlVendor";
+          case ORACLE -> "OracleVendor";
+          case SQLSERVER -> "SqlserverVendor";
+        };
+  }
+
+  private Vendor adapter() {
+    // Only the installed store's adapter is registered by AOT. There are no static call edges
+    // from this dispatcher to absent, optional store implementations in native-image analysis.
+    try {
+      return (Vendor)
+          ClassUtils.forName(adapterClassName(), getClass().getClassLoader())
+              .getDeclaredConstructor()
+              .newInstance();
+    } catch (ReflectiveOperationException | LinkageError failure) {
+      throw new IllegalStateException("Ratchet requires " + artifactId, failure);
+    }
+  }
+
   Class<? extends JobStore> storeType() {
-    return requireVendor(
-        "store interface",
-        () ->
-            switch (this) {
-              case POSTGRESQL -> PostgresqlVendor.storeType();
-              case MYSQL -> MysqlVendor.storeType();
-              case ORACLE -> OracleVendor.storeType();
-              case SQLSERVER -> SqlserverVendor.storeType();
-            });
+    return requireVendor("store interface", () -> adapter().storeType());
   }
 
   SchemaMigrationDialect migrationDialect() {
-    return requireVendor(
-        "schema migration dialect",
-        () ->
-            switch (this) {
-              case POSTGRESQL -> PostgresqlVendor.migrationDialect();
-              case MYSQL -> MysqlVendor.migrationDialect();
-              case ORACLE -> OracleVendor.migrationDialect();
-              case SQLSERVER -> SqlserverVendor.migrationDialect();
-            });
+    return requireVendor("schema migration dialect", () -> adapter().migrationDialect());
   }
 
   JobStore createStore(
       EntityManager entityManager, RatchetOptions options, MetricsCollector metrics) {
-    return requireVendor(
-        "JobStore",
-        () ->
-            switch (this) {
-              case POSTGRESQL -> PostgresqlVendor.createStore(entityManager, options, metrics);
-              case MYSQL -> MysqlVendor.createStore(entityManager, options, metrics);
-              case ORACLE -> OracleVendor.createStore(entityManager, options, metrics);
-              case SQLSERVER -> SqlserverVendor.createStore(entityManager, options, metrics);
-            });
+    return requireVendor("JobStore", () -> adapter().createStore(entityManager, options, metrics));
+  }
+
+  interface Vendor {
+    Class<? extends JobStore> storeType();
+
+    SchemaMigrationDialect migrationDialect();
+
+    JobStore createStore(
+        EntityManager entityManager, RatchetOptions options, MetricsCollector metrics);
   }
 
   String jpaMappingFile() {
@@ -127,61 +161,61 @@ enum SqlStoreVendor {
     return artifactId;
   }
 
-  private static final class PostgresqlVendor {
-    private static Class<? extends JobStore> storeType() {
+  static final class PostgresqlVendor implements Vendor {
+    public Class<? extends JobStore> storeType() {
       return PostgresqlJobStore.class;
     }
 
-    private static SchemaMigrationDialect migrationDialect() {
+    public SchemaMigrationDialect migrationDialect() {
       return new PostgresqlSchemaMigrationDialect();
     }
 
-    private static JobStore createStore(
+    public JobStore createStore(
         EntityManager entityManager, RatchetOptions options, MetricsCollector metrics) {
       return PostgresqlJobStoreFactory.create(entityManager, options, metrics);
     }
   }
 
-  private static final class MysqlVendor {
-    private static Class<? extends JobStore> storeType() {
+  static final class MysqlVendor implements Vendor {
+    public Class<? extends JobStore> storeType() {
       return MysqlJobStore.class;
     }
 
-    private static SchemaMigrationDialect migrationDialect() {
+    public SchemaMigrationDialect migrationDialect() {
       return new MysqlSchemaMigrationDialect();
     }
 
-    private static JobStore createStore(
+    public JobStore createStore(
         EntityManager entityManager, RatchetOptions options, MetricsCollector metrics) {
       return MysqlJobStoreFactory.create(entityManager, options, metrics);
     }
   }
 
-  private static final class OracleVendor {
-    private static Class<? extends JobStore> storeType() {
+  static final class OracleVendor implements Vendor {
+    public Class<? extends JobStore> storeType() {
       return OracleJobStore.class;
     }
 
-    private static SchemaMigrationDialect migrationDialect() {
+    public SchemaMigrationDialect migrationDialect() {
       return new OracleSchemaMigrationDialect();
     }
 
-    private static JobStore createStore(
+    public JobStore createStore(
         EntityManager entityManager, RatchetOptions options, MetricsCollector metrics) {
       return OracleJobStoreFactory.create(entityManager, options, metrics);
     }
   }
 
-  private static final class SqlserverVendor {
-    private static Class<? extends JobStore> storeType() {
+  static final class SqlserverVendor implements Vendor {
+    public Class<? extends JobStore> storeType() {
       return SqlserverJobStore.class;
     }
 
-    private static SchemaMigrationDialect migrationDialect() {
+    public SchemaMigrationDialect migrationDialect() {
       return new SqlserverSchemaMigrationDialect();
     }
 
-    private static JobStore createStore(
+    public JobStore createStore(
         EntityManager entityManager, RatchetOptions options, MetricsCollector metrics) {
       return SqlserverJobStoreFactory.create(entityManager, options, metrics);
     }

@@ -32,31 +32,42 @@ final class RatchetJpaMappings {
 
   static PersistenceUnitInfo transform(
       PersistenceUnitInfo unit, List<String> additionalClasses, String additionalMapping) {
-    String entityPath = "run/ratchet/store/entity/JobEntity.class";
-    URL entity = RatchetJpaMappings.class.getClassLoader().getResource(entityPath);
-    URL mapping = unit.getClassLoader().getResource(DEFAULT_ORM);
-    String ratchetRoot =
-        entity == null
-            ? null
-            : entity
-                .toExternalForm()
-                .substring(0, entity.toExternalForm().length() - entityPath.length());
-    boolean filter =
-        mapping != null
-            && ratchetRoot != null
-            && mapping.toExternalForm().equals(ratchetRoot + DEFAULT_ORM);
+    String aotOwnership = RatchetJpaAotSettings.get("default-orm");
+    String ratchetRoot = null;
+    boolean filter;
+    if (aotOwnership != null) {
+      filter = "ratchet".equals(aotOwnership);
+    } else {
+      String entityPath = "run/ratchet/store/entity/JobEntity.class";
+      URL entity = RatchetJpaMappings.class.getClassLoader().getResource(entityPath);
+      URL mapping = unit.getClassLoader().getResource(DEFAULT_ORM);
+      ratchetRoot =
+          entity == null
+              ? null
+              : entity
+                  .toExternalForm()
+                  .substring(0, entity.toExternalForm().length() - entityPath.length());
+      filter =
+          mapping != null
+              && ratchetRoot != null
+              && mapping.toExternalForm().equals(ratchetRoot + DEFAULT_ORM);
+    }
     if (!filter && additionalClasses.isEmpty() && additionalMapping == null) return unit;
     List<String> classes = new ArrayList<>(unit.getManagedClassNames());
     for (String name : additionalClasses) if (!classes.contains(name)) classes.add(name);
     List<String> mappings = new ArrayList<>(unit.getMappingFileNames());
-    if (filter) mappings.removeIf(DEFAULT_ORM::equals);
+    String applicationMapping = RatchetJpaAotSettings.get("application-orm");
+    if (filter || applicationMapping != null) mappings.removeIf(DEFAULT_ORM::equals);
+    if (applicationMapping != null && !mappings.contains(applicationMapping))
+      mappings.add(applicationMapping);
     if (additionalMapping != null && !mappings.contains(additionalMapping))
       mappings.add(additionalMapping);
     URL root = unit.getPersistenceUnitRootUrl();
     List<URL> archives = unit.getJarFileUrls();
-    if (filter) {
+    if (filter && aotOwnership == null) {
       if (sameArchive(root, ratchetRoot)) root = null;
-      archives = archives.stream().filter(url -> !sameArchive(url, ratchetRoot)).toList();
+      String coreRoot = ratchetRoot;
+      archives = archives.stream().filter(url -> !sameArchive(url, coreRoot)).toList();
     }
     return RatchetPersistenceUnitView.create(
         unit, List.copyOf(classes), List.copyOf(mappings), root, archives);

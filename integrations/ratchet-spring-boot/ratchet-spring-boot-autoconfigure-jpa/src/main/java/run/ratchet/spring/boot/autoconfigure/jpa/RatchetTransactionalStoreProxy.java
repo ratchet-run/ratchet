@@ -15,9 +15,11 @@
  */
 package run.ratchet.spring.boot.autoconfigure.jpa;
 
-import java.lang.reflect.InvocationHandler;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Method;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.springframework.aop.framework.ProxyFactory;
@@ -45,6 +47,7 @@ final class RatchetTransactionalStoreProxy {
     proxyFactory.setTarget(target);
     proxyFactory.setInterfaces(compositeType);
     AtomicReference<Object> proxyReference = new AtomicReference<>();
+    var defaultMethods = new ConcurrentHashMap<Method, MethodHandle>();
     proxyFactory.addAdvice(
         (MethodInterceptor)
             invocation -> {
@@ -100,13 +103,29 @@ final class RatchetTransactionalStoreProxy {
                           invocation.getMethod().getName(),
                           invocation.getMethod().getParameterTypes())
                       .isDefault()) {
-                return InvocationHandler.invokeDefault(
-                    proxyReference.get(), invocation.getMethod(), invocation.getArguments());
+                // Bind the default implementation to the advised proxy so nested calls retain
+                // transaction advice. Looking up the interface directly also avoids the JDK's
+                // generated proxyClassLookup helper, which is unavailable in native executables.
+                return defaultMethods
+                    .computeIfAbsent(
+                        invocation.getMethod(), RatchetTransactionalStoreProxy::defaultMethod)
+                    .bindTo(proxyReference.get())
+                    .invokeWithArguments(invocation.getArguments());
               }
               return invocation.proceed();
             });
     Object proxy = proxyFactory.getProxy(compositeType.getClassLoader());
     proxyReference.set(proxy);
     return proxy;
+  }
+
+  private static MethodHandle defaultMethod(Method method) {
+    try {
+      Class<?> declaringClass = method.getDeclaringClass();
+      return MethodHandles.privateLookupIn(declaringClass, MethodHandles.lookup())
+          .unreflectSpecial(method, declaringClass);
+    } catch (IllegalAccessException failure) {
+      throw new IllegalStateException("Cannot invoke store default method " + method, failure);
+    }
   }
 }
