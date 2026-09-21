@@ -471,6 +471,8 @@ public class DefaultJobCreationService
    */
   @Override
   @Transactional
+  // The internal builder crosses a public interface method that must retain transaction advice.
+  @SuppressWarnings("ClassEscapesDefinedScope")
   public <T extends Serializable> JobHandle submit(DefaultStreamingBatchBuilder<T> builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {
@@ -552,6 +554,8 @@ public class DefaultJobCreationService
    */
   @Override
   @Transactional
+  // The internal builder crosses a public interface method that must retain transaction advice.
+  @SuppressWarnings("ClassEscapesDefinedScope")
   public JobHandle submit(DefaultRecurringJobBuilder builder) {
     JOB_PAYLOAD_CONVERTER.beginPreparationScope();
     try {

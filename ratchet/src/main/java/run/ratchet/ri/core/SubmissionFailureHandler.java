@@ -58,7 +58,7 @@ public class SubmissionFailureHandler {
     this.metricsCollector = metricsCollector;
   }
 
-  public void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
+  void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
     recordGateRejected(job.getJobType(), result);
     if (isFirstAttempt) {
       ResetOutcome outcome = resetToPendingOrBuffer(job);
@@ -74,7 +74,7 @@ public class SubmissionFailureHandler {
     }
   }
 
-  public void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
+  void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
     recordGateRejected(claim.jobType(), result);
     if (bufferClaim(claim)) {
       log.info(result.reason());
