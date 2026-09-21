@@ -76,10 +76,10 @@ public class JobTimeoutHandler {
 
   /**
    * Job ids the hard-timeout watchdog has cancelled and is about to retry/finalize itself. The
-   * watchdog records the id before it interrupts the worker, so when the interrupt lands in {@link
-   * JobTask#handleFailure} the worker can see the timeout is watchdog-owned and skip its own
-   * attempt increment. Without this, both the watchdog and the interrupted worker increment while
-   * the row is still RUNNING and a single timeout burns two attempts.
+   * watchdog records the id before it interrupts the worker, so when {@link JobTask} handles the
+   * resulting failure, the worker can see the timeout is watchdog-owned and skip its own attempt
+   * increment. Without this, both the watchdog and the interrupted worker increment while the row
+   * is still RUNNING and a single timeout burns two attempts.
    */
   private final Set<UUID> watchdogCancelledJobIds = ConcurrentHashMap.newKeySet();
 

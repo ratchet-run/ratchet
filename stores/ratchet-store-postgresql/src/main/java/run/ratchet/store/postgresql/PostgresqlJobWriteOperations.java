@@ -645,7 +645,6 @@ final class PostgresqlJobWriteOperations {
                 + incomingStatus
                 + "). Use resetFailedToPending or markJobFailedTerminal.");
       }
-      return;
     }
   }
 
