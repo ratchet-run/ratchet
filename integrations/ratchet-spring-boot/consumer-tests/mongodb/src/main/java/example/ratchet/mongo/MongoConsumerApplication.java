@@ -17,28 +17,35 @@ package example.ratchet.mongo;
 
 import java.time.Duration;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
+@org.springframework.context.annotation.Import(
+    example.ratchet.verification.NativeVerification.class)
 @SpringBootApplication
 public class MongoConsumerApplication {
 
-  public static void main(String[] args) {
-    var context = SpringApplication.run(MongoConsumerApplication.class, args);
-    if (context.getEnvironment().getProperty("consumer.verify", Boolean.class, false)) {
-      context.close();
-    }
+  public static void main(String[] args) throws Exception {
+    example.ratchet.verification.RuntimeVerification.launch(MongoConsumerApplication.class, args);
   }
 
   @Bean
-  @ConditionalOnProperty(name = "consumer.verify", havingValue = "true")
+  @org.springframework.core.annotation.Order(-200)
+  ApplicationRunner verifyAutomaticDiscovery(
+      run.ratchet.api.JobSchedulerService scheduler, Environment environment) {
+    return args -> {
+      if (environment.getProperty("consumer.full-verify", Boolean.class, false))
+        AutomaticSubmitters.submit(scheduler);
+    };
+  }
+
+  @Bean
   ApplicationRunner verifyConsumer(
       MongoConsumerService service, MongoTemplate mongoTemplate, Environment environment) {
     return args -> {
+      if (!environment.getProperty("consumer.verify", Boolean.class, false)) return;
       String id = environment.getProperty("consumer.verify-id", "packaged-" + System.nanoTime());
       if (environment.getProperty("consumer.verify-submit", Boolean.class, true))
         service.submit(id);

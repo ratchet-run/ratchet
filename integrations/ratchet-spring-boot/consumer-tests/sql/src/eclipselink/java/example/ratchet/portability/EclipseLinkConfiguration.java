@@ -63,8 +63,9 @@ public class EclipseLinkConfiguration {
     } else {
       factory.setManagedTypes(types);
     }
-    factory.setMappingResources(
-        environment.getProperty("spring.jpa.mapping-resources", String[].class, new String[0]));
+    String[] mappings = environment.getProperty("spring.jpa.mapping-resources", String[].class);
+    // An explicit empty array disables Spring's discovery of application-owned orm.xml.
+    if (mappings != null) factory.setMappingResources(mappings);
     factory.setJpaPropertyMap(
         Map.of(
             "eclipselink.weaving", "false",

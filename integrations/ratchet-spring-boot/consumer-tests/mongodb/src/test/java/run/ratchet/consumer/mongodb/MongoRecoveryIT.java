@@ -69,6 +69,7 @@ class MongoRecoveryIT {
                     Document job = onlyJob(database);
                     assertThat(job.getString("status")).isEqualTo("RUNNING");
                     jobId.set(requireUuidIdentity(job.get("_id")));
+                    MongoPackagedConsumerIT.assertCiphertext(job, recordId);
                   });
         } finally {
           first.destroyForcibly();
@@ -96,6 +97,7 @@ class MongoRecoveryIT {
             database.getCollection("scheduler_job").find(eq("_id", jobId.get())).first();
         assertThat(recovered).isNotNull();
         assertThat(recovered.getString("status")).isEqualTo("SUCCEEDED");
+        MongoPackagedConsumerIT.assertCiphertext(recovered, recordId);
       }
     }
   }
@@ -104,11 +106,12 @@ class MongoRecoveryIT {
       throws Exception {
     List<String> arguments =
         new ArrayList<>(
-            List.of(
-                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                "-jar",
-                "target/mongodb-consumer-1.0-SNAPSHOT.jar",
+            run.ratchet.consumer.ConsumerProcess.command(
+                "mongodb-consumer",
                 "--consumer.verify=true",
+                "--ratchet.encryption.enabled=true",
+                "--ratchet.encryption.current-key=native-test",
+                "--ratchet.encryption.keys=native-test:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 "--consumer.verify-id=" + recordId,
                 "--consumer.verify-timeout-seconds=60",
                 "--ratchet.node.id=" + NODE_ID));

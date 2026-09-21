@@ -7,7 +7,15 @@
     <version>1.0-SNAPSHOT</version>
   </parent>
   <artifactId>mongodb-consumer</artifactId>
+  <properties>
+    <consumer.build-profiles>verification</consumer.build-profiles>
+  </properties>
   <dependencies>
+    <dependency>
+      <groupId>run.ratchet.consumer</groupId>
+      <artifactId>verification-fixtures</artifactId>
+      <version>1.0-SNAPSHOT</version>
+    </dependency>
     <dependency>
       <groupId>run.ratchet.consumer</groupId>
       <artifactId>consumer-contracts</artifactId>
@@ -44,6 +52,19 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+  <profiles>
+    <profile>
+      <id>native</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.graalvm.buildtools</groupId>
+            <artifactId>native-maven-plugin</artifactId>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
   <build>
     <plugins>
       <plugin>

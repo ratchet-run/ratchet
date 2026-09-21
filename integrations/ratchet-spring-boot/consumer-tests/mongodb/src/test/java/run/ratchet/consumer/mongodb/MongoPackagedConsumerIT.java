@@ -26,7 +26,7 @@ import org.springframework.boot.SpringBootVersion;
 /** Executes the packaged consumer using only Boot's connection properties and shipped resources. */
 class MongoPackagedConsumerIT {
   @Test
-  void executableJarPersistsAndExecutesARealJob() throws Exception {
+  void packagedApplicationPersistsAndExecutesARealJob() throws Exception {
     try (var database = MongoDatabase.create()) {
       database.start();
       String uriProperty =
@@ -36,11 +36,15 @@ class MongoPackagedConsumerIT {
       Path output = Path.of("target", "packaged-consumer.log");
       Process process =
           new ProcessBuilder(
-                  Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                  "-jar",
-                  "target/mongodb-consumer-1.0-SNAPSHOT.jar",
-                  "--consumer.verify=true",
-                  "--" + uriProperty + "=" + database.getReplicaSetUrl("ratchet_packaged"))
+                  run.ratchet.consumer.ConsumerProcess.command(
+                      "mongodb-consumer",
+                      "--consumer.verify=true",
+                      "--spring.threads.virtual.enabled=true",
+                      "--consumer.full-verify=" + Boolean.getBoolean("consumer.aot"),
+                      "--ratchet.encryption.enabled=" + Boolean.getBoolean("consumer.aot"),
+                      "--ratchet.encryption.current-key=native-test",
+                      "--ratchet.encryption.keys=native-test:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                      "--" + uriProperty + "=" + database.getReplicaSetUrl("ratchet_packaged")))
               .redirectErrorStream(true)
               .redirectOutput(output.toFile())
               .start();
@@ -50,10 +54,35 @@ class MongoPackagedConsumerIT {
             .isTrue();
         assertThat(process.exitValue()).withFailMessage("%s", Files.readString(output)).isZero();
         assertThat(Files.readString(output)).contains("RATCHET_MONGODB_CONSUMER_VERIFIED");
+        if (Boolean.getBoolean("consumer.aot")) {
+          assertThat(Files.readString(output))
+              .contains(
+                  "RATCHET_NATIVE_FEATURES_VERIFIED",
+                  "RATCHET_NATIVE_DURABILITY_VERIFIED",
+                  "RATCHET_GRACEFUL_SHUTDOWN_VERIFIED");
+          try (var client =
+              com.mongodb.client.MongoClients.create(
+                  database.getReplicaSetUrl("ratchet_packaged"))) {
+            var job =
+                client
+                    .getDatabase("ratchet_packaged")
+                    .getCollection("scheduler_job")
+                    .find(com.mongodb.client.model.Filters.eq("business_key", "native-encrypted"))
+                    .first();
+            assertCiphertext(job, "native-secret-argument");
+          }
+        }
       } finally {
         process.destroyForcibly();
         process.waitFor(10, TimeUnit.SECONDS);
       }
     }
+  }
+
+  static void assertCiphertext(org.bson.Document job, String secret) {
+    assertThat(job).isNotNull();
+    assertThat(job.getBoolean("encrypted_payload")).isTrue();
+    assertThat(job.getString("encryption_key_id")).isEqualTo("native-test");
+    assertThat(job.get("payload").toString()).contains("rcph:e:").doesNotContain(secret);
   }
 }

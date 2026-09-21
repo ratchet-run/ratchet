@@ -39,6 +39,17 @@ class SqlRecoveryIT {
       String id = "recovery-" + System.nanoTime();
       Path firstLog = Path.of("target", "recovery-first.log");
       Process first = start(database, firstLog, id, true);
+      String originalIdentity;
+      String identityQuery =
+          "SELECT "
+              + switch (database.store()) {
+                case "postgresql" -> "CAST(job_id AS varchar)";
+                case "mysql" -> "BIN_TO_UUID(job_id)";
+                case "oracle" -> "RAWTOHEX(job_id)";
+                case "sqlserver" -> "CONVERT(varchar(32), job_id, 2)";
+                default -> throw new IllegalStateException(database.store());
+              }
+              + " FROM scheduler_job";
       try {
         await()
             .ignoreExceptionsInstanceOf(SQLException.class)
@@ -55,6 +66,8 @@ class SqlRecoveryIT {
                   assertThat(query(database, "SELECT status FROM scheduler_job_queue"))
                       .isEqualTo("RUNNING");
                 });
+        originalIdentity = query(database, identityQuery);
+        SqlPackagedConsumerIT.assertCiphertext(database, "1 = 1", id);
       } finally {
         first.destroyForcibly();
         assertThat(first.waitFor(20, TimeUnit.SECONDS)).isTrue();
@@ -73,9 +86,12 @@ class SqlRecoveryIT {
         second.waitFor(10, TimeUnit.SECONDS);
       }
 
+      assertThat(query(database, identityQuery)).isEqualTo(originalIdentity);
+      assertThat(query(database, "SELECT COUNT(*) FROM scheduler_job")).isEqualTo("1");
       assertThat(query(database, "SELECT state FROM consumer_record")).isEqualTo("executed");
       assertThat(query(database, "SELECT terminal_status FROM scheduler_job"))
           .isEqualTo("SUCCEEDED");
+      SqlPackagedConsumerIT.assertCiphertext(database, "1 = 1", id);
     }
   }
 
@@ -83,11 +99,12 @@ class SqlRecoveryIT {
       throws Exception {
     List<String> arguments =
         new ArrayList<>(
-            List.of(
-                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                "-jar",
-                "target/sql-consumer-1.0-SNAPSHOT.jar",
+            run.ratchet.consumer.ConsumerProcess.command(
+                "sql-consumer",
                 "--consumer.verify=true",
+                "--ratchet.encryption.enabled=true",
+                "--ratchet.encryption.current-key=native-test",
+                "--ratchet.encryption.keys=native-test:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
                 "--consumer.verify-id=" + id,
                 "--consumer.verify-timeout-seconds=60",
                 "--ratchet.node.id=" + NODE_ID));

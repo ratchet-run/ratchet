@@ -21,7 +21,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "consumer_record")
+// The application-owned orm.xml overrides this fallback, proving that Ratchet preserves it.
+@Table(name = "consumer_record_requires_orm")
 public class ConsumerRecord {
   @Id
   @Column(length = 80)
