@@ -83,6 +83,38 @@ class RatchetJpaAotProcessorTest {
     assertThat(factory.containsSingleton("ratchetJpaJobStore")).isFalse();
   }
 
+  @Test
+  void usesDefaultClassLoaderWhenBeanFactoryDoesNotProvideOne() throws Exception {
+    var factory =
+        new DefaultListableBeanFactory() {
+          @Override
+          public ClassLoader getBeanClassLoader() {
+            return null;
+          }
+        };
+    factory.registerBeanDefinition("ratchetJpaJobStore", new RootBeanDefinition(Uncreatable.class));
+    var thread = Thread.currentThread();
+    var previous = thread.getContextClassLoader();
+    try (var loader =
+        new FilteredClassLoader(
+            "run.ratchet.store.mysql", "run.ratchet.store.oracle", "run.ratchet.store.sqlserver")) {
+      thread.setContextClassLoader(loader);
+      var hints = new RuntimeHints();
+      var files = new InMemoryGeneratedFiles();
+      var context = mock(GenerationContext.class);
+      when(context.getRuntimeHints()).thenReturn(hints);
+      when(context.getGeneratedFiles()).thenReturn(files);
+      new RatchetJpaAotProcessor().processAheadOfTime(factory).applyTo(context, null);
+      assertThat(files.getGeneratedFileContent(Kind.RESOURCE, RatchetJpaAotSettings.RESOURCE))
+          .contains("vendor=POSTGRESQL", "default-orm=ratchet");
+      assertThat(hints.reflection().getTypeHint(run.ratchet.store.entity.JobEntity.class))
+          .isNotNull();
+      assertThat(factory.containsSingleton("ratchetJpaJobStore")).isFalse();
+    } finally {
+      thread.setContextClassLoader(previous);
+    }
+  }
+
   @org.junit.jupiter.params.ParameterizedTest
   @org.junit.jupiter.params.provider.EnumSource(
       value = SqlStoreVendor.class,

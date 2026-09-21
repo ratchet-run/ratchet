@@ -116,7 +116,16 @@ class RatchetApplicationAotProcessorTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"method", "field", "generic", "superclass"})
+  @ValueSource(
+      strings = {
+        "method",
+        "field",
+        "generic",
+        "genericParameter",
+        "genericConstructor",
+        "genericField",
+        "superclass"
+      })
   void unavailableOptionalTypesAreSkippedWithoutDroppingHealthyJobs(
       String shape, @TempDir Path directory) throws Exception {
     try (var loader = optionalTypes(shape, directory)) {
@@ -190,6 +199,9 @@ class RatchetApplicationAotProcessorTest {
           case "method" -> "public Dependency run() { return null; }";
           case "field" -> "public Dependency value;";
           case "generic" -> "public java.util.List<Dependency> run() { return null; }";
+          case "genericParameter" -> "public void run(java.util.List<Dependency> value) {}";
+          case "genericConstructor" -> "public OptionalJobs(java.util.List<Dependency> value) {}";
+          case "genericField" -> "public java.util.List<Dependency> value;";
           default -> "";
         };
     Path dependency = directory.resolve("Dependency.java");

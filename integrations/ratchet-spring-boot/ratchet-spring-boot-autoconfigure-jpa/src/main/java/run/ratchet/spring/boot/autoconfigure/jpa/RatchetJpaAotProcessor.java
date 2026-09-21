@@ -18,6 +18,7 @@ package run.ratchet.spring.boot.autoconfigure.jpa;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.stream.Stream;
 import org.springframework.aot.hint.BindingReflectionHintsRegistrar;
 import org.springframework.aot.hint.MemberCategory;
@@ -34,7 +35,9 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
   public BeanFactoryInitializationAotContribution processAheadOfTime(
       ConfigurableListableBeanFactory factory) {
     if (!factory.containsBeanDefinition("ratchetJpaJobStore")) return null;
-    ClassLoader loader = factory.getBeanClassLoader();
+    ClassLoader loader =
+        Objects.requireNonNullElseGet(
+            factory.getBeanClassLoader(), ClassUtils::getDefaultClassLoader);
     if (!ClassUtils.isPresent("org.hibernate.jpa.HibernatePersistenceProvider", loader)) {
       throw new IllegalStateException("Ratchet SQL native images require Hibernate");
     }

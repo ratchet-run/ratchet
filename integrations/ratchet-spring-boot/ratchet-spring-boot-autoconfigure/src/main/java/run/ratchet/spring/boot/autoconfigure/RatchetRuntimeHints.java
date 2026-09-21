@@ -20,11 +20,13 @@ import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
 import org.springframework.aot.hint.TypeReference;
+import org.springframework.lang.NonNull;
+import org.springframework.lang.Nullable;
 
 /** Reflection used by the engine independently of application job discovery. */
 public final class RatchetRuntimeHints implements RuntimeHintsRegistrar {
   @Override
-  public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+  public void registerHints(@NonNull RuntimeHints hints, @Nullable ClassLoader classLoader) {
     for (String name :
         new String[] {
           "run.ratchet.store.entity.JobPayload",

@@ -36,6 +36,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.type.classreading.CachingMetadataReaderFactory;
+import org.springframework.lang.NonNull;
 import org.springframework.util.ClassUtils;
 
 /** Inspects definitions and class files only: no application beans are obtained during AOT. */
@@ -164,17 +165,7 @@ public final class RatchetApplicationAotProcessor implements BeanFactoryInitiali
           // Explicit registrations and actual bean types bypass this best-effort scan and
           // still fail if their required dependencies are missing.
           Class<?> type = Class.forName(name, false, loader);
-          for (Class<?> current = type;
-              current != null && !frameworkType(current);
-              current = current.getSuperclass()) {
-            for (var method : current.getDeclaredMethods()) {
-              method.getGenericReturnType();
-              method.getGenericParameterTypes();
-            }
-            for (var constructor : current.getDeclaredConstructors())
-              constructor.getGenericParameterTypes();
-            for (var field : current.getDeclaredFields()) field.getGenericType();
-          }
+          resolveSignatures(type);
           types.put(name, type);
         } catch (NoClassDefFoundError | TypeNotPresentException unavailable) {
           logger.debug("Skipping unavailable Ratchet AOT scan candidate " + name, unavailable);
@@ -185,7 +176,23 @@ public final class RatchetApplicationAotProcessor implements BeanFactoryInitiali
     }
   }
 
-  private static void register(RuntimeHints hints, Class<?> type) {
+  // Resolving these signatures deliberately throws when an optional dependency is missing.
+  @SuppressWarnings("ResultOfMethodCallIgnored")
+  private static void resolveSignatures(Class<?> type) {
+    for (Class<?> current = type;
+        current != null && !frameworkType(current);
+        current = current.getSuperclass()) {
+      for (var method : current.getDeclaredMethods()) {
+        method.getGenericReturnType();
+        method.getGenericParameterTypes();
+      }
+      for (var constructor : current.getDeclaredConstructors())
+        constructor.getGenericParameterTypes();
+      for (var field : current.getDeclaredFields()) field.getGenericType();
+    }
+  }
+
+  private static void register(RuntimeHints hints, @NonNull Class<?> type) {
     var binding = new BindingReflectionHintsRegistrar();
     binding.registerReflectionHints(hints.reflection(), type);
     for (Class<?> current = type;
