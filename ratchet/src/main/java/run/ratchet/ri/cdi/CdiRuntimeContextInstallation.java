@@ -35,6 +35,8 @@ public class CdiRuntimeContextInstallation {
   }
 
   public synchronized void bindRuntime(Runnable stop, JobExecutorService executor) {
+    // close() releases this shared owner after the runtime stops.
+    //noinspection resource
     RuntimeContextInstallation owner = installation();
     owner.releaseWhen(executor.onIdle(owner::releaseIfRequested));
     stopRuntime = stop;

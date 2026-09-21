@@ -22,6 +22,7 @@ import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import run.ratchet.spi.PayloadMaskingPolicy;
+import run.ratchet.store.util.PayloadMasker;
 import run.ratchet.store.util.PayloadMaskingPolicyHolder;
 
 /**
@@ -60,7 +61,11 @@ public class PayloadMaskingPolicyInstaller {
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object event) {
     if (policy != null && policy.isResolvable()) {
       if (runtimeInstallation == null) PayloadMaskingPolicyHolder.set(policy.get());
-      else runtimeInstallation.installation().setMaskingPolicy(policy.get());
+      else {
+        // Borrow the installation; CdiRuntimeContextInstallation owns its shutdown.
+        //noinspection resource
+        runtimeInstallation.installation().setMaskingPolicy(policy.get());
+      }
     }
   }
 

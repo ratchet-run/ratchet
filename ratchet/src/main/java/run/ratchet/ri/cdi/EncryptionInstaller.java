@@ -126,7 +126,11 @@ public class EncryptionInstaller {
     if (engines == null || keyProvider == null || options == null) {
       return;
     }
-    if (runtimeInstallation != null) runtimeInstallation.installation();
+    if (runtimeInstallation != null) {
+      // The CDI owner retains the installation through shutdown; this only claims it early.
+      //noinspection resource
+      runtimeInstallation.installation();
+    }
     registerIntegrityMetricsBridge();
     boolean globalEnabled = options.encryption() != null && options.encryption().enabled();
 
@@ -179,6 +183,8 @@ public class EncryptionInstaller {
   private void installEncryption(
       List<PayloadEncryption> engines, String algorithm, KeyProvider keys, boolean global) {
     if (runtimeInstallation != null) {
+      // Borrow the installation; CdiRuntimeContextInstallation owns its shutdown.
+      //noinspection resource
       runtimeInstallation.installation().configureEncryption(engines, algorithm, keys, global);
     } else if (engines.isEmpty() && keys == null && !global) {
       EncryptionHolder.disable();

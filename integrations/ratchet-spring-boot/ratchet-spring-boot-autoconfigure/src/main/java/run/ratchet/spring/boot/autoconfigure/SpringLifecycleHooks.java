@@ -46,6 +46,8 @@ final class SpringLifecycleHooks {
       return hooks;
     } catch (RuntimeException | Error failure) {
       handles.clear();
+      // close() adds cleanup failures to the same exception that is thrown below.
+      //noinspection ThrowableNotThrown
       close(acquired, failure);
       throw failure;
     }

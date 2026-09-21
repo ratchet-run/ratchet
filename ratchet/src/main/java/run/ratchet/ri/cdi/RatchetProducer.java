@@ -372,6 +372,8 @@ public class RatchetProducer {
       @Observes @Initialized(ApplicationScoped.class) Object init,
       Instance<PayloadSerializer> payloadSerializers) {
     if (payloadSerializers.isResolvable()) {
+      // Borrow the installation; CdiRuntimeContextInstallation owns its shutdown.
+      //noinspection resource
       RuntimeContextInstallation owner =
           runtimeInstallation == null ? null : runtimeInstallation.installation();
       destroyDependentPayloadSerializer();

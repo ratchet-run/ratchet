@@ -72,6 +72,8 @@ final class NettyClientSslCompatibility {
       throw new IllegalArgumentException(
           "OCSP is not supported with this SslProvider: " + provider);
     }
+    // Native-image remaps this alias to JdkSslClientContext, which extends SslContext.
+    //noinspection DataFlowIssue
     return (SslContext)
         (Object)
             new NettyJdkSslClientContext(

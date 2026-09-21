@@ -55,7 +55,7 @@ final class RatchetTransactionalStoreProxy {
                   && invocation.getArguments().length == 1
                   && invocation.getArguments()[0] instanceof Class<?> capabilityType) {
                 Object proxy = proxyReference.get();
-                return proxy != null && capabilityType.isInstance(proxy)
+                return capabilityType.isInstance(proxy)
                     ? Optional.of(capabilityType.cast(proxy))
                     : Optional.empty();
               }
