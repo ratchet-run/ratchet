@@ -54,6 +54,16 @@
   </dependencies>
   <profiles>
     <profile>
+      <id>runtime</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-web</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+    <profile>
       <id>native</id>
       <build>
         <plugins>

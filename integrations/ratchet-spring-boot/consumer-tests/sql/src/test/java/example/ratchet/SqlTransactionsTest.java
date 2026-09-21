@@ -161,6 +161,19 @@ class SqlTransactionsTest {
       assertThat(countJob(jdbc, handle)).isEqualTo(1);
       assertThat(probe.registrations()).isEqualTo(1);
       assertThat(coordinator.notifications()).isZero();
+      await()
+          .atMost(Duration.ofSeconds(30))
+          .untilAsserted(
+              () -> {
+                assertThat(state(jdbc, id)).isEqualTo("executed");
+                assertThat(
+                        jdbc.queryForObject(
+                            "select terminal_status from scheduler_job where "
+                                + database.jobIdPredicate(),
+                            String.class,
+                            database.queryId(handle.id())))
+                    .isEqualTo("SUCCEEDED");
+              });
     }
   }
 
