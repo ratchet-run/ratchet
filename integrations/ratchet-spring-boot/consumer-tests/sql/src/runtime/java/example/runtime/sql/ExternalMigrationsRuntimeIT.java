@@ -20,12 +20,17 @@ import static org.assertj.core.api.Assertions.*;
 import example.ratchet.ConsumerApplication;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.init.ScriptUtils;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
 import run.ratchet.consumer.sql.SqlDatabase;
@@ -36,15 +41,21 @@ class ExternalMigrationsRuntimeIT {
   @TempDir Path directory;
 
   @ParameterizedTest
-  @ValueSource(strings = {"flyway", "liquibase"})
+  @ValueSource(strings = {"flyway", "liquibase", "sql"})
   void externalToolRunsBeforeRatchetValidationAndWorkers(String tool) throws Exception {
     try (var database = SqlDatabase.start()) {
       var arguments = migrationArguments(database, tool, false);
       for (int startup = 0; startup < 2; startup++) {
-        try (var context =
-            new SpringApplicationBuilder(ConsumerApplication.class)
-                .properties(RuntimeSupport.properties(database))
-                .run(arguments)) {
+        var startupArguments = new ArrayList<>(List.of(arguments));
+        // Plain SQL scripts have no migration ledger; provision once, then only validate.
+        if (tool.equals("sql") && startup > 0) {
+          startupArguments.replaceAll(
+              argument ->
+                  argument.startsWith("--spring.sql.init.mode=")
+                      ? "--spring.sql.init.mode=never"
+                      : argument);
+        }
+        try (var context = application(database).run(startupArguments.toArray(String[]::new))) {
           var jdbc = context.getBean(JdbcTemplate.class);
           assertThat(
                   jdbc.queryForObject(
@@ -59,24 +70,22 @@ class ExternalMigrationsRuntimeIT {
               context,
               context.getBean(JobSchedulerService.class).enqueue(RuntimeSupport::noop).submit(),
               JobStatus.SUCCEEDED);
-          String ledger = tool.equals("flyway") ? "flyway_schema_history" : "databasechangelog";
-          assertThat(jdbc.queryForObject("select count(*) from " + ledger, Integer.class))
-              .isGreaterThan(0);
+          if (!tool.equals("sql")) {
+            String ledger = tool.equals("flyway") ? "flyway_schema_history" : "databasechangelog";
+            assertThat(jdbc.queryForObject("select count(*) from " + ledger, Integer.class))
+                .isGreaterThan(0);
+          }
         }
       }
     }
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"flyway", "liquibase"})
+  @ValueSource(strings = {"flyway", "liquibase", "sql"})
   void migrationFailurePreventsWorkerStartupAndReleasesRuntime(String tool) throws Exception {
     try (var database = SqlDatabase.start()) {
       var arguments = migrationArguments(database, tool, true);
-      assertThatThrownBy(
-              () ->
-                  new SpringApplicationBuilder(ConsumerApplication.class)
-                      .properties(RuntimeSupport.properties(database))
-                      .run(arguments))
+      assertThatThrownBy(() -> application(database).run(arguments))
           .hasStackTraceContaining("runtime_intentional_migration_failure");
       var jdbc = new JdbcTemplate(RuntimeSupport.dataSource(database));
       assertThat(
@@ -110,17 +119,43 @@ class ExternalMigrationsRuntimeIT {
     }
     var settings = new LinkedHashMap<String, String>();
     settings.put("ratchet.schema.auto-migrate", "false");
-    settings.put("spring." + tool + ".enabled", "true");
     if (tool.equals("flyway")) {
+      settings.put("spring.flyway.enabled", "true");
       Files.writeString(directory.resolve("V1__external.sql"), sql);
       settings.put("spring.flyway.locations", "filesystem:" + directory);
     } else {
       Path script = directory.resolve("external.sql");
       Files.writeString(script, sql);
-      settings.put("spring.liquibase.change-log", "file:" + script);
+      if (tool.equals("liquibase")) {
+        settings.put("spring.liquibase.enabled", "true");
+        settings.put("spring.liquibase.change-log", "file:" + script);
+      } else {
+        settings.put("spring.sql.init.mode", "always");
+        settings.put(
+            "spring.sql.init.schema-locations",
+            "file:" + script + ",classpath:schema-postgresql.sql");
+        settings.put("spring.sql.init.separator", ScriptUtils.EOF_STATEMENT_SEPARATOR);
+      }
     }
     return settings.entrySet().stream()
         .map(e -> "--" + e.getKey() + "=" + e.getValue())
         .toArray(String[]::new);
+  }
+
+  private static SpringApplicationBuilder application(SqlDatabase database) {
+    return new SpringApplicationBuilder(ConsumerApplication.class)
+        .contextFactory(
+            type ->
+                new AnnotationConfigApplicationContext() {
+                  @Override
+                  protected void finishBeanFactoryInitialization(
+                      ConfigurableListableBeanFactory beanFactory) {
+                    // After dependency post-processing, demand validation before the JPA factory
+                    // or another singleton can trigger external schema initialization first.
+                    beanFactory.getBean("ratchetJpaSchemaInitializer");
+                    super.finishBeanFactoryInitialization(beanFactory);
+                  }
+                })
+        .properties(RuntimeSupport.properties(database));
   }
 }

@@ -155,7 +155,7 @@ mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
   '-Dit.test=*RuntimeIT' -Dfailsafe.failIfNoSpecifiedTests=false
 ```
 
-After staging current artifacts, this runs 18 PostgreSQL and four MongoDB scenarios. Omit the test
+After staging current artifacts, this runs 20 PostgreSQL and four MongoDB scenarios. Omit the test
 selectors to also run the existing JVM contracts and packaged application tests. The profile adds
 web and migration-tool dependencies only to the JVM test classpath; additional Boot application
 processes use that classpath. Packaged-JAR and native verification remain separate evidence.
@@ -167,9 +167,10 @@ The scenarios verify:
 - Two real databases, persistence units, and transaction managers with a nonstandard primary bean
   name: selected metadata, migration isolation, application/job commit and rollback, secondary-unit
   writes, and explicit rejection of incoherent or ambiguous selections.
-- Actual Flyway and Liquibase startup migrations from the shipped SQL scripts, validation-only
-  Ratchet startup, repeated startup, and migration failure preventing worker startup. The fixture
-  uses each external tool's ledger and removes Ratchet's empty ledger from the exported SQL.
+- Actual Flyway, Liquibase, and Boot SQL initialization from the shipped SQL scripts, validation-only
+  Ratchet startup requested before other singletons, repeated startup, and initialization failure
+  preventing worker startup. The fixture removes Ratchet's empty ledger from the exported SQL;
+  Flyway and Liquibase use their own ledgers, while plain SQL provisioning runs only once.
 - Lazy, prototype, and `FactoryBean` targets behind JDK proxies: no early construction, one durable
   non-retryable failure for an unexposed method, and exactly-once target destruction.
 - HTTP transaction commit/rollback and an actual SIGTERM while work is running: the process waits
