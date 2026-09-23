@@ -17,6 +17,8 @@ package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetPersistenceProvider;
 
 /** Filters only the Ratchet-owned implicit mapping, without altering application mappings. */
 final class RatchetDisabledJpaMappings implements BeanPostProcessor {

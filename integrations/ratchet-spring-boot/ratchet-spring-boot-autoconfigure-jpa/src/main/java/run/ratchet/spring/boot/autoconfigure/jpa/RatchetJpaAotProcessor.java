@@ -27,6 +27,8 @@ import org.springframework.beans.factory.aot.BeanFactoryInitializationAotContrib
 import org.springframework.beans.factory.aot.BeanFactoryInitializationAotProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.util.ClassUtils;
+import run.ratchet.spring.boot.autoconfigure.internal.AotResources;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaAotSettings;
 import run.ratchet.store.schema.RatchetJpaModel;
 
 /** Compiles SQL metadata without obtaining a DataSource or starting the persistence provider. */
@@ -39,7 +41,8 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
         Objects.requireNonNullElseGet(
             factory.getBeanClassLoader(), ClassUtils::getDefaultClassLoader);
     if (!ClassUtils.isPresent("org.hibernate.jpa.HibernatePersistenceProvider", loader)) {
-      throw new IllegalStateException("Ratchet SQL native images require Hibernate");
+      throw new IllegalStateException(
+          "Ratchet SQL AOT (generated JVM AOT and native images) requires Hibernate");
     }
     var installed =
         Arrays.stream(SqlStoreVendor.values())
@@ -47,7 +50,8 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
             .toList();
     if (installed.size() != 1) {
       throw new IllegalStateException(
-          "Ratchet SQL AOT requires exactly one installed SQL store; found " + installed);
+          "Ratchet SQL AOT (generated JVM AOT and native images) requires exactly one installed SQL store; found "
+              + installed);
     }
     SqlStoreVendor vendor = installed.get(0);
     String mapping = HibernateJpaMappings.aotMappingFile(vendor);
@@ -68,11 +72,10 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
       HibernateJpaMappings.registerAotHints(hints, loader, vendor);
       if (vendor == SqlStoreVendor.SQLSERVER) {
         // The connection collation selects its code page at runtime.
-        generation
-            .getGeneratedFiles()
-            .addResourceFile(
-                "META-INF/native-image/run.ratchet/spring-jpa/native-image.properties",
-                "Args = -H:+AddAllCharsets\n");
+        AotResources.add(
+            generation.getGeneratedFiles(),
+            "META-INF/native-image/run.ratchet/spring-jpa/native-image.properties",
+            "Args = -H:+AddAllCharsets\n");
       }
       var binding = new BindingReflectionHintsRegistrar();
       Stream.concat(
@@ -127,23 +130,22 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
       hints.resources().registerPattern(RatchetJpaAotSettings.RESOURCE);
       String applicationResource = "META-INF/ratchet/spring-application-orm.xml";
       if (applicationMapping != null) {
-        generation.getGeneratedFiles().addResourceFile(applicationResource, applicationMapping);
+        AotResources.add(generation.getGeneratedFiles(), applicationResource, applicationMapping);
         hints.resources().registerPattern(applicationResource);
       }
-      generation
-          .getGeneratedFiles()
-          .addResourceFile(
-              RatchetJpaAotSettings.RESOURCE,
-              "vendor="
-                  + vendor.name()
-                  + "\nmapping="
-                  + mapping
-                  + "\ndefault-orm="
-                  + ownership
-                  + "\n"
-                  + (applicationMapping == null
-                      ? ""
-                      : "application-orm=" + applicationResource + "\n"));
+      AotResources.add(
+          generation.getGeneratedFiles(),
+          RatchetJpaAotSettings.RESOURCE,
+          "vendor="
+              + vendor.name()
+              + "\nmapping="
+              + mapping
+              + "\ndefault-orm="
+              + ownership
+              + "\n"
+              + (applicationMapping == null
+                  ? ""
+                  : "application-orm=" + applicationResource + "\n"));
     };
   }
 
@@ -162,15 +164,7 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
   }
 
   static String defaultMappingOwnership(ClassLoader loader) {
-    String entityPath = "run/ratchet/store/entity/JobEntity.class";
-    var entity = loader.getResource(entityPath);
-    var mapping = loader.getResource("META-INF/orm.xml");
-    if (mapping == null) return "absent";
-    if (entity != null) {
-      String root = entity.toExternalForm();
-      root = root.substring(0, root.length() - entityPath.length());
-      if (mapping.toExternalForm().equals(root + "META-INF/orm.xml")) return "ratchet";
-    }
-    return "application";
+    return run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings
+        .defaultMappingOwnership(loader);
   }
 }

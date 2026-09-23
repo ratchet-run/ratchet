@@ -28,6 +28,9 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.persistenceunit.MutablePersistenceUnitInfo;
 import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetPersistenceProvider;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetPersistenceUnitView;
 
 class RatchetPersistenceUnitViewTest {
   @Test

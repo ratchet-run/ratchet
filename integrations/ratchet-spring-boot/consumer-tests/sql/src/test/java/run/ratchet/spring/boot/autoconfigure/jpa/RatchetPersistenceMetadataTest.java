@@ -31,6 +31,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetPersistenceProvider;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetPersistenceUnitView;
 import run.ratchet.store.entity.JobEntity;
 
 class RatchetPersistenceMetadataTest {

@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.spring.boot.autoconfigure.jpa;
+package run.ratchet.spring.boot.autoconfigure.internal.jpa;
 
 import jakarta.persistence.spi.PersistenceProvider;
 import jakarta.persistence.spi.PersistenceUnitInfo;
@@ -22,10 +22,10 @@ import java.util.function.BiFunction;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 
 /** Applies the same unit transformation during container creation and schema generation. */
-final class RatchetPersistenceProvider {
+public final class RatchetPersistenceProvider {
   private RatchetPersistenceProvider() {}
 
-  static void install(
+  public static void install(
       LocalContainerEntityManagerFactoryBean factory,
       BiFunction<PersistenceProvider, PersistenceUnitInfo, PersistenceUnitInfo> transform,
       boolean required) {

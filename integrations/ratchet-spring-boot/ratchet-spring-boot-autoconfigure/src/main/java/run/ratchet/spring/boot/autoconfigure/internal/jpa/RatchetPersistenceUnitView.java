@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.spring.boot.autoconfigure.jpa;
+package run.ratchet.spring.boot.autoconfigure.internal.jpa;
 
 import jakarta.persistence.spi.PersistenceUnitInfo;
 import java.lang.reflect.Proxy;
@@ -22,10 +22,10 @@ import java.util.List;
 import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
 
 /** Overrides only Ratchet's four metadata values, forwarding the runtime's complete interface. */
-final class RatchetPersistenceUnitView {
+public final class RatchetPersistenceUnitView {
   private RatchetPersistenceUnitView() {}
 
-  static PersistenceUnitInfo create(
+  public static PersistenceUnitInfo create(
       PersistenceUnitInfo original,
       List<String> classes,
       List<String> mappings,

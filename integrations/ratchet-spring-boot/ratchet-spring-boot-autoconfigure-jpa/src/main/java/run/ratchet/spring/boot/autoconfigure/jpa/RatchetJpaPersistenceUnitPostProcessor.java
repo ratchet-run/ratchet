@@ -23,6 +23,9 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaAotSettings;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetPersistenceProvider;
 import run.ratchet.store.schema.RatchetJpaModel;
 
 /** Adds Ratchet's entities and converters while retaining application persistence metadata. */

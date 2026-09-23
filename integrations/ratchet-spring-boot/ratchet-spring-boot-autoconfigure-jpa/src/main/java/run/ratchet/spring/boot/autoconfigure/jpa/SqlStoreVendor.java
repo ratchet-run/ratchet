@@ -23,6 +23,7 @@ import javax.sql.DataSource;
 import org.springframework.util.ClassUtils;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaAotSettings;
 import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.mysql.MysqlJobStore;
 import run.ratchet.store.mysql.MysqlJobStoreFactory;

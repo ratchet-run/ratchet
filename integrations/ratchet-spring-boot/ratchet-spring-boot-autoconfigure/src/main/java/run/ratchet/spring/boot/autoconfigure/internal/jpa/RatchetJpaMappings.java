@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.spring.boot.autoconfigure.jpa;
+package run.ratchet.spring.boot.autoconfigure.internal.jpa;
 
 import jakarta.persistence.spi.PersistenceUnitInfo;
 import java.net.URL;
@@ -21,16 +21,29 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Identifies the core default mapping by its origin, preserving application-owned mappings. */
-final class RatchetJpaMappings {
+public final class RatchetJpaMappings {
   private static final String DEFAULT_ORM = "META-INF/orm.xml";
 
   private RatchetJpaMappings() {}
 
-  static PersistenceUnitInfo withoutImplicitRatchetMapping(PersistenceUnitInfo unit) {
+  public static String defaultMappingOwnership(ClassLoader loader) {
+    String entityPath = "run/ratchet/store/entity/JobEntity.class";
+    var entity = loader.getResource(entityPath);
+    var mapping = loader.getResource("META-INF/orm.xml");
+    if (mapping == null) return "absent";
+    if (entity != null) {
+      String root = entity.toExternalForm();
+      root = root.substring(0, root.length() - entityPath.length());
+      if (mapping.toExternalForm().equals(root + "META-INF/orm.xml")) return "ratchet";
+    }
+    return "application";
+  }
+
+  public static PersistenceUnitInfo withoutImplicitRatchetMapping(PersistenceUnitInfo unit) {
     return transform(unit, List.of(), null);
   }
 
-  static PersistenceUnitInfo transform(
+  public static PersistenceUnitInfo transform(
       PersistenceUnitInfo unit, List<String> additionalClasses, String additionalMapping) {
     String aotOwnership = RatchetJpaAotSettings.get("default-orm");
     String ratchetRoot = null;
@@ -52,11 +65,14 @@ final class RatchetJpaMappings {
               && ratchetRoot != null
               && mapping.toExternalForm().equals(ratchetRoot + DEFAULT_ORM);
     }
-    if (!filter && additionalClasses.isEmpty() && additionalMapping == null) return unit;
+    String applicationMapping = RatchetJpaAotSettings.get("application-orm");
+    if (!filter
+        && additionalClasses.isEmpty()
+        && additionalMapping == null
+        && applicationMapping == null) return unit;
     List<String> classes = new ArrayList<>(unit.getManagedClassNames());
     for (String name : additionalClasses) if (!classes.contains(name)) classes.add(name);
     List<String> mappings = new ArrayList<>(unit.getMappingFileNames());
-    String applicationMapping = RatchetJpaAotSettings.get("application-orm");
     if (filter || applicationMapping != null) mappings.removeIf(DEFAULT_ORM::equals);
     if (applicationMapping != null && !mappings.contains(applicationMapping))
       mappings.add(applicationMapping);

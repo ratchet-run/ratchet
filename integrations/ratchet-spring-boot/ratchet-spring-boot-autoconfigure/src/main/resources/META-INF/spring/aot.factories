@@ -1,2 +1,2 @@
-org.springframework.beans.factory.aot.BeanFactoryInitializationAotProcessor=run.ratchet.spring.boot.autoconfigure.RatchetApplicationAotProcessor
+org.springframework.beans.factory.aot.BeanFactoryInitializationAotProcessor=run.ratchet.spring.boot.autoconfigure.RatchetApplicationAotProcessor,run.ratchet.spring.boot.autoconfigure.RatchetJpaIsolationAotProcessor
 org.springframework.beans.factory.aot.BeanRegistrationAotProcessor=run.ratchet.spring.boot.autoconfigure.RatchetBeanAotProcessor

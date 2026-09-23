@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.spring.boot.autoconfigure.jpa;
+package run.ratchet.spring.boot.autoconfigure.internal.jpa;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;

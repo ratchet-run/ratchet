@@ -30,6 +30,7 @@ import org.springframework.aot.hint.predicate.RuntimeHintsPredicates;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.test.context.FilteredClassLoader;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaAotSettings;
 
 class RatchetJpaAotProcessorTest {
   @Test
@@ -37,6 +38,14 @@ class RatchetJpaAotProcessorTest {
     var factory = factory();
     assertThatThrownBy(() -> new RatchetJpaAotProcessor().processAheadOfTime(factory))
         .hasMessageContaining("exactly one installed SQL store");
+  }
+
+  @Test
+  void namesTheHibernateLimitForGeneratedJvmAotAndNativeImages() {
+    var factory = factory();
+    factory.setBeanClassLoader(new FilteredClassLoader("org.hibernate.jpa"));
+    assertThatThrownBy(() -> new RatchetJpaAotProcessor().processAheadOfTime(factory))
+        .hasMessageContaining("generated JVM AOT and native images", "requires Hibernate");
   }
 
   @Test
@@ -50,6 +59,7 @@ class RatchetJpaAotProcessorTest {
     var context = mock(GenerationContext.class);
     when(context.getRuntimeHints()).thenReturn(hints);
     when(context.getGeneratedFiles()).thenReturn(files);
+    new RatchetJpaAotProcessor().processAheadOfTime(factory).applyTo(context, null);
     new RatchetJpaAotProcessor().processAheadOfTime(factory).applyTo(context, null);
     assertThat(files.getGeneratedFileContent(Kind.RESOURCE, RatchetJpaAotSettings.RESOURCE))
         .contains(

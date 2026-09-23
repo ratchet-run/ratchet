@@ -26,13 +26,21 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
 
 class RatchetEntityLoadingTest {
   @Test
   void metadataLeavesEntityLoadingToThePersistenceProvider() throws Exception {
-    URL source = RatchetJpaMappings.class.getProtectionDomain().getCodeSource().getLocation();
+    URL mappingsSource =
+        RatchetJpaMappings.class.getProtectionDomain().getCodeSource().getLocation();
+    URL postProcessorSource =
+        RatchetJpaPersistenceUnitPostProcessor.class
+            .getProtectionDomain()
+            .getCodeSource()
+            .getLocation();
     try (var loader =
-        new URLClassLoader(new URL[] {source}, getClass().getClassLoader()) {
+        new URLClassLoader(
+            new URL[] {mappingsSource, postProcessorSource}, getClass().getClassLoader()) {
           @Override
           protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
             synchronized (getClassLoadingLock(name)) {
@@ -40,7 +48,8 @@ class RatchetEntityLoadingTest {
                   || name.startsWith("run.ratchet.store.converter.")) {
                 throw new AssertionError("Metadata prematurely loaded " + name);
               }
-              if (name.startsWith("run.ratchet.spring.boot.autoconfigure.jpa.")) {
+              if (name.startsWith("run.ratchet.spring.boot.autoconfigure.jpa.")
+                  || name.startsWith("run.ratchet.spring.boot.autoconfigure.internal.jpa.")) {
                 Class<?> type = findLoadedClass(name);
                 if (type == null) type = findClass(name);
                 if (resolve) resolveClass(type);
@@ -56,6 +65,9 @@ class RatchetEntityLoadingTest {
       when(original.getMappingFileNames()).thenReturn(List.of("application-orm.xml"));
       when(original.getJarFileUrls()).thenReturn(List.of());
       Class<?> processor = loader.loadClass(RatchetJpaPersistenceUnitPostProcessor.class.getName());
+      Class<?> mappings = loader.loadClass(RatchetJpaMappings.class.getName());
+      assertThat(processor.getClassLoader()).isSameAs(loader);
+      assertThat(mappings.getClassLoader()).isSameAs(loader);
       Method transform =
           processor.getDeclaredMethod(
               "withRatchetEntities", PersistenceProvider.class, PersistenceUnitInfo.class);

@@ -21,6 +21,7 @@ import java.net.URL;
 import org.junit.jupiter.api.Test;
 import org.springframework.orm.jpa.persistenceunit.MutablePersistenceUnitInfo;
 import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
 import run.ratchet.store.entity.JobEntity;
 
 class RatchetDisabledJpaMappingsTest {

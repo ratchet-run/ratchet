@@ -34,7 +34,9 @@ class SpringIntegrationArchitectureTest {
         new Class<?>[] {
           RatchetAutoConfiguration.class,
           RatchetEngineAutoConfiguration.class,
-          SpringAfterCommitRegistrar.class
+          SpringAfterCommitRegistrar.class,
+          RatchetJpaIsolationAutoConfiguration.class,
+          RatchetJpaIsolationAotProcessor.class
         }) {
       assertTrue(
           classes.stream().anyMatch(imported -> imported.getName().equals(type.getName())),
@@ -67,11 +69,30 @@ class SpringIntegrationArchitectureTest {
               "run.ratchet.store.oracle..",
               "run.ratchet.store.sqlserver..",
               "run.ratchet.store.mongodb..",
-              "jakarta.persistence..",
-              "org.springframework.orm..",
               "org.springframework.data..",
               "org.hibernate..",
               "org.eclipse.persistence..",
               "com.mongodb..")
-          .because("persistence belongs in the JPA or MongoDB integration module");
+          .because("store and provider selection belongs in the JPA or MongoDB integration module");
+
+  @ArchTest
+  static final ArchRule onlyApplicationMappingIsolationUsesJpaInfrastructure =
+      noClasses()
+          .that()
+          .resideInAPackage("run.ratchet.spring.boot.autoconfigure..")
+          .and()
+          .resideOutsideOfPackage("run.ratchet.spring.boot.autoconfigure.internal.jpa..")
+          .and()
+          .haveNameNotMatching(
+              "run\\.ratchet\\.spring\\.boot\\.autoconfigure\\.RatchetJpaIsolation"
+                  + "(?:AutoConfiguration(?:\\$.*)?|AotProcessor)")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage(
+              "jakarta.persistence..",
+              "org.springframework.orm..",
+              "run.ratchet.spring.boot.autoconfigure.internal.jpa..")
+          .because(
+              "only the optional application mapping isolation bridge may use JPA infrastructure; "
+                  + "the engine must remain persistence independent");
 }
