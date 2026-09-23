@@ -454,7 +454,7 @@
         "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-tracing/1.4.4/micrometer-tracing-1.4.4.pom"
       ]
     },
-    "io.netty:netty-buffer:4.1.137.Final": {
+    "io.netty:netty-buffer:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -463,10 +463,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-buffer/4.1.137.Final/netty-buffer-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-buffer/4.1.138.Final/netty-buffer-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-codec-dns:4.1.137.Final": {
+    "io.netty:netty-codec-dns:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -475,10 +476,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-dns/4.1.137.Final/netty-codec-dns-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-dns/4.1.138.Final/netty-codec-dns-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-codec-haproxy:4.1.137.Final": {
+    "io.netty:netty-codec-haproxy:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -487,10 +489,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-haproxy/4.1.137.Final/netty-codec-haproxy-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-haproxy/4.1.138.Final/netty-codec-haproxy-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-codec-http2:4.1.137.Final": {
+    "io.netty:netty-codec-http2:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -499,10 +502,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-http2/4.1.137.Final/netty-codec-http2-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-http2/4.1.138.Final/netty-codec-http2-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-codec-http:4.1.137.Final": {
+    "io.netty:netty-codec-http:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -511,10 +515,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-http/4.1.137.Final/netty-codec-http-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-http/4.1.138.Final/netty-codec-http-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-codec-socks:4.1.137.Final": {
+    "io.netty:netty-codec-socks:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -523,10 +528,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-socks/4.1.137.Final/netty-codec-socks-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec-socks/4.1.138.Final/netty-codec-socks-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-codec:4.1.137.Final": {
+    "io.netty:netty-codec:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -535,10 +541,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-codec/4.1.137.Final/netty-codec-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-codec/4.1.138.Final/netty-codec-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-common:4.1.137.Final": {
+    "io.netty:netty-common:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -547,10 +554,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-common/4.1.137.Final/netty-common-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-common/4.1.138.Final/netty-common-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-handler-proxy:4.1.137.Final": {
+    "io.netty:netty-handler-proxy:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -559,10 +567,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-handler-proxy/4.1.137.Final/netty-handler-proxy-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-handler-proxy/4.1.138.Final/netty-handler-proxy-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-handler:4.1.137.Final": {
+    "io.netty:netty-handler:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -571,10 +580,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-handler/4.1.137.Final/netty-handler-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-handler/4.1.138.Final/netty-handler-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-resolver-dns:4.1.137.Final": {
+    "io.netty:netty-resolver-dns:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -583,10 +593,11 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-resolver-dns/4.1.137.Final/netty-resolver-dns-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-resolver-dns/4.1.138.Final/netty-resolver-dns-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-resolver:4.1.137.Final": {
+    "io.netty:netty-resolver:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -595,22 +606,24 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-resolver/4.1.137.Final/netty-resolver-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-resolver/4.1.138.Final/netty-resolver-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
-    "io.netty:netty-transport-native-unix-common:4.1.137.Final": {
+    "io.netty:netty-tcnative-classes:2.0.84.Final": {
       "licenses": [
         {
-          "name": "Apache License, Version 2.0",
-          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
         }
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-transport-native-unix-common/4.1.137.Final/netty-transport-native-unix-common-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-tcnative-classes/2.0.84.Final/netty-tcnative-classes-2.0.84.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-tcnative-parent/2.0.84.Final/netty-tcnative-parent-2.0.84.Final.pom"
       ]
     },
-    "io.netty:netty-transport:4.1.137.Final": {
+    "io.netty:netty-transport-native-unix-common:4.1.138.Final": {
       "licenses": [
         {
           "name": "Apache License, Version 2.0",
@@ -619,7 +632,21 @@
       ],
       "expression": "Apache-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/netty/netty-transport/4.1.137.Final/netty-transport-4.1.137.Final.pom"
+        "https://repo.maven.apache.org/maven2/io/netty/netty-transport-native-unix-common/4.1.138.Final/netty-transport-native-unix-common-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
+      ]
+    },
+    "io.netty:netty-transport:4.1.138.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/netty/netty-transport/4.1.138.Final/netty-transport-4.1.138.Final.pom",
+        "https://repo.maven.apache.org/maven2/io/netty/netty-parent/4.1.138.Final/netty-parent-4.1.138.Final.pom"
       ]
     },
     "io.opentelemetry:opentelemetry-api:1.44.1": {
@@ -2278,7 +2305,7 @@
         "https://repo.maven.apache.org/maven2/io/smallrye/smallrye-fault-tolerance-vertx/6.9.2/smallrye-fault-tolerance-vertx-6.9.2.pom"
       ]
     },
-    "io.vertx:vertx-auth-common:4.5.25": {
+    "io.vertx:vertx-auth-common:4.5.30": {
       "licenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -2291,11 +2318,15 @@
       ],
       "expression": "Apache-2.0 AND EPL-1.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/vertx/vertx-auth-common/4.5.25/vertx-auth-common-4.5.25.pom"
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-auth-common/4.5.30/vertx-auth-common-4.5.30.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-auth-parent/4.5.30/vertx-auth-parent-4.5.30.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-ext-parent/43/vertx-ext-parent-43.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-ext/43/vertx-ext-43.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-parent/23/vertx-parent-23.pom"
       ],
       "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
     },
-    "io.vertx:vertx-bridge-common:4.5.25": {
+    "io.vertx:vertx-bridge-common:4.5.30": {
       "licenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -2308,11 +2339,14 @@
       ],
       "expression": "Apache-2.0 AND EPL-1.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/vertx/vertx-bridge-common/4.5.25/vertx-bridge-common-4.5.25.pom"
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-bridge-common/4.5.30/vertx-bridge-common-4.5.30.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-ext-parent/43/vertx-ext-parent-43.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-ext/43/vertx-ext-43.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-parent/23/vertx-parent-23.pom"
       ],
       "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
     },
-    "io.vertx:vertx-codegen:4.5.25": {
+    "io.vertx:vertx-codegen:4.5.30": {
       "licenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -2325,11 +2359,12 @@
       ],
       "expression": "Apache-2.0 AND EPL-1.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/vertx/vertx-codegen/4.5.25/vertx-codegen-4.5.25.pom"
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-codegen/4.5.30/vertx-codegen-4.5.30.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-parent/23/vertx-parent-23.pom"
       ],
       "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
     },
-    "io.vertx:vertx-core:4.5.25": {
+    "io.vertx:vertx-core:4.5.30": {
       "licenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -2342,11 +2377,11 @@
       ],
       "expression": "Apache-2.0 AND EPL-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/vertx/vertx-core/4.5.25/vertx-core-4.5.25.pom"
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-core/4.5.30/vertx-core-4.5.30.pom"
       ],
       "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
     },
-    "io.vertx:vertx-uri-template:4.5.25": {
+    "io.vertx:vertx-uri-template:4.5.30": {
       "licenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -2359,11 +2394,14 @@
       ],
       "expression": "Apache-2.0 AND EPL-1.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/vertx/vertx-uri-template/4.5.25/vertx-uri-template-4.5.25.pom"
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-uri-template/4.5.30/vertx-uri-template-4.5.30.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-ext-parent/43/vertx-ext-parent-43.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-ext/43/vertx-ext-43.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-parent/23/vertx-parent-23.pom"
       ],
       "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
     },
-    "io.vertx:vertx-web-common:4.5.25": {
+    "io.vertx:vertx-web-common:4.5.30": {
       "licenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -2376,11 +2414,15 @@
       ],
       "expression": "Apache-2.0 AND EPL-1.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/vertx/vertx-web-common/4.5.25/vertx-web-common-4.5.25.pom"
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-web-common/4.5.30/vertx-web-common-4.5.30.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-web-parent/4.5.30/vertx-web-parent-4.5.30.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-ext-parent/43/vertx-ext-parent-43.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-ext/43/vertx-ext-43.pom",
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-parent/23/vertx-parent-23.pom"
       ],
       "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
     },
-    "io.vertx:vertx-web:4.5.25": {
+    "io.vertx:vertx-web:4.5.30": {
       "licenses": [
         {
           "name": "The Apache Software License, Version 2.0",
@@ -2393,7 +2435,7 @@
       ],
       "expression": "Apache-2.0 AND EPL-2.0",
       "evidence": [
-        "https://repo.maven.apache.org/maven2/io/vertx/vertx-web/4.5.25/vertx-web-4.5.25.pom"
+        "https://repo.maven.apache.org/maven2/io/vertx/vertx-web/4.5.30/vertx-web-4.5.30.pom"
       ],
       "note": "Conservatively require both POM-declared licenses; no dual-license choice is needed to pass policy."
     },
