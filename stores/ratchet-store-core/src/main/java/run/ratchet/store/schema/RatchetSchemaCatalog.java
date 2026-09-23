@@ -49,6 +49,10 @@ import run.ratchet.store.schema.DeprecatedArtifact.DroppedTable;
  */
 public final class RatchetSchemaCatalog {
 
+  /**
+   * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
+   * ledger versions.
+   */
   public static final int CURRENT_VERSION = 13;
 
   public static final SchemaSpec CURRENT =
@@ -516,8 +520,9 @@ public final class RatchetSchemaCatalog {
   }
 
   /**
-   * Artifacts V005 removed. Any conforming store at schema version ≥ 5 must NOT carry these — a
-   * presence-only check would silently pass an upgrade that left obsolete columns/indexes behind.
+   * Artifacts removed in catalog revision 5. Any conforming store at catalog revision ≥ 5 must NOT
+   * carry these — a presence-only check would silently pass an upgrade that left obsolete
+   * columns/indexes behind.
    */
   private static List<DeprecatedArtifact> v005Drops() {
     return List.of(

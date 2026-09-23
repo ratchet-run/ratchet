@@ -160,6 +160,70 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
   }
 
   @Test
+  void validatesMigratedSchemaWhenBackslashEscapesAreDisabled() throws Exception {
+    resetDatabase();
+    var dataSource = new com.mysql.cj.jdbc.MysqlDataSource();
+    dataSource.setURL(CONTAINER.getJdbcUrl());
+    dataSource.setUser(CONTAINER.getUsername());
+    dataSource.setPassword(CONTAINER.getPassword());
+    dataSource.setSessionVariables("sql_mode='NO_BACKSLASH_ESCAPES'");
+    try (Connection connection = dataSource.getConnection();
+        Statement statement = connection.createStatement();
+        ResultSet modes = statement.executeQuery("SELECT @@session.sql_mode")) {
+      assertTrue(modes.next());
+      assertTrue(List.of(modes.getString(1).split(",")).contains("NO_BACKSLASH_ESCAPES"));
+    }
+
+    SchemaMigrator migrator = new SchemaMigrator(dataSource, dialect());
+    SchemaMigrator.MigrationResult migrated = migrator.migrate();
+    assertTrue(migrated.appliedCount() > 0);
+    assertEquals(migrated.applied().size(), migrator.validate().validated().size());
+  }
+
+  @Test
+  void validatesLowercaseCatalogMetadataForMixedCaseJdbcUrl() throws Exception {
+    try (MySQLContainer lowerCaseCatalogContainer =
+        new MySQLContainer("mysql:8.0.36")
+            .withDatabaseName("ratchetdb")
+            .withUsername("ratchet")
+            .withPassword("ratchet")
+            .withCommand("--lower_case_table_names=1")
+            .withUrlParam("connectionTimeZone", "UTC")
+            .withUrlParam("serverTimezone", "UTC")
+            .withUrlParam("allowMultiQueries", "true")) {
+      lowerCaseCatalogContainer.start();
+      String lowerCaseUrl = lowerCaseCatalogContainer.getJdbcUrl();
+      String mixedCaseUrl =
+          lowerCaseUrl.replace("/" + lowerCaseCatalogContainer.getDatabaseName(), "/RatchetDB");
+      var dataSource = new com.mysql.cj.jdbc.MysqlDataSource();
+      dataSource.setURL(mixedCaseUrl);
+      dataSource.setUser(lowerCaseCatalogContainer.getUsername());
+      dataSource.setPassword(lowerCaseCatalogContainer.getPassword());
+      try (Connection connection = dataSource.getConnection();
+          Statement statement = connection.createStatement();
+          ResultSet lowerCaseSetting = statement.executeQuery("SELECT @@lower_case_table_names")) {
+        assertEquals("RatchetDB", connection.getCatalog());
+        assertTrue(connection.getMetaData().storesLowerCaseIdentifiers());
+        assertTrue(lowerCaseSetting.next());
+        assertEquals(1, lowerCaseSetting.getInt(1));
+      }
+
+      SchemaMigrator migrator = new SchemaMigrator(dataSource, new MysqlSchemaMigrationDialect());
+      SchemaMigrator.MigrationResult migrated = migrator.migrate();
+      assertTrue(migrated.appliedCount() > 0);
+      try (Connection connection = dataSource.getConnection();
+          ResultSet tables =
+              connection
+                  .getMetaData()
+                  .getTables(connection.getCatalog(), null, "scheduler_job", null)) {
+        assertTrue(tables.next());
+        assertEquals("ratchetdb", tables.getString("TABLE_CAT"));
+      }
+      assertEquals(migrated.applied().size(), migrator.validate().validated().size());
+    }
+  }
+
+  @Test
   void rejectsPreviouslyAppliedMigrationWithDifferentChecksum() throws Exception {
     resetDatabase();
 

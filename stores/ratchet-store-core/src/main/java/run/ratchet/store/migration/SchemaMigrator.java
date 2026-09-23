@@ -313,7 +313,7 @@ public final class SchemaMigrator {
     try (ResultSet resultSet = metadata.getTables(catalog, schema, "%", null)) {
       while (resultSet.next()) {
         String tableName = resultSet.getString("TABLE_NAME");
-        if (tableName != null) {
+        if (tableName != null && matchesNamespace(metadata, resultSet, catalog, schema)) {
           tables.add(normalizeIdentifier(tableName));
         }
       }
@@ -419,12 +419,36 @@ public final class SchemaMigrator {
     try (ResultSet resultSet = metadata.getColumns(catalog, schema, metadataTableName, "%")) {
       while (resultSet.next()) {
         String columnName = resultSet.getString("COLUMN_NAME");
-        if (columnName != null) {
+        if (columnName != null
+            && matchesNamespace(metadata, resultSet, catalog, schema)
+            && normalizeIdentifier(metadataTableName)
+                .equals(normalizeIdentifier(resultSet.getString("TABLE_NAME")))) {
           columns.add(normalizeIdentifier(columnName));
         }
       }
     }
     return columns;
+  }
+
+  private static boolean matchesNamespace(
+      DatabaseMetaData metadata, ResultSet resultSet, String catalog, String schema)
+      throws SQLException {
+    return matchesIdentifier(metadata, catalog, resultSet.getString("TABLE_CAT"))
+        && matchesIdentifier(metadata, schema, resultSet.getString("TABLE_SCHEM"));
+  }
+
+  private static boolean matchesIdentifier(
+      DatabaseMetaData metadata, String expected, String actual) throws SQLException {
+    if (expected == null) {
+      return true;
+    }
+    if (!metadata.supportsMixedCaseIdentifiers()
+        && (metadata.storesLowerCaseIdentifiers()
+            || metadata.storesUpperCaseIdentifiers()
+            || metadata.storesMixedCaseIdentifiers())) {
+      return expected.equalsIgnoreCase(actual);
+    }
+    return expected.equals(actual);
   }
 
   private static List<String> normalizeIdentifiers(List<String> identifiers) {
@@ -542,8 +566,7 @@ public final class SchemaMigrator {
       throw new SchemaMigrationException(
           "No Ratchet schema migration scripts were discovered under classpath prefix '"
               + classpathPrefix
-              + "'. When ratchet.schema.auto-migrate=true, ensure the SQL store migration"
-              + " resources and "
+              + "'. Ensure the selected SQL store migration resources and "
               + migrationIndexResourceName()
               + " are on the runtime classpath.");
     }

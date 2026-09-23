@@ -108,6 +108,20 @@ class SqlSchemaLifecycleTest {
   }
 
   @Test
+  void validationOnlyModeRejectsMissingPrincipalEvenWhenSiblingMatchesMetadataPattern() {
+    try (SqlDatabase database = SqlDatabase.start()) {
+      try (ConfigurableApplicationContext migrated = application(database)) {
+        JdbcTemplate jdbc = migrated.getBean(JdbcTemplate.class);
+        hideRequiredPrincipalColumnAndCreateSibling(database, jdbc);
+      }
+
+      assertThatThrownBy(() -> migrator(database).validate())
+          .hasStackTraceContaining("scheduler_job")
+          .hasStackTraceContaining("caller_principal");
+    }
+  }
+
+  @Test
   void migrationFailureDoesNotPreventAFollowingConsumerFromStarting() {
     try (SqlDatabase database = SqlDatabase.start()) {
       assertThatThrownBy(
@@ -200,5 +214,21 @@ class SqlSchemaLifecycleTest {
       default ->
           throw new IllegalArgumentException("Unsupported SQL consumer store: " + database.store());
     }
+  }
+
+  private static void hideRequiredPrincipalColumnAndCreateSibling(
+      SqlDatabase database, JdbcTemplate jdbc) {
+    // Use a column without generated-column dependencies so this fixture works on every vendor.
+    switch (database.store()) {
+      case "mysql", "oracle", "postgresql" ->
+          jdbc.execute(
+              "alter table scheduler_job rename column caller_principal to principal_missing");
+      case "sqlserver" ->
+          jdbc.execute(
+              "exec sp_rename 'scheduler_job.caller_principal', 'principal_missing', 'COLUMN'");
+      default ->
+          throw new IllegalArgumentException("Unsupported SQL consumer store: " + database.store());
+    }
+    jdbc.execute("create table schedulerXjob (caller_principal varchar(32))");
   }
 }

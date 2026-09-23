@@ -18,7 +18,9 @@ package run.ratchet.store.migration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atMost;
@@ -91,6 +93,36 @@ class SchemaMigratorTest {
     when(resultSet.getString(label)).thenAnswer(ignored -> values.get(index.get()));
     return resultSet;
   }
+
+  private static ResultSet metadataRows(List<MetadataRow> rows) throws Exception {
+    ResultSet resultSet = mock(ResultSet.class);
+    AtomicInteger index = new AtomicInteger(-1);
+    when(resultSet.next()).thenAnswer(ignored -> index.incrementAndGet() < rows.size());
+    when(resultSet.getString(org.mockito.ArgumentMatchers.anyString()))
+        .thenAnswer(
+            invocation -> {
+              MetadataRow row = rows.get(index.get());
+              return switch (invocation.getArgument(0, String.class)) {
+                case "TABLE_CAT" -> row.catalog();
+                case "TABLE_SCHEM" -> row.schema();
+                case "TABLE_NAME" -> row.table();
+                case "COLUMN_NAME" -> row.column();
+                default -> null;
+              };
+            });
+    return resultSet;
+  }
+
+  private static List<MetadataRow> tableRows(List<String> tables, String catalog, String schema) {
+    return tables.stream().map(table -> new MetadataRow(catalog, schema, table, null)).toList();
+  }
+
+  private static List<MetadataRow> columnRows(
+      String table, List<String> columns, String catalog, String schema) {
+    return columns.stream().map(column -> new MetadataRow(catalog, schema, table, column)).toList();
+  }
+
+  private record MetadataRow(String catalog, String schema, String table, String column) {}
 
   private static ResultSet primaryKeyRows(List<String> columns) throws Exception {
     ResultSet resultSet = mock(ResultSet.class);
@@ -180,6 +212,12 @@ class SchemaMigratorTest {
 
   private void configureCurrentSchemaMetadata(DatabaseMetaData metadata, boolean versionTable)
       throws Exception {
+    configureCurrentSchemaMetadata(metadata, versionTable, null, null);
+  }
+
+  private void configureCurrentSchemaMetadata(
+      DatabaseMetaData metadata, boolean versionTable, String catalog, String schema)
+      throws Exception {
     List<String> tables =
         new java.util.ArrayList<>(
             RatchetSchemaCatalog.CURRENT.tables().stream().map(table -> table.name()).toList());
@@ -191,7 +229,7 @@ class SchemaMigratorTest {
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any()))
-        .thenAnswer(ignored -> rows("TABLE_NAME", tables));
+        .thenAnswer(ignored -> metadataRows(tableRows(tables, catalog, schema)));
     Map<String, List<String>> columns = new HashMap<>();
     RatchetSchemaCatalog.CURRENT
         .tables()
@@ -205,8 +243,11 @@ class SchemaMigratorTest {
             org.mockito.ArgumentMatchers.any(),
             org.mockito.ArgumentMatchers.any()))
         .thenAnswer(
-            invocation ->
-                rows("COLUMN_NAME", columns.getOrDefault(invocation.getArgument(2), List.of())));
+            invocation -> {
+              String table = invocation.getArgument(2);
+              return metadataRows(
+                  columnRows(table, columns.getOrDefault(table, List.of()), catalog, schema));
+            });
     Map<String, List<String>> primaryKeys = new HashMap<>();
     RatchetSchemaCatalog.CURRENT
         .tables()
@@ -471,6 +512,143 @@ class SchemaMigratorTest {
 
     assertTrue(ex.getMessage().contains("scheduler_job"));
     verify(connection, never()).prepareStatement(startsWith("SELECT version, checksum"));
+  }
+
+  @Test
+  void validationFiltersSiblingTableColumnsFromRawMetadataPattern() throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    List<String> targetColumns = schedulerJobColumnsWithoutPayload();
+    List<MetadataRow> patternMatches =
+        new java.util.ArrayList<>(columnRows("scheduler_job", targetColumns, null, null));
+    patternMatches.add(new MetadataRow(null, null, "schedulerXjob", "payload"));
+    ResultSet wildcardTableRows = metadataRows(patternMatches);
+    when(metadata.getColumns(any(), any(), eq("scheduler_job"), eq("%")))
+        .thenReturn(wildcardTableRows);
+
+    SchemaMigrationException ex =
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").validate());
+
+    assertTrue(ex.getMessage().contains("scheduler_job"));
+    assertTrue(ex.getMessage().contains("payload"));
+    verify(metadata).getColumns(any(), any(), eq("scheduler_job"), eq("%"));
+  }
+
+  @Test
+  void validationFiltersSiblingSchemaColumnsFromRawMetadataPattern() throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    String schema = "ratchet_schema";
+    List<String> tables =
+        RatchetSchemaCatalog.CURRENT.tables().stream().map(table -> table.name()).toList();
+    ResultSet selectedSchemaTables = metadataRows(tableRows(tables, null, schema));
+    when(connection.getSchema()).thenReturn(schema);
+    when(metadata.getTables(any(), eq(schema), eq("%"), org.mockito.ArgumentMatchers.isNull()))
+        .thenReturn(selectedSchemaTables);
+
+    List<MetadataRow> patternMatches =
+        new java.util.ArrayList<>(
+            columnRows("scheduler_job", schedulerJobColumnsWithoutPayload(), null, schema));
+    patternMatches.add(new MetadataRow(null, "ratchetXschema", "scheduler_job", "payload"));
+    ResultSet wildcardSchemaRows = metadataRows(patternMatches);
+    when(metadata.getColumns(any(), eq(schema), eq("scheduler_job"), eq("%")))
+        .thenReturn(wildcardSchemaRows);
+
+    SchemaMigrationException ex =
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").validate());
+
+    assertTrue(ex.getMessage().contains("scheduler_job"));
+    assertTrue(ex.getMessage().contains("payload"));
+    verify(metadata).getTables(any(), eq(schema), eq("%"), org.mockito.ArgumentMatchers.isNull());
+    verify(metadata).getColumns(any(), eq(schema), eq("scheduler_job"), eq("%"));
+  }
+
+  @Test
+  void validationFoldsCanonicalizedLowercaseCatalogMetadata() throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    String requestedCatalog = "RatchetDB";
+    String metadataCatalog = "ratchetdb";
+    configureCurrentSchemaMetadata(metadata, false, metadataCatalog, null);
+    when(connection.getCatalog()).thenReturn(requestedCatalog);
+    when(metadata.storesLowerCaseIdentifiers()).thenReturn(true);
+    when(metadata.supportsMixedCaseIdentifiers()).thenReturn(false);
+
+    SchemaMigrator.ValidationResult result = migrator("schema-migrator").validate();
+
+    assertEquals(0, result.validated().size());
+    verify(metadata)
+        .getTables(eq(requestedCatalog), any(), eq("%"), org.mockito.ArgumentMatchers.isNull());
+  }
+
+  @Test
+  void validationFoldsCanonicalizedMixedCaseCatalogMetadataWhenMixedCaseIsUnsupported()
+      throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    String requestedCatalog = "RatchetDB";
+    String metadataCatalog = "ratchetdb";
+    configureCurrentSchemaMetadata(metadata, false, metadataCatalog, null);
+    when(connection.getCatalog()).thenReturn(requestedCatalog);
+    when(metadata.storesMixedCaseIdentifiers()).thenReturn(true);
+    when(metadata.supportsMixedCaseIdentifiers()).thenReturn(false);
+
+    SchemaMigrator.ValidationResult result = migrator("schema-migrator").validate();
+
+    assertEquals(0, result.validated().size());
+    verify(metadata)
+        .getTables(eq(requestedCatalog), any(), eq("%"), org.mockito.ArgumentMatchers.isNull());
+  }
+
+  @Test
+  void validationRejectsCaseOnlyCatalogSiblingWhenMetadataPreservesCase() throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    String catalog = "RatchetDB";
+    List<String> tables =
+        RatchetSchemaCatalog.CURRENT.tables().stream()
+            .map(table -> table.name())
+            .filter(table -> !table.equals("scheduler_job"))
+            .toList();
+    List<MetadataRow> metadataRows = new java.util.ArrayList<>(tableRows(tables, catalog, null));
+    metadataRows.add(new MetadataRow("ratchetdb", null, "scheduler_job", null));
+    ResultSet caseOnlySiblingTables = metadataRows(metadataRows);
+    when(connection.getCatalog()).thenReturn(catalog);
+    when(metadata.storesMixedCaseIdentifiers()).thenReturn(true);
+    when(metadata.supportsMixedCaseIdentifiers()).thenReturn(true);
+    when(metadata.getTables(eq(catalog), any(), eq("%"), org.mockito.ArgumentMatchers.isNull()))
+        .thenReturn(caseOnlySiblingTables);
+
+    SchemaMigrationException ex =
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").validate());
+
+    assertTrue(ex.getMessage().contains("scheduler_job"));
+  }
+
+  @Test
+  void validationFiltersRequiredTablesFromAnotherCatalog() throws Exception {
+    DatabaseMetaData metadata = connection.getMetaData();
+    String catalog = "ratchet_catalog";
+    List<String> tables =
+        RatchetSchemaCatalog.CURRENT.tables().stream()
+            .map(table -> table.name())
+            .filter(table -> !table.equals("scheduler_job"))
+            .toList();
+    List<MetadataRow> metadataRows = new java.util.ArrayList<>(tableRows(tables, catalog, null));
+    metadataRows.add(new MetadataRow("neighbor_catalog", null, "scheduler_job", null));
+    ResultSet otherCatalogTables = metadataRows(metadataRows);
+    when(connection.getCatalog()).thenReturn(catalog);
+    when(metadata.getTables(eq(catalog), any(), eq("%"), org.mockito.ArgumentMatchers.isNull()))
+        .thenReturn(otherCatalogTables);
+
+    SchemaMigrationException ex =
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").validate());
+
+    assertTrue(ex.getMessage().contains("scheduler_job"));
+  }
+
+  private static List<String> schedulerJobColumnsWithoutPayload() {
+    return RatchetSchemaCatalog.CURRENT.tables().stream()
+        .filter(table -> table.name().equals("scheduler_job"))
+        .flatMap(table -> table.columns().stream())
+        .map(column -> column.name())
+        .filter(column -> !column.equals("payload"))
+        .toList();
   }
 
   @Test
