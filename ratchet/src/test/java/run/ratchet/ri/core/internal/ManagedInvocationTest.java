@@ -43,17 +43,17 @@ class ManagedInvocationTest {
 
   @Test
   void cachesExposedMethodsSeparatelyForEachProxyClass() throws Exception {
+    // A fresh proxy class keeps cold-cache assertions effective across repeated test runs.
+    ClassLoader proxyLoader = new ClassLoader(getClass().getClassLoader()) {};
     var declared = ConcreteJob.class.getMethod("execute");
     Object first =
         Proxy.newProxyInstance(
-            getClass().getClassLoader(),
+            proxyLoader,
             new Class<?>[] {Runnable.class, Job.class},
             (proxy, method, args) -> "first");
     Object second =
         Proxy.newProxyInstance(
-            getClass().getClassLoader(),
-            new Class<?>[] {OtherJob.class},
-            (proxy, method, args) -> "second");
+            proxyLoader, new Class<?>[] {OtherJob.class}, (proxy, method, args) -> "second");
     var exposed = ManagedInvocation.exposedMethod(declared, first);
     assertEquals(Job.class, exposed.getDeclaringClass());
     assertSame(exposed, ManagedInvocation.exposedMethod(declared, first));
@@ -75,11 +75,12 @@ class ManagedInvocationTest {
 
   @Test
   void invokesExposedInterfaceAndReleasesHandleOnSuccessAndFailure() throws Exception {
+    ClassLoader proxyLoader = new ClassLoader(getClass().getClassLoader()) {};
     AtomicInteger intercepted = new AtomicInteger();
     AtomicInteger released = new AtomicInteger();
     Object proxy =
         Proxy.newProxyInstance(
-            getClass().getClassLoader(),
+            proxyLoader,
             new Class<?>[] {Job.class},
             (p, m, a) -> {
               if (intercepted.incrementAndGet() == 2) throw new IllegalArgumentException("boom");
