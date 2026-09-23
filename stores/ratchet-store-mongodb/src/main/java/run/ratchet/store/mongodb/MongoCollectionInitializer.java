@@ -29,6 +29,7 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.UpdateOptions;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -40,6 +41,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import org.bson.BsonNumber;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
@@ -72,6 +75,8 @@ class MongoCollectionInitializer {
 
   private void createIndex(MongoCollection<Document> coll, Bson keys, IndexOptions options) {
     if (!creating) {
+      // Creation tolerates optional-index errors so the scheduler remains available; validation
+      // deliberately requires the full declared index shape.
       validateIndex(coll, keys, options);
       return;
     }
@@ -193,7 +198,7 @@ class MongoCollectionInitializer {
               + " on "
               + collection);
     }
-    boolean keysMatch = bsonEquals(keys, actual.get("key"), coll);
+    boolean keysMatch = indexKeysEqual(keys, actual.get("key"), coll);
     boolean uniqueMatches = options.isUnique() == Boolean.TRUE.equals(actual.getBoolean("unique"));
     boolean partialMatches =
         bsonEquals(
@@ -233,6 +238,63 @@ class MongoCollectionInitializer {
             .equals(
                 document.toBsonDocument(Document.class, coll.getCodecRegistry()).entrySet().stream()
                     .toList());
+  }
+
+  private static boolean indexKeysEqual(
+      Bson expected, Object actual, MongoCollection<Document> collection) {
+    if (expected == null || actual == null) {
+      return expected == null && actual == null;
+    }
+    if (!(actual instanceof Document actualDocument)) {
+      return false;
+    }
+    var expectedEntries =
+        expected.toBsonDocument(Document.class, collection.getCodecRegistry()).entrySet();
+    var actualEntries =
+        actualDocument.toBsonDocument(Document.class, collection.getCodecRegistry()).entrySet();
+    if (expectedEntries.size() != actualEntries.size()) {
+      return false;
+    }
+    var expectedIterator = expectedEntries.iterator();
+    var actualIterator = actualEntries.iterator();
+    while (expectedIterator.hasNext()) {
+      var expectedEntry = expectedIterator.next();
+      var actualEntry = actualIterator.next();
+      if (!expectedEntry.getKey().equals(actualEntry.getKey())
+          || !indexKeyValueEquals(expectedEntry.getValue(), actualEntry.getValue())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static boolean indexKeyValueEquals(BsonValue expected, BsonValue actual) {
+    if (expected.isNumber() && actual.isNumber()) {
+      BigDecimal expectedDirection = exactIndexDirection(expected.asNumber());
+      BigDecimal actualDirection = exactIndexDirection(actual.asNumber());
+      return expectedDirection != null
+          && actualDirection != null
+          && (expectedDirection.compareTo(BigDecimal.ONE) == 0
+              || expectedDirection.compareTo(BigDecimal.ONE.negate()) == 0)
+          && expectedDirection.compareTo(actualDirection) == 0;
+    }
+    return expected.equals(actual);
+  }
+
+  private static BigDecimal exactIndexDirection(BsonNumber value) {
+    return switch (value.getBsonType()) {
+      case INT32 -> BigDecimal.valueOf(value.intValue());
+      case INT64 -> BigDecimal.valueOf(value.longValue());
+      case DOUBLE -> {
+        double number = value.doubleValue();
+        yield Double.isFinite(number) ? BigDecimal.valueOf(number) : null;
+      }
+      case DECIMAL128 -> {
+        var decimal = value.decimal128Value();
+        yield decimal.isFinite() ? decimal.bigDecimalValue() : null;
+      }
+      default -> null;
+    };
   }
 
   private static Long number(Object value) {

@@ -17,6 +17,7 @@ package run.ratchet.store.mongodb;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -38,13 +39,17 @@ import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import org.bson.BsonDecimal128;
+import org.bson.BsonInt32;
 import org.bson.Document;
+import org.bson.types.Decimal128;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -230,6 +235,69 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void validationRejectsRequiredIndexWithAnOppositeDirection() {
+    var jobs = database.getCollection("scheduler_job");
+    jobs.dropIndex(MongoIndexHints.JOB_CLAIM_EXEC);
+    jobs.createIndex(
+        Indexes.compoundIndex(
+            Indexes.descending(STATUS),
+            Indexes.ascending(JOB_TYPE),
+            Indexes.descending(PRIORITY),
+            Indexes.ascending(SCHEDULED_TIME),
+            Indexes.ascending(ID)),
+        new IndexOptions().name(MongoIndexHints.JOB_CLAIM_EXEC));
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> new MongoCollectionInitializer(database, client).validate());
+
+    assertTrue(failure.getMessage().contains(MongoIndexHints.JOB_CLAIM_EXEC));
+  }
+
+  @Test
+  void indexDirectionsRejectNonFiniteDecimalValues() {
+    for (var value :
+        List.of(Decimal128.NaN, Decimal128.POSITIVE_INFINITY, Decimal128.NEGATIVE_INFINITY)) {
+      assertFalse(
+          MongoCollectionInitializer.indexKeyValueEquals(
+              new org.bson.BsonInt32(1), new org.bson.BsonDecimal128(value)));
+    }
+  }
+
+  @Test
+  void validationAcceptsRawNumericRequiredIndexDirections() {
+    assertRawIndexDirectionAccepted(1.0d, -1.0d);
+    assertRawIndexDirectionAccepted(1L, -1L);
+    assertRawIndexDirectionAccepted(
+        new Decimal128(BigDecimal.ONE), new Decimal128(BigDecimal.ONE.negate()));
+  }
+
+  @Test
+  void indexKeyComparisonRejectsDecimalDirectionNearOne() {
+    assertTrue(
+        MongoCollectionInitializer.indexKeyValueEquals(
+            new BsonInt32(1), new BsonDecimal128(new Decimal128(BigDecimal.ONE))));
+    assertFalse(
+        MongoCollectionInitializer.indexKeyValueEquals(
+            new BsonInt32(1),
+            new BsonDecimal128(new Decimal128(new BigDecimal("1.00000000000000000000000001")))));
+  }
+
+  @Test
+  void validationRejectsIncompatibleOptionalIndexThatInitializeCannotCreate() {
+    var jobs = database.getCollection("scheduler_job");
+    jobs.dropIndex("idx_job_tags");
+    jobs.createIndex(Indexes.ascending("legacy_tags"), new IndexOptions().name("idx_job_tags"));
+
+    var initializer = new MongoCollectionInitializer(database, client);
+    assertDoesNotThrow(initializer::initialize);
+    IllegalStateException failure =
+        assertThrows(IllegalStateException.class, initializer::validate);
+    assertTrue(failure.getMessage().contains("idx_job_tags"));
+  }
+
+  @Test
   void everyHintNamesAnIndexThatGetsCreated() throws IllegalAccessException {
     Set<String> created = allCreatedIndexNames();
     for (Field field : MongoIndexHints.class.getDeclaredFields()) {
@@ -252,6 +320,26 @@ class MongoIndexConformanceTest {
       }
     }
     return names;
+  }
+
+  private void assertRawIndexDirectionAccepted(Object direction, Object oppositeDirection) {
+    var jobs = database.getCollection("scheduler_job");
+    jobs.dropIndex(MongoIndexHints.JOB_CLAIM_EXEC);
+    database.runCommand(
+        new Document("createIndexes", "scheduler_job")
+            .append(
+                "indexes",
+                List.of(
+                    new Document(
+                            "key",
+                            new Document(STATUS, direction)
+                                .append(JOB_TYPE, direction)
+                                .append(PRIORITY, oppositeDirection)
+                                .append(SCHEDULED_TIME, direction)
+                                .append(ID, direction))
+                        .append("name", MongoIndexHints.JOB_CLAIM_EXEC))));
+
+    assertDoesNotThrow(() -> new MongoCollectionInitializer(database, client).validate());
   }
 
   @Test
