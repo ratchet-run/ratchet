@@ -25,6 +25,7 @@ import org.springframework.aop.framework.autoproxy.AutoProxyUtils;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import run.ratchet.spi.BeanResolver;
 
 /** Resolves application beans while keeping Spring advice on the invocation target. */
@@ -39,7 +40,7 @@ public final class SpringBeanResolver implements BeanResolver {
   @Override
   public <T> T resolve(Class<T> type) {
     String name = beanName(type);
-    if (beanFactory.isPrototype(name))
+    if (SpringManagedBeans.ownsPrototype(beanFactory, name))
       throw new IllegalStateException("Use acquire() for prototype job bean " + name);
     Object bean = beanFactory.getBean(name);
     if (!type.isInstance(bean))
@@ -90,13 +91,23 @@ public final class SpringBeanResolver implements BeanResolver {
       Class<?> target = targetType(beanFactory, name);
       if (target != null && type.isAssignableFrom(target)) candidates.add(name);
     }
-    return selectPrimaryOrUniqueBeanName(beanFactory, type, candidates);
+    var autowireCandidates =
+        candidates.stream()
+            .filter(
+                name ->
+                    !beanFactory.containsBeanDefinition(name)
+                        || beanFactory.getBeanDefinition(name).isAutowireCandidate())
+            .toList();
+    return selectPrimaryOrUniqueBeanName(
+        beanFactory, type, autowireCandidates.isEmpty() ? candidates : autowireCandidates);
   }
 
-  /** Selects a unique candidate or the single primary bean without instantiating candidates. */
+  /**
+   * Selects one primary candidate, a sole candidate, or one default candidate without instantiating
+   * candidates.
+   */
   public static String selectPrimaryOrUniqueBeanName(
       ConfigurableListableBeanFactory beanFactory, Class<?> type, Collection<String> candidates) {
-    if (candidates.size() == 1) return candidates.iterator().next();
     var primary =
         candidates.stream()
             .filter(
@@ -105,11 +116,37 @@ public final class SpringBeanResolver implements BeanResolver {
                         && beanFactory.getBeanDefinition(name).isPrimary())
             .toList();
     if (primary.size() == 1) return primary.get(0);
-    throw new IllegalStateException(
+    if (primary.size() > 1) throw ambiguousCandidates(type, candidates);
+    var nonFallbackCandidates =
+        candidates.stream().filter(name -> !isFallbackCandidate(beanFactory, name)).toList();
+    if (nonFallbackCandidates.size() == 1) return nonFallbackCandidates.get(0);
+    if (candidates.size() == 1) return candidates.iterator().next();
+    var defaultCandidates =
+        candidates.stream().filter(name -> isDefaultCandidate(beanFactory, name)).toList();
+    if (defaultCandidates.size() == 1) return defaultCandidates.get(0);
+    throw ambiguousCandidates(type, candidates);
+  }
+
+  private static IllegalStateException ambiguousCandidates(
+      Class<?> type, Collection<String> candidates) {
+    return new IllegalStateException(
         "Ratchet requires one bean for "
             + type.getName()
             + "; found "
             + candidates
             + ". Declare a single bean or mark the intended bean @Primary.");
+  }
+
+  private static boolean isDefaultCandidate(
+      ConfigurableListableBeanFactory beanFactory, String name) {
+    return !beanFactory.containsBeanDefinition(name)
+        || !(beanFactory.getBeanDefinition(name) instanceof AbstractBeanDefinition definition)
+        || definition.isDefaultCandidate();
+  }
+
+  private static boolean isFallbackCandidate(
+      ConfigurableListableBeanFactory beanFactory, String name) {
+    return beanFactory.containsBeanDefinition(name)
+        && beanFactory.getBeanDefinition(name).isFallback();
   }
 }

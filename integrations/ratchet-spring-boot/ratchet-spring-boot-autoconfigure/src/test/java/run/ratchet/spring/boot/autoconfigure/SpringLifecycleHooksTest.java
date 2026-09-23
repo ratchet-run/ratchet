@@ -18,8 +18,12 @@ package run.ratchet.spring.boot.autoconfigure;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import jakarta.annotation.PreDestroy;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.SmartFactoryBean;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import run.ratchet.spi.SchedulerLifecycleHook;
 
 class SpringLifecycleHooksTest {
@@ -34,6 +38,8 @@ class SpringLifecycleHooksTest {
         .thenReturn(new String[] {"first", "second", "broken"});
     when(factory.getBean("first")).thenReturn(first);
     when(factory.getBean("second")).thenReturn(second);
+    when(factory.containsBeanDefinition("first")).thenReturn(true);
+    when(factory.containsBeanDefinition("second")).thenReturn(true);
     when(factory.isPrototype("first")).thenReturn(true);
     when(factory.isPrototype("second")).thenReturn(true);
     when(factory.getBean("broken")).thenThrow(original);
@@ -60,6 +66,9 @@ class SpringLifecycleHooksTest {
     when(factory.getBean("first")).thenReturn(first);
     when(factory.getBean("second")).thenReturn(second);
     when(factory.getBean("singleton")).thenReturn(singleton);
+    when(factory.containsBeanDefinition("first")).thenReturn(true);
+    when(factory.containsBeanDefinition("second")).thenReturn(true);
+    when(factory.containsBeanDefinition("singleton")).thenReturn(true);
     when(factory.isPrototype("first")).thenReturn(true);
     when(factory.isPrototype("second")).thenReturn(true);
     SpringLifecycleHooks hooks = new SpringLifecycleHooks(factory);
@@ -72,6 +81,76 @@ class SpringLifecycleHooksTest {
     verify(factory, times(1)).destroyBean("first", first);
     verify(factory, times(1)).destroyBean("second", second);
     verify(factory, never()).destroyBean("singleton", singleton);
+  }
+
+  @Test
+  void nonIndependentSmartFactoryHookRemainsFactoryOwned() {
+    try (var context = new AnnotationConfigApplicationContext()) {
+      AtomicInteger destructions = new AtomicInteger();
+      PooledHookFactory factory = new PooledHookFactory(destructions);
+      context.registerBean("pooledHook", PooledHookFactory.class, () -> factory);
+      context.refresh();
+
+      assertThat(context.getBeanFactory().isPrototype("pooledHook")).isTrue();
+      SpringLifecycleHooks hooks = new SpringLifecycleHooks(context.getBeanFactory());
+      assertThat(hooks.acquire()).containsExactly(factory.hook);
+      hooks.release(factory.hook);
+      assertThat(destructions).hasValue(0);
+    }
+  }
+
+  @Test
+  void manuallyRegisteredSingletonHookIsBorrowed() {
+    try (var context = new AnnotationConfigApplicationContext()) {
+      SchedulerLifecycleHook hook = new EqualHook();
+      context.getBeanFactory().registerSingleton("manualHook", hook);
+      context.refresh();
+
+      SpringLifecycleHooks hooks = new SpringLifecycleHooks(context.getBeanFactory());
+      assertThat(hooks.acquire()).containsExactly(hook);
+      hooks.release(hook);
+    }
+  }
+
+  private static final class PooledHookFactory implements SmartFactoryBean<PooledHook> {
+    private final PooledHook hook;
+
+    PooledHookFactory(AtomicInteger destructions) {
+      hook = new PooledHook(destructions);
+    }
+
+    @Override
+    public PooledHook getObject() {
+      return hook;
+    }
+
+    @Override
+    public Class<?> getObjectType() {
+      return PooledHook.class;
+    }
+
+    @Override
+    public boolean isSingleton() {
+      return false;
+    }
+
+    @Override
+    public boolean isPrototype() {
+      return false;
+    }
+  }
+
+  private static final class PooledHook implements SchedulerLifecycleHook {
+    private final AtomicInteger destructions;
+
+    PooledHook(AtomicInteger destructions) {
+      this.destructions = destructions;
+    }
+
+    @PreDestroy
+    void close() {
+      destructions.incrementAndGet();
+    }
   }
 
   private static final class EqualHook implements SchedulerLifecycleHook {

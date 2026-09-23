@@ -39,9 +39,12 @@ import java.util.function.Supplier;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.aop.scope.ScopedProxyUtils;
+import org.springframework.beans.factory.config.BeanDefinitionHolder;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.test.context.FilteredClassLoader;
+import org.springframework.context.support.SimpleThreadScope;
 import org.springframework.orm.jpa.EntityManagerFactoryInfo;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -198,6 +201,114 @@ class RatchetJpaInfrastructureTest {
                 RatchetJpaInfrastructure.selectTransactionManager(
                     mismatchedTransactionManager, selectedFactory))
         .hasMessageContaining("does not manage the selected EntityManagerFactory");
+  }
+
+  @Test
+  void infrastructureSelectionIgnoresScopedAndNonAutowireCandidates() {
+    DefaultListableBeanFactory dataSources = new DefaultListableBeanFactory();
+    register(dataSources, "dataSource", DataSource.class, () -> mock(DataSource.class), false);
+    register(
+        dataSources,
+        "scopedTarget.dataSource",
+        DataSource.class,
+        () -> mock(DataSource.class),
+        false);
+    register(
+        dataSources, "ignoredDataSource", DataSource.class, () -> mock(DataSource.class), false);
+    dataSources.getBeanDefinition("ignoredDataSource").setAutowireCandidate(false);
+    assertThat(
+            RatchetJpaInfrastructure.selectPrimaryOrUniqueBeanName(dataSources, DataSource.class))
+        .isEqualTo("dataSource");
+
+    DefaultListableBeanFactory factories = new DefaultListableBeanFactory();
+    registerPersistenceUnit(factories, "entityManagerFactory", false);
+    registerPersistenceUnit(factories, "ignoredEntityManagerFactory", false);
+    factories.getBeanDefinition("ignoredEntityManagerFactory").setAutowireCandidate(false);
+    assertThat(RatchetJpaInfrastructure.selectEntityManagerFactoryBeanName(factories))
+        .isEqualTo("entityManagerFactory");
+
+    DefaultListableBeanFactory transactions = new DefaultListableBeanFactory();
+    register(
+        transactions,
+        "transactionManager",
+        PlatformTransactionManager.class,
+        () -> mock(PlatformTransactionManager.class),
+        false);
+    register(
+        transactions,
+        "ignoredTransactionManager",
+        PlatformTransactionManager.class,
+        () -> mock(PlatformTransactionManager.class),
+        false);
+    transactions.getBeanDefinition("ignoredTransactionManager").setAutowireCandidate(false);
+    assertThat(
+            RatchetJpaInfrastructure.selectPrimaryOrUniqueBeanName(
+                transactions, PlatformTransactionManager.class))
+        .isEqualTo("transactionManager");
+  }
+
+  @Test
+  void infrastructureSelectionHonorsDefaultCandidateAfterPrimaryAndBeforeAmbiguity() {
+    DefaultListableBeanFactory dataSources = new DefaultListableBeanFactory();
+    register(dataSources, "fallback", DataSource.class, () -> mock(DataSource.class), false);
+    ((RootBeanDefinition) dataSources.getBeanDefinition("fallback")).setDefaultCandidate(false);
+    register(dataSources, "default", DataSource.class, () -> mock(DataSource.class), false);
+    assertThat(
+            RatchetJpaInfrastructure.selectPrimaryOrUniqueBeanName(dataSources, DataSource.class))
+        .isEqualTo("default");
+
+    DefaultListableBeanFactory primary = new DefaultListableBeanFactory();
+    register(primary, "default", DataSource.class, () -> mock(DataSource.class), false);
+    register(primary, "primary", DataSource.class, () -> mock(DataSource.class), true);
+    ((RootBeanDefinition) primary.getBeanDefinition("primary")).setDefaultCandidate(false);
+    assertThat(RatchetJpaInfrastructure.selectPrimaryOrUniqueBeanName(primary, DataSource.class))
+        .isEqualTo("primary");
+
+    DefaultListableBeanFactory only = new DefaultListableBeanFactory();
+    register(only, "only", DataSource.class, () -> mock(DataSource.class), false);
+    ((RootBeanDefinition) only.getBeanDefinition("only")).setDefaultCandidate(false);
+    assertThat(RatchetJpaInfrastructure.selectPrimaryOrUniqueBeanName(only, DataSource.class))
+        .isEqualTo("only");
+
+    DefaultListableBeanFactory multiplePrimary = new DefaultListableBeanFactory();
+    register(multiplePrimary, "first", DataSource.class, () -> mock(DataSource.class), true);
+    register(multiplePrimary, "second", DataSource.class, () -> mock(DataSource.class), true);
+    ((RootBeanDefinition) multiplePrimary.getBeanDefinition("second")).setDefaultCandidate(false);
+    assertThatThrownBy(
+            () ->
+                RatchetJpaInfrastructure.selectPrimaryOrUniqueBeanName(
+                    multiplePrimary, DataSource.class))
+        .hasMessageContaining("Ratchet requires one bean for " + DataSource.class.getName());
+  }
+
+  @Test
+  void infrastructureSelectionSelectsTheSoleNonFallbackDataSourceLikeSpringTypeLookup() {
+    DefaultListableBeanFactory dataSources = new DefaultListableBeanFactory();
+    DataSource preferred = mock(DataSource.class);
+    register(dataSources, "preferred", DataSource.class, () -> preferred, false);
+    register(dataSources, "fallback", DataSource.class, () -> mock(DataSource.class), false);
+    dataSources.getBeanDefinition("fallback").setFallback(true);
+
+    assertThat(dataSources.getBean(DataSource.class)).isSameAs(preferred);
+    assertThat(RatchetJpaInfrastructure.selectDataSource(dataSources)).isSameAs(preferred);
+  }
+
+  @Test
+  void selectsTheLiveScopedDataSourceProxyRatherThanItsTarget() {
+    DefaultListableBeanFactory beanFactory = new DefaultListableBeanFactory();
+    beanFactory.registerScope("request", new SimpleThreadScope());
+    RootBeanDefinition target =
+        new RootBeanDefinition(DataSource.class, () -> mock(DataSource.class));
+    target.setScope("request");
+    BeanDefinitionHolder proxy =
+        ScopedProxyUtils.createScopedProxy(
+            new BeanDefinitionHolder(target, "dataSource"), beanFactory, false);
+    beanFactory.registerBeanDefinition(proxy.getBeanName(), proxy.getBeanDefinition());
+
+    DataSource selected = RatchetJpaInfrastructure.selectDataSource(beanFactory);
+
+    assertThat(proxy.getBeanName()).isEqualTo("dataSource");
+    assertThat(org.springframework.aop.support.AopUtils.isAopProxy(selected)).isTrue();
   }
 
   @Test

@@ -86,7 +86,11 @@ final class RatchetJpaInfrastructure {
   static String selectPrimaryOrUniqueBeanName(
       ConfigurableListableBeanFactory beanFactory, Class<?> type) {
     return SpringBeanResolver.selectPrimaryOrUniqueBeanName(
-        beanFactory, type, Arrays.asList(beanFactory.getBeanNamesForType(type, true, false)));
+        beanFactory,
+        type,
+        Arrays.stream(beanFactory.getBeanNamesForType(type, true, false))
+            .filter(name -> isEligibleCandidate(beanFactory, name))
+            .toList());
   }
 
   /**
@@ -102,7 +106,16 @@ final class RatchetJpaInfrastructure {
     candidates.addAll(
         factoryBeanNames(beanFactory.getBeanNamesForType(EntityManagerFactory.class, true, false)));
     return SpringBeanResolver.selectPrimaryOrUniqueBeanName(
-        beanFactory, EntityManagerFactory.class, List.copyOf(candidates));
+        beanFactory,
+        EntityManagerFactory.class,
+        candidates.stream().filter(name -> isEligibleCandidate(beanFactory, name)).toList());
+  }
+
+  private static boolean isEligibleCandidate(
+      ConfigurableListableBeanFactory beanFactory, String name) {
+    return !name.startsWith("scopedTarget.")
+        && (!beanFactory.containsBeanDefinition(name)
+            || beanFactory.getBeanDefinition(name).isAutowireCandidate());
   }
 
   private static List<String> factoryBeanNames(String[] names) {
