@@ -6,12 +6,12 @@
 
     <suppress>
         <notes><![CDATA[
-        False positive: this package is the PostgreSQL JDBC client driver, not the
-        PostgreSQL server binary. Dependency-Check attaches the PostgreSQL server
-        CPE because the artifact name is also "postgresql".
+        False positive only for a PostgreSQL SERVER CPE misidentified on the
+        PostgreSQL JDBC client driver. This rule deliberately preserves JDBC-driver
+        CPE findings, including driver-specific vulnerabilities.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.postgresql/postgresql@.*$</packageUrl>
-        <cpe>cpe:/a:postgresql:postgresql</cpe>
+        <cpe regex="true">^cpe:/a:postgresql:postgresql(?::.*)?$</cpe>
     </suppress>
 
     <suppress>
@@ -85,6 +85,29 @@
         ]]></notes>
         <filePath regex="true">.*/micrometer-registry-prometheus-[^/]+\.jar$</filePath>
         <cve>CVE-2019-3826</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+        False product match: CVE-2026-54285 affects @opentelemetry/core in the
+        OpenTelemetry JavaScript client. These Maven artifacts are the Java API,
+        context, and common libraries, not that npm package.
+        https://www.cve.org/CVERecord?id=CVE-2026-54285
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry/opentelemetry-(api|context|common)@.*$</packageUrl>
+        <cve>CVE-2026-54285</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+        False product match: this Quarkus build-item SPI contains only
+        AdditionalConstrainedClassBuildItem and BeanValidationAnnotationsBuildItem.
+        It does not contain Hibernate Validator's affected SafeHtml implementation.
+        Restrict the rule to the inspected artifact and this SafeHtml CVE.
+        https://www.cve.org/CVERecord?id=CVE-2023-1932
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.quarkus/quarkus-hibernate-validator-spi@3\.20\.6\.2$</packageUrl>
+        <cve>CVE-2023-1932</cve>
     </suppress>
 
 </suppressions>

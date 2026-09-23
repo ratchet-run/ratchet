@@ -35,8 +35,16 @@ jobs:
           key: m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: m2-
 
-      - name: Compile (resolves the dep graph for the plugin)
-        run: mvn -B -DskipTests install
+      - name: Build and stage runtime dependencies for scanning
+        run: |
+          mvn -B -DskipTests install
+          # Library jars are thin: scanning target/*.jar alone misses their
+          # third-party dependencies, including the Spring starter stack. Keep each
+          # sibling POM so Dependency-Check can identify archives that lack embedded
+          # Maven metadata, including jars built with Gradle.
+          mvn -B -ntp dependency:copy-dependencies -DincludeScope=runtime \
+            -Dmdep.useRepositoryLayout=true -Dmdep.copyPom=true \
+            -DoutputDirectory=target/owasp-dependencies
 
       - name: Run OWASP Dependency-Check
         # Pinned to the main HEAD SHA: upstream only tags 1.0.0/1.1.0 (2021),
@@ -51,10 +59,11 @@ jobs:
           format: 'HTML'
           out: 'target'
           # The Central Analyzer recovers jar coordinates by SHA-1 lookup against the legacy
-          # search.maven.org Solr endpoint, which read-times-out and 403s under load. Maven-built
-          # jars already carry their GAV in META-INF/maven/**/pom.properties, so --disableCentral
-          # drops that flaky network call without losing identification (the NVD data is preloaded
-          # in the action image, so CVE matching is unaffected).
+          # search.maven.org Solr endpoint, which read-times-out and 403s under load. Runtime
+          # staging preserves sibling POMs; archives with embedded Maven metadata retain it too.
+          # Those local sources identify the staged graph, so --disableCentral drops that flaky
+          # network call without relying on every jar to carry META-INF/maven metadata. The NVD
+          # data is preloaded in the action image, so CVE matching is unaffected.
           args: >
             --format SARIF
             --failOnCVSS 7
