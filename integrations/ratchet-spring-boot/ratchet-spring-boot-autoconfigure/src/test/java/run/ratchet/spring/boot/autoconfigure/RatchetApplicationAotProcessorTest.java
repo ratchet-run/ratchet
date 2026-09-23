@@ -72,18 +72,31 @@ class RatchetApplicationAotProcessorTest {
             RuntimeHintsPredicates.resource()
                 .forResource("example/aot/jobs/ApplicationTypes$1.class"))
         .accepts(hints);
-    String metadata =
-        files.getGeneratedFileContent(
-            Kind.RESOURCE, "META-INF/native-image/run.ratchet/spring/serialization-config.json");
+    String metadata = serializationMetadata(files);
     assertThat(metadata).contains("example.aot.jobs.ApplicationTypes$1");
-    assertThat(metadata)
-        .isEqualTo(
-            generate(factory, new RuntimeHints())
-                .getGeneratedFileContent(
-                    Kind.RESOURCE,
-                    "META-INF/native-image/run.ratchet/spring/serialization-config.json"));
+    assertThat(metadata).isEqualTo(serializationMetadata(generate(factory, new RuntimeHints())));
     assertThat(factory.containsSingleton("lazy")).isFalse();
     assertThat(factory.containsSingleton("prototype")).isFalse();
+  }
+
+  @Test
+  void multipleTestContextsCanContributeToTheSameGeneratedFiles() {
+    var files = new InMemoryGeneratedFiles();
+    var context = mock(GenerationContext.class);
+    when(context.getGeneratedFiles()).thenReturn(files);
+    when(context.getRuntimeHints()).thenReturn(new RuntimeHints());
+    var first = factory();
+    var second = factory();
+    second.registerBeanDefinition("library", new RootBeanDefinition(Explicit.class));
+    new RatchetApplicationAotProcessor().processAheadOfTime(first).applyTo(context, null);
+    new RatchetApplicationAotProcessor().processAheadOfTime(second).applyTo(context, null);
+    new RatchetApplicationAotProcessor().processAheadOfTime(first).applyTo(context, null);
+    assertThat(serializationMetadata(files))
+        .contains("example.aot.jobs.ApplicationTypes$1", "example.aot.library.LibraryTypes");
+    assertThat(
+            files.getGeneratedFiles(Kind.RESOURCE).keySet().stream()
+                .filter(path -> path.endsWith("serialization-config.json")))
+        .hasSize(2);
   }
 
   @Test
@@ -250,6 +263,21 @@ class RatchetApplicationAotProcessorTest {
                     registration.toString()))
         .isZero();
     return new URLClassLoader(new URL[] {directory.toUri().toURL()}, getClass().getClassLoader());
+  }
+
+  private static String serializationMetadata(InMemoryGeneratedFiles files) {
+    return files.getGeneratedFiles(Kind.RESOURCE).keySet().stream()
+        .filter(path -> path.endsWith("serialization-config.json"))
+        .sorted()
+        .map(
+            path -> {
+              try {
+                return files.getGeneratedFileContent(Kind.RESOURCE, path);
+              } catch (java.io.IOException failure) {
+                throw new java.io.UncheckedIOException(failure);
+              }
+            })
+        .collect(java.util.stream.Collectors.joining("\n"));
   }
 
   private static DefaultListableBeanFactory factory() {

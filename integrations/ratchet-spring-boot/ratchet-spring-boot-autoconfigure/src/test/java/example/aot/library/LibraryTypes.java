@@ -16,6 +16,10 @@
 package example.aot.library;
 
 public class LibraryTypes {
+  public static java.io.Serializable submission() {
+    return (Runnable & java.io.Serializable) () -> {};
+  }
+
   public static class Nested {
     public void job() {}
   }

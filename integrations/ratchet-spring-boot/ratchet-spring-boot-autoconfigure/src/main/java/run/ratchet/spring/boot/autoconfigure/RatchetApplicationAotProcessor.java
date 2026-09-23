@@ -38,6 +38,7 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.type.classreading.CachingMetadataReaderFactory;
 import org.springframework.lang.NonNull;
 import org.springframework.util.ClassUtils;
+import run.ratchet.spring.boot.autoconfigure.internal.AotResources;
 
 /** Inspects definitions and class files only: no application beans are obtained during AOT. */
 public final class RatchetApplicationAotProcessor implements BeanFactoryInitializationAotProcessor {
@@ -65,16 +66,16 @@ public final class RatchetApplicationAotProcessor implements BeanFactoryInitiali
               .map(Class::getName)
               .map(name -> "{\"name\":\"" + name + "\"}")
               .collect(Collectors.joining(",\n"));
-      generation
-          .getGeneratedFiles()
-          .addResourceFile(
-              NATIVE_PATH + "serialization-config.json",
-              "{\"types\":[],\"lambdaCapturingTypes\":[" + lambdas + "],\"proxies\":[]}\n");
-      generation
-          .getGeneratedFiles()
-          .addResourceFile(
-              NATIVE_PATH + "native-image.properties",
-              "Args = --initialize-at-run-time=run.ratchet.store.id.UuidV7Factory\n");
+      String serialization =
+          "{\"types\":[],\"lambdaCapturingTypes\":[" + lambdas + "],\"proxies\":[]}\n";
+      AotResources.add(
+          generation.getGeneratedFiles(),
+          NATIVE_PATH + AotResources.contentKey(serialization) + "/serialization-config.json",
+          serialization);
+      AotResources.add(
+          generation.getGeneratedFiles(),
+          NATIVE_PATH + "native-image.properties",
+          "Args = --initialize-at-run-time=run.ratchet.store.id.UuidV7Factory\n");
     };
   }
 
