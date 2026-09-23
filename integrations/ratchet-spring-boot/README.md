@@ -1,7 +1,8 @@
 # Ratchet Spring Boot
 
 The SQL and MongoDB starters run Ratchet in Spring Boot 3.5 and 4.1 applications on Java 17 and 21.
-The starters are published to Maven Central with the other Ratchet modules and aligned by the Ratchet BOM.
+Verify starters built from the current checkout against an isolated staged
+Maven repository.
 
 - [Spring Boot guide](../../website/docs/deployment/spring-boot.md): installation, a first job,
   database configuration, transactions, virtual threads, customization, and support limits.

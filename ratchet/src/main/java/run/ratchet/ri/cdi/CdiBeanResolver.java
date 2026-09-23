@@ -24,8 +24,9 @@ import run.ratchet.spi.BeanResolver;
 
 /**
  * Resolves CDI beans by type via {@link Instance}. Throws {@link IllegalStateException} if no bean
- * or multiple beans are found, and refuses {@link Dependent}-scoped beans whose lifecycle it cannot
- * manage.
+ * or multiple beans are found. {@link #resolve(Class)} refuses {@link Dependent}-scoped beans
+ * because it cannot return a lifecycle-managed reference; {@link #acquire(Class)} accepts them and
+ * destroys the acquired handle when it is closed.
  */
 @ApplicationScoped
 public class CdiBeanResolver implements BeanResolver {

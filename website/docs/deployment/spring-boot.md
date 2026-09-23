@@ -5,8 +5,22 @@ description: Run persistent Ratchet jobs in Spring Boot 3.5 and 4.1 with SQL or 
 
 # Spring Boot
 
-The SQL and MongoDB starters are published to Maven Central with the other Ratchet modules,
-starting with Ratchet **0.4.0**. Import the Ratchet BOM to keep their versions aligned.
+<!-- spring-starter-unreleased:start -->
+The SQL and MongoDB starters are unreleased in this checkout. Build and stage the current source
+tree before using these examples; no Ratchet release BOM currently supplies Spring Boot starter
+coordinates.
+
+```bash
+staged_repo="$(mktemp -d)"
+mvn -B -ntp -Dmaven.repo.local="$staged_repo" \
+  -pl :ratchet-bom,:ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-postgresql -am \
+  install -Pgithub -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
+```
+
+The command stages the BOM, both starters, and the PostgreSQL store used by this quickstart;
+`-am` adds their reactor dependencies. The checked-out version below must match the root project
+POM.
+<!-- spring-starter-unreleased:end -->
 
 Ratchet runs in Spring Boot 3.5 and 4.1 applications on Java 17 or later. The SQL starter uses the application's existing datasource, entity-manager factory, and transaction manager. The MongoDB starter uses Boot's configured Mongo client and database factory.
 
@@ -18,7 +32,7 @@ Start with a normal Spring Boot application and its Boot parent or BOM. The test
 ```xml
 <properties>
   <java.version>17</java.version>
-  <ratchet.version>0.4.0</ratchet.version>
+  <ratchet.version>0.4.1-SNAPSHOT</ratchet.version>
 </properties>
 ```
 
@@ -60,6 +74,16 @@ Use the same pattern with `ratchet-store-mysql`, `ratchet-store-oracle`, or `rat
 provider. You do not need to add `spring-boot-starter-data-jpa` separately. Your application's
 Boot BOM selects Spring and Hibernate versions. Ratchet adds its own entity metadata without
 replacing application entities, converters, mappings, or JPA properties.
+
+For deployment, select a Boot BOM with the security fixes your application requires. Boot 4.1.1
+resolves Spring Framework 7.0.9 and Spring Data JPA 4.1.1, including fixes for
+[Sort validation](https://spring.io/security/cve-2026-47834/),
+[SpEL exponentiation](https://spring.io/security/cve-2026-47886/),
+[data-binding list growth](https://spring.io/security/cve-2026-59282/), and
+[SpEL compilation](https://spring.io/security/cve-2026-59283/).
+The Boot 3.5.16 compatibility baseline resolves affected versions 6.2.19 and 3.5.13;
+the corresponding fixes, Framework 6.2.20 and Data JPA 3.5.14, require Spring Enterprise access.
+Ratchet does not override your application's Boot BOM to supply those fixes.
 
 ### Connect a database
 
@@ -141,7 +165,7 @@ public class DemoApplication {
 Run the application with your normal Boot Maven plugin:
 
 ```bash
-mvn spring-boot:run
+mvn -Dmaven.repo.local="$staged_repo" spring-boot:run
 ```
 
 Startup prepares the Ratchet schema, starts the scheduler, and prints the greeting when the job
@@ -162,7 +186,25 @@ The starter migrates Ratchet's schema by default before Hibernate validates the 
 ratchet.schema.auto-migrate=false
 ```
 
-That mode validates compatibility without changing the schema. An externally managed schema may omit Ratchet's migration ledger; if the ledger exists, it must record every bundled migration with its matching checksum. `ratchet.enabled=false` disables migrations, discovery, workers, and Ratchet runtime installation.
+That mode validates compatibility without changing the schema. An externally managed schema may omit
+Ratchet's migration ledger; the supplied scripts create an empty `ratchet_schema_version` table, so
+an external migration manager should drop that empty table after applying them. If the ledger is
+populated, it must record every bundled migration with its matching checksum; do not delete a
+populated ledger to bypass a validation mismatch. `ratchet.enabled=false` disables migrations,
+discovery, workers, and Ratchet runtime installation.
+
+Ratchet's entities are part of the selected JPA persistence unit, so Hibernate's
+`spring.jpa.hibernate.ddl-auto` also acts on Ratchet tables. In production, set it to `none` or
+`validate` and let Ratchet's migrator or the external migration tool own Ratchet DDL. Do not use
+`create`, `create-drop`, or `update` for a durable Ratchet schema: they can recreate queued-job
+tables or make Hibernate-managed DDL disagree with Ratchet migrations. Embedded test databases may
+use Boot's `create-drop` default only when losing the Ratchet job data is intentional.
+
+With `spring.jpa.defer-datasource-initialization=true`, Ratchet runs detected Flyway and Liquibase
+migrations before Hibernate so its schema exists when the selected persistence unit initializes.
+Those migrations must not seed tables that Hibernate creates. Put that seed data in Boot's deferred
+`data.sql` initialization or in an application step that runs after JPA starts. Ratchet leaves a
+custom database initializer's existing JPA dependency unchanged.
 
 MySQL supports its default `REPEATABLE_READ` as well as `READ_COMMITTED`; the store validates the selected isolation level when the `JobStore` is created, after schema initialization. To select `READ_COMMITTED`, configure it at the pool or database according to your operating standard, for example:
 
@@ -206,6 +248,11 @@ spring.mongodb.representation.uuid=standard
 
 No Ratchet-specific Mongo URI, credentials, client, or database name is required. Ratchet uses Boot's `MongoDatabaseFactory`; Mongo submission semantics retain the store's existing atomicity guarantees and do not imply SQL-style participation in an application transaction. Deploy MongoDB as a replica set or sharded cluster: Ratchet uses multi-document transactions for operations such as signals, permits, and batch/workflow state changes.
 
+With `ratchet.schema.auto-migrate=false`, Mongo startup validates the complete declared collection and
+named-index shape. Enabled startup can warn and continue when it cannot create an optional
+performance index, but that warning does not make an incompatible same-name index valid; repair or
+drop the conflicting index before using validation-only startup.
+
 ## Configuration and overrides
 
 The Spring-specific properties are:
@@ -221,6 +268,12 @@ The Spring-specific properties are:
 Existing Ratchet option names and payload formats remain unchanged. A custom `ClassPolicy` or the relevant Ratchet SPI bean takes precedence over the default. Auto-configuration uses `@ConditionalOnMissingBean`, so applications can provide a supported Ratchet SPI or service bean when they need to replace it.
 
 Ratchet starts after persistence initialization and stops before application-owned datasource or Mongo resources close. One active Ratchet runtime is supported per classloader; close a prior application context before starting another in the same test JVM. Jobs should honor interruption: if a job continues beyond the shutdown deadline, Ratchet keeps the runtime ownership fence until that execution exits and rejects a conflicting restart. Spring proxies are invoked through their exposed methods, so transaction advice continues to apply to scheduled and `@Recurring` work.
+
+Install one Ratchet store starter for each scheduler context: use the SQL starter for the selected
+JPA-backed SQL store or the MongoDB starter for Boot's `MongoDatabaseFactory`. A context that
+needs both database technologies should keep one scheduler and choose the store that owns its
+Ratchet jobs. Installing both Ratchet starters in the same context is unsupported; choose one
+explicitly.
 
 Keep Ratchet enabled in the context that owns the scheduler; secondary contexts that do not need
 their own scheduler can use `ratchet.enabled=false`. Supporting concurrent independent runtimes
@@ -242,6 +295,16 @@ Spring receives Ratchet lifecycle events through its application event publisher
 and invokes scheduled work through Spring proxies, preserving transaction advice in either proxy
 mode. See the shared [annotations](/api-reference/annotations) and
 [scheduling](/concepts/scheduling) reference for the job API.
+
+When a `FactoryBean` produces a job target that owns resources, declare `@PreDestroy` on the
+product. Factory destroy metadata can suppress a product's plain `DisposableBean.destroy()` or
+inferred bare `AutoCloseable.close()`, so neither is guaranteed. For non-singleton pooled products,
+use a singleton-scoped `SmartFactoryBean` that reports `isPrototype() == false`. Pooling from a
+prototype- or custom-scoped producing factory is unsupported. A `SmartFactoryBean` that returns
+independent instances must override `isPrototype()` to return `true`. Ratchet may also apply the
+producing factory's destroy metadata, including inferred `close()` or `shutdown()`, to its product.
+If that metadata names the product's `@PreDestroy` method, such as `close()` on an `AutoCloseable`
+product, the method can run twice. Make overlapping cleanup idempotent.
 
 To capture an authenticated submitter, supply a `PrincipalSource` bean for your application's
 security framework. The starter does not automatically install a Spring Security adapter. It
@@ -312,9 +375,15 @@ with the same setting.
 ## Native images
 
 Native support is verified with Boot 3.5.16 and 4.1.1 on GraalVM 25 for all five stores.
-SQL native images use Hibernate. Install exactly one Ratchet SQL store artifact when building;
-the executable validates the actual database vendor at startup. EclipseLink native images are
-outside this support matrix.
+Ratchet's generated JVM AOT and native-image SQL metadata both use Hibernate. Install exactly one
+Ratchet SQL store artifact when running `process-aot`, building a native image, or enabling
+`spring.aot.enabled`; the executable still validates the actual database vendor at startup.
+EclipseLink remains supported for ordinary JVM deployments, but EclipseLink generated JVM AOT and
+native images are outside this support matrix.
+
+If a MongoDB application also uses JPA, application-owned ORM XML mappings require the
+application to supply Hibernate/JAXB native hints. The MongoDB starter does not supply those
+provider-specific hints.
 
 Spring AOT discovers application package classes and registered application bean types, including
 nested, local, and anonymous lambda submitters. It includes target reflection, payload binding,
@@ -375,7 +444,7 @@ runs the matrix and retains test reports.
 
 | Symptom | Check |
 | --- | --- |
-| No store or multiple stores selected | Use the SQL starter with exactly one SQL store, or use the MongoDB starter. |
+| SQL AOT reports no store or multiple installed stores | Include exactly one SQL store artifact when generating AOT metadata. For ordinary JVM use, install the store matching the selected datasource; use one Ratchet store starter per context. |
 | Ambiguous persistence beans | Select a coherent datasource, entity-manager factory, and JPA transaction manager with `@Primary`. |
 | MySQL startup rejects isolation | Configure `TRANSACTION_READ_COMMITTED` on the selected pool. |
 | Oracle or SQL Server rejects timestamp binding | Configure UTC JDBC timestamp binding for the selected unit; with Hibernate, use `hibernate.jdbc.time_zone=UTC`. |

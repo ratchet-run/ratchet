@@ -97,6 +97,10 @@ A job picks its pool with `.virtual()` or `.platform()` on the builder; calling 
 
 Whether the virtual pool's threads are actually virtual is the container's decision. Pointing `virtual-executor-jndi` at an `@ManagedExecutorDefinition(virtual = true)` is a request the runtime may ignore: GlassFish 8 honors it, while WildFly 40 binds the executor but still runs jobs on platform threads. Jakarta exposes no API to check this at runtime, so Ratchet can neither warn about it nor guarantee it. Confirm against your container's documentation.
 
+### Retired virtual-thread setting
+
+`ratchet.worker.use-virtual-threads` (and `RATCHET_WORKER_USE_VIRTUAL_THREADS`) is retired and ignored. `RatchetOptionsFactory` logs a warning whenever either form is present. Choose the default execution target with `ratchet.worker.default-threading-mode` instead; configure the virtual executor as described above for Jakarta EE, or use Spring Boot's `spring.threads.virtual.enabled` for its virtual pool.
+
 ## Source Chain
 
 For container deployments, write a producer that reads `RATCHET_*` environment variables and MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()`:

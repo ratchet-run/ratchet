@@ -21,7 +21,7 @@ To run against locally staged artifacts, first install Ratchet into an isolated 
 staged_repo="$(mktemp -d)"
 mvn -B -ntp -Dmaven.repo.local="$staged_repo" \
   -pl :ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-tck-api,:ratchet-tck-store -am \
-  install -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
+  install -Pgithub -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
 ```
 
 Then run the independent consumer reactor. These commands do not use Ratchet's root parent:
@@ -58,8 +58,9 @@ absent. It runs the existing contracts without excluding tests; the application 
 entity caching because Ratchet also uses native SQL. It selects EclipseLink 5 / JPA 3.2,
 which supports `Instant` directly on both supported Java versions. Its datasource sets the PostgreSQL driver property
 `stringtype=unspecified` for native-query null binding, matching the Jakarta EE suite. Ratchet
-does not install these application-wide policies. The explicit PostgreSQL profile is necessary
-because activating another Maven profile disables its `activeByDefault` selection.
+does not install these application-wide policies. The command explicitly selects the PostgreSQL
+dependency profile with `-Dstore=postgresql`; the `eclipselink` profile adds only the
+application-owned provider configuration.
 
 The four existing skips in each consumer run are three contracts requiring a controllable clock
 and one unsupported CRUD stale-write contract. Real-clock delay tests remain enabled. SQL runs

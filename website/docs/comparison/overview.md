@@ -8,7 +8,7 @@ description: Side-by-side comparisons of Ratchet with Quartz, JobRunr, Spring Ba
 
 Ratchet is not the right answer for every Java job-scheduling problem. This section lays out how it stacks up against the libraries you are most likely already considering, what each one does well, and when you should pick something else.
 
-If you only read one thing on this page, read the decision tree below.
+If you only read one thing on this page, read the selection guide below.
 
 ## Pick the right tool
 

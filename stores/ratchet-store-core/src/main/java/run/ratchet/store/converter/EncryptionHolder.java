@@ -73,6 +73,7 @@ public final class EncryptionHolder {
    * @throws EncryptionConfigurationException if {@code engines} is empty, {@code keyProvider} is
    *     {@code null}, an engine reports a blank algorithm id, two engines report the same id, or
    *     {@code writeAlgorithmId} names no installed engine
+   * @throws IllegalStateException if an active Ratchet runtime owns converter configuration
    */
   public static void install(
       Collection<PayloadEncryption> engines,
@@ -125,7 +126,11 @@ public final class EncryptionHolder {
     return () -> state = previous;
   }
 
-  /** Reverts to the disabled state. Called at container shutdown and between tests. */
+  /**
+   * Reverts to the disabled state. Called at container shutdown and between tests.
+   *
+   * @throws IllegalStateException if an active Ratchet runtime owns converter configuration
+   */
   public static void disable() {
     synchronized (RuntimeContextInstallation.class) {
       RuntimeContextInstallation.checkUnowned();

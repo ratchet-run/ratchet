@@ -124,6 +124,11 @@ The SQL schema creates these primary tables. MongoDB uses analogous collections 
 
 Ratchet **requires** a CDI-produced `RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts. This acts as a first-class kill-switch for any deployment that includes `ratchet` without wanting it active.
 
+The CDI integration has one active Ratchet runtime per classloader because serializer, encryption,
+and masking state are shared by that classloader. Stop and let the previous deployment release its
+jobs before starting another CDI container that shares those Ratchet classes. This is a lifecycle
+constraint, not support for multiple independent runtimes in one classloader.
+
 The producer may build options programmatically or read `RATCHET_*` environment variables and MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()`. See [Configuration](/getting-started/configuration) for both patterns.
 
 Key configuration areas:

@@ -42,6 +42,7 @@ public final class PayloadMaskingPolicyHolder {
    * by the reference implementation's producer.
    *
    * @param policy the policy to install; MAY be {@code null} to revert to the built-in default
+   * @throws IllegalStateException if an active Ratchet runtime owns converter configuration
    */
   public static void set(PayloadMaskingPolicy policy) {
     synchronized (RuntimeContextInstallation.class) {
