@@ -151,7 +151,7 @@ class WebAndClusterRuntimeIT {
                       .isEqualTo(8));
       assertThat(
               jdbc.queryForObject(
-                  "select count(*) from runtime_attempt a join runtime_attempt b on a.attempt_id < b.attempt_id and a.started_at < b.finished_at and b.started_at < a.finished_at where a.business_id like 'serial-%' and b.business_id like 'serial-%'",
+                  "select count(*) from runtime_attempt a join runtime_attempt b on a.attempt_id < b.attempt_id and (b.finished_at is null or a.started_at < b.finished_at) and (a.finished_at is null or b.started_at < a.finished_at) where a.business_id like 'serial-%' and b.business_id like 'serial-%'",
                   Integer.class))
           .isZero();
       assertThat(

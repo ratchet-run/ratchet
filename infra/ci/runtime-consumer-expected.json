@@ -1,0 +1,20 @@
+{
+  "sql": {
+    "DatabaseFailuresRuntimeIT": 2,
+    "DeferredBeansRuntimeIT": 3,
+    "EncryptionRotationRuntimeIT": 2,
+    "ExternalMigrationsRuntimeIT": 6,
+    "MultiplePersistenceUnitsRuntimeIT": 4,
+    "SecurityOverridesRuntimeIT": 1,
+    "WebAndClusterRuntimeIT": 2
+  },
+  "mongodb": {
+    "MongoEncryptionRotationRuntimeIT": 2,
+    "MongoProcessesRuntimeIT": 2
+  },
+  "totals": {
+    "sql": 20,
+    "mongodb": 4,
+    "all": 24
+  }
+}

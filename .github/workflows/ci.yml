@@ -462,7 +462,7 @@ jobs:
           mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository"
           -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
           -pl :ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-${{ matrix.store }}
-          -am install
+          -Pgithub -am install
       - uses: actions/setup-java@v6
         with:
           java-version: ${{ matrix.java }}
@@ -513,7 +513,7 @@ jobs:
           mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-runtime-repository"
           -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
           -pl :ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-postgresql
-          -am install
+          -Pgithub -am install
       - uses: actions/setup-java@v6
         with:
           java-version: ${{ matrix.java }}
@@ -521,6 +521,7 @@ jobs:
       - name: Verify Spring runtime failure scenarios
         run: |
           set -o pipefail
+          set +e
           profiles=runtime
           if [ "${{ matrix.boot }}" = "4.1.1" ]; then profiles=runtime,runtime-boot4; fi
           mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
@@ -528,6 +529,14 @@ jobs:
             -Dspring-boot.version=${{ matrix.boot }} -Dstore=postgresql \
             -P "$profiles" verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false \
             '-Dit.test=*RuntimeIT' -Dfailsafe.failIfNoSpecifiedTests=false 2>&1 | tee spring-runtime.log
+          pipeline_status=$?
+          python3 infra/ci/check_runtime_consumer_reports.py \
+            --sql-report-dir integrations/ratchet-spring-boot/consumer-tests/sql/target/failsafe-reports \
+            --mongo-report-dir integrations/ratchet-spring-boot/consumer-tests/mongodb/target/failsafe-reports
+          guard_status=$?
+          set -e
+          if [ "$pipeline_status" -ne 0 ]; then exit "$pipeline_status"; fi
+          exit "$guard_status"
       - name: Retain runtime evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -564,7 +573,7 @@ jobs:
           mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-native-repository" \
             -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true \
             -pl :ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-${{ matrix.store }} \
-            -am install 2>&1 | tee native-stage.log
+            -Pgithub -am install 2>&1 | tee native-stage.log
       - name: Verify generated AOT application on the JVM
         run: |
           set -o pipefail
