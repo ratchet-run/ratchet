@@ -474,6 +474,7 @@ public class BatchService {
   /** Processes a counter snapshot already committed with its child's terminal transition. */
   // JTA may still associate the completed transaction with an afterCompletion callback thread.
   // Suspend it before reading counters or committing the synthetic parent's completion.
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public boolean afterChildCompletion(BatchProgress progress) {
     return batchCompletionTransaction.complete(() -> afterChildCompletionNow(progress));
   }

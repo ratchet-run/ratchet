@@ -27,13 +27,16 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.*;
 import run.ratchet.api.event.*;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.BatchService;
+import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.spi.*;
 
 @QuarkusTest
@@ -164,6 +167,33 @@ class QuarkusCompletionRecoveryTest {
     assertEquals(1, batches.findBatchById(parent.id()).orElseThrow().getCompletedItems());
     assertEquals(1, CompletionProbeJobs.children.get());
     assertEquals(1, count(BatchCompletedEvent.class, parent.id()));
+  }
+
+  @Test
+  void afterCompletionPreservesParentCompletionFailure() {
+    faults.rejectBatchParents.set(true);
+    JobHandle parent =
+        scheduler
+            .enqueueBatch("after-completion")
+            .forEach(List.of("one"), CompletionProbeJobs::item)
+            .submit();
+    await().atMost(Duration.ofSeconds(20)).until(() -> faults.rejectedParents.get() > 0);
+
+    var batch = batches.findBatchById(parent.id()).orElseThrow();
+    AtomicReference<Throwable> observed =
+        eventBoundary.invokeAfterCompletion(
+            batchService,
+            new BatchProgress(
+                parent.id(),
+                batch.getTotalItems(),
+                batch.getCompletedItems(),
+                batch.getFailedItems(),
+                batch.getProgressHook()));
+
+    Throwable failure = observed.get();
+    assertNotNull(failure);
+    assertInstanceOf(RatchetTransientStoreException.class, failure);
+    assertEquals("injected parent completion outage", failure.getMessage());
   }
 
   @Test
