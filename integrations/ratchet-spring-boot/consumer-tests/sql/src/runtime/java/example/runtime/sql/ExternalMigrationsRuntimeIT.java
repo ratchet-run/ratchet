@@ -44,7 +44,7 @@ class ExternalMigrationsRuntimeIT {
   @ValueSource(strings = {"flyway", "liquibase", "sql"})
   void externalToolRunsBeforeRatchetValidationAndWorkers(String tool) throws Exception {
     try (var database = SqlDatabase.start()) {
-      var arguments = migrationArguments(database, tool, false);
+      var arguments = migrationArguments(database, tool, false, true);
       for (int startup = 0; startup < 2; startup++) {
         var startupArguments = new ArrayList<>(List.of(arguments));
         // Plain SQL scripts have no migration ledger; provision once, then only validate.
@@ -84,7 +84,7 @@ class ExternalMigrationsRuntimeIT {
   @ValueSource(strings = {"flyway", "liquibase", "sql"})
   void migrationFailurePreventsWorkerStartupAndReleasesRuntime(String tool) throws Exception {
     try (var database = SqlDatabase.start()) {
-      var arguments = migrationArguments(database, tool, true);
+      var arguments = migrationArguments(database, tool, true, false);
       assertThatThrownBy(() -> application(database).run(arguments))
           .hasStackTraceContaining("runtime_intentional_migration_failure");
       var jdbc = new JdbcTemplate(RuntimeSupport.dataSource(database));
@@ -102,7 +102,8 @@ class ExternalMigrationsRuntimeIT {
     }
   }
 
-  private String[] migrationArguments(SqlDatabase database, String tool, boolean broken)
+  private String[] migrationArguments(
+      SqlDatabase database, String tool, boolean broken, boolean deferExternalMigrations)
       throws Exception {
     var migrations =
         new SchemaMigrator(
@@ -115,10 +116,20 @@ class ExternalMigrationsRuntimeIT {
     else {
       for (var migration : migrations) sql.append(migration.sql()).append("\n");
       sql.append(
-          "drop table ratchet_schema_version;\ncreate table external_migration_proof (value_text varchar(20));\ninsert into external_migration_proof values ('ready');\n");
+          "drop table ratchet_schema_version;\n"
+              + "create table consumer_record (id varchar(80) primary key, state varchar(40));\n"
+              + "create table consumer_uuid_record (id uuid primary key, label varchar(80) not null, "
+              + "occurred_at timestamp(6) with time zone not null);\n"
+              + "create table external_migration_proof (value_text varchar(20));\n"
+              + "insert into external_migration_proof values ('ready');\n");
     }
     var settings = new LinkedHashMap<String, String>();
     settings.put("ratchet.schema.auto-migrate", "false");
+    if (deferExternalMigrations && !tool.equals("sql")) {
+      // The initializer is requested before singleton creation, so these real external migrations
+      // must be restored ahead of Ratchet validation and Hibernate under Boot's defer mode.
+      settings.put("spring.jpa.defer-datasource-initialization", "true");
+    }
     if (tool.equals("flyway")) {
       settings.put("spring.flyway.enabled", "true");
       Files.writeString(directory.resolve("V1__external.sql"), sql);

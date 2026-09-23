@@ -28,6 +28,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.DependsOn;
+import org.springframework.core.env.Environment;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.SharedEntityManagerCreator;
 import run.ratchet.api.RatchetOptions;
@@ -68,8 +69,8 @@ public class RatchetJpaAutoConfiguration {
    * entity-manager factory initializes.
    */
   @Bean
-  static BeanFactoryPostProcessor ratchetJpaSchemaInitializerDependency() {
-    return new RatchetJpaSchemaInitializerDependency(SCHEMA_INITIALIZER_BEAN_NAME);
+  static BeanFactoryPostProcessor ratchetJpaSchemaInitializerDependency(Environment environment) {
+    return new RatchetJpaSchemaInitializerDependency(SCHEMA_INITIALIZER_BEAN_NAME, environment);
   }
 
   /** Adds Ratchet's explicit entity set to the selected application's persistence unit. */

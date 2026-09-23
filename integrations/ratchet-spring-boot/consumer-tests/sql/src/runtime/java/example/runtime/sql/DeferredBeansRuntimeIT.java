@@ -41,6 +41,7 @@ import run.ratchet.spi.JobInvocation;
 class DeferredBeansRuntimeIT {
   static final AtomicInteger created = new AtomicInteger();
   static final AtomicInteger destroyed = new AtomicInteger();
+  static final AtomicInteger factoryShutdowns = new AtomicInteger();
   static final AtomicInteger invoked = new AtomicInteger();
 
   @ParameterizedTest
@@ -48,6 +49,7 @@ class DeferredBeansRuntimeIT {
   void unexposedDeferredTargetFailsOnceWithoutPrematureConstruction(String scope) {
     created.set(0);
     destroyed.set(0);
+    factoryShutdowns.set(0);
     invoked.set(0);
     try (var database = SqlDatabase.start()) {
       var properties = RuntimeSupport.properties(database);
@@ -76,6 +78,7 @@ class DeferredBeansRuntimeIT {
         assertThat(created).hasValue(1);
         assertThat(invoked).hasValue(0);
         if (!scope.equals("lazy")) assertThat(destroyed).hasValue(1);
+        if (scope.equals("factory")) assertThat(factoryShutdowns).hasValue(0);
         // Leave several polling cycles to detect an accidental retry instead of a terminal state.
         await()
             .during(Duration.ofSeconds(2))
@@ -87,6 +90,7 @@ class DeferredBeansRuntimeIT {
                 });
       }
       assertThat(destroyed).hasValue(1);
+      assertThat(factoryShutdowns).hasValue(scope.equals("factory") ? 1 : 0);
     }
   }
 
@@ -132,6 +136,10 @@ class DeferredBeansRuntimeIT {
     public boolean isPrototype() {
       return true;
     }
+
+    public void shutdownFactory() {
+      factoryShutdowns.incrementAndGet();
+    }
   }
 
   @TestConfiguration(proxyBeanMethods = false)
@@ -145,6 +153,7 @@ class DeferredBeansRuntimeIT {
                 scope.equals("factory") ? DeferredFactory.class : DeferredTask.class);
         definition.setLazyInit(true);
         if (scope.equals("prototype")) definition.setScope("prototype");
+        if (scope.equals("factory")) definition.setDestroyMethodName("shutdownFactory");
         registry.registerBeanDefinition("deferredTask", definition);
       };
     }

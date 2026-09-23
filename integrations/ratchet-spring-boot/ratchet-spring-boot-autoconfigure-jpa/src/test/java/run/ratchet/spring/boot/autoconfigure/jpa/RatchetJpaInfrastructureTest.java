@@ -44,7 +44,9 @@ import org.springframework.beans.factory.config.BeanDefinitionHolder;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.test.context.FilteredClassLoader;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.support.SimpleThreadScope;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.orm.jpa.EntityManagerFactoryInfo;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -59,11 +61,96 @@ import run.ratchet.store.postgresql.PostgresqlJobStoreFactory;
 class RatchetJpaInfrastructureTest {
 
   @Test
+  void deferredDatabaseInitializationKeepsRatchetBeforeTheEntityManagerFactory() {
+    new ApplicationContextRunner()
+        .withInitializer(
+            context -> {
+              DefaultListableBeanFactory beanFactory =
+                  (DefaultListableBeanFactory) context.getBeanFactory();
+              RootBeanDefinition dataSource = new RootBeanDefinition(Object.class);
+              dataSource.setTargetType(DataSource.class);
+              beanFactory.registerBeanDefinition("dataSource", dataSource);
+              RootBeanDefinition entityManagerFactory = new RootBeanDefinition(Object.class);
+              entityManagerFactory.setTargetType(EntityManagerFactory.class);
+              beanFactory.registerBeanDefinition("entityManagerFactory", entityManagerFactory);
+              RootBeanDefinition initializer = new RootBeanDefinition(Object.class);
+              beanFactory.registerBeanDefinition("ratchetJpaSchemaInitializer", initializer);
+              RootBeanDefinition dataScripts = new RootBeanDefinition(Object.class);
+              dataScripts.setDependsOn("entityManagerFactory");
+              dataScripts.setAttribute(
+                  "org.springframework.boot.sql.init.dependency.DatabaseInitializerDetector",
+                  "org.springframework.boot.jdbc.init.DataSourceScriptDatabaseInitializerDetector");
+              beanFactory.registerBeanDefinition(
+                  "dataSourceScriptDatabaseInitializer", dataScripts);
+              RootBeanDefinition flywayConfiguration = new RootBeanDefinition(Object.class);
+              flywayConfiguration.setDependsOn("entityManagerFactory");
+              flywayConfiguration.setAttribute(
+                  "org.springframework.boot.sql.init.dependency.DatabaseInitializerDetector",
+                  "org.springframework.boot.flyway.FlywayDatabaseInitializerDetector");
+              beanFactory.registerBeanDefinition("flyway", flywayConfiguration);
+              RootBeanDefinition flyway = new RootBeanDefinition(Object.class);
+              flyway.setDependsOn("entityManagerFactory");
+              flyway.setAttribute(
+                  "org.springframework.boot.sql.init.dependency.DatabaseInitializerDetector",
+                  "org.springframework.boot.autoconfigure.flyway.FlywayMigrationInitializerDatabaseInitializerDetector");
+              beanFactory.registerBeanDefinition("flywayInitializer", flyway);
+              RootBeanDefinition custom = new RootBeanDefinition(Object.class);
+              custom.setDependsOn("entityManagerFactory");
+              custom.setAttribute(
+                  "org.springframework.boot.sql.init.dependency.DatabaseInitializerDetector",
+                  "example.CustomDatabaseInitializerDetector");
+              beanFactory.registerBeanDefinition("customInitializer", custom);
+            })
+        .withBean(
+            "ratchetJpaSchemaInitializerDependency",
+            org.springframework.beans.factory.config.BeanFactoryPostProcessor.class,
+            () ->
+                new RatchetJpaSchemaInitializerDependency(
+                    "ratchetJpaSchemaInitializer",
+                    new MockEnvironment()
+                        .withProperty("spring.jpa.defer-datasource-initialization", "true")))
+        .run(
+            context -> {
+              assertThat(context).hasNotFailed();
+              assertThat(
+                      context
+                          .getBeanFactory()
+                          .getBeanDefinition("entityManagerFactory")
+                          .getDependsOn())
+                  .contains("ratchetJpaSchemaInitializer");
+              assertThat(
+                      context
+                          .getBeanFactory()
+                          .getBeanDefinition("ratchetJpaSchemaInitializer")
+                          .getDependsOn())
+                  .contains("flyway", "flywayInitializer")
+                  .doesNotContain(
+                      "dataSourceScriptDatabaseInitializer",
+                      "entityManagerFactory",
+                      "customInitializer");
+              assertThat(context.getBeanFactory().getBeanDefinition("flyway").getDependsOn())
+                  .doesNotContain("entityManagerFactory");
+              assertThat(
+                      context
+                          .getBeanFactory()
+                          .getBeanDefinition("flywayInitializer")
+                          .getDependsOn())
+                  .doesNotContain("entityManagerFactory");
+              assertThat(
+                      context
+                          .getBeanFactory()
+                          .getBeanDefinition("customInitializer")
+                          .getDependsOn())
+                  .contains("entityManagerFactory");
+            });
+  }
+
+  @Test
   void onlyTheNamedPrimaryPersistenceUnitGetsRatchetDependenciesAndAugmentation() {
     DefaultListableBeanFactory beanFactory = persistenceUnitsWithNamedPrimary();
     beanFactory.registerBeanDefinition("ratchetJpaSchemaInitializer", new RootBeanDefinition());
 
-    new RatchetJpaSchemaInitializerDependency("ratchetJpaSchemaInitializer")
+    new RatchetJpaSchemaInitializerDependency("ratchetJpaSchemaInitializer", new MockEnvironment())
         .postProcessBeanFactory(beanFactory);
 
     assertThat(beanFactory.getBeanDefinition("ordersEntityManagerFactory").getDependsOn())

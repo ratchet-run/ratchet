@@ -27,8 +27,10 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.init.ResourceDatabasePopulator;
 import run.ratchet.consumer.sql.SqlDatabase;
 import run.ratchet.store.migration.SchemaMigrator;
 
@@ -45,6 +47,31 @@ class SqlSchemaLifecycleTest {
       assertThat(jdbc.queryForObject("select count(*) from ratchet_schema_version", Integer.class))
           .isGreaterThan(0);
       assertThat(jdbc.queryForObject("select count(*) from scheduler_job", Integer.class)).isZero();
+    }
+  }
+
+  @Test
+  void deferredDataSqlRunsAfterHibernateValidatesTheRatchetSchema() {
+    try (SqlDatabase database = SqlDatabase.start()) {
+      populateApplicationSchema(database);
+
+      try (ConfigurableApplicationContext context =
+          application(
+              database,
+              "spring.jpa.defer-datasource-initialization=true",
+              "spring.sql.init.schema-locations=optional:classpath:absent-deferred-schema.sql",
+              "spring.sql.init.data-locations=classpath:deferred-data.sql",
+              "spring.sql.init.separator=;")) {
+        JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
+        assertThat(
+                jdbc.queryForObject("select count(*) from ratchet_schema_version", Integer.class))
+            .isGreaterThan(0);
+        assertThat(
+                jdbc.queryForObject(
+                    "select state from consumer_record where id = 'deferred-data-marker'",
+                    String.class))
+            .isEqualTo("loaded");
+      }
     }
   }
 
@@ -214,6 +241,13 @@ class SqlSchemaLifecycleTest {
       default ->
           throw new IllegalArgumentException("Unsupported SQL consumer store: " + database.store());
     }
+  }
+
+  private static void populateApplicationSchema(SqlDatabase database) {
+    ResourceDatabasePopulator populator = new ResourceDatabasePopulator();
+    populator.setSeparator(database.store().equals("oracle") ? "/" : ";");
+    populator.addScript(new ClassPathResource("schema-" + database.store() + ".sql"));
+    populator.execute(dataSource(database));
   }
 
   private static void hideRequiredPrincipalColumnAndCreateSibling(

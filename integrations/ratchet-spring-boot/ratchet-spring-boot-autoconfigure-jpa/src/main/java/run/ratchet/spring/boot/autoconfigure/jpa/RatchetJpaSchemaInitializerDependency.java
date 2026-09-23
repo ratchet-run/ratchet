@@ -22,14 +22,28 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.boot.sql.init.dependency.DatabaseInitializerDetector;
+import org.springframework.core.Ordered;
+import org.springframework.core.env.Environment;
 
-/** Establishes the schema-initializer dependency graph before bean instantiation begins. */
-final class RatchetJpaSchemaInitializerDependency implements BeanFactoryPostProcessor {
+/** Establishes Ratchet's schema-initializer dependency graph before bean instantiation begins. */
+final class RatchetJpaSchemaInitializerDependency implements BeanFactoryPostProcessor, Ordered {
+  private static final String INITIALIZER_DETECTOR_ATTRIBUTE =
+      DatabaseInitializerDetector.class.getName();
 
   private final String initializerBeanName;
+  private final boolean deferDataSourceInitialization;
 
-  RatchetJpaSchemaInitializerDependency(String initializerBeanName) {
+  RatchetJpaSchemaInitializerDependency(String initializerBeanName, Environment environment) {
     this.initializerBeanName = initializerBeanName;
+    this.deferDataSourceInitialization =
+        environment.getProperty("spring.jpa.defer-datasource-initialization", boolean.class, false);
+  }
+
+  @Override
+  public int getOrder() {
+    // Run after Boot records its detected initializer edges and before any bean is instantiated.
+    return Ordered.LOWEST_PRECEDENCE;
   }
 
   @Override
@@ -42,9 +56,53 @@ final class RatchetJpaSchemaInitializerDependency implements BeanFactoryPostProc
     addDependency(beanFactory.getBeanDefinition(initializerBeanName), dataSourceName);
     String entityManagerFactory =
         RatchetJpaInfrastructure.selectEntityManagerFactoryBeanName(beanFactory);
+    for (String candidate : beanFactory.getBeanDefinitionNames()) {
+      if (candidate.equals(initializerBeanName) || !isEarlyInitializer(beanFactory, candidate)) {
+        continue;
+      }
+      BeanDefinition candidateDefinition = beanFactory.getBeanDefinition(candidate);
+      if (deferDataSourceInitialization && isKnownMigrationInitializer(candidateDefinition)) {
+        // Boot defers all database initializers behind JPA. Restore only its known migration
+        // initializers before Ratchet and JPA; a custom initializer may legitimately require JPA.
+        removeDependency(candidateDefinition, entityManagerFactory);
+      }
+      addDependency(beanFactory.getBeanDefinition(initializerBeanName), candidate);
+    }
     if (beanFactory.containsBeanDefinition(entityManagerFactory)) {
       addDependency(beanFactory.getBeanDefinition(entityManagerFactory), initializerBeanName);
     }
+  }
+
+  private boolean isEarlyInitializer(ConfigurableListableBeanFactory beanFactory, String name) {
+    Object detector =
+        beanFactory.getBeanDefinition(name).getAttribute(INITIALIZER_DETECTOR_ATTRIBUTE);
+    if (!(detector instanceof String detectorName)
+        || detectorName.endsWith("JpaDatabaseInitializerDetector")) {
+      return false;
+    }
+    return !deferDataSourceInitialization || isKnownMigrationInitializer(detectorName);
+  }
+
+  private static boolean isKnownMigrationInitializer(BeanDefinition beanDefinition) {
+    Object detector = beanDefinition.getAttribute(INITIALIZER_DETECTOR_ATTRIBUTE);
+    return detector instanceof String detectorName && isKnownMigrationInitializer(detectorName);
+  }
+
+  private static boolean isKnownMigrationInitializer(String detectorName) {
+    String simpleName = detectorName.substring(detectorName.lastIndexOf('.') + 1);
+    return simpleName.equals("FlywayDatabaseInitializerDetector")
+        || simpleName.equals("FlywayMigrationInitializerDatabaseInitializerDetector")
+        || simpleName.equals("LiquibaseDatabaseInitializerDetector");
+  }
+
+  private static void removeDependency(BeanDefinition beanDefinition, String dependency) {
+    if (beanDefinition.getDependsOn() == null) {
+      return;
+    }
+    beanDefinition.setDependsOn(
+        Arrays.stream(beanDefinition.getDependsOn())
+            .filter(candidate -> !candidate.equals(dependency))
+            .toArray(String[]::new));
   }
 
   private static void addDependency(BeanDefinition beanDefinition, String dependency) {

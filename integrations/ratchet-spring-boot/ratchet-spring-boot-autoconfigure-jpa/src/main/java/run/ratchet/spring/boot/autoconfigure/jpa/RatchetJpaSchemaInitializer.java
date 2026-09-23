@@ -19,12 +19,10 @@ import java.io.IOException;
 import java.sql.SQLException;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.InitializingBean;
-import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitialization;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.migration.SchemaMigrator;
 
 /** Applies or verifies the selected SQL schema before the entity-manager factory is created. */
-@DependsOnDatabaseInitialization
 final class RatchetJpaSchemaInitializer implements InitializingBean {
 
   private final DataSource dataSource;
