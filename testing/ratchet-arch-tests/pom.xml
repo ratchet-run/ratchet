@@ -54,6 +54,24 @@
     </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-spring-boot-autoconfigure</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-spring-boot-autoconfigure-jpa</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-spring-boot-autoconfigure-mongodb</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
       <artifactId>ratchet-store-core</artifactId>
       <scope>test</scope>
     </dependency>
