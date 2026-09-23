@@ -21,16 +21,12 @@
 
 .ratchet-hero-eyebrow {
   margin: 0;
-  color: #0f766e;
+  color: var(--ratchet-eyebrow);
   font-size: 0.82rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   line-height: 1;
-}
-
-:global(.dark) .ratchet-hero-eyebrow {
-  color: #5eead4;
 }
 
 @media (max-width: 960px) {

@@ -180,7 +180,7 @@ Ratchet uses **RFC 9562 §5.7 UUIDv7** for primary keys. UUIDs are 128-bit value
 
 ### Layout
 
-<div class="docs-diagram" role="img" aria-label="UUIDv7 layout: 48 bits timestamp, 4 bits version, 12 bits rand_a, 2 bits variant, and 62 bits rand_b.">
+<div class="docs-diagram uuid-diagram" role="img" aria-label="UUIDv7 layout: 48 bits timestamp, 4 bits version, 12 bits rand_a, 2 bits variant, and 62 bits rand_b.">
   <span class="fit-kicker">128-bit UUIDv7 layout</span>
   <div class="uuid-strip">
     <div class="uuid-segment docs-diagram-card--primary">

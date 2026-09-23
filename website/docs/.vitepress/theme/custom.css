@@ -662,6 +662,7 @@ html.dark .cm-ratchet-header { color: #0d1117; }
 .docs-diagram-state,
 .docs-diagram-step,
 .docs-diagram-table {
+  min-width: 0;
   border: 1px solid var(--vp-c-divider);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.78);
@@ -678,6 +679,7 @@ html.dark .cm-ratchet-header { color: #0d1117; }
   display: block;
   color: var(--vp-c-text-1);
   font-weight: 750;
+  overflow-wrap: anywhere;
 }
 
 .docs-diagram-card small,
@@ -688,6 +690,7 @@ html.dark .cm-ratchet-header { color: #0d1117; }
   margin-top: 0.45rem;
   color: var(--vp-c-text-2);
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .docs-diagram-card code,
@@ -877,11 +880,25 @@ html.dark .cm-ratchet-header { color: #0d1117; }
   overflow-wrap: break-word;
 }
 
+.uuid-diagram {
+  container: uuid-layout / inline-size;
+}
+
 .uuid-strip {
   display: grid;
-  grid-template-columns: 48fr 4fr 12fr 2fr 62fr;
+  grid-template-columns:
+    minmax(5.5rem, 48fr)
+    minmax(3.5rem, 4fr)
+    minmax(4.5rem, 12fr)
+    minmax(3.5rem, 2fr)
+    minmax(5.5rem, 62fr);
   gap: 0.35rem;
   margin-top: 0.75rem;
+}
+
+/* Stack the fields when their text-sized minima no longer fit the diagram. */
+@container uuid-layout (max-width: 24rem) {
+  .uuid-strip { grid-template-columns: 1fr; }
 }
 
 .uuid-segment {
@@ -894,13 +911,17 @@ html.dark .cm-ratchet-header { color: #0d1117; }
 }
 
 .uuid-segment strong {
+  display: block;
   color: var(--vp-c-text-1);
   font-size: 0.84rem;
+  overflow-wrap: anywhere;
 }
 
 .uuid-segment small {
+  display: block;
   margin-top: 0.25rem;
   font-size: 0.74rem;
+  overflow-wrap: anywhere;
 }
 
 .dark .docs-diagram {
@@ -946,6 +967,13 @@ html.dark .cm-ratchet-header { color: #0d1117; }
 .dark .docs-diagram-card--store,
 .dark .docs-diagram-state--store {
   background: linear-gradient(135deg, rgba(46, 16, 101, 0.5), rgba(31, 41, 55, 0.9));
+}
+
+.dark .docs-diagram-card small,
+.dark .docs-diagram-state small,
+.dark .docs-diagram-step small,
+.dark .docs-diagram-table small {
+  color: #a8a8b0;
 }
 
 .dark .docs-diagram-connector span {
