@@ -42,6 +42,7 @@ jobs:
           mvn -B -ntp -DskipTests dependency:tree -DoutputType=json -DoutputFile=target/owasp-tree.json
           mvn -B -ntp -DskipTests help:effective-pom -Doutput=target/owasp-effective-pom.xml
           python3 infra/ci/stage_owasp.py --repository "$HOME/.m2/repository" --fetch-copied-poms
+          mkdir -p target/owasp/reports/{runtime,tooling,tests}
 
       - name: Refresh vulnerability data once for all reports
         env:

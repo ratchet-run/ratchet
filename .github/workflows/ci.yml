@@ -189,6 +189,15 @@ jobs:
             m2-
       - name: Compile + unit tests under Jakarta EE 11 profile
         run: mvn -P jakarta-ee11-verify clean test -B
+      - name: Retain Jakarta EE 11 test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jakarta-ee11-test-reports
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+            **/target/*.log
 
   integration-test:
     needs: [build, changes]
@@ -267,6 +276,15 @@ jobs:
         with:
           name: tck-conformance-reports-${{ matrix.server }}-${{ matrix.database }}
           path: testing/ratchet-testsuite/target/tck-*-conformance-report.md
+      - name: Retain Jakarta managed test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jakarta-managed-${{ matrix.server }}-${{ matrix.database }}-reports
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+            **/target/*.log
 
   showcase-smoke:
     needs: [build, changes]
@@ -387,6 +405,15 @@ jobs:
           mvn -B -ntp -Dspotbugs.skip=true
           -pl integrations/ratchet-quarkus/integration-tests -am
           verify -P${{ matrix.profile }}
+      - name: Retain Quarkus test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quarkus-extension-${{ matrix.db }}-reports
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+            **/target/*.log
 
   # Native smoke gates for MongoDB and the DEFAULT SQL (PostgreSQL/Hibernate) flavor. The SQL cell
   # exercises the Hibernate/JPA-native reflection surface (entities, UuidV7EntityListener,
@@ -423,10 +450,55 @@ jobs:
             m2-quarkus-ext-
             m2-
       - name: Native smoke test (${{ matrix.db }})
-        run: >-
-          mvn -B -ntp -Dspotbugs.skip=true
-          -pl integrations/ratchet-quarkus/integration-tests -am
-          verify -P${{ matrix.profile }}
+        run: |
+          set -o pipefail
+          mvn -B -ntp -Dspotbugs.skip=true \
+            -pl integrations/ratchet-quarkus/integration-tests -am \
+            verify -P${{ matrix.profile }} 2>&1 | tee quarkus-native-build.log
+      - name: Capture Quarkus native provenance
+        if: always()
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p quarkus-native-evidence
+          {
+            echo "source_commit=$(git rev-parse HEAD)"
+            echo "pr_head_commit=${PR_HEAD_SHA:-n/a}"
+            git status --porcelain --untracked-files=no
+          } > quarkus-native-evidence/source.txt
+          {
+            java -version
+            if command -v native-image >/dev/null; then native-image --version; else echo "native-image unavailable"; fi
+            mvn --version
+          } > quarkus-native-evidence/toolchain.txt 2>&1
+          : > quarkus-native-evidence/native-executables.txt
+          if [ -d integrations/ratchet-quarkus/integration-tests/target ]; then
+            while IFS= read -r -d '' executable; do
+              sha256sum "$executable"
+              file --brief "$executable"
+              head -c 4 "$executable" | od -An -tx1 | tr -d ' \n'
+              printf '\n'
+            done < <(find integrations/ratchet-quarkus/integration-tests/target -maxdepth 1 -type f \
+              -name '*-runner' -print0) > quarkus-native-evidence/native-executables.txt
+          fi
+          # Include reactor outputs and the JARs copied into native-image-source-jar.
+          : > quarkus-native-evidence/build-jars.sha256
+          while IFS= read -r -d '' jar; do sha256sum "$jar"; done < <(find . -path '*/target/ratchet-*.jar' \
+            ! -name '*-sources.jar' ! -name '*-javadoc.jar' ! -name '*-tests.jar' -type f -print0) \
+            > quarkus-native-evidence/build-jars.sha256
+      - name: Retain Quarkus native evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quarkus-extension-native-${{ matrix.db }}-evidence
+          path: |
+            quarkus-native-evidence/
+            quarkus-native-build.log
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+            **/target/*.log
+            integrations/ratchet-quarkus/integration-tests/target/*-runner.build_artifacts.txt
+            integrations/ratchet-quarkus/integration-tests/target/*-runner-build-output-stats.json
 
   # The consumer reactor deliberately does not inherit ratchet-parent. Each cell first stages the
   # published Spring artifacts into a fresh Maven repository, then resolves them from that repository
