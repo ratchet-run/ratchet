@@ -33,7 +33,7 @@ compatibility target. Set the Ratchet version in your application's Maven proper
 ```xml
 <properties>
   <java.version>17</java.version>
-  <ratchet.version>0.4.1-SNAPSHOT</ratchet.version>
+  <ratchet.version>0.5.0-SNAPSHOT</ratchet.version>
 </properties>
 ```
 

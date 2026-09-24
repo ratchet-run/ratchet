@@ -7,10 +7,10 @@ Ratchet is currently in alpha. Security fixes are applied on a best-effort basis
 | Version | Supported |
 | --- | --- |
 | `main` | Yes |
-| Latest `0.1.x` alpha line | Yes |
-| Older snapshots and superseded alphas | No |
+| Latest published release | Yes |
+| Older releases and snapshots | No |
 
-If a report affects an older snapshot, the fix will typically land on `main` and the latest active alpha line only.
+If a report affects an older release or snapshot, the fix will typically land on `main` and the next release only.
 
 ## Reporting a Vulnerability
 
