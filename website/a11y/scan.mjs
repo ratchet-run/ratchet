@@ -14,7 +14,7 @@
 // Assumes the site is already built (`npm run build`).
 
 import { createServer } from 'node:http'
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { join, extname, relative, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
@@ -239,7 +239,16 @@ async function main() {
   console.log('\n✓ No accessibility violations in either theme.')
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+async function isEntrypoint() {
+  if (!process.argv[1]) return false
+  try {
+    return (await realpath(fileURLToPath(import.meta.url))) === (await realpath(process.argv[1]))
+  } catch {
+    return false
+  }
+}
+
+if (await isEntrypoint()) {
   main().catch((err) => {
     console.error(err)
     process.exit(2)
