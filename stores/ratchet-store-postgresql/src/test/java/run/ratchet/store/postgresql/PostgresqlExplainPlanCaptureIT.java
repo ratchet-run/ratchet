@@ -74,11 +74,13 @@ class PostgresqlExplainPlanCaptureIT {
         Statement statement = conn.createStatement()) {
       conn.setAutoCommit(false);
       statement.execute("ANALYZE scheduler_job_queue");
-      // The fixture table is intentionally small, so PostgreSQL may prefer a sequential scan or
-      // the status-only signal index on cost alone. Disable the former and temporarily drop the
-      // latter inside this rolled-back transaction to verify the claim index remains usable.
+      // PostgreSQL may prefer a sequential scan or another status-capable index on cost alone,
+      // especially after earlier tests leave rolled-back rows in the shared fixture. Disable the
+      // former and temporarily drop the latter inside this rolled-back transaction to verify the
+      // claim index remains usable.
       statement.execute("SET LOCAL enable_seqscan = off");
-      statement.execute("DROP INDEX idx_signal_timeout_status");
+      statement.execute(
+          "DROP INDEX idx_signal_timeout_status, idx_signal_key_status, idx_queue_orphan");
       // Isolate the retained due-time index. Unforced priority-index selection is covered by
       // PostgresqlPriorityClaimIndexIT with a realistically sized queue.
       statement.execute("DROP INDEX idx_claim_pending_priority");
