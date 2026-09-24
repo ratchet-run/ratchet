@@ -22,6 +22,7 @@
     <maven.compiler.proc>full</maven.compiler.proc>
     <quarkus.version>3.20.6.2</quarkus.version>
     <brotli4j.version>1.23.0</brotli4j.version>
+    <vertx.version>4.5.30</vertx.version>
     <ratchet.version>${project.version}</ratchet.version>
   </properties>
 
@@ -108,6 +109,43 @@
         <type>pom</type>
         <scope>import</scope>
       </dependency>
+      <!-- Vert.x 4.5.30 fixes CVE-2026-15075, CVE-2026-15076, and CVE-2026-6860.
+           Align the platform modules used here without importing unrelated dependency versions. -->
+      <dependency>
+        <groupId>io.vertx</groupId>
+        <artifactId>vertx-core</artifactId>
+        <version>${vertx.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vertx</groupId>
+        <artifactId>vertx-auth-common</artifactId>
+        <version>${vertx.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vertx</groupId>
+        <artifactId>vertx-bridge-common</artifactId>
+        <version>${vertx.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vertx</groupId>
+        <artifactId>vertx-uri-template</artifactId>
+        <version>${vertx.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vertx</groupId>
+        <artifactId>vertx-web</artifactId>
+        <version>${vertx.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vertx</groupId>
+        <artifactId>vertx-web-common</artifactId>
+        <version>${vertx.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.vertx</groupId>
+        <artifactId>vertx-codegen</artifactId>
+        <version>${vertx.version}</version>
+      </dependency>
       <!-- Override the platform's Micrometer 1.14.x line for CVE-2026-40984.
            Import first to keep core, observation, commons, and registries aligned. -->
       <dependency>
@@ -129,7 +167,8 @@
         precedence over entries imported from this child BOM. Mirror the overlapping
         Quarkus platform entries directly here so root scopes such as provided/test do not
         strip platform runtime dependencies, and so tightly coupled families (notably
-        Hibernate and the MongoDB driver) stay on the versions Quarkus was built against.
+        Hibernate) stay on the versions Quarkus was built against. The MongoDB family
+        deliberately uses the root security baseline and must be qualified on JVM and native.
         Keep this list aligned when quarkus.version changes.
       -->
       <dependency>
@@ -268,9 +307,14 @@
         <version>5.16.1</version>
       </dependency>
       <dependency>
+        <groupId>org.codehaus.plexus</groupId>
+        <artifactId>plexus-utils</artifactId>
+        <version>3.6.1</version>
+      </dependency>
+      <dependency>
         <groupId>org.mongodb</groupId>
         <artifactId>mongodb-driver-sync</artifactId>
-        <version>5.3.1</version>
+        <version>${mongodb-driver.version}</version>
       </dependency>
       <dependency>
         <groupId>org.ow2.asm</groupId>

@@ -86,6 +86,7 @@ class JobPayloadInvokerTest {
   void instanceInvocationResolvesTheBeanAndCoercesArguments() throws Exception {
     BeanResolver beanResolver = mock(BeanResolver.class);
     InvocationTarget target = new InvocationTarget();
+    when(beanResolver.acquire(InvocationTarget.class)).thenCallRealMethod();
     when(beanResolver.resolve(InvocationTarget.class)).thenReturn(target);
     JobPayloadInvoker invoker = new JobPayloadInvoker(beanResolver, name -> true);
     JobPayload payload =

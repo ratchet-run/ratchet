@@ -28,10 +28,21 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
+import com.mongodb.client.model.UpdateOptions;
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
+import org.bson.BsonNumber;
+import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
@@ -43,23 +54,32 @@ class MongoCollectionInitializer {
   private static final Logger log = Logger.getLogger(MongoCollectionInitializer.class);
 
   private final MongoDatabase database;
-  private final java.util.function.Supplier<ClientSession> sessions;
+  private final Supplier<ClientSession> sessions;
 
   MongoCollectionInitializer(MongoDatabase database, MongoClient client) {
     this(database, client::startSession);
   }
 
-  MongoCollectionInitializer(
-      MongoDatabase database, java.util.function.Supplier<ClientSession> sessions) {
+  MongoCollectionInitializer(MongoDatabase database, Supplier<ClientSession> sessions) {
     this.database = database;
-    this.sessions = java.util.Objects.requireNonNull(sessions);
+    this.sessions = Objects.requireNonNull(sessions);
   }
 
-  private static void createIndex(MongoCollection<Document> coll, Bson keys, String name) {
+  private boolean creating = true;
+  private Set<String> existingCollections = Set.of();
+  private Map<String, List<Document>> indexesByCollection = new HashMap<>();
+
+  private void createIndex(MongoCollection<Document> coll, Bson keys, String name) {
     createIndex(coll, keys, new IndexOptions().name(name));
   }
 
-  private static void createIndex(MongoCollection<Document> coll, Bson keys, IndexOptions options) {
+  private void createIndex(MongoCollection<Document> coll, Bson keys, IndexOptions options) {
+    if (!creating) {
+      // Creation tolerates optional-index errors so the scheduler remains available; validation
+      // deliberately requires the full declared index shape.
+      validateIndex(coll, keys, options);
+      return;
+    }
     try {
       coll.createIndex(keys, options);
     } catch (MongoCommandException e) {
@@ -71,8 +91,12 @@ class MongoCollectionInitializer {
     }
   }
 
-  private static void createRequiredIndex(
+  private void createRequiredIndex(
       MongoCollection<Document> coll, Bson keys, IndexOptions options) {
+    if (!creating) {
+      validateIndex(coll, keys, options);
+      return;
+    }
     try {
       coll.createIndex(keys, options);
     } catch (MongoCommandException e) {
@@ -102,21 +126,37 @@ class MongoCollectionInitializer {
       ledger.updateOne(
           and(eq("_id", key), eq("original_job_id", job.get("_id"))),
           new Document("$setOnInsert", new Document("reserved_at", job.getDate("created_at"))),
-          new com.mongodb.client.model.UpdateOptions().upsert(true));
+          new UpdateOptions().upsert(true));
     }
     migrations.updateOne(
         eq("_id", "permanent-idempotency-v1"),
         new Document("$setOnInsert", new Document("completed_at", new Date())),
-        new com.mongodb.client.model.UpdateOptions().upsert(true));
+        new UpdateOptions().upsert(true));
   }
 
   void initialize() {
+    initialize(true);
+  }
+
+  /** Verifies existing collections, indexes, and data-migration markers without writing. */
+  void validate() {
+    initialize(false);
+  }
+
+  private void initialize(boolean create) {
+    creating = create;
+    indexesByCollection = new HashMap<>();
+    existingCollections = create ? Set.of() : database.listCollectionNames().into(new HashSet<>());
     log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
     createBusinessKeyReservationIndexes();
     createRecurringJobIndexes();
-    backfillBusinessKeyReservations();
-    backfillIdempotencyKeys();
+    if (creating) {
+      backfillBusinessKeyReservations();
+      backfillIdempotencyKeys();
+    } else {
+      validateDataMigrations();
+    }
     createRecurringJobArchiveIndexes();
     createBatchIndexes();
     createBatchMetricsIndexes();
@@ -130,6 +170,135 @@ class MongoCollectionInitializer {
     createResourcePermitIndexes();
     createJobPropertiesIndexes();
     createJobExtensionStateIndexes();
+  }
+
+  private void validateDataMigrations() {
+    if (database
+            .getCollection("scheduler_store_migration")
+            .find(eq("_id", "permanent-idempotency-v1"))
+            .first()
+        == null) {
+      throw new IllegalStateException(
+          "MongoDB Ratchet schema validation requires completed data migration "
+              + "permanent-idempotency-v1 in scheduler_store_migration");
+    }
+  }
+
+  private void validateIndex(MongoCollection<Document> coll, Bson keys, IndexOptions options) {
+    String collection = coll.getNamespace().getCollectionName();
+    if (!existingCollections.contains(collection)) {
+      throw new IllegalStateException(
+          "MongoDB Ratchet schema validation is missing collection " + collection);
+    }
+    Document actual = findIndex(coll, options.getName());
+    if (actual == null) {
+      throw new IllegalStateException(
+          "MongoDB Ratchet schema validation is missing index "
+              + options.getName()
+              + " on "
+              + collection);
+    }
+    boolean keysMatch = indexKeysEqual(keys, actual.get("key"), coll);
+    boolean uniqueMatches = options.isUnique() == Boolean.TRUE.equals(actual.getBoolean("unique"));
+    boolean partialMatches =
+        bsonEquals(
+            options.getPartialFilterExpression(), actual.get("partialFilterExpression"), coll);
+    boolean expiryMatches =
+        Objects.equals(
+            options.getExpireAfter(TimeUnit.SECONDS), number(actual.get("expireAfterSeconds")));
+    if (!keysMatch || !uniqueMatches || !partialMatches || !expiryMatches) {
+      throw new IllegalStateException(
+          "MongoDB Ratchet schema validation found incompatible index "
+              + options.getName()
+              + " on "
+              + collection);
+    }
+  }
+
+  private Document findIndex(MongoCollection<Document> collection, String name) {
+    List<Document> indexes =
+        indexesByCollection.computeIfAbsent(
+            collection.getNamespace().getCollectionName(),
+            ignored -> collection.listIndexes().into(new ArrayList<>()));
+    for (Document index : indexes) {
+      if (name.equals(index.getString("name"))) {
+        return index;
+      }
+    }
+    return null;
+  }
+
+  private static boolean bsonEquals(Bson expected, Object actual, MongoCollection<Document> coll) {
+    if (expected == null || actual == null) {
+      return expected == null && actual == null;
+    }
+    return actual instanceof Document document
+        && expected.toBsonDocument(Document.class, coll.getCodecRegistry()).entrySet().stream()
+            .toList()
+            .equals(
+                document.toBsonDocument(Document.class, coll.getCodecRegistry()).entrySet().stream()
+                    .toList());
+  }
+
+  private static boolean indexKeysEqual(
+      Bson expected, Object actual, MongoCollection<Document> collection) {
+    if (expected == null || actual == null) {
+      return expected == null && actual == null;
+    }
+    if (!(actual instanceof Document actualDocument)) {
+      return false;
+    }
+    var expectedEntries =
+        expected.toBsonDocument(Document.class, collection.getCodecRegistry()).entrySet();
+    var actualEntries =
+        actualDocument.toBsonDocument(Document.class, collection.getCodecRegistry()).entrySet();
+    if (expectedEntries.size() != actualEntries.size()) {
+      return false;
+    }
+    var expectedIterator = expectedEntries.iterator();
+    var actualIterator = actualEntries.iterator();
+    while (expectedIterator.hasNext()) {
+      var expectedEntry = expectedIterator.next();
+      var actualEntry = actualIterator.next();
+      if (!expectedEntry.getKey().equals(actualEntry.getKey())
+          || !indexKeyValueEquals(expectedEntry.getValue(), actualEntry.getValue())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static boolean indexKeyValueEquals(BsonValue expected, BsonValue actual) {
+    if (expected.isNumber() && actual.isNumber()) {
+      BigDecimal expectedDirection = exactIndexDirection(expected.asNumber());
+      BigDecimal actualDirection = exactIndexDirection(actual.asNumber());
+      return expectedDirection != null
+          && actualDirection != null
+          && (expectedDirection.compareTo(BigDecimal.ONE) == 0
+              || expectedDirection.compareTo(BigDecimal.ONE.negate()) == 0)
+          && expectedDirection.compareTo(actualDirection) == 0;
+    }
+    return expected.equals(actual);
+  }
+
+  private static BigDecimal exactIndexDirection(BsonNumber value) {
+    return switch (value.getBsonType()) {
+      case INT32 -> BigDecimal.valueOf(value.intValue());
+      case INT64 -> BigDecimal.valueOf(value.longValue());
+      case DOUBLE -> {
+        double number = value.doubleValue();
+        yield Double.isFinite(number) ? BigDecimal.valueOf(number) : null;
+      }
+      case DECIMAL128 -> {
+        var decimal = value.decimal128Value();
+        yield decimal.isFinite() ? decimal.bigDecimalValue() : null;
+      }
+      default -> null;
+    };
+  }
+
+  private static Long number(Object value) {
+    return value instanceof Number number ? number.longValue() : null;
   }
 
   private void createBusinessKeyReservationIndexes() {

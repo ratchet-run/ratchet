@@ -17,6 +17,7 @@ package run.ratchet.api;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.logging.Logger;
 import run.ratchet.api.internal.DefaultRatchetConfig;
 import run.ratchet.api.internal.EnvironmentRatchetConfigSource;
 import run.ratchet.api.internal.MicroProfileRatchetConfigSource;
@@ -28,15 +29,7 @@ import run.ratchet.spi.RatchetConfigSource;
 /** Builds immutable {@link RatchetOptions} from typed configuration keys. */
 public final class RatchetOptionsFactory {
 
-  private static final System.Logger LOG = System.getLogger(RatchetOptionsFactory.class.getName());
-
-  /**
-   * Retired in favour of {@code ratchet.worker.default-threading-mode}. Probed only so a stale
-   * value surfaces a warning instead of being silently ignored.
-   */
-  private static final RatchetConfigKey<String> RETIRED_USE_VIRTUAL_THREADS =
-      RatchetConfigKey.string(
-          "ratchet.worker.use-virtual-threads", "RATCHET_WORKER_USE_VIRTUAL_THREADS", "");
+  private static final Logger LOG = Logger.getLogger(RatchetOptionsFactory.class.getName());
 
   private RatchetOptionsFactory() {}
 
@@ -45,6 +38,15 @@ public final class RatchetOptionsFactory {
   }
 
   static RatchetOptions.Builder builderFrom(DefaultRatchetConfig config) {
+    if (config
+        .raw(
+            RatchetConfigKey.bool(
+                "ratchet.worker.use-virtual-threads", "RATCHET_WORKER_USE_VIRTUAL_THREADS", false))
+        .isPresent()) {
+      LOG.warning(
+          "ratchet.worker.use-virtual-threads (RATCHET_WORKER_USE_VIRTUAL_THREADS) is retired and ignored; "
+              + "use ratchet.worker.default-threading-mode (RATCHET_WORKER_DEFAULT_THREADING_MODE) instead.");
+    }
     return RatchetOptions.builder()
         .polling(
             polling ->
@@ -224,7 +226,6 @@ public final class RatchetOptionsFactory {
 
   private static void configureExecution(
       DefaultRatchetConfig config, RatchetOptions.ExecutionBuilder execution) {
-    warnIfRetiredThreadingKeySet(config);
     execution
         .defaultThreadingMode(config.get(RatchetConfigKeys.WORKER_DEFAULT_THREADING_MODE))
         .jobExecutorJndi(config.get(RatchetConfigKeys.WORKER_JOB_EXECUTOR_JNDI))
@@ -262,22 +263,6 @@ public final class RatchetOptionsFactory {
         execution.rateLimitPerMinute(type, rateLimit);
       }
     }
-  }
-
-  private static void warnIfRetiredThreadingKeySet(DefaultRatchetConfig config) {
-    config
-        .raw(RETIRED_USE_VIRTUAL_THREADS)
-        .filter(value -> !value.isBlank())
-        .ifPresent(
-            value ->
-                LOG.log(
-                    System.Logger.Level.WARNING,
-                    "Ignoring retired config 'ratchet.worker.use-virtual-threads' (value '"
-                        + value
-                        + "'). It no longer has any effect. Set"
-                        + " 'ratchet.worker.default-threading-mode' (platform|virtual) to pick the"
-                        + " default pool and 'ratchet.worker.virtual-executor-jndi' to add a virtual"
-                        + " executor."));
   }
 
   private static void configureCircuitBreakerProfile(

@@ -775,6 +775,7 @@ class WorkflowConditionEvaluatorTest {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 8, 2)));
     BeanCondition bean = new BeanCondition();
+    when(beanResolver.acquire(BeanCondition.class)).thenCallRealMethod();
     when(beanResolver.resolve(BeanCondition.class)).thenReturn(bean);
     String expression =
         payloadSerializer.serialize(

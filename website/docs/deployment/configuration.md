@@ -4,6 +4,10 @@ title: Configuration
 
 # Configuration
 
+:::tip Spring Boot
+For the starter-based setup and `application.properties`, use the [Spring Boot guide](/deployment/spring-boot). The CDI producer examples below apply to Jakarta EE.
+:::
+
 Tuning Ratchet for your deployment.
 
 Ratchet's Jakarta EE configuration model is CDI-first:
@@ -89,11 +93,13 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 
 ## Per-job execution target
 
-A job picks its pool with `.virtual()` or `.platform()` on the builder; calling neither inherits `default-threading-mode`. The label selects a configured executor, not a guaranteed thread type. Set `ratchet.worker.virtual-executor-jndi` to a second managed executor to enable the virtual pool. When it is unset, a `.virtual()` job runs on platform instead, recorded with a one-time log warning and the `ratchet.execution.target.fallback` metric. The metric increments for each affected job occurrence; the warning is emitted once per distinct requested target.
+A job picks its pool with `.virtual()` or `.platform()` on the builder; calling neither inherits `default-threading-mode`. The label selects a configured executor, not a guaranteed thread type. In Jakarta EE, set `ratchet.worker.virtual-executor-jndi` to a second managed executor to enable the virtual pool. In Spring Boot, `spring.threads.virtual.enabled=true` enables the virtual pool on Java 21+ and makes it the default unless `ratchet.worker.default-threading-mode` is set explicitly. Without a virtual pool, a `.virtual()` job runs on platform instead, recorded with a one-time log warning and the `ratchet.execution.target.fallback` metric. The metric increments for each affected job occurrence; the warning is emitted once per distinct requested target.
 
 Whether the virtual pool's threads are actually virtual is the container's decision. Pointing `virtual-executor-jndi` at an `@ManagedExecutorDefinition(virtual = true)` is a request the runtime may ignore: GlassFish 8 honors it, while WildFly 40 binds the executor but still runs jobs on platform threads. Jakarta exposes no API to check this at runtime, so Ratchet can neither warn about it nor guarantee it. Confirm against your container's documentation.
 
-`ratchet.worker.use-virtual-threads` was removed. It only switched backpressure accounting and never selected an executor; a stale value is ignored with a startup warning. Use `default-threading-mode` and `virtual-executor-jndi` instead.
+### Retired virtual-thread setting
+
+`ratchet.worker.use-virtual-threads` (and `RATCHET_WORKER_USE_VIRTUAL_THREADS`) is retired and ignored. `RatchetOptionsFactory` logs a warning whenever either form is present. Choose the default execution target with `ratchet.worker.default-threading-mode` instead; configure the virtual executor as described above for Jakarta EE, or use Spring Boot's `spring.threads.virtual.enabled` for its virtual pool.
 
 ## Source Chain
 

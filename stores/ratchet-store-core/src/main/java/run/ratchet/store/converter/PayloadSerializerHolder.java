@@ -49,9 +49,13 @@ public final class PayloadSerializerHolder {
    * container startup by the reference implementation's producer.
    *
    * @param serializer the serializer to install; MAY be {@code null} to revert to the fallback
+   * @throws IllegalStateException if an active Ratchet runtime owns converter configuration
    */
   public static void set(PayloadSerializer serializer) {
-    delegate = serializer;
+    synchronized (RuntimeContextInstallation.class) {
+      RuntimeContextInstallation.checkUnowned();
+      delegate = serializer;
+    }
   }
 
   /**

@@ -47,6 +47,15 @@ public abstract class BaseDocumentStoreIT {
   // 60s timeout would race the "waiting for connections" log line under contention.
   private static final MongoDBContainer MONGO =
       new MongoDBContainer("mongo:7.0")
+          // Each integration-test class creates indexed collections in this shared server.
+          .withCreateContainerCmdModifier(
+              command ->
+                  command
+                      .getHostConfig()
+                      .withUlimits(
+                          List.of(
+                              new com.github.dockerjava.api.model.Ulimit(
+                                  "nofile", 65536L, 65536L))))
           .withReplicaSet()
           .waitingFor(
               Wait.forLogMessage("(?i).*waiting for connections.*", 1)

@@ -64,7 +64,7 @@ public class RetryBufferDrainer {
   }
 
   @Inject
-  RetryBufferDrainer(
+  public RetryBufferDrainer(
       ExecutorProvider executorProvider,
       RetryBufferManager retryBufferManager,
       JobSubmissionService jobSubmissionService,

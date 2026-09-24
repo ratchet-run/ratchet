@@ -49,6 +49,7 @@ import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -501,6 +502,8 @@ class DefaultJobSchedulerServiceSignalTest {
         signalStore,
         serializer,
         signalMetricsCollector,
-        FIXED_CLOCK);
+        FIXED_CLOCK,
+        null,
+        new JakartaAfterCommitRegistrar());
   }
 }

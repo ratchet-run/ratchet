@@ -22,6 +22,7 @@ import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import run.ratchet.spi.PayloadMaskingPolicy;
+import run.ratchet.store.util.PayloadMasker;
 import run.ratchet.store.util.PayloadMaskingPolicyHolder;
 
 /**
@@ -42,6 +43,7 @@ import run.ratchet.store.util.PayloadMaskingPolicyHolder;
 public class PayloadMaskingPolicyInstaller {
 
   private final Instance<PayloadMaskingPolicy> policy;
+  @Inject CdiRuntimeContextInstallation runtimeInstallation;
 
   /**
    * No-arg constructor so Weld can instantiate the client-proxy subclass (CDI 4.0 §3.15); never
@@ -58,12 +60,17 @@ public class PayloadMaskingPolicyInstaller {
 
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object event) {
     if (policy != null && policy.isResolvable()) {
-      PayloadMaskingPolicyHolder.set(policy.get());
+      if (runtimeInstallation == null) PayloadMaskingPolicyHolder.set(policy.get());
+      else {
+        // Borrow the installation; CdiRuntimeContextInstallation owns its shutdown.
+        //noinspection resource
+        runtimeInstallation.installation().setMaskingPolicy(policy.get());
+      }
     }
   }
 
   @PreDestroy
   void onShutdown() {
-    PayloadMaskingPolicyHolder.set(null);
+    if (runtimeInstallation == null) PayloadMaskingPolicyHolder.set(null);
   }
 }

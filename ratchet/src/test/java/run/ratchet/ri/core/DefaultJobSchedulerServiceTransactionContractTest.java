@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SignalDecision;
+import run.ratchet.ri.core.internal.DefaultRecurringAnnotationMaintenanceService;
 
 class DefaultJobSchedulerServiceTransactionContractTest {
 
@@ -63,7 +64,12 @@ class DefaultJobSchedulerServiceTransactionContractTest {
     assertRequired("cancelJobsByTag", String.class);
     assertRequired("cancelRecurringJobsByTag", String.class);
     assertRequired("cancelRecurringJobByBusinessKey", String.class);
-    assertRequired("cancelOrphanedRecurringAnnotationJobs", Set.class, Instant.class);
+    assertEquals(
+        Transactional.TxType.REQUIRED,
+        DefaultRecurringAnnotationMaintenanceService.class
+            .getMethod("cancelOrphanedRecurringAnnotationJobs", Set.class, Instant.class)
+            .getAnnotation(Transactional.class)
+            .value());
     assertRequired(
         "replace", UUID.class, Duration.class, SerializableCheckedRunnable.class, JobOptions.class);
   }

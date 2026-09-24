@@ -18,6 +18,7 @@ package run.ratchet.quarkus.deployment;
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.arc.processor.BeanInfo;
+import io.quarkus.bootstrap.classloading.QuarkusClassLoader;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.builditem.ApplicationIndexBuildItem;
@@ -153,6 +154,10 @@ class RatchetProcessor {
         new ReflectiveMethodBuildItem(JobPlaceholders.class.getName(), "noop", new String[0]));
     // Static SecureRandom must be created at image runtime, not captured into the image heap.
     runtimeInit.produce(new RuntimeInitializedClassBuildItem("run.ratchet.store.id.UuidV7Factory"));
+    // Quarkus 3.27.5.2 added this for Netty 4.1.135; tcnative's SSL initializer calls JNI.
+    if (QuarkusClassLoader.isClassPresentAtRuntime("io.netty.internal.tcnative.SSL")) {
+      runtimeInit.produce(new RuntimeInitializedClassBuildItem("io.netty.internal.tcnative.SSL"));
+    }
   }
 
   /**

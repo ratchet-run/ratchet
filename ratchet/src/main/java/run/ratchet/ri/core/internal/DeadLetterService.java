@@ -19,7 +19,6 @@ import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.time.Clock;
@@ -37,7 +36,7 @@ import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.SingletonLease;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobEntity;
@@ -68,7 +67,7 @@ public class DeadLetterService {
   private final ErrorSanitizer errorSanitizer;
   private final Clock clock;
 
-  private volatile TransactionSynchronizationRegistry txRegistry;
+  private final AfterCommitRegistrar afterCommitRegistrar;
 
   private Duration purgeAfter;
   private Cron cron;
@@ -84,39 +83,7 @@ public class DeadLetterService {
     this.eventPublisher = null;
     this.errorSanitizer = null;
     this.clock = null;
-  }
-
-  public DeadLetterService(
-      ExecutorProvider executorProvider,
-      JobBulkStore jobBulkStore,
-      JobTerminalStore jobTerminalStore,
-      SingletonLeaseService singletonLeaseService,
-      ErrorSanitizer errorSanitizer) {
-    this(
-        executorProvider,
-        jobBulkStore,
-        jobTerminalStore,
-        singletonLeaseService,
-        null,
-        errorSanitizer,
-        Clock.systemUTC());
-  }
-
-  public DeadLetterService(
-      ExecutorProvider executorProvider,
-      JobBulkStore jobBulkStore,
-      JobTerminalStore jobTerminalStore,
-      SingletonLeaseService singletonLeaseService,
-      ErrorSanitizer errorSanitizer,
-      Clock clock) {
-    this(
-        executorProvider,
-        jobBulkStore,
-        jobTerminalStore,
-        singletonLeaseService,
-        null,
-        errorSanitizer,
-        clock);
+    this.afterCommitRegistrar = null;
   }
 
   @Inject
@@ -127,7 +94,8 @@ public class DeadLetterService {
       SingletonLeaseService singletonLeaseService,
       InternalEventPublisher eventPublisher,
       ErrorSanitizer errorSanitizer,
-      Clock clock) {
+      Clock clock,
+      AfterCommitRegistrar afterCommitRegistrar) {
     this.executorProvider = executorProvider;
     this.jobBulkStore = jobBulkStore;
     this.jobTerminalStore = jobTerminalStore;
@@ -135,6 +103,7 @@ public class DeadLetterService {
     this.eventPublisher = eventPublisher;
     this.errorSanitizer = errorSanitizer;
     this.clock = clock;
+    this.afterCommitRegistrar = afterCommitRegistrar;
   }
 
   /**
@@ -305,35 +274,10 @@ public class DeadLetterService {
   }
 
   private void publishAfterCommit(Runnable action) {
-    if (registerAfterCommit(action) == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (afterCommitRegistrar.registerAfterCommit(action)
+        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
       action.run();
     }
-  }
-
-  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
-    return JobWakeupService.registerAfterCommit(
-        resolveTxRegistry(),
-        action,
-        log,
-        "After-commit DLQ event registration failed; events suppressed: %s");
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    TransactionSynchronizationRegistry reg = txRegistry;
-    if (reg == null) {
-      synchronized (this) {
-        reg = txRegistry;
-        if (reg == null) {
-          reg = JobWakeupService.lookupTxRegistry(log);
-          txRegistry = reg;
-        }
-      }
-    }
-    return reg;
-  }
-
-  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
-    this.txRegistry = txRegistry;
   }
 
   /**

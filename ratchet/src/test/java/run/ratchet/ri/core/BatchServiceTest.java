@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -38,12 +39,14 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -54,6 +57,7 @@ import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -84,15 +88,17 @@ class BatchServiceTest {
   @Mock private ClassPolicy classPolicy;
   @Mock private BeanResolver beanResolver;
   @Mock private TransactionSynchronizationRegistry txRegistry;
+  @Spy private BatchCompletionTransaction batchCompletionTransaction;
 
   private BatchService batchService;
 
   @BeforeEach
   void setUp() {
-    org.mockito.Mockito.lenient()
+    lenient().when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
+    lenient()
         .when(workflowScheduler.planCompletion(any(), org.mockito.ArgumentMatchers.eq(false)))
         .thenReturn(run.ratchet.ri.core.internal.WorkflowCompletionPlan.empty());
-    org.mockito.Mockito.lenient()
+    lenient()
         .when(jobTerminalStore.commitCompletion(any()))
         .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
     batchService =
@@ -107,7 +113,9 @@ class BatchServiceTest {
             workflowScheduler,
             classPolicy,
             beanResolver,
-            FIXED_CLOCK);
+            FIXED_CLOCK,
+            new JakartaAfterCommitRegistrar(txRegistry),
+            batchCompletionTransaction);
   }
 
   @Test
@@ -120,12 +128,12 @@ class BatchServiceTest {
   }
 
   @Test
-  void recoverySweepDoesNotOpenOneTransactionForTheWholeBatchSet() throws NoSuchMethodException {
+  void recoverySweepDelegatesEachBatchToASeparateTransaction() throws NoSuchMethodException {
     Transactional sweep =
         BatchService.class.getMethod("recoverStuckBatches").getAnnotation(Transactional.class);
     Transactional unit =
-        BatchService.class
-            .getMethod("recoverCompletedBatch", UUID.class, BatchEntity.class, JobEntity.class)
+        BatchCompletionTransaction.class
+            .getMethod("complete", Supplier.class)
             .getAnnotation(Transactional.class);
 
     assertNotNull(sweep);
@@ -276,7 +284,6 @@ class BatchServiceTest {
 
   @Test
   void completedBatchEventPublishesAfterCommit() {
-    batchService.setTxRegistryForTesting(txRegistry);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronizationCaptor =
         ArgumentCaptor.forClass(Synchronization.class);
@@ -314,7 +321,6 @@ class BatchServiceTest {
 
   @Test
   void failedBatchDelegatesDlqOnlyAfterCommitAndAfterJobFailed() {
-    batchService.setTxRegistryForTesting(txRegistry);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronizationCaptor =
         ArgumentCaptor.forClass(Synchronization.class);
@@ -353,7 +359,6 @@ class BatchServiceTest {
 
   @Test
   void failedBatchRollbackSuppressesFailureAndDlqEvents() {
-    batchService.setTxRegistryForTesting(txRegistry);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronizationCaptor =
         ArgumentCaptor.forClass(Synchronization.class);
@@ -530,6 +535,7 @@ class BatchServiceTest {
     verify(jobCrudStore).findByIds(List.of(firstId, secondId));
     verify(jobCrudStore, never()).findById(firstId);
     verify(jobCrudStore, never()).findById(secondId);
+    verify(batchCompletionTransaction, times(2)).complete(any());
   }
 
   @Test

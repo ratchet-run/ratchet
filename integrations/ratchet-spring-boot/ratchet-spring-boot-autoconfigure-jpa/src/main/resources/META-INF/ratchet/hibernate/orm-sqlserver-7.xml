@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hibernate 7 SQL Server UUID bindings for Ratchet only. The store persists canonical UUID bytes
+  in BINARY(16), while a host application's UUID mappings retain Hibernate's native SQL Server
+  UNIQUEIDENTIFIER behavior. Hibernate 7 uses jdbc-type-code as a mapping 7.0 child element.
+-->
+<entity-mappings xmlns="http://www.hibernate.org/xsd/orm/mapping" version="7.0">
+
+    <entity class="run.ratchet.store.entity.JobEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="createdAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="executionStartTime"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="executionEndTime"/>
+        <attributes>
+            <id name="id"><column name="job_id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+            <basic name="dependsOn"><column name="depends_on" length="16"/><jdbc-type-code>-2</jdbc-type-code></basic>
+            <basic name="supersededBy"><column name="superseded_by" length="16"/><jdbc-type-code>-2</jdbc-type-code></basic>
+            <basic name="recurringMasterId"><column name="recurring_master_id" length="16"/><jdbc-type-code>-2</jdbc-type-code></basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ArchivedJobEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="originalScheduledTime"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="originalCreatedAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="firstExecutionTime"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="completionTime"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="archivedAt"/>
+        <attributes>
+            <id name="id"><column name="archive_id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+            <basic name="originalJobId"><column name="original_job_id" length="16" nullable="false"/><jdbc-type-code>-2</jdbc-type-code></basic>
+            <basic name="dependedOn"><column name="depended_on" length="16"/><jdbc-type-code>-2</jdbc-type-code></basic>
+            <basic name="supersededBy"><column name="superseded_by" length="16"/><jdbc-type-code>-2</jdbc-type-code></basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchEntity">
+        <attributes>
+            <id name="id"><column name="batch_id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchMetricsEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="startedAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="completedAt"/>
+        <attributes>
+            <id name="batchId"><column name="batch_id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobLogEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="ts"/>
+        <attributes>
+            <id name="id"><column name="log_id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+            <basic name="jobId"><column name="job_id" length="16" nullable="false"/><jdbc-type-code>-2</jdbc-type-code></basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobExecutionEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="startedAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="endedAt"/>
+        <attributes>
+            <id name="id"><column name="id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+            <basic name="jobId"><column name="job_id" length="16" nullable="false"/><jdbc-type-code>-2</jdbc-type-code></basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ResourcePermitEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="acquiredAt"/>
+        <attributes>
+            <id name="id"><column name="id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+            <basic name="jobId"><column name="job_id" length="16" nullable="false"/><jdbc-type-code>-2</jdbc-type-code></basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.WorkflowConditionEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="createdAt"/>
+        <attributes>
+            <id name="id"><column name="id" length="16"/><jdbc-type-code>-2</jdbc-type-code></id>
+            <basic name="parentJobId"><column name="parent_job_id" length="16" nullable="false"/><jdbc-type-code>-2</jdbc-type-code></basic>
+            <basic name="childJobId"><column name="child_job_id" length="16" nullable="false"/><jdbc-type-code>-2</jdbc-type-code></basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.NodeEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="lastHeartbeat"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="startedAt"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ResourceLimitEntity">
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="createdAt"/>
+        <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="updatedAt"/>
+    </entity>
+
+</entity-mappings>

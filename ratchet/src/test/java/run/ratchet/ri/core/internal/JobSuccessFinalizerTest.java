@@ -79,6 +79,55 @@ class JobSuccessFinalizerTest {
     verify(observer).recordSuccessFinalizationRetry(job);
   }
 
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(strings = {"08003", "40001"})
+  void transactionBoundarySqlFailuresUseExistingBoundedRetries(String state) {
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+        .thenThrow(
+            new IllegalStateException(
+                "transaction failed", new java.sql.SQLException("temporary", state)))
+        .thenReturn(true);
+    assertEquals(
+        JobSuccessFinalizer.Outcome.COMPLETED_FULL, finalizeSuccess(finalizer(delays::add, 0L)));
+    assertEquals(List.of(25L), delays);
+    verify(lifecycleFacade, times(2)).completeSuccess(job, "json", "type", START, END, 1_000L, 25L);
+  }
+
+  @Test
+  void poolClosedConnectionWithoutSqlStateUsesBoundedRetries() {
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+        .thenThrow(
+            new IllegalStateException(
+                "rollback failed", new java.sql.SQLException("Connection is closed")))
+        .thenReturn(true);
+    assertEquals(
+        JobSuccessFinalizer.Outcome.COMPLETED_FULL, finalizeSuccess(finalizer(delays::add, 0L)));
+    assertEquals(List.of(25L), delays);
+  }
+
+  @Test
+  void unknownSqlErrorAndExplicitConstraintStateAreNotClosedConnectionSentinels() {
+    assertFalse(JobSuccessFinalizer.isTransientStoreFailure(new java.sql.SQLException("unknown")));
+    assertFalse(
+        JobSuccessFinalizer.isTransientStoreFailure(
+            new java.sql.SQLException("Connection is closed", "23505")));
+  }
+
+  @Test
+  void permanentSqlConstraintFailureIsNotRetried() {
+    var failure =
+        new IllegalStateException("constraint", new java.sql.SQLException("duplicate", "23505"));
+    when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
+        .thenThrow(failure);
+    org.junit.jupiter.api.Assertions.assertSame(
+        failure,
+        assertThrows(
+            IllegalStateException.class, () -> finalizeSuccess(finalizer(delays::add, 0L))));
+    assertEquals(List.of(), delays);
+    verify(lifecycleFacade, never())
+        .completeSuccessMinimal(any(JobEntity.class), any(), any(), anyLong(), anyLong());
+  }
+
   @Test
   void exhaustedFullWritesFallBackToMinimalSuccess() {
     when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))

@@ -172,6 +172,13 @@ jobs:
             mongodb-deployment:ratchet-quarkus-mongodb-deployment; do
             JAR_PATHS="$JAR_PATHS integrations/ratchet-quarkus/${entry}"
           done
+          for m in ratchet-spring-boot-autoconfigure \
+                   ratchet-spring-boot-autoconfigure-jpa \
+                   ratchet-spring-boot-autoconfigure-mongodb \
+                   ratchet-spring-boot-starter \
+                   ratchet-spring-boot-starter-mongodb; do
+            JAR_PATHS="$JAR_PATHS integrations/ratchet-spring-boot/${m}:${m}"
+          done
           for m in util store api jakarta coordinator; do
             JAR_PATHS="$JAR_PATHS testing/ratchet-tck/${m}:ratchet-tck-${m}"
           done

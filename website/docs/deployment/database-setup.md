@@ -8,7 +8,7 @@ description: "Setting up MySQL, PostgreSQL, Oracle, SQL Server, or MongoDB for R
 
 Ratchet requires a database to persist jobs, execution history, and scheduling metadata. This guide covers setup for all supported stores.
 
-SQL stores ship DDL as plain SQL files bundled inside each SQL store module JAR. There is no Flyway or Liquibase dependency: apply the schema using whatever mechanism your team prefers, **or** opt in to Ratchet's built-in startup migrator (see [Auto-migration](#auto-migration) below). MongoDB initializes collections and indexes at startup unconditionally; its named indexes are referenced by claim queries, so initialization is correctness-critical, not optional.
+SQL stores ship DDL as plain SQL files bundled inside each SQL store module JAR. There is no Flyway or Liquibase dependency: apply the schema using whatever mechanism your team prefers, **or** use Ratchet's built-in startup migrator (see [Auto-migration](#auto-migration) below). Spring Boot enables SQL migration by default; Jakarta EE and Quarkus leave it off by default, and require a CDI-discoverable `DataSource` when it is enabled. MongoDB has different startup modes: Spring Boot defaults to create-and-migrate and uses `ratchet.schema.auto-migrate=false` for validation only, while direct CDI/Jakarta EE and Quarkus Mongo store construction always creates collections and indexes. Named Mongo indexes are referenced by claim queries, so initialization is correctness-critical.
 
 ## PostgreSQL
 
@@ -300,7 +300,7 @@ db.createUser({
 
 ### Initialize Collections and Indexes
 
-MongoDB does not require a DDL file; the store module creates collections and indexes automatically on startup. You can pre-create the same collections and indexes for faster initial startup:
+MongoDB does not require a DDL file. Direct CDI/Jakarta EE and Quarkus Mongo store construction creates collections and indexes automatically on startup. Spring Boot also creates them by default; set `ratchet.schema.auto-migrate=false` there to validate a pre-provisioned schema without writing. You can pre-create the same collections and indexes for faster initial startup:
 
 ```javascript
 // mongosh
@@ -419,7 +419,9 @@ Since Ratchet does not bundle a Flyway/Liquibase runtime dependency, you are fre
 
 ## Auto-migration
 
-For dev, CI, and embedded deployments where running DBA-grade migration tooling is overkill, Ratchet ships a built-in startup migrator that applies `ddl/migrations/V###__description.sql` from the SQL store JARs. **It is OFF by default.** Production deployments typically keep the default and run migrations through their existing pipelines; dev/CI flips a single env var and gets a "just-works" bootstrap.
+For SQL stores, Ratchet ships a built-in startup migrator that applies `ddl/migrations/V###__description.sql` from the SQL store JARs. **Spring Boot enables it by default** for its SQL integrations. Jakarta EE and Quarkus use the CDI lifecycle hook, where it is **OFF by default**; production deployments commonly keep that default and run migrations through their existing pipelines. Enable it there with a single configuration value for development, CI, or embedded deployments.
+
+When using Spring Boot with `ratchet.schema.auto-migrate=false`, follow the [migration-ledger guidance](/deployment/spring-boot#transactions-and-schema) after applying the supplied SQL scripts. Their empty Ratchet ledger must be removed when migration history is owned by an external tool; retain any populated ledger.
 
 ### Enable
 
@@ -437,7 +439,7 @@ When enabled, `SchemaMigrationLifecycleHook` runs during scheduler startup (befo
 
 ### DataSource binding
 
-Auto-migration requires a CDI-discoverable `javax.sql.DataSource`. Most application servers expose this automatically; if yours doesn't, produce one explicitly:
+In the Jakarta EE or Quarkus SQL lifecycle-hook path, enabled auto-migration requires a CDI-discoverable `javax.sql.DataSource`. Most application servers expose this automatically; if yours doesn't, produce one explicitly:
 
 ```java
 @ApplicationScoped
@@ -479,7 +481,7 @@ PostgreSQL rejects `CREATE INDEX CONCURRENTLY` inside a transaction block, and t
 
 ### MongoDB
 
-MongoDB does not participate in `auto-migrate`; its collections and named indexes are created unconditionally during store startup. The `auto-migrate` flag is JDBC-only by contract.
+In Spring Boot, `ratchet.schema.auto-migrate=true` is the default and creates MongoDB collections and required indexes and runs data migrations. With `false`, startup validates existing collections, indexes, and migration markers without writing; provision the schema before starting the application. Direct CDI/Jakarta EE and Quarkus Mongo store startup always creates collections and indexes, regardless of this flag.
 
 ## Backup Strategy
 

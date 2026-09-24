@@ -24,10 +24,10 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import run.ratchet.store.schema.LogicalPredicate;
+import run.ratchet.store.schema.LogicalType;
+import run.ratchet.store.schema.OnDeleteAction;
 import run.ratchet.tck.store.schema.DialectTypeMapper;
-import run.ratchet.tck.store.schema.LogicalPredicate;
-import run.ratchet.tck.store.schema.LogicalType;
-import run.ratchet.tck.store.schema.OnDeleteAction;
 
 /**
  * PostgreSQL type/action acceptance + partial-index predicate introspection for the schema

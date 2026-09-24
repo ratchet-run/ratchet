@@ -52,6 +52,7 @@ import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
@@ -117,7 +118,9 @@ class DefaultJobSchedulerServiceEventTest {
             signalStore,
             null,
             metricsCollector,
-            FIXED_CLOCK);
+            FIXED_CLOCK,
+            null,
+            new JakartaAfterCommitRegistrar());
   }
 
   @ParameterizedTest

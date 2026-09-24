@@ -285,6 +285,43 @@ quarkus.mongodb.connection-string=mongodb://localhost:27017
 quarkus.mongodb.database=ratchet
 ```
 
+### Align the MongoDB driver family
+
+For the current development version, Ratchet's MongoDB compatibility baseline requires
+driver **5.11.1**. Quarkus 3.20.6.2 manages the older 5.3.1 driver, which is outside this
+qualification. Import MongoDB's driver BOM **before** the Quarkus platform BOM in the
+application's existing dependency management:
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.mongodb</groupId>
+      <artifactId>mongodb-driver-bom</artifactId>
+      <version>5.11.1</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.quarkus.platform</groupId>
+      <artifactId>quarkus-bom</artifactId>
+      <version>3.20.6.2</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+```
+
+The MongoDB BOM manages the aligned `bson`, `bson-record-codec`, `mongodb-crypt`, and
+`mongodb-driver-*` modules without adding dependencies. BOM import order matters: importing the
+Quarkus BOM first leaves its 5.3.1 management in effect. Check the application graph after the
+change:
+
+```bash
+mvn dependency:tree -Dincludes=org.mongodb:bson,org.mongodb:bson-record-codec,org.mongodb:mongodb-crypt,org.mongodb:mongodb-driver-core,org.mongodb:mongodb-driver-reactivestreams,org.mongodb:mongodb-driver-sync
+```
+
 Mongo initializes its own collections and indexes, so there is no `auto-migrate` step. The extension
 forces the driver's `UuidRepresentation` to `STANDARD` at construction, so Ratchet's UUID job
 identifiers round-trip correctly with no configuration on your part. Submitting jobs, plus recurring,

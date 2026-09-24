@@ -17,6 +17,7 @@ done < <(
     README.md \
     examples/quarkus/pom.xml \
     integrations/ratchet-quarkus/README.md \
+    integrations/ratchet-spring-boot/consumer-tests/pom.xml \
     website/docs \
     infra/loadtest/Dockerfile \
     .github/ISSUE_TEMPLATE/bug_report.yml
@@ -84,6 +85,8 @@ assert_count website/docs/deployment/quarkus.md "<version>$initial_quarkus_versi
 assert_count integrations/ratchet-quarkus/README.md "<version>$initial_quarkus_version</version>" 2
 assert_contains README.md 'Ratchet is in **9.8.7-SNAPSHOT**.'
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.7-SNAPSHOT.war'
+assert_contains integrations/ratchet-spring-boot/consumer-tests/pom.xml '<ratchet.version>9.8.7-SNAPSHOT</ratchet.version>'
+assert_contains website/docs/deployment/spring-boot.md '<ratchet.version>9.8.7-SNAPSHOT</ratchet.version>'
 
 # Exercise placeholder expansion even when a previous release already replaced
 # every placeholder in the checked-in guide.
@@ -91,6 +94,9 @@ perl -0777 -i -pe \
   's{(<artifactId>ratchet-quarkus-parent</artifactId>\s*<version>)[^<]+(</version>)}{$1\${ratchet.version}$2}g' \
   "$FIXTURE/website/docs/deployment/quarkus.md"
 assert_contains website/docs/deployment/quarkus.md '<version>${ratchet.version}</version>'
+
+# Keep the unpublished guide: the release workflow restores main before its bump PR.
+cp "$FIXTURE/website/docs/deployment/spring-boot.md" "$FIXTURE/spring-guide-before-release.md"
 
 # Cutting a release advances both public and project references.
 "$FIXTURE/scripts/sync-version.sh" 9.8.7 >/dev/null
@@ -102,9 +108,12 @@ assert_contains website/docs/deployment/oracle.md 'ratchet-store-oracle-9.8.7.ja
 assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.8.7.jar'
 assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 5
 assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
+assert_contains integrations/ratchet-spring-boot/consumer-tests/pom.xml '<ratchet.version>9.8.7</ratchet.version>'
+assert_contains website/docs/deployment/spring-boot.md '<ratchet.version>9.8.7</ratchet.version>'
 
 # The following development bump keeps public snippets on the release while
 # advancing source-tree and verified-against references to the next SNAPSHOT.
+cp "$FIXTURE/spring-guide-before-release.md" "$FIXTURE/website/docs/deployment/spring-boot.md"
 RELEASE_VERSION=9.8.7 "$FIXTURE/scripts/sync-version.sh" 9.8.8-SNAPSHOT >/dev/null
 assert_contains README.md '<version>9.8.7</version>'
 assert_contains examples/quarkus/pom.xml '<ratchet.version>9.8.7</ratchet.version>'
@@ -116,6 +125,10 @@ assert_contains website/docs/deployment/sqlserver.md 'ratchet-store-sqlserver-9.
 assert_count website/docs/deployment/quarkus.md '<version>9.8.7</version>' 5
 assert_count integrations/ratchet-quarkus/README.md '<version>9.8.7</version>' 2
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.8-SNAPSHOT.war'
+assert_contains integrations/ratchet-spring-boot/consumer-tests/pom.xml '<ratchet.version>9.8.8-SNAPSHOT</ratchet.version>'
+assert_contains website/docs/deployment/spring-boot.md '<ratchet.version>9.8.7</ratchet.version>'
+assert_count website/docs/deployment/spring-boot.md 'starters are unreleased' 0
+assert_count website/docs/deployment/spring-boot.md 'staged_repo' 0
 
 # Repeating the same transition is idempotent.
 before="$(tree_digest)"
@@ -125,5 +138,10 @@ if [[ "$before" != "$after" ]]; then
   echo "sync-version changed files on an idempotent rerun" >&2
   exit 1
 fi
+
+# Ordinary development bumps also retain an already released starter guide.
+env -u RELEASE_VERSION "$FIXTURE/scripts/sync-version.sh" 9.8.9-SNAPSHOT >/dev/null
+assert_contains website/docs/deployment/spring-boot.md '<ratchet.version>9.8.7</ratchet.version>'
+assert_count website/docs/deployment/spring-boot.md 'starters are unreleased' 0
 
 echo "sync-version transition checks passed"

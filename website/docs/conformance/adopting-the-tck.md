@@ -137,6 +137,13 @@ Most contracts use `JobStoreContractFixture`. These conditional profiles need ad
 | `AbstractSchemaMigratorContract` | A `DataSource`, `SchemaMigrationDialect`, database reset, and a new JDBC connection |
 | `AbstractJobStoreTransactionBoundaryContract` | The concrete JPA store implementation class whose annotations are inspected |
 
+The unreleased schema metadata API moves `Column`, `DeprecatedArtifact`, `ForeignKey`, `Index`,
+`LogicalPredicate`, `LogicalType`, `OnDeleteAction`, `RatchetSchemaCatalog`, `SchemaSpec`, and `Table`
+from `run.ratchet.tck.store.schema` to `run.ratchet.store.schema`. When upgrading from 0.4.0,
+update those imports and recompile custom `DialectTypeMapper` implementations: its methods now
+use the store-core types, so previously compiled implementations are not binary compatible.
+The catalog revision numbers are independent of the SQL migration ledger versions.
+
 The optional capability accessors on `JobStoreContractFixture` call `store().capability(...)`.
 When a capability is absent, the inherited cases abort as JUnit skips and the report records the
 contract as `N/A`; absence is not a conformance failure.
@@ -335,3 +342,17 @@ work. There is no reusable event probe, generic runtime bootstrap, generic Arqui
 or separate fourth-tier runtime harness. The reference implementation's `RiRatchetTckRuntime`,
 event probe, and deployment builder live in its test suite and are examples rather than published
 TCK APIs.
+
+### Store-core upgrade changes
+
+This development branch also removes four public store-core members present in `0.4.0`:
+`BatchMetricsEntity` no longer takes a `JobEntity` constructor argument and no longer exposes
+`getBatchJob()` or `setBatchJob(JobEntity)`. Use its `batchId` to identify the parent, and resolve
+the job separately when needed. The redundant JPA association is gone; existing database foreign
+keys and persisted batch IDs remain unchanged.
+
+`ArchiveHelper.FIND_JOBS_FOR_ARCHIVING_JPQL` is also removed. That query referenced state fields
+which moved out of `JobEntity` in the hot/cold schema split. Use the store's
+`ArchiveStore.findJobsForArchiving` operation instead of copying the old query. Adopters that
+used these members must update and recompile; these are store-core source and binary changes,
+not changes to the public `ratchet-api` contract.

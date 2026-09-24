@@ -101,7 +101,7 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
   }
 
   /** Constructor for tests that supply a store directly (or {@code null} to disable scheduling). */
-  DefaultRecurringScheduler(
+  public DefaultRecurringScheduler(
       ExecutorProvider executorProvider,
       RecurringJobStore recurringJobStore,
       SingletonLeaseService singletonLeaseService,

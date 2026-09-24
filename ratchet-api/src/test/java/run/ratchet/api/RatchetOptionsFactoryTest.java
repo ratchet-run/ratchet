@@ -34,6 +34,39 @@ import run.ratchet.spi.RatchetConfigSource;
 class RatchetOptionsFactoryTest {
 
   @Test
+  void retiredVirtualThreadPropertyAndEnvironmentVariableWarn() {
+    var messages = new java.util.ArrayList<String>();
+    var logger = java.util.logging.Logger.getLogger(RatchetOptionsFactory.class.getName());
+    var handler =
+        new java.util.logging.Handler() {
+          public void publish(java.util.logging.LogRecord record) {
+            messages.add(record.getMessage());
+          }
+
+          public void flush() {}
+
+          public void close() {}
+        };
+    logger.addHandler(handler);
+    try {
+      optionsFrom(new MapRatchetConfigSource(Map.of(), Map.of()));
+      assertTrue(messages.isEmpty());
+      optionsFrom(
+          new MapRatchetConfigSource(
+              Map.of("ratchet.worker.use-virtual-threads", "false"), Map.of()));
+      optionsFrom(
+          new MapRatchetConfigSource(
+              Map.of(), Map.of("RATCHET_WORKER_USE_VIRTUAL_THREADS", "true")));
+      assertEquals(2, messages.size());
+      assertTrue(
+          messages.stream()
+              .allMatch(message -> message.contains("ratchet.worker.default-threading-mode")));
+    } finally {
+      logger.removeHandler(handler);
+    }
+  }
+
+  @Test
   void removedInertKeysAreAbsentFromCatalogAndFactoryLookup() {
     Set<String> declaredKeyFields =
         Arrays.stream(RatchetConfigKeys.class.getFields())

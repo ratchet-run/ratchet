@@ -39,8 +39,8 @@ import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
-import run.ratchet.ri.core.internal.JobWakeupService.AfterCommitRegistrationResult;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
@@ -70,16 +70,16 @@ public class JobTimeoutHandler {
   private final long defaultTimeoutSeconds;
   private final Clock clock;
   private final int signalTimeoutBatchSize;
-  private final TransactionSynchronizationRegistry txRegistry;
+  private final AfterCommitRegistrar afterCommitRegistrar;
   private final SingletonLeaseService singletonLeaseService;
   private final ErrorSanitizer errorSanitizer;
 
   /**
    * Job ids the hard-timeout watchdog has cancelled and is about to retry/finalize itself. The
-   * watchdog records the id before it interrupts the worker, so when the interrupt lands in {@link
-   * JobTask#handleFailure} the worker can see the timeout is watchdog-owned and skip its own
-   * attempt increment. Without this, both the watchdog and the interrupted worker increment while
-   * the row is still RUNNING and a single timeout burns two attempts.
+   * watchdog records the id before it interrupts the worker, so when {@link JobTask} handles the
+   * resulting failure, the worker can see the timeout is watchdog-owned and skip its own attempt
+   * increment. Without this, both the watchdog and the interrupted worker increment while the row
+   * is still RUNNING and a single timeout burns two attempts.
    */
   private final Set<UUID> watchdogCancelledJobIds = ConcurrentHashMap.newKeySet();
 
@@ -95,7 +95,7 @@ public class JobTimeoutHandler {
     this.defaultTimeoutSeconds = 0;
     this.clock = null;
     this.signalTimeoutBatchSize = 0;
-    this.txRegistry = null;
+    this.afterCommitRegistrar = null;
     this.singletonLeaseService = null;
     this.errorSanitizer = null;
   }
@@ -205,6 +205,38 @@ public class JobTimeoutHandler {
       TransactionSynchronizationRegistry txRegistry,
       SingletonLeaseService singletonLeaseService,
       ErrorSanitizer errorSanitizer) {
+    this(
+        new JakartaAfterCommitRegistrar(txRegistry),
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        eventPublisher,
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        singletonLeaseService,
+        errorSanitizer);
+  }
+
+  public JobTimeoutHandler(
+      AfterCommitRegistrar afterCommitRegistrar,
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      SingletonLeaseService singletonLeaseService,
+      ErrorSanitizer errorSanitizer) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -216,7 +248,7 @@ public class JobTimeoutHandler {
     this.signalStore = signalStore;
     this.metricsCollector = metricsCollector;
     this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
-    this.txRegistry = txRegistry;
+    this.afterCommitRegistrar = afterCommitRegistrar;
     this.singletonLeaseService = singletonLeaseService;
     this.errorSanitizer = errorSanitizer;
   }
@@ -396,7 +428,8 @@ public class JobTimeoutHandler {
     } catch (Throwable sanitizerError) {
       log.warnf(
           sanitizerError,
-          "Error sanitizer failed while preparing hard-timeout metadata; using exception class fallback");
+          "Error sanitizer failed while preparing hard-timeout metadata; using exception class"
+              + " fallback");
       return timeout.getClass().getName();
     }
   }
@@ -446,7 +479,8 @@ public class JobTimeoutHandler {
         return Optional.empty();
       }
       log.infof(
-          "Job %s signal timed out but was already finalized by a competing path — no DLQ escalation",
+          "Job %s signal timed out but was already finalized by a competing path — no DLQ"
+              + " escalation",
           jobId);
       return Optional.empty();
     }
@@ -524,16 +558,8 @@ public class JobTimeoutHandler {
     return new TerminalTimeoutTransition(job, List.of(event, failedEvent));
   }
 
-  private AfterCommitRegistrationResult registerAfterCommit(Runnable action) {
-    return JobWakeupService.registerAfterCommit(
-        resolveTxRegistry(),
-        action,
-        log,
-        "After-commit timeout event registration failed; events suppressed: %s");
-  }
-
-  private TransactionSynchronizationRegistry resolveTxRegistry() {
-    return txRegistry != null ? txRegistry : JobWakeupService.lookupTxRegistry(log);
+  private AfterCommitRegistrar.Result registerAfterCommit(Runnable action) {
+    return afterCommitRegistrar.registerAfterCommit(action);
   }
 
   private void publishHardTimeoutRetryEvents(
@@ -626,7 +652,7 @@ public class JobTimeoutHandler {
   }
 
   private void publishAfterCommit(Runnable action) {
-    if (registerAfterCommit(action) == AfterCommitRegistrationResult.NO_ACTIVE_TRANSACTION) {
+    if (registerAfterCommit(action) == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
       action.run();
     }
   }

@@ -33,6 +33,7 @@ import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
+import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.security.MethodLookup;
@@ -84,7 +85,7 @@ public class WorkflowConditionEvaluator {
   }
 
   /** Constructor for tests that supply a store directly (or {@code null} for no batch support). */
-  WorkflowConditionEvaluator(
+  public WorkflowConditionEvaluator(
       BatchStore batchStore,
       BeanResolver beanResolver,
       ClassPolicy classPolicy,
@@ -300,12 +301,14 @@ public class WorkflowConditionEvaluator {
         target = contextArg;
         args = new Object[0];
       } else {
-        target = beanResolver.resolve(cls);
-        args = fillArgs(payload.args(), contextArg);
+        try (BeanResolver.ManagedBean handle = beanResolver.acquire(cls)) {
+          target = handle.instance();
+          method = ManagedInvocation.exposedMethod(method, target);
+          args = fillArgs(payload.args(), contextArg);
+          return invokeCondition(method, target, args);
+        }
       }
-      Object result =
-          method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args));
-      return Boolean.TRUE.equals(result);
+      return invokeCondition(method, target, args);
     } catch (InvocationTargetException e) {
       Throwable cause = e.getCause() != null ? e.getCause() : e;
       log.errorf(cause, "Condition expression evaluation failed: %s", cause.getMessage());
@@ -408,5 +411,11 @@ public class WorkflowConditionEvaluator {
     private WorkflowConditionConfigurationException(String message, Throwable cause) {
       super(message, cause);
     }
+  }
+
+  private static boolean invokeCondition(Method method, Object target, Object[] args)
+      throws InvocationTargetException, IllegalAccessException {
+    return Boolean.TRUE.equals(
+        method.invoke(target, ArgumentCoercion.coerce(method.getParameterTypes(), args)));
   }
 }

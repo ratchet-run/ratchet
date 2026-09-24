@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,6 +57,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
@@ -161,7 +163,11 @@ class DefaultJobCreationServiceAuthorizationTest {
         null,
         eventPublisher,
         metricsCollector,
-        clock);
+        clock,
+        true,
+        true,
+        null,
+        new JakartaAfterCommitRegistrar(txRegistry));
   }
 
   private DefaultJobCreationService serviceWithResolver(
@@ -186,7 +192,10 @@ class DefaultJobCreationServiceAuthorizationTest {
         eventPublisher,
         metricsCollector,
         Clock.systemUTC(),
-        callerPrincipalResolver);
+        true,
+        true,
+        callerPrincipalResolver,
+        new JakartaAfterCommitRegistrar(txRegistry));
   }
 
   private DefaultJobCreationService serviceWithoutAuthorizationPolicy() {
@@ -211,11 +220,16 @@ class DefaultJobCreationServiceAuthorizationTest {
         null,
         null,
         null,
-        Clock.systemUTC());
+        Clock.systemUTC(),
+        true,
+        true,
+        null,
+        new JakartaAfterCommitRegistrar(txRegistry));
   }
 
   @BeforeEach
   void setUp() {
+    lenient().when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
     wakeupService = new NoopJobWakeupService();
     service =
         serviceWith(
@@ -430,7 +444,6 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void signalWaitingEventPublishesAfterCommit() {
-    service.setTxRegistryForTesting(txRegistry);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronizationCaptor =
         ArgumentCaptor.forClass(Synchronization.class);
@@ -455,7 +468,6 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void signalWaitingEventIsSuppressedWhenTransactionRollsBack() {
-    service.setTxRegistryForTesting(txRegistry);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronizationCaptor =
         ArgumentCaptor.forClass(Synchronization.class);
@@ -478,7 +490,6 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void signalWaitingEventIsSuppressedWhenAfterCommitRegistrationFails() {
-    service.setTxRegistryForTesting(txRegistry);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     doThrow(new IllegalStateException("boom"))
         .when(txRegistry)

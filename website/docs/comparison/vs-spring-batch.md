@@ -83,7 +83,7 @@ The genuine cases where Spring Batch's model still wins are covered in the [What
 
 Spring Batch is part of the Spring portfolio. It assumes Spring. If your app is Spring Boot, it integrates without friction. If your app is Jakarta EE, you can technically run Spring Framework alongside your container, but you end up with two DI models in the same JVM and you fight every wiring decision twice.
 
-Ratchet is the inverse. It is CDI-native, integrates with `@Inject`, captures the caller principal through platform `PrincipalSource` beans, and is at home on WildFly, Payara, Open Liberty, and GlassFish. A Spring Boot starter is planned but does not exist yet.
+Ratchet supports CDI on Jakarta EE and has a [Spring Boot starter](/deployment/spring-boot). The starter uses Spring beans and application transactions without a second DI container. It supports Boot 3.5/4.1 on Java 17/21, with SQL or MongoDB. The distinction from Spring Batch is the job model, rather than whether Spring can wire the scheduler.
 
 ## What Spring Batch does better
 

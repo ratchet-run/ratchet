@@ -520,6 +520,13 @@ This interface is marked `@Incubating` and may change.
 @FunctionalInterface
 public interface BeanResolver {
     <T> T resolve(Class<T> type);
+    default void validateResolvable(Class<?> type) { ... }
+    default ManagedBean acquire(Class<?> type) { ... }
+
+    interface ManagedBean extends AutoCloseable {
+        Object instance();
+        void close();
+    }
 }
 ```
 
@@ -536,6 +543,16 @@ public interface BeanResolver {
 
 **Throws:** `IllegalStateException` if the instance cannot be resolved.
 
+### validateResolvable and acquire
+
+`validateResolvable` lets a container implementation check target metadata before Ratchet stores
+a recurring or invocation target; the compatibility default acquires and releases an instance.
+`acquire` returns an invocation-scoped handle. Ratchet invokes
+`handle.instance()` and always closes the handle afterwards, including when invocation fails.
+Container implementations use the close operation to release dependent or prototype targets and
+run their destruction callbacks. Implementations that only return shared singleton references may
+keep the default no-op close behavior.
+
 ### Example
 
 ```java
@@ -551,6 +568,31 @@ public class SpringBeanResolver implements BeanResolver {
     }
 }
 ```
+
+## AfterCommitRegistrar
+
+Defers a callback until the transaction on the current thread commits. Ratchet uses it for
+after-commit submission and wake-up work so a rollback cannot publish work that was not
+committed.
+
+```java
+@Incubating
+@FunctionalInterface
+public interface AfterCommitRegistrar {
+    Result registerAfterCommit(Runnable action);
+
+    enum Result {
+        NO_ACTIVE_TRANSACTION,
+        REGISTERED,
+        ACTIVE_TRANSACTION_REGISTRATION_FAILED
+    }
+}
+```
+
+Run the action immediately only for `NO_ACTIVE_TRANSACTION`. `REGISTERED` means the registrar
+owns it and preserves registration order within that transaction, as required by this SPI.
+Suppress it for `ACTIVE_TRANSACTION_REGISTRATION_FAILED`, because the transaction may still
+commit and the registrar cannot safely determine the outcome.
 
 ## MetricsCollector
 

@@ -36,15 +36,15 @@ import java.util.Set;
 import java.util.TreeMap;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
-import run.ratchet.tck.store.schema.Column;
-import run.ratchet.tck.store.schema.DeprecatedArtifact;
+import run.ratchet.store.schema.Column;
+import run.ratchet.store.schema.DeprecatedArtifact;
+import run.ratchet.store.schema.ForeignKey;
+import run.ratchet.store.schema.Index;
+import run.ratchet.store.schema.OnDeleteAction;
+import run.ratchet.store.schema.RatchetSchemaCatalog;
+import run.ratchet.store.schema.SchemaSpec;
+import run.ratchet.store.schema.Table;
 import run.ratchet.tck.store.schema.DialectTypeMapper;
-import run.ratchet.tck.store.schema.ForeignKey;
-import run.ratchet.tck.store.schema.Index;
-import run.ratchet.tck.store.schema.OnDeleteAction;
-import run.ratchet.tck.store.schema.RatchetSchemaCatalog;
-import run.ratchet.tck.store.schema.SchemaSpec;
-import run.ratchet.tck.store.schema.Table;
 
 /**
  * Schema conformance contract. Verifies that a conforming store's introspected schema satisfies the

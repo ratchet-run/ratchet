@@ -24,8 +24,9 @@ import run.ratchet.spi.BeanResolver;
 
 /**
  * Resolves CDI beans by type via {@link Instance}. Throws {@link IllegalStateException} if no bean
- * or multiple beans are found, and refuses {@link Dependent}-scoped beans whose lifecycle it cannot
- * manage.
+ * or multiple beans are found. {@link #resolve(Class)} refuses {@link Dependent}-scoped beans
+ * because it cannot return a lifecycle-managed reference; {@link #acquire(Class)} accepts them and
+ * destroys the acquired handle when it is closed.
  */
 @ApplicationScoped
 public class CdiBeanResolver implements BeanResolver {
@@ -62,5 +63,39 @@ public class CdiBeanResolver implements BeanResolver {
               + " Inject the bean directly or use a wider scope.");
     }
     return handle.get();
+  }
+
+  @Override
+  public void validateResolvable(Class<?> type) {
+    uniqueInstance(type);
+  }
+
+  private Instance<?> uniqueInstance(Class<?> type) {
+    Instance<?> instance = allBeans.select(type);
+    if (instance.isUnsatisfied() || instance.isAmbiguous()) {
+      throw new IllegalStateException("Cannot uniquely resolve CDI bean: " + type.getName());
+    }
+    return instance;
+  }
+
+  @Override
+  public ManagedBean acquire(Class<?> type) {
+    Instance<?> instance = uniqueInstance(type);
+    Instance.Handle<?> handle = instance.getHandle();
+    Object bean = handle.get();
+    return new ManagedBean() {
+      private boolean closed;
+
+      public Object instance() {
+        return bean;
+      }
+
+      public void close() {
+        if (!closed && handle.getBean().getScope().equals(Dependent.class)) {
+          closed = true;
+          handle.destroy();
+        }
+      }
+    };
   }
 }

@@ -117,6 +117,23 @@ if [[ -n "$PUBLIC_VERSION" ]]; then
     's{(<ratchet\.version>)$ENV{VER_RE}(</ratchet\.version>)}{$1$ENV{PUBLIC_VERSION}$2}g'
 fi
 
+# The independent Spring consumers verify artifacts built from this checkout.
+# Their Ratchet version is not inherited from the root Maven reactor.
+apply "integrations/ratchet-spring-boot/consumer-tests/pom.xml" "consumer-version" \
+  's{(<ratchet\.version>)$ENV{VER_RE}(</ratchet\.version>)}{$1$ENV{VERSION}$2}g'
+# Before the first starter release, the guide uses locally staged artifacts.
+# The existing release transition removes that prerequisite; later development
+# bumps retain the last published coordinate just like the other public guides.
+if [[ -n "$PUBLIC_VERSION" ]]; then
+  apply "website/docs/deployment/spring-boot.md" "published-spring-version" \
+    's{(<ratchet\.version>)$ENV{VER_RE}(</ratchet\.version>)}{$1$ENV{PUBLIC_VERSION}$2}g;
+     s{<!-- spring-starter-unreleased:start -->\n.*?<!-- spring-starter-unreleased:end -->\n\n}{}s;
+     s{mvn -Dmaven\.repo\.local="\$staged_repo" spring-boot:run}{mvn spring-boot:run}g'
+elif grep -Fq '<!-- spring-starter-unreleased:start -->' website/docs/deployment/spring-boot.md; then
+  apply "website/docs/deployment/spring-boot.md" "spring-guide-checkout-version" \
+    's{(<ratchet\.version>)$ENV{VER_RE}(</ratchet\.version>)}{$1$ENV{VERSION}$2}g'
+fi
+
 # 2. Published ratchet-* JAR filenames used by extract-the-DDL snippets.
 #    Oracle and SQL Server are included so future release references cannot
 #    drift when their bundled-JAR instructions are present.

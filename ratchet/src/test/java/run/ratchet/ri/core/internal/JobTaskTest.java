@@ -1039,6 +1039,36 @@ class JobTaskTest {
     verify(jobStore, never()).getJobStatus(any(UUID.class));
   }
 
+  @org.junit.jupiter.params.ParameterizedTest
+  @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+  void completedPayloadSurvivesUnavailableCancellationReadWithoutReexecution(boolean transitionWins)
+      throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID))
+        .thenReturn(JobStatus.RUNNING)
+        .thenThrow(
+            new IllegalStateException(
+                "transaction rollback failed",
+                new java.sql.SQLException("connection closed", "08003")));
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(transitionWins);
+
+    jobTask.call();
+
+    verify(resilienceStrategy, times(1)).execute(anyString(), any(Callable.class));
+    verify(lifecycleFacade, times(1))
+        .completeSuccess(any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(observabilityFacade, transitionWins ? times(1) : never())
+        .recordJobSuccess(any(), anyLong());
+  }
+
   @Test
   @SuppressWarnings("unchecked")
   void handleSuccess_retriesTransientFinalizationWithoutFailingJob() throws Exception {

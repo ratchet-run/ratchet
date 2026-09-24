@@ -54,6 +54,7 @@ public class LayeringArchitectureTest {
   private static final String STORE_POSTGRESQL = "run.ratchet.store.postgresql..";
   private static final String STORE_MONGODB = "run.ratchet.store.mongodb..";
   private static final String RI = "run.ratchet.ri..";
+  private static final String SPRING_ADAPTER = "run.ratchet.spring.boot.autoconfigure..";
   private static final String COORDINATOR = "run.ratchet.coordinator..";
   private static final String BLOCKS = "run.ratchet.blocks..";
 
@@ -75,7 +76,12 @@ public class LayeringArchitectureTest {
     assertPackageNonEmpty(imported, "run.ratchet.store.mysql");
     assertPackageNonEmpty(imported, "run.ratchet.store.postgresql");
     assertPackageNonEmpty(imported, "run.ratchet.store.mongodb");
+    assertPackageNonEmpty(imported, "run.ratchet.store.oracle");
+    assertPackageNonEmpty(imported, "run.ratchet.store.sqlserver");
     assertPackageNonEmpty(imported, "run.ratchet.ri");
+    assertPackageNonEmpty(imported, "run.ratchet.spring.boot.autoconfigure");
+    assertPackageNonEmpty(imported, "run.ratchet.spring.boot.autoconfigure.jpa");
+    assertPackageNonEmpty(imported, "run.ratchet.spring.boot.autoconfigure.mongodb");
     assertPackageNonEmpty(imported, "run.ratchet.coordinator");
   }
 
@@ -100,6 +106,19 @@ public class LayeringArchitectureTest {
     long count = imported.stream().filter(c -> c.getPackageName().startsWith(packageName)).count();
     assertTrue(count > 0, "expected at least one class in " + packageName + ", found 0");
   }
+
+  /** The store adapters are separate modules without the engine adapter's qualified exports. */
+  @ArchTest
+  static final ArchRule springStoreAdaptersUsePublicRuntimeContracts =
+      noClasses()
+          .that()
+          .resideInAnyPackage(
+              "run.ratchet.spring.boot.autoconfigure.jpa..",
+              "run.ratchet.spring.boot.autoconfigure.mongodb..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage("run.ratchet.api.internal..", RI)
+          .because("only the common Spring engine adapter receives the qualified JPMS exports");
 
   // --- Core must never depend on the optional blocks extension ---
 
@@ -185,9 +204,9 @@ public class LayeringArchitectureTest {
   // --- Cross-module .internal reach-in ---
 
   /**
-   * {@code run.ratchet.api.internal..} is qualified-exported to {@code run.ratchet.ri} at the JPMS
-   * level. The same restriction applies on the classpath, where module-info exports are not
-   * enforced.
+   * {@code run.ratchet.api.internal..} is qualified-exported to {@code run.ratchet.ri} and the
+   * Spring adapter's named automatic module at the JPMS level. The same restriction applies on the
+   * classpath, where module-info exports are not enforced.
    */
   @ArchTest
   static final ArchRule apiInternalIsConsumedOnlyByReferenceImplementation =
@@ -196,13 +215,14 @@ public class LayeringArchitectureTest {
           .resideInAPackage("run.ratchet.api.internal..")
           .should()
           .onlyHaveDependentClassesThat()
-          .resideInAnyPackage("run.ratchet.api..", RI)
+          .resideInAnyPackage("run.ratchet.api..", RI, SPRING_ADAPTER)
           .because(
-              "run.ratchet.api.internal is exported to run.ratchet.ri only in module-info; "
-                  + "classpath consumers must respect the same boundary");
+              "run.ratchet.api.internal is exported only to run.ratchet.ri and the Spring "
+                  + "adapter in module-info; classpath consumers must respect the same boundary");
 
   /**
-   * RI-internal sub-packages stay inside the RI module. Coordinators, store impls, and tests should
+   * RI-internal sub-packages stay inside the RI module except for the Spring adapter, whose named
+   * automatic module is explicitly qualified-exported. Coordinators, store impls, and tests should
    * not reach into {@code run.ratchet.ri.core.internal} or {@code run.ratchet.ri.cdi.internal}.
    */
   @ArchTest
@@ -212,10 +232,10 @@ public class LayeringArchitectureTest {
           .resideInAnyPackage("run.ratchet.ri.core.internal..", "run.ratchet.ri.cdi.internal..")
           .should()
           .onlyHaveDependentClassesThat()
-          .resideInAPackage(RI)
+          .resideInAnyPackage(RI, SPRING_ADAPTER)
           .because(
-              "RI-internal sub-packages are implementation detail; reach-in from coordinators "
-                  + "or store impls breaks the pluggability boundary");
+              "RI-internal sub-packages are implementation detail except for the Spring adapter; "
+                  + "reach-in from coordinators or store impls breaks the pluggability boundary");
 
   /**
    * {@code run.ratchet.coordinator.common.internal..} is shared between sibling coordinator
@@ -237,6 +257,16 @@ public class LayeringArchitectureTest {
 
   // --- JPA purity for SQL stores ---
 
+  @ArchTest
+  static final ArchRule sharedRuntimeDoesNotDependOnSpring =
+      noClasses()
+          .that()
+          .resideInAnyPackage(API, SPI, RI, STORE_CORE)
+          .should()
+          .dependOnClassesThat()
+          .resideInAnyPackage("org.springframework..", "run.ratchet.spring..")
+          .because("Spring dependencies belong in the integration modules");
+
   /**
    * Classes in the SQL store modules and shared store-core main sources must not import
    * provider-specific JPA APIs. This is a hard project constraint — a Hibernate-specific annotation
@@ -248,7 +278,7 @@ public class LayeringArchitectureTest {
   static final ArchRule sqlStoresUseStandardJpaOnly =
       noClasses()
           .that()
-          .resideInAnyPackage(STORE_CORE, STORE_MYSQL, STORE_POSTGRESQL)
+          .resideInAnyPackage(API, SPI, RI, STORE_CORE)
           .should()
           .dependOnClassesThat()
           .resideInAnyPackage("org.hibernate..", "org.eclipse.persistence..")

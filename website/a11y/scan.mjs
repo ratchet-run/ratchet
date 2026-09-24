@@ -14,7 +14,7 @@
 // Assumes the site is already built (`npm run build`).
 
 import { createServer } from 'node:http'
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { join, extname, relative, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
@@ -25,6 +25,7 @@ const DIST = join(here, '..', 'docs', '.vitepress', 'dist')
 const THEMES = ['light', 'dark']
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
 const CONCURRENCY = 4
+const MOUNT_TIMEOUT_MS = 10_000
 
 // Generated Javadoc is third-party HTML we do not author or control, so it is
 // out of scope for this gate. 404.html is never linked.
@@ -105,6 +106,25 @@ function startServer() {
   })
 }
 
+// VitePress statically renders #app, so its presence only proves that the
+// server-rendered markup arrived. Vue writes __vue_app__ when it mounts the
+// client application. Axe must run after that point: VPSwitchAppearance sets
+// its title in a post-flush effect during hydration.
+export async function waitForVitePressMount(page, route, pageErrors) {
+  try {
+    await page.waitForFunction(
+      () => Boolean(document.querySelector('#app')?.__vue_app__),
+      undefined,
+      { timeout: MOUNT_TIMEOUT_MS },
+    )
+  } catch (cause) {
+    const errors = pageErrors.length ? ` Page errors: ${pageErrors.join(' | ')}` : ''
+    throw new Error(`VitePress did not mount ${route} within ${MOUNT_TIMEOUT_MS}ms.${errors}`, {
+      cause,
+    })
+  }
+}
+
 async function scanTheme(browser, base, routes, theme) {
   const context = await browser.newContext()
   // Set the theme the way a real visitor would: VitePress reads this key in an
@@ -121,8 +141,12 @@ async function scanTheme(browser, base, routes, theme) {
 
   async function worker() {
     const page = await context.newPage()
+    const pageErrors = []
+    page.on('pageerror', (error) => pageErrors.push(String(error)))
     for (let route = queue.shift(); route; route = queue.shift()) {
+      pageErrors.length = 0
       await page.goto(`${base}/${route}`, { waitUntil: 'networkidle' })
+      await waitForVitePressMount(page, route, pageErrors)
       const isDark = await page.evaluate(() => document.documentElement.classList.contains('dark'))
       if (isDark !== (theme === 'dark')) {
         throw new Error(`theme mismatch on ${route}: wanted ${theme}, page isDark=${isDark}`)
@@ -215,7 +239,18 @@ async function main() {
   console.log('\n✓ No accessibility violations in either theme.')
 }
 
-main().catch((err) => {
-  console.error(err)
-  process.exit(2)
-})
+async function isEntrypoint() {
+  if (!process.argv[1]) return false
+  try {
+    return (await realpath(fileURLToPath(import.meta.url))) === (await realpath(process.argv[1]))
+  } catch {
+    return false
+  }
+}
+
+if (await isEntrypoint()) {
+  main().catch((err) => {
+    console.error(err)
+    process.exit(2)
+  })
+}

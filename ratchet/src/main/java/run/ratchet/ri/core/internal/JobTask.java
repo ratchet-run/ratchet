@@ -337,11 +337,8 @@ public class JobTask implements Callable<Void> {
         jobResult =
             resilienceStrategy.execute(resilienceServiceName, () -> runPayload(invocationPayload));
 
-        if (wasJobCanceledDuringExecution()) {
-          handleCanceledDuringExecution(start);
-        } else {
-          handleSuccess(start, jobResult);
-        }
+        if (wasJobCanceledAfterExecution()) handleCanceledDuringExecution(start);
+        else handleSuccess(start, jobResult);
       } catch (CircuitBreakerOpenException e) {
         log.infof(
             "Job %s rescheduled - circuit breaker OPEN for service: %s",
@@ -667,6 +664,22 @@ public class JobTask implements Callable<Void> {
       return true;
     }
     return freshStatus == JobStatus.CANCELED;
+  }
+
+  private boolean wasJobCanceledAfterExecution() {
+    try {
+      return wasJobCanceledDuringExecution();
+    } catch (RuntimeException failure) {
+      if (!JobSuccessFinalizer.isTransientStoreFailure(failure)) throw failure;
+      // The payload already succeeded. Let bounded success finalization retry the unavailable
+      // store instead of turning this read failure into a second business execution. Its atomic
+      // RUNNING-to-SUCCEEDED transition still protects a concurrent cancellation or deletion.
+      log.warnf(
+          failure,
+          "Job %s cancellation check unavailable; deferring to success finalization",
+          job.getId());
+      return false;
+    }
   }
 
   private void handleCanceledDuringExecution(Instant start) {

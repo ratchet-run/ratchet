@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.mongodb;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
 import jakarta.annotation.PostConstruct;
@@ -105,7 +106,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   MongoJobStoreImpl(MongoClient client, MongoDatabase database, RatchetOptions options) {
-    this(client, database, options, MongoStoreContext.noopMetricsCollector());
+    this(database, client::startSession, options, MongoStoreContext.noopMetricsCollector());
   }
 
   @Inject
@@ -114,12 +115,21 @@ class MongoJobStoreImpl implements MongoJobStore {
       MongoDatabase database,
       RatchetOptions options,
       MetricsCollector metricsCollector) {
+    this(database, client::startSession, options, metricsCollector);
+  }
+
+  MongoJobStoreImpl(
+      MongoDatabase database,
+      Supplier<ClientSession> sessions,
+      RatchetOptions options,
+      MetricsCollector metricsCollector) {
     this.database = database;
-    // Mongo operation delegates are pure synchronous wrappers around the injected client/database.
+    // Mongo operation delegates are pure synchronous wrappers around the injected database/session
+    // supplier.
     // Startup validation and index creation remain in @PostConstruct because they touch the server.
     this.ctx =
         new MongoStoreContext(
-            client, database, metricsCollector, options.store().priorityBoostIntervalMinutes());
+            sessions, database, metricsCollector, options.store().priorityBoostIntervalMinutes());
     MongoBusinessKeyReservations reservations = new MongoBusinessKeyReservations(ctx);
     this.tags = new MongoTagOperations(ctx);
     this.crud = new MongoJobCrudOperations(ctx, reservations);
@@ -840,8 +850,19 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @PostConstruct
   void initializeCollections() {
+    initializeCollections(true);
+  }
+
+  /** Initializes or validates collections for an embedding that explicitly selects startup mode. */
+  void initializeCollections(boolean autoMigrate) {
     validateUuidRepresentation();
-    new MongoCollectionInitializer(database, ctx::startSession).initialize();
+    MongoCollectionInitializer initializer =
+        new MongoCollectionInitializer(database, ctx::startSession);
+    if (autoMigrate) {
+      initializer.initialize();
+    } else {
+      initializer.validate();
+    }
   }
 
   /**

@@ -59,7 +59,7 @@
     <dependency>
       <groupId>com.google.crypto.tink</groupId>
       <artifactId>tink</artifactId>
-      <version>1.13.0</version>
+      <version>1.22.0</version>
       <scope>test</scope>
     </dependency>
     <!-- Test-only JSON-P, to parse the vendored Project Wycheproof vector file. -->

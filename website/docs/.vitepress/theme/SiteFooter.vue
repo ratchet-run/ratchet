@@ -38,7 +38,7 @@ const year = new Date().getFullYear()
   color: #e6e6e6;
 }
 
-:global(.dark) .ratchet-site-footer {
+:global(html.dark .ratchet-site-footer) {
   background: #0a0a0a;
 }
 

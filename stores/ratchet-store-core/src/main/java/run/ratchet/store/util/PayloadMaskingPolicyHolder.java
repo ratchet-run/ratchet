@@ -16,6 +16,7 @@
 package run.ratchet.store.util;
 
 import run.ratchet.spi.PayloadMaskingPolicy;
+import run.ratchet.store.converter.RuntimeContextInstallation;
 
 /**
  * Static holder that resolves the active {@link PayloadMaskingPolicy} used by {@link
@@ -41,9 +42,13 @@ public final class PayloadMaskingPolicyHolder {
    * by the reference implementation's producer.
    *
    * @param policy the policy to install; MAY be {@code null} to revert to the built-in default
+   * @throws IllegalStateException if an active Ratchet runtime owns converter configuration
    */
   public static void set(PayloadMaskingPolicy policy) {
-    delegate = policy;
+    synchronized (RuntimeContextInstallation.class) {
+      RuntimeContextInstallation.checkUnowned();
+      delegate = policy;
+    }
   }
 
   /**

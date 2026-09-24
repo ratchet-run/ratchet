@@ -32,6 +32,9 @@ Please include:
 
 ## Current Security Surface
 
+See [dependency security checks](DEPENDENCY-SECURITY.md) for OWASP scan boundaries,
+the blocking threshold, and reviewed dependency finding dispositions.
+
 Ratchet currently enforces these runtime boundaries:
 
 - Job target and result-type class names are guarded by `ClassPolicy`: a

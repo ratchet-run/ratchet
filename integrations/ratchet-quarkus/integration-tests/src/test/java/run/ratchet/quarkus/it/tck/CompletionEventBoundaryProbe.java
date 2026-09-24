@@ -17,18 +17,48 @@ package run.ratchet.quarkus.it.tck;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
+import java.util.concurrent.atomic.AtomicReference;
+import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.store.dto.BatchProgress;
 
 /** Runs the production completion event publisher inside a real container transaction. */
 @ApplicationScoped
 public class CompletionEventBoundaryProbe {
   @Inject WorkflowScheduler workflow;
+  @Inject TransactionSynchronizationRegistry transactions;
 
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void emit(Object event, Runnable beforeCommit, boolean rollback) {
     workflow.publishTerminalEvent(event);
     beforeCommit.run();
     if (rollback) throw new IllegalStateException("injected outer transaction rollback");
+  }
+
+  /**
+   * Invokes the CDI-proxied completion handler from a real transaction's after-completion phase.
+   */
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public AtomicReference<Throwable> invokeAfterCompletion(
+      BatchService batchService, BatchProgress progress) {
+    AtomicReference<Throwable> observed = new AtomicReference<>();
+    transactions.registerInterposedSynchronization(
+        new Synchronization() {
+          @Override
+          public void beforeCompletion() {}
+
+          @Override
+          public void afterCompletion(int status) {
+            try {
+              batchService.afterChildCompletion(progress);
+            } catch (Throwable failure) {
+              observed.set(failure);
+            }
+          }
+        });
+    return observed;
   }
 }

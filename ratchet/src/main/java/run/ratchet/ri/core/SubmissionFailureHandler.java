@@ -26,7 +26,7 @@ import run.ratchet.store.entity.JobExecutionType;
 
 /** Handles submission failures by buffering for retry or resetting to PENDING. */
 @ApplicationScoped
-class SubmissionFailureHandler {
+public class SubmissionFailureHandler {
 
   private static final Logger log = Logger.getLogger(SubmissionFailureHandler.class);
 
@@ -58,7 +58,7 @@ class SubmissionFailureHandler {
     this.metricsCollector = metricsCollector;
   }
 
-  public void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
+  void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
     recordGateRejected(job.getJobType(), result);
     if (isFirstAttempt) {
       ResetOutcome outcome = resetToPendingOrBuffer(job);
@@ -74,7 +74,7 @@ class SubmissionFailureHandler {
     }
   }
 
-  public void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
+  void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
     recordGateRejected(claim.jobType(), result);
     if (bufferClaim(claim)) {
       log.info(result.reason());

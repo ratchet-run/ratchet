@@ -8,24 +8,15 @@ description: Side-by-side comparisons of Ratchet with Quartz, JobRunr, Spring Ba
 
 Ratchet is not the right answer for every Java job-scheduling problem. This section lays out how it stacks up against the libraries you are most likely already considering, what each one does well, and when you should pick something else.
 
-If you only read one thing on this page, read the decision tree below.
+If you only read one thing on this page, read the selection guide below.
 
 ## Pick the right tool
 
-```
-Are you on Spring Boot, and is Spring already your DI container?
-├── Yes → JobRunr or Spring Batch (depending on whether it's
-│           fire-and-forget jobs or chunked batch processing).
-└── No
-    ├── Is your app a Jakarta EE / MicroProfile / CDI app?
-    │   ├── Yes → Ratchet (this is the case it was built for).
-    │   └── No → continue below.
-    └── Do you need persistent jobs, retries, and workflows
-        without pulling in a framework at all?
-        ├── Just persistent jobs + cron, nothing fancy → db-scheduler.
-        ├── 20-year-old codebase already using Quartz → keep Quartz.
-        └── Full JSR-352 batch spec required → jBeret.
-```
+- For durable background jobs on Spring Boot, evaluate Ratchet's [starter](/deployment/spring-boot) alongside JobRunr. For chunk-oriented ETL, evaluate Spring Batch.
+- For Jakarta EE jobs with CDI and managed executors, use the [Ratchet Jakarta EE setup](/getting-started/installation).
+- For Quarkus JVM or native jobs, use the [Ratchet Quarkus extension](/deployment/quarkus).
+- For persistent cron scheduling with a small feature set, consider db-scheduler. For a codebase already built around Quartz, the migration cost matters. For the JSR-352 specification, evaluate jBeret.
+
 
 ## At a glance
 
@@ -40,11 +31,12 @@ Are you on Spring Boot, and is Spring already your DI container?
 5. JobRunr Core supports success-only parent-child continuations (`BackgroundJob.enqueue(parentId, ...)`). Conditional branching, failure-path callbacks, and result-aware branching require either custom code inside the parent job or JobRunr Pro's batch builder. Ratchet ships `.thenOnSuccess(...)`, `.thenOnFailure(...)`, and result-aware branching at the submission site. See [Ratchet vs JobRunr → Workflows](./vs-jobrunr.md#workflows) for the head-to-head.
 6. Ratchet has no in-core dashboard by design. A scheduler dashboard has real tradeoffs (Jakarta-portable servlet/REST limits modern frontend tooling; standalone HTTP-embedded designs like JobRunr's are not Jakarta-portable; both inherit ops surface), and bundling one into core would couple the scheduler's API to a UI's release cadence. The intended path is the **query layer SPI** plus integration with existing tools (Grafana/Datadog via the Micrometer adapter, or your own UI built on the query API). An optional admin/control panel may ship as a separate module post-1.0, never as part of core.
 
+7. Ratchet's [Spring Boot starter](/deployment/spring-boot) supports Boot 3.5/4.1 on Java 17/21. It uses Spring directly and supports SQL or MongoDB on the JVM.
+
 ## Where Ratchet is the wrong choice
 
 Be honest: there are real cases where you should pick something else.
 
-- **You are on Spring Boot and you do not want a second DI model.** Use JobRunr or Spring Batch. Ratchet works in Spring via a `BeanResolver` adapter, but the language and idioms in our docs assume CDI.
 - **You need a production-grade web dashboard today.** JobRunr's dashboard is excellent. Ratchet does not have one yet.
 - **You need a battle-tested 1.0.** Ratchet is alpha (`0.x`). The API surface is mostly settled, but we have not committed to SemVer guarantees. If you cannot tolerate breaking changes between minor versions for the next 6–12 months, wait for 1.0.
 - **You need the JSR-352 spec, literally.** Use jBeret (or IBM JBatch on WebSphere). Ratchet is JSR-352-inspired in places but does not claim spec compliance.

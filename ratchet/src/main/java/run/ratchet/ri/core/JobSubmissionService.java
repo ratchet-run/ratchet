@@ -120,7 +120,7 @@ public class JobSubmissionService {
   }
 
   @Inject
-  JobSubmissionService(
+  public JobSubmissionService(
       SubmissionGateChecker gateChecker,
       JobExecutorService executorService,
       SubmissionFailureHandler failureHandler) {

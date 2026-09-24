@@ -17,11 +17,7 @@ package run.ratchet.store.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.MapsId;
-import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
@@ -41,15 +37,6 @@ public class BatchMetricsEntity {
   @Id
   @Column(name = "batch_id")
   private UUID batchId;
-
-  // lazy fetch to avoid eagerly joining scheduler_job for columns that no longer exist on
-  // cold post hot/cold-split (status, attempts, picked_*, scheduled_time, updated_at, version,
-  // last_error, paused_from_status). The batchJob field is link-only and never traversed by
-  // application code.
-  @OneToOne(fetch = FetchType.LAZY, optional = false)
-  @MapsId
-  @JoinColumn(name = "batch_id")
-  private JobEntity batchJob;
 
   @Column(name = "total_duration_ms")
   private Long totalDurationMs;
@@ -83,7 +70,6 @@ public class BatchMetricsEntity {
 
   public BatchMetricsEntity(
       UUID batchId,
-      JobEntity batchJob,
       Long totalDurationMs,
       Long childExecutionMs,
       Long overheadMs,
@@ -94,7 +80,6 @@ public class BatchMetricsEntity {
       Instant completedAt,
       Integer version) {
     this.batchId = batchId;
-    this.batchJob = batchJob;
     this.totalDurationMs = totalDurationMs;
     this.childExecutionMs = childExecutionMs;
     this.overheadMs = overheadMs;
@@ -112,14 +97,6 @@ public class BatchMetricsEntity {
 
   public void setBatchId(UUID batchId) {
     this.batchId = batchId;
-  }
-
-  public JobEntity getBatchJob() {
-    return batchJob;
-  }
-
-  public void setBatchJob(JobEntity batchJob) {
-    this.batchJob = batchJob;
   }
 
   public Long getTotalDurationMs() {

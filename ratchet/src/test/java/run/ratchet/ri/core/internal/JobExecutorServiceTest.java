@@ -265,6 +265,56 @@ class JobExecutorServiceTest {
     assertFalse(submitter.isAlive());
   }
 
+  @Test
+  void idleNotificationWaitsForCanceledRunnerToActuallyExit() throws Exception {
+    CountDownLatch entered = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    CountDownLatch idle = new CountDownLatch(1);
+    var quiescent = service.onIdle(idle::countDown);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    when(pool.getExecutor()).thenReturn(jobExecutor);
+    when(timeoutHandler.scheduleTimeoutMonitoring(
+            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+    AtomicReference<Thread> runner = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              Thread worker = new Thread(invocation.<Runnable>getArgument(0));
+              runner.set(worker);
+              worker.start();
+              return null;
+            })
+        .when(jobExecutor)
+        .execute(any(Runnable.class));
+    try {
+      ExecutionResult result =
+          invokeExecute(
+              () -> {
+                entered.countDown();
+                while (true) {
+                  try {
+                    release.await();
+                    return null;
+                  } catch (InterruptedException ignored) {
+                  }
+                }
+              },
+              new AtomicReference<>());
+      assertTrue(entered.await(5, TimeUnit.SECONDS));
+      result.future().cancel(true);
+      assertTrue(result.future().isDone());
+      assertFalse(quiescent.getAsBoolean());
+      assertFalse(idle.await(50, TimeUnit.MILLISECONDS));
+      release.countDown();
+      assertTrue(idle.await(5, TimeUnit.SECONDS));
+      assertTrue(quiescent.getAsBoolean());
+    } finally {
+      release.countDown();
+      if (runner.get() != null) runner.get().join(5_000);
+    }
+  }
+
   @SuppressWarnings("unchecked")
   private ExecutionResult invokeExecute(
       Callable<Void> callable, AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef)
