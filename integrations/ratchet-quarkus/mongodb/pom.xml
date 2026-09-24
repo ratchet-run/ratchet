@@ -28,6 +28,14 @@
       <groupId>io.quarkus</groupId>
       <artifactId>quarkus-mongodb-client</artifactId>
     </dependency>
+    <!--
+      Driver 5.11 references Observation types in reachable method signatures even when tracing is
+      disabled. Quarkus native linking therefore needs this API; no registry or tracing is enabled.
+    -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-observation</artifactId>
+    </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-store-mongodb</artifactId>
