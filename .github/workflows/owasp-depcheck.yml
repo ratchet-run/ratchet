@@ -35,67 +35,134 @@ jobs:
           key: m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: m2-
 
-      - name: Build and stage runtime dependencies for scanning
+      - name: Build and stage resolved dependencies
+        id: stage
         run: |
-          mvn -B -DskipTests install
-          # Library jars are thin: scanning target/*.jar alone misses their
-          # third-party dependencies, including the Spring starter stack. Keep each
-          # sibling POM so Dependency-Check can identify archives that lack embedded
-          # Maven metadata, including jars built with Gradle.
-          mvn -B -ntp dependency:copy-dependencies -DincludeScope=runtime \
-            -Dmdep.useRepositoryLayout=true -Dmdep.copyPom=true \
-            -DoutputDirectory=target/owasp-dependencies
+          mvn -B -ntp -DskipTests clean install
+          mvn -B -ntp -DskipTests dependency:tree -DoutputType=json -DoutputFile=target/owasp-tree.json
+          mvn -B -ntp -DskipTests help:effective-pom -Doutput=target/owasp-effective-pom.xml
+          python3 infra/ci/stage_owasp.py --repository "$HOME/.m2/repository" --fetch-copied-poms
 
-      - name: Run OWASP Dependency-Check
-        # Pinned to the main HEAD SHA: upstream only tags 1.0.0/1.1.0 (2021),
-        # which predate the SARIF support this workflow relies on. main is the
-        # maintained line. Bump the SHA + comment when upstream advances.
-        uses: dependency-check/Dependency-Check_Action@1e54355a8b4c8abaa8cc7d0b70aa655a3bb15a6c # main @ 2025-12-10
+      - name: Refresh vulnerability data once for all reports
         env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          set -euo pipefail
+          scanner_image='owasp/dependency-check-action@sha256:0b37339a28122edfec1b21e03d169b55d301e3c91bf201801d301b2e567af222'
+          scanner_data="$GITHUB_WORKSPACE/target/owasp/data"
+          mkdir -p "$scanner_data"
+          scanner_container="$(docker create "$scanner_image")"
+          trap 'docker rm -f "$scanner_container" >/dev/null 2>&1 || true' EXIT
+          docker cp "$scanner_container:/usr/share/dependency-check/data/." "$scanner_data/"
+          docker rm -f "$scanner_container"
+          trap - EXIT
+          update_args=(--data /data --updateonly --disableRetireJs)
+          if [[ -n "${NVD_API_KEY:-}" ]]; then
+            update_args+=(--nvdApiKey "$NVD_API_KEY")
+          fi
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$scanner_data:/data" "$scanner_image" "${update_args[@]}"
+
+      - name: Scan runtime dependencies
+        # Keep each gate blocking, but collect the other reports after a CVSS failure.
+        if: ${{ !cancelled() && steps.stage.outcome == 'success' }}
+        # Pin the qualified scanner bytes; the upstream action otherwise pulls :latest.
+        uses: docker://owasp/dependency-check-action@sha256:0b37339a28122edfec1b21e03d169b55d301e3c91bf201801d301b2e567af222
+        env:
+          # setup-java exports a host path that is unavailable inside the image.
           JAVA_HOME: /opt/jdk
         with:
-          project: 'ratchet'
-          path: '.'
-          format: 'HTML'
-          out: 'target'
-          # The Central Analyzer recovers jar coordinates by SHA-1 lookup against the legacy
-          # search.maven.org Solr endpoint, which read-times-out and 403s under load. Runtime
-          # staging preserves sibling POMs; archives with embedded Maven metadata retain it too.
-          # Those local sources identify the staged graph, so --disableCentral drops that flaky
-          # network call without relying on every jar to carry META-INF/maven metadata. The NVD
-          # data is preloaded in the action image, so CVE matching is unaffected.
-          args: >
-            --format SARIF
+          # Sibling POMs preserve coordinates without the flaky Central SHA-1 lookup.
+          args: >-
+            --project ratchet-runtime
+            --scan /github/workspace/target/owasp/inputs/runtime
+            --out /github/workspace/target/owasp/reports/runtime
+            --data /github/workspace/target/owasp/data --noupdate
+            --format HTML --format SARIF --format JSON
             --failOnCVSS 7
-            --nvdApiKey ${{ secrets.NVD_API_KEY }}
-            --exclude /github/workspace/website
-            --exclude /github/workspace/website/package.json
-            --exclude /github/workspace/website/package-lock.json
-            --disableNodeJS
-            --disableNodeAudit
-            --disableYarnAudit
-            --disablePnpmAudit
-            --disableRetireJs
-            --disableOssIndex
-            --disableCentral
+            --disableNodeJS --disableNodeAudit --disableYarnAudit --disablePnpmAudit
+            --disableRetireJs --disableOssIndex --disableCentral
             --suppression /github/workspace/owasp-suppressions.xml
 
-      - name: Upload Dependency-Check report
+      - name: Scan tooling dependencies
+        # Keep each gate blocking, but collect the other reports after a CVSS failure.
+        if: ${{ !cancelled() && steps.stage.outcome == 'success' }}
+        # Pin the qualified scanner bytes; the upstream action otherwise pulls :latest.
+        uses: docker://owasp/dependency-check-action@sha256:0b37339a28122edfec1b21e03d169b55d301e3c91bf201801d301b2e567af222
+        env:
+          # setup-java exports a host path that is unavailable inside the image.
+          JAVA_HOME: /opt/jdk
+        with:
+          # Sibling POMs preserve coordinates without the flaky Central SHA-1 lookup.
+          args: >-
+            --project ratchet-tooling
+            --scan /github/workspace/target/owasp/inputs/tooling
+            --out /github/workspace/target/owasp/reports/tooling
+            --data /github/workspace/target/owasp/data --noupdate
+            --format HTML --format SARIF --format JSON
+            --failOnCVSS 7
+            --disableNodeJS --disableNodeAudit --disableYarnAudit --disablePnpmAudit
+            --disableRetireJs --disableOssIndex --disableCentral
+            --suppression /github/workspace/owasp-suppressions.xml
+
+      - name: Scan tests dependencies
+        # Keep each gate blocking, but collect the other reports after a CVSS failure.
+        if: ${{ !cancelled() && steps.stage.outcome == 'success' }}
+        # Pin the qualified scanner bytes; the upstream action otherwise pulls :latest.
+        uses: docker://owasp/dependency-check-action@sha256:0b37339a28122edfec1b21e03d169b55d301e3c91bf201801d301b2e567af222
+        env:
+          # setup-java exports a host path that is unavailable inside the image.
+          JAVA_HOME: /opt/jdk
+        with:
+          # Sibling POMs preserve coordinates without the flaky Central SHA-1 lookup.
+          args: >-
+            --project ratchet-tests
+            --scan /github/workspace/target/owasp/inputs/tests
+            --out /github/workspace/target/owasp/reports/tests
+            --data /github/workspace/target/owasp/data --noupdate
+            --format HTML --format SARIF --format JSON
+            --failOnCVSS 7
+            --disableNodeJS --disableNodeAudit --disableYarnAudit --disablePnpmAudit
+            --disableRetireJs --disableOssIndex --disableCentral
+            --suppression /github/workspace/owasp-suppressions.xml
+
+      - name: Verify report coverage against staged artifact hashes
+        if: ${{ !cancelled() && steps.stage.outcome == 'success' }}
+        run: python3 infra/ci/check_owasp_reports.py target/owasp
+
+      - name: Upload Dependency-Check reports and input manifest
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: owasp-dependency-check-report
           path: |
-            **/target/dependency-check-report.html
-            **/target/dependency-check-report.sarif
-          if-no-files-found: ignore
+            target/owasp/manifest.json
+            target/owasp/summary.json
+            target/owasp/reports/
+            **/target/owasp-tree.json
+            target/owasp-effective-pom.xml
+          if-no-files-found: error
 
-      - name: Upload SARIF to GitHub code scanning
-        if: always()
+      - name: Upload runtime SARIF
+        if: ${{ !cancelled() && hashFiles('target/owasp/reports/runtime/dependency-check-report.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v4.38.0
         with:
-          sarif_file: target/dependency-check-report.sarif
-          # Distinct category so these results don't overwrite CodeQL's in the
-          # Security tab — each SARIF category is a separate analysis stream.
-          category: owasp-dependency-check
+          sarif_file: target/owasp/reports/runtime/dependency-check-report.sarif
+          category: owasp-dependency-check-runtime
+        continue-on-error: true
+
+      - name: Upload tooling SARIF
+        if: ${{ !cancelled() && hashFiles('target/owasp/reports/tooling/dependency-check-report.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4.38.0
+        with:
+          sarif_file: target/owasp/reports/tooling/dependency-check-report.sarif
+          category: owasp-dependency-check-tooling
+        continue-on-error: true
+
+      - name: Upload tests SARIF
+        if: ${{ !cancelled() && hashFiles('target/owasp/reports/tests/dependency-check-report.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v4.38.0
+        with:
+          sarif_file: target/owasp/reports/tests/dependency-check-report.sarif
+          category: owasp-dependency-check-tests
         continue-on-error: true
