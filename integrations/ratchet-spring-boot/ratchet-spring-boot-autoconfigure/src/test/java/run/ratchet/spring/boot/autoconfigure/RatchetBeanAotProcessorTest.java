@@ -53,8 +53,12 @@ class RatchetBeanAotProcessorTest {
         .satisfies(
             hint ->
                 assertThat(hint.getMemberCategories())
-                    .contains(
-                        MemberCategory.INVOKE_DECLARED_METHODS, MemberCategory.DECLARED_FIELDS));
+                    .contains(MemberCategory.INVOKE_DECLARED_METHODS)
+                    // Framework 7 normalizes DECLARED_FIELDS to ACCESS_DECLARED_FIELDS.
+                    .anySatisfy(
+                        category ->
+                            assertThat(category.name())
+                                .isIn("DECLARED_FIELDS", "ACCESS_DECLARED_FIELDS")));
     assertThat(factory.containsSingleton("target")).isFalse();
     assertThat(factory.containsSingleton("consumer")).isFalse();
   }

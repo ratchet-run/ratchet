@@ -26,7 +26,6 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
-import org.springframework.orm.jpa.persistenceunit.MutablePersistenceUnitInfo;
 import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
 import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
 import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetPersistenceProvider;
@@ -35,7 +34,7 @@ import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetPersistenceUnit
 class RatchetPersistenceUnitViewTest {
   @Test
   void metadataViewUsesItsOwnIdentity() {
-    PersistenceUnitInfo original = new MutablePersistenceUnitInfo();
+    PersistenceUnitInfo original = new TestPersistenceUnitInfo().info();
     PersistenceUnitInfo view =
         RatchetPersistenceUnitView.create(original, List.of(), List.of(), null, List.of());
     assertIdentity(view, original);
@@ -65,13 +64,14 @@ class RatchetPersistenceUnitViewTest {
 
   @Test
   void mutableApplicationMetadataIsNotChangedOrDeduplicated() throws Exception {
-    MutablePersistenceUnitInfo original = new MutablePersistenceUnitInfo();
-    original.addManagedClassName("example.Host");
-    original.addManagedClassName("example.Host");
-    original.addMappingFileName("META-INF/host.xml");
-    original.addMappingFileName("META-INF/host.xml");
-    original.setPersistenceUnitRootUrl(new URL("file:/host/"));
-    original.addJarFileUrl(new URL("file:/host.jar"));
+    TestPersistenceUnitInfo fixture = new TestPersistenceUnitInfo();
+    PersistenceUnitInfo original = fixture.info();
+    fixture.addManagedClassName("example.Host");
+    fixture.addManagedClassName("example.Host");
+    fixture.addMappingFileName("META-INF/host.xml");
+    fixture.addMappingFileName("META-INF/host.xml");
+    fixture.setPersistenceUnitRootUrl(new URL("file:/host/"));
+    fixture.addJarFileUrl(new URL("file:/host.jar"));
     PersistenceUnitInfo first =
         RatchetJpaMappings.transform(
             original, List.of("example.Ratchet", "example.Host"), "META-INF/ratchet.xml");

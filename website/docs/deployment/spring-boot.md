@@ -26,8 +26,9 @@ Ratchet runs in Spring Boot 3.5 and 4.1 applications on Java 17 or later. The SQ
 
 ## SQL quickstart
 
-Start with a normal Spring Boot application and its Boot parent or BOM. The tested versions are
-**3.5.16** and **4.1.1**. Set the Ratchet version in your application's Maven properties:
+Start with a normal Spring Boot application and its Boot parent or BOM. The starter POMs default to
+**4.1.1**. An application BOM still selects its own Boot version; **3.5.16** is a separate
+compatibility target. Set the Ratchet version in your application's Maven properties:
 
 ```xml
 <properties>
@@ -232,18 +233,51 @@ Use the Mongo starter with Boot's usual Mongo configuration:
 </dependency>
 ```
 
+### Keep the MongoDB driver modules aligned
+
+The current MongoDB compatibility baseline requires driver **5.11.1**. Boot 4.1.1
+selects 5.8.1 and Boot 3.5.16 selects 5.5.2 by default, so applications using either
+Boot BOM or parent must import the official MongoDB driver BOM in their
+`dependencyManagement`. It manages `bson`, `bson-record-codec`, `mongodb-driver-core`,
+`mongodb-driver-sync`, `mongodb-driver-reactivestreams`, and `mongodb-crypt` together.
+The BOM manages versions only and does not add unused driver modules.
+
+Applications that use the Spring Boot parent can add this import:
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>org.mongodb</groupId>
+      <artifactId>mongodb-driver-bom</artifactId>
+      <version>5.11.1</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+```
+
+Applications that import `spring-boot-dependencies` instead of using the parent must list
+`mongodb-driver-bom` **before** that Boot BOM in the same `dependencyManagement` block. Maven
+keeps the first imported management entry for a shared coordinate; reversing the order leaves
+Boot's 5.8.1 driver selection in place. Confirm the resolved versions with
+`mvn dependency:tree -Dincludes=org.mongodb` after applying application-specific BOMs.
+
+### Connection configuration
+
+Spring Boot 4.1 uses the `spring.mongodb` prefix:
+
+```properties
+spring.mongodb.uri=mongodb://localhost:27017/orders
+spring.mongodb.representation.uuid=standard
+```
+
 Spring Boot 3.5 uses the `spring.data.mongodb` prefix:
 
 ```properties
 spring.data.mongodb.uri=mongodb://localhost:27017/orders
 spring.data.mongodb.uuid-representation=standard
-```
-
-Spring Boot 4.1 uses the renamed `spring.mongodb` prefix:
-
-```properties
-spring.mongodb.uri=mongodb://localhost:27017/orders
-spring.mongodb.representation.uuid=standard
 ```
 
 No Ratchet-specific Mongo URI, credentials, client, or database name is required. Ratchet uses Boot's `MongoDatabaseFactory`; Mongo submission semantics retain the store's existing atomicity guarantees and do not imply SQL-style participation in an application transaction. Deploy MongoDB as a replica set or sharded cluster: Ratchet uses multi-document transactions for operations such as signals, permits, and batch/workflow state changes.
@@ -374,7 +408,7 @@ with the same setting.
 
 ## Native images
 
-Native support is verified with Boot 3.5.16 and 4.1.1 on GraalVM 25 for all five stores.
+The native CI matrix targets Boot 3.5.16 and 4.1.1 on GraalVM 25 for all five stores.
 Ratchet's generated JVM AOT and native-image SQL metadata both use Hibernate. Install exactly one
 Ratchet SQL store artifact when running `process-aot`, building a native image, or enabling
 `spring.aot.enabled`; the executable still validates the actual database vendor at startup.
@@ -423,6 +457,10 @@ assertions remain in the JVM process.
 | Boot 4.1.1 | 17 and 21 | PostgreSQL, MySQL, Oracle, SQL Server, MongoDB | JVM |
 | Boot 3.5.16 and 4.1.1 | GraalVM 25 | PostgreSQL, MySQL, Oracle, SQL Server, MongoDB | Native executable CI matrix |
 | EclipseLink 5.0.1 / JPA 3.2, both Boot versions | 17 and 21 | PostgreSQL | JVM; Hibernate excluded |
+
+MongoDB entries in this matrix select driver **5.11.1**, using the required
+[MongoDB BOM configuration](#keep-the-mongodb-driver-modules-aligned) above; they do not qualify
+the older drivers selected by the Boot BOMs.
 
 The independent consumer reactor imports its own Boot BOM and resolves the same staged Ratchet
 artifacts for every combination. Each full `verify` includes real databases, applicable API/store

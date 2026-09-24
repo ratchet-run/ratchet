@@ -298,6 +298,18 @@
         "https://repo.maven.apache.org/maven2/com/zaxxer/HikariCP/6.3.3/HikariCP-6.3.3.pom"
       ]
     },
+    "com.zaxxer:HikariCP:7.0.2": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/zaxxer/HikariCP/7.0.2/HikariCP-7.0.2.pom"
+      ]
+    },
     "commons-codec:commons-codec:1.18.0": {
       "licenses": [
         {
@@ -320,6 +332,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/commons-io/commons-io/2.18.0/commons-io-2.18.0.pom"
+      ]
+    },
+    "commons-logging:commons-logging:1.3.6": {
+      "licenses": [
+        {
+          "name": "Apache-2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/commons-logging/commons-logging/1.3.6/commons-logging-1.3.6.pom"
       ]
     },
     "io.agroal:agroal-api:2.7.1": {
@@ -406,6 +430,18 @@
         "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-commons/1.15.12/micrometer-commons-1.15.12.pom"
       ]
     },
+    "io.micrometer:micrometer-commons:1.17.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-commons/1.17.1/micrometer-commons-1.17.1.pom"
+      ]
+    },
     "io.micrometer:micrometer-core:1.15.12": {
       "licenses": [
         {
@@ -428,6 +464,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-observation/1.15.12/micrometer-observation-1.15.12.pom"
+      ]
+    },
+    "io.micrometer:micrometer-observation:1.17.1": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/io/micrometer/micrometer-observation/1.17.1/micrometer-observation-1.17.1.pom"
       ]
     },
     "io.micrometer:micrometer-registry-prometheus:1.15.12": {
@@ -2721,6 +2769,24 @@
       ],
       "note": "META-INF/NOTICE.md declares EPL-2.0 OR BSD-3-Clause."
     },
+    "jakarta.persistence:jakarta.persistence-api:3.2.0": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v. 2.0",
+          "url": "http://www.eclipse.org/legal/epl-2.0"
+        },
+        {
+          "name": "Eclipse Distribution License v. 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "EPL-2.0 OR BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/jakarta/persistence/jakarta.persistence-api/3.2.0/jakarta.persistence-api-3.2.0.pom",
+        "https://repo.maven.apache.org/maven2/jakarta/persistence/jakarta.persistence-api/3.2.0/jakarta.persistence-api-3.2.0.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares EPL-2.0 OR BSD-3-Clause."
+    },
     "jakarta.resource:jakarta.resource-api:2.1.0": {
       "licenses": [
         {
@@ -2835,6 +2901,18 @@
         "https://repo.maven.apache.org/maven2/net/bytebuddy/byte-buddy/1.17.8/byte-buddy-1.17.8.pom"
       ]
     },
+    "net.bytebuddy:byte-buddy:1.18.11": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/net/bytebuddy/byte-buddy/1.18.11/byte-buddy-1.18.11.pom"
+      ]
+    },
     "net.java.dev.jna:jna:5.8.0": {
       "licenses": [
         {
@@ -2887,6 +2965,18 @@
       "expression": "BSD-3-Clause",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/antlr/antlr4-runtime/4.13.0/antlr4-runtime-4.13.0.pom"
+      ]
+    },
+    "org.antlr:antlr4-runtime:4.13.2": {
+      "licenses": [
+        {
+          "name": "BSD-3-Clause",
+          "url": "https://www.antlr.org/license.html"
+        }
+      ],
+      "expression": "BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/antlr/antlr4-runtime/4.13.2/antlr4-runtime-4.13.2.pom"
       ]
     },
     "org.apache.commons:commons-compress:1.27.1": {
@@ -3039,6 +3129,24 @@
       ],
       "note": "META-INF/NOTICE.md identifies EPL-2.0 as the declared project license."
     },
+    "org.eclipse.parsson:parsson:1.1.9": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License 2.0",
+          "url": "https://projects.eclipse.org/license/epl-2.0"
+        },
+        {
+          "name": "GNU General Public License, version 2 with the GNU Classpath Exception",
+          "url": "https://projects.eclipse.org/license/secondary-gpl-2.0-cp"
+        }
+      ],
+      "expression": "EPL-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/parsson/parsson/1.1.9/parsson-1.1.9.pom",
+        "https://repo.maven.apache.org/maven2/org/eclipse/parsson/parsson/1.1.9/parsson-1.1.9.jar"
+      ],
+      "note": "META-INF/NOTICE.md identifies EPL-2.0 as the declared project license."
+    },
     "org.eclipse.sisu:org.eclipse.sisu.inject:0.9.0.M3": {
       "licenses": [
         {
@@ -3050,6 +3158,24 @@
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/eclipse/sisu/org.eclipse.sisu.inject/0.9.0.M3/org.eclipse.sisu.inject-0.9.0.M3.pom"
       ]
+    },
+    "org.eclipse.yasson:yasson:3.0.5": {
+      "licenses": [
+        {
+          "name": "Eclipse Public License v. 2.0",
+          "url": "http://www.eclipse.org/legal/epl-v20.html"
+        },
+        {
+          "name": "Eclipse Distribution License v. 1.0",
+          "url": "http://www.eclipse.org/org/documents/edl-v10.php"
+        }
+      ],
+      "expression": "EPL-2.0 OR BSD-3-Clause",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/eclipse/yasson/yasson/3.0.5/yasson-3.0.5.pom",
+        "https://repo.maven.apache.org/maven2/org/eclipse/yasson/yasson/3.0.5/yasson-3.0.5.jar"
+      ],
+      "note": "META-INF/NOTICE.md declares EPL-2.0 OR BSD-3-Clause."
     },
     "org.eclipse:yasson:3.0.4": {
       "licenses": [
@@ -3207,6 +3333,18 @@
         "https://repo.maven.apache.org/maven2/org/hibernate/common/hibernate-commons-annotations/7.0.3.Final/hibernate-commons-annotations-7.0.3.Final.pom"
       ]
     },
+    "org.hibernate.models:hibernate-models:1.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License Version 2.0",
+          "url": "http://www.apache.org/licenses/"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/hibernate/models/hibernate-models/1.1.1/hibernate-models-1.1.1.pom"
+      ]
+    },
     "org.hibernate.orm:hibernate-core:6.6.44.Final": {
       "licenses": [
         {
@@ -3234,6 +3372,18 @@
         "https://repo.maven.apache.org/maven2/org/hibernate/orm/hibernate-core/6.6.50.Final/hibernate-core-6.6.50.Final.jar"
       ],
       "exception": "Spring Boot default ORM provider, permitted as a separate dependency under the existing Hibernate integration exception. No Hibernate source is vendored into Ratchet; this exception applies only to this exact version."
+    },
+    "org.hibernate.orm:hibernate-core:7.4.5.Final": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/hibernate/orm/hibernate-core/7.4.5.Final/hibernate-core-7.4.5.Final.pom"
+      ]
     },
     "org.hibernate.orm:hibernate-graalvm:6.6.44.Final": {
       "licenses": [
@@ -3777,6 +3927,18 @@
         "https://repo.maven.apache.org/maven2/org/jspecify/jspecify/1.0.0/jspecify-1.0.0.pom"
       ]
     },
+    "org.jspecify:jspecify:1.0.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/jspecify/jspecify/1.0.1/jspecify-1.0.1.pom"
+      ]
+    },
     "org.junit.jupiter:junit-jupiter-api:5.12.2": {
       "licenses": [
         {
@@ -3957,6 +4119,18 @@
         "https://repo.maven.apache.org/maven2/org/latencyutils/LatencyUtils/2.0.3/LatencyUtils-2.0.3.pom"
       ]
     },
+    "org.mongodb:bson-record-codec:5.11.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/bson-record-codec/5.11.1/bson-record-codec-5.11.1.pom"
+      ]
+    },
     "org.mongodb:bson-record-codec:5.3.1": {
       "licenses": [
         {
@@ -3991,6 +4165,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/mongodb/bson-record-codec/5.7.0/bson-record-codec-5.7.0.pom"
+      ]
+    },
+    "org.mongodb:bson:5.11.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/bson/5.11.1/bson-5.11.1.pom"
       ]
     },
     "org.mongodb:bson:5.3.1": {
@@ -4029,6 +4215,18 @@
         "https://repo.maven.apache.org/maven2/org/mongodb/bson/5.7.0/bson-5.7.0.pom"
       ]
     },
+    "org.mongodb:mongodb-crypt:5.11.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-crypt/5.11.1/mongodb-crypt-5.11.1.pom"
+      ]
+    },
     "org.mongodb:mongodb-crypt:5.3.1": {
       "licenses": [
         {
@@ -4039,6 +4237,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-crypt/5.3.1/mongodb-crypt-5.3.1.pom"
+      ]
+    },
+    "org.mongodb:mongodb-driver-core:5.11.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-core/5.11.1/mongodb-driver-core-5.11.1.pom"
       ]
     },
     "org.mongodb:mongodb-driver-core:5.3.1": {
@@ -4077,6 +4287,18 @@
         "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-core/5.7.0/mongodb-driver-core-5.7.0.pom"
       ]
     },
+    "org.mongodb:mongodb-driver-reactivestreams:5.11.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-reactivestreams/5.11.1/mongodb-driver-reactivestreams-5.11.1.pom"
+      ]
+    },
     "org.mongodb:mongodb-driver-reactivestreams:5.3.1": {
       "licenses": [
         {
@@ -4087,6 +4309,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-reactivestreams/5.3.1/mongodb-driver-reactivestreams-5.3.1.pom"
+      ]
+    },
+    "org.mongodb:mongodb-driver-sync:5.11.1": {
+      "licenses": [
+        {
+          "name": "The Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/mongodb/mongodb-driver-sync/5.11.1/mongodb-driver-sync-5.11.1.pom"
       ]
     },
     "org.mongodb:mongodb-driver-sync:5.3.1": {
@@ -4293,6 +4527,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-autoconfigure/3.5.16/spring-boot-autoconfigure-3.5.16.pom"
       ]
     },
+    "org.springframework.boot:spring-boot-autoconfigure:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-autoconfigure/4.1.1/spring-boot-autoconfigure-4.1.1.pom"
+      ]
+    },
     "org.springframework.boot:spring-boot-configuration-processor:3.5.16": {
       "licenses": [
         {
@@ -4303,6 +4549,126 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-configuration-processor/3.5.16/spring-boot-configuration-processor-3.5.16.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-configuration-processor:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-configuration-processor/4.1.1/spring-boot-configuration-processor-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-data-commons:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-data-commons/4.1.1/spring-boot-data-commons-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-data-jpa:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-data-jpa/4.1.1/spring-boot-data-jpa-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-data-mongodb:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-data-mongodb/4.1.1/spring-boot-data-mongodb-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-hibernate:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-hibernate/4.1.1/spring-boot-hibernate-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-jdbc:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-jdbc/4.1.1/spring-boot-jdbc-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-jpa:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-jpa/4.1.1/spring-boot-jpa-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-mongodb:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-mongodb/4.1.1/spring-boot-mongodb-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-persistence:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-persistence/4.1.1/spring-boot-persistence-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-sql:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-sql/4.1.1/spring-boot-sql-4.1.1.pom"
       ]
     },
     "org.springframework.boot:spring-boot-starter-data-jpa:3.5.16": {
@@ -4317,6 +4683,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-data-jpa/3.5.16/spring-boot-starter-data-jpa-3.5.16.pom"
       ]
     },
+    "org.springframework.boot:spring-boot-starter-data-jpa:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-data-jpa/4.1.1/spring-boot-starter-data-jpa-4.1.1.pom"
+      ]
+    },
     "org.springframework.boot:spring-boot-starter-data-mongodb:3.5.16": {
       "licenses": [
         {
@@ -4327,6 +4705,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-data-mongodb/3.5.16/spring-boot-starter-data-mongodb-3.5.16.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-starter-data-mongodb:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-data-mongodb/4.1.1/spring-boot-starter-data-mongodb-4.1.1.pom"
       ]
     },
     "org.springframework.boot:spring-boot-starter-jdbc:3.5.16": {
@@ -4341,6 +4731,30 @@
         "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-jdbc/3.5.16/spring-boot-starter-jdbc-3.5.16.pom"
       ]
     },
+    "org.springframework.boot:spring-boot-starter-jdbc:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-jdbc/4.1.1/spring-boot-starter-jdbc-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-starter-mongodb:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter-mongodb/4.1.1/spring-boot-starter-mongodb-4.1.1.pom"
+      ]
+    },
     "org.springframework.boot:spring-boot-starter:3.5.16": {
       "licenses": [
         {
@@ -4351,6 +4765,30 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter/3.5.16/spring-boot-starter-3.5.16.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-starter:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-starter/4.1.1/spring-boot-starter-4.1.1.pom"
+      ]
+    },
+    "org.springframework.boot:spring-boot-transaction:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot-transaction/4.1.1/spring-boot-transaction-4.1.1.pom"
       ]
     },
     "org.springframework.boot:spring-boot:3.5.16": {
@@ -4365,6 +4803,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot/3.5.16/spring-boot-3.5.16.pom"
       ]
     },
+    "org.springframework.boot:spring-boot:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/boot/spring-boot/4.1.1/spring-boot-4.1.1.pom"
+      ]
+    },
     "org.springframework.data:spring-data-commons:3.5.13": {
       "licenses": [
         {
@@ -4375,6 +4825,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/data/spring-data-commons/3.5.13/spring-data-commons-3.5.13.pom"
+      ]
+    },
+    "org.springframework.data:spring-data-commons:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/data/spring-data-commons/4.1.1/spring-data-commons-4.1.1.pom"
       ]
     },
     "org.springframework.data:spring-data-jpa:3.5.13": {
@@ -4389,6 +4851,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/data/spring-data-jpa/3.5.13/spring-data-jpa-3.5.13.pom"
       ]
     },
+    "org.springframework.data:spring-data-jpa:4.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/data/spring-data-jpa/4.1.1/spring-data-jpa-4.1.1.pom"
+      ]
+    },
     "org.springframework.data:spring-data-mongodb:4.5.13": {
       "licenses": [
         {
@@ -4399,6 +4873,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/data/spring-data-mongodb/4.5.13/spring-data-mongodb-4.5.13.pom"
+      ]
+    },
+    "org.springframework.data:spring-data-mongodb:5.1.1": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/data/spring-data-mongodb/5.1.1/spring-data-mongodb-5.1.1.pom"
       ]
     },
     "org.springframework:spring-aop:6.2.19": {
@@ -4413,6 +4899,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/spring-aop/6.2.19/spring-aop-6.2.19.pom"
       ]
     },
+    "org.springframework:spring-aop:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-aop/7.0.9/spring-aop-7.0.9.pom"
+      ]
+    },
     "org.springframework:spring-aspects:6.2.19": {
       "licenses": [
         {
@@ -4423,6 +4921,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/spring-aspects/6.2.19/spring-aspects-6.2.19.pom"
+      ]
+    },
+    "org.springframework:spring-aspects:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-aspects/7.0.9/spring-aspects-7.0.9.pom"
       ]
     },
     "org.springframework:spring-beans:6.2.19": {
@@ -4437,6 +4947,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/spring-beans/6.2.19/spring-beans-6.2.19.pom"
       ]
     },
+    "org.springframework:spring-beans:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-beans/7.0.9/spring-beans-7.0.9.pom"
+      ]
+    },
     "org.springframework:spring-context:6.2.19": {
       "licenses": [
         {
@@ -4447,6 +4969,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/spring-context/6.2.19/spring-context-6.2.19.pom"
+      ]
+    },
+    "org.springframework:spring-context:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-context/7.0.9/spring-context-7.0.9.pom"
       ]
     },
     "org.springframework:spring-core:6.2.19": {
@@ -4461,6 +4995,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/spring-core/6.2.19/spring-core-6.2.19.pom"
       ]
     },
+    "org.springframework:spring-core:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-core/7.0.9/spring-core-7.0.9.pom"
+      ]
+    },
     "org.springframework:spring-expression:6.2.19": {
       "licenses": [
         {
@@ -4471,6 +5017,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/spring-expression/6.2.19/spring-expression-6.2.19.pom"
+      ]
+    },
+    "org.springframework:spring-expression:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-expression/7.0.9/spring-expression-7.0.9.pom"
       ]
     },
     "org.springframework:spring-jcl:6.2.19": {
@@ -4497,6 +5055,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/spring-jdbc/6.2.19/spring-jdbc-6.2.19.pom"
       ]
     },
+    "org.springframework:spring-jdbc:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-jdbc/7.0.9/spring-jdbc-7.0.9.pom"
+      ]
+    },
     "org.springframework:spring-orm:6.2.19": {
       "licenses": [
         {
@@ -4509,6 +5079,18 @@
         "https://repo.maven.apache.org/maven2/org/springframework/spring-orm/6.2.19/spring-orm-6.2.19.pom"
       ]
     },
+    "org.springframework:spring-orm:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-orm/7.0.9/spring-orm-7.0.9.pom"
+      ]
+    },
     "org.springframework:spring-tx:6.2.19": {
       "licenses": [
         {
@@ -4519,6 +5101,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/springframework/spring-tx/6.2.19/spring-tx-6.2.19.pom"
+      ]
+    },
+    "org.springframework:spring-tx:7.0.9": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/springframework/spring-tx/7.0.9/spring-tx-7.0.9.pom"
       ]
     },
     "org.testcontainers:mongodb:1.20.6": {
@@ -4591,6 +5185,18 @@
       "expression": "Apache-2.0",
       "evidence": [
         "https://repo.maven.apache.org/maven2/org/yaml/snakeyaml/2.4/snakeyaml-2.4.pom"
+      ]
+    },
+    "org.yaml:snakeyaml:2.6": {
+      "licenses": [
+        {
+          "name": "Apache License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/org/yaml/snakeyaml/2.6/snakeyaml-2.6.pom"
       ]
     }
   }

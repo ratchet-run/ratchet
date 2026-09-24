@@ -76,7 +76,7 @@ class RatchetJpaAotProcessorTest {
     assertThat(
             hints
                 .reflection()
-                .getTypeHint(TypeReference.of("org.hibernate.annotations.Columns"))
+                .getTypeHint(TypeReference.of("org.hibernate.annotations.JdbcTypeCode"))
                 .getMemberCategories())
         .contains(org.springframework.aot.hint.MemberCategory.INVOKE_DECLARED_METHODS);
     assertThat(RuntimeHintsPredicates.proxies().forInterfaces(jakarta.persistence.Column.class))

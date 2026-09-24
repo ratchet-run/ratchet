@@ -170,13 +170,13 @@
     <ojdbc.version>23.9.0.25.07</ojdbc.version>
     <mssql-jdbc.version>12.8.2.jre11</mssql-jdbc.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
-    <artemis.version>2.54.0</artemis.version>
+    <artemis.version>2.57.0</artemis.version>
     <netty.version>4.1.138.Final</netty.version>
     <commons-configuration2.version>2.15.0</commons-configuration2.version>
     <jackson-core.version>2.22.1</jackson-core.version>
     <infinispan.version>15.1.7.Final</infinispan.version>
     <hazelcast.version>5.5.0</hazelcast.version>
-    <mongodb-driver.version>5.7.0</mongodb-driver.version>
+    <mongodb-driver.version>5.11.1</mongodb-driver.version>
     <hibernate.version>6.6.50.Final</hibernate.version>
     <jboss-logging.version>3.6.3.Final</jboss-logging.version>
     <maven-dependency-plugin.version>3.10.0</maven-dependency-plugin.version>
@@ -608,10 +608,35 @@
         <scope>test</scope>
       </dependency>
 
-      <!-- MongoDB Driver -->
+      <!-- MongoDB Java driver family: keep every runtime component on the security baseline. -->
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>bson</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>bson-record-codec</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-driver-core</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
       <dependency>
         <groupId>org.mongodb</groupId>
         <artifactId>mongodb-driver-sync</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-driver-reactivestreams</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-crypt</artifactId>
         <version>${mongodb-driver.version}</version>
       </dependency>
 

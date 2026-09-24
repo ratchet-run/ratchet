@@ -50,7 +50,6 @@ import org.springframework.mock.env.MockEnvironment;
 import org.springframework.orm.jpa.EntityManagerFactoryInfo;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
-import org.springframework.orm.jpa.persistenceunit.MutablePersistenceUnitInfo;
 import org.springframework.transaction.PlatformTransactionManager;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.MetricsCollector;
@@ -189,13 +188,15 @@ class RatchetJpaInfrastructureTest {
         ArgumentCaptor.forClass(PersistenceProvider.class);
     verify(factory).setPersistenceProvider(providerCaptor.capture());
 
-    MutablePersistenceUnitInfo persistenceUnitInfo = new MutablePersistenceUnitInfo();
+    TestPersistenceUnitInfo persistenceUnitInfo = new TestPersistenceUnitInfo();
     persistenceUnitInfo.setPersistenceUnitName("application");
     persistenceUnitInfo.setNonJtaDataSource(postgresqlDataSource());
     persistenceUnitInfo.addManagedClassName("example.app.ApplicationEntity");
     persistenceUnitInfo.addMappingFileName("META-INF/application-orm.xml");
 
-    providerCaptor.getValue().createContainerEntityManagerFactory(persistenceUnitInfo, Map.of());
+    providerCaptor
+        .getValue()
+        .createContainerEntityManagerFactory(persistenceUnitInfo.info(), Map.of());
 
     ArgumentCaptor<PersistenceUnitInfo> persistenceUnitCaptor =
         ArgumentCaptor.forClass(PersistenceUnitInfo.class);

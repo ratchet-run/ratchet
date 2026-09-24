@@ -22,14 +22,14 @@ import javax.sql.DataSource;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
-import org.springframework.boot.sql.init.dependency.DatabaseInitializerDetector;
 import org.springframework.core.Ordered;
 import org.springframework.core.env.Environment;
 
 /** Establishes Ratchet's schema-initializer dependency graph before bean instantiation begins. */
 final class RatchetJpaSchemaInitializerDependency implements BeanFactoryPostProcessor, Ordered {
+  // Boot 4 moves this type to spring-boot-sql; Boot uses its stable FQCN as the attribute key.
   private static final String INITIALIZER_DETECTOR_ATTRIBUTE =
-      DatabaseInitializerDetector.class.getName();
+      "org.springframework.boot.sql.init.dependency.DatabaseInitializerDetector";
 
   private final String initializerBeanName;
   private final boolean deferDataSourceInitialization;

@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.net.URL;
 import org.junit.jupiter.api.Test;
-import org.springframework.orm.jpa.persistenceunit.MutablePersistenceUnitInfo;
 import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
 import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
 import run.ratchet.store.entity.JobEntity;
@@ -39,14 +38,14 @@ class RatchetDisabledJpaMappingsTest {
     unit.addManagedClassName("example.ApplicationEntity");
     unit.addProperty("hibernate.hbm2ddl.auto", "validate");
 
-    var filtered = RatchetJpaMappings.withoutImplicitRatchetMapping(unit);
+    var filtered = RatchetJpaMappings.withoutImplicitRatchetMapping(unit.info());
 
     assertThat(filtered.getMappingFileNames()).containsExactly("META-INF/application-mappings.xml");
     assertThat(filtered.getManagedClassNames()).containsExactly("example.ApplicationEntity");
     assertThat(filtered.getJarFileUrls()).containsExactly(new URL("file:/application.jar"));
     assertThat(filtered.getPersistenceUnitRootUrl()).isNull();
-    assertThat(filtered.getProperties()).isSameAs(unit.getProperties());
-    assertThat(filtered.getClassLoader()).isSameAs(unit.getClassLoader());
+    assertThat(filtered.getProperties()).isSameAs(unit.info().getProperties());
+    assertThat(filtered.getClassLoader()).isSameAs(unit.info().getClassLoader());
   }
 
   @Test
@@ -61,7 +60,7 @@ class RatchetDisabledJpaMappingsTest {
     unit.addManagedClassName("example.ApplicationEntity");
     unit.addManagedPackage("example");
 
-    var augmented = RatchetJpaPersistenceUnitPostProcessor.withRatchetEntities(null, unit);
+    var augmented = RatchetJpaPersistenceUnitPostProcessor.withRatchetEntities(null, unit.info());
 
     assertThat(augmented.getMappingFileNames())
         .containsExactly("META-INF/application-mappings.xml");
@@ -79,10 +78,10 @@ class RatchetDisabledJpaMappingsTest {
     unit.addMappingFileName("META-INF/orm.xml");
     unit.addMappingFileName("META-INF/other.xml");
     unit.setPersistenceUnitRootUrl(new URL("file:/application/"));
-    assertThat(RatchetJpaMappings.withoutImplicitRatchetMapping(unit)).isSameAs(unit);
+    assertThat(RatchetJpaMappings.withoutImplicitRatchetMapping(unit.info())).isSameAs(unit.info());
   }
 
-  private static MutablePersistenceUnitInfo unitWithDefaultOrm(URL resource) {
+  private static TestPersistenceUnitInfo unitWithDefaultOrm(URL resource) {
     ClassLoader loader =
         new ClassLoader(JobEntity.class.getClassLoader()) {
           @Override
@@ -90,11 +89,8 @@ class RatchetDisabledJpaMappingsTest {
             return name.equals("META-INF/orm.xml") ? resource : super.getResource(name);
           }
         };
-    return new MutablePersistenceUnitInfo() {
-      @Override
-      public ClassLoader getClassLoader() {
-        return loader;
-      }
-    };
+    var unit = new TestPersistenceUnitInfo();
+    unit.setClassLoader(loader);
+    return unit;
   }
 }

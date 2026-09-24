@@ -16,6 +16,7 @@
     <consumer.aot>false</consumer.aot>
     <consumer.native>false</consumer.native>
     <native-build-tools.version>1.1.8</native-build-tools.version>
+    <mongodb-driver.version>5.11.1</mongodb-driver.version>
   </properties>
   <modules>
     <module>contracts</module>
@@ -38,6 +39,37 @@
         <version>${spring-boot.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+      <!-- Direct management overrides each active driver component selected by the Boot BOM. -->
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>bson</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>bson-record-codec</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-driver-core</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-driver-sync</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-driver-reactivestreams</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-crypt</artifactId>
+        <version>${mongodb-driver.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

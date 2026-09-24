@@ -167,7 +167,8 @@
         precedence over entries imported from this child BOM. Mirror the overlapping
         Quarkus platform entries directly here so root scopes such as provided/test do not
         strip platform runtime dependencies, and so tightly coupled families (notably
-        Hibernate and the MongoDB driver) stay on the versions Quarkus was built against.
+        Hibernate) stay on the versions Quarkus was built against. The MongoDB family
+        deliberately uses the root security baseline and must be qualified on JVM and native.
         Keep this list aligned when quarkus.version changes.
       -->
       <dependency>
@@ -306,9 +307,14 @@
         <version>5.16.1</version>
       </dependency>
       <dependency>
+        <groupId>org.codehaus.plexus</groupId>
+        <artifactId>plexus-utils</artifactId>
+        <version>3.6.1</version>
+      </dependency>
+      <dependency>
         <groupId>org.mongodb</groupId>
         <artifactId>mongodb-driver-sync</artifactId>
-        <version>5.3.1</version>
+        <version>${mongodb-driver.version}</version>
       </dependency>
       <dependency>
         <groupId>org.ow2.asm</groupId>
