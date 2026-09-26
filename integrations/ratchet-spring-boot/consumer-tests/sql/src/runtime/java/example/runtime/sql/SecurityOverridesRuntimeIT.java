@@ -18,12 +18,14 @@ package example.runtime.sql;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
+import example.ratchet.ConsumerApplication;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -46,8 +48,7 @@ public class SecurityOverridesRuntimeIT {
       var properties = RuntimeSupport.properties(database);
       properties.put("ratchet.security.mask-payloads", true);
       try (var context =
-          new org.springframework.boot.builder.SpringApplicationBuilder(
-                  example.ratchet.ConsumerApplication.class, Overrides.class)
+          new SpringApplicationBuilder(ConsumerApplication.class, Overrides.class)
               .properties(properties)
               .run()) {
         var scheduler = context.getBean(JobSchedulerService.class);

@@ -26,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import run.ratchet.consumer.ConsumerProcess;
 import run.ratchet.store.migration.SchemaMigrationDialect;
 import run.ratchet.store.migration.SchemaMigrator;
 
@@ -89,9 +90,7 @@ class SqlNativeMigrationIT {
             "insert into scheduler_resource_limit (resource_name, max_concurrent, description) values ('upgrade-preserved', 3, 'existing Ratchet state')");
       }
       var arguments =
-          new ArrayList<>(
-              run.ratchet.consumer.ConsumerProcess.command(
-                  "sql-consumer", "--consumer.verify=true"));
+          new ArrayList<>(ConsumerProcess.command("sql-consumer", "--consumer.verify=true"));
       properties.forEach((key, value) -> arguments.add("--" + key + "=" + value));
       // A second launch verifies migration idempotence, including the existing version ledger.
       for (int run = 1; run <= 2; run++) {

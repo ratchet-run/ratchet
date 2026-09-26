@@ -30,8 +30,10 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
 import org.springframework.data.mongodb.MongoDatabaseFactory;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import run.ratchet.api.*;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.ri.core.DrainController;
 
 @Configuration(proxyBeanMethods = false)
@@ -105,9 +107,9 @@ public class MongoRuntimeApplication {
       this.drain = drain;
     }
 
-    @ExceptionHandler(run.ratchet.api.exception.DuplicateIdempotencyKeyException.class)
-    public org.springframework.http.ResponseEntity<String> duplicate() {
-      return org.springframework.http.ResponseEntity.status(409).body("duplicate-idempotency");
+    @ExceptionHandler(DuplicateIdempotencyKeyException.class)
+    public ResponseEntity<String> duplicate() {
+      return ResponseEntity.status(409).body("duplicate-idempotency");
     }
 
     @PostMapping("/submit")

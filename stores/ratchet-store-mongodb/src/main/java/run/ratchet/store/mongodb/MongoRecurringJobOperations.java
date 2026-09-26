@@ -53,6 +53,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TIMEOUT_SEC;
 import static run.ratchet.store.mongodb.MongoFieldNames.ZONE_ID;
 
 import com.mongodb.client.ClientSession;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.model.UpdateOptions;
@@ -61,14 +62,20 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobQuerySortField;
+import run.ratchet.api.JobType;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.RecurringClaim;
 import run.ratchet.store.spi.RecurringExecutionPlan;
@@ -109,7 +116,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
       MongoJobCrudOperations crud) {
     this.ctx = ctx;
     this.reservations = reservations;
-    this.crud = java.util.Objects.requireNonNull(crud, "crud");
+    this.crud = Objects.requireNonNull(crud, "crud");
   }
 
   @Override
@@ -182,7 +189,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
               Bson owned =
                   and(
                       claimFilter(claim),
-                      com.mongodb.client.model.Filters.gt(CLAIM_EXPIRES_AT, new Date()),
+                      Filters.gt(CLAIM_EXPIRES_AT, new Date()),
                       eq(IS_PAUSED, false));
               Document doc = ctx.recurringJobs().find(session, owned).first();
               if (doc == null) {
@@ -430,14 +437,13 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   }
 
   @Override
-  public List<RecurringJobDefinition> searchRecurring(
-      run.ratchet.api.JobFilter filter, int limit, int offset) {
+  public List<RecurringJobDefinition> searchRecurring(JobFilter filter, int limit, int offset) {
     if (limit < 1 || offset < 0) throw new IllegalArgumentException("Invalid page bounds");
     List<Bson> pipeline = recurringQueryPipeline(filter);
     String sort = recurringSortField(filter);
     boolean seek = false;
     if (filter.cursor() != null && !filter.cursor().isBlank()) {
-      var cursor = run.ratchet.store.query.JobQueryCursor.decode(filter.cursor());
+      var cursor = JobQueryCursor.decode(filter.cursor());
       if (cursor.matchesFilterSort(filter)) {
         Object value =
             switch (cursor.sortField()) {
@@ -469,18 +475,16 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   }
 
   @Override
-  public long countRecurring(run.ratchet.api.JobFilter filter) {
+  public long countRecurring(JobFilter filter) {
     List<Bson> pipeline = recurringQueryPipeline(filter);
     pipeline.add(new Document("$count", "count"));
     Document row = ctx.recurringJobs().aggregate(pipeline).first();
     return row == null ? 0L : ((Number) row.get("count")).longValue();
   }
 
-  private List<Bson> recurringQueryPipeline(run.ratchet.api.JobFilter f) {
+  private List<Bson> recurringQueryPipeline(JobFilter f) {
     List<Bson> conditions = new ArrayList<>();
-    if ((f.types() != null
-            && !f.types().isEmpty()
-            && !f.types().contains(run.ratchet.api.JobType.RECURRING))
+    if ((f.types() != null && !f.types().isEmpty() && !f.types().contains(JobType.RECURRING))
         || f.idempotencyKey() != null
         || f.pickedBy() != null
         || f.traceCorrelationId() != null
@@ -489,9 +493,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
       conditions.add(in("query_status", f.statuses().stream().map(Enum::name).toList()));
     if (f.priorities() != null && !f.priorities().isEmpty())
       conditions.add(
-          in(
-              PRIORITY_FIELD,
-              f.priorities().stream().map(run.ratchet.api.JobPriority::persistedCode).toList()));
+          in(PRIORITY_FIELD, f.priorities().stream().map(JobPriority::persistedCode).toList()));
     if (f.businessKey() != null) conditions.add(eq(BUSINESS_KEY, f.businessKey()));
     if (f.resourceName() != null) conditions.add(eq(RESOURCE_NAME, f.resourceName()));
     if (f.callerPrincipal() != null) conditions.add(eq(CALLER_PRINCIPAL, f.callerPrincipal()));
@@ -548,11 +550,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     return pipeline;
   }
 
-  private static String recurringSortField(run.ratchet.api.JobFilter filter) {
-    var field =
-        filter.sortField() == null
-            ? run.ratchet.api.JobQuerySortField.CREATED_AT
-            : filter.sortField();
+  private static String recurringSortField(JobFilter filter) {
+    var field = filter.sortField() == null ? JobQuerySortField.CREATED_AT : filter.sortField();
     return switch (field) {
       case CREATED_AT, UPDATED_AT -> CREATED_AT;
       case SCHEDULED_TIME -> NEXT_FIRE;

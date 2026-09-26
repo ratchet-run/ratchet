@@ -18,6 +18,7 @@ package run.ratchet.store.sqlserver;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -345,7 +346,7 @@ final class SqlserverBatchOperations implements BatchStore {
     }
   }
 
-  private static Timestamp timestampOrNull(java.time.Instant instant) {
+  private static Timestamp timestampOrNull(Instant instant) {
     return instant == null ? null : Timestamp.from(instant);
   }
 

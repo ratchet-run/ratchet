@@ -42,14 +42,20 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 @ExtendWith(MockitoExtension.class)
 class JobExecutorServiceTest {
@@ -101,17 +107,16 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
-    run.ratchet.store.entity.JobEntity job = new run.ratchet.store.entity.JobEntity();
-    job.setJobType(run.ratchet.store.entity.JobExecutionType.SINGLE);
+    JobEntity job = new JobEntity();
+    job.setJobType(JobExecutionType.SINGLE);
     ExecutionResult result = service.execute(job, "platform");
     assertFalse(result.isRejected());
-    org.mockito.ArgumentCaptor<Runnable> queued =
-        org.mockito.ArgumentCaptor.forClass(Runnable.class);
+    ArgumentCaptor<Runnable> queued = ArgumentCaptor.forClass(Runnable.class);
     verify(jobExecutor).execute(queued.capture());
     result.future().cancel(true);
     queued.getValue().run();
     result.future().cancel(true);
-    verify(pool).releasePermit(run.ratchet.store.entity.JobExecutionType.SINGLE);
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
     assertTrue(service.awaitIdle(Duration.ZERO));
   }
 
@@ -120,13 +125,11 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
-    org.mockito.Mockito.doThrow(new RejectedExecutionException("full"))
-        .when(jobExecutor)
-        .execute(any());
-    run.ratchet.store.entity.JobEntity job = new run.ratchet.store.entity.JobEntity();
-    job.setJobType(run.ratchet.store.entity.JobExecutionType.SINGLE);
+    Mockito.doThrow(new RejectedExecutionException("full")).when(jobExecutor).execute(any());
+    JobEntity job = new JobEntity();
+    job.setJobType(JobExecutionType.SINGLE);
     assertTrue(service.execute(job, "platform").isRejected());
-    verify(pool).releasePermit(run.ratchet.store.entity.JobExecutionType.SINGLE);
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
   }
 
   @Test
@@ -141,8 +144,7 @@ class JobExecutorServiceTest {
             })
         .when(jobExecutor)
         .execute(any(Runnable.class));
-    java.util.concurrent.atomic.AtomicInteger executions =
-        new java.util.concurrent.atomic.AtomicInteger();
+    AtomicInteger executions = new AtomicInteger();
     ExecutionResult result =
         invokeExecute(
             () -> {
@@ -152,7 +154,7 @@ class JobExecutorServiceTest {
             new AtomicReference<>());
     assertFalse(result.isRejected());
     assertTrue(result.future().isDone());
-    org.junit.jupiter.api.Assertions.assertEquals(1, executions.get());
+    Assertions.assertEquals(1, executions.get());
   }
 
   @Test

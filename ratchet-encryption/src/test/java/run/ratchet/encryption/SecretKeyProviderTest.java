@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -34,7 +35,7 @@ class SecretKeyProviderTest {
 
   private static SecretKey key(byte fill) {
     byte[] raw = new byte[32];
-    java.util.Arrays.fill(raw, fill);
+    Arrays.fill(raw, fill);
     return new SecretKeySpec(raw, "AES");
   }
 

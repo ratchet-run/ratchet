@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -219,7 +220,7 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
 
     @Override
     public byte[] encrypt(byte[] plaintext, EncryptionContext ctx) {
-      encryptedPlaintexts.add(new String(plaintext, java.nio.charset.StandardCharsets.UTF_8));
+      encryptedPlaintexts.add(new String(plaintext, StandardCharsets.UTF_8));
       try {
         byte[] nonce = new byte[NONCE_LENGTH];
         random.nextBytes(nonce);

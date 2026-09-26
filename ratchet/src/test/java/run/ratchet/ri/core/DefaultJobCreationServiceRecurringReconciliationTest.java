@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,9 +34,11 @@ import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
@@ -50,6 +53,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
@@ -309,25 +313,23 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
 
   private static final class FakeRecurringJobStore implements RecurringJobStore {
     @Override
-    public void commitRecurringExecutions(
-        List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+    public void commitRecurringExecutions(List<RecurringExecutionPlan> plans) {
       throw new UnsupportedOperationException("Registration-only test fixture");
     }
 
     @Override
-    public List<RecurringJobDefinition> searchRecurring(
-        run.ratchet.api.JobFilter filter, int limit, int offset) {
+    public List<RecurringJobDefinition> searchRecurring(JobFilter filter, int limit, int offset) {
       throw new UnsupportedOperationException("Query not used by creation fixture");
     }
 
     @Override
-    public long countRecurring(run.ratchet.api.JobFilter filter) {
+    public long countRecurring(JobFilter filter) {
       throw new UnsupportedOperationException("Query not used by creation fixture");
     }
 
     private final Map<String, RecurringJobDefinition> definitionsByBusinessKey =
         new LinkedHashMap<>();
-    private final Set<String> singleJobBusinessKeys = new java.util.HashSet<>();
+    private final Set<String> singleJobBusinessKeys = new HashSet<>();
 
     private RecurringJobDefinition raceWinner;
     private int createCount;
@@ -404,7 +406,7 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
 
     @Override
     public List<RecurringJobDefinition> claimDueRecurring(
-        int limit, String nodeId, run.ratchet.api.NodeTagFilter tagFilter) {
+        int limit, String nodeId, NodeTagFilter tagFilter) {
       throw new UnsupportedOperationException();
     }
 

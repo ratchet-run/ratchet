@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.mysql.cj.jdbc.MysqlDataSource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -162,7 +163,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
   @Test
   void validatesMigratedSchemaWhenBackslashEscapesAreDisabled() throws Exception {
     resetDatabase();
-    var dataSource = new com.mysql.cj.jdbc.MysqlDataSource();
+    var dataSource = new MysqlDataSource();
     dataSource.setURL(CONTAINER.getJdbcUrl());
     dataSource.setUser(CONTAINER.getUsername());
     dataSource.setPassword(CONTAINER.getPassword());
@@ -195,7 +196,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
       String lowerCaseUrl = lowerCaseCatalogContainer.getJdbcUrl();
       String mixedCaseUrl =
           lowerCaseUrl.replace("/" + lowerCaseCatalogContainer.getDatabaseName(), "/RatchetDB");
-      var dataSource = new com.mysql.cj.jdbc.MysqlDataSource();
+      var dataSource = new MysqlDataSource();
       dataSource.setURL(mixedCaseUrl);
       dataSource.setUser(lowerCaseCatalogContainer.getUsername());
       dataSource.setPassword(lowerCaseCatalogContainer.getPassword());

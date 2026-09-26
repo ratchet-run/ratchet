@@ -19,7 +19,9 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.EntityTransaction;
 import jakarta.persistence.Persistence;
+import jakarta.persistence.Query;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -27,9 +29,15 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiConsumer;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -98,21 +106,19 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
 
   public record NativeQueryEvent(String operation, boolean completed, Object result) {}
 
-  private volatile java.util.function.BiConsumer<String, NativeQueryEvent> nativeQueryObserver =
-      (sql, event) -> {};
+  private volatile BiConsumer<String, NativeQueryEvent> nativeQueryObserver = (sql, event) -> {};
 
   /** Test-only synchronization at actual native statement boundaries; all statements still run. */
-  public final void observeNativeQueries(
-      java.util.function.BiConsumer<String, NativeQueryEvent> observer) {
-    nativeQueryObserver = java.util.Objects.requireNonNull(observer);
+  public final void observeNativeQueries(BiConsumer<String, NativeQueryEvent> observer) {
+    nativeQueryObserver = Objects.requireNonNull(observer);
   }
 
   /** Inject a later-plan failure only after a real earlier-master UPDATE has completed. */
   public final void failBeforeRecurringArchiveAfterAdvance(Runnable work) {
-    var advanced = new java.util.concurrent.atomic.AtomicBoolean();
+    var advanced = new AtomicBoolean();
     observeNativeQueries(
         (sql, event) -> {
-          String normalized = sql.stripLeading().toUpperCase(java.util.Locale.ROOT);
+          String normalized = sql.stripLeading().toUpperCase(Locale.ROOT);
           if (event.completed()
               && event.operation().equals("executeUpdate")
               && normalized.startsWith("UPDATE SCHEDULER_RECURRING_JOB SET NEXT_FIRE")) {
@@ -144,14 +150,14 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     if (!advanced.get()) throw new AssertionError("No earlier-master UPDATE was executed");
   }
 
-  private jakarta.persistence.Query observeQuery(String sql, jakarta.persistence.Query target) {
-    return (jakarta.persistence.Query)
+  private Query observeQuery(String sql, Query target) {
+    return (Query)
         Proxy.newProxyInstance(
-            jakarta.persistence.Query.class.getClassLoader(),
-            new Class<?>[] {jakarta.persistence.Query.class},
+            Query.class.getClassLoader(),
+            new Class<?>[] {Query.class},
             (proxy, method, args) -> {
               boolean executes =
-                  java.util.Set.of("getResultList", "getSingleResult", "executeUpdate")
+                  Set.of("getResultList", "getSingleResult", "executeUpdate")
                       .contains(method.getName());
               if (executes)
                 nativeQueryObserver.accept(
@@ -327,8 +333,7 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
               EntityManager target = threadEm.get();
               try {
                 Object result = method.invoke(target, args);
-                if (method.getName().equals("createNativeQuery")
-                    && result instanceof jakarta.persistence.Query query) {
+                if (method.getName().equals("createNativeQuery") && result instanceof Query query) {
                   return observeQuery((String) args[0], query);
                 }
                 return result;
@@ -364,12 +369,12 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
               if ("capability".equals(method.getName()) && args != null && args.length == 1) {
                 Class<?> type = (Class<?>) args[0];
                 Object delegated = method.invoke(delegate, args);
-                if (delegated instanceof java.util.Optional<?> opt
+                if (delegated instanceof Optional<?> opt
                     && opt.isPresent()
                     && type.isInstance(proxy)) {
-                  return java.util.Optional.of(type.cast(proxy));
+                  return Optional.of(type.cast(proxy));
                 }
-                return java.util.Optional.empty();
+                return Optional.empty();
               }
               EntityManager em = threadEm.get();
               EntityTransaction tx = em.getTransaction();
@@ -414,8 +419,8 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
             });
   }
 
-  private static Object invokeUnwrapping(
-      Object delegate, java.lang.reflect.Method method, Object[] args) throws Throwable {
+  private static Object invokeUnwrapping(Object delegate, Method method, Object[] args)
+      throws Throwable {
     try {
       return method.invoke(delegate, args);
     } catch (InvocationTargetException ite) {

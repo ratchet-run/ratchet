@@ -35,6 +35,8 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -42,6 +44,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.postgresql.PGConnection;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.coordinator.common.NotifyPayload;
 import run.ratchet.spi.MetricsCollector;
@@ -332,10 +335,8 @@ class PostgresqlListenNotifyCoordinatorTest {
 
   /** Minimal MetricsCollector that counts the two methods the coordinator uses. */
   private static final class RecordingMetrics implements MetricsCollector {
-    private final java.util.concurrent.ConcurrentHashMap<String, AtomicInteger> published =
-        new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.concurrent.ConcurrentHashMap<String, AtomicInteger> received =
-        new java.util.concurrent.ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> published = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AtomicInteger> received = new ConcurrentHashMap<>();
 
     @Override
     public void clusterWakeupPublished(String transport, String outcome) {
@@ -358,25 +359,22 @@ class PostgresqlListenNotifyCoordinatorTest {
     }
 
     @Override
-    public void jobStarted(
-        java.util.UUID jobId, run.ratchet.api.JobType type, JobPriority priority) {}
+    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {}
 
     @Override
-    public void jobCompleted(
-        java.util.UUID jobId, run.ratchet.api.JobType type, long executionTimeMs) {}
+    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {}
 
     @Override
-    public void jobFailed(
-        java.util.UUID jobId, run.ratchet.api.JobType type, Throwable cause, int attempt) {}
+    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {}
 
     @Override
-    public void successFinalizationRetried(java.util.UUID jobId, run.ratchet.api.JobType type) {}
+    public void successFinalizationRetried(UUID jobId, JobType type) {}
 
     @Override
-    public void successFinalizationMinimal(java.util.UUID jobId, run.ratchet.api.JobType type) {}
+    public void successFinalizationMinimal(UUID jobId, JobType type) {}
 
     @Override
-    public void successFinalizationStuck(java.util.UUID jobId, run.ratchet.api.JobType type) {}
+    public void successFinalizationStuck(UUID jobId, JobType type) {}
 
     @Override
     public void claimTransientFailure(String executionType) {}

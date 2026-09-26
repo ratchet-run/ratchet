@@ -17,11 +17,15 @@ package run.ratchet.consumer.mongodb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.model.Filters;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.boot.SpringBootVersion;
+import run.ratchet.consumer.ConsumerProcess;
 
 class MongoNativeLifecycleIT {
   @ParameterizedTest
@@ -31,11 +35,11 @@ class MongoNativeLifecycleIT {
       database.start();
       String uri = database.getReplicaSetUrl("ratchet_lifecycle");
       String property =
-          org.springframework.boot.SpringBootVersion.getVersion().startsWith("3.")
+          SpringBootVersion.getVersion().startsWith("3.")
               ? "spring.data.mongodb.uri"
               : "spring.mongodb.uri";
       var arguments =
-          run.ratchet.consumer.ConsumerProcess.command(
+          ConsumerProcess.command(
               "mongodb-consumer",
               "--consumer.verify=true",
               "--consumer.scenario=" + scenario,
@@ -61,12 +65,12 @@ class MongoNativeLifecycleIT {
         process.waitFor(10, TimeUnit.SECONDS);
       }
       if (scenario.equals("drain")) {
-        try (var client = com.mongodb.client.MongoClients.create(uri)) {
+        try (var client = MongoClients.create(uri)) {
           var row =
               client
                   .getDatabase("ratchet_lifecycle")
                   .getCollection("scheduler_job")
-                  .find(com.mongodb.client.model.Filters.eq("business_key", "native-drain"))
+                  .find(Filters.eq("business_key", "native-drain"))
                   .first();
           assertThat(row).isNotNull();
           assertThat(row.getString("status")).isEqualTo("SUCCEEDED");

@@ -15,21 +15,21 @@
  */
 package example.library;
 
+import example.ratchet.verification.NativeVerification;
 import java.io.Serializable;
 import run.ratchet.api.JobSchedulerService;
 
 public final class LibrarySubmitter {
   public static void submit(JobSchedulerService scheduler) {
     var argument = new Argument("library-opt-in");
-    example.ratchet.verification.NativeVerification.track(
-        scheduler.enqueueNow(() -> Target.execute(argument)));
+    NativeVerification.track(scheduler.enqueueNow(() -> Target.execute(argument)));
   }
 
   public record Argument(String value) implements Serializable {}
 
   public static class Target {
     public static void execute(Argument argument) {
-      example.ratchet.verification.NativeVerification.record(argument.value());
+      NativeVerification.record(argument.value());
     }
   }
 }

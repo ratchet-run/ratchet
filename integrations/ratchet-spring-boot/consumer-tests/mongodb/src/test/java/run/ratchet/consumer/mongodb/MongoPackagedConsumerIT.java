@@ -17,11 +17,15 @@ package run.ratchet.consumer.mongodb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.model.Filters;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
+import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringBootVersion;
+import run.ratchet.consumer.ConsumerProcess;
 
 /** Executes the packaged consumer using only Boot's connection properties and shipped resources. */
 class MongoPackagedConsumerIT {
@@ -36,7 +40,7 @@ class MongoPackagedConsumerIT {
       Path output = Path.of("target", "packaged-consumer.log");
       Process process =
           new ProcessBuilder(
-                  run.ratchet.consumer.ConsumerProcess.command(
+                  ConsumerProcess.command(
                       "mongodb-consumer",
                       "--consumer.verify=true",
                       "--spring.threads.virtual.enabled=true",
@@ -60,14 +64,12 @@ class MongoPackagedConsumerIT {
                   "RATCHET_NATIVE_FEATURES_VERIFIED",
                   "RATCHET_NATIVE_DURABILITY_VERIFIED",
                   "RATCHET_GRACEFUL_SHUTDOWN_VERIFIED");
-          try (var client =
-              com.mongodb.client.MongoClients.create(
-                  database.getReplicaSetUrl("ratchet_packaged"))) {
+          try (var client = MongoClients.create(database.getReplicaSetUrl("ratchet_packaged"))) {
             var job =
                 client
                     .getDatabase("ratchet_packaged")
                     .getCollection("scheduler_job")
-                    .find(com.mongodb.client.model.Filters.eq("business_key", "native-encrypted"))
+                    .find(Filters.eq("business_key", "native-encrypted"))
                     .first();
             assertCiphertext(job, "native-secret-argument");
           }
@@ -79,7 +81,7 @@ class MongoPackagedConsumerIT {
     }
   }
 
-  static void assertCiphertext(org.bson.Document job, String secret) {
+  static void assertCiphertext(Document job, String secret) {
     assertThat(job).isNotNull();
     assertThat(job.getBoolean("encrypted_payload")).isTrue();
     assertThat(job.getString("encryption_key_id")).isEqualTo("native-test");

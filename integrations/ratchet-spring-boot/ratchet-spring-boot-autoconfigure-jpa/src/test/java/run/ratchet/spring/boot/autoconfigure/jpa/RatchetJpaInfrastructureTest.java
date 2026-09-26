@@ -40,7 +40,9 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.aop.scope.ScopedProxyUtils;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.config.BeanDefinitionHolder;
+import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.test.context.FilteredClassLoader;
@@ -102,7 +104,7 @@ class RatchetJpaInfrastructureTest {
             })
         .withBean(
             "ratchetJpaSchemaInitializerDependency",
-            org.springframework.beans.factory.config.BeanFactoryPostProcessor.class,
+            BeanFactoryPostProcessor.class,
             () ->
                 new RatchetJpaSchemaInitializerDependency(
                     "ratchetJpaSchemaInitializer",
@@ -396,7 +398,7 @@ class RatchetJpaInfrastructureTest {
     DataSource selected = RatchetJpaInfrastructure.selectDataSource(beanFactory);
 
     assertThat(proxy.getBeanName()).isEqualTo("dataSource");
-    assertThat(org.springframework.aop.support.AopUtils.isAopProxy(selected)).isTrue();
+    assertThat(AopUtils.isAopProxy(selected)).isTrue();
   }
 
   @Test

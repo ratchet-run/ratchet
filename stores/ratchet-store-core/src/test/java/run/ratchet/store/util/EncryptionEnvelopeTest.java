@@ -23,6 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
@@ -99,9 +102,7 @@ class EncryptionEnvelopeTest {
     byte[] header = EncryptionEnvelope.canonicalHeader("AES-256-GCM", "key-1", new byte[0]);
     String truncated =
         EncryptionEnvelope.MARKER
-            + java.util.Base64.getUrlEncoder()
-                .withoutPadding()
-                .encodeToString(java.util.Arrays.copyOf(header, 3));
+            + Base64.getUrlEncoder().withoutPadding().encodeToString(Arrays.copyOf(header, 3));
 
     assertThrows(PayloadDecryptionException.class, () -> EncryptionEnvelope.decode(truncated));
   }
@@ -113,7 +114,7 @@ class EncryptionEnvelopeTest {
     // never mistaken for plaintext — but as upgrade-pending (release + retry), not poison (DLQ).
     String futureVersion =
         EncryptionEnvelope.MARKER
-            + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[] {0x09});
+            + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[] {0x09});
 
     assertTrue(EncryptionEnvelope.isFramed(futureVersion));
     UnsupportedEnvelopeVersionException ex =
@@ -131,9 +132,7 @@ class EncryptionEnvelopeTest {
     // instead of upgrade-pending.
     String highVersion =
         EncryptionEnvelope.MARKER
-            + java.util.Base64.getUrlEncoder()
-                .withoutPadding()
-                .encodeToString(new byte[] {(byte) 0xC8});
+            + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[] {(byte) 0xC8});
 
     UnsupportedEnvelopeVersionException ex =
         assertThrows(
@@ -148,7 +147,7 @@ class EncryptionEnvelopeTest {
     // A zero/negative version byte is not a future version — it is a corrupt frame.
     String zeroVersion =
         EncryptionEnvelope.MARKER
-            + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[] {0x00});
+            + Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[] {0x00});
 
     assertThrows(PayloadDecryptionException.class, () -> EncryptionEnvelope.decode(zeroVersion));
   }
@@ -158,7 +157,7 @@ class EncryptionEnvelopeTest {
     // A header that declares a wrapped-key length beyond the cap must fail closed before
     // allocating.
     byte[] full =
-        java.nio.ByteBuffer.allocate(1 + 4 + 1 + 4 + 1 + 4)
+        ByteBuffer.allocate(1 + 4 + 1 + 4 + 1 + 4)
             .put(EncryptionEnvelope.VERSION)
             .putInt(1)
             .put((byte) 'A') // algorithmId "A"
@@ -167,8 +166,7 @@ class EncryptionEnvelopeTest {
             .putInt(Integer.MAX_VALUE) // wrappedKey length far beyond the cap
             .array();
     String stored =
-        EncryptionEnvelope.MARKER
-            + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(full);
+        EncryptionEnvelope.MARKER + Base64.getUrlEncoder().withoutPadding().encodeToString(full);
 
     assertThrows(PayloadDecryptionException.class, () -> EncryptionEnvelope.decode(stored));
   }

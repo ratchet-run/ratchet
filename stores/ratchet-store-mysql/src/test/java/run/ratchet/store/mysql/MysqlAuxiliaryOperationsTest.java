@@ -23,6 +23,7 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.ResourceLimitEntity;
@@ -102,7 +103,7 @@ class MysqlAuxiliaryOperationsTest {
                 case "setParameter" -> proxy;
                 case "getResultList" ->
                     limit
-                        ? java.util.List.of(2)
+                        ? List.of(2)
                         : Collections.singletonList(UuidByteArrayConverter.toBytes(expectedJobId));
                 default -> throw new UnsupportedOperationException(method.getName());
               };

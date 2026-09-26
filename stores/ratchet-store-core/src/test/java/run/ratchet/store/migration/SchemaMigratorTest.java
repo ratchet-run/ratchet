@@ -44,6 +44,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
@@ -54,6 +55,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.schema.RatchetSchemaCatalog;
 
@@ -98,7 +100,7 @@ class SchemaMigratorTest {
     ResultSet resultSet = mock(ResultSet.class);
     AtomicInteger index = new AtomicInteger(-1);
     when(resultSet.next()).thenAnswer(ignored -> index.incrementAndGet() < rows.size());
-    when(resultSet.getString(org.mockito.ArgumentMatchers.anyString()))
+    when(resultSet.getString(ArgumentMatchers.anyString()))
         .thenAnswer(
             invocation -> {
               MetadataRow row = rows.get(index.get());
@@ -219,16 +221,16 @@ class SchemaMigratorTest {
       DatabaseMetaData metadata, boolean versionTable, String catalog, String schema)
       throws Exception {
     List<String> tables =
-        new java.util.ArrayList<>(
+        new ArrayList<>(
             RatchetSchemaCatalog.CURRENT.tables().stream().map(table -> table.name()).toList());
     if (versionTable) {
       tables.add("ratchet_schema_version");
     }
     when(metadata.getTables(
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any()))
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any()))
         .thenAnswer(ignored -> metadataRows(tableRows(tables, catalog, schema)));
     Map<String, List<String>> columns = new HashMap<>();
     RatchetSchemaCatalog.CURRENT
@@ -238,10 +240,10 @@ class SchemaMigratorTest {
                 columns.put(
                     table.name(), table.columns().stream().map(column -> column.name()).toList()));
     when(metadata.getColumns(
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any()))
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any()))
         .thenAnswer(
             invocation -> {
               String table = invocation.getArgument(2);
@@ -253,18 +255,16 @@ class SchemaMigratorTest {
         .tables()
         .forEach(table -> primaryKeys.put(table.name(), table.primaryKey()));
     when(metadata.getPrimaryKeys(
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any()))
+            ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.any()))
         .thenAnswer(
             invocation ->
                 primaryKeyRows(primaryKeys.getOrDefault(invocation.getArgument(2), List.of())));
     when(metadata.getIndexInfo(
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.eq(true),
-            org.mockito.ArgumentMatchers.eq(true)))
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.eq(true),
+            ArgumentMatchers.eq(true)))
         .thenAnswer(
             invocation -> {
               String table = invocation.getArgument(2);
@@ -478,7 +478,7 @@ class SchemaMigratorTest {
     verify(connection, atMost(1)).getSchema();
     assertEquals(2, result.validated().size());
     assertEquals(List.of("001", "002"), result.validated().stream().map(s -> s.version()).toList());
-    verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
+    verify(statement, never()).execute(ArgumentMatchers.anyString());
     verify(insertVersion, never()).executeUpdate();
     verify(connection, never()).commit();
     assertEquals(0, dialect.acquireCount());
@@ -491,7 +491,7 @@ class SchemaMigratorTest {
     SchemaMigrator.ValidationResult result = migrator.validate();
 
     assertEquals(0, result.validated().size());
-    verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
+    verify(statement, never()).execute(ArgumentMatchers.anyString());
     verify(insertVersion, never()).executeUpdate();
     verify(connection, never()).commit();
   }
@@ -501,10 +501,10 @@ class SchemaMigratorTest {
     DatabaseMetaData metadata = connection.getMetaData();
     ResultSet noTables = rows("TABLE_NAME", List.of());
     when(metadata.getTables(
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any()))
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any()))
         .thenReturn(noTables);
 
     SchemaMigrationException ex =
@@ -519,7 +519,7 @@ class SchemaMigratorTest {
     DatabaseMetaData metadata = connection.getMetaData();
     List<String> targetColumns = schedulerJobColumnsWithoutPayload();
     List<MetadataRow> patternMatches =
-        new java.util.ArrayList<>(columnRows("scheduler_job", targetColumns, null, null));
+        new ArrayList<>(columnRows("scheduler_job", targetColumns, null, null));
     patternMatches.add(new MetadataRow(null, null, "schedulerXjob", "payload"));
     ResultSet wildcardTableRows = metadataRows(patternMatches);
     when(metadata.getColumns(any(), any(), eq("scheduler_job"), eq("%")))
@@ -541,11 +541,11 @@ class SchemaMigratorTest {
         RatchetSchemaCatalog.CURRENT.tables().stream().map(table -> table.name()).toList();
     ResultSet selectedSchemaTables = metadataRows(tableRows(tables, null, schema));
     when(connection.getSchema()).thenReturn(schema);
-    when(metadata.getTables(any(), eq(schema), eq("%"), org.mockito.ArgumentMatchers.isNull()))
+    when(metadata.getTables(any(), eq(schema), eq("%"), ArgumentMatchers.isNull()))
         .thenReturn(selectedSchemaTables);
 
     List<MetadataRow> patternMatches =
-        new java.util.ArrayList<>(
+        new ArrayList<>(
             columnRows("scheduler_job", schedulerJobColumnsWithoutPayload(), null, schema));
     patternMatches.add(new MetadataRow(null, "ratchetXschema", "scheduler_job", "payload"));
     ResultSet wildcardSchemaRows = metadataRows(patternMatches);
@@ -557,7 +557,7 @@ class SchemaMigratorTest {
 
     assertTrue(ex.getMessage().contains("scheduler_job"));
     assertTrue(ex.getMessage().contains("payload"));
-    verify(metadata).getTables(any(), eq(schema), eq("%"), org.mockito.ArgumentMatchers.isNull());
+    verify(metadata).getTables(any(), eq(schema), eq("%"), ArgumentMatchers.isNull());
     verify(metadata).getColumns(any(), eq(schema), eq("scheduler_job"), eq("%"));
   }
 
@@ -574,8 +574,7 @@ class SchemaMigratorTest {
     SchemaMigrator.ValidationResult result = migrator("schema-migrator").validate();
 
     assertEquals(0, result.validated().size());
-    verify(metadata)
-        .getTables(eq(requestedCatalog), any(), eq("%"), org.mockito.ArgumentMatchers.isNull());
+    verify(metadata).getTables(eq(requestedCatalog), any(), eq("%"), ArgumentMatchers.isNull());
   }
 
   @Test
@@ -592,8 +591,7 @@ class SchemaMigratorTest {
     SchemaMigrator.ValidationResult result = migrator("schema-migrator").validate();
 
     assertEquals(0, result.validated().size());
-    verify(metadata)
-        .getTables(eq(requestedCatalog), any(), eq("%"), org.mockito.ArgumentMatchers.isNull());
+    verify(metadata).getTables(eq(requestedCatalog), any(), eq("%"), ArgumentMatchers.isNull());
   }
 
   @Test
@@ -605,13 +603,13 @@ class SchemaMigratorTest {
             .map(table -> table.name())
             .filter(table -> !table.equals("scheduler_job"))
             .toList();
-    List<MetadataRow> metadataRows = new java.util.ArrayList<>(tableRows(tables, catalog, null));
+    List<MetadataRow> metadataRows = new ArrayList<>(tableRows(tables, catalog, null));
     metadataRows.add(new MetadataRow("ratchetdb", null, "scheduler_job", null));
     ResultSet caseOnlySiblingTables = metadataRows(metadataRows);
     when(connection.getCatalog()).thenReturn(catalog);
     when(metadata.storesMixedCaseIdentifiers()).thenReturn(true);
     when(metadata.supportsMixedCaseIdentifiers()).thenReturn(true);
-    when(metadata.getTables(eq(catalog), any(), eq("%"), org.mockito.ArgumentMatchers.isNull()))
+    when(metadata.getTables(eq(catalog), any(), eq("%"), ArgumentMatchers.isNull()))
         .thenReturn(caseOnlySiblingTables);
 
     SchemaMigrationException ex =
@@ -629,11 +627,11 @@ class SchemaMigratorTest {
             .map(table -> table.name())
             .filter(table -> !table.equals("scheduler_job"))
             .toList();
-    List<MetadataRow> metadataRows = new java.util.ArrayList<>(tableRows(tables, catalog, null));
+    List<MetadataRow> metadataRows = new ArrayList<>(tableRows(tables, catalog, null));
     metadataRows.add(new MetadataRow("neighbor_catalog", null, "scheduler_job", null));
     ResultSet otherCatalogTables = metadataRows(metadataRows);
     when(connection.getCatalog()).thenReturn(catalog);
-    when(metadata.getTables(eq(catalog), any(), eq("%"), org.mockito.ArgumentMatchers.isNull()))
+    when(metadata.getTables(eq(catalog), any(), eq("%"), ArgumentMatchers.isNull()))
         .thenReturn(otherCatalogTables);
 
     SchemaMigrationException ex =
@@ -656,9 +654,7 @@ class SchemaMigratorTest {
     DatabaseMetaData metadata = connection.getMetaData();
     ResultSet noPrimaryKey = primaryKeyRows(List.of());
     when(metadata.getPrimaryKeys(
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.eq("scheduler_job")))
+            ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.eq("scheduler_job")))
         .thenReturn(noPrimaryKey);
 
     SchemaMigrationException ex =
@@ -673,11 +669,11 @@ class SchemaMigratorTest {
     DatabaseMetaData metadata = connection.getMetaData();
     ResultSet noIdempotencyIndex = uniqueIndexRows("unused", List.of());
     when(metadata.getIndexInfo(
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.eq("scheduler_job"),
-            org.mockito.ArgumentMatchers.eq(true),
-            org.mockito.ArgumentMatchers.eq(true)))
+            ArgumentMatchers.any(),
+            ArgumentMatchers.any(),
+            ArgumentMatchers.eq("scheduler_job"),
+            ArgumentMatchers.eq(true),
+            ArgumentMatchers.eq(true)))
         .thenReturn(noIdempotencyIndex);
 
     SchemaMigrationException ex =
@@ -711,7 +707,7 @@ class SchemaMigratorTest {
 
     assertTrue(ex.getMessage().contains("missing recorded migration"));
     assertTrue(ex.getMessage().contains("002"));
-    verify(statement, never()).execute(org.mockito.ArgumentMatchers.anyString());
+    verify(statement, never()).execute(ArgumentMatchers.anyString());
     verify(insertVersion, never()).executeUpdate();
     verify(connection, never()).commit();
   }
@@ -758,10 +754,9 @@ class SchemaMigratorTest {
     ResultSet firstMissingVersion = missingVersion();
     when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
     when(statement.execute(contains("CREATE TABLE ratchet_test_order")))
-        .thenThrow(new java.sql.SQLException("boom"));
+        .thenThrow(new SQLException("boom"));
 
-    java.sql.SQLException ex =
-        assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
+    SQLException ex = assertThrows(SQLException.class, () -> migrator("schema-migrator").migrate());
 
     assertEquals("boom", ex.getMessage());
     verify(connection).setAutoCommit(false);
@@ -776,11 +771,10 @@ class SchemaMigratorTest {
     ResultSet firstMissingVersion = missingVersion();
     when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
     when(statement.execute(contains("CREATE TABLE ratchet_test_order")))
-        .thenThrow(new java.sql.SQLException("ddl failed"));
-    doThrow(new java.sql.SQLException("rollback failed")).when(connection).rollback();
+        .thenThrow(new SQLException("ddl failed"));
+    doThrow(new SQLException("rollback failed")).when(connection).rollback();
 
-    java.sql.SQLException ex =
-        assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
+    SQLException ex = assertThrows(SQLException.class, () -> migrator("schema-migrator").migrate());
 
     assertEquals("ddl failed", ex.getMessage());
     assertEquals(1, ex.getSuppressed().length);
@@ -793,10 +787,9 @@ class SchemaMigratorTest {
     ResultSet firstMissingVersion = missingVersion();
     ResultSet secondMissingVersion = missingVersion();
     when(selectVersion.executeQuery()).thenReturn(firstMissingVersion, secondMissingVersion);
-    dialect.failReleaseWith(new java.sql.SQLException("Failed to release schema migration lock"));
+    dialect.failReleaseWith(new SQLException("Failed to release schema migration lock"));
 
-    java.sql.SQLException ex =
-        assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
+    SQLException ex = assertThrows(SQLException.class, () -> migrator("schema-migrator").migrate());
 
     assertTrue(ex.getMessage().contains("Failed to release schema migration lock"));
     assertEquals(1, dialect.releaseCount());
@@ -807,11 +800,10 @@ class SchemaMigratorTest {
     ResultSet firstMissingVersion = missingVersion();
     when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
     when(statement.execute(contains("CREATE TABLE ratchet_test_order")))
-        .thenThrow(new java.sql.SQLException("migration failed"));
-    dialect.failReleaseWith(new java.sql.SQLException("Failed to release schema migration lock"));
+        .thenThrow(new SQLException("migration failed"));
+    dialect.failReleaseWith(new SQLException("Failed to release schema migration lock"));
 
-    java.sql.SQLException ex =
-        assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
+    SQLException ex = assertThrows(SQLException.class, () -> migrator("schema-migrator").migrate());
 
     assertEquals("migration failed", ex.getMessage());
     assertEquals(1, ex.getSuppressed().length);
@@ -827,7 +819,7 @@ class SchemaMigratorTest {
     when(dataSources.isUnsatisfied()).thenReturn(false);
     when(dataSources.isAmbiguous()).thenReturn(false);
     when(dataSources.get()).thenReturn(failingDataSource);
-    when(failingDataSource.getConnection()).thenThrow(new java.sql.SQLException());
+    when(failingDataSource.getConnection()).thenThrow(new SQLException());
 
     SchemaMigrationDialect mysqlDialect = mock(SchemaMigrationDialect.class);
     when(mysqlDialect.id()).thenReturn("mysql");

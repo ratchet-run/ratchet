@@ -28,6 +28,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -126,8 +127,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
                 service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
     builder.withIdempotencyKey(key);
 
-    org.junit.jupiter.api.Assertions.assertThrows(
-        DuplicateIdempotencyKeyException.class, () -> service.submit(builder));
+    Assertions.assertThrows(DuplicateIdempotencyKeyException.class, () -> service.submit(builder));
     JobHandle handle = service.submit(builder);
 
     assertEquals(existingId, handle.id());

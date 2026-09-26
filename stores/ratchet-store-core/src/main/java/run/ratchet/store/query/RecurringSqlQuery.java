@@ -21,6 +21,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
@@ -189,7 +190,7 @@ public final class RecurringSqlQuery {
   }
 
   private static String placeholders(int n) {
-    return String.join(",", java.util.Collections.nCopies(n, "?"));
+    return String.join(",", Collections.nCopies(n, "?"));
   }
 
   private static final class Parts {

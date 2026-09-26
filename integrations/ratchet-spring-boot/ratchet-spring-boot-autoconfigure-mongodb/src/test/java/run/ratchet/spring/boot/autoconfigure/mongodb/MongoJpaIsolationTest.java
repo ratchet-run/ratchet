@@ -21,6 +21,7 @@ import example.host.HostRecord;
 import jakarta.persistence.EntityManagerFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,9 +34,7 @@ class MongoJpaIsolationTest {
   @Test
   void optionalJpaIntegrationBacksOffWhenSpringOrmIsAbsent() {
     new ApplicationContextRunner()
-        .withClassLoader(
-            new org.springframework.boot.test.context.FilteredClassLoader(
-                "org.springframework.orm"))
+        .withClassLoader(new FilteredClassLoader("org.springframework.orm"))
         .withConfiguration(AutoConfigurations.of(RatchetJpaIsolationAutoConfiguration.class))
         .run(
             context -> {

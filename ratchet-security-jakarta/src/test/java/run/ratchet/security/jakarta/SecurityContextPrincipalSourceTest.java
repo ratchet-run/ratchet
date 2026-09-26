@@ -28,6 +28,7 @@ import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.security.enterprise.SecurityContext;
+import java.lang.annotation.Annotation;
 import java.security.Principal;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -157,7 +158,7 @@ class SecurityContextPrincipalSourceTest {
   private static Instance.Handle<SecurityContext> handle(
       Instance<SecurityContext> instance,
       SecurityContext context,
-      Class<? extends java.lang.annotation.Annotation> scope) {
+      Class<? extends Annotation> scope) {
     Instance.Handle<SecurityContext> handle = mock(Instance.Handle.class);
     Bean<SecurityContext> bean = mock(Bean.class);
     when(instance.getHandle()).thenReturn(handle);

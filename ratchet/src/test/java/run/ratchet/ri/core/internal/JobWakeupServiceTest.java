@@ -31,9 +31,12 @@ import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.logging.Logger;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -78,13 +81,13 @@ class JobWakeupServiceTest {
 
   @Test
   void registryLookupFallsBackToCdiWhenJndiIsUnavailable() {
-    org.junit.jupiter.api.Assertions.assertSame(
+    Assertions.assertSame(
         txRegistry, JakartaAfterCommitRegistrar.lookupTxRegistry(() -> txRegistry));
   }
 
   @Test
   void registryLookupWithoutEitherRuntimeRemainsAvailableToStandaloneCallers() {
-    org.junit.jupiter.api.Assertions.assertNull(
+    Assertions.assertNull(
         JakartaAfterCommitRegistrar.lookupTxRegistry(
             () -> {
               throw new IllegalStateException("no CDI provider");
@@ -254,7 +257,7 @@ class JobWakeupServiceTest {
             })
         .when(txRegistry)
         .registerInterposedSynchronization(any());
-    java.util.List<String> order = new java.util.ArrayList<>();
+    List<String> order = new ArrayList<>();
     registerAfterCommit(txRegistry, () -> order.add("terminal"));
     registerAfterCommit(
         txRegistry,
@@ -263,9 +266,9 @@ class JobWakeupServiceTest {
         });
     registerAfterCommit(txRegistry, () -> order.add("dependent"));
     verify(txRegistry).registerInterposedSynchronization(any());
-    assertEquals(java.util.List.of(), order);
+    assertEquals(List.of(), order);
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
-    assertEquals(java.util.List.of("terminal", "dependent"), order);
+    assertEquals(List.of("terminal", "dependent"), order);
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
     assertEquals(2, order.size(), "queue must be cleared after delivery");
   }

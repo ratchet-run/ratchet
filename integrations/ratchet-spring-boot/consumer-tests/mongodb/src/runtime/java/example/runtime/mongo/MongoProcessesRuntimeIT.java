@@ -20,11 +20,13 @@ import static com.mongodb.client.model.Updates.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
+import app.process;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import example.ratchet.mongo.MongoConsumerProperties;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -114,12 +116,12 @@ class MongoProcessesRuntimeIT {
         assertThat(
                 db.getCollection("runtime_attempt")
                     .distinct("job_id", eq("business_id", "recovered"), String.class)
-                    .into(new java.util.ArrayList<>()))
+                    .into(new ArrayList<>()))
             .containsExactly(recoveryId);
         assertThat(
                 db.getCollection("runtime_attempt")
                     .distinct("node_id", eq("business_id", "recovered"), String.class)
-                    .into(new java.util.ArrayList<>()))
+                    .into(new ArrayList<>()))
             .containsExactlyInAnyOrder("mongo-one", "mongo-two");
         assertThat(
                 db.getCollection("runtime_effect")
@@ -158,7 +160,7 @@ class MongoProcessesRuntimeIT {
           await()
               .during(Duration.ofSeconds(3))
               .atMost(Duration.ofSeconds(5))
-              .until(app.process::isAlive);
+              .until(process::isAlive);
           wire.reconnect();
           succeeded(db, "outage");
           assertThat(

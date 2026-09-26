@@ -22,9 +22,14 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.tck.store.clocked.InMemoryJobStore;
 
 class InMemoryJobStoreTest {
@@ -60,10 +65,10 @@ class InMemoryJobStoreTest {
     parent.setStatus(JobStatus.RUNNING);
     store.save(parent);
     JobEntity child = new JobEntity();
-    child.setJobType(run.ratchet.store.entity.JobExecutionType.CHAIN_STEP);
+    child.setJobType(JobExecutionType.CHAIN_STEP);
     store.save(child);
     var dependency =
-        new run.ratchet.store.dto.JobCompletionPlan.DependencyTransition(
+        new DependencyTransition(
             child.getId(),
             JobStatus.PENDING,
             child.getVersion() + 1,
@@ -72,7 +77,7 @@ class InMemoryJobStoreTest {
             null,
             child.getJobType());
     var plan =
-        new run.ratchet.store.dto.JobCompletionPlan(
+        new JobCompletionPlan(
             parent.getId(),
             JobStatus.RUNNING,
             JobStatus.SUCCEEDED,
@@ -88,9 +93,7 @@ class InMemoryJobStoreTest {
             null,
             List.of(dependency));
 
-    assertThrows(
-        run.ratchet.api.exception.RatchetTransientStoreException.class,
-        () -> store.commitCompletion(plan));
+    assertThrows(RatchetTransientStoreException.class, () -> store.commitCompletion(plan));
     assertEquals(JobStatus.RUNNING, store.findById(parent.getId()).orElseThrow().getStatus());
     assertEquals(JobStatus.PENDING, store.findById(child.getId()).orElseThrow().getStatus());
   }
@@ -102,7 +105,7 @@ class InMemoryJobStoreTest {
     job.setStatus(JobStatus.RUNNING);
     store.save(job);
     var plan =
-        new run.ratchet.store.dto.JobCompletionPlan(
+        new JobCompletionPlan(
             job.getId(),
             JobStatus.RUNNING,
             JobStatus.SUCCEEDED,
@@ -118,8 +121,8 @@ class InMemoryJobStoreTest {
             null,
             List.of());
 
-    org.junit.jupiter.api.Assertions.assertTrue(store.commitCompletion(plan).committed());
-    org.junit.jupiter.api.Assertions.assertFalse(store.commitCompletion(plan).committed());
+    Assertions.assertTrue(store.commitCompletion(plan).committed());
+    Assertions.assertFalse(store.commitCompletion(plan).committed());
     assertEquals("result", store.findById(job.getId()).orElseThrow().getJobResult());
     assertEquals(1, store.findById(job.getId()).orElseThrow().getVersion());
   }

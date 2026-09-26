@@ -15,6 +15,7 @@
  */
 package run.ratchet.store.mongodb;
 
+import com.github.dockerjava.api.model.Ulimit;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
@@ -55,10 +56,7 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
               command ->
                   command
                       .getHostConfig()
-                      .withUlimits(
-                          java.util.List.of(
-                              new com.github.dockerjava.api.model.Ulimit(
-                                  "nofile", 65536L, 65536L))))
+                      .withUlimits(List.of(new Ulimit("nofile", 65536L, 65536L))))
           .withReplicaSet()
           .waitingFor(
               Wait.forLogMessage("(?i).*waiting for connections.*", 1)

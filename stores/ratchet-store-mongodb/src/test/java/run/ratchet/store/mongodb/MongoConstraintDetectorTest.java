@@ -29,6 +29,7 @@ import com.mongodb.ServerAddress;
 import com.mongodb.WriteError;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.junit.jupiter.api.Test;
 
 class MongoConstraintDetectorTest {
@@ -164,7 +165,7 @@ class MongoConstraintDetectorTest {
     BsonDocument response =
         new BsonDocument("ok", new BsonInt32(0))
             .append("code", new BsonInt32(code))
-            .append("errmsg", new org.bson.BsonString(message));
+            .append("errmsg", new BsonString(message));
     return new MongoCommandException(response, SERVER_ADDRESS);
   }
 }

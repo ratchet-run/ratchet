@@ -27,6 +27,8 @@ import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
+import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -177,7 +179,7 @@ public class PostExecutionHandler {
         cancelChain,
         null,
         List.of(
-            new run.ratchet.api.event.JobFailedEvent(
+            new JobFailedEvent(
                 completed.getId(),
                 completed.getBusinessKey(),
                 completed.getRecurringMasterId(),
@@ -221,7 +223,7 @@ public class PostExecutionHandler {
     }
     if (completed.getStatus() == JobStatus.SUCCEEDED) {
       workflowScheduler.publishTerminalEvent(
-          new run.ratchet.api.event.JobCompletedEvent(
+          new JobCompletedEvent(
               completed.getId(),
               completed.getBusinessKey(),
               completed.getRecurringMasterId(),

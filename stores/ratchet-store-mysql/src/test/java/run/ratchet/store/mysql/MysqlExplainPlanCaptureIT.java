@@ -32,8 +32,10 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,7 +124,7 @@ class MysqlExplainPlanCaptureIT {
           table.getString("table_name", null),
           "claim plan should target scheduler_job_queue: " + plan);
       assertTrue(
-          java.util.Set.of("idx_claim_executable", "idx_claim_pending_priority")
+          Set.of("idx_claim_executable", "idx_claim_pending_priority")
               .contains(table.getString("key", null)),
           "candidate lookup should use a claim index: " + plan);
       assertNotEquals(
@@ -162,7 +164,7 @@ class MysqlExplainPlanCaptureIT {
       statement.execute("TRUNCATE TABLE scheduler_job_queue");
     }
     Instant now = Instant.now();
-    var jobs = new java.util.ArrayList<JobEntity>();
+    var jobs = new ArrayList<JobEntity>();
     for (int i = 0; i < 6000; i++) {
       jobs.add(
           pendingJob(

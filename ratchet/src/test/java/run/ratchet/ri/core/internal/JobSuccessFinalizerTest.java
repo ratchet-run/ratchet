@@ -27,11 +27,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -84,8 +86,7 @@ class JobSuccessFinalizerTest {
   void transactionBoundarySqlFailuresUseExistingBoundedRetries(String state) {
     when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(
-            new IllegalStateException(
-                "transaction failed", new java.sql.SQLException("temporary", state)))
+            new IllegalStateException("transaction failed", new SQLException("temporary", state)))
         .thenReturn(true);
     assertEquals(
         JobSuccessFinalizer.Outcome.COMPLETED_FULL, finalizeSuccess(finalizer(delays::add, 0L)));
@@ -97,8 +98,7 @@ class JobSuccessFinalizerTest {
   void poolClosedConnectionWithoutSqlStateUsesBoundedRetries() {
     when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(
-            new IllegalStateException(
-                "rollback failed", new java.sql.SQLException("Connection is closed")))
+            new IllegalStateException("rollback failed", new SQLException("Connection is closed")))
         .thenReturn(true);
     assertEquals(
         JobSuccessFinalizer.Outcome.COMPLETED_FULL, finalizeSuccess(finalizer(delays::add, 0L)));
@@ -107,19 +107,18 @@ class JobSuccessFinalizerTest {
 
   @Test
   void unknownSqlErrorAndExplicitConstraintStateAreNotClosedConnectionSentinels() {
-    assertFalse(JobSuccessFinalizer.isTransientStoreFailure(new java.sql.SQLException("unknown")));
+    assertFalse(JobSuccessFinalizer.isTransientStoreFailure(new SQLException("unknown")));
     assertFalse(
         JobSuccessFinalizer.isTransientStoreFailure(
-            new java.sql.SQLException("Connection is closed", "23505")));
+            new SQLException("Connection is closed", "23505")));
   }
 
   @Test
   void permanentSqlConstraintFailureIsNotRetried() {
-    var failure =
-        new IllegalStateException("constraint", new java.sql.SQLException("duplicate", "23505"));
+    var failure = new IllegalStateException("constraint", new SQLException("duplicate", "23505"));
     when(lifecycleFacade.completeSuccess(job, "json", "type", START, END, 1_000L, 25L))
         .thenThrow(failure);
-    org.junit.jupiter.api.Assertions.assertSame(
+    Assertions.assertSame(
         failure,
         assertThrows(
             IllegalStateException.class, () -> finalizeSuccess(finalizer(delays::add, 0L))));

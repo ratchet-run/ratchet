@@ -25,6 +25,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
+import run.ratchet.store.util.SqlIdempotencyKeys;
 
 final class SqlserverJobReadOperations {
 
@@ -195,7 +196,7 @@ final class SqlserverJobReadOperations {
 
   @SuppressWarnings("unchecked")
   Optional<UUID> findOriginalJobIdByIdempotencyKey(String idempotencyKey) {
-    return run.ratchet.store.util.SqlIdempotencyKeys.find(ctx, idempotencyKey);
+    return SqlIdempotencyKeys.find(ctx, idempotencyKey);
   }
 
   @SuppressWarnings("unchecked")

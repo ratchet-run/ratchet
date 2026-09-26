@@ -139,7 +139,7 @@
     <maven-release-plugin.version>3.3.1</maven-release-plugin.version>
     <central-publishing-maven-plugin.version>0.10.0</central-publishing-maven-plugin.version>
     <build-helper-maven-plugin.version>3.6.0</build-helper-maven-plugin.version>
-    <spotless-maven-plugin.version>2.46.1</spotless-maven-plugin.version>
+    <spotless-maven-plugin.version>3.10.3</spotless-maven-plugin.version>
     <google-java-format.version>1.35.0</google-java-format.version>
     <testcontainers.version>2.0.5</testcontainers.version>
     <micrometer.version>1.15.12</micrometer.version>
@@ -1157,11 +1157,15 @@
               <excludes>
                 <exclude>**/module-info.java</exclude>
               </excludes>
+              <shortenFullyQualifiedTypes/>
+              <importOrder>
+                <order>\#,</order>
+              </importOrder>
+              <removeUnusedImports/>
               <googleJavaFormat>
                 <version>${google-java-format.version}</version>
                 <style>GOOGLE</style>
               </googleJavaFormat>
-              <removeUnusedImports/>
               <formatAnnotations/>
               <licenseHeader>
                 <delimiter>(package|/\*\*|module)</delimiter>

@@ -29,15 +29,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.io.Serializable;
+import java.lang.reflect.Method;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
@@ -106,7 +112,7 @@ class JobTaskTest {
 
   private static final UUID JOB_UUID = new UUID(0L, 42L);
   private static final Instant FIXED_NOW = Instant.parse("2026-05-05T12:00:00Z");
-  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, java.time.ZoneOffset.UTC);
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
   private static final ThreadLocal<SignalDecision> OBSERVED_SIGNAL_DECISION = new ThreadLocal<>();
   private static final ThreadLocal<String> OBSERVED_SIGNAL_STRING = new ThreadLocal<>();
   private static final ThreadLocal<CustomArgument> OBSERVED_CUSTOM_ARGUMENT = new ThreadLocal<>();
@@ -525,15 +531,10 @@ class JobTaskTest {
               return true;
             });
 
-    java.util.concurrent.FutureTask<Void> future =
-        new java.util.concurrent.FutureTask<>(() -> null);
-    java.lang.reflect.Method handleHard =
+    FutureTask<Void> future = new FutureTask<>(() -> null);
+    Method handleHard =
         JobTimeoutHandler.class.getDeclaredMethod(
-            "handleHardTimeoutById",
-            UUID.class,
-            java.util.concurrent.Future.class,
-            Instant.class,
-            long.class);
+            "handleHardTimeoutById", UUID.class, Future.class, Instant.class, long.class);
     handleHard.setAccessible(true);
     handleHard.invoke(timeoutHandler, JOB_UUID, future, FIXED_NOW, 30L);
 
@@ -735,7 +736,7 @@ class JobTaskTest {
     jobTask.init(job);
     when(jobStore.scheduleJobRetry(any(UUID.class), any(), any(), anyInt())).thenReturn(true);
 
-    java.lang.reflect.Method requeue =
+    Method requeue =
         JobTask.class.getDeclaredMethod(
             "requeueForUpgrade", UUID.class, UnsupportedEnvelopeVersionException.class);
     requeue.setAccessible(true);
@@ -1049,8 +1050,7 @@ class JobTaskTest {
         .thenReturn(JobStatus.RUNNING)
         .thenThrow(
             new IllegalStateException(
-                "transaction rollback failed",
-                new java.sql.SQLException("connection closed", "08003")));
+                "transaction rollback failed", new SQLException("connection closed", "08003")));
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
@@ -1339,8 +1339,7 @@ class JobTaskTest {
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
   }
 
-  private static final java.util.concurrent.atomic.AtomicReference<String> OBSERVED_ARG =
-      new java.util.concurrent.atomic.AtomicReference<>();
+  private static final AtomicReference<String> OBSERVED_ARG = new AtomicReference<>();
 
   public static String captureArg(String value) {
     OBSERVED_ARG.set(value);

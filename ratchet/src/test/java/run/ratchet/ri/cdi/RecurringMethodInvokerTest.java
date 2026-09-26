@@ -22,14 +22,20 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
+import java.lang.annotation.Annotation;
+import java.util.UUID;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobContext;
+import run.ratchet.spi.JobLogger;
 
 @ExtendWith(MockitoExtension.class)
 class RecurringMethodInvokerTest {
@@ -81,12 +87,12 @@ class RecurringMethodInvokerTest {
 
   @SuppressWarnings({"rawtypes", "unchecked"})
   private Instance.Handle<?> selectBean(Class<?> beanClass, Object bean) {
-    return selectBean(beanClass, bean, jakarta.enterprise.context.ApplicationScoped.class);
+    return selectBean(beanClass, bean, ApplicationScoped.class);
   }
 
   @SuppressWarnings({"rawtypes", "unchecked"})
   private Instance.Handle<?> selectBean(
-      Class<?> beanClass, Object bean, Class<? extends java.lang.annotation.Annotation> scope) {
+      Class<?> beanClass, Object bean, Class<? extends Annotation> scope) {
     Instance selected = mock(Instance.class);
     Instance.Handle handle = mock(Instance.Handle.class);
     Bean cdiBean = mock(Bean.class);
@@ -105,14 +111,13 @@ class RecurringMethodInvokerTest {
     selectBean(ChildBean.class, bean);
     invoker.invoke(ChildBean.class.getName(), "inherited", false);
     invoker.invoke(ChildBean.class.getName(), "inherited", false);
-    run.ratchet.api.JobContext.bind(
-        java.util.UUID.randomUUID(), mock(run.ratchet.spi.JobLogger.class));
+    JobContext.bind(UUID.randomUUID(), mock(JobLogger.class));
     try {
       invoker.invoke(ChildBean.class.getName(), "withContext", true);
     } finally {
-      run.ratchet.api.JobContext.clear();
+      JobContext.clear();
     }
-    org.junit.jupiter.api.Assertions.assertEquals(3, bean.calls);
+    Assertions.assertEquals(3, bean.calls);
   }
 
   public static class ParentBean {
@@ -122,7 +127,7 @@ class RecurringMethodInvokerTest {
       calls++;
     }
 
-    public void withContext(run.ratchet.api.JobContext context) {
+    public void withContext(JobContext context) {
       calls++;
     }
   }

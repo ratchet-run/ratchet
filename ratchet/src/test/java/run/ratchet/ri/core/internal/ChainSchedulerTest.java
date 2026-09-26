@@ -122,7 +122,7 @@ class ChainSchedulerTest {
 
     when(jobCrudStore.findDependants(eq(finished.getId()), anyInt(), anyInt()))
         .thenReturn(List.of());
-    when(jobCrudStore.findById(root.getId())).thenReturn(java.util.Optional.of(root));
+    when(jobCrudStore.findById(root.getId())).thenReturn(Optional.of(root));
 
     assertFalse(scheduler.scheduleNext(finished));
 

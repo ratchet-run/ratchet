@@ -23,7 +23,9 @@ import jakarta.json.Json;
 import jakarta.json.JsonObject;
 import jakarta.json.JsonReader;
 import jakarta.json.JsonValue;
+import java.io.IOException;
 import java.io.InputStream;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
@@ -119,7 +121,7 @@ class XChaCha20Poly1305WycheproofTest {
       try (JsonReader reader = Json.createReader(in)) {
         return reader.readObject();
       }
-    } catch (java.io.IOException e) {
+    } catch (IOException e) {
       throw new IllegalStateException("could not read " + RESOURCE, e);
     }
   }
@@ -149,7 +151,7 @@ class XChaCha20Poly1305WycheproofTest {
   }
 
   /** A {@link java.security.SecureRandom} that always returns a fixed nonce, for vector replay. */
-  private static final class SecureRandomNonce extends java.security.SecureRandom {
+  private static final class SecureRandomNonce extends SecureRandom {
     private final byte[] nonce;
 
     private SecureRandomNonce(byte[] nonce) {

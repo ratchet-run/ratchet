@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import java.lang.reflect.Proxy;
 import java.time.Clock;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -139,9 +140,7 @@ class SpringRecurringDiscoveryTest {
       proxyUnexposedBean(context);
       context.registerBean("unexposed", UnexposedTask.class, UnexposedTask::new);
       context.refresh();
-      assertThat(
-              java.lang.reflect.Proxy.isProxyClass(
-                  context.getBeanFactory().getSingleton("unexposed").getClass()))
+      assertThat(Proxy.isProxyClass(context.getBeanFactory().getSingleton("unexposed").getClass()))
           .isTrue();
       assertThatThrownBy(() -> discovery(context).register())
           .isInstanceOf(IllegalStateException.class)

@@ -22,6 +22,8 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobStore;
 
 class ConformanceReportExtensionTest {
 
@@ -29,17 +31,17 @@ class ConformanceReportExtensionTest {
   static class FakeCrudTest extends AbstractJobCrudStoreContract {
 
     @Override
-    public run.ratchet.store.spi.JobStore store() {
+    public JobStore store() {
       return null;
     }
 
     @Override
-    public run.ratchet.store.entity.JobEntity newPendingJob() {
+    public JobEntity newPendingJob() {
       return null;
     }
 
     @Override
-    public run.ratchet.store.entity.JobEntity newBatchParentJob() {
+    public JobEntity newBatchParentJob() {
       return null;
     }
 
@@ -50,17 +52,17 @@ class ConformanceReportExtensionTest {
   static class FakeLockTest extends AbstractLockStoreContract {
 
     @Override
-    public run.ratchet.store.spi.JobStore store() {
+    public JobStore store() {
       return null;
     }
 
     @Override
-    public run.ratchet.store.entity.JobEntity newPendingJob() {
+    public JobEntity newPendingJob() {
       return null;
     }
 
     @Override
-    public run.ratchet.store.entity.JobEntity newBatchParentJob() {
+    public JobEntity newBatchParentJob() {
       return null;
     }
 

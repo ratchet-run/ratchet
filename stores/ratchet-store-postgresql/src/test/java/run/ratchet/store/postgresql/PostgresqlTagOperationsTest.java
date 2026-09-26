@@ -21,6 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
@@ -85,11 +87,11 @@ class PostgresqlTagOperationsTest {
           Proxy.newProxyInstance(
               Query.class.getClassLoader(),
               new Class<?>[] {Query.class},
-              new java.lang.reflect.InvocationHandler() {
+              new InvocationHandler() {
                 private int parameterCount;
 
                 @Override
-                public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) {
+                public Object invoke(Object proxy, Method method, Object[] args) {
                   return switch (method.getName()) {
                     case "setParameter" -> {
                       parameterCount = Math.max(parameterCount, ((Number) args[0]).intValue());

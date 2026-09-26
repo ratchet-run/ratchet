@@ -20,10 +20,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.spi.PersistenceProvider;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.io.Serializable;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Clob;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.util.Arrays;
+import java.util.Locale;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.aot.generate.GeneratedFiles.Kind;
 import org.springframework.aot.generate.GenerationContext;
 import org.springframework.aot.generate.InMemoryGeneratedFiles;
+import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.TypeReference;
 import org.springframework.aot.hint.predicate.RuntimeHintsPredicates;
@@ -31,6 +49,7 @@ import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.test.context.FilteredClassLoader;
 import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaAotSettings;
+import run.ratchet.store.entity.JobEntity;
 
 class RatchetJpaAotProcessorTest {
   @Test
@@ -66,21 +85,17 @@ class RatchetJpaAotProcessorTest {
             "vendor=POSTGRESQL", "mapping=META-INF/orm-postgresql.xml", "default-orm=ratchet");
     assertThat(hints.reflection().getTypeHint(SqlStoreVendor.PostgresqlVendor.class)).isNotNull();
     assertThat(hints.reflection().getTypeHint(SqlStoreVendor.MysqlVendor.class)).isNull();
-    assertThat(
-            RuntimeHintsPredicates.proxies()
-                .forInterfaces(jakarta.persistence.spi.PersistenceProvider.class))
+    assertThat(RuntimeHintsPredicates.proxies().forInterfaces(PersistenceProvider.class))
         .accepts(hints);
-    assertThat(hints.reflection().getTypeHint(run.ratchet.store.entity.JobEntity.class))
-        .isNotNull();
+    assertThat(hints.reflection().getTypeHint(JobEntity.class)).isNotNull();
     // XML mappings synthesize annotations and use JAXB even when entities have no such annotation.
     assertThat(
             hints
                 .reflection()
                 .getTypeHint(TypeReference.of("org.hibernate.annotations.JdbcTypeCode"))
                 .getMemberCategories())
-        .contains(org.springframework.aot.hint.MemberCategory.INVOKE_DECLARED_METHODS);
-    assertThat(RuntimeHintsPredicates.proxies().forInterfaces(jakarta.persistence.Column.class))
-        .accepts(hints);
+        .contains(MemberCategory.INVOKE_DECLARED_METHODS);
+    assertThat(RuntimeHintsPredicates.proxies().forInterfaces(Column.class)).accepts(hints);
     assertThat(RuntimeHintsPredicates.resource().forResource("org/hibernate/jpa/orm_3_1.xsd"))
         .accepts(hints);
     assertThat(
@@ -117,8 +132,7 @@ class RatchetJpaAotProcessorTest {
       new RatchetJpaAotProcessor().processAheadOfTime(factory).applyTo(context, null);
       assertThat(files.getGeneratedFileContent(Kind.RESOURCE, RatchetJpaAotSettings.RESOURCE))
           .contains("vendor=POSTGRESQL", "default-orm=ratchet");
-      assertThat(hints.reflection().getTypeHint(run.ratchet.store.entity.JobEntity.class))
-          .isNotNull();
+      assertThat(hints.reflection().getTypeHint(JobEntity.class)).isNotNull();
       assertThat(factory.containsSingleton("ratchetJpaJobStore")).isFalse();
     } finally {
       thread.setContextClassLoader(previous);
@@ -132,9 +146,9 @@ class RatchetJpaAotProcessorTest {
   void contributesVendorSpecificLobOrCharsetMetadata(SqlStoreVendor vendor) throws Exception {
     var factory = factory();
     var excluded =
-        java.util.Arrays.stream(SqlStoreVendor.values())
+        Arrays.stream(SqlStoreVendor.values())
             .filter(other -> other != vendor)
-            .map(other -> "run.ratchet.store." + other.name().toLowerCase(java.util.Locale.ROOT))
+            .map(other -> "run.ratchet.store." + other.name().toLowerCase(Locale.ROOT))
             .toArray(String[]::new);
     factory.setBeanClassLoader(new FilteredClassLoader(excluded));
     var context = mock(GenerationContext.class);
@@ -155,20 +169,19 @@ class RatchetJpaAotProcessorTest {
               interfaces ->
                   assertThat(interfaces)
                       .contains(
-                          TypeReference.of(java.sql.Clob.class),
-                          TypeReference.of(java.io.Serializable.class)));
+                          TypeReference.of(Clob.class), TypeReference.of(Serializable.class)));
     }
     assertThat(factory.containsSingleton("ratchetJpaJobStore")).isFalse();
   }
 
   @Test
   void runtimeDatabaseMustMatchTheVendorSelectedAtBuildTime() throws Exception {
-    var dataSource = mock(javax.sql.DataSource.class);
-    var connection = mock(java.sql.Connection.class);
-    var metadata = mock(java.sql.DatabaseMetaData.class);
+    var dataSource = mock(DataSource.class);
+    var connection = mock(Connection.class);
+    var metadata = mock(DatabaseMetaData.class);
     when(dataSource.getConnection()).thenReturn(connection);
     when(connection.getMetaData()).thenReturn(metadata);
-    try (var settings = org.mockito.Mockito.mockStatic(RatchetJpaAotSettings.class)) {
+    try (var settings = Mockito.mockStatic(RatchetJpaAotSettings.class)) {
       settings.when(() -> RatchetJpaAotSettings.get("vendor")).thenReturn("POSTGRESQL");
       when(metadata.getDatabaseProductName()).thenReturn("PostgreSQL");
       assertThat(SqlStoreVendor.detect(dataSource)).isEqualTo(SqlStoreVendor.POSTGRESQL);
@@ -186,31 +199,30 @@ class RatchetJpaAotProcessorTest {
 
   @Test
   void copiesApplicationOwnedMappingWithoutPersistingJarUrls(
-      @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+      @org.junit.jupiter.api.io.TempDir Path directory) throws Exception {
     var mapping = directory.resolve("orm.xml");
     String xml =
         "<entity-mappings xmlns=\"https://jakarta.ee/xml/ns/persistence/orm\" version=\"3.1\"/>";
-    java.nio.file.Files.writeString(mapping, xml);
+    Files.writeString(mapping, xml);
     var factory = factory();
     factory.setBeanClassLoader(
         new FilteredClassLoader(
             "run.ratchet.store.mysql", "run.ratchet.store.oracle", "run.ratchet.store.sqlserver") {
           @Override
-          public java.net.URL getResource(String name) {
+          public URL getResource(String name) {
             try {
               return name.equals("META-INF/orm.xml")
                   ? mapping.toUri().toURL()
                   : super.getResource(name);
-            } catch (java.net.MalformedURLException failure) {
+            } catch (MalformedURLException failure) {
               throw new AssertionError(failure);
             }
           }
 
           @Override
-          public java.io.InputStream getResourceAsStream(String name) {
+          public InputStream getResourceAsStream(String name) {
             if (!name.equals("META-INF/orm.xml")) return super.getResourceAsStream(name);
-            return new java.io.ByteArrayInputStream(
-                xml.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8));
           }
         });
     var context = mock(GenerationContext.class);

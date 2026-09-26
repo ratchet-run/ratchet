@@ -24,7 +24,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -85,14 +87,14 @@ public abstract class AbstractSchemaMigratorContract {
       var metadata = connection.getMetaData();
       String table =
           metadata.storesUpperCaseIdentifiers() ? "SCHEDULER_JOB_QUEUE" : "scheduler_job_queue";
-      var names = new java.util.HashSet<String>();
+      var names = new HashSet<String>();
       try (ResultSet rows =
           metadata.getIndexInfo(
               connection.getCatalog(), connection.getSchema(), table, false, false)) {
         while (rows.next()) {
           String name = rows.getString("INDEX_NAME");
           if (name != null) {
-            names.add(name.toLowerCase(java.util.Locale.ROOT));
+            names.add(name.toLowerCase(Locale.ROOT));
           }
         }
       }

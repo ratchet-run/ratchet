@@ -19,9 +19,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import run.ratchet.consumer.ConsumerProcess;
 
 /** Launches the JAR or native executable without the reactor test classpath. */
 class SqlPackagedConsumerIT {
@@ -30,7 +32,7 @@ class SqlPackagedConsumerIT {
     try (var database = SqlDatabase.start()) {
       var arguments =
           new ArrayList<>(
-              run.ratchet.consumer.ConsumerProcess.command(
+              ConsumerProcess.command(
                   "sql-consumer",
                   "--consumer.verify=true",
                   "--spring.threads.virtual.enabled=true",
@@ -72,7 +74,7 @@ class SqlPackagedConsumerIT {
       throws Exception {
     var properties = database.properties();
     try (var connection =
-            java.sql.DriverManager.getConnection(
+            DriverManager.getConnection(
                 (String) properties.get("spring.datasource.url"),
                 (String) properties.get("spring.datasource.username"),
                 (String) properties.get("spring.datasource.password"));

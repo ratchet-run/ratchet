@@ -19,12 +19,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.logging.Handler;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.internal.DefaultRatchetConfig;
@@ -35,11 +39,11 @@ class RatchetOptionsFactoryTest {
 
   @Test
   void retiredVirtualThreadPropertyAndEnvironmentVariableWarn() {
-    var messages = new java.util.ArrayList<String>();
-    var logger = java.util.logging.Logger.getLogger(RatchetOptionsFactory.class.getName());
+    var messages = new ArrayList<String>();
+    var logger = Logger.getLogger(RatchetOptionsFactory.class.getName());
     var handler =
-        new java.util.logging.Handler() {
-          public void publish(java.util.logging.LogRecord record) {
+        new Handler() {
+          public void publish(LogRecord record) {
             messages.add(record.getMessage());
           }
 

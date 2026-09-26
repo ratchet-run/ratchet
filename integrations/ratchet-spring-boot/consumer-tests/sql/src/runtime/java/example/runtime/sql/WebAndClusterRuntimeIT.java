@@ -18,6 +18,7 @@ package example.runtime.sql;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
+import app.process;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -81,10 +82,7 @@ class WebAndClusterRuntimeIT {
       await()
           .atMost(Duration.ofSeconds(10))
           .until(() -> Files.readString(app.log).contains("RATCHET_RUNTIME_STOPPING"));
-      await()
-          .during(Duration.ofSeconds(1))
-          .atMost(Duration.ofSeconds(3))
-          .until(app.process::isAlive);
+      await().during(Duration.ofSeconds(1)).atMost(Duration.ofSeconds(3)).until(process::isAlive);
       jdbc.update("update runtime_gate set released = true where id = 'shutdown'");
       assertThat(app.process.waitFor(40, TimeUnit.SECONDS)).isTrue();
       assertThat(app.process.exitValue()).isEqualTo(143);

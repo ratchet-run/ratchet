@@ -37,6 +37,7 @@ import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
@@ -734,7 +735,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             jobId,
             def.businessKey(),
             null,
-            run.ratchet.api.JobType.RECURRING,
+            JobType.RECURRING,
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant(),
@@ -842,7 +843,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             jobId,
             def.businessKey(),
             null,
-            run.ratchet.api.JobType.RECURRING,
+            JobType.RECURRING,
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
@@ -858,7 +859,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             jobId,
             def.businessKey(),
             null,
-            run.ratchet.api.JobType.RECURRING,
+            JobType.RECURRING,
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());

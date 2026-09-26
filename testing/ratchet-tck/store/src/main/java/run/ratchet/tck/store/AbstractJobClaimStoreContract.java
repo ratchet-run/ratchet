@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -407,8 +408,7 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
                 NodeTagFilter.NONE,
                 ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), true));
 
-    Set<UUID> claimedIds =
-        claims.stream().map(JobClaimDto::id).collect(java.util.stream.Collectors.toSet());
+    Set<UUID> claimedIds = claims.stream().map(JobClaimDto::id).collect(Collectors.toSet());
     assertEquals(Set.of(virtual.getId(), inherited.getId()), claimedIds);
     assertTrue(
         claims.stream().noneMatch(claim -> platformId.equals(claim.id())),
@@ -440,8 +440,7 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
                 NodeTagFilter.NONE,
                 ExecutionTargetFilter.excluding(List.of(ExecutorTargets.VIRTUAL), true));
 
-    Set<UUID> claimedIds =
-        claims.stream().map(JobClaimDto::id).collect(java.util.stream.Collectors.toSet());
+    Set<UUID> claimedIds = claims.stream().map(JobClaimDto::id).collect(Collectors.toSet());
     assertEquals(Set.of(platform.getId(), unknown.getId(), inherited.getId()), claimedIds);
     assertTrue(
         claims.stream().noneMatch(claim -> virtualId.equals(claim.id())),

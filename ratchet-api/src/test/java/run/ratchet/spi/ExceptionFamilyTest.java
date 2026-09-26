@@ -17,6 +17,8 @@ package run.ratchet.spi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.ValidationException;
 import java.net.SocketTimeoutException;
 import java.nio.channels.InterruptedByTimeoutException;
 import java.util.concurrent.TimeoutException;
@@ -75,11 +77,10 @@ class ExceptionFamilyTest {
   @Test
   void classifyValidationForJakartaValidationExceptions() {
     assertEquals(
-        ExceptionFamily.VALIDATION,
-        ExceptionFamily.classify(new jakarta.validation.ValidationException("bad input")));
+        ExceptionFamily.VALIDATION, ExceptionFamily.classify(new ValidationException("bad input")));
     assertEquals(
         ExceptionFamily.VALIDATION,
-        ExceptionFamily.classify(new jakarta.validation.ConstraintViolationException("bad input")));
+        ExceptionFamily.classify(new ConstraintViolationException("bad input")));
   }
 
   @Test

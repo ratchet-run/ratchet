@@ -229,22 +229,22 @@ public final class JmsCoordinatorTestHarness implements CoordinatorTestHarness {
 
     // ---- unused MetricsCollector surface ----
     @Override
-    public void jobStarted(java.util.UUID jobId, JobType type, JobPriority priority) {}
+    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {}
 
     @Override
-    public void jobCompleted(java.util.UUID jobId, JobType type, long executionTimeMs) {}
+    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {}
 
     @Override
-    public void jobFailed(java.util.UUID jobId, JobType type, Throwable cause, int attempt) {}
+    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {}
 
     @Override
-    public void successFinalizationRetried(java.util.UUID jobId, JobType type) {}
+    public void successFinalizationRetried(UUID jobId, JobType type) {}
 
     @Override
-    public void successFinalizationMinimal(java.util.UUID jobId, JobType type) {}
+    public void successFinalizationMinimal(UUID jobId, JobType type) {}
 
     @Override
-    public void successFinalizationStuck(java.util.UUID jobId, JobType type) {}
+    public void successFinalizationStuck(UUID jobId, JobType type) {}
 
     @Override
     public void claimTransientFailure(String executionType) {}
@@ -259,20 +259,20 @@ public final class JmsCoordinatorTestHarness implements CoordinatorTestHarness {
     public void localWakeup(String source) {}
 
     @Override
-    public void callbackFailed(java.util.UUID jobId, JobType type, Throwable cause, int attempt) {}
+    public void callbackFailed(UUID jobId, JobType type, Throwable cause, int attempt) {}
 
     @Override
-    public void signalWaiting(java.util.UUID jobId, JobType type, String signalKey) {}
+    public void signalWaiting(UUID jobId, JobType type, String signalKey) {}
 
     @Override
     public void signalDelivered(
-        java.util.UUID jobId, JobType type, String signalKey, SignalDecision.Outcome outcome) {}
+        UUID jobId, JobType type, String signalKey, SignalDecision.Outcome outcome) {}
 
     @Override
-    public void signalTimedOut(java.util.UUID jobId, JobType type, String signalKey) {}
+    public void signalTimedOut(UUID jobId, JobType type, String signalKey) {}
 
     @Override
-    public void signalCancelled(java.util.UUID jobId, JobType type, String signalKey) {}
+    public void signalCancelled(UUID jobId, JobType type, String signalKey) {}
 
     @Override
     public void storeOperation(

@@ -35,6 +35,7 @@ import org.bson.Document;
 import org.bson.types.Binary;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.SpringBootVersion;
+import run.ratchet.consumer.ConsumerProcess;
 
 /**
  * Proves a killed packaged MongoDB worker recovers and completes its original job after restart.
@@ -106,7 +107,7 @@ class MongoRecoveryIT {
       throws Exception {
     List<String> arguments =
         new ArrayList<>(
-            run.ratchet.consumer.ConsumerProcess.command(
+            ConsumerProcess.command(
                 "mongodb-consumer",
                 "--consumer.verify=true",
                 "--ratchet.encryption.enabled=true",

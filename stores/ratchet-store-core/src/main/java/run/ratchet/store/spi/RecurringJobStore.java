@@ -21,6 +21,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.NodeTagFilter;
 
 /**
@@ -239,9 +240,8 @@ public interface RecurringJobStore {
   List<RecurringJobDefinition> listAll();
 
   /** Searches live masters with all constraints applied before bounded pagination. */
-  List<RecurringJobDefinition> searchRecurring(
-      run.ratchet.api.JobFilter filter, int limit, int offset);
+  List<RecurringJobDefinition> searchRecurring(JobFilter filter, int limit, int offset);
 
   /** Counts live masters matching the same constraints as search, excluding cursor position. */
-  long countRecurring(run.ratchet.api.JobFilter filter);
+  long countRecurring(JobFilter filter);
 }

@@ -22,6 +22,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -100,7 +101,7 @@ class OracleAuxiliaryOperationsTest {
                 case "setParameter" -> {
                   if (args.length > 1 && args[1] instanceof byte[] actual) {
                     byte[] expected = UuidRawConverter.toBytes(expectedJobId);
-                    if (!java.util.Arrays.equals(expected, actual)) {
+                    if (!Arrays.equals(expected, actual)) {
                       throw new AssertionError("job_id parameter should use Oracle UUID bytes");
                     }
                   }

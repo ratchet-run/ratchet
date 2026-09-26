@@ -24,13 +24,16 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 import run.ratchet.api.*;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.ri.core.DrainController;
+import run.ratchet.spi.SchedulerLifecycleHook;
 
 /** HTTP submission and durable barriers used by process-level consumer tests. */
 @Configuration(proxyBeanMethods = false)
@@ -66,8 +69,8 @@ public class RuntimeWebApplication {
   }
 
   @Bean
-  run.ratchet.spi.SchedulerLifecycleHook runtimeStopHook(JdbcTemplate jdbc) {
-    return new run.ratchet.spi.SchedulerLifecycleHook() {
+  SchedulerLifecycleHook runtimeStopHook(JdbcTemplate jdbc) {
+    return new SchedulerLifecycleHook() {
       public void beforeStop() {
         System.out.println("RATCHET_RUNTIME_STOPPING");
       }
@@ -190,9 +193,9 @@ public class RuntimeWebApplication {
       this.scheduler = scheduler;
     }
 
-    @ExceptionHandler(run.ratchet.api.exception.DuplicateIdempotencyKeyException.class)
-    public org.springframework.http.ResponseEntity<String> duplicate() {
-      return org.springframework.http.ResponseEntity.status(409).body("duplicate-idempotency");
+    @ExceptionHandler(DuplicateIdempotencyKeyException.class)
+    public ResponseEntity<String> duplicate() {
+      return ResponseEntity.status(409).body("duplicate-idempotency");
     }
 
     @PostMapping("/submit")

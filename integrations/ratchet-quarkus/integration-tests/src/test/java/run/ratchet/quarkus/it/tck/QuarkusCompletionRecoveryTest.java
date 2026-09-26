@@ -24,6 +24,7 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -44,17 +45,17 @@ import run.ratchet.store.spi.*;
 class QuarkusCompletionRecoveryTest {
   public static class CompletionProfile extends QuarkusRatchetTckProfile {
     @Override
-    public java.util.Map<String, String> getConfigOverrides() {
+    public Map<String, String> getConfigOverrides() {
       if ("mongodb".equals(System.getProperty("quarkus.datasource.db-kind"))) {
         // The test decorator generates a runtime subclass of this package-private library bean.
         // Keep the Mongo implementation in that same loader; ordinary profiles remain undecorated.
-        return java.util.Map.of(
+        return Map.of(
             "ratchet.it.completion-faults",
             "true",
             "quarkus.class-loading.reloadable-artifacts",
             "run.ratchet:ratchet-store-mongodb");
       }
-      return java.util.Map.of("ratchet.it.completion-faults", "true");
+      return Map.of("ratchet.it.completion-faults", "true");
     }
   }
 

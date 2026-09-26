@@ -25,6 +25,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_NODE;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
+import com.mongodb.MongoWriteException;
 import com.mongodb.ServerAddress;
 import com.mongodb.WriteError;
 import com.mongodb.bulk.BulkWriteResult;
@@ -36,9 +37,11 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.TransactionBody;
+import com.mongodb.client.result.UpdateResult;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -47,6 +50,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
+import org.bson.BsonString;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
@@ -290,7 +294,7 @@ class MongoExceptionTranslationTest {
     RuntimeException failure =
         new RuntimeException(
             "bulk",
-            new com.mongodb.MongoWriteException(
+            new MongoWriteException(
                 new WriteError(
                     11000,
                     "E11000 duplicate key error collection: ratchet.scheduler_job index:"
@@ -334,7 +338,7 @@ class MongoExceptionTranslationTest {
         mongoCollection(
             (proxy, method, args) -> {
               if ("updateMany".equals(method.getName())) {
-                return com.mongodb.client.result.UpdateResult.acknowledged(1, 1L, null);
+                return UpdateResult.acknowledged(1, 1L, null);
               }
               return defaultValue(method);
             });
@@ -350,7 +354,7 @@ class MongoExceptionTranslationTest {
     MongoJobCrudOperations crud =
         new MongoJobCrudOperations(contextWithCollections(jobs, nodes, session));
 
-    assertTrue(crud.resetOrphanJobs(java.time.Duration.ofMinutes(5)) >= 0);
+    assertTrue(crud.resetOrphanJobs(Duration.ofMinutes(5)) >= 0);
     assertTrue(usedTransaction.get());
   }
 
@@ -381,7 +385,7 @@ class MongoExceptionTranslationTest {
     MongoNodeLockOperations locksOps =
         new MongoNodeLockOperations(new MongoStoreContext(mongoClient(null), database));
 
-    assertTrue(locksOps.tryLock("jobArchiver", java.time.Duration.ofMinutes(5), "node-1"));
+    assertTrue(locksOps.tryLock("jobArchiver", Duration.ofMinutes(5), "node-1"));
 
     assertTrue(readDatabaseTime.get());
   }
@@ -395,7 +399,7 @@ class MongoExceptionTranslationTest {
                 throw new MongoCommandException(
                     new BsonDocument("ok", new BsonInt32(0))
                         .append("code", new BsonInt32(13))
-                        .append("errmsg", new org.bson.BsonString("unauthorized")),
+                        .append("errmsg", new BsonString("unauthorized")),
                     new ServerAddress());
               }
               return defaultValue(method);

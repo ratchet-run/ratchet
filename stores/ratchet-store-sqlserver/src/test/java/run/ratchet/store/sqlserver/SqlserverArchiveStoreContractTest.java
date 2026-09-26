@@ -15,6 +15,11 @@
  */
 package run.ratchet.store.sqlserver;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.junit.jupiter.api.Assertions;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractArchiveStoreContract;
@@ -45,63 +50,60 @@ class SqlserverArchiveStoreContractTest extends AbstractArchiveStoreContract {
 
   @org.junit.jupiter.api.Test
   void archiveBatchSpansParameterLimitAndDefaultBatchSize() {
-    for (int size : java.util.List.of(63, 64, 1000, 2101)) {
+    for (int size : List.of(63, 64, 1000, 2101)) {
       cleanupStore();
-      var jobs = new java.util.ArrayList<JobEntity>();
+      var jobs = new ArrayList<JobEntity>();
       for (int i = 0; i < size; i++) {
         var job = newPendingJob();
-        job.setStatus(run.ratchet.api.JobStatus.SUCCEEDED);
+        job.setStatus(JobStatus.SUCCEEDED);
         jobs.add(job);
       }
       store().bulkInsert(jobs);
       var ids = jobs.stream().map(JobEntity::getId).toList();
-      org.junit.jupiter.api.Assertions.assertEquals(
+      Assertions.assertEquals(
           size, archiveStore().archiveAndDeleteJobsBatch(jobs, "parameter-boundary", "tck"));
       for (int start = 0; start < ids.size(); start += 1000) {
-        org.junit.jupiter.api.Assertions.assertTrue(
+        Assertions.assertTrue(
             store().findByIds(ids.subList(start, Math.min(start + 1000, ids.size()))).isEmpty());
       }
-      org.junit.jupiter.api.Assertions.assertEquals(
+      Assertions.assertEquals(
           size, archiveStore().findArchivedJobs(null, null, null, null, size).size());
     }
   }
 
   @org.junit.jupiter.api.Test
   void laterOuterChunkFailureRollsBackAlreadyArchivedAndDeletedPrefix() {
-    var jobs = new java.util.ArrayList<JobEntity>();
+    var jobs = new ArrayList<JobEntity>();
     for (int i = 0; i < 1001; i++) {
       var job = newPendingJob();
-      if (i < 1000) job.setStatus(run.ratchet.api.JobStatus.SUCCEEDED);
+      if (i < 1000) job.setStatus(JobStatus.SUCCEEDED);
       jobs.add(job);
     }
     store().bulkInsert(jobs);
-    var prefixDeleted = new java.util.concurrent.atomic.AtomicBoolean();
+    var prefixDeleted = new AtomicBoolean();
     fixture.observeNativeQueries(
         (sql, event) -> {
           if (event.completed()
               && event.operation().equals("executeUpdate")
               && sql.startsWith("DELETE FROM scheduler_job WHERE job_id IN")) {
-            org.junit.jupiter.api.Assertions.assertEquals(
-                1000, ((Number) event.result()).intValue());
+            Assertions.assertEquals(1000, ((Number) event.result()).intValue());
             prefixDeleted.set(true);
           }
         });
     try {
-      org.junit.jupiter.api.Assertions.assertThrows(
+      Assertions.assertThrows(
           RuntimeException.class,
           () -> archiveStore().archiveAndDeleteJobsBatch(jobs, "later-chunk-failure", "tck"));
     } finally {
       fixture.observeNativeQueries((sql, event) -> {});
     }
-    org.junit.jupiter.api.Assertions.assertTrue(
+    Assertions.assertTrue(
         prefixDeleted.get(), "first outer chunk must actually delete before injected failure");
-    org.junit.jupiter.api.Assertions.assertEquals(
+    Assertions.assertEquals(
         1000,
         store().findByIds(jobs.subList(0, 1000).stream().map(JobEntity::getId).toList()).size());
-    org.junit.jupiter.api.Assertions.assertEquals(
-        run.ratchet.api.JobStatus.PENDING,
-        store().findById(jobs.get(1000).getId()).orElseThrow().getStatus());
-    org.junit.jupiter.api.Assertions.assertTrue(
-        archiveStore().findArchivedJobs(null, null, null, null, 1100).isEmpty());
+    Assertions.assertEquals(
+        JobStatus.PENDING, store().findById(jobs.get(1000).getId()).orElseThrow().getStatus());
+    Assertions.assertTrue(archiveStore().findArchivedJobs(null, null, null, null, 1100).isEmpty());
   }
 }

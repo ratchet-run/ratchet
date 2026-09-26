@@ -17,6 +17,7 @@ package run.ratchet.store.mysql;
 
 import jakarta.persistence.EntityManager;
 import java.util.Map;
+import org.junit.jupiter.api.Assertions;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.mysql.MySQLContainer;
 import run.ratchet.api.RatchetOptions;
@@ -112,7 +113,7 @@ public class MysqlTestFixture extends JpaContainerFixture {
         "2".equals(System.getProperty("ratchet.mysql.test.isolation", "4"))
             ? "READ-COMMITTED"
             : "REPEATABLE-READ";
-    org.junit.jupiter.api.Assertions.assertEquals(
+    Assertions.assertEquals(
         expected, em.createNativeQuery("SELECT @@SESSION.transaction_isolation").getSingleResult());
     return store;
   }

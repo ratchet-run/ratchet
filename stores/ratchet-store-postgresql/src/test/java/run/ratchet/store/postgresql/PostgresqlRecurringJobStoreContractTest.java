@@ -17,6 +17,7 @@ package run.ratchet.store.postgresql;
 
 import java.util.List;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.tck.store.AbstractRecurringJobStoreContract;
@@ -52,16 +53,13 @@ class PostgresqlRecurringJobStoreContractTest extends AbstractRecurringJobStoreC
   }
 
   @Override
-  protected void commitRecurringPlansWithLaterFailure(
-      java.util.List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+  protected void commitRecurringPlansWithLaterFailure(List<RecurringExecutionPlan> plans) {
     var second = plans.get(1);
     // SQL inserts children before advancing masters. Make those inserts valid, then fail
     // at the second master's archive statement after the first master's UPDATE completed.
     var validPlans =
-        java.util.List.of(
-            plans.get(0),
-            new run.ratchet.store.spi.RecurringExecutionPlan(
-                second.claim(), java.util.List.of(), second.nextFire()));
+        List.of(
+            plans.get(0), new RecurringExecutionPlan(second.claim(), List.of(), second.nextFire()));
     fixture.failBeforeRecurringArchiveAfterAdvance(
         () -> recurringStore().commitRecurringExecutions(validPlans));
   }

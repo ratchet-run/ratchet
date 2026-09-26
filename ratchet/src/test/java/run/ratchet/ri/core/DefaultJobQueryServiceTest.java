@@ -32,11 +32,13 @@ import static org.mockito.Mockito.when;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -75,6 +77,8 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
 import run.ratchet.store.util.PayloadMaskingPolicyHolder;
@@ -89,7 +93,7 @@ class DefaultJobQueryServiceTest {
   @Mock private JobCrudStore crudStore;
   @Mock private JobAnalyticsStore analyticsStore;
   @Mock private JobAuditStore executionStore;
-  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
+  @Mock private RecurringJobStore recurringJobStore;
   @Mock private JobAuthorizationPolicy authPolicy;
   @Mock private CallerPrincipalProvider principalProvider;
 
@@ -139,8 +143,8 @@ class DefaultJobQueryServiceTest {
   @Test
   void getRecurringMasters_readsFromRecurringJobStoreNotTheExecutableQueue() {
     UUID id = UUID.randomUUID();
-    run.ratchet.store.spi.RecurringJobDefinition def =
-        new run.ratchet.store.spi.RecurringJobDefinition(
+    RecurringJobDefinition def =
+        new RecurringJobDefinition(
             id,
             "0 * * * * ?",
             "UTC",
@@ -149,11 +153,10 @@ class DefaultJobQueryServiceTest {
             null,
             JobPriority.NORMAL.persistedCode(),
             3,
-            run.ratchet.api.BackoffPolicy.NONE,
+            BackoffPolicy.NONE,
             0,
             0,
-            new run.ratchet.store.entity.JobPayload(
-                "com.example.Recurring", "tick", "()V", true, List.of()),
+            new JobPayload("com.example.Recurring", "tick", "()V", true, List.of()),
             null,
             null,
             "bk-rec",
@@ -170,7 +173,7 @@ class DefaultJobQueryServiceTest {
     assertEquals(1, page.items().size());
     JobSummary summary = page.items().get(0);
     assertEquals(id, summary.id());
-    assertEquals(run.ratchet.api.JobType.RECURRING, summary.type());
+    assertEquals(JobType.RECURRING, summary.type());
     assertEquals("bk-rec", summary.businessKey());
     assertEquals("com.example.Recurring", summary.targetClass());
     verify(queryStore, never()).searchJobs(any(), anyInt(), anyInt());
@@ -827,8 +830,8 @@ class DefaultJobQueryServiceTest {
 
   @Test
   void getRecurringMasters_returnsPaginatedPage() {
-    List<run.ratchet.store.spi.RecurringJobDefinition> masters =
-        new java.util.ArrayList<>(
+    List<RecurringJobDefinition> masters =
+        new ArrayList<>(
             List.of(recurringDefinition("0 * * * * ?"), recurringDefinition("0 0 * * * ?")));
     masters.add(recurringDefinition("0 0 0 * * ?"));
     when(recurringJobStore.searchRecurring(any(), eq(2), eq(0))).thenReturn(masters.subList(0, 2));
@@ -864,13 +867,13 @@ class DefaultJobQueryServiceTest {
     assertEquals(2, page.items().size());
     assertEquals(-1L, page.totalCount());
     assertTrue(page.hasMore());
-    org.junit.jupiter.api.Assertions.assertNotNull(page.nextCursor());
+    Assertions.assertNotNull(page.nextCursor());
     verify(recurringJobStore, never()).countRecurring(any());
     verify(recurringJobStore, never()).listAll();
   }
 
-  private static run.ratchet.store.spi.RecurringJobDefinition recurringDefinition(String cron) {
-    return new run.ratchet.store.spi.RecurringJobDefinition(
+  private static RecurringJobDefinition recurringDefinition(String cron) {
+    return new RecurringJobDefinition(
         UUID.randomUUID(),
         cron,
         "UTC",
@@ -879,11 +882,10 @@ class DefaultJobQueryServiceTest {
         null,
         JobPriority.NORMAL.persistedCode(),
         0,
-        run.ratchet.api.BackoffPolicy.NONE,
+        BackoffPolicy.NONE,
         0,
         0,
-        new run.ratchet.store.entity.JobPayload(
-            "com.example.Recurring", "tick", "()V", true, List.of()),
+        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of()),
         null,
         null,
         null,
@@ -895,9 +897,8 @@ class DefaultJobQueryServiceTest {
         RecurringMisfirePolicy.defaults());
   }
 
-  private static run.ratchet.store.spi.RecurringJobDefinition recurringDefWithPrincipal(
-      UUID id, String principal) {
-    return new run.ratchet.store.spi.RecurringJobDefinition(
+  private static RecurringJobDefinition recurringDefWithPrincipal(UUID id, String principal) {
+    return new RecurringJobDefinition(
         id,
         "0 * * * * ?",
         "UTC",
@@ -906,11 +907,10 @@ class DefaultJobQueryServiceTest {
         null,
         JobPriority.NORMAL.persistedCode(),
         0,
-        run.ratchet.api.BackoffPolicy.NONE,
+        BackoffPolicy.NONE,
         0,
         0,
-        new run.ratchet.store.entity.JobPayload(
-            "com.example.Recurring", "tick", "()V", true, List.of()),
+        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of()),
         null,
         null,
         null,
@@ -922,9 +922,8 @@ class DefaultJobQueryServiceTest {
         RecurringMisfirePolicy.defaults());
   }
 
-  private static run.ratchet.store.spi.RecurringJobDefinition recurringDefWithBusinessKey(
-      UUID id, String businessKey) {
-    return new run.ratchet.store.spi.RecurringJobDefinition(
+  private static RecurringJobDefinition recurringDefWithBusinessKey(UUID id, String businessKey) {
+    return new RecurringJobDefinition(
         id,
         "0 * * * * ?",
         "UTC",
@@ -933,11 +932,10 @@ class DefaultJobQueryServiceTest {
         null,
         JobPriority.NORMAL.persistedCode(),
         0,
-        run.ratchet.api.BackoffPolicy.NONE,
+        BackoffPolicy.NONE,
         0,
         0,
-        new run.ratchet.store.entity.JobPayload(
-            "com.example.Recurring", "tick", "()V", true, List.of()),
+        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of()),
         null,
         null,
         businessKey,

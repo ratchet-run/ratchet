@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import run.ratchet.consumer.ConsumerProcess;
 
 /** Proves a killed packaged worker is recovered by a fresh process with the same node identity. */
 class SqlRecoveryIT {
@@ -99,7 +100,7 @@ class SqlRecoveryIT {
       throws Exception {
     List<String> arguments =
         new ArrayList<>(
-            run.ratchet.consumer.ConsumerProcess.command(
+            ConsumerProcess.command(
                 "sql-consumer",
                 "--consumer.verify=true",
                 "--ratchet.encryption.enabled=true",

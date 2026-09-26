@@ -33,11 +33,13 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.ExecutorTargets;
@@ -47,6 +49,8 @@ import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.RecurringClaim;
+import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
@@ -71,23 +75,23 @@ class RecurringJobExecutorGraceTest {
   void setUp() {
     // Inspect the emitted plan through recording sinks; the real primitive stores must remain
     // unused.
-    org.mockito.Mockito.lenient()
+    Mockito.lenient()
         .doCallRealMethod()
         .when(recurringJobStore)
         .claimRecurringExecutions(anyInt(), anyString(), any());
-    org.mockito.Mockito.lenient()
+    Mockito.lenient()
         .doAnswer(
             inv -> {
-              run.ratchet.store.spi.RecurringClaim claim = inv.getArgument(0);
+              RecurringClaim claim = inv.getArgument(0);
               plannedMasters.releaseClaim(claim.definition().id());
               return null;
             })
         .when(recurringJobStore)
-        .releaseClaim(any(run.ratchet.store.spi.RecurringClaim.class));
-    org.mockito.Mockito.lenient()
+        .releaseClaim(any(RecurringClaim.class));
+    Mockito.lenient()
         .doAnswer(
             inv -> {
-              List<run.ratchet.store.spi.RecurringExecutionPlan> plans = inv.getArgument(0);
+              List<RecurringExecutionPlan> plans = inv.getArgument(0);
               List<JobEntity> children =
                   plans.stream().flatMap(plan -> plan.children().stream()).toList();
               if (!children.isEmpty()) {
@@ -124,11 +128,10 @@ class RecurringJobExecutorGraceTest {
     RecurringJobDefinition master = recurringMaster(42L, "known-key");
     when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(master));
-    org.mockito.Mockito.doThrow(new IllegalStateException("commit failed"))
+    Mockito.doThrow(new IllegalStateException("commit failed"))
         .when(recurringJobStore)
         .commitRecurringExecutions(any());
-    org.junit.jupiter.api.Assertions.assertThrows(
-        IllegalStateException.class, () -> executor.process(10, "node-A"));
+    Assertions.assertThrows(IllegalStateException.class, () -> executor.process(10, "node-A"));
   }
 
   @Test

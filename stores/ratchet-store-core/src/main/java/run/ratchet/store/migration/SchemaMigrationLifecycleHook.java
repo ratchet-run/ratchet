@@ -20,6 +20,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
+import java.io.IOException;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -126,7 +127,7 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
           result.appliedCount(), result.skippedCount());
     } catch (SchemaInitializationException e) {
       throw e;
-    } catch (RuntimeException | SQLException | java.io.IOException e) {
+    } catch (RuntimeException | SQLException | IOException e) {
       throw new SchemaInitializationException(
           "Ratchet schema auto-migration failed: " + exceptionSummary(e), e);
     }

@@ -27,6 +27,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
+import java.lang.annotation.Annotation;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import run.ratchet.spi.PrincipalSource;
@@ -148,7 +149,7 @@ class CallerPrincipalProviderTest {
   private static Instance.Handle<PrincipalSource> handle(
       Instance<PrincipalSource> instance,
       PrincipalSource source,
-      Class<? extends java.lang.annotation.Annotation> scope) {
+      Class<? extends Annotation> scope) {
     Instance.Handle<PrincipalSource> handle = mock(Instance.Handle.class);
     Bean<PrincipalSource> bean = mock(Bean.class);
     when(instance.getHandle()).thenReturn(handle);

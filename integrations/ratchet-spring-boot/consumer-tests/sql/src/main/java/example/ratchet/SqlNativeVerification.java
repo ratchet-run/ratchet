@@ -30,6 +30,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import run.ratchet.api.JobQueryService;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.SignalStore;
@@ -49,7 +50,7 @@ public class SqlNativeVerification {
       PlatformTransactionManager transactions,
       AfterCommitRegistrar afterCommit,
       JobStore store,
-      run.ratchet.api.JobQueryService queries) {
+      JobQueryService queries) {
     return args -> {
       if (!environment.getProperty("consumer.full-verify", Boolean.class, false)) return;
       check(
