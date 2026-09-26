@@ -187,14 +187,15 @@ def stage(root, repository, policy, output):
                 raise InventoryError(f"Project archive differs from repository: {module}")
             add(tree, role, module, "project")
 
-        def dependencies(node):
+        def dependencies(node, under_test=False):
             for child in node.get("children", []):
                 scope = child["scope"]
                 if scope not in {"compile", "runtime", "provided", "test"}:
                     raise InventoryError(f"Unreviewed Maven scope: {module}: {scope}")
-                selected = "tests" if scope == "test" or role == "metadata" else role
+                in_test = under_test or scope == "test"
+                selected = "tests" if in_test or role == "metadata" else role
                 add(child, selected, module, scope)
-                dependencies(child)
+                dependencies(child, in_test)
 
         dependencies(tree)
         for node, copied, execution in copied_artifacts(directory, model):

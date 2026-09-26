@@ -109,6 +109,25 @@ class OwaspTest(unittest.TestCase):
         self.assertEqual(host["origins"], [{"module": "api", "scope": "provided"}])
         self.assertTrue((self.output / "inputs/runtime" / host["pom"]).is_file())
 
+    def test_test_scoped_descendants_stay_in_tests(self):
+        self.write_module("deployment", node("deployment", "", [
+            node("docker-java"),
+            node("testcontainers-mongodb", "test", [
+                node("testcontainers", "compile", [node("docker-java-transport-zerodep")]),
+            ]),
+        ]))
+        manifest = self.stage()
+        names = {role: {r["coordinate"].split(":")[1] for r in rows}
+                 for role, rows in manifest["roles"].items()}
+        self.assertEqual(names["tooling"], {"deployment", "docker-java"})
+        self.assertEqual(names["tests"], {
+            "it", "junit", "test-server", "testcontainers-mongodb", "testcontainers",
+            "docker-java-transport-zerodep",
+        })
+        child = next(r for r in manifest["roles"]["tests"]
+                     if r["coordinate"].split(":")[1] == "docker-java-transport-zerodep")
+        self.assertEqual(child["origins"], [{"module": "deployment", "scope": "compile"}])
+
     def test_new_module_requires_classification(self):
         del self.policy["api"]
         with self.assertRaisesRegex(InventoryError, "Module roles differ"):

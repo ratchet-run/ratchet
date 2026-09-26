@@ -104,6 +104,51 @@
       "pkg:maven/org.mongodb/mongodb-driver-core@5.7.0",
       "CVE-2026-88033",
       false
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.0.2",
+      "CVE-2026-54399",
+      true
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.0.2",
+      "CVE-2026-54428",
+      true
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.core5/httpcore5-h2@5.0.2",
+      "CVE-2026-54399",
+      true
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.core5/httpcore5-h2@5.0.2",
+      "CVE-2026-54428",
+      true
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.3.6",
+      "CVE-2026-54399",
+      false
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.core5/httpcore5-h2@5.3.6",
+      "CVE-2026-54428",
+      false
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.core5/httpcore5@5.0.2",
+      "CVE-2026-64607",
+      false
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.client5/httpclient5@5.5.1",
+      "CVE-2026-71290",
+      false
+    ],
+    [
+      "pkg:maven/org.apache.httpcomponents.core5/httpcore5-reactive@5.0.2",
+      "CVE-2026-54399",
+      false
     ]
   ]
 }

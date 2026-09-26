@@ -13,7 +13,7 @@ class SuppressionTest(unittest.TestCase):
         ns = {"s": "https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.4.xsd"}
         rules = ET.parse(root / "owasp-suppressions.xml").getroot()
         cases = json.loads(Path(__file__).with_name("owasp-suppression-controls.json").read_text())["cases"]
-        self.assertEqual(len(cases), 21)
+        self.assertEqual(len(cases), 30)
         self.assertEqual(len({(p, c) for p, c, _ in cases}), len(cases))
         # This fast CI guard intentionally rejects selector forms it cannot
         # model. Extending the policy then requires controls for that form,
