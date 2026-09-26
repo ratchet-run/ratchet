@@ -5,23 +5,6 @@ description: Run persistent Ratchet jobs in Spring Boot 3.5 and 4.1 with SQL or 
 
 # Spring Boot
 
-<!-- spring-starter-unreleased:start -->
-The SQL and MongoDB starters are unreleased in this checkout. Build and stage the current source
-tree before using these examples; no Ratchet release BOM currently supplies Spring Boot starter
-coordinates.
-
-```bash
-staged_repo="$(mktemp -d)"
-mvn -B -ntp -Dmaven.repo.local="$staged_repo" \
-  -pl :ratchet-bom,:ratchet-spring-boot-starter,:ratchet-spring-boot-starter-mongodb,:ratchet-store-postgresql -am \
-  install -Pgithub -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
-```
-
-The command stages the BOM, both starters, and the PostgreSQL store used by this quickstart;
-`-am` adds their reactor dependencies. The checked-out version below must match the root project
-POM.
-<!-- spring-starter-unreleased:end -->
-
 Ratchet runs in Spring Boot 3.5 and 4.1 applications on Java 17 or later. The SQL starter uses the application's existing datasource, entity-manager factory, and transaction manager. The MongoDB starter uses Boot's configured Mongo client and database factory.
 
 ## SQL quickstart
@@ -33,7 +16,7 @@ compatibility target. Set the Ratchet version in your application's Maven proper
 ```xml
 <properties>
   <java.version>17</java.version>
-  <ratchet.version>0.5.0-SNAPSHOT</ratchet.version>
+  <ratchet.version>0.5.0</ratchet.version>
 </properties>
 ```
 
@@ -168,7 +151,7 @@ public class DemoApplication {
 Run the application with your normal Boot Maven plugin:
 
 ```bash
-mvn -Dmaven.repo.local="$staged_repo" spring-boot:run
+mvn spring-boot:run
 ```
 
 Startup prepares the Ratchet schema, starts the scheduler, and prints the greeting when the job
