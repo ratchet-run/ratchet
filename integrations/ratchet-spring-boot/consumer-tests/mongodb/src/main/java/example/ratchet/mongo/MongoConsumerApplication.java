@@ -15,26 +15,28 @@
  */
 package example.ratchet.mongo;
 
+import example.ratchet.verification.NativeVerification;
+import example.ratchet.verification.RuntimeVerification;
 import java.time.Duration;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import run.ratchet.api.JobSchedulerService;
 
-@org.springframework.context.annotation.Import(
-    example.ratchet.verification.NativeVerification.class)
+@org.springframework.context.annotation.Import(NativeVerification.class)
 @SpringBootApplication
 public class MongoConsumerApplication {
 
   public static void main(String[] args) throws Exception {
-    example.ratchet.verification.RuntimeVerification.launch(MongoConsumerApplication.class, args);
+    RuntimeVerification.launch(MongoConsumerApplication.class, args);
   }
 
   @Bean
   @org.springframework.core.annotation.Order(-200)
   ApplicationRunner verifyAutomaticDiscovery(
-      run.ratchet.api.JobSchedulerService scheduler, Environment environment) {
+      JobSchedulerService scheduler, Environment environment) {
     return args -> {
       if (environment.getProperty("consumer.full-verify", Boolean.class, false))
         AutomaticSubmitters.submit(scheduler);

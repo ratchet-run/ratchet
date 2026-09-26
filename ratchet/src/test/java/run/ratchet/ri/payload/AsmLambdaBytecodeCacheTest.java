@@ -23,6 +23,7 @@ import java.lang.invoke.MethodHandleInfo;
 import java.lang.invoke.SerializedLambda;
 import java.util.ArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.ClassWriter;
@@ -56,7 +57,7 @@ class AsmLambdaBytecodeCacheTest {
     var loader = new BytecodeLoader("work");
     var executor = Executors.newFixedThreadPool(8);
     try {
-      var results = new ArrayList<java.util.concurrent.Future<?>>();
+      var results = new ArrayList<Future<?>>();
       for (int i = 0; i < 32; i++) {
         String captured = "value-" + i;
         results.add(

@@ -19,21 +19,30 @@ import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import jakarta.inject.Inject;
+import jakarta.interceptor.Interceptor;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ExecutionTargetFilter;
@@ -60,7 +69,7 @@ import run.ratchet.store.spi.ExecutionTargetFilter;
 // This class ships only in ratchet-tck-store's tests classifier.
 @ApplicationScoped
 @Alternative
-@Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION + 100)
+@Priority(Interceptor.Priority.APPLICATION + 100)
 public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   private final Map<UUID, JobEntity> jobs = new HashMap<>();
@@ -97,8 +106,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     if (job.getIdempotencyKey() != null) {
       UUID previous = idempotencyKeys.putIfAbsent(job.getIdempotencyKey(), job.getId());
       if (previous != null && !previous.equals(job.getId()))
-        throw new run.ratchet.api.exception.DuplicateIdempotencyKeyException(
-            job.getIdempotencyKey(), null);
+        throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), null);
     }
     jobs.put(job.getId(), job);
     return job;
@@ -115,8 +123,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     if (job.getIdempotencyKey() != null) {
       UUID previous = idempotencyKeys.putIfAbsent(job.getIdempotencyKey(), job.getId());
       if (previous != null && !previous.equals(job.getId()))
-        throw new run.ratchet.api.exception.DuplicateIdempotencyKeyException(
-            job.getIdempotencyKey(), null);
+        throw new DuplicateIdempotencyKeyException(job.getIdempotencyKey(), null);
     }
     jobs.put(job.getId(), job);
     return job;
@@ -294,11 +301,10 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   // ----- JobTerminalStore (real bodies) -----
 
   @Override
-  public synchronized run.ratchet.store.dto.JobCompletionResult commitCompletion(
-      run.ratchet.store.dto.JobCompletionPlan plan) {
+  public synchronized JobCompletionResult commitCompletion(JobCompletionPlan plan) {
     JobEntity job = jobs.get(plan.jobId());
     if (job == null || job.getStatus() != plan.expectedStatus()) {
-      return run.ratchet.store.dto.JobCompletionResult.notCommitted();
+      return JobCompletionResult.notCommitted();
     }
     // Clocked contracts exercise ordinary jobs and signals; batch state is deliberately
     // unsupported.
@@ -309,10 +315,9 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       JobEntity dependent = jobs.get(change.jobId());
       if (dependent == null
           || dependent.getStatus() != change.expectedStatus()
-          || !java.util.Objects.equals(dependent.getVersion(), change.expectedVersion())
-          || !java.util.Objects.equals(
-              dependent.getScheduledTime(), change.expectedScheduledTime())) {
-        throw new run.ratchet.api.exception.RatchetTransientStoreException("Dependency changed");
+          || !Objects.equals(dependent.getVersion(), change.expectedVersion())
+          || !Objects.equals(dependent.getScheduledTime(), change.expectedScheduledTime())) {
+        throw new RatchetTransientStoreException("Dependency changed");
       }
     }
     // Validate every guard before mutating any entity; the monitor is this fixture's transaction.
@@ -335,12 +340,12 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       }
       dependent.setVersion(dependent.getVersion() == null ? 1 : dependent.getVersion() + 1);
     }
-    return new run.ratchet.store.dto.JobCompletionResult(true, null);
+    return new JobCompletionResult(true, null);
   }
 
   @Override
   public synchronized boolean markJobSucceededMinimal(
-      UUID id, java.time.Instant start, java.time.Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     JobEntity job = jobs.get(id);
     if (job == null) {
       return false;
@@ -358,8 +363,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       UUID id,
       String resultJson,
       String resultType,
-      java.time.Instant start,
-      java.time.Instant end,
+      Instant start,
+      Instant end,
       Long durationMs,
       Long queueWaitMs) {
     return markJobSucceededMinimal(id, start, end, durationMs, queueWaitMs);
@@ -518,50 +523,49 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   // ----- NodeStore (no-op heartbeat infrastructure) -----
 
   @Override
-  public synchronized void upsertHeartbeat(String nodeId, java.time.Instant ts) {
+  public synchronized void upsertHeartbeat(String nodeId, Instant ts) {
     // No-op: in-memory store has no node coordination needs.
   }
 
   @Override
-  public synchronized Optional<run.ratchet.store.entity.NodeEntity> findNodeById(String nodeId) {
+  public synchronized Optional<NodeEntity> findNodeById(String nodeId) {
     return Optional.empty();
   }
 
   @Override
-  public synchronized List<run.ratchet.store.entity.NodeEntity> findInactiveNodesSince(
-      java.time.Instant cutoff) {
+  public synchronized List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
     return Collections.emptyList();
   }
 
   @Override
-  public synchronized List<run.ratchet.store.entity.NodeEntity> findAllNodes(int limit) {
+  public synchronized List<NodeEntity> findAllNodes(int limit) {
     return Collections.emptyList();
   }
 
   @Override
-  public synchronized int deleteInactiveNodesSince(java.time.Instant cutoff) {
+  public synchronized int deleteInactiveNodesSince(Instant cutoff) {
     return 0;
   }
 
   @Override
-  public synchronized int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
+  public synchronized int deleteInactiveNodesByIds(Collection<String> nodeIds) {
     return 0;
   }
 
   @Override
-  public synchronized java.time.Instant getDatabaseTime() {
+  public synchronized Instant getDatabaseTime() {
     return clock.instant();
   }
 
   // ----- JobBulkStore (no-op so background orphan-recovery loops don't trip stubs) -----
 
   @Override
-  public synchronized int resetOrphanJobs(java.time.Duration grace) {
+  public synchronized int resetOrphanJobs(Duration grace) {
     return 0;
   }
 
   @Override
-  public synchronized int resetOrphanJobsBefore(java.time.Instant cutoff) {
+  public synchronized int resetOrphanJobsBefore(Instant cutoff) {
     return 0;
   }
 
@@ -571,14 +575,14 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized int deleteDlqOlderThan(java.time.Instant cutoff) {
+  public synchronized int deleteDlqOlderThan(Instant cutoff) {
     return 0;
   }
 
   // ----- LockStore (no-op leases — single-test, no contention) -----
 
   @Override
-  public synchronized boolean tryLock(String name, java.time.Duration ttl, String nodeId) {
+  public synchronized boolean tryLock(String name, Duration ttl, String nodeId) {
     return true;
   }
 
@@ -588,7 +592,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized boolean renewLock(String name, java.time.Duration extension, String nodeId) {
+  public synchronized boolean renewLock(String name, Duration extension, String nodeId) {
     return true;
   }
 

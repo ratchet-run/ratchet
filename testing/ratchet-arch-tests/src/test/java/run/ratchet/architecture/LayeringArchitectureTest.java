@@ -25,7 +25,9 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
+import jakarta.persistence.Entity;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.Incubating;
 
 /**
  * Locks in the module boundaries Ratchet's Jakarta EE spec-candidacy posture depends on. Every rule
@@ -300,7 +302,7 @@ public class LayeringArchitectureTest {
   static final ArchRule entitiesDependOnlyOnStandardJpa =
       classes()
           .that()
-          .areAnnotatedWith(jakarta.persistence.Entity.class)
+          .areAnnotatedWith(Entity.class)
           .should()
           .onlyDependOnClassesThat()
           .resideInAnyPackage(
@@ -353,7 +355,7 @@ public class LayeringArchitectureTest {
   static final ArchRule incubatingMarkerStaysOnApiAndStoreCoreTypes =
       classes()
           .that()
-          .areAnnotatedWith(run.ratchet.api.Incubating.class)
+          .areAnnotatedWith(Incubating.class)
           .should()
           .resideInAnyPackage(API, SPI, STORE_CORE)
           .because(

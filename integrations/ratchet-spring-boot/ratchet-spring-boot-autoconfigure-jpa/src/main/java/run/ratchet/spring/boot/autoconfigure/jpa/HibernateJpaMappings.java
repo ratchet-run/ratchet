@@ -17,6 +17,8 @@ package run.ratchet.spring.boot.autoconfigure.jpa;
 
 import jakarta.persistence.spi.PersistenceProvider;
 import java.io.IOException;
+import java.io.Serializable;
+import java.util.UUID;
 import org.hibernate.Version;
 import org.hibernate.jpa.HibernatePersistenceProvider;
 import org.springframework.aot.hint.MemberCategory;
@@ -60,7 +62,7 @@ final class HibernateJpaMappings {
             .reflection()
             .registerType(TypeReference.of(name), MemberCategory.INVOKE_DECLARED_CONSTRUCTORS);
       }
-      hints.reflection().registerType(java.util.UUID[].class);
+      hints.reflection().registerType(UUID[].class);
       for (String root :
           new String[] {
             "org/hibernate/boot/jaxb/mapping",
@@ -107,9 +109,7 @@ final class HibernateJpaMappings {
       if (type.equals("NClob")) {
         hints.proxies().registerJdkProxy(jdbc, wrapped);
       } else {
-        hints
-            .proxies()
-            .registerJdkProxy(jdbc, wrapped, TypeReference.of(java.io.Serializable.class));
+        hints.proxies().registerJdkProxy(jdbc, wrapped, TypeReference.of(Serializable.class));
       }
     }
   }

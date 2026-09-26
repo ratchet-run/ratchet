@@ -25,11 +25,14 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -700,11 +703,11 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
                 .build();
         List<JobEntity> all = queryStore().searchJobs(filter, 100, 0);
         assertEquals(4, all.size());
-        java.util.Comparator<JobEntity> comparator =
+        Comparator<JobEntity> comparator =
             switch (field) {
-              case STATUS -> java.util.Comparator.comparing(j -> j.getStatus().name());
-              case SCHEDULED_TIME -> java.util.Comparator.comparing(JobEntity::getScheduledTime);
-              case UPDATED_AT -> java.util.Comparator.comparing(JobEntity::getUpdatedAt);
+              case STATUS -> Comparator.comparing(j -> j.getStatus().name());
+              case SCHEDULED_TIME -> Comparator.comparing(JobEntity::getScheduledTime);
+              case UPDATED_AT -> Comparator.comparing(JobEntity::getUpdatedAt);
               default -> throw new IllegalArgumentException();
             };
         if (!ascending) comparator = comparator.reversed();
@@ -857,8 +860,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       persisted.add(persist(newPendingJob()));
       spaceCreationTimestamps();
     }
-    Set<UUID> mine =
-        persisted.stream().map(JobEntity::getId).collect(java.util.stream.Collectors.toSet());
+    Set<UUID> mine = persisted.stream().map(JobEntity::getId).collect(Collectors.toSet());
     JobEntity anchor = persisted.get(2);
 
     String staleCursor =
@@ -911,7 +913,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     return id;
   }
 
-  private static java.util.function.Predicate<UUID> idsOf(UUID... ids) {
+  private static Predicate<UUID> idsOf(UUID... ids) {
     Set<UUID> set = new HashSet<>(Arrays.asList(ids));
     return set::contains;
   }

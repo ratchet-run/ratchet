@@ -22,6 +22,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -36,6 +37,8 @@ import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
@@ -48,7 +51,12 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
+import run.ratchet.store.spi.RecurringExecutionPlan;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
+import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.IsolationCheck;
+import run.ratchet.store.util.SqlJobCompletion;
 
 /**
  * Package-private SQL Server CDI implementation behind the public {@link SqlserverJobStore} type.
@@ -334,15 +342,8 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public run.ratchet.store.dto.JobCompletionResult commitCompletion(
-      run.ratchet.store.dto.JobCompletionPlan plan) {
-    return run.ratchet.store.util.SqlJobCompletion.commit(
-        em,
-        this,
-        this,
-        plan,
-        true,
-        run.ratchet.store.sqlserver.converter.UuidByteArrayConverter::toBytes);
+  public JobCompletionResult commitCompletion(JobCompletionPlan plan) {
+    return SqlJobCompletion.commit(em, this, this, plan, true, UuidByteArrayConverter::toBytes);
   }
 
   @Override
@@ -571,7 +572,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
 
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
-  public int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
+  public int deleteInactiveNodesByIds(Collection<String> nodeIds) {
     return nodeLocks.deleteInactiveNodesByIds(nodeIds);
   }
 
@@ -872,13 +873,13 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   // ---------- RecurringJobStore delegates ----------
 
   @Override
-  public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(
+  public List<RecurringJobDefinition> claimDueRecurring(
       int limit, String nodeId, NodeTagFilter tagFilter) {
     return recurringJobs.claimDueRecurring(limit, nodeId, tagFilter);
   }
 
   @Override
-  public void commitRecurringExecutions(List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+  public void commitRecurringExecutions(List<RecurringExecutionPlan> plans) {
     recurringJobs.commitRecurringExecutions(plans);
   }
 
@@ -888,8 +889,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public boolean cancelRecurringAndArchive(
-      UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
+  public boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason) {
     return recurringJobs.cancelRecurringAndArchive(id, reason);
   }
 
@@ -904,39 +904,37 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public UUID createRecurring(run.ratchet.store.spi.RecurringJobDefinition definition) {
+  public UUID createRecurring(RecurringJobDefinition definition) {
     return recurringJobs.createRecurring(definition);
   }
 
   @Override
-  public boolean updateRecurring(UUID id, run.ratchet.store.spi.RecurringJobDefinition definition) {
+  public boolean updateRecurring(UUID id, RecurringJobDefinition definition) {
     return recurringJobs.updateRecurring(id, definition);
   }
 
   @Override
-  public Optional<run.ratchet.store.spi.RecurringJobDefinition> getRecurring(UUID id) {
+  public Optional<RecurringJobDefinition> getRecurring(UUID id) {
     return recurringJobs.getRecurring(id);
   }
 
   @Override
-  public Optional<run.ratchet.store.spi.RecurringJobDefinition> findRecurringByBusinessKey(
-      String businessKey) {
+  public Optional<RecurringJobDefinition> findRecurringByBusinessKey(String businessKey) {
     return recurringJobs.findRecurringByBusinessKey(businessKey);
   }
 
   @Override
-  public List<run.ratchet.store.spi.RecurringJobDefinition> searchRecurring(
-      run.ratchet.api.JobFilter filter, int limit, int offset) {
+  public List<RecurringJobDefinition> searchRecurring(JobFilter filter, int limit, int offset) {
     return recurringJobs.searchRecurring(filter, limit, offset);
   }
 
   @Override
-  public long countRecurring(run.ratchet.api.JobFilter filter) {
+  public long countRecurring(JobFilter filter) {
     return recurringJobs.countRecurring(filter);
   }
 
   @Override
-  public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
+  public List<RecurringJobDefinition> listAll() {
     return recurringJobs.listAll();
   }
 

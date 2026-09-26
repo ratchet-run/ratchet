@@ -20,6 +20,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Optional;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.migration.SchemaMigrator;
@@ -71,11 +72,11 @@ class SqlserverIdempotencyMigrationTest {
               .map(SchemaMigrator.MigrationScript::version)
               .toList());
       assertEquals(
-          java.util.Optional.of(job.getId()),
+          Optional.of(job.getId()),
           fixture.store().findOriginalJobIdByIdempotencyKey(job.getIdempotencyKey()));
       fixture.store().delete(job.getId());
       assertEquals(
-          java.util.Optional.of(job.getId()),
+          Optional.of(job.getId()),
           fixture.store().findOriginalJobIdByIdempotencyKey(job.getIdempotencyKey()));
     } catch (Exception | AssertionError failure) {
       primaryFailure = failure;

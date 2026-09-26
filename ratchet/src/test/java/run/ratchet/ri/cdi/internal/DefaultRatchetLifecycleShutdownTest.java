@@ -26,6 +26,7 @@ import static org.mockito.Mockito.when;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.util.TypeLiteral;
 import java.lang.annotation.Annotation;
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
@@ -34,6 +35,7 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.mockito.Mockito;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.api.RatchetOptions;
@@ -83,7 +85,7 @@ class DefaultRatchetLifecycleShutdownTest {
     verify(fixture.deadLetterService).stop();
     verify(fixture.jobArchivingService).stop();
     verify(fixture.logPurgeTimer).stop();
-    verify(fixture.jobExecutionCoordinator).shutdown(java.time.Duration.ZERO);
+    verify(fixture.jobExecutionCoordinator).shutdown(Duration.ZERO);
   }
 
   @Test
@@ -99,7 +101,7 @@ class DefaultRatchetLifecycleShutdownTest {
     verify(fixture.deadLetterService).stop();
     verify(fixture.jobArchivingService).stop();
     verify(fixture.logPurgeTimer).stop();
-    verify(fixture.jobExecutionCoordinator).shutdown(java.time.Duration.ZERO);
+    verify(fixture.jobExecutionCoordinator).shutdown(Duration.ZERO);
     verify(fixture.clusterCoordinator).close();
   }
 
@@ -110,7 +112,7 @@ class DefaultRatchetLifecycleShutdownTest {
     fixture.lifecycle.onShutdown();
 
     InOrder inOrder = inOrder(fixture.jobExecutionCoordinator, fixture.clusterCoordinator);
-    inOrder.verify(fixture.jobExecutionCoordinator).shutdown(java.time.Duration.ZERO);
+    inOrder.verify(fixture.jobExecutionCoordinator).shutdown(Duration.ZERO);
     inOrder.verify(fixture.clusterCoordinator).close();
   }
 
@@ -182,7 +184,7 @@ class DefaultRatchetLifecycleShutdownTest {
 
     fixture.lifecycle.onShutdown();
 
-    verify(fixture.clusterCoordinator, org.mockito.Mockito.times(1)).close();
+    verify(fixture.clusterCoordinator, Mockito.times(1)).close();
   }
 
   /** Minimal {@link Instance} stub that just iterates the supplied list. */

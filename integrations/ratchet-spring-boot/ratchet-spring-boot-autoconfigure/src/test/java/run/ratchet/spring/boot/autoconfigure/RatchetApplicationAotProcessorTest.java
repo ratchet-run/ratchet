@@ -23,10 +23,14 @@ import static org.mockito.Mockito.when;
 import example.aot.jobs.ApplicationTypes;
 import example.aot.library.LazyJob;
 import example.aot.library.LibraryTypes;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
+import java.util.stream.Collectors;
 import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,10 +40,12 @@ import org.springframework.aot.generate.GeneratedFiles.Kind;
 import org.springframework.aot.generate.GenerationContext;
 import org.springframework.aot.generate.InMemoryGeneratedFiles;
 import org.springframework.aot.hint.RuntimeHints;
+import org.springframework.aot.hint.TypeReference;
 import org.springframework.aot.hint.predicate.RuntimeHintsPredicates;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
+import run.ratchet.ri.security.PackagePrefixClassPolicy;
 
 class RatchetApplicationAotProcessorTest {
   @Test
@@ -103,8 +109,7 @@ class RatchetApplicationAotProcessorTest {
   void dependencyRegistrationIncludesNestedTypesButDoesNotChangeClassPolicy() {
     var factory = factory();
     factory.registerBeanDefinition("registration", new RootBeanDefinition(Explicit.class));
-    var policy =
-        new run.ratchet.ri.security.PackagePrefixClassPolicy(java.util.Set.of("example.aot.jobs"));
+    var policy = new PackagePrefixClassPolicy(Set.of("example.aot.jobs"));
     factory.registerSingleton("classPolicy", policy);
     assertThat(RatchetApplicationAotProcessor.discover(factory))
         .containsKeys(LibraryTypes.class.getName(), LibraryTypes.Nested.class.getName());
@@ -150,9 +155,7 @@ class RatchetApplicationAotProcessorTest {
       assertThat(
               present
                   .reflection()
-                  .getTypeHint(
-                      org.springframework.aot.hint.TypeReference.of(
-                          "example.optional.application.OptionalJobs")))
+                  .getTypeHint(TypeReference.of("example.optional.application.OptionalJobs")))
           .isNotNull();
     }
     Files.delete(directory.resolve("example/optional/dependency/Dependency.class"));
@@ -166,16 +169,12 @@ class RatchetApplicationAotProcessorTest {
       assertThat(
               hints
                   .reflection()
-                  .getTypeHint(
-                      org.springframework.aot.hint.TypeReference.of(
-                          "example.optional.application.OptionalJobs")))
+                  .getTypeHint(TypeReference.of("example.optional.application.OptionalJobs")))
           .isNull();
       assertThat(
               hints
                   .reflection()
-                  .getTypeHint(
-                      org.springframework.aot.hint.TypeReference.of(
-                          "example.optional.application.HealthyJob")))
+                  .getTypeHint(TypeReference.of("example.optional.application.HealthyJob")))
           .isNotNull();
     }
   }
@@ -273,11 +272,11 @@ class RatchetApplicationAotProcessorTest {
             path -> {
               try {
                 return files.getGeneratedFileContent(Kind.RESOURCE, path);
-              } catch (java.io.IOException failure) {
-                throw new java.io.UncheckedIOException(failure);
+              } catch (IOException failure) {
+                throw new UncheckedIOException(failure);
               }
             })
-        .collect(java.util.stream.Collectors.joining("\n"));
+        .collect(Collectors.joining("\n"));
   }
 
   private static DefaultListableBeanFactory factory() {

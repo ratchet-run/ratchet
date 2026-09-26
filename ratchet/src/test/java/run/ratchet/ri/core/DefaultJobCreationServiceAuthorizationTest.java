@@ -73,6 +73,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -88,7 +89,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Mock private BatchStore batchStore;
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
-  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
+  @Mock private RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private TracingCollector tracingCollector;
   @Mock private JobAuthorizationPolicy authorizationPolicy;

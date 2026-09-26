@@ -45,6 +45,8 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
 import run.ratchet.consumer.sql.SqlDatabase;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.migration.SchemaMigrator;
+import run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect;
 
 class MultiplePersistenceUnitsRuntimeIT {
   @Test
@@ -127,9 +129,7 @@ class MultiplePersistenceUnitsRuntimeIT {
       if (mismatch.equals("factory")) {
         // Give the wrong persistence unit a valid schema so the resource-coherence guard,
         // rather than Hibernate's missing-table check, must reject this configuration.
-        new run.ratchet.store.migration.SchemaMigrator(
-                RuntimeSupport.dataSource(audit),
-                new run.ratchet.store.postgresql.PostgresqlSchemaMigrationDialect())
+        new SchemaMigrator(RuntimeSupport.dataSource(audit), new PostgresqlSchemaMigrationDialect())
             .migrate();
       }
       String expected =

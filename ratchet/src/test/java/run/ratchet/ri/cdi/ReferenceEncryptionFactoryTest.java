@@ -20,8 +20,12 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Optional;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.EncryptionConfigurationException;
 import run.ratchet.ri.cdi.ReferenceEncryptionFactory.ReferenceEncryption;
@@ -30,7 +34,7 @@ class ReferenceEncryptionFactoryTest {
 
   private static String key(byte fill) {
     byte[] raw = new byte[32];
-    java.util.Arrays.fill(raw, fill);
+    Arrays.fill(raw, fill);
     return Base64.getEncoder().encodeToString(raw);
   }
 
@@ -93,9 +97,9 @@ class ReferenceEncryptionFactoryTest {
           assertThrows(
               EncryptionConfigurationException.class,
               () -> ReferenceEncryptionFactory.build(spec, null, 0L));
-      java.io.StringWriter rendered = new java.io.StringWriter();
-      failure.printStackTrace(new java.io.PrintWriter(rendered));
-      org.junit.jupiter.api.Assertions.assertFalse(rendered.toString().contains(secret));
+      StringWriter rendered = new StringWriter();
+      failure.printStackTrace(new PrintWriter(rendered));
+      Assertions.assertFalse(rendered.toString().contains(secret));
     }
   }
 
@@ -115,9 +119,9 @@ class ReferenceEncryptionFactoryTest {
           assertThrows(
               EncryptionConfigurationException.class,
               () -> ReferenceEncryptionFactory.build(configuration[0], configuration[1], 0L));
-      java.io.StringWriter rendered = new java.io.StringWriter();
-      failure.printStackTrace(new java.io.PrintWriter(rendered));
-      org.junit.jupiter.api.Assertions.assertFalse(rendered.toString().contains(secret));
+      StringWriter rendered = new StringWriter();
+      failure.printStackTrace(new PrintWriter(rendered));
+      Assertions.assertFalse(rendered.toString().contains(secret));
     }
   }
 

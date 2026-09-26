@@ -41,11 +41,13 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.RecurringMisfirePolicy;
+import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
@@ -63,6 +65,8 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -84,7 +88,7 @@ class DefaultJobSchedulerServiceEventTest {
   @Mock private BatchStore batchStore;
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
-  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
+  @Mock private RecurringJobStore recurringJobStore;
   @Mock private JobWakeupService wakeupService;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private DefaultJobCreationService jobCreationService;
@@ -214,14 +218,13 @@ class DefaultJobSchedulerServiceEventTest {
         .thenReturn(false);
     when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(recurringDef(false)));
     when(recurringJobStore.cancelRecurringAndArchive(
-            JOB_ID, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.CANCELED))
+            JOB_ID, RecurringJobStore.ArchiveReason.CANCELED))
         .thenReturn(true);
 
     assertTrue(service.cancelJob(JOB_ID));
 
     verify(recurringJobStore)
-        .cancelRecurringAndArchive(
-            JOB_ID, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.CANCELED);
+        .cancelRecurringAndArchive(JOB_ID, RecurringJobStore.ArchiveReason.CANCELED);
   }
 
   @Test
@@ -247,7 +250,7 @@ class DefaultJobSchedulerServiceEventTest {
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.empty());
     when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(recurringDef(false)));
     when(recurringJobStore.cancelRecurringAndArchive(
-            JOB_ID, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.CANCELED))
+            JOB_ID, RecurringJobStore.ArchiveReason.CANCELED))
         .thenReturn(true);
 
     assertTrue(service.cancelJob(JOB_ID));
@@ -266,7 +269,7 @@ class DefaultJobSchedulerServiceEventTest {
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.empty());
     when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(recurringDef(true)));
     when(recurringJobStore.cancelRecurringAndArchive(
-            JOB_ID, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.CANCELED))
+            JOB_ID, RecurringJobStore.ArchiveReason.CANCELED))
         .thenReturn(true);
 
     assertTrue(service.cancelJob(JOB_ID));
@@ -408,8 +411,8 @@ class DefaultJobSchedulerServiceEventTest {
     verify(eventPublisher, never()).publish(any());
   }
 
-  private static run.ratchet.store.spi.RecurringJobDefinition recurringDef(boolean paused) {
-    return new run.ratchet.store.spi.RecurringJobDefinition(
+  private static RecurringJobDefinition recurringDef(boolean paused) {
+    return new RecurringJobDefinition(
         JOB_ID,
         "0 * * * * ?",
         "UTC",
@@ -418,7 +421,7 @@ class DefaultJobSchedulerServiceEventTest {
         paused ? FIXED_NOW : null,
         JobPriority.HIGH.persistedCode(),
         0,
-        run.ratchet.api.BackoffPolicy.NONE,
+        BackoffPolicy.NONE,
         0,
         0,
         null,
@@ -450,8 +453,7 @@ class DefaultJobSchedulerServiceEventTest {
     return assertInstanceOf(type, eventCaptor.getValue());
   }
 
-  private static void assertCommonJobEvent(
-      run.ratchet.api.event.AbstractJobSchedulerEvent event, JobType jobType) {
+  private static void assertCommonJobEvent(AbstractJobSchedulerEvent event, JobType jobType) {
     assertEquals(JOB_ID, event.getJobId());
     assertEquals("business-90", event.getBusinessKey());
     assertEquals(jobType, event.getJobType());

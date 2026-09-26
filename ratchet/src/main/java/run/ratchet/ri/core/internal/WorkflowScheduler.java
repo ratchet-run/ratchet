@@ -20,6 +20,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -483,7 +484,7 @@ public class WorkflowScheduler extends ChainScheduler {
   }
 
   private static DependencyTransition transition(
-      JobEntity child, JobStatus status, java.time.Instant scheduledTime, JobExecutionType type) {
+      JobEntity child, JobStatus status, Instant scheduledTime, JobExecutionType type) {
     return new DependencyTransition(
         child.getId(),
         child.getStatus(),

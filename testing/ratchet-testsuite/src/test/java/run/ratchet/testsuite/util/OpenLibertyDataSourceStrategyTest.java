@@ -18,6 +18,7 @@ package run.ratchet.testsuite.util;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -49,7 +50,7 @@ class OpenLibertyDataSourceStrategyTest {
   @Test
   void configureArchiveRejectsServerConfigDirThatIsNotDirectory() throws Exception {
     Path file = tempDir.resolve("server.xml");
-    java.nio.file.Files.writeString(file, "<server/>");
+    Files.writeString(file, "<server/>");
 
     String original = System.getProperty(SERVER_CONFIG_DIR_PROPERTY);
     System.setProperty(SERVER_CONFIG_DIR_PROPERTY, file.toString());

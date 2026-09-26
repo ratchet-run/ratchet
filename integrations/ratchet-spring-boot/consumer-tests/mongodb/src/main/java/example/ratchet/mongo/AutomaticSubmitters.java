@@ -17,6 +17,7 @@ package example.ratchet.mongo;
 
 import static example.ratchet.verification.NativeVerification.track;
 
+import example.ratchet.verification.NativeVerification;
 import java.io.Serializable;
 import run.ratchet.api.JobSchedulerService;
 
@@ -49,7 +50,7 @@ public class AutomaticSubmitters {
   }
 
   public static void record(String value) {
-    example.ratchet.verification.NativeVerification.record(value);
+    NativeVerification.record(value);
   }
 
   public static void recordArgument(Argument argument) {

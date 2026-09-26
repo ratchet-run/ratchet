@@ -62,6 +62,8 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
@@ -240,8 +242,7 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
-  public run.ratchet.store.dto.JobCompletionResult commitCompletion(
-      run.ratchet.store.dto.JobCompletionPlan plan) {
+  public JobCompletionResult commitCompletion(JobCompletionPlan plan) {
     return MongoCompletionOperations.commit(ctx, reservations, plan);
   }
 

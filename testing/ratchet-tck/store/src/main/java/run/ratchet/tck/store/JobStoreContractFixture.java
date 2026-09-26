@@ -18,6 +18,7 @@ package run.ratchet.tck.store;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.UUID;
+import org.opentest4j.TestAbortedException;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
@@ -67,7 +68,7 @@ public interface JobStoreContractFixture {
                 // Abort (not fail): a store that does not advertise this optional capability makes
                 // the capability's contract not-applicable. JUnit reports the test as skipped, and
                 // the conformance report records it as N/A rather than MISSING.
-                new org.opentest4j.TestAbortedException(
+                new TestAbortedException(
                     "store under test does not advertise the "
                         + type.getSimpleName()
                         + " capability — capability contract skipped (N/A)"));

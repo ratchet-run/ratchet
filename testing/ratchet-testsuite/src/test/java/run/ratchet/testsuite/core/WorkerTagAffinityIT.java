@@ -22,6 +22,7 @@ import jakarta.inject.Inject;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
@@ -149,9 +150,7 @@ class WorkerTagAffinityIT extends BaseRatchetIT {
     assertTrue(nodeBIds.contains(untaggedJob.getId()), "node-B should claim untagged job");
 
     List<UUID> allClaimed =
-        java.util.stream.Stream.concat(nodeAClaims.stream(), nodeBClaims.stream())
-            .map(JobClaimDto::id)
-            .toList();
+        Stream.concat(nodeAClaims.stream(), nodeBClaims.stream()).map(JobClaimDto::id).toList();
     assertEquals(
         allClaimed.stream().distinct().count(),
         allClaimed.size(),

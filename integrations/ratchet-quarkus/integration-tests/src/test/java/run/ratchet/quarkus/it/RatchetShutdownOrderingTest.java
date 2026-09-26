@@ -26,6 +26,7 @@ import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Event;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -40,7 +41,7 @@ class RatchetShutdownOrderingTest {
   @Inject Event<ShutdownEvent> shutdown;
   @Inject ShutdownState probe;
   @Inject RatchetLifecycle lifecycle;
-  @Inject jakarta.enterprise.inject.Instance<SchedulerLifecycleHook> hooks;
+  @Inject Instance<SchedulerLifecycleHook> hooks;
 
   @Test
   void stopsSchedulerOnShutdownEventWhilePersistenceIsAvailable() {

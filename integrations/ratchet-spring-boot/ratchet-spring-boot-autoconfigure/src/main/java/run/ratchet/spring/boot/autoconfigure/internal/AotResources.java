@@ -18,7 +18,9 @@ package run.ratchet.spring.boot.autoconfigure.internal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.Objects;
 import org.springframework.aot.generate.GeneratedFiles;
 import org.springframework.core.io.ByteArrayResource;
 
@@ -47,9 +49,8 @@ public final class AotResources {
             handler.create(new ByteArrayResource(bytes));
             return;
           }
-          try (var existing =
-              java.util.Objects.requireNonNull(handler.getContent()).getInputStream()) {
-            if (!java.util.Arrays.equals(existing.readAllBytes(), bytes)) {
+          try (var existing = Objects.requireNonNull(handler.getContent()).getInputStream()) {
+            if (!Arrays.equals(existing.readAllBytes(), bytes)) {
               throw new IllegalStateException(
                   "Incompatible Ratchet AOT contexts generated " + path);
             }

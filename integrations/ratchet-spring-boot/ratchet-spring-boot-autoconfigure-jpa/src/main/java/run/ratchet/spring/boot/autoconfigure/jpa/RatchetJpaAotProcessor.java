@@ -15,6 +15,8 @@
  */
 package run.ratchet.spring.boot.autoconfigure.jpa;
 
+import jakarta.persistence.spi.PersistenceProvider;
+import jakarta.persistence.spi.PersistenceUnitInfo;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -22,13 +24,16 @@ import java.util.Objects;
 import java.util.stream.Stream;
 import org.springframework.aot.hint.BindingReflectionHintsRegistrar;
 import org.springframework.aot.hint.MemberCategory;
+import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.TypeReference;
 import org.springframework.beans.factory.aot.BeanFactoryInitializationAotContribution;
 import org.springframework.beans.factory.aot.BeanFactoryInitializationAotProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
 import org.springframework.util.ClassUtils;
 import run.ratchet.spring.boot.autoconfigure.internal.AotResources;
 import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaAotSettings;
+import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings;
 import run.ratchet.store.schema.RatchetJpaModel;
 
 /** Compiles SQL metadata without obtaining a DataSource or starting the persistence provider. */
@@ -60,8 +65,7 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
     if ("application".equals(ownership)) {
       try (var stream = loader.getResourceAsStream("META-INF/orm.xml")) {
         applicationOrm =
-            new String(
-                java.util.Objects.requireNonNull(stream).readAllBytes(), StandardCharsets.UTF_8);
+            new String(Objects.requireNonNull(stream).readAllBytes(), StandardCharsets.UTF_8);
       } catch (IOException failure) {
         throw new IllegalStateException("Cannot copy application-owned orm.xml", failure);
       }
@@ -118,13 +122,9 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
               TypeReference.of("org.springframework.aop.SpringProxy"),
               TypeReference.of("org.springframework.aop.framework.Advised"),
               TypeReference.of("org.springframework.core.DecoratingProxy"));
-      hints.proxies().registerJdkProxy(jakarta.persistence.spi.PersistenceProvider.class);
-      hints.proxies().registerJdkProxy(jakarta.persistence.spi.PersistenceUnitInfo.class);
-      hints
-          .proxies()
-          .registerJdkProxy(
-              jakarta.persistence.spi.PersistenceUnitInfo.class,
-              org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo.class);
+      hints.proxies().registerJdkProxy(PersistenceProvider.class);
+      hints.proxies().registerJdkProxy(PersistenceUnitInfo.class);
+      hints.proxies().registerJdkProxy(PersistenceUnitInfo.class, SmartPersistenceUnitInfo.class);
       hints.resources().registerPattern(mapping);
       hints.resources().registerPattern("ddl/**");
       hints.resources().registerPattern(RatchetJpaAotSettings.RESOURCE);
@@ -149,8 +149,7 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
     };
   }
 
-  private static void registerStore(
-      org.springframework.aot.hint.RuntimeHints hints, Class<?> type) {
+  private static void registerStore(RuntimeHints hints, Class<?> type) {
     hints.reflection().registerType(type, MemberCategory.INVOKE_DECLARED_METHODS);
     for (Class<?> parent : type.getInterfaces()) registerStore(hints, parent);
     String implementation = type.getName() + "Impl";
@@ -164,7 +163,6 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
   }
 
   static String defaultMappingOwnership(ClassLoader loader) {
-    return run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaMappings
-        .defaultMappingOwnership(loader);
+    return RatchetJpaMappings.defaultMappingOwnership(loader);
   }
 }

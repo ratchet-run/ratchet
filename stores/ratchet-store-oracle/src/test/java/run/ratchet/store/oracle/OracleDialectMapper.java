@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.oracle;
 
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -118,8 +120,7 @@ final class OracleDialectMapper implements DialectTypeMapper {
 
   @Override
   public String resolveIndexColumn(
-      java.sql.Connection connection, String indexName, int position, String column)
-      throws java.sql.SQLException {
+      Connection connection, String indexName, int position, String column) throws SQLException {
     if (!column.startsWith("SYS_NC")) {
       return column;
     }

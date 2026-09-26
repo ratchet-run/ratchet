@@ -25,16 +25,19 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import run.ratchet.api.*;
 import run.ratchet.consumer.TcpFaultProxy;
 import run.ratchet.consumer.sql.SqlDatabase;
 import run.ratchet.ri.core.DrainController;
 
 public class DatabaseFailuresRuntimeIT {
-  static final java.util.concurrent.atomic.AtomicInteger executions =
-      new java.util.concurrent.atomic.AtomicInteger();
+  static final AtomicInteger executions = new AtomicInteger();
   static CountDownLatch entered;
   static CountDownLatch release;
 
@@ -78,13 +81,11 @@ public class DatabaseFailuresRuntimeIT {
           wire.reconnect();
           await()
               .atMost(Duration.ofSeconds(20))
-              .ignoreExceptionsInstanceOf(
-                  org.springframework.jdbc.CannotGetJdbcConnectionException.class)
+              .ignoreExceptionsInstanceOf(CannotGetJdbcConnectionException.class)
               .untilAsserted(
                   () ->
                       assertThat(
-                              new org.springframework.jdbc.core.JdbcTemplate(
-                                      context.getBean(javax.sql.DataSource.class))
+                              new JdbcTemplate(context.getBean(DataSource.class))
                                   .queryForObject("select 1", Integer.class))
                           .isEqualTo(1));
           RuntimeSupport.status(context, pending, JobStatus.SUCCEEDED);

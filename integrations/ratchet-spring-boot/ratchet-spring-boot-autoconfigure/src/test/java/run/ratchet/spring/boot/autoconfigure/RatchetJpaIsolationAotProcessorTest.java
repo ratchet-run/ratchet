@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import jakarta.persistence.spi.PersistenceProvider;
+import jakarta.persistence.spi.PersistenceUnitInfo;
 import org.junit.jupiter.api.Test;
 import org.springframework.aot.generate.GeneratedFiles.Kind;
 import org.springframework.aot.generate.GenerationContext;
@@ -27,6 +29,7 @@ import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.predicate.RuntimeHintsPredicates;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
 import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaAotSettings;
 
 class RatchetJpaIsolationAotProcessorTest {
@@ -54,15 +57,11 @@ class RatchetJpaIsolationAotProcessorTest {
     assertThat(
             files.getGeneratedFileContent(Kind.RESOURCE, RatchetJpaAotSettings.ISOLATION_RESOURCE))
         .isEqualTo("default-orm=ratchet\n");
-    assertThat(
-            RuntimeHintsPredicates.proxies()
-                .forInterfaces(jakarta.persistence.spi.PersistenceProvider.class))
+    assertThat(RuntimeHintsPredicates.proxies().forInterfaces(PersistenceProvider.class))
         .accepts(hints);
     assertThat(
             RuntimeHintsPredicates.proxies()
-                .forInterfaces(
-                    jakarta.persistence.spi.PersistenceUnitInfo.class,
-                    org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo.class))
+                .forInterfaces(PersistenceUnitInfo.class, SmartPersistenceUnitInfo.class))
         .accepts(hints);
     assertThat(
             RuntimeHintsPredicates.resource().forResource(RatchetJpaAotSettings.ISOLATION_RESOURCE))

@@ -33,19 +33,27 @@ import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 
+import com.github.dockerjava.api.model.Ulimit;
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.bson.BsonDecimal128;
 import org.bson.BsonInt32;
 import org.bson.Document;
@@ -72,10 +80,7 @@ class MongoIndexConformanceTest {
               command ->
                   command
                       .getHostConfig()
-                      .withUlimits(
-                          List.of(
-                              new com.github.dockerjava.api.model.Ulimit(
-                                  "nofile", 65536L, 65536L))))
+                      .withUlimits(List.of(new Ulimit("nofile", 65536L, 65536L))))
           .withReplicaSet()
           .waitingFor(
               Wait.forLogMessage("(?i).*waiting for connections.*", 1)
@@ -112,15 +117,13 @@ class MongoIndexConformanceTest {
             new Document(ID, original)
                 .append(IDEMPOTENCY_KEY, "pre-upgrade-key")
                 .append(STATUS, "SUCCEEDED")
-                .append("created_at", new java.util.Date()));
+                .append("created_at", new Date()));
     var initializer = new MongoCollectionInitializer(database, client);
     initializer.initialize();
-    assertEquals(
-        java.util.Optional.of(original), MongoIdempotencyKeys.find(database, "pre-upgrade-key"));
+    assertEquals(Optional.of(original), MongoIdempotencyKeys.find(database, "pre-upgrade-key"));
     database.getCollection("scheduler_job").deleteMany(new Document());
     initializer.initialize();
-    assertEquals(
-        java.util.Optional.of(original), MongoIdempotencyKeys.find(database, "pre-upgrade-key"));
+    assertEquals(Optional.of(original), MongoIdempotencyKeys.find(database, "pre-upgrade-key"));
   }
 
   @Test
@@ -131,14 +134,14 @@ class MongoIndexConformanceTest {
         .insertOne(
             new Document("_id", "conflict-key")
                 .append("original_job_id", UUID.randomUUID())
-                .append("reserved_at", new java.util.Date()));
+                .append("reserved_at", new Date()));
     database
         .getCollection("scheduler_job")
         .insertOne(
             new Document(ID, UUID.randomUUID())
                 .append(IDEMPOTENCY_KEY, "conflict-key")
                 .append(STATUS, "SUCCEEDED")
-                .append("created_at", new java.util.Date()));
+                .append("created_at", new Date()));
     assertThrows(
         RuntimeException.class,
         () -> new MongoCollectionInitializer(database, client).initialize());
@@ -146,17 +149,17 @@ class MongoIndexConformanceTest {
 
   @Test
   void validationListsCollectionsOnceAndRefreshesOnNextPass() {
-    var listings = new java.util.concurrent.atomic.AtomicInteger();
+    var listings = new AtomicInteger();
     var observed =
         (MongoDatabase)
-            java.lang.reflect.Proxy.newProxyInstance(
+            Proxy.newProxyInstance(
                 MongoDatabase.class.getClassLoader(),
                 new Class<?>[] {MongoDatabase.class},
                 (proxy, method, args) -> {
                   if (method.getName().equals("listCollectionNames")) listings.incrementAndGet();
                   try {
                     return method.invoke(database, args);
-                  } catch (java.lang.reflect.InvocationTargetException failure) {
+                  } catch (InvocationTargetException failure) {
                     throw failure.getCause();
                   }
                 });
@@ -171,10 +174,10 @@ class MongoIndexConformanceTest {
 
   @Test
   void validationListsIndexesOncePerCollectionAndRefreshesOnNextPass() {
-    var listings = new java.util.HashMap<String, Integer>();
+    var listings = new HashMap<String, Integer>();
     var observed =
         (MongoDatabase)
-            java.lang.reflect.Proxy.newProxyInstance(
+            Proxy.newProxyInstance(
                 MongoDatabase.class.getClassLoader(),
                 new Class<?>[] {MongoDatabase.class},
                 (proxy, method, args) -> {
@@ -182,22 +185,22 @@ class MongoIndexConformanceTest {
                     Object result = method.invoke(database, args);
                     if (method.getName().equals("getCollection")) {
                       String name = (String) args[0];
-                      return java.lang.reflect.Proxy.newProxyInstance(
-                          com.mongodb.client.MongoCollection.class.getClassLoader(),
-                          new Class<?>[] {com.mongodb.client.MongoCollection.class},
+                      return Proxy.newProxyInstance(
+                          MongoCollection.class.getClassLoader(),
+                          new Class<?>[] {MongoCollection.class},
                           (collectionProxy, collectionMethod, collectionArgs) -> {
                             if (collectionMethod.getName().equals("listIndexes")) {
                               listings.merge(name, 1, Integer::sum);
                             }
                             try {
                               return collectionMethod.invoke(result, collectionArgs);
-                            } catch (java.lang.reflect.InvocationTargetException failure) {
+                            } catch (InvocationTargetException failure) {
                               throw failure.getCause();
                             }
                           });
                     }
                     return result;
-                  } catch (java.lang.reflect.InvocationTargetException failure) {
+                  } catch (InvocationTargetException failure) {
                     throw failure.getCause();
                   }
                 });
@@ -261,7 +264,7 @@ class MongoIndexConformanceTest {
         List.of(Decimal128.NaN, Decimal128.POSITIVE_INFINITY, Decimal128.NEGATIVE_INFINITY)) {
       assertFalse(
           MongoCollectionInitializer.indexKeyValueEquals(
-              new org.bson.BsonInt32(1), new org.bson.BsonDecimal128(value)));
+              new BsonInt32(1), new BsonDecimal128(value)));
     }
   }
 

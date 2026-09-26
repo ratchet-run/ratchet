@@ -22,10 +22,21 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionPlan.BatchCompletion;
+import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
 
 /** Base contract tests for {@code JobTerminalStore}. */
 public abstract class AbstractJobTerminalStoreContract implements JobStoreContractFixture {
@@ -56,7 +67,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     store().compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     Instant now = Instant.now();
     var transition =
-        new run.ratchet.store.dto.JobCompletionPlan.DependencyTransition(
+        new DependencyTransition(
             snapshot.getId(),
             snapshot.getStatus(),
             snapshot.getVersion(),
@@ -65,7 +76,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             Instant.parse("2026-01-01T00:00:00Z"),
             snapshot.getJobType());
     var plan =
-        new run.ratchet.store.dto.JobCompletionPlan(
+        new JobCompletionPlan(
             child.getId(),
             JobStatus.RUNNING,
             JobStatus.SUCCEEDED,
@@ -79,19 +90,19 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             batch.getId(),
             null,
-            java.util.List.of(transition));
-    var bothInTransaction = new java.util.concurrent.CountDownLatch(2);
-    var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+            List.of(transition));
+    var bothInTransaction = new CountDownLatch(2);
+    var executor = Executors.newFixedThreadPool(2);
     try {
-      java.util.concurrent.Callable<Boolean> complete =
+      Callable<Boolean> complete =
           () -> {
-            var committed = new java.util.concurrent.atomic.AtomicBoolean();
+            var committed = new AtomicBoolean();
             inCompletionTransaction(
                 () -> {
                   bothInTransaction.countDown();
                   try {
                     assertTrue(
-                        bothInTransaction.await(20, java.util.concurrent.TimeUnit.SECONDS),
+                        bothInTransaction.await(20, TimeUnit.SECONDS),
                         "both contenders must reach the transaction barrier");
                   } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
@@ -105,11 +116,10 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
       var second = executor.submit(complete);
       assertEquals(
           1,
-          (first.get(30, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0)
-              + (second.get(30, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0));
+          (first.get(30, TimeUnit.SECONDS) ? 1 : 0) + (second.get(30, TimeUnit.SECONDS) ? 1 : 0));
     } finally {
       executor.shutdownNow();
-      assertTrue(executor.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS));
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
     }
     assertEquals(1, batchStore().findBatchById(batch.getId()).orElseThrow().getCompletedItems());
     var after = store().findById(snapshot.getId()).orElseThrow();
@@ -120,7 +130,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
 
   @Test
   void completionPreservesBothUnchangedAndChangedAttemptCounts() {
-    for (JobStatus terminal : java.util.List.of(JobStatus.SUCCEEDED, JobStatus.FAILED)) {
+    for (JobStatus terminal : List.of(JobStatus.SUCCEEDED, JobStatus.FAILED)) {
       for (int plannedAttempts : new int[] {2, 5}) {
         var job = newPendingJob();
         job.setAttempts(2);
@@ -128,7 +138,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
         store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
         Instant now = Instant.now();
         var plan =
-            new run.ratchet.store.dto.JobCompletionPlan(
+            new JobCompletionPlan(
                 job.getId(),
                 JobStatus.RUNNING,
                 terminal,
@@ -142,7 +152,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
                 0L,
                 null,
                 null,
-                java.util.List.of());
+                List.of());
 
         assertTrue(store().commitCompletion(plan).committed());
 
@@ -166,7 +176,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     var snapshot = store().findById(child.getId()).orElseThrow();
     Instant now = Instant.now();
     var transition =
-        new run.ratchet.store.dto.JobCompletionPlan.DependencyTransition(
+        new DependencyTransition(
             child.getId(),
             snapshot.getStatus(),
             snapshot.getVersion(),
@@ -175,7 +185,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             Instant.parse("2026-01-01T00:00:00Z"),
             snapshot.getJobType());
     var plan =
-        new run.ratchet.store.dto.JobCompletionPlan(
+        new JobCompletionPlan(
             parent.getId(),
             JobStatus.RUNNING,
             JobStatus.SUCCEEDED,
@@ -189,7 +199,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             null,
             null,
-            java.util.List.of(transition));
+            List.of(transition));
     assertTrue(store().commitCompletion(plan).committed());
     assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());
     assertEquals(
@@ -204,7 +214,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     Instant now = Instant.now();
     var plan =
-        new run.ratchet.store.dto.JobCompletionPlan(
+        new JobCompletionPlan(
             job.getId(),
             JobStatus.RUNNING,
             JobStatus.SUCCEEDED,
@@ -216,11 +226,10 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             now,
             0L,
             0L,
-            java.util.UUID.randomUUID(),
+            UUID.randomUUID(),
             null,
-            java.util.List.of());
-    org.junit.jupiter.api.Assertions.assertThrows(
-        RuntimeException.class, () -> store().commitCompletion(plan));
+            List.of());
+    Assertions.assertThrows(RuntimeException.class, () -> store().commitCompletion(plan));
     assertEquals(
         JobStatus.RUNNING,
         store().findById(job.getId()).orElseThrow().getStatus(),
@@ -234,7 +243,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     store().compareAndSwapStatus(parent.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     Instant now = Instant.now();
     var transition =
-        new run.ratchet.store.dto.JobCompletionPlan.DependencyTransition(
+        new DependencyTransition(
             child.getId(),
             JobStatus.PAUSED,
             child.getVersion(),
@@ -243,7 +252,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             now,
             child.getJobType());
     var plan =
-        new run.ratchet.store.dto.JobCompletionPlan(
+        new JobCompletionPlan(
             parent.getId(),
             JobStatus.RUNNING,
             JobStatus.FAILED,
@@ -257,9 +266,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             null,
             null,
-            java.util.List.of(transition));
-    org.junit.jupiter.api.Assertions.assertThrows(
-        RuntimeException.class, () -> store().commitCompletion(plan));
+            List.of(transition));
+    Assertions.assertThrows(RuntimeException.class, () -> store().commitCompletion(plan));
     assertEquals(JobStatus.RUNNING, store().findById(parent.getId()).orElseThrow().getStatus());
   }
 
@@ -271,7 +279,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     store().compareAndSwapStatus(child.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     Instant now = Instant.now();
     var childPlan =
-        new run.ratchet.store.dto.JobCompletionPlan(
+        new JobCompletionPlan(
             child.getId(),
             JobStatus.RUNNING,
             JobStatus.SUCCEEDED,
@@ -285,14 +293,14 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             parent.getId(),
             null,
-            java.util.List.of());
+            List.of());
     var completed = store().commitCompletion(childPlan);
     assertTrue(completed.committed());
     assertEquals(1, completed.batchProgress().completedItems());
     assertFalse(store().commitCompletion(childPlan).committed());
     assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getCompletedItems());
     var parentPlan =
-        new run.ratchet.store.dto.JobCompletionPlan(
+        new JobCompletionPlan(
             parent.getId(),
             JobStatus.PENDING,
             JobStatus.SUCCEEDED,
@@ -305,8 +313,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             0L,
             null,
-            new run.ratchet.store.dto.JobCompletionPlan.BatchCompletion(1, 1, 0),
-            java.util.List.of());
+            new BatchCompletion(1, 1, 0),
+            List.of());
     assertTrue(store().commitCompletion(parentPlan).committed());
     assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());
     assertTrue(batchStore().findBatchById(parent.getId()).orElseThrow().getCompletionProcessed());

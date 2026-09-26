@@ -19,6 +19,7 @@ import jakarta.inject.Singleton;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.store.dto.JobCompletionPlan;
 
 /** Test-controlled failures; inactive for every other integration test. */
 @Singleton
@@ -27,7 +28,7 @@ public class CompletionFaults {
   public final AtomicBoolean pauseNextRetry = new AtomicBoolean();
   public final AtomicBoolean rejectBatchParents = new AtomicBoolean();
   public final AtomicInteger rejectedParents = new AtomicInteger();
-  public volatile run.ratchet.store.dto.JobCompletionPlan failedPlan;
+  public volatile JobCompletionPlan failedPlan;
   public volatile CountDownLatch rolledBack = new CountDownLatch(1);
   public volatile CountDownLatch resume = new CountDownLatch(1);
 

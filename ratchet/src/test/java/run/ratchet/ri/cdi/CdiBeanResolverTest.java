@@ -25,7 +25,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
+import java.lang.annotation.Annotation;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class CdiBeanResolverTest {
 
@@ -36,8 +38,8 @@ class CdiBeanResolverTest {
     when(allBeans.select(ApplicationBean.class)).thenReturn(selected);
     CdiBeanResolver resolver = new CdiBeanResolver(allBeans);
     resolver.validateResolvable(ApplicationBean.class);
-    org.mockito.Mockito.verify(selected, org.mockito.Mockito.never()).getHandle();
-    org.mockito.Mockito.verify(selected, org.mockito.Mockito.never()).get();
+    Mockito.verify(selected, Mockito.never()).getHandle();
+    Mockito.verify(selected, Mockito.never()).get();
     when(selected.isAmbiguous()).thenReturn(true);
     assertThrows(
         IllegalStateException.class, () -> resolver.validateResolvable(ApplicationBean.class));
@@ -71,14 +73,13 @@ class CdiBeanResolverTest {
     assertSame(bean, resolver.resolve(ApplicationBean.class));
   }
 
-  private static <T> Instance<T> selected(
-      Class<T> type, Class<? extends java.lang.annotation.Annotation> scope) {
+  private static <T> Instance<T> selected(Class<T> type, Class<? extends Annotation> scope) {
     return selected(type, scope, null);
   }
 
   @SuppressWarnings("unchecked")
   private static <T> Instance<T> selected(
-      Class<T> type, Class<? extends java.lang.annotation.Annotation> scope, T beanInstance) {
+      Class<T> type, Class<? extends Annotation> scope, T beanInstance) {
     Instance<T> instance = mock(Instance.class);
     Instance.Handle<T> handle = mock(Instance.Handle.class);
     Bean<T> bean = mock(Bean.class);

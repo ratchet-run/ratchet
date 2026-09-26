@@ -63,6 +63,7 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -84,7 +85,7 @@ class DefaultJobSchedulerServiceSignalTest {
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
   @Mock private JobWakeupService wakeupService;
-  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
+  @Mock private RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private DefaultJobCreationService jobCreationService;
   @Mock private JobAuthorizationPolicy authorizationPolicy;

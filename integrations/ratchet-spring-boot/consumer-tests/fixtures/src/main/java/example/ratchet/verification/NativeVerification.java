@@ -16,6 +16,7 @@
 package example.ratchet.verification;
 
 import example.denied.DeniedJob;
+import example.library.LibrarySubmitter;
 import jakarta.annotation.PreDestroy;
 import java.io.Serializable;
 import java.time.Duration;
@@ -45,6 +46,8 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.InvocationSubmissionService;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.SchedulerLifecycleHook;
 import run.ratchet.spring.boot.autoconfigure.RegisterRatchetTypes;
 
@@ -55,7 +58,7 @@ import run.ratchet.spring.boot.autoconfigure.RegisterRatchetTypes;
 @org.springframework.context.annotation.Import(RuntimeVerification.class)
 @Configuration(proxyBeanMethods = false)
 @RegisterRatchetTypes(
-    value = {DeniedJob.class, example.library.LibrarySubmitter.class},
+    value = {DeniedJob.class, LibrarySubmitter.class},
     basePackageClasses = NativeVerification.class)
 public class NativeVerification {
   public static final Set<String> EXECUTED = ConcurrentHashMap.newKeySet();
@@ -121,7 +124,7 @@ public class NativeVerification {
       check(started, "lifecycle hook did not run before runners");
       check(CONSTRUCTED.get() == 0, "lazy/prototype jobs were eagerly constructed");
       var scheduler = provider.getObject();
-      example.library.LibrarySubmitter.submit(scheduler);
+      LibrarySubmitter.submit(scheduler);
       track(scheduler.enqueueNow(jobs::reference));
       String captured = "capturing";
       track(scheduler.enqueueNow(() -> jobs.record(captured)));
@@ -192,17 +195,16 @@ public class NativeVerification {
               .submit();
       track(scheduler.enqueue(jobs::virtualThread).virtual().submit());
       // Invocation metadata selects managed lazy/prototype targets without retrieving them here.
-      var invocations = context.getBean(run.ratchet.spi.InvocationSubmissionService.class);
+      var invocations = context.getBean(InvocationSubmissionService.class);
       track(
           invocations
               .enqueueInvocation(
-                  new run.ratchet.spi.JobInvocation(
-                      LazyJob.class.getName(), "execute", "()V", false, List.of()))
+                  new JobInvocation(LazyJob.class.getName(), "execute", "()V", false, List.of()))
               .submit());
       track(
           invocations
               .enqueueInvocation(
-                  new run.ratchet.spi.JobInvocation(
+                  new JobInvocation(
                       PrototypeJob.class.getName(), "execute", "()V", false, List.of()))
               .submit());
       check(

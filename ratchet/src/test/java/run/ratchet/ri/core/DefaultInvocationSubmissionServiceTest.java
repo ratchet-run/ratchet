@@ -30,12 +30,16 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
@@ -240,7 +244,7 @@ class DefaultInvocationSubmissionServiceTest {
     WorkflowConditionEntity entity = captor.getValue();
     assertEquals(WorkflowCondition.ConditionType.CUSTOM, entity.getConditionType());
     assertNotNull(entity.getConditionExpression());
-    org.junit.jupiter.api.Assertions.assertTrue(
+    Assertions.assertTrue(
         entity.getConditionExpression().contains("wasPaid"),
         "condition expression must persist the invocation's payload JSON");
   }
@@ -297,7 +301,7 @@ class DefaultInvocationSubmissionServiceTest {
         .start();
 
     ArgumentCaptor<List<JobEntity>> captor = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore, org.mockito.Mockito.times(2)).bulkInsert(captor.capture());
+    verify(jobBulkStore, Mockito.times(2)).bulkInsert(captor.capture());
     List<List<JobEntity>> chunks = captor.getAllValues();
     assertEquals(2, chunks.get(0).size());
     assertEquals(1, chunks.get(1).size());
@@ -310,13 +314,13 @@ class DefaultInvocationSubmissionServiceTest {
 
   @Test
   void chunkFailure_emitsBestEffortEventAndPropagates() {
-    List<Object> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+    List<Object> events = new CopyOnWriteArrayList<>();
     InternalEventPublisher publisher = new InternalEventPublisher() {};
     publisher.addListener(events::add);
     DefaultInvocationSubmissionService failing =
         new DefaultInvocationSubmissionService(
             newCreationService(null, publisher), new DefaultJobInvocationResolver());
-    org.mockito.Mockito.doThrow(new RuntimeException("boom")).when(jobBulkStore).bulkInsert(any());
+    Mockito.doThrow(new RuntimeException("boom")).when(jobBulkStore).bulkInsert(any());
 
     assertThrows(
         RuntimeException.class,
@@ -343,13 +347,13 @@ class DefaultInvocationSubmissionServiceTest {
 
   @Test
   void chunkFailure_withoutMessage_usesExceptionClassNameAsFailureReason() {
-    List<Object> events = new java.util.concurrent.CopyOnWriteArrayList<>();
+    List<Object> events = new CopyOnWriteArrayList<>();
     InternalEventPublisher publisher = new InternalEventPublisher() {};
     publisher.addListener(events::add);
     DefaultInvocationSubmissionService failing =
         new DefaultInvocationSubmissionService(
             newCreationService(null, publisher), new DefaultJobInvocationResolver());
-    org.mockito.Mockito.doThrow(new RuntimeException()).when(jobBulkStore).bulkInsert(any());
+    Mockito.doThrow(new RuntimeException()).when(jobBulkStore).bulkInsert(any());
 
     assertThrows(
         RuntimeException.class,
@@ -372,7 +376,7 @@ class DefaultInvocationSubmissionServiceTest {
     assertEquals(RuntimeException.class.getName(), event.getFailureReason());
   }
 
-  private static JobEntity persist(org.mockito.invocation.InvocationOnMock invocation) {
+  private static JobEntity persist(InvocationOnMock invocation) {
     JobEntity job = invocation.getArgument(0);
     if (job.getId() == null) {
       job.setId(UUID.randomUUID());

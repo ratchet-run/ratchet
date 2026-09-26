@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -136,7 +137,7 @@ public abstract class AbstractPayloadEncryptionEngineContract {
     for (int i = 0; i < NONCE_UNIQUENESS_SAMPLES; i++) {
       byte[] body = engine.encrypt(plaintext, ctx(keyA(), AAD));
       assertTrue(
-          bodies.add(java.util.Base64.getEncoder().encodeToString(body)),
+          bodies.add(Base64.getEncoder().encodeToString(body)),
           "Engine reused a nonce — duplicate ciphertext body at sample " + i);
     }
   }
@@ -156,7 +157,7 @@ public abstract class AbstractPayloadEncryptionEngineContract {
                 () -> {
                   for (int i = 0; i < perThread; i++) {
                     byte[] body = engine.encrypt(plaintext, ctx(keyA(), AAD));
-                    bodies.add(java.util.Base64.getEncoder().encodeToString(body));
+                    bodies.add(Base64.getEncoder().encodeToString(body));
                     assertArrayEquals(plaintext, engine.decrypt(body, ctx(keyA(), AAD)));
                   }
                 });

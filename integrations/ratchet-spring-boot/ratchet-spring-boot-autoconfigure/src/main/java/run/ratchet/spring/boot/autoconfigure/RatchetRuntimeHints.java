@@ -22,6 +22,7 @@ import org.springframework.aot.hint.RuntimeHintsRegistrar;
 import org.springframework.aot.hint.TypeReference;
 import org.springframework.lang.NonNull;
 import org.springframework.lang.Nullable;
+import run.ratchet.store.entity.JobPayload;
 
 /** Reflection used by the engine independently of application job discovery. */
 public final class RatchetRuntimeHints implements RuntimeHintsRegistrar {
@@ -45,7 +46,7 @@ public final class RatchetRuntimeHints implements RuntimeHintsRegistrar {
               MemberCategory.DECLARED_FIELDS);
     }
     new BindingReflectionHintsRegistrar()
-        .registerReflectionHints(hints.reflection(), run.ratchet.store.entity.JobPayload.class);
+        .registerReflectionHints(hints.reflection(), JobPayload.class);
     hints.resources().registerPattern("META-INF/services/jakarta.json.bind.spi.JsonbProvider");
     hints.resources().registerPattern("META-INF/services/jakarta.json.spi.JsonProvider");
   }

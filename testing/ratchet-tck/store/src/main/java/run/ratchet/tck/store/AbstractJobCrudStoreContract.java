@@ -23,13 +23,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ConcurrentModificationException;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
@@ -164,15 +167,13 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     var saved = persist(newPendingJob());
     store().delete(saved.getId());
     assertEquals(
-        java.util.Optional.of(saved.getId()),
+        Optional.of(saved.getId()),
         store().findOriginalJobIdByIdempotencyKey(saved.getIdempotencyKey()));
     var duplicate = newPendingJob();
     duplicate.setIdempotencyKey(saved.getIdempotencyKey());
-    assertThrows(
-        run.ratchet.api.exception.DuplicateIdempotencyKeyException.class,
-        () -> store().create(duplicate));
+    assertThrows(DuplicateIdempotencyKeyException.class, () -> store().create(duplicate));
     assertEquals(
-        java.util.Optional.of(saved.getId()),
+        Optional.of(saved.getId()),
         store().findOriginalJobIdByIdempotencyKey(saved.getIdempotencyKey()));
   }
 
@@ -189,13 +190,11 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     archive.purgeArchivedJobs(Instant.now().plusSeconds(60));
     assertFalse(store().findById(saved.getId()).isPresent());
     assertEquals(
-        java.util.Optional.of(saved.getId()),
+        Optional.of(saved.getId()),
         store().findOriginalJobIdByIdempotencyKey(saved.getIdempotencyKey()));
     var duplicate = newPendingJob();
     duplicate.setIdempotencyKey(saved.getIdempotencyKey());
-    assertThrows(
-        run.ratchet.api.exception.DuplicateIdempotencyKeyException.class,
-        () -> store().create(duplicate));
+    assertThrows(DuplicateIdempotencyKeyException.class, () -> store().create(duplicate));
   }
 
   @Test
@@ -205,7 +204,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     // misleading "exactly one thread must observe a stale-write failure" message that looks
     // like a real concurrency bug rather than a missing fixture override.
     Assumptions.assumeTrue(
-        isStaleWriteException(new java.util.ConcurrentModificationException("probe")),
+        isStaleWriteException(new ConcurrentModificationException("probe")),
         "Fixture does not surface optimistic-lock failures; skipping stale-write contract.");
 
     JobEntity initial = persist(newPendingJob());

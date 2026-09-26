@@ -84,7 +84,7 @@ class WebAndClusterRuntimeIT {
       await()
           .during(Duration.ofSeconds(1))
           .atMost(Duration.ofSeconds(3))
-          .until(app.process::isAlive);
+          .until(() -> app.process.isAlive());
       jdbc.update("update runtime_gate set released = true where id = 'shutdown'");
       assertThat(app.process.waitFor(40, TimeUnit.SECONDS)).isTrue();
       assertThat(app.process.exitValue()).isEqualTo(143);

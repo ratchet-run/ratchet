@@ -32,6 +32,9 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import jakarta.persistence.Entity;
+import java.io.PrintStream;
+import java.io.PrintWriter;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -234,9 +237,9 @@ public class ModuleHygieneArchitectureTest {
           .orShould()
           .callMethod(Throwable.class, "printStackTrace")
           .orShould()
-          .callMethod(Throwable.class, "printStackTrace", java.io.PrintStream.class)
+          .callMethod(Throwable.class, "printStackTrace", PrintStream.class)
           .orShould()
-          .callMethod(Throwable.class, "printStackTrace", java.io.PrintWriter.class)
+          .callMethod(Throwable.class, "printStackTrace", PrintWriter.class)
           .because(
               "diagnostics go through JBoss Logging so EE deployments route them consistently; a "
                   + "stdout/stderr write or printStackTrace dump bypasses the configured logger");
@@ -253,7 +256,7 @@ public class ModuleHygieneArchitectureTest {
   static final ArchRule entitiesAreNonFinalWithNonPrivateNoArgConstructor =
       classes()
           .that()
-          .areAnnotatedWith(jakarta.persistence.Entity.class)
+          .areAnnotatedWith(Entity.class)
           .should()
           .notHaveModifier(JavaModifier.FINAL)
           .andShould(haveNonPrivateNoArgConstructor())

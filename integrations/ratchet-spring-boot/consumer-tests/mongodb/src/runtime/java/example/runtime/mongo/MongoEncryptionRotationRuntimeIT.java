@@ -21,6 +21,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Base64;
@@ -32,9 +33,7 @@ class MongoEncryptionRotationRuntimeIT {
   static final String OLD = Base64.getEncoder().encodeToString(new byte[32]);
   static final String NEW =
       Base64.getEncoder()
-          .encodeToString(
-              "12345678901234567890123456789012"
-                  .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+          .encodeToString("12345678901234567890123456789012".getBytes(StandardCharsets.US_ASCII));
 
   @Test
   void newWriteKeyRetainsReadAccessToPreviouslyQueuedPayloads() throws Exception {

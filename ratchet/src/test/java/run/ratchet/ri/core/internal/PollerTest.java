@@ -38,6 +38,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.ExecutorTargets;
@@ -198,7 +199,7 @@ class PollerTest {
     when(jobClaimStore.claimNextBatchOptimized(
             eq(JobExecutionType.SINGLE), anyInt(), anyString(), any(), any()))
         .thenReturn(List.of(first, second));
-    org.mockito.Mockito.doThrow(new IllegalStateException("retention failed"))
+    Mockito.doThrow(new IllegalStateException("retention failed"))
         .when(jobExecutionCoordinator)
         .submit(first);
     poller.tick();

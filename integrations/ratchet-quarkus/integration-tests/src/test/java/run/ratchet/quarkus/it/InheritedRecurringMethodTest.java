@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobContext;
@@ -55,7 +56,7 @@ class InheritedRecurringMethodTest {
     assertEquals(state.contextJobId(), state.currentContextJobId());
   }
 
-  private void assertSuccessfulExecution(java.util.function.Supplier<UUID> id) {
+  private void assertSuccessfulExecution(Supplier<UUID> id) {
     Awaitility.await()
         .atMost(Duration.ofSeconds(30))
         .untilAsserted(

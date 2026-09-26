@@ -29,9 +29,11 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
@@ -96,7 +98,7 @@ class OracleJobClaimOperationsTest {
     for (Query query : List.of(candidates, locked, update)) {
       when(query.setParameter(anyInt(), any())).thenReturn(query);
     }
-    var sqls = new java.util.ArrayList<String>();
+    var sqls = new ArrayList<String>();
     when(em.createNativeQuery(anyString()))
         .thenAnswer(
             invocation -> {
@@ -136,7 +138,7 @@ class OracleJobClaimOperationsTest {
             1,
             "node",
             new NodeTagFilter(List.of("include"), List.of("exclude")),
-            ExecutionTargetFilter.matching(java.util.Set.of("worker"), false));
+            ExecutionTargetFilter.matching(Set.of("worker"), false));
     assertEquals(1, claims.size());
     assertEquals(4, claims.get(0).version());
     assertEquals(2, claims.get(0).attempts());

@@ -48,14 +48,20 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
+import org.mockito.stubbing.Answer;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.coordinator.common.CoordinatorThreading;
 
@@ -215,8 +221,7 @@ class JmsConnectionLifecycleTest {
   @Test
   void startInstallsBrokerSideSelfFilterSelectorWhenEnabled() {
     newLifecycle().start(identity("nodeA"));
-    verify(ctx)
-        .createConsumer(any(Topic.class), org.mockito.ArgumentMatchers.eq("node <> 'nodeA'"));
+    verify(ctx).createConsumer(any(Topic.class), ArgumentMatchers.eq("node <> 'nodeA'"));
   }
 
   @Test
@@ -231,7 +236,7 @@ class JmsConnectionLifecycleTest {
   void startBuildsSelectorFromNodeIdentity() {
     newLifecycle().start(identity("nodeA"));
     verify(ctx, atLeastOnce())
-        .createConsumer(any(Topic.class), org.mockito.ArgumentMatchers.eq("node <> 'nodeA'"));
+        .createConsumer(any(Topic.class), ArgumentMatchers.eq("node <> 'nodeA'"));
   }
 
   @Test
@@ -327,10 +332,10 @@ class JmsConnectionLifecycleTest {
   @Test
   void rejectedReconnectThreadDoesNotKeepOwnershipOrEscapeStartup() {
     AtomicInteger attempts = new AtomicInteger();
-    java.util.concurrent.ThreadFactory factory =
+    ThreadFactory factory =
         runnable -> {
           if (attempts.getAndIncrement() == 0) {
-            throw new java.util.concurrent.RejectedExecutionException("factory unavailable");
+            throw new RejectedExecutionException("factory unavailable");
           }
           return new Thread(runnable);
         };
@@ -361,7 +366,7 @@ class JmsConnectionLifecycleTest {
         .thenReturn(ctx, senderCtx, recoveredConsumer, recoveredSender);
     when(consumer.receive(anyLong())).thenThrow(new JMSRuntimeException("replacement fault"));
     AtomicInteger receivers = new AtomicInteger();
-    java.util.concurrent.ThreadFactory factory =
+    ThreadFactory factory =
         runnable ->
             new Thread(runnable) {
               @Override
@@ -499,7 +504,7 @@ class JmsConnectionLifecycleTest {
         .thenReturn(first)
         .thenReturn(second)
         .thenAnswer(blockingQuietReceive());
-    List<Message> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
+    List<Message> seen = new CopyOnWriteArrayList<>();
     JmsConnectionLifecycle lifecycle =
         newLifecycle(
             m -> {
@@ -594,7 +599,7 @@ class JmsConnectionLifecycleTest {
 
   // ─── helpers ─────────────────────────────────────────────────────────────────
 
-  private static org.mockito.stubbing.Answer<Message> blockingQuietReceive() {
+  private static Answer<Message> blockingQuietReceive() {
     return inv -> {
       Thread.sleep(20);
       return null;
@@ -606,7 +611,7 @@ class JmsConnectionLifecycleTest {
   }
 
   private JmsConnectionLifecycle newLifecycle(
-      java.util.function.Consumer<Message> inboundHandler, Runnable onTransportFailure) {
+      Consumer<Message> inboundHandler, Runnable onTransportFailure) {
     JmsConnectionLifecycle lifecycle =
         new JmsConnectionLifecycle(
             cf,

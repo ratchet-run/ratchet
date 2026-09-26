@@ -21,13 +21,20 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ProtectedSurface;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.query.RecurringSqlQuery;
 import run.ratchet.store.spi.ArchivedRecurringJob;
+import run.ratchet.store.spi.RecurringClaim;
+import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
@@ -61,16 +68,15 @@ final class SqlserverRecurringJobOperations implements RecurringJobStore {
   private final SqlserverStoreContext ctx;
   private final SqlserverBusinessKeyReservations reservations;
 
-  private final java.util.function.Consumer<List<run.ratchet.store.entity.JobEntity>>
-      insertChildren;
+  private final Consumer<List<JobEntity>> insertChildren;
 
   SqlserverRecurringJobOperations(
       SqlserverStoreContext ctx,
       SqlserverBusinessKeyReservations reservations,
-      java.util.function.Consumer<List<run.ratchet.store.entity.JobEntity>> insertChildren) {
+      Consumer<List<JobEntity>> insertChildren) {
     this.ctx = ctx;
     this.reservations = reservations;
-    this.insertChildren = java.util.Objects.requireNonNull(insertChildren, "insertChildren");
+    this.insertChildren = Objects.requireNonNull(insertChildren, "insertChildren");
   }
 
   @Override
@@ -108,20 +114,18 @@ final class SqlserverRecurringJobOperations implements RecurringJobStore {
   }
 
   @Override
-  public void commitRecurringExecutions(List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
-    for (run.ratchet.store.spi.RecurringExecutionPlan plan : plans) {
+  public void commitRecurringExecutions(List<RecurringExecutionPlan> plans) {
+    for (RecurringExecutionPlan plan : plans) {
       assertClaimCurrent(plan.claim());
     }
-    List<run.ratchet.store.entity.JobEntity> children =
-        plans.stream().flatMap(plan -> plan.children().stream()).toList();
+    List<JobEntity> children = plans.stream().flatMap(plan -> plan.children().stream()).toList();
     if (!children.isEmpty()) {
       insertChildren.accept(children);
     }
-    for (run.ratchet.store.spi.RecurringExecutionPlan plan : plans) {
+    for (RecurringExecutionPlan plan : plans) {
       UUID id = plan.claim().definition().id();
       if (plan.nextFire() == null) {
-        if (!cancelRecurringAndArchive(
-            id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.EXHAUSTED)) {
+        if (!cancelRecurringAndArchive(id, RecurringJobStore.ArchiveReason.EXHAUSTED)) {
           throw new IllegalStateException("Claimed recurring master disappeared: " + id);
         }
       } else {
@@ -130,7 +134,7 @@ final class SqlserverRecurringJobOperations implements RecurringJobStore {
     }
   }
 
-  private void assertClaimCurrent(run.ratchet.store.spi.RecurringClaim claim) {
+  private void assertClaimCurrent(RecurringClaim claim) {
     if (claim.token() != null
         || ctx.em()
             .createNativeQuery(
@@ -139,8 +143,7 @@ final class SqlserverRecurringJobOperations implements RecurringJobStore {
             .setParameter(2, Timestamp.from(claim.definition().nextFire()))
             .getResultList()
             .isEmpty()) {
-      throw new run.ratchet.api.exception.RatchetTransientStoreException(
-          "Recurring claim is stale");
+      throw new RatchetTransientStoreException("Recurring claim is stale");
     }
   }
 
@@ -427,26 +430,22 @@ final class SqlserverRecurringJobOperations implements RecurringJobStore {
   }
 
   @Override
-  public List<RecurringJobDefinition> searchRecurring(
-      run.ratchet.api.JobFilter filter, int limit, int offset) {
-    return run.ratchet.store.query.RecurringSqlQuery.search(
+  public List<RecurringJobDefinition> searchRecurring(JobFilter filter, int limit, int offset) {
+    return RecurringSqlQuery.search(
         ctx.em(),
         SELECT_COLUMNS,
         filter,
         limit,
         offset,
-        run.ratchet.store.query.RecurringSqlQuery.Dialect.SQLSERVER,
+        RecurringSqlQuery.Dialect.SQLSERVER,
         UuidByteArrayConverter::toBytes,
         SqlserverRecurringJobOperations::hydrate);
   }
 
   @Override
-  public long countRecurring(run.ratchet.api.JobFilter filter) {
-    return run.ratchet.store.query.RecurringSqlQuery.count(
-        ctx.em(),
-        filter,
-        run.ratchet.store.query.RecurringSqlQuery.Dialect.SQLSERVER,
-        UuidByteArrayConverter::toBytes);
+  public long countRecurring(JobFilter filter) {
+    return RecurringSqlQuery.count(
+        ctx.em(), filter, RecurringSqlQuery.Dialect.SQLSERVER, UuidByteArrayConverter::toBytes);
   }
 
   private int archiveAndDelete(List<UUID> ids, ArchiveReason reason) {

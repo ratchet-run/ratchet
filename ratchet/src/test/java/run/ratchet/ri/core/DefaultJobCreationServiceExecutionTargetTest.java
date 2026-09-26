@@ -35,11 +35,13 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.invocation.InvocationOnMock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
@@ -256,7 +258,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
     ArgumentCaptor<JobEntity> jobCaptor = ArgumentCaptor.forClass(JobEntity.class);
     verify(jobCrudStore, times(3)).create(jobCaptor.capture());
     // Parent plus both chain steps carry the opt-in, so the row mapper encrypts each step's args.
-    org.junit.jupiter.api.Assertions.assertTrue(
+    Assertions.assertTrue(
         jobCaptor.getAllValues().stream().allMatch(JobEntity::isEncryptedPayload));
   }
 
@@ -350,7 +352,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
     assertEquals(ExecutorTargets.VIRTUAL, definitionCaptor.getValue().executionTarget());
   }
 
-  private static JobEntity persist(org.mockito.invocation.InvocationOnMock invocation) {
+  private static JobEntity persist(InvocationOnMock invocation) {
     JobEntity job = invocation.getArgument(0);
     if (job.getId() == null) {
       job.setId(UUID.randomUUID());

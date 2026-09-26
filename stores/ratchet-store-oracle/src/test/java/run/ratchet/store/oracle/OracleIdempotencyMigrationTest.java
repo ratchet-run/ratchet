@@ -18,6 +18,8 @@ package run.ratchet.store.oracle;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 /** Exercises the new-table and repeat-application paths with a pre-upgrade job. */
@@ -32,8 +34,7 @@ class OracleIdempotencyMigrationTest {
       try (var input =
           getClass().getResourceAsStream("/ddl/migrations/V007__permanent_idempotency_keys.sql")) {
         migration =
-            new String(
-                java.util.Objects.requireNonNull(input).readAllBytes(), StandardCharsets.UTF_8);
+            new String(Objects.requireNonNull(input).readAllBytes(), StandardCharsets.UTF_8);
       }
       try (var connection = fixture.openConnection();
           var statement = connection.createStatement()) {
@@ -42,11 +43,11 @@ class OracleIdempotencyMigrationTest {
         statement.execute(migration);
       }
       assertEquals(
-          java.util.Optional.of(job.getId()),
+          Optional.of(job.getId()),
           fixture.store().findOriginalJobIdByIdempotencyKey(job.getIdempotencyKey()));
       fixture.store().delete(job.getId());
       assertEquals(
-          java.util.Optional.of(job.getId()),
+          Optional.of(job.getId()),
           fixture.store().findOriginalJobIdByIdempotencyKey(job.getIdempotencyKey()));
     } finally {
       fixture.cleanupStore();

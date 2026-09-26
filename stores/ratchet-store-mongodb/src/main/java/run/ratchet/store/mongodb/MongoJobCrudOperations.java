@@ -63,6 +63,7 @@ import java.util.Date;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
@@ -546,7 +547,7 @@ final class MongoJobCrudOperations {
     if (jobList.isEmpty()) {
       return;
     }
-    java.util.Objects.requireNonNull(session, "session");
+    Objects.requireNonNull(session, "session");
     insertPreparedDocuments(session, jobList, prepareBulkDocuments(jobList));
   }
 

@@ -34,6 +34,7 @@ import static run.ratchet.ri.cdi.RecurringJobProcessorLeaderGateTest.beanFor;
 import static run.ratchet.ri.cdi.RecurringJobProcessorLeaderGateTest.mockRecurringJobBuilder;
 import static run.ratchet.ri.cdi.RecurringJobProcessorLeaderGateTest.recurringDefinition;
 
+import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import java.lang.reflect.Field;
@@ -52,6 +53,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -368,7 +370,7 @@ class RecurringJobProcessorDeferredStartTest {
     when(f.submission.scheduleRecurringInvocation(any(), any(), any())).thenReturn(builder);
     var store = mock(RecurringJobStore.class);
     var definition = recurringDefinition(UUID.randomUUID(), "leader-gate-job");
-    var lookups = new java.util.concurrent.atomic.AtomicInteger();
+    var lookups = new AtomicInteger();
     when(store.findRecurringByBusinessKey("leader-gate-job"))
         .thenAnswer(
             i -> lookups.incrementAndGet() < 9 ? Optional.empty() : Optional.of(definition));
@@ -537,7 +539,7 @@ class RecurringJobProcessorDeferredStartTest {
   @SuppressWarnings("unchecked")
   private static void injectResolvableRecurringStore(
       RecurringJobProcessor processor, RecurringJobStore recurringJobStore) throws Exception {
-    var instance = mock(jakarta.enterprise.inject.Instance.class);
+    var instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
     when(instance.get()).thenReturn(recurringJobStore);
     inject(processor, "recurringJobStoreInstance", instance);

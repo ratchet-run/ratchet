@@ -19,9 +19,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import run.ratchet.consumer.ConsumerProcess;
 
 class SqlNativeLifecycleIT {
   @ParameterizedTest
@@ -29,8 +32,8 @@ class SqlNativeLifecycleIT {
   void lifecycleScenarioRunsInApplicationProcess(String scenario) throws Exception {
     try (var database = SqlDatabase.start()) {
       var arguments =
-          new java.util.ArrayList<>(
-              run.ratchet.consumer.ConsumerProcess.command(
+          new ArrayList<>(
+              ConsumerProcess.command(
                   "sql-consumer", "--consumer.verify=true", "--consumer.scenario=" + scenario));
       database.properties().forEach((key, value) -> arguments.add("--" + key + "=" + value));
       Path output = Path.of("target", "lifecycle-" + scenario + ".log");
@@ -56,7 +59,7 @@ class SqlNativeLifecycleIT {
       if (scenario.equals("drain")) {
         var properties = database.properties();
         try (var connection =
-                java.sql.DriverManager.getConnection(
+                DriverManager.getConnection(
                     (String) properties.get("spring.datasource.url"),
                     (String) properties.get("spring.datasource.username"),
                     (String) properties.get("spring.datasource.password"));

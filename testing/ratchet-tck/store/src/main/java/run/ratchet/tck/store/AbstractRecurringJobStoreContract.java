@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -36,12 +37,15 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobQuerySortField;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.query.JobQueryCursor;
+import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
@@ -109,7 +113,7 @@ public abstract class AbstractRecurringJobStoreContract {
     Instant next = due.plusSeconds(3600);
     recurringStore()
         .commitRecurringExecutions(
-            List.of(new run.ratchet.store.spi.RecurringExecutionPlan(claim, List.of(child), next)));
+            List.of(new RecurringExecutionPlan(claim, List.of(child), next)));
     assertTrue(jobFixture().store().findById(child.getId()).isPresent());
     assertEquals(next, recurringStore().getRecurring(id).orElseThrow().nextFire());
   }
@@ -131,9 +135,7 @@ public abstract class AbstractRecurringJobStoreContract {
         () ->
             recurringStore()
                 .commitRecurringExecutions(
-                    List.of(
-                        new run.ratchet.store.spi.RecurringExecutionPlan(
-                            claim, List.of(first, duplicate), null))));
+                    List.of(new RecurringExecutionPlan(claim, List.of(first, duplicate), null))));
     assertTrue(jobFixture().store().findById(first.getId()).isEmpty());
     assertEquals(due, recurringStore().getRecurring(id).orElseThrow().nextFire());
     assertTrue(recurringStore().findArchivedRecurring(id).isEmpty());
@@ -143,8 +145,7 @@ public abstract class AbstractRecurringJobStoreContract {
    * Mongo advances masters before its child bulk insert; SQL adapters inject after the first
    * advance.
    */
-  protected void commitRecurringPlansWithLaterFailure(
-      List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+  protected void commitRecurringPlansWithLaterFailure(List<RecurringExecutionPlan> plans) {
     recurringStore().commitRecurringExecutions(plans);
   }
 
@@ -170,10 +171,8 @@ public abstract class AbstractRecurringJobStoreContract {
     conflictingChild.setRecurringMasterId(secondId);
     var plans =
         List.of(
-            new run.ratchet.store.spi.RecurringExecutionPlan(
-                firstClaim, List.of(firstChild), due.plusSeconds(3600)),
-            new run.ratchet.store.spi.RecurringExecutionPlan(
-                secondClaim, List.of(conflictingChild), null));
+            new RecurringExecutionPlan(firstClaim, List.of(firstChild), due.plusSeconds(3600)),
+            new RecurringExecutionPlan(secondClaim, List.of(conflictingChild), null));
     assertThrows(RuntimeException.class, () -> commitRecurringPlansWithLaterFailure(plans));
     assertEquals(due, recurringStore().getRecurring(firstId).orElseThrow().nextFire());
     assertEquals(due, recurringStore().getRecurring(secondId).orElseThrow().nextFire());
@@ -203,7 +202,7 @@ public abstract class AbstractRecurringJobStoreContract {
     recurringStore()
         .commitRecurringExecutions(
             List.of(
-                new run.ratchet.store.spi.RecurringExecutionPlan(
+                new RecurringExecutionPlan(
                     firstBatch.get(0), List.of(), Instant.now().plusSeconds(3600))));
 
     List<RecurringJobDefinition> secondBatch = recurringStore().claimDueRecurring(10, "node-2");
@@ -251,8 +250,7 @@ public abstract class AbstractRecurringJobStoreContract {
     UUID id = UuidV7Factory.create();
     // Truncate to milliseconds because some stores (notably MongoDB) persist Dates with
     // millisecond precision, so sub-millisecond nanos from Instant.now() are dropped on read.
-    Instant initialFire =
-        Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MILLIS).minusSeconds(10);
+    Instant initialFire = Instant.now().truncatedTo(ChronoUnit.MILLIS).minusSeconds(10);
     recurringStore().createRecurring(definition(id, "0 * * * * ?", initialFire));
 
     Instant nextFire = initialFire.plusSeconds(3600);
@@ -799,17 +797,17 @@ public abstract class AbstractRecurringJobStoreContract {
   @Test
   void recurringSearchCursorVisitsEveryMasterForEverySort() {
     Instant fire = Instant.parse("2027-01-01T00:00:00Z");
-    Set<UUID> expected = new java.util.HashSet<>();
+    Set<UUID> expected = new HashSet<>();
     for (int i = 0; i < 3; i++) {
       UUID id = UuidV7Factory.create();
       expected.add(id);
       recurringStore().createRecurring(definition(id, "0 * * * * ?", fire));
       if (i == 0) recurringStore().pauseRecurring(id);
     }
-    for (var field : run.ratchet.api.JobQuerySortField.values()) {
+    for (var field : JobQuerySortField.values()) {
       for (boolean ascending : List.of(true, false)) {
         JobFilter filter = JobFilter.builder().sortField(field).sortAscending(ascending).build();
-        Set<UUID> seen = new java.util.HashSet<>();
+        Set<UUID> seen = new HashSet<>();
         for (int page = 0; page < 4; page++) {
           List<RecurringJobDefinition> rows = recurringStore().searchRecurring(filter, 1, 0);
           if (rows.isEmpty()) break;
@@ -824,9 +822,7 @@ public abstract class AbstractRecurringJobStoreContract {
               };
           filter =
               filter.toBuilder()
-                  .cursor(
-                      new run.ratchet.store.query.JobQueryCursor(field, ascending, value, last.id())
-                          .encode())
+                  .cursor(new JobQueryCursor(field, ascending, value, last.id()).encode())
                   .build();
         }
         assertEquals(expected, seen, field + " ascending=" + ascending);

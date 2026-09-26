@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import java.lang.reflect.Method;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
 import run.ratchet.api.SerializableCheckedRunnable;
@@ -52,7 +53,7 @@ class CapturedArgumentRoundTripTest {
             (SerializableCheckedRunnable) () -> NumericTarget.process(capturedId));
 
     // Capture is correct: the argument is the captured long before persistence.
-    assertEquals(java.util.List.of(capturedId), payload.args());
+    assertEquals(List.of(capturedId), payload.args());
 
     // Round-trip through the same JSON-B configuration the store uses to persist JobPayload.
     JobPayload reloaded;
@@ -78,7 +79,7 @@ class CapturedArgumentRoundTripTest {
     JobPayload payload =
         JobPayloadFactory.fromLambda(
             (SerializableCheckedRunnable) () -> NumericTarget.mixed(id, fraction, label, count));
-    assertEquals(java.util.List.of(id, fraction, label, count), payload.args());
+    assertEquals(List.of(id, fraction, label, count), payload.args());
   }
 
   private static Method resolve(JobPayload payload) throws Exception {

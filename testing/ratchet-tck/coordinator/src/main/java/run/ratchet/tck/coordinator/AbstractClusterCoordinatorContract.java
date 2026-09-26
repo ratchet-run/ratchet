@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
@@ -431,7 +432,7 @@ public abstract class AbstractClusterCoordinatorContract {
     sleep(harness.maxExpectedLatency().toMillis());
   }
 
-  private static void awaitUntil(java.util.function.BooleanSupplier condition, Duration timeout) {
+  private static void awaitUntil(BooleanSupplier condition, Duration timeout) {
     long deadlineNanos = System.nanoTime() + timeout.toNanos();
     while (!condition.getAsBoolean()) {
       if (System.nanoTime() >= deadlineNanos) {

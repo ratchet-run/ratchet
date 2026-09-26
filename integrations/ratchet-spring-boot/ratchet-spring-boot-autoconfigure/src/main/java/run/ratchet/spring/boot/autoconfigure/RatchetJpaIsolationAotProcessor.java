@@ -15,12 +15,15 @@
  */
 package run.ratchet.spring.boot.autoconfigure;
 
+import jakarta.persistence.spi.PersistenceProvider;
+import jakarta.persistence.spi.PersistenceUnitInfo;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import org.springframework.beans.factory.aot.BeanFactoryInitializationAotContribution;
 import org.springframework.beans.factory.aot.BeanFactoryInitializationAotProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo;
 import org.springframework.util.ClassUtils;
 import run.ratchet.spring.boot.autoconfigure.internal.AotResources;
 import run.ratchet.spring.boot.autoconfigure.internal.jpa.RatchetJpaAotSettings;
@@ -49,13 +52,9 @@ public final class RatchetJpaIsolationAotProcessor
     String applicationMapping = applicationOrm;
     return (generation, initialization) -> {
       var hints = generation.getRuntimeHints();
-      hints.proxies().registerJdkProxy(jakarta.persistence.spi.PersistenceProvider.class);
-      hints.proxies().registerJdkProxy(jakarta.persistence.spi.PersistenceUnitInfo.class);
-      hints
-          .proxies()
-          .registerJdkProxy(
-              jakarta.persistence.spi.PersistenceUnitInfo.class,
-              org.springframework.orm.jpa.persistenceunit.SmartPersistenceUnitInfo.class);
+      hints.proxies().registerJdkProxy(PersistenceProvider.class);
+      hints.proxies().registerJdkProxy(PersistenceUnitInfo.class);
+      hints.proxies().registerJdkProxy(PersistenceUnitInfo.class, SmartPersistenceUnitInfo.class);
       String applicationResource = "META-INF/ratchet/spring-application-orm.xml";
       if (applicationMapping != null) {
         AotResources.add(generation.getGeneratedFiles(), applicationResource, applicationMapping);

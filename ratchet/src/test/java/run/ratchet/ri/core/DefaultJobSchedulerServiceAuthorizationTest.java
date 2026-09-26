@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RecurringMisfirePolicy;
@@ -56,6 +58,8 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -76,7 +80,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
   @Mock private JobWakeupService wakeupService;
-  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
+  @Mock private RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private JobInvocationResolver jobInvocationResolver;
   @Mock private DefaultJobCreationService jobCreationService;
@@ -244,16 +248,16 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   void cancelJob_recurringMaster_authorizesWithRecurringCallerPrincipal() {
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.empty());
     var def =
-        new run.ratchet.store.spi.RecurringJobDefinition(
+        new RecurringJobDefinition(
             JOB_ID,
             "0 * * * * ?",
             "UTC",
-            java.time.Instant.parse("2026-05-20T12:00:00Z"),
+            Instant.parse("2026-05-20T12:00:00Z"),
             false,
             null,
             2,
             0,
-            run.ratchet.api.BackoffPolicy.NONE,
+            BackoffPolicy.NONE,
             0,
             0,
             null,
@@ -262,7 +266,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             null,
             null,
-            java.time.Instant.parse("2026-05-19T00:00:00Z"),
+            Instant.parse("2026-05-19T00:00:00Z"),
             OWNER,
             false,
             RecurringMisfirePolicy.defaults());

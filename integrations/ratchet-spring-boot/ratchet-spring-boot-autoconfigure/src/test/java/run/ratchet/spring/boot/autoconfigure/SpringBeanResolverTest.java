@@ -24,13 +24,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.beans.factory.DisposableBean;
+import org.springframework.beans.factory.FactoryBean;
+import org.springframework.beans.factory.SmartFactoryBean;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.DestructionAwareBeanPostProcessor;
 import org.springframework.beans.factory.support.BeanDefinitionValidationException;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import run.ratchet.ri.core.internal.ManagedInvocation;
+import run.ratchet.spi.BeanResolver.ManagedBean;
 
 class SpringBeanResolverTest {
   interface Task {
@@ -76,14 +81,14 @@ class SpringBeanResolverTest {
           },
           d -> d.setLazyInit(true));
       context.refresh();
-      var factory = org.mockito.Mockito.spy(context.getBeanFactory());
+      var factory = Mockito.spy(context.getBeanFactory());
       var resolver = new SpringBeanResolver(factory);
       resolver.validateResolvable(TaskBean.class);
       try (var first = resolver.acquire(TaskBean.class);
           var second = resolver.acquire(TaskBean.class)) {
         assertThat(first.instance()).isNotSameAs(second.instance());
       }
-      org.mockito.Mockito.verify(factory).getBeanDefinitionNames();
+      Mockito.verify(factory).getBeanDefinitionNames();
       assertThat(created).hasValue(0);
     }
   }
@@ -149,7 +154,7 @@ class SpringBeanResolverTest {
     }
   }
 
-  static class UnknownFactory implements org.springframework.beans.factory.FactoryBean<Object> {
+  static class UnknownFactory implements FactoryBean<Object> {
     public Object getObject() {
       return new Object();
     }
@@ -486,8 +491,7 @@ class SpringBeanResolverTest {
     }
   }
 
-  static class ProductTaskFactory
-      implements org.springframework.beans.factory.SmartFactoryBean<TaskBean> {
+  static class ProductTaskFactory implements SmartFactoryBean<TaskBean> {
     final AtomicInteger destructions;
     final AtomicInteger products = new AtomicInteger();
     final AtomicInteger shutdowns = new AtomicInteger();
@@ -522,8 +526,7 @@ class SpringBeanResolverTest {
     }
   }
 
-  static class PooledTaskFactory
-      implements org.springframework.beans.factory.SmartFactoryBean<TaskBean> {
+  static class PooledTaskFactory implements SmartFactoryBean<TaskBean> {
     final TaskBean product;
 
     PooledTaskFactory(AtomicInteger destructions) {
@@ -551,8 +554,7 @@ class SpringBeanResolverTest {
     }
   }
 
-  static class NonIndependentTaskFactory
-      implements org.springframework.beans.factory.SmartFactoryBean<TaskBean> {
+  static class NonIndependentTaskFactory implements SmartFactoryBean<TaskBean> {
     final TaskBean product;
 
     NonIndependentTaskFactory(AtomicInteger destructions) {
@@ -620,8 +622,7 @@ class SpringBeanResolverTest {
     }
   }
 
-  static class AutoCloseableTaskFactory
-      implements org.springframework.beans.factory.SmartFactoryBean<AutoCloseableTask> {
+  static class AutoCloseableTaskFactory implements SmartFactoryBean<AutoCloseableTask> {
     final AtomicInteger products = new AtomicInteger();
 
     @Override
@@ -717,7 +718,7 @@ class SpringBeanResolverTest {
   void factoryBeanMetadataFallbackWorksInsideAnUnrelatedDestructionCallback() {
     try (var context = new AnnotationConfigApplicationContext()) {
       CallbackTaskFactory factory = new CallbackTaskFactory();
-      AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> handle = new AtomicReference<>();
+      AtomicReference<ManagedBean> handle = new AtomicReference<>();
       context.registerBean(
           "callbackProduct",
           CallbackTaskFactory.class,
@@ -744,7 +745,7 @@ class SpringBeanResolverTest {
   @Test
   void factoryBeanDoesNotRetryOuterCallbacksWhenTheyCloseAnOrdinaryInvalidPrototype() {
     try (var context = new AnnotationConfigApplicationContext()) {
-      AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> ordinary = new AtomicReference<>();
+      AtomicReference<ManagedBean> ordinary = new AtomicReference<>();
       context.registerBean("outerProduct", OuterTaskFactory.class, OuterTaskFactory::new);
       context.registerBean(
           "ordinaryProduct",
@@ -769,7 +770,7 @@ class SpringBeanResolverTest {
   @Test
   void factoryBeanFallbackUnwindsBeforeItsProductOnlyCallbacksRun() {
     try (var context = new AnnotationConfigApplicationContext()) {
-      AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> nested = new AtomicReference<>();
+      AtomicReference<ManagedBean> nested = new AtomicReference<>();
       context.registerBean("outerProduct", OuterTaskFactory.class, OuterTaskFactory::new);
       context.registerBean(
           "nestedProduct",
@@ -869,9 +870,9 @@ class SpringBeanResolverTest {
   }
 
   static class UnrelatedDestroyer {
-    private final AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> handle;
+    private final AtomicReference<ManagedBean> handle;
 
-    UnrelatedDestroyer(AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> handle) {
+    UnrelatedDestroyer(AtomicReference<ManagedBean> handle) {
       this.handle = handle;
     }
 
@@ -882,11 +883,10 @@ class SpringBeanResolverTest {
   }
 
   static class OrdinaryHandleClosingPostProcessor implements DestructionAwareBeanPostProcessor {
-    private final AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> ordinary;
+    private final AtomicReference<ManagedBean> ordinary;
     final AtomicInteger calls = new AtomicInteger();
 
-    OrdinaryHandleClosingPostProcessor(
-        AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> ordinary) {
+    OrdinaryHandleClosingPostProcessor(AtomicReference<ManagedBean> ordinary) {
       this.ordinary = ordinary;
     }
 
@@ -903,11 +903,10 @@ class SpringBeanResolverTest {
   }
 
   static class FactoryHandleClosingPostProcessor implements DestructionAwareBeanPostProcessor {
-    private final AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> nested;
+    private final AtomicReference<ManagedBean> nested;
     final AtomicInteger calls = new AtomicInteger();
 
-    FactoryHandleClosingPostProcessor(
-        AtomicReference<run.ratchet.spi.BeanResolver.ManagedBean> nested) {
+    FactoryHandleClosingPostProcessor(AtomicReference<ManagedBean> nested) {
       this.nested = nested;
     }
 
@@ -963,7 +962,7 @@ class SpringBeanResolverTest {
     public void postProcessBeforeDestruction(Object bean, String beanName) {}
   }
 
-  static class CallbackTask implements Task, org.springframework.beans.factory.DisposableBean {
+  static class CallbackTask implements Task, DisposableBean {
     final AtomicInteger preDestroys = new AtomicInteger();
     final AtomicInteger disposals = new AtomicInteger();
 
@@ -981,8 +980,7 @@ class SpringBeanResolverTest {
     }
   }
 
-  static class CallbackTaskFactory
-      implements org.springframework.beans.factory.SmartFactoryBean<CallbackTask> {
+  static class CallbackTaskFactory implements SmartFactoryBean<CallbackTask> {
     final AtomicInteger shutdowns = new AtomicInteger();
 
     @Override

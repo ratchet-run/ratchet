@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 import jakarta.annotation.Priority;
 import jakarta.interceptor.Interceptor;
 import jakarta.jms.JMSRuntimeException;
+import jakarta.jms.Message;
 import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
 import java.util.Optional;
@@ -172,7 +173,7 @@ class JmsClusterCoordinatorTest {
   void onJmsMessageSwallowsNonTextMessage() {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
-    c.onJmsMessage(mock(jakarta.jms.Message.class));
+    c.onJmsMessage(mock(Message.class));
     assertEquals(1, metrics.received("parse_failure"));
   }
 

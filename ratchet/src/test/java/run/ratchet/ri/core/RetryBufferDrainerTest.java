@@ -28,6 +28,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +40,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -78,8 +80,7 @@ class RetryBufferDrainerTest {
         .thenReturn(List.of(claim));
     // The claim remains available after submission, as it does when the gate/rejection handler
     // reoffers it.
-    org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(
-        java.time.Duration.ofSeconds(2), task::run);
+    Assertions.assertTimeoutPreemptively(Duration.ofSeconds(2), task::run);
     verify(jobSubmissionService).submitBuffered(claim.toClaimDto());
     verify(retryBufferManager).pollBatchFromBuffer(eq(JobExecutionType.SINGLE), any(), eq(1));
   }

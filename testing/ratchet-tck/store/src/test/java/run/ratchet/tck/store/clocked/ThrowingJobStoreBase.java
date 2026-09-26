@@ -17,9 +17,11 @@ package run.ratchet.tck.store.clocked;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
@@ -28,6 +30,8 @@ import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.dto.JobCompletionPlan;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
@@ -45,7 +49,10 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.RecurringExecutionPlan;
+import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -129,8 +136,7 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public run.ratchet.store.dto.JobCompletionResult commitCompletion(
-      run.ratchet.store.dto.JobCompletionPlan plan) {
+  public JobCompletionResult commitCompletion(JobCompletionPlan plan) {
     return fail("commitCompletion");
   }
 
@@ -476,7 +482,7 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
+  public int deleteInactiveNodesByIds(Collection<String> nodeIds) {
     return fail("deleteInactiveNodesByIds");
   }
 
@@ -733,24 +739,24 @@ public abstract class ThrowingJobStoreBase
   // ----- JobQueryStore -----
 
   @Override
-  public List<JobEntity> searchJobs(run.ratchet.api.JobFilter filter, int limit, int offset) {
+  public List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     return fail("searchJobs");
   }
 
   @Override
-  public long countJobs(run.ratchet.api.JobFilter filter) {
+  public long countJobs(JobFilter filter) {
     return fail("countJobs");
   }
 
   // ----- RecurringJobStore -----
 
   @Override
-  public void commitRecurringExecutions(List<run.ratchet.store.spi.RecurringExecutionPlan> plans) {
+  public void commitRecurringExecutions(List<RecurringExecutionPlan> plans) {
     fail("commitRecurringExecutions");
   }
 
   @Override
-  public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(
+  public List<RecurringJobDefinition> claimDueRecurring(
       int limit, String nodeId, NodeTagFilter tagFilter) {
     return fail("claimDueRecurring");
   }
@@ -776,8 +782,7 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public boolean cancelRecurringAndArchive(
-      UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
+  public boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason) {
     return fail("cancelRecurringAndArchive");
   }
 
@@ -788,7 +793,7 @@ public abstract class ThrowingJobStoreBase
 
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
-      java.util.Set<String> knownBusinessKeys, Instant nodeStartTime) {
+      Set<String> knownBusinessKeys, Instant nodeStartTime) {
     return fail("cancelOrphanedRecurringAnnotationJobs");
   }
 
@@ -803,44 +808,42 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public int cancelRecurringJobsByBusinessKeys(java.util.Set<String> businessKeys) {
+  public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
     return fail("cancelRecurringJobsByBusinessKeys");
   }
 
   @Override
-  public UUID createRecurring(run.ratchet.store.spi.RecurringJobDefinition definition) {
+  public UUID createRecurring(RecurringJobDefinition definition) {
     return fail("createRecurring");
   }
 
   @Override
-  public boolean updateRecurring(UUID id, run.ratchet.store.spi.RecurringJobDefinition definition) {
+  public boolean updateRecurring(UUID id, RecurringJobDefinition definition) {
     return fail("updateRecurring");
   }
 
   @Override
-  public Optional<run.ratchet.store.spi.RecurringJobDefinition> getRecurring(UUID id) {
+  public Optional<RecurringJobDefinition> getRecurring(UUID id) {
     return fail("getRecurring");
   }
 
   @Override
-  public Optional<run.ratchet.store.spi.RecurringJobDefinition> findRecurringByBusinessKey(
-      String businessKey) {
+  public Optional<RecurringJobDefinition> findRecurringByBusinessKey(String businessKey) {
     return fail("findRecurringByBusinessKey");
   }
 
   @Override
-  public List<run.ratchet.store.spi.RecurringJobDefinition> searchRecurring(
-      run.ratchet.api.JobFilter filter, int limit, int offset) {
+  public List<RecurringJobDefinition> searchRecurring(JobFilter filter, int limit, int offset) {
     return fail("searchRecurring");
   }
 
   @Override
-  public long countRecurring(run.ratchet.api.JobFilter filter) {
+  public long countRecurring(JobFilter filter) {
     return fail("countRecurring");
   }
 
   @Override
-  public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
+  public List<RecurringJobDefinition> listAll() {
     return fail("listAll");
   }
 }

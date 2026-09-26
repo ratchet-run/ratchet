@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
@@ -191,7 +192,7 @@ public class OrderScenarioService {
     return workflow.startPaymentOutage(seconds == null ? DEMO_PAYMENT_OUTAGE_SECONDS : seconds);
   }
 
-  public void recordBurstProgress(run.ratchet.api.BatchContext context) {
+  public void recordBurstProgress(BatchContext context) {
     repository.recordBurstProgress(context);
   }
 

@@ -21,12 +21,14 @@ import static org.mockito.Mockito.mock;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Persistence;
+import java.sql.Connection;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -40,22 +42,22 @@ class MysqlLeaseContentionTest {
 
   @Test
   void ownershipWithMatchedRowCounts() throws Exception {
-    exercise(false, java.sql.Connection.TRANSACTION_READ_COMMITTED);
+    exercise(false, Connection.TRANSACTION_READ_COMMITTED);
   }
 
   @Test
   void ownershipWithChangedRowCounts() throws Exception {
-    exercise(true, java.sql.Connection.TRANSACTION_READ_COMMITTED);
+    exercise(true, Connection.TRANSACTION_READ_COMMITTED);
   }
 
   @Test
   void ownershipWithMatchedRowCountsAtRepeatableRead() throws Exception {
-    exercise(false, java.sql.Connection.TRANSACTION_REPEATABLE_READ);
+    exercise(false, Connection.TRANSACTION_REPEATABLE_READ);
   }
 
   @Test
   void ownershipWithChangedRowCountsAtRepeatableRead() throws Exception {
-    exercise(true, java.sql.Connection.TRANSACTION_REPEATABLE_READ);
+    exercise(true, Connection.TRANSACTION_REPEATABLE_READ);
   }
 
   private void exercise(boolean affectedRows, int isolation) throws Exception {
@@ -79,7 +81,7 @@ class MysqlLeaseContentionTest {
                   (String)
                       em.createNativeQuery("SELECT @@transaction_isolation").getSingleResult());
       assertEquals(
-          isolation == java.sql.Connection.TRANSACTION_REPEATABLE_READ
+          isolation == Connection.TRANSACTION_REPEATABLE_READ
               ? "REPEATABLE-READ"
               : "READ-COMMITTED",
           actualIsolation);
@@ -122,7 +124,7 @@ class MysqlLeaseContentionTest {
     var active = new AtomicInteger();
     var acquired = new AtomicInteger();
     var workers = Executors.newFixedThreadPool(8);
-    var futures = new ArrayList<java.util.concurrent.Future<?>>();
+    var futures = new ArrayList<Future<?>>();
     try {
       for (int i = 0; i < 8; i++) {
         String owner = "node-" + i;

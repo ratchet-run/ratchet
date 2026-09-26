@@ -115,7 +115,7 @@ class CoordinatorThreadingTest {
     ExecutorService pool = threading.newDispatchPool("dispatch", 2, 16);
     try {
       AtomicInteger ran = new AtomicInteger();
-      pool.submit(ran::incrementAndGet).get(2, java.util.concurrent.TimeUnit.SECONDS);
+      pool.submit(ran::incrementAndGet).get(2, TimeUnit.SECONDS);
       assertEquals(1, ran.get());
     } finally {
       pool.shutdownNow();

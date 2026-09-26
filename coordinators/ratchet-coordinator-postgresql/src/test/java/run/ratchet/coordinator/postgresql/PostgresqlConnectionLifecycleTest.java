@@ -31,6 +31,9 @@ import static org.mockito.Mockito.when;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
@@ -251,7 +254,7 @@ class PostgresqlConnectionLifecycleTest {
   @Test
   void backoffGrowsExponentiallyAndCaps() throws Exception {
     AtomicInteger attempts = new AtomicInteger();
-    java.util.List<Long> sleeps = new java.util.ArrayList<>();
+    List<Long> sleeps = new ArrayList<>();
     Connection raw = mockPgConnection();
 
     PostgresqlConnectionLifecycle lifecycle =
@@ -269,14 +272,14 @@ class PostgresqlConnectionLifecycleTest {
 
     lifecycle.reconnectWithBackoff();
 
-    assertEquals(java.util.List.of(10L, 20L, 40L, 50L, 50L), sleeps);
+    assertEquals(List.of(10L, 20L, 40L, 50L, 50L), sleeps);
   }
 
   @Test
   void backoffAppliesJitterCappedAtCeiling() throws Exception {
     AtomicInteger attempts = new AtomicInteger();
-    java.util.List<Long> ceilings = new java.util.ArrayList<>();
-    java.util.List<Long> sleeps = new java.util.ArrayList<>();
+    List<Long> ceilings = new ArrayList<>();
+    List<Long> sleeps = new ArrayList<>();
     Connection raw = mockPgConnection();
 
     PostgresqlConnectionLifecycle lifecycle =
@@ -296,7 +299,7 @@ class PostgresqlConnectionLifecycleTest {
 
     lifecycle.reconnectWithBackoff();
 
-    assertEquals(java.util.List.of(10L, 20L, 40L, 50L, 50L), ceilings);
+    assertEquals(List.of(10L, 20L, 40L, 50L, 50L), ceilings);
     for (int i = 0; i < sleeps.size(); i++) {
       long sleep = sleeps.get(i);
       long ceiling = ceilings.get(i);
@@ -369,7 +372,7 @@ class PostgresqlConnectionLifecycleTest {
   void reconnectAfterFailureRestoresUsability() throws Exception {
     Connection raw1 = mockPgConnection();
     Connection raw2 = mockPgConnection();
-    java.util.Iterator<Connection> conns = java.util.List.of(raw1, raw2).iterator();
+    Iterator<Connection> conns = List.of(raw1, raw2).iterator();
     PostgresqlConnectionLifecycle lifecycle =
         new PostgresqlConnectionLifecycle(conns::next, config, ms -> {});
 

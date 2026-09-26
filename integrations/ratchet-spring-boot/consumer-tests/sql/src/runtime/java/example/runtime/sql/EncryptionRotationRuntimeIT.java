@@ -18,6 +18,8 @@ package example.runtime.sql;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
@@ -31,9 +33,7 @@ class EncryptionRotationRuntimeIT {
   static final String OLD = Base64.getEncoder().encodeToString(new byte[32]);
   static final String NEW =
       Base64.getEncoder()
-          .encodeToString(
-              "12345678901234567890123456789012"
-                  .getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+          .encodeToString("12345678901234567890123456789012".getBytes(StandardCharsets.US_ASCII));
 
   @Test
   void rotatingWriteKeyStillExecutesOldPayloadAndEncryptsNewSubmissions() throws Exception {
@@ -100,8 +100,7 @@ class EncryptionRotationRuntimeIT {
                     "select executions from runtime_effect where id = 'missing-key'",
                     Integer.class))
             .isZero();
-        assertThat(java.nio.file.Files.readString(missing.log))
-            .contains("No key installed for id: old");
+        assertThat(Files.readString(missing.log)).contains("No key installed for id: old");
       }
       try (var restored =
           new RuntimeProcess(

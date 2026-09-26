@@ -44,6 +44,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -58,11 +59,13 @@ import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
+import run.ratchet.ri.core.internal.WorkflowCompletionPlan;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -96,11 +99,11 @@ class BatchServiceTest {
   void setUp() {
     lenient().when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
     lenient()
-        .when(workflowScheduler.planCompletion(any(), org.mockito.ArgumentMatchers.eq(false)))
-        .thenReturn(run.ratchet.ri.core.internal.WorkflowCompletionPlan.empty());
+        .when(workflowScheduler.planCompletion(any(), ArgumentMatchers.eq(false)))
+        .thenReturn(WorkflowCompletionPlan.empty());
     lenient()
         .when(jobTerminalStore.commitCompletion(any()))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
     batchService =
         new BatchService(
             batchStore,
@@ -161,12 +164,12 @@ class BatchServiceTest {
     when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 3, 3, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildSucceeded(child);
@@ -207,7 +210,7 @@ class BatchServiceTest {
     verify(batchStore).findBatchById(parentId);
     verify(jobTerminalStore)
         .commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
@@ -232,12 +235,12 @@ class BatchServiceTest {
     when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(currentBatch));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.FAILED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildSucceeded(child);
@@ -246,7 +249,7 @@ class BatchServiceTest {
     verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
     verify(jobTerminalStore)
         .commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
@@ -301,12 +304,12 @@ class BatchServiceTest {
     when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 1, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildSucceeded(child);
@@ -334,12 +337,12 @@ class BatchServiceTest {
     when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 0, 1)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.FAILED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildFailed(child);
@@ -372,12 +375,12 @@ class BatchServiceTest {
     when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 0, 1)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.FAILED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildFailed(child);
@@ -403,12 +406,12 @@ class BatchServiceTest {
     when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(freshCompletedBatch));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.FAILED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
     when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
 
     batchService.markChildSucceeded(child);
@@ -417,7 +420,7 @@ class BatchServiceTest {
     verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
     verify(jobTerminalStore)
         .commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
@@ -439,8 +442,7 @@ class BatchServiceTest {
 
   @Test
   void completedBatchDoesNotFinalizeOrPublishWhenSyntheticPickupLosesRace() {
-    when(jobTerminalStore.commitCompletion(any()))
-        .thenReturn(run.ratchet.store.dto.JobCompletionResult.notCommitted());
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
     UUID parentId = UUID.randomUUID();
     JobEntity child = new JobEntity();
     child.setDependsOn(parentId);
@@ -468,8 +470,7 @@ class BatchServiceTest {
 
   @Test
   void completedBatchResetsSyntheticPickupWhenTerminalTransitionDoesNotApply() {
-    when(jobTerminalStore.commitCompletion(any()))
-        .thenReturn(run.ratchet.store.dto.JobCompletionResult.notCommitted());
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
     UUID parentId = UUID.randomUUID();
     JobEntity child = new JobEntity();
     child.setDependsOn(parentId);
@@ -484,12 +485,12 @@ class BatchServiceTest {
     when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 1, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && parentId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(false, null));
+        .thenReturn(new JobCompletionResult(false, null));
 
     batchService.markChildSucceeded(child);
 
@@ -516,19 +517,19 @@ class BatchServiceTest {
     when(jobCrudStore.findByIds(List.of(firstId, secondId)))
         .thenReturn(List.of(firstParent, secondParent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && firstId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && secondId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
 
     assertEquals(2, batchService.recoverStuckBatches());
 
@@ -553,32 +554,32 @@ class BatchServiceTest {
     when(jobCrudStore.findByIds(List.of(failingId, succeedingId)))
         .thenReturn(List.of(failingParent, succeedingParent));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && failingId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
         .thenThrow(new IllegalStateException("store down"));
     when(jobTerminalStore.commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && succeedingId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED)))
-        .thenReturn(new run.ratchet.store.dto.JobCompletionResult(true, null));
+        .thenReturn(new JobCompletionResult(true, null));
 
     assertEquals(1, batchService.recoverStuckBatches());
 
     verify(jobTerminalStore)
         .commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && failingId.equals(plan.jobId())
                         && plan.terminalStatus() == JobStatus.SUCCEEDED));
     verify(jobTerminalStore)
         .commitCompletion(
-            org.mockito.ArgumentMatchers.argThat(
+            ArgumentMatchers.argThat(
                 plan ->
                     plan != null
                         && succeedingId.equals(plan.jobId())
