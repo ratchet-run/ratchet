@@ -10,7 +10,7 @@ Ratchet runs inside your application. Choose the runtime integration before conf
 
 | Runtime | Setup | Execution |
 | --- | --- | --- |
-| [Spring Boot](/deployment/spring-boot) | SQL or MongoDB starter, normal Boot connection properties | Boot 3.5/4.1, Java 17/21, JVM |
+| [Spring Boot](/deployment/spring-boot) | SQL or MongoDB starter, normal Boot connection properties | Boot 3.5/4.1, Java 17/21, JVM and native image (GraalVM 25) |
 | [Quarkus](/deployment/quarkus) | Quarkus extension and selected store | JVM and native image |
 | Jakarta EE 10/11 | CDI beans, store resources, managed executors | Application server |
 
@@ -26,7 +26,7 @@ The remaining setup on this page describes Jakarta EE. The linked guides cover t
 | **Database** | MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+ | One store module per database |
 | **Build Tool** | Maven 3.8+ | BOM import for version management |
 
-Running on Quarkus instead of a Jakarta EE server? The `ratchet-quarkus` extension supports Quarkus on the JVM and as a GraalVM native image. See [Quarkus Deployment](/deployment/quarkus).
+Running on Quarkus instead of a Jakarta EE server? The `ratchet-quarkus` extension supports Quarkus on the JVM and as a GraalVM native image. See [Quarkus Deployment](/deployment/quarkus). Running on Spring Boot? The SQL and MongoDB starters support Boot 3.5 and 4.1 on the JVM and as a native image. See [Spring Boot Deployment](/deployment/spring-boot).
 
 ## Ratchet modules
 
@@ -43,6 +43,8 @@ Optional modules:
 ```
 ratchet-micrometer   Micrometer metrics integration
 ratchet-quarkus      Quarkus extension (JVM and native) — see Quarkus Deployment
+ratchet-spring-boot-starter           Spring Boot starter for SQL stores — see Spring Boot Deployment
+ratchet-spring-boot-starter-mongodb   Spring Boot starter for MongoDB — see Spring Boot Deployment
 ```
 
 All versions are managed through the `ratchet-bom`:
@@ -171,7 +173,7 @@ Before going to production:
 
 - [Runtime setup](/deployment/installation) -- CDI, security policy, and container resources
 - [Database Setup](/deployment/database-setup) -- Schema application for all stores
-- [Rolling Upgrades](/deployment/rolling-upgrades) -- Version coexistence boundaries and rollout order
+- [Upgrading](/deployment/rolling-upgrades) -- Version coexistence boundaries and rollout order
 - [Configuration](/deployment/configuration) -- Full configuration reference
 - [Docker Deployment](/deployment/docker) -- Containerized deployments
 - [Kubernetes Deployment](/deployment/kubernetes) -- Orchestrated deployments

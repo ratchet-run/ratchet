@@ -156,14 +156,14 @@ way with their own store and driver artifacts.
 
 ## Netty dependency alignment
 
-Quarkus 3.20.6.2 manages Netty 4.1.130.Final. Ratchet 0.4.0 tests this platform with
-Netty 4.1.137.Final, which includes the
-[upstream security fixes](https://github.com/netty/netty/releases/tag/netty-4.1.137.Final),
+Quarkus 3.20.6.2 manages Netty 4.1.130.Final. Ratchet 0.5.0 tests this platform with
+Netty 4.1.138.Final, which includes the
+[upstream security fixes](https://github.com/netty/netty/releases/tag/netty-4.1.138.Final),
 and Brotli4j 1.23.0. Native builds need the matching Brotli4j Java and native libraries
 and Ratchet's conditional SSL compatibility code; a Netty-only override is insufficient.
 
 An application's dependency management takes precedence over library dependencies. Upgrading
-Ratchet alone does not guarantee the same Netty version in your application. For a Ratchet 0.4.0
+Ratchet alone does not guarantee the same Netty version in your application. For a Ratchet 0.5.0
 application on Quarkus 3.20.6.2, you can import Ratchet's Quarkus dependency set before the platform
 BOM to use the versions tested together:
 

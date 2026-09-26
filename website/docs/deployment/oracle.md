@@ -19,11 +19,11 @@ Ratchet on Oracle Database 23ai.
 ```bash
 sqlplus ratchet/secret@//localhost:1521/FREEPDB1 \
   @stores/ratchet-store-oracle/src/main/resources/ddl/oracle-schema.sql
-```
 
-The Oracle store was added after the `0.1.1` release, so there is no published store JAR to
-extract at that version. Build the current source tree and use the DDL path above. Starting with
-`0.2.0`, the store JAR also contains the file at `ddl/oracle-schema.sql`.
+# Or extract from the JAR
+jar xf ratchet-store-oracle-0.5.0.jar ddl/oracle-schema.sql
+sqlplus ratchet/secret@//localhost:1521/FREEPDB1 @ddl/oracle-schema.sql
+```
 
 Or copy it into your migration tool's versioned scripts:
 

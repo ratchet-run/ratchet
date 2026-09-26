@@ -240,11 +240,11 @@ GRANT CREATE SESSION, CREATE TABLE, CREATE SEQUENCE TO ratchet;
 # From the source tree
 sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 \
   @stores/ratchet-store-oracle/src/main/resources/ddl/oracle-schema.sql
-```
 
-The Oracle store was added after `0.1.1`, so that release has no store JAR to extract. Build the
-current source tree and use the DDL path above; the JAR contains `ddl/oracle-schema.sql` starting
-with `0.2.0`.
+# Or extract from the JAR
+jar xf ratchet-store-oracle-0.5.0.jar ddl/oracle-schema.sql
+sqlplus ratchet/your-secure-password@//localhost:1521/FREEPDB1 @ddl/oracle-schema.sql
+```
 
 ### Verify Installation
 

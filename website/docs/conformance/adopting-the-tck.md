@@ -21,11 +21,11 @@ contracts to your implementation.
 
 ::: tip Current release
 The `ratchet-bom`, `ratchet-tck-store`, `ratchet-tck-api`, `ratchet-tck-jakarta`, and
-`ratchet-tck-util` version `0.1.1` artifacts are available from
-[Maven Central](https://repo.maven.apache.org/maven2/run/ratchet/ratchet-bom/0.1.1/). The dependency
-examples below use that release.
+`ratchet-tck-util` artifacts are published to
+[Maven Central](https://repo.maven.apache.org/maven2/run/ratchet/ratchet-bom/). The dependency
+examples below use the latest release.
 
-This page tracks the current source tree, which can contain contracts added after `0.1.1`. The
+This page tracks the current source tree, which can contain contracts added after that release. The
 generated report from the artifact you run is authoritative for that release. To test unreleased
 contracts from `main`, install the matching source into your local Maven repository:
 
@@ -33,7 +33,7 @@ contracts from `main`, install the matching source into your local Maven reposit
 mvn -pl :ratchet-tck-store,:ratchet-tck-api,:ratchet-tck-jakarta -am -DskipTests install
 ```
 
-Then use the version from that source tree instead of `0.1.1`.
+Then use the version from that source tree instead of the release version.
 :::
 
 ## Common Maven setup
@@ -137,7 +137,7 @@ Most contracts use `JobStoreContractFixture`. These conditional profiles need ad
 | `AbstractSchemaMigratorContract` | A `DataSource`, `SchemaMigrationDialect`, database reset, and a new JDBC connection |
 | `AbstractJobStoreTransactionBoundaryContract` | The concrete JPA store implementation class whose annotations are inspected |
 
-The unreleased schema metadata API moves `Column`, `DeprecatedArtifact`, `ForeignKey`, `Index`,
+In 0.5.0, the schema metadata API moves `Column`, `DeprecatedArtifact`, `ForeignKey`, `Index`,
 `LogicalPredicate`, `LogicalType`, `OnDeleteAction`, `RatchetSchemaCatalog`, `SchemaSpec`, and `Table`
 from `run.ratchet.tck.store.schema` to `run.ratchet.store.schema`. When upgrading from 0.4.0,
 update those imports and recompile custom `DialectTypeMapper` implementations: its methods now
@@ -345,7 +345,7 @@ TCK APIs.
 
 ### Store-core upgrade changes
 
-This development branch also removes four public store-core members present in `0.4.0`:
+0.5.0 also removes four public store-core members present in `0.4.0`:
 `BatchMetricsEntity` no longer takes a `JobEntity` constructor argument and no longer exposes
 `getBatchJob()` or `setBatchJob(JobEntity)`. Use its `batchId` to identify the parent, and resolve
 the job separately when needed. The redundant JPA association is gone; existing database foreign

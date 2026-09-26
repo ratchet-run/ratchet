@@ -428,7 +428,7 @@ to a database, migrate schemas, start workers, or instantiate lazy/prototype job
 `clean` when changing stores, profiles, framework versions, or available job types.
 
 The [independent consumer reactor](https://github.com/ratchet-run/ratchet/blob/main/integrations/ratchet-spring-boot/consumer-tests/README.md#aot-and-native-verification)
-has `aot` and `native` profiles. After staging current artifacts, each native cell runs through
+has `aot` and `native` profiles. In CI, each native cell runs through
 one `mvn -Pnative clean verify` invocation with the selected Boot version and store. The native
 profile explicitly binds AOT, reachability metadata, compilation, and executable integration tests;
 applications that do not inherit Boot's parent need these bindings too. Testcontainers and test
@@ -447,8 +447,8 @@ MongoDB entries in this matrix select driver **5.11.1**, using the required
 [MongoDB BOM configuration](#keep-the-mongodb-driver-modules-aligned) above; they do not qualify
 the older drivers selected by the Boot BOMs.
 
-The independent consumer reactor imports its own Boot BOM and resolves the same staged Ratchet
-artifacts for every combination. Each full `verify` includes real databases, applicable API/store
+The independent consumer reactor imports its own Boot BOM and resolves the same Ratchet
+artifacts, installed from the current source into an isolated repository, for every combination. Each full `verify` includes real databases, applicable API/store
 contracts, an executable Boot jar in a separate JVM, and recovery after a forced process exit.
 SQL checks also cover commit/rollback, transaction propagation, host entities and converters,
 non-UTC operation, schema/migration ordering, SQL Server UUIDs, and virtual/platform thread routing.
@@ -459,7 +459,7 @@ These consumer results are separate from the Jakarta Runtime conformance matrix;
 claim CDI/JTA conformance for Spring.
 
 The [consumer README](https://github.com/ratchet-run/ratchet/blob/main/integrations/ratchet-spring-boot/consumer-tests/README.md)
-contains reproducible Maven commands. The
+contains contributor commands for verifying the current source tree. The
 [CI workflow](https://github.com/ratchet-run/ratchet/blob/main/.github/workflows/ci.yml)
 runs the matrix and retains test reports.
 

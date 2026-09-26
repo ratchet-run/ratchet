@@ -31,7 +31,7 @@ If you only read one thing on this page, read the selection guide below.
 5. JobRunr Core supports success-only parent-child continuations (`BackgroundJob.enqueue(parentId, ...)`). Conditional branching, failure-path callbacks, and result-aware branching require either custom code inside the parent job or JobRunr Pro's batch builder. Ratchet ships `.thenOnSuccess(...)`, `.thenOnFailure(...)`, and result-aware branching at the submission site. See [Ratchet vs JobRunr → Workflows](./vs-jobrunr.md#workflows) for the head-to-head.
 6. Ratchet has no in-core dashboard by design. A scheduler dashboard has real tradeoffs (Jakarta-portable servlet/REST limits modern frontend tooling; standalone HTTP-embedded designs like JobRunr's are not Jakarta-portable; both inherit ops surface), and bundling one into core would couple the scheduler's API to a UI's release cadence. The intended path is the **query layer SPI** plus integration with existing tools (Grafana/Datadog via the Micrometer adapter, or your own UI built on the query API). An optional admin/control panel may ship as a separate module post-1.0, never as part of core.
 
-7. Ratchet's [Spring Boot starter](/deployment/spring-boot) supports Boot 3.5/4.1 on Java 17/21. It uses Spring directly and supports SQL or MongoDB on the JVM.
+7. Ratchet's [Spring Boot starter](/deployment/spring-boot) supports Boot 3.5/4.1 on Java 17/21. It uses Spring directly and supports SQL or MongoDB, on the JVM or as a GraalVM native image.
 
 ## Where Ratchet is the wrong choice
 

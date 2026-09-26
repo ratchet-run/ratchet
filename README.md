@@ -1,6 +1,6 @@
 # Ratchet
 
-**Portable, CDI-based job scheduler for Jakarta EE 10/11.**
+**Portable, CDI-based job scheduler for Jakarta EE 10/11, Quarkus, and Spring Boot.**
 
 Inject one service, submit a method call, and let Ratchet persist, claim, execute, retry, and observe the work — no heavyweight framework, no proprietary runtime.
 
@@ -32,7 +32,7 @@ Spring Boot applications can use the SQL or MongoDB starters; see the [Spring Bo
 - **Resilience built in.** Retries with backoff, a circuit breaker, and a dead-letter queue — no Resilience4j, no Flyway, no extra runtime deps.
 - **Stores you can prove.** MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB ship out of the box, each verified by a reusable store TCK. Bring your own and run the same conformance suite.
 - **Customizable to the core** — see below.
-- **Portable.** Plain Jakarta EE 10/11. Runs on WildFly, Open Liberty, Payara, GlassFish, and friends, plus Quarkus (JVM and native) through the `ratchet-quarkus` extension.
+- **Portable.** Plain Jakarta EE 10/11. Runs on WildFly, Open Liberty, Payara, GlassFish, and friends, plus Quarkus (JVM and native) through the `ratchet-quarkus` extension and Spring Boot 3.5/4.1 (JVM and native) through the SQL and MongoDB starters.
 
 [Full feature tour →](https://ratchet.run/getting-started/introduction)
 
@@ -87,7 +87,7 @@ Swap the retry logic, circuit-breaker behavior, polling cadence, thread/executor
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet</artifactId>
   </dependency>
-  <!-- Pick a store published in 0.1.1: ratchet-store-{postgresql,mysql,mongodb} -->
+  <!-- Pick one: ratchet-store-{postgresql,mysql,oracle,sqlserver,mongodb} -->
   <dependency>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-store-postgresql</artifactId>
@@ -163,7 +163,7 @@ Pluggable stores, optional cluster coordinators (PostgreSQL `LISTEN`/`NOTIFY`, J
 
 - **Java** 17+
 - **Jakarta EE** 10/11 (CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Concurrency 3.0/3.1)
-- **Runtime** Jakarta EE 10/11 server with managed executors (WildFly, Open Liberty, Payara, GlassFish 8, …), or Quarkus on the JVM and native via the `ratchet-quarkus` extension; plain CDI/test deployments can opt into `StandaloneExecutorProvider`
+- **Runtime** Jakarta EE 10/11 server with managed executors (WildFly, Open Liberty, Payara, GlassFish 8, …), Quarkus on the JVM and native via the `ratchet-quarkus` extension, or Spring Boot 3.5/4.1 via `ratchet-spring-boot-starter` / `ratchet-spring-boot-starter-mongodb`; plain CDI/test deployments can opt into `StandaloneExecutorProvider`
 - **Database** MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+
 
 ## Building from Source

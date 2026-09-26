@@ -1,9 +1,20 @@
 ---
-title: Upgrade from 0.3.1 to 0.4.0
-description: Upgrade every Ratchet node together when moving from 0.3.1 to the 0.4.0 storage contracts.
+title: Upgrading
+description: Upgrade steps between Ratchet releases, including the coordinated 0.3.1 to 0.4.0 storage-contract upgrade.
 ---
 
-# Upgrade from 0.3.1 to 0.4.0
+# Upgrading
+
+## Upgrade from 0.4.0 to 0.5.0
+
+0.5.0 adds no schema migrations. SQL stores stay at `V008`, and MongoDB needs no new
+initialization. Deploy matching API, engine, and store artifacts on every node.
+
+Custom stores need no new contract methods, but 0.5.0 moves the schema metadata API and changes
+some store-core members. See the [store TCK guide](/conformance/adopting-the-tck#store-core-upgrade-changes)
+before rebuilding a custom store.
+
+## Upgrade from 0.3.1 to 0.4.0
 
 Moving from 0.3.1 to 0.4.0 introduces a permanent-idempotency ledger and atomic
 completion/recurring store contracts. This transition requires a
@@ -15,7 +26,7 @@ This coordinated shutdown applies to this storage-contract transition. Future re
 support rolling upgrades when their schema and behavior remain compatible, with mixed-version
 tests covering the supported source and target versions.
 
-## Upgrade order
+### Upgrade order
 
 1. Back up the database and rehearse restore and migration against a copy.
 2. Stop submissions from every producer. Drain running jobs, then stop all scheduler nodes,
@@ -38,7 +49,7 @@ tests covering the supported source and target versions.
 6. Verify normal submission, duplicate submission, execution, recurring scheduling, and batch/chain
    completion. Resume retention and producer traffic after these checks pass.
 
-## Retention and historical limits
+### Retention and historical limits
 
 The `scheduler_idempotency_key` table or collection retains a minimal key, original job UUID, and
 reservation timestamp. It is deliberately independent of job-history retention and has no cascading
@@ -54,14 +65,14 @@ Migration preserves keys on surviving job rows and all subsequent submissions. K
 through archival or deletion before this upgrade cannot be recovered from the database. Reconcile
 external history separately if that historical guarantee is required.
 
-## Version and database boundaries
+### Version and database boundaries
 
 Earlier MySQL/PostgreSQL compatibility tests with 0.1.1 establish common row-format readability,
 not permission to use a mixed fleet with the new permanent-key or atomic-bookkeeping guarantees.
 There is no mixed-version guarantee for 0.1.0; its identifier/schema conversion remains a separate,
 stopped migration.
 
-## Rollback boundary
+### Rollback boundary
 
 Keep old binaries stopped after enabling the new contracts. Rolling back only the binaries would
 allow writes that bypass permanent reservations. Use the rehearsed database-and-binary restore
