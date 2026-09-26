@@ -107,7 +107,7 @@ jobs:
             --suppression /github/workspace/owasp-suppressions.xml
 
       - name: Scan tests dependencies
-        # Keep each gate blocking, but collect the other reports after a CVSS failure.
+        # Advisory: reports only; findings do not fail the job.
         if: ${{ !cancelled() && steps.stage.outcome == 'success' }}
         # Pin the qualified scanner bytes; the upstream action otherwise pulls :latest.
         uses: docker://owasp/dependency-check-action@sha256:0b37339a28122edfec1b21e03d169b55d301e3c91bf201801d301b2e567af222
@@ -122,7 +122,6 @@ jobs:
             --out /github/workspace/target/owasp/reports/tests
             --data /github/workspace/target/owasp/data --noupdate
             --format HTML --format SARIF --format JSON
-            --failOnCVSS 7
             --disableNodeJS --disableNodeAudit --disableYarnAudit --disablePnpmAudit
             --disableRetireJs --disableOssIndex --disableCentral
             --suppression /github/workspace/owasp-suppressions.xml

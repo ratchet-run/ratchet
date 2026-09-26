@@ -121,4 +121,25 @@
         <packageUrl regex="true">^pkg:maven/io\.opentelemetry/opentelemetry-sdk(-common|-logs|-metrics|-testing|-trace)?@1\.62\.0$</packageUrl>
         <cve>CVE-2026-54285</cve>
     </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+        ACCEPTED-RISK exception, not a false positive: HttpCore code is relocated
+        inside docker-java-transport-zerodep 3.4.1, pulled by Quarkus 3.20 LTS
+        Dev Services via quarkus-devservices-common and Testcontainers 1.20.6.
+        The Quarkus BOM controls the version; Ratchet cannot override it without
+        leaving the LTS. CVE-2026-54399 and CVE-2026-54428 are memory-exhaustion
+        DoS from a hostile HTTP peer. Here the only peer is the local Docker
+        daemon socket used by Dev Services at development/test time.
+        No docker-java release newer than 3.7.1 exists as of 2026-09-26.
+        The httpclient5 5.6.4 bump is merged upstream in docker-java PR #2669
+        but unreleased, and 3.7.1 still embeds affected httpcore5 5.3.6.
+        Remove this rule when the Quarkus LTS line selects a docker-java
+        transport containing fixed httpcore5 (5.4.3+).
+        https://lists.apache.org/thread/zmxh1pl2zohov5ntdh4lt85gfrlchgpy
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/org\.apache\.httpcomponents\.core5/httpcore5(-h2)?@5\.0\.2$</packageUrl>
+        <cve>CVE-2026-54399</cve>
+        <cve>CVE-2026-54428</cve>
+    </suppress>
 </suppressions>
