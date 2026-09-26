@@ -20,7 +20,6 @@ import static com.mongodb.client.model.Updates.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
-import app.process;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import example.ratchet.mongo.MongoConsumerProperties;
@@ -160,7 +159,7 @@ class MongoProcessesRuntimeIT {
           await()
               .during(Duration.ofSeconds(3))
               .atMost(Duration.ofSeconds(5))
-              .until(process::isAlive);
+              .until(() -> app.process.isAlive());
           wire.reconnect();
           succeeded(db, "outage");
           assertThat(
