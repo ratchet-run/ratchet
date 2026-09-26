@@ -25,12 +25,12 @@ matching Quarkus JDBC driver.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-postgresql</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 <dependency>
   <groupId>io.quarkus</groupId>
@@ -156,14 +156,14 @@ way with their own store and driver artifacts.
 
 ## Netty dependency alignment
 
-Quarkus 3.20.6.2 manages Netty 4.1.130.Final. Ratchet 0.4.0 tests this platform with
-Netty 4.1.137.Final, which includes the
-[upstream security fixes](https://github.com/netty/netty/releases/tag/netty-4.1.137.Final),
+Quarkus 3.20.6.2 manages Netty 4.1.130.Final. Ratchet 0.5.0 tests this platform with
+Netty 4.1.138.Final, which includes the
+[upstream security fixes](https://github.com/netty/netty/releases/tag/netty-4.1.138.Final),
 and Brotli4j 1.23.0. Native builds need the matching Brotli4j Java and native libraries
 and Ratchet's conditional SSL compatibility code; a Netty-only override is insufficient.
 
 An application's dependency management takes precedence over library dependencies. Upgrading
-Ratchet alone does not guarantee the same Netty version in your application. For a Ratchet 0.4.0
+Ratchet alone does not guarantee the same Netty version in your application. For a Ratchet 0.5.0
 application on Quarkus 3.20.6.2, you can import Ratchet's Quarkus dependency set before the platform
 BOM to use the versions tested together:
 
@@ -173,7 +173,7 @@ BOM to use the versions tested together:
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-quarkus-parent</artifactId>
-      <version>0.4.0</version>
+      <version>0.5.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -269,12 +269,12 @@ and no schema DDL to apply, so the setup is shorter than the SQL flavor.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus-mongodb</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-mongodb</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 ```
 

@@ -31,7 +31,7 @@ If you haven't done steps 3 and 4 yet, here's the minimum `pom.xml` setup:
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-bom</artifactId>
-      <version>0.4.0</version>
+      <version>0.5.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>

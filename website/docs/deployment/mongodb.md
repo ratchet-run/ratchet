@@ -30,7 +30,7 @@ or sharded cluster even when an application does not currently assign business k
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-mongodb</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 ```
 

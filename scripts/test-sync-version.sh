@@ -69,13 +69,20 @@ initial_quarkus_version_count="$(
   grep -Fc "<version>$initial_quarkus_version</version>" "$FIXTURE/website/docs/deployment/quarkus.md"
 )"
 
-# The current public guides omit these JAR commands because neither store was
-# published in 0.1.1. Add fixture-only commands to prove both files participate
-# in the first release that contains those artifacts.
-printf '\njar xf ratchet-store-oracle-0.1.1.jar ddl/oracle-schema.sql\n' \
-  >> "$FIXTURE/website/docs/deployment/oracle.md"
-printf '\njar xf ratchet-store-sqlserver-0.1.1.jar ddl/sqlserver-schema.sql\n' \
-  >> "$FIXTURE/website/docs/deployment/sqlserver.md"
+# Once the starters are published, the guide keeps its released coordinate
+# through development bumps. Before that, it follows the checkout version.
+initial_spring_version=""
+if ! grep -Fq '<!-- spring-starter-unreleased:start -->' \
+    "$FIXTURE/website/docs/deployment/spring-boot.md"; then
+  initial_spring_version="$(
+    sed -n 's/.*<ratchet\.version>\([^<]*\)<\/ratchet\.version>.*/\1/p' \
+      "$FIXTURE/website/docs/deployment/spring-boot.md" | head -n 1
+  )"
+  if [[ -z "$initial_spring_version" || "$initial_spring_version" == *-SNAPSHOT ]]; then
+    echo "Spring public version is missing or unpublished: $initial_spring_version" >&2
+    exit 1
+  fi
+fi
 
 # A local development bump must not invent an unpublished public coordinate.
 env -u RELEASE_VERSION "$FIXTURE/scripts/sync-version.sh" 9.8.7-SNAPSHOT >/dev/null
@@ -86,7 +93,11 @@ assert_count integrations/ratchet-quarkus/README.md "<version>$initial_quarkus_v
 assert_contains README.md 'Ratchet is in **9.8.7-SNAPSHOT**.'
 assert_contains infra/loadtest/Dockerfile 'ratchet-loadtest-9.8.7-SNAPSHOT.war'
 assert_contains integrations/ratchet-spring-boot/consumer-tests/pom.xml '<ratchet.version>9.8.7-SNAPSHOT</ratchet.version>'
-assert_contains website/docs/deployment/spring-boot.md '<ratchet.version>9.8.7-SNAPSHOT</ratchet.version>'
+if [[ -n "$initial_spring_version" ]]; then
+  assert_contains website/docs/deployment/spring-boot.md "<ratchet.version>$initial_spring_version</ratchet.version>"
+else
+  assert_contains website/docs/deployment/spring-boot.md '<ratchet.version>9.8.7-SNAPSHOT</ratchet.version>'
+fi
 
 # Exercise placeholder expansion even when a previous release already replaced
 # every placeholder in the checked-in guide.
