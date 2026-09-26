@@ -116,6 +116,8 @@ Java version, including applications that enable virtual threads.
 | Oracle | `ratchet-store-oracle` | `com.oracle.database.jdbc:ojdbc11` |
 | SQL Server | `ratchet-store-sqlserver` | `com.microsoft.sqlserver:mssql-jdbc` |
 
+SQL Server also needs `READ_COMMITTED_SNAPSHOT` enabled on the Ratchet database. See [SQL Server row-versioning](/deployment/sqlserver#row-versioning-is-required).
+
 ### Submit a first job
 
 Place both files under your Boot application's package, here `example.jobs`. The job target is a

@@ -9,7 +9,7 @@ The SQL consumer profiles are selected with `-Dstore`:
 | PostgreSQL | `-Dstore=postgresql` | `postgresql` | Default SQL example. |
 | MySQL | `-Dstore=mysql` | `mysql` | `READ_COMMITTED`; the example also uses a UTC connection timezone. |
 | Oracle | `-Dstore=oracle` | `oracle` | UTC Hibernate JDBC timezone. |
-| SQL Server | `-Dstore=sqlserver` | `sqlserver` | UTC Hibernate JDBC timezone; no database-wide isolation change. |
+| SQL Server | `-Dstore=sqlserver` | `sqlserver` | UTC Hibernate JDBC timezone; a dedicated `ratchet` database with `READ_COMMITTED_SNAPSHOT`, which the store requires. |
 
 Each run starts the selected real Testcontainers database and supplies only the usual Boot datasource URL, username, and password. The profile selects the matching application schema because Oracle and SQL Server do not accept the PostgreSQL/MySQL `CREATE TABLE IF NOT EXISTS` syntax.
 
