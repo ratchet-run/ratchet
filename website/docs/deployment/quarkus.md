@@ -25,12 +25,12 @@ matching Quarkus JDBC driver.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-postgresql</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 <dependency>
   <groupId>io.quarkus</groupId>
@@ -173,7 +173,7 @@ BOM to use the versions tested together:
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-quarkus-parent</artifactId>
-      <version>0.4.0</version>
+      <version>0.5.0</version>
       <type>pom</type>
       <scope>import</scope>
     </dependency>
@@ -269,12 +269,12 @@ and no schema DDL to apply, so the setup is shorter than the SQL flavor.
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-quarkus-mongodb</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 <dependency>
   <groupId>run.ratchet</groupId>
   <artifactId>ratchet-store-mongodb</artifactId>
-  <version>0.4.0</version>
+  <version>0.5.0</version>
 </dependency>
 ```
 
