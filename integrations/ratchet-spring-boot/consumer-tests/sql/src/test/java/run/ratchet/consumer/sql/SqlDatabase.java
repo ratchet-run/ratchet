@@ -27,6 +27,10 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -72,6 +76,7 @@ public final class SqlDatabase implements AutoCloseable {
     SqlDatabase database = new SqlDatabase(store, container, ownedDataDirectory);
     try {
       container.start();
+      if ("sqlserver".equals(store)) provisionSnapshotDatabase(container);
       return database;
     } catch (RuntimeException failure) {
       try {
@@ -81,6 +86,26 @@ public final class SqlDatabase implements AutoCloseable {
       }
       throw failure;
     }
+  }
+
+  /**
+   * Moves SQL Server off {@code master} onto a database with {@code READ_COMMITTED_SNAPSHOT}, which
+   * the store requires. Lock-based READ COMMITTED lets concurrent claims block each other, and SQL
+   * Server waits on locks without a timeout, so the consumer hangs instead of failing. RCSI cannot
+   * be set on {@code master}.
+   */
+  private static void provisionSnapshotDatabase(JdbcDatabaseContainer<?> container) {
+    try (Connection master =
+            DriverManager.getConnection(
+                container.getJdbcUrl(), container.getUsername(), container.getPassword());
+        Statement statement = master.createStatement()) {
+      statement.execute("CREATE DATABASE [ratchet]");
+      statement.execute("ALTER DATABASE [ratchet] SET READ_COMMITTED_SNAPSHOT ON");
+      statement.execute("ALTER DATABASE [ratchet] SET ALLOW_SNAPSHOT_ISOLATION ON");
+    } catch (SQLException e) {
+      throw new IllegalStateException("Failed to provision the SQL Server ratchet database", e);
+    }
+    container.withUrlParam("databaseName", "ratchet");
   }
 
   public String store() {
