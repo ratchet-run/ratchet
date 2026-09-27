@@ -224,7 +224,7 @@ export default defineConfig({
             { text: 'Spring Boot', link: '/deployment/spring-boot' },
             { text: 'Quarkus', link: '/deployment/quarkus' },
             { text: 'Database Setup', link: '/deployment/database-setup' },
-            { text: 'Upgrade to 0.4.0', link: '/deployment/rolling-upgrades' },
+            { text: 'Upgrading', link: '/deployment/rolling-upgrades' },
             { text: 'MySQL', link: '/deployment/mysql' },
             { text: 'PostgreSQL', link: '/deployment/postgresql' },
             { text: 'Oracle', link: '/deployment/oracle' },

@@ -140,14 +140,12 @@ A **store** is the persistence backend that holds jobs, execution history, locks
 You choose a store implementation as a Maven dependency:
 
 ```xml
-<!-- Published in 0.1.1; pick one -->
+<!-- Pick one -->
 <artifactId>ratchet-store-postgresql</artifactId>
 <artifactId>ratchet-store-mysql</artifactId>
-<artifactId>ratchet-store-mongodb</artifactId>
-
-<!-- Published starting in 0.2.0; build from source when using 0.1.1 -->
 <artifactId>ratchet-store-oracle</artifactId>
 <artifactId>ratchet-store-sqlserver</artifactId>
+<artifactId>ratchet-store-mongodb</artifactId>
 ```
 
 See [Persistence](../concepts/persistence.md) for how stores work internally.

@@ -14,7 +14,7 @@ If you are picking between Ratchet and JobRunr, the decision is rarely about fea
 
 | Pick **JobRunr** if                                       | Pick **Ratchet** if                                       |
 |-----------------------------------------------------------|-----------------------------------------------------------|
-| You are on Spring Boot, Quarkus, or Micronaut             | You are on Jakarta EE 10/11 or a CDI-only stack           |
+| You are on Spring Boot, Quarkus, or Micronaut             | You are on Jakarta EE 10/11, Quarkus, or Spring Boot      |
 | You need a production-grade web dashboard today           | You need Jakarta Security caller-principal capture        |
 | You want a paid commercial support tier (JobRunr Pro)     | You want a TCK-enforced store SPI for cross-store parity  |
 | You want a 1.0-stable library today                       | You want everything Apache 2.0 with no paid tier          |
@@ -178,7 +178,7 @@ Finally, the JobRunr team has invested in documentation, examples, and onboardin
 
 ## When to pick each
 
-Pick JobRunr if your container is Spring Boot, Quarkus, or Micronaut. Pick it if a dashboard matters to you today, if you need 1.0 stability, or if you want a paid commercial support contract.
+Pick JobRunr if you are on Micronaut. Pick it if a dashboard matters to you today, if you need 1.0 stability, or if you want a paid commercial support contract.
 
 Evaluate Ratchet on Jakarta EE 10/11, Quarkus, or [Spring Boot](/deployment/spring-boot). Pick it if you need caller-identity capture and a `JobAuthorizationPolicy`, if you need a TCK-enforced store SPI for cross-store parity, if you need a circuit breaker and dead letter queue baked into the scheduler, or if your organization needs an Apache 2.0 license with no paid tier.
 

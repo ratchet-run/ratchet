@@ -28,11 +28,11 @@ ALTER DATABASE ratchet SET ALLOW_SNAPSHOT_ISOLATION ON;
 ```bash
 sqlcmd -S localhost,1433 -U ratchet -P 'secret' -d ratchet -C \
   -i stores/ratchet-store-sqlserver/src/main/resources/ddl/sqlserver-schema.sql
-```
 
-The SQL Server store was added after the `0.1.1` release, so there is no published store JAR to
-extract at that version. Build the current source tree and use the DDL path above. Starting with
-`0.2.0`, the store JAR also contains the file at `ddl/sqlserver-schema.sql`.
+# Or extract from the JAR
+jar xf ratchet-store-sqlserver-0.5.0.jar ddl/sqlserver-schema.sql
+sqlcmd -S localhost,1433 -U ratchet -P 'secret' -d ratchet -C -i ddl/sqlserver-schema.sql
+```
 
 Or copy it into your migration tool's versioned scripts:
 

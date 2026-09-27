@@ -159,12 +159,12 @@ On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a 
 |-----------|---------|
 | **Java** | 17+ |
 | **Jakarta EE** | 10/11 -- CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1 |
-| **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8), Quarkus via the `ratchet-quarkus` extension, or the Spring Boot 3.5/4.1 JVM integration |
+| **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8), Quarkus via the `ratchet-quarkus` extension, or the Spring Boot 3.5/4.1 starters (JVM and native image) |
 | **Database** | MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+ |
 
 ## Project status
 
-Ratchet is currently at version **0.5.0-SNAPSHOT**. The core API is stabilizing, but interfaces marked with `@Incubating` (such as `CircuitBreakerProtected` and `CircuitBreakerProfile`) may change in future releases. Feedback and contributions are welcome.
+Ratchet is currently at version **0.5.1-SNAPSHOT**. The core API is stabilizing, but interfaces marked with `@Incubating` (such as `CircuitBreakerProtected` and `CircuitBreakerProfile`) may change in future releases. Feedback and contributions are welcome.
 
 ## What's next
 
