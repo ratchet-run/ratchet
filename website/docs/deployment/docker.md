@@ -15,7 +15,7 @@ Choose a base image that provides the Jakarta EE services Ratchet's default RI r
 | Runtime | Base Image | Notes |
 |---------|-----------|-------|
 | **WildFly** | `quay.io/wildfly/wildfly:39.0.1.Final-jdk17` | Recommended for Ratchet (used in CI) |
-| **Payara Micro** | `payara/micro:6.2025.11-jdk17` | Lightweight, good for microservices |
+| **Payara Micro** | `payara/micro:7.2026.9` | Lightweight, good for microservices. Payara 7 is Jakarta EE 11; this tag runs JDK 21 (`7.2026.9-jdk25` for JDK 25). Payara Community 6 is end of life |
 | **Open Liberty** | `icr.io/appcafe/open-liberty:26.0.0.2-full-java17-openj9` | Feature-based configuration |
 
 ## WildFly Dockerfile
@@ -131,10 +131,10 @@ and guidance when upgrading older builds.
 
 ## Payara Micro Dockerfile
 
-Payara Micro deploys WARs directly without a full application server install:
+Payara Micro deploys WARs directly without a full application server install. This example uses Payara Micro 7 (Jakarta EE 11, JDK 21):
 
 ```dockerfile
-FROM payara/micro:6.2025.11-jdk17
+FROM payara/micro:7.2026.9
 
 # Copy the PostgreSQL driver into the lib directory
 COPY --chown=payara:payara postgresql-42.7.7.jar /opt/payara/libs/
