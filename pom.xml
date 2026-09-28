@@ -792,7 +792,7 @@
     </profile>
 
     <!--
-      WildFly 40 / Jakarta EE 11 managed-server test profile. WildFly 40 supports
+      WildFly 41 / Jakarta EE 11 managed-server test profile. WildFly 41 supports
       JDK 21, which is the build JDK used throughout the reactor. The server config
       and the EE 11-only test sources live in ratchet-testsuite's same-id profile.
       The ratchet library itself is unaffected: it stays a single EE-agnostic
@@ -818,7 +818,7 @@
                     <requireJavaVersion>
                       <version>[21,)</version>
                       <message>
-                        The wildfly-ee11-managed profile targets WildFly 40 on JDK 21.
+                        The wildfly-ee11-managed profile targets WildFly 41 on JDK 21.
                         Re-run with JDK 21+ on PATH (or via JAVA_HOME).
                       </message>
                     </requireJavaVersion>

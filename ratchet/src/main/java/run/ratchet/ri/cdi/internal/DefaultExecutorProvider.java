@@ -50,7 +50,7 @@ import run.ratchet.spi.ExecutorProvider;
  * ratchet.worker.scheduled-executor-jndi} (defaulting to the well-known container names above).
  * Pointing {@code job-executor-jndi} at a virtual-thread-backed executor runs jobs on that
  * executor; whether its threads are actually virtual is the container's decision, since {@code
- * virtual = true} is a request a runtime may ignore (Eclipse GlassFish 8 honors it; WildFly 40 does
+ * virtual = true} is a request a runtime may ignore (Eclipse GlassFish 8 honors it; WildFly 41 does
  * not yet). Jakarta exposes no API to verify this at runtime. On Jakarta EE 11 the application
  * declares one with {@code @ManagedExecutorDefinition(name =
  * "java:app/concurrent/MyVirtualExecutor", virtual = true)} on any {@code @ApplicationScoped} bean

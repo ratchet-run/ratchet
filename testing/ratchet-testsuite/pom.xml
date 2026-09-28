@@ -498,7 +498,7 @@
     </profile>
 
     <!--
-      WildFly 40 on Jakarta EE 11 / JDK 21. Mirrors wildfly-managed but pins the
+      WildFly 41 on Jakarta EE 11 / JDK 21. Mirrors wildfly-managed but pins the
       EE 11 distribution and adds the EE 11 test source root (VirtualThreadExecutionIT).
       The parent same-id profile supplies the JDK 21 enforcer; this profile sets the
       EE 11 umbrella (Concurrency 3.1) via jakarta.ee.version below. The test deployment
@@ -511,7 +511,7 @@
         <skipITs>false</skipITs>
         <testsuite.profile>wildfly-ee11-managed</testsuite.profile>
         <arquillian.launch>wildfly-ee11-managed</arquillian.launch>
-        <wildfly.version>40.0.0.Final</wildfly.version>
+        <wildfly.version>41.0.1.Final</wildfly.version>
         <wildfly.home>${project.build.directory}/wildfly-${wildfly.version}</wildfly.home>
         <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
         <jakarta.ee.version>11.0.0</jakarta.ee.version>

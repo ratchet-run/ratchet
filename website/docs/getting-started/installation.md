@@ -244,7 +244,7 @@ Servers known to work:
 | Server | Version | Notes |
 |--------|---------|-------|
 | WildFly EE 10 | WildFly 39; CI-managed tests currently use 39.0.1.Final | Primary managed test target |
-| WildFly EE 11 | WildFly 40; CI-managed tests currently use 40.0.0.Final | Jakarta EE 11 runtime |
+| WildFly EE 11 | WildFly 41; CI-managed tests currently use 41.0.1.Final | Jakarta EE 11 runtime |
 | Open Liberty EE 10 | `webProfile-10.0`; CI-managed tests currently use 26.0.0.2 | Requires CDI, Persistence, and managed executor support |
 | Payara EE 10 | Payara Community 6; CI-managed tests currently use 6.2025.11 | Jakarta EE 10 runtime. Payara Community 6 reached end of life with 6.2025.11 |
 | Payara EE 11 | Payara Community 7; CI-managed tests currently use 7.2026.9 | Jakarta EE 11 runtime; requires JDK 21+ |

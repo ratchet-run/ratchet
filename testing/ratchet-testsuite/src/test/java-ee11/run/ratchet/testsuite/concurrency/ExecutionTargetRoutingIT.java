@@ -41,7 +41,8 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
  * <p>The deployment runs only under the EE 11 server profiles (the {@code src/test/java-ee11}
  * source root). That both jobs complete proves both pools resolved and ran. The thread-<em>type</em>
  * assertions run only on GlassFish 8, which actually implements virtual threads for managed
- * executors. WildFly 40 does not — confirmed with the WildFly team — so on WildFly the IT only
+ * executors. WildFly does not (confirmed with the WildFly team for 40; 41.0.1.Final still has no
+ * virtual wiring in its managed executors), so on WildFly the IT only
  * exercises the {@code @ManagedExecutorDefinition} JNDI routing path, without the {@code
  * isVirtual()} distinction.
  *
