@@ -152,6 +152,8 @@
     <wildfly.version>39.0.1.Final</wildfly.version>
     <wildfly-arquillian.version>5.1.0.Final</wildfly-arquillian.version>
     <payara.version>6.2025.11</payara.version>
+    <!-- Payara Community 7 (Jakarta EE 11, JDK 21+) for the payara-ee11-managed testsuite profile. -->
+    <payara7.version>7.2026.9</payara7.version>
     <payara-arquillian.version>4.0.alpha4</payara-arquillian.version>
     <!--
       Eclipse GlassFish 8 is the Jakarta EE 11 reference implementation
@@ -727,7 +729,8 @@
       and the umbrella jakartaee-web-api to 11.0.0. Intended for compile-time
       verification only. EE 11 runtime coverage comes from the managed-server
       profiles that deploy to EE 11 containers (wildfly-ee11-managed on
-      standard WildFly 40+, glassfish-managed on GlassFish 8), not from this
+      standard WildFly 40+, payara-ee11-managed on Payara 7, glassfish-managed
+      on GlassFish 8), not from this
       profile. The default build remains EE 10 to preserve the EE 10
       managed-server lanes.
 

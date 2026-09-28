@@ -263,6 +263,7 @@ server_label_for() {
     wildfly-managed) echo 'WildFly EE 10' ;;
     wildfly-ee11-managed) echo 'WildFly EE 11' ;;
     payara-managed) echo 'Payara EE 10' ;;
+    payara-ee11-managed) echo 'Payara EE 11' ;;
     openliberty-managed) echo 'Open Liberty EE 10' ;;
     glassfish-managed) echo 'GlassFish EE 11' ;;
     *)

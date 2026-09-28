@@ -247,6 +247,7 @@ Servers known to work:
 | WildFly EE 11 | WildFly 40; CI-managed tests currently use 40.0.0.Final | Jakarta EE 11 runtime |
 | Open Liberty EE 10 | `webProfile-10.0`; CI-managed tests currently use 26.0.0.2 | Requires CDI, Persistence, and managed executor support |
 | Payara EE 10 | Payara Community 6; CI-managed tests currently use 6.2025.11 | Jakarta EE 10 runtime. Payara Community 6 reached end of life with 6.2025.11 |
+| Payara EE 11 | Payara Community 7; CI-managed tests currently use 7.2026.9 | Jakarta EE 11 runtime; requires JDK 21+ |
 | GlassFish EE 11 | GlassFish 8 / Omnifish line; CI-managed tests currently use 8.0.1 | Jakarta EE 11 runtime; currently tracked with a known upstream workaround |
 
 Plain Web Profile or standalone CDI environments can opt into

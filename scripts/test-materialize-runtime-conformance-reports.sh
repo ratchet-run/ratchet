@@ -11,6 +11,7 @@ SERVERS=(
   wildfly-managed
   wildfly-ee11-managed
   payara-managed
+  payara-ee11-managed
   openliberty-managed
   glassfish-managed
 )
@@ -30,6 +31,7 @@ server_label() {
     wildfly-managed) echo 'WildFly EE 10' ;;
     wildfly-ee11-managed) echo 'WildFly EE 11' ;;
     payara-managed) echo 'Payara EE 10' ;;
+    payara-ee11-managed) echo 'Payara EE 11' ;;
     openliberty-managed) echo 'Open Liberty EE 10' ;;
     glassfish-managed) echo 'GlassFish EE 11' ;;
     *) fail "unknown server: $1" ;;
@@ -322,8 +324,8 @@ write_ci_fixture "${combo_root}" 'glassfish-managed:sqlserver'
 [[ -f "${combo_root}/docs/jakarta/glassfish-managed-sqlserver.md" ]] \
   || fail "removed Jakarta combination page was not pre-seeded"
 combo_output="$(run_materializer "${combo_root}")"
-grep -Fq 'Materialized 48 runtime conformance reports for 24 server/database combinations' <<< "${combo_output}" \
-  || fail "reduced matrix summary did not report 48 reports for 24 combinations"
+grep -Fq 'Materialized 58 runtime conformance reports for 29 server/database combinations' <<< "${combo_output}" \
+  || fail "reduced matrix summary did not report 58 reports for 29 combinations"
 [[ -d "${combo_root}/runtime/tck-conformance-reports-glassfish-managed-sqlserver" ]] \
   || fail "materializer touched the removed combination artifact directory"
 assert_materialized "${combo_root}/docs" glassfish-managed sqlserver
@@ -343,5 +345,5 @@ expect_failure 'weblogic-managed' \
 echo 'PASS: runtime conformance reports materialize from flattened and nested artifacts'
 echo 'PASS: missing, duplicate, empty, and placeholder reports fail closed'
 echo 'PASS: stale conformance pages are pruned while index pages are preserved'
-echo 'PASS: ci.yml matrix removal materializes 48 reports for 24 combinations'
+echo 'PASS: ci.yml matrix removal materializes 58 reports for 29 combinations'
 echo 'PASS: empty matrices and unknown display labels fail closed'
