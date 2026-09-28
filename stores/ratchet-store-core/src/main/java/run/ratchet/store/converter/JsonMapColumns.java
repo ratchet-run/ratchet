@@ -15,6 +15,10 @@
  */
 package run.ratchet.store.converter;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** JSON map column encoding shared by entities and converters without a JPA runtime dependency. */
@@ -62,5 +66,29 @@ public final class JsonMapColumns {
       return null;
     }
     return (Map<String, Object>) PayloadSerializerHolder.get().deserialize(json, Map.class);
+  }
+
+  /**
+   * Returns a deep, unmodifiable copy of a JSON object map. Nested maps and collections are copied
+   * and frozen too, so no change can reach the cached map without going through the setter that
+   * rewrites the persisted JSON. Leaf values are kept as they are.
+   */
+  @SuppressWarnings("unchecked")
+  public static Map<String, Object> freezeObjectMap(Map<String, Object> map) {
+    return map == null ? null : (Map<String, Object>) freeze(map);
+  }
+
+  private static Object freeze(Object value) {
+    if (value instanceof Map<?, ?> map) {
+      Map<Object, Object> copy = new LinkedHashMap<>();
+      map.forEach((k, v) -> copy.put(k, freeze(v)));
+      return Collections.unmodifiableMap(copy);
+    }
+    if (value instanceof Collection<?> collection) {
+      ArrayList<Object> copy = new ArrayList<>(collection.size());
+      collection.forEach(v -> copy.add(freeze(v)));
+      return Collections.unmodifiableList(copy);
+    }
+    return value;
   }
 }

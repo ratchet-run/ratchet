@@ -25,8 +25,6 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.Instant;
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -82,7 +80,7 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.ts = Objects.requireNonNull(ts, "ts");
     this.level = Objects.requireNonNull(level, "level");
     this.message = Objects.requireNonNull(message, "message");
-    this.mdcMap = copyMdc(mdc);
+    this.mdcMap = JsonMapColumns.freezeObjectMap(mdc);
     this.mdc = JsonMapColumns.writeObjectMap(mdcMap);
     this.mdcMapJson = this.mdc;
   }
@@ -113,10 +111,10 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public Map<String, Object> getMdc() {
     if (!Objects.equals(mdc, mdcMapJson)) {
-      mdcMap = JsonMapColumns.readObjectMap(mdc);
+      mdcMap = JsonMapColumns.freezeObjectMap(JsonMapColumns.readObjectMap(mdc));
       mdcMapJson = mdc;
     }
-    return copyMdc(mdcMap);
+    return mdcMap;
   }
 
   // Identity-based equality on the assigned primary key. Content-based equality (jobId/ts/
@@ -146,12 +144,5 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     INFO,
     WARN,
     ERROR
-  }
-
-  private static Map<String, Object> copyMdc(Map<String, Object> mdc) {
-    if (mdc == null) {
-      return null;
-    }
-    return Collections.unmodifiableMap(new LinkedHashMap<>(mdc));
   }
 }

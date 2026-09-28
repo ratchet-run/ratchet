@@ -25,6 +25,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -96,6 +97,32 @@ class JsonMapColumnsEntityMappingTest {
     assertEquals(List.of("first", "second"), List.copyOf(log.getMdc().keySet()));
     assertEquals(log.getMdc(), JsonMapColumns.readObjectMap(jsonColumn(log, "mdc")));
     assertThrows(UnsupportedOperationException.class, () -> log.getMdc().put("extra", "value"));
+  }
+
+  @Test
+  void nestedMdcValuesAreCopiedAndFrozen() throws ReflectiveOperationException {
+    Map<String, Object> details = new HashMap<>(Map.of("name", "worker"));
+    List<Object> tags = new ArrayList<>(List.of("a"));
+    JobLogEntity log = logEntry(new HashMap<>(Map.of("details", details, "tags", tags)));
+
+    details.put("name", "changed");
+    tags.add("b");
+    assertEquals(Map.of("name", "worker"), log.getMdc().get("details"));
+    assertEquals(List.of("a"), log.getMdc().get("tags"));
+    assertNestedValuesAreFrozen(log.getMdc());
+
+    JobLogEntity loaded = logEntry(null);
+    setJsonColumn(loaded, "mdc", jsonColumn(log, "mdc"));
+    assertNestedValuesAreFrozen(loaded.getMdc());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static void assertNestedValuesAreFrozen(Map<String, Object> map) {
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> ((Map<String, Object>) map.get("details")).put("name", "mutated"));
+    assertThrows(
+        UnsupportedOperationException.class, () -> ((List<Object>) map.get("tags")).add("b"));
   }
 
   @ParameterizedTest
