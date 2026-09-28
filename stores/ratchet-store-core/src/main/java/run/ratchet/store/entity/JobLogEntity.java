@@ -22,8 +22,6 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.Instant;
@@ -63,13 +61,14 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(nullable = false)
   private String message;
 
-  // Persist JSON as a basic String: strict JPA providers drop @Convert-only Map attributes.
+  // JSON String is the persistent state; the constructor writes it immediately for JPA persistence.
   @Column(name = "mdc")
   private String mdc;
 
+  // Read cache and the JSON it represents, including provider-loaded changes.
   @Transient private Map<String, Object> mdcMap;
 
-  @Transient private boolean mdcDecoded;
+  @Transient private String mdcMapJson;
 
   protected JobLogEntity() {}
 
@@ -84,7 +83,8 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.level = Objects.requireNonNull(level, "level");
     this.message = Objects.requireNonNull(message, "message");
     this.mdcMap = copyMdc(mdc);
-    this.mdcDecoded = true;
+    this.mdc = JsonMapColumns.writeObjectMap(mdcMap);
+    this.mdcMapJson = this.mdc;
   }
 
   public UUID getId() {
@@ -112,19 +112,11 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, Object> getMdc() {
-    if (!mdcDecoded) {
+    if (!Objects.equals(mdc, mdcMapJson)) {
       mdcMap = JsonMapColumns.readObjectMap(mdc);
-      mdcDecoded = true;
+      mdcMapJson = mdc;
     }
     return copyMdc(mdcMap);
-  }
-
-  @PrePersist
-  @PreUpdate
-  void syncJsonMaps() {
-    if (mdcDecoded) {
-      mdc = JsonMapColumns.writeObjectMap(mdcMap);
-    }
   }
 
   // Identity-based equality on the assigned primary key. Content-based equality (jobId/ts/

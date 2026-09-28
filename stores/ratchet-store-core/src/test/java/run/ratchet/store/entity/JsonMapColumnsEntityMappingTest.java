@@ -17,7 +17,6 @@ package run.ratchet.store.entity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -27,6 +26,7 @@ import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -52,56 +52,49 @@ class JsonMapColumnsEntityMappingTest {
   }
 
   @Test
-  void paramsSerializeOnPersistAndUpdate() throws ReflectiveOperationException {
-    JobEntity job = requiredJob();
+  void paramsSerializeImmediatelyAndDefensivelyCopy() throws ReflectiveOperationException {
+    JobEntity job = new JobEntity();
     Map<String, String> params = new HashMap<>(Map.of("key", "value"));
     job.setParams(params);
-    assertSame(params, job.getParams());
-    assertNull(jsonColumn(job, "params"));
-
-    job.prePersist();
     assertEquals(params, JsonMapColumns.readStringMap(jsonColumn(job, "params")));
+    assertEquals(params, job.getParams());
 
     params.put("key", "updated");
-    assertEquals("value", JsonMapColumns.readStringMap(jsonColumn(job, "params")).get("key"));
-    job.preUpdate();
-    assertEquals(params, JsonMapColumns.readStringMap(jsonColumn(job, "params")));
-
-    job.setParams(null);
-    job.preUpdate();
-    assertNull(jsonColumn(job, "params"));
+    assertEquals(Map.of("key", "value"), job.getParams());
+    assertEquals(job.getParams(), JsonMapColumns.readStringMap(jsonColumn(job, "params")));
+    assertThrows(UnsupportedOperationException.class, () -> job.getParams().put("extra", "value"));
   }
 
   @Test
-  void traceContextSerializesOnPersistAndUpdate() throws ReflectiveOperationException {
-    JobEntity job = requiredJob();
+  void traceContextSerializesImmediatelyAndDefensivelyCopies() throws ReflectiveOperationException {
+    JobEntity job = new JobEntity();
     Map<String, String> traceContext = new HashMap<>(Map.of("traceparent", "parent"));
     job.setTraceContext(traceContext);
-    assertSame(traceContext, job.getTraceContext());
-    assertNull(jsonColumn(job, "traceContext"));
-
-    job.prePersist();
     assertEquals(traceContext, JsonMapColumns.readStringMap(jsonColumn(job, "traceContext")));
+    assertEquals(traceContext, job.getTraceContext());
 
     traceContext.put("traceparent", "updated");
-    job.preUpdate();
-    assertEquals(traceContext, JsonMapColumns.readStringMap(jsonColumn(job, "traceContext")));
-
-    job.setTraceContext(null);
-    job.preUpdate();
-    assertNull(jsonColumn(job, "traceContext"));
+    assertEquals(Map.of("traceparent", "parent"), job.getTraceContext());
+    assertEquals(
+        job.getTraceContext(), JsonMapColumns.readStringMap(jsonColumn(job, "traceContext")));
+    assertThrows(
+        UnsupportedOperationException.class, () -> job.getTraceContext().put("extra", "value"));
   }
 
   @Test
-  void mdcSerializesTheDefensiveCopy() throws ReflectiveOperationException {
-    Map<String, Object> mdc = new HashMap<>(OBJECT_MAP);
+  void mdcConstructorSerializesTheDefensiveCopyImmediately() throws ReflectiveOperationException {
+    Map<String, Object> mdc = new LinkedHashMap<>();
+    mdc.put("first", "value");
+    mdc.put("second", "other");
     JobLogEntity log = logEntry(mdc);
-    assertNull(jsonColumn(log, "mdc"));
-    mdc.put("count", new BigDecimal("3"));
+    assertEquals(mdc, JsonMapColumns.readObjectMap(jsonColumn(log, "mdc")));
+    assertEquals(mdc, log.getMdc());
 
-    log.syncJsonMaps();
-    assertEquals(OBJECT_MAP, JsonMapColumns.readObjectMap(jsonColumn(log, "mdc")));
-    assertEquals(OBJECT_MAP, log.getMdc());
+    mdc.put("first", "updated");
+    mdc.put("third", "extra");
+    assertEquals(Map.of("first", "value", "second", "other"), log.getMdc());
+    assertEquals(List.of("first", "second"), List.copyOf(log.getMdc().keySet()));
+    assertEquals(log.getMdc(), JsonMapColumns.readObjectMap(jsonColumn(log, "mdc")));
     assertThrows(UnsupportedOperationException.class, () -> log.getMdc().put("extra", "value"));
   }
 
@@ -116,89 +109,110 @@ class JsonMapColumnsEntityMappingTest {
     JobEntity job = new JobEntity();
     setJsonColumn(job, "params", json);
     setJsonColumn(job, "traceContext", json);
-    JobLogEntity log = unloadedLog();
+    JobLogEntity log = new JobLogEntity();
     setJsonColumn(log, "mdc", json);
 
     assertEquals(expected, job.getParams());
     assertEquals(expected, job.getTraceContext());
     assertEquals(expected, log.getMdc());
+    assertEquals(json, jsonColumn(job, "params"));
+    assertEquals(json, jsonColumn(job, "traceContext"));
+    assertEquals(json, jsonColumn(log, "mdc"));
 
-    // Once decoded (including null), getters must use the cached map.
-    setJsonColumn(job, "params", "{bad}");
-    setJsonColumn(job, "traceContext", "{bad}");
-    setJsonColumn(log, "mdc", "{bad}");
+    if (expected != null) {
+      assertThrows(
+          UnsupportedOperationException.class, () -> job.getParams().put("extra", "value"));
+      assertThrows(
+          UnsupportedOperationException.class, () -> job.getTraceContext().put("extra", "value"));
+      assertThrows(UnsupportedOperationException.class, () -> log.getMdc().put("extra", "value"));
+    }
+
+    // Repeated reads of the same JSON use the cache, including null and empty maps.
+    PayloadSerializer serializer = mock(PayloadSerializer.class);
+    PayloadSerializerHolder.set(serializer);
     assertEquals(expected, job.getParams());
     assertEquals(expected, job.getTraceContext());
     assertEquals(expected, log.getMdc());
+    verifyNoInteractions(serializer);
   }
 
   @Test
   void objectMapGettersDecodeMixedTypes() throws ReflectiveOperationException {
     String json = "{\"active\":true,\"count\":2,\"details\":{\"name\":\"worker\"}}";
-    JobLogEntity log = unloadedLog();
+    JobLogEntity log = new JobLogEntity();
     setJsonColumn(log, "mdc", json);
 
     assertEquals(OBJECT_MAP, log.getMdc());
-    assertThrows(UnsupportedOperationException.class, () -> log.getMdc().put("extra", "value"));
+  }
+
+  @ParameterizedTest
+  @NullAndEmptySource
+  @ValueSource(strings = {"{}", "{\"new\":\"value\"}"})
+  void providerLoadedChangesInvalidateReadCaches(String json) throws ReflectiveOperationException {
+    JobEntity job = new JobEntity();
+    job.setParams(Map.of("old", "value"));
+    job.setTraceContext(Map.of("old", "value"));
+    JobLogEntity log = logEntry(Map.of("old", "value"));
+
+    setJsonColumn(job, "params", json);
+    setJsonColumn(job, "traceContext", json);
+    setJsonColumn(log, "mdc", json);
+
+    assertEquals(JsonMapColumns.readStringMap(json), job.getParams());
+    assertEquals(JsonMapColumns.readStringMap(json), job.getTraceContext());
+    assertEquals(JsonMapColumns.readObjectMap(json), log.getMdc());
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
-  void nullMapsClearJsonInLifecycleCallbacks(boolean update) throws ReflectiveOperationException {
-    JobEntity job = requiredJob();
-    setJsonColumn(job, "params", "{\"old\":\"value\"}");
-    setJsonColumn(job, "traceContext", "{\"old\":\"value\"}");
+  void settersReplaceLoadedJsonAndCachesImmediately(boolean decodeFirst)
+      throws ReflectiveOperationException {
+    String json = "{\"old\":\"value\"}";
+    JobEntity job = new JobEntity();
+    setJsonColumn(job, "params", json);
+    setJsonColumn(job, "traceContext", json);
+    if (decodeFirst) {
+      assertEquals(Map.of("old", "value"), job.getParams());
+      assertEquals(Map.of("old", "value"), job.getTraceContext());
+    }
+
+    job.setParams(Map.of("new", "params"));
+    job.setTraceContext(Map.of("new", "trace"));
+
+    assertEquals(Map.of("new", "params"), job.getParams());
+    assertEquals(job.getParams(), JsonMapColumns.readStringMap(jsonColumn(job, "params")));
+    assertEquals(Map.of("new", "trace"), job.getTraceContext());
+    assertEquals(
+        job.getTraceContext(), JsonMapColumns.readStringMap(jsonColumn(job, "traceContext")));
+
     job.setParams(null);
     job.setTraceContext(null);
     assertNull(job.getParams());
-    assertNull(job.getTraceContext());
-    if (update) {
-      job.preUpdate();
-    } else {
-      job.prePersist();
-    }
     assertNull(jsonColumn(job, "params"));
+    assertNull(job.getTraceContext());
     assertNull(jsonColumn(job, "traceContext"));
+  }
 
+  @Test
+  void nullMdcConstructorWritesNullJson() throws ReflectiveOperationException {
     JobLogEntity log = logEntry(null);
-    setJsonColumn(log, "mdc", "{\"old\":\"value\"}");
     assertNull(log.getMdc());
-    log.syncJsonMaps();
     assertNull(jsonColumn(log, "mdc"));
   }
 
   @Test
-  void lifecycleCallbacksPreserveUndecodedJson() throws ReflectiveOperationException {
-    String json = " {\"key\":\"value\"} ";
-    JobEntity job = requiredJob();
-    setJsonColumn(job, "params", json);
-    setJsonColumn(job, "traceContext", json);
-    job.prePersist();
-    assertEquals(json, jsonColumn(job, "params"));
-    assertEquals(json, jsonColumn(job, "traceContext"));
-    job.preUpdate();
-    assertEquals(json, jsonColumn(job, "params"));
-    assertEquals(json, jsonColumn(job, "traceContext"));
-
-    JobLogEntity log = unloadedLog();
-    setJsonColumn(log, "mdc", json);
-    log.syncJsonMaps();
-    assertEquals(json, jsonColumn(log, "mdc"));
-  }
-
-  @Test
-  void settersAndConstructorDoNotInvokeTheSerializer() {
-    PayloadSerializer serializer = mock(PayloadSerializer.class);
-    PayloadSerializerHolder.set(serializer);
+  void emptyMapsWriteEmptyJsonObjectsImmediately() throws ReflectiveOperationException {
     JobEntity job = new JobEntity();
-    job.setParams(Map.of("key", "value"));
-    job.setTraceContext(Map.of("traceparent", "parent"));
-    JobLogEntity log = logEntry(OBJECT_MAP);
+    job.setParams(Map.of());
+    job.setTraceContext(Map.of());
+    JobLogEntity log = logEntry(Map.of());
 
-    assertEquals(Map.of("key", "value"), job.getParams());
-    assertEquals(Map.of("traceparent", "parent"), job.getTraceContext());
-    assertEquals(OBJECT_MAP, log.getMdc());
-    verifyNoInteractions(serializer);
+    assertEquals("{}", jsonColumn(job, "params"));
+    assertEquals("{}", jsonColumn(job, "traceContext"));
+    assertEquals("{}", jsonColumn(log, "mdc"));
+    assertEquals(Map.of(), job.getParams());
+    assertEquals(Map.of(), job.getTraceContext());
+    assertEquals(Map.of(), log.getMdc());
   }
 
   @Test
@@ -206,7 +220,7 @@ class JsonMapColumnsEntityMappingTest {
     JobEntity job = new JobEntity();
     setJsonColumn(job, "params", "{bad}");
     setJsonColumn(job, "traceContext", "{bad}");
-    JobLogEntity log = unloadedLog();
+    JobLogEntity log = new JobLogEntity();
     setJsonColumn(log, "mdc", "{bad}");
 
     assertThrows(IllegalArgumentException.class, job::getParams);
@@ -230,15 +244,6 @@ class JsonMapColumnsEntityMappingTest {
             .startsWith("JSON map column contains non-String entry"));
   }
 
-  private static JobEntity requiredJob() {
-    JobEntity job = new JobEntity();
-    job.setScheduledTime(Instant.parse("2026-05-07T12:00:00Z"));
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setPayload(new JobPayload("com.example.Job", "run", "()V", false, List.of()));
-    job.setIdempotencyKey("idem-1");
-    return job;
-  }
-
   private static JobLogEntity logEntry(Map<String, Object> mdc) {
     return new JobLogEntity(
         UUID.randomUUID(),
@@ -246,12 +251,6 @@ class JsonMapColumnsEntityMappingTest {
         JobLogEntity.LogLevel.INFO,
         "Log",
         mdc);
-  }
-
-  private static JobLogEntity unloadedLog() throws ReflectiveOperationException {
-    var constructor = JobLogEntity.class.getDeclaredConstructor();
-    constructor.setAccessible(true);
-    return constructor.newInstance();
   }
 
   private static String jsonColumn(Object entity, String name) throws ReflectiveOperationException {

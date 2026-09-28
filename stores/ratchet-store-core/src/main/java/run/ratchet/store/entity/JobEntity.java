@@ -32,6 +32,8 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -103,21 +105,23 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(nullable = false)
   private JobPayload payload;
 
-  // Map is not a JPA basic type; strict providers drop @Convert-only Map attributes. Persist JSON
-  // Strings for portability, synced from the transient maps only in JPA lifecycle callbacks.
+  // JSON String is the persistent state; the setter writes it so JPA dirty checking sees changes.
   @Column(name = "params")
   private String params;
 
+  // Read cache and the JSON it represents, including provider-loaded changes.
   @Transient private Map<String, String> paramsMap;
 
-  @Transient private boolean paramsDecoded;
+  @Transient private String paramsMapJson;
 
+  // JSON String is the persistent state; the setter writes it so JPA dirty checking sees changes.
   @Column(name = "trace_context")
   private String traceContext;
 
+  // Read cache and the JSON it represents, including provider-loaded changes.
   @Transient private Map<String, String> traceContextMap;
 
-  @Transient private boolean traceContextDecoded;
+  @Transient private String traceContextMapJson;
 
   // Per-row encryption metadata. encryptedPayload records whether this row's protected surfaces are
   // stored as ciphertext (the global switch OR the job's withEncryptedPayload() opt-in); read paths
@@ -368,16 +372,18 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, String> getParams() {
-    if (!paramsDecoded) {
+    if (!Objects.equals(params, paramsMapJson)) {
       paramsMap = JsonMapColumns.readStringMap(params);
-      paramsDecoded = true;
+      paramsMapJson = params;
     }
-    return paramsMap;
+    return paramsMap == null ? null : Collections.unmodifiableMap(paramsMap);
   }
 
   public void setParams(Map<String, String> params) {
-    this.paramsMap = params;
-    this.paramsDecoded = true;
+    Map<String, String> copy = params == null ? null : new LinkedHashMap<>(params);
+    this.params = JsonMapColumns.writeStringMap(copy);
+    this.paramsMap = copy;
+    this.paramsMapJson = this.params;
   }
 
   public boolean isEncryptedPayload() {
@@ -397,16 +403,18 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, String> getTraceContext() {
-    if (!traceContextDecoded) {
+    if (!Objects.equals(traceContext, traceContextMapJson)) {
       traceContextMap = JsonMapColumns.readStringMap(traceContext);
-      traceContextDecoded = true;
+      traceContextMapJson = traceContext;
     }
-    return traceContextMap;
+    return traceContextMap == null ? null : Collections.unmodifiableMap(traceContextMap);
   }
 
   public void setTraceContext(Map<String, String> traceContext) {
-    this.traceContextMap = traceContext;
-    this.traceContextDecoded = true;
+    Map<String, String> copy = traceContext == null ? null : new LinkedHashMap<>(traceContext);
+    this.traceContext = JsonMapColumns.writeStringMap(copy);
+    this.traceContextMap = copy;
+    this.traceContextMapJson = this.traceContext;
   }
 
   public String getTargetClass() {
@@ -715,7 +723,6 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @PrePersist
   void prePersist() {
     validateRequiredFields();
-    syncJsonMaps();
     Instant now = Instant.now();
     createdAt = now;
     updatedAt = now;
@@ -724,17 +731,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @PreUpdate
   void preUpdate() {
     validateRequiredFields();
-    syncJsonMaps();
     updatedAt = Instant.now();
-  }
-
-  private void syncJsonMaps() {
-    if (paramsDecoded) {
-      params = JsonMapColumns.writeStringMap(paramsMap);
-    }
-    if (traceContextDecoded) {
-      traceContext = JsonMapColumns.writeStringMap(traceContextMap);
-    }
   }
 
   private void validateRequiredFields() {
