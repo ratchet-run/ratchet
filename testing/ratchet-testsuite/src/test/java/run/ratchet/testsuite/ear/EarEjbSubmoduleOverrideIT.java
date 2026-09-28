@@ -71,7 +71,7 @@ import run.ratchet.testsuite.util.TestClassPolicy;
  * Ratchet in {@code EAR/lib}, is honored only on WildFly-family servers and Open Liberty, and NOT
  * on Payara or GlassFish.
  *
- * <p>The EAR deploys and the job reaches {@code COMPLETED} identically on all five managed servers;
+ * <p>The EAR deploys and the job reaches {@code COMPLETED} identically on every managed server;
  * only visibility of the subdeployment {@code @Alternative} differs:
  *
  * <ul>
@@ -95,7 +95,8 @@ class EarEjbSubmoduleOverrideIT extends BaseRatchetIT {
 
   /**
    * Server profiles on which a subdeployment {@code @Alternative} override is empirically honored.
-   * Measured against a live 5-server run (mysql); see class Javadoc.
+   * Measured against a live 5-server run (mysql), and {@code openliberty-ee11-managed} against
+   * mysql, postgresql and mongodb runs; see class Javadoc.
    */
   private static final Set<String> SUBMODULE_ALTERNATIVE_HONORING_PROFILES =
       Set.of(
