@@ -16,6 +16,13 @@ on:
 env:
   TESTCONTAINERS_RYUK_DISABLED: "true"
 
+# A new push to a PR cancels that PR's older run, so superseded commits don't hold runners the
+# current head is waiting for. Every other event (main pushes, merge queue, release/snapshot calls)
+# gets a group of its own run id: it is never cancelled, and never replaced while pending.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # Validate workflow structure and parse every shell run block before any
   # release can reach its deploy step. Limit ShellCheck to errors so this gate
