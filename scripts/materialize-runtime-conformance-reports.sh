@@ -260,11 +260,11 @@ done <<< "${matrix_output}"
 
 server_label_for() {
   case "$1" in
-    wildfly-managed) echo 'WildFly' ;;
-    wildfly-ee11-managed) echo 'WildFly (EE 11)' ;;
-    payara-managed) echo 'Payara' ;;
-    openliberty-managed) echo 'Open Liberty' ;;
-    glassfish-managed) echo 'GlassFish' ;;
+    wildfly-managed) echo 'WildFly EE 10' ;;
+    wildfly-ee11-managed) echo 'WildFly EE 11' ;;
+    payara-managed) echo 'Payara EE 10' ;;
+    openliberty-managed) echo 'Open Liberty EE 10' ;;
+    glassfish-managed) echo 'GlassFish EE 11' ;;
     *)
       echo "No display label for server id '$1'. Add a label for it in scripts/materialize-runtime-conformance-reports.sh." >&2
       return 1

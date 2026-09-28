@@ -1,7 +1,7 @@
 ---
 id: payara-managed-mysql
-title: "Payara / MySQL"
-sidebar_label: "Payara / MySQL"
+title: "Payara EE 10 / MySQL"
+sidebar_label: "Payara EE 10 / MySQL"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

@@ -1,7 +1,7 @@
 ---
 id: glassfish-managed-mongodb
-title: "GlassFish (JDK 21) / MongoDB"
-sidebar_label: "GlassFish (JDK 21) / MongoDB"
+title: "GlassFish EE 11 / MongoDB"
+sidebar_label: "GlassFish EE 11 / MongoDB"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

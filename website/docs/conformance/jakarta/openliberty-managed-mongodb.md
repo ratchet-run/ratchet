@@ -1,7 +1,7 @@
 ---
 id: openliberty-managed-mongodb
-title: "Open Liberty / MongoDB"
-sidebar_label: "Open Liberty / MongoDB"
+title: "Open Liberty EE 10 / MongoDB"
+sidebar_label: "Open Liberty EE 10 / MongoDB"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

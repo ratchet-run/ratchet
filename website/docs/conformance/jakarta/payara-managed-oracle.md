@@ -1,7 +1,7 @@
 ---
 id: payara-managed-oracle
-title: "Payara / Oracle"
-sidebar_label: "Payara / Oracle"
+title: "Payara EE 10 / Oracle"
+sidebar_label: "Payara EE 10 / Oracle"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

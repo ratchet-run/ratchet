@@ -1,7 +1,7 @@
 ---
 id: glassfish-managed-mysql
-title: "GlassFish (JDK 21) / MySQL"
-sidebar_label: "GlassFish (JDK 21) / MySQL"
+title: "GlassFish EE 11 / MySQL"
+sidebar_label: "GlassFish EE 11 / MySQL"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

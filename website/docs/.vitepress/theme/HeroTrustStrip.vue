@@ -4,7 +4,7 @@
 // conformance matrix, the three TCK tiers, and the licensing/runtime facts a
 // Jakarta EE evaluator checks before adopting. Numbers mirror the source of
 // truth in docs/conformance/index.md — keep them in sync.
-const runtimes = ['WildFly', 'WildFly EE 11', 'Open Liberty', 'Payara', 'GlassFish']
+const runtimes = ['WildFly EE 10', 'WildFly EE 11', 'Open Liberty EE 10', 'Payara EE 10', 'GlassFish EE 11']
 const databases = ['MySQL', 'PostgreSQL', 'Oracle', 'SQL Server', 'MongoDB']
 
 const facts = [

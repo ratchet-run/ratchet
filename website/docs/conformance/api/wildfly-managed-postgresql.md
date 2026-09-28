@@ -1,7 +1,7 @@
 ---
 id: wildfly-managed-postgresql
-title: "WildFly / PostgreSQL"
-sidebar_label: "WildFly / PostgreSQL"
+title: "WildFly EE 10 / PostgreSQL"
+sidebar_label: "WildFly EE 10 / PostgreSQL"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

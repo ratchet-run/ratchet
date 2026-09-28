@@ -1,7 +1,7 @@
 ---
 id: payara-managed-postgresql
-title: "Payara / PostgreSQL"
-sidebar_label: "Payara / PostgreSQL"
+title: "Payara EE 10 / PostgreSQL"
+sidebar_label: "Payara EE 10 / PostgreSQL"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

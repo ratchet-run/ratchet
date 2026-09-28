@@ -1,7 +1,7 @@
 ---
 id: glassfish-managed-sqlserver
-title: "GlassFish / SQL Server"
-sidebar_label: "GlassFish / SQL Server"
+title: "GlassFish EE 11 / SQL Server"
+sidebar_label: "GlassFish EE 11 / SQL Server"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

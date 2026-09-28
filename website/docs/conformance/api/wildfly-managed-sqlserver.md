@@ -1,7 +1,7 @@
 ---
 id: wildfly-managed-sqlserver
-title: "WildFly / SQL Server"
-sidebar_label: "WildFly / SQL Server"
+title: "WildFly EE 10 / SQL Server"
+sidebar_label: "WildFly EE 10 / SQL Server"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

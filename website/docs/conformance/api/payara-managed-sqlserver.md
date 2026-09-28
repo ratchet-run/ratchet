@@ -1,7 +1,7 @@
 ---
 id: payara-managed-sqlserver
-title: "Payara / SQL Server"
-sidebar_label: "Payara / SQL Server"
+title: "Payara EE 10 / SQL Server"
+sidebar_label: "Payara EE 10 / SQL Server"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

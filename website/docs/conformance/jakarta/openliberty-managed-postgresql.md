@@ -1,7 +1,7 @@
 ---
 id: openliberty-managed-postgresql
-title: "Open Liberty / PostgreSQL"
-sidebar_label: "Open Liberty / PostgreSQL"
+title: "Open Liberty EE 10 / PostgreSQL"
+sidebar_label: "Open Liberty EE 10 / PostgreSQL"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

@@ -1,7 +1,7 @@
 ---
 id: glassfish-managed-oracle
-title: "GlassFish (JDK 21) / Oracle"
-sidebar_label: "GlassFish (JDK 21) / Oracle"
+title: "GlassFish EE 11 / Oracle"
+sidebar_label: "GlassFish EE 11 / Oracle"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

@@ -1,7 +1,7 @@
 ---
 id: openliberty-managed-mysql
-title: "Open Liberty / MySQL"
-sidebar_label: "Open Liberty / MySQL"
+title: "Open Liberty EE 10 / MySQL"
+sidebar_label: "Open Liberty EE 10 / MySQL"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

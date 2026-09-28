@@ -1,7 +1,7 @@
 ---
 id: openliberty-managed-sqlserver
-title: "Open Liberty / SQL Server"
-sidebar_label: "Open Liberty / SQL Server"
+title: "Open Liberty EE 10 / SQL Server"
+sidebar_label: "Open Liberty EE 10 / SQL Server"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.
