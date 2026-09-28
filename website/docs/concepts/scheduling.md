@@ -178,7 +178,7 @@ scheduler.enqueue(() -> processWebhook(payload))
     .submit();
 ```
 
-The idempotency key is enforced by a UNIQUE constraint in the database. If a duplicate key is submitted, the constraint violation is detected and the duplicate is silently rejected.
+The idempotency key is enforced by a UNIQUE constraint in the database. Submitting a duplicate key returns the original job's handle. If a racing insert throws `DuplicateIdempotencyKeyException`, retry in a fresh transaction to get that handle.
 
 **Business keys** serve a different purpose -- they prevent concurrent execution of the same logical operation, but allow re-runs after completion:
 
@@ -189,7 +189,7 @@ scheduler.enqueue(() -> syncUser(userId))
     .submit();
 ```
 
-Business keys are enforced as unique only among active jobs (PENDING, RUNNING, PAUSED, WAITING). Once a job reaches a terminal state, the key is freed for reuse.
+Business keys are enforced as unique only among active jobs (PENDING, RUNNING, PAUSED, WAITING). Submitting another job with the same business key throws `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state and frees the key for reuse.
 
 For consistent behavior across stores, business keys are limited to 255 printable ASCII characters
 after trimming. Ratchet rejects longer or non-ASCII keys before persistence.

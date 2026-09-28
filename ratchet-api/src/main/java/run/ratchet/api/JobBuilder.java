@@ -18,6 +18,7 @@ package run.ratchet.api;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.api.exception.SignalTimeoutException;
 
@@ -115,6 +116,8 @@ public interface JobBuilder {
    * only and do not participate in a transaction.
    *
    * @return a handle to the persisted job
+   * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
+   *     key
    * @throws PayloadTooLargeException if the task or a persisted callback/branch exceeds the
    *     configured serialized-payload limit
    */
@@ -233,7 +236,9 @@ public interface JobBuilder {
    * Prevents concurrent execution against the same entity.
    *
    * <p>Unlike {@link #withIdempotencyKey(String)}, multiple completed jobs may share the same key;
-   * only active (PENDING/RUNNING) jobs are blocked.
+   * only active (PENDING/RUNNING/PAUSED/WAITING) jobs are blocked. {@link #submit()} throws {@link
+   * DuplicateBusinessKeyException} while an active job holds the key, unless its idempotency key
+   * matches this builder's and the original job's handle is returned.
    *
    * <p>After trimming, the key must contain at most 255 printable ASCII characters ({@code U+0020}
    * through {@code U+007E}). The portable subset has the same byte width under Oracle's

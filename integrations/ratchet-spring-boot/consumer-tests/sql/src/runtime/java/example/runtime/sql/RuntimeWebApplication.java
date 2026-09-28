@@ -31,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.*;
 import run.ratchet.api.*;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -196,6 +197,11 @@ public class RuntimeWebApplication {
     @ExceptionHandler(DuplicateIdempotencyKeyException.class)
     public ResponseEntity<String> duplicate() {
       return ResponseEntity.status(409).body("duplicate-idempotency");
+    }
+
+    @ExceptionHandler(DuplicateBusinessKeyException.class)
+    public ResponseEntity<String> duplicateBusinessKey() {
+      return ResponseEntity.status(409).body("duplicate-business-key");
     }
 
     @PostMapping("/submit")

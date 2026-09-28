@@ -48,6 +48,8 @@ import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.event.BatchChunkFailureEvent;
 import run.ratchet.api.event.JobSignalWaitingEvent;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
+import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.internal.JobBuilderState;
 import run.ratchet.ri.core.internal.ChainScheduler;
@@ -278,19 +280,7 @@ public class DefaultJobCreationService
       if (activeByBk.isPresent()) {
         // A racer with the same idempotency key can commit between the two lookups. Its job is
         // the one the idempotency lookup would have returned, so resolve to it the same way.
-        UUID activeId = activeByBk.get().getId();
-        if (idempotencyKey.equals(activeByBk.get().getIdempotencyKey())) {
-          log.debugf(
-              "Duplicate idempotency key '%s', returning existing job %s",
-              idempotencyKey, activeId);
-          return () -> activeId;
-        }
-        throw new IllegalStateException(
-            "Active job already exists with business key '"
-                + businessKey
-                + "' (jobId="
-                + activeByBk.get().getId()
-                + ")");
+        return resolveActiveBusinessKey(activeByBk.get(), businessKey, idempotencyKey, null);
       }
     }
 
@@ -353,7 +343,26 @@ public class DefaultJobCreationService
 
     // A concurrent insert can abort the current database transaction. Let its duplicate-key
     // exception roll back; a fresh submission resolves the permanent reservation above.
-    JobEntity saved = createJob(job);
+    JobEntity saved;
+    try {
+      saved = createJob(job);
+    } catch (RatchetTransientStoreException e) {
+      if (businessKey == null) {
+        throw e;
+      }
+      Optional<JobEntity> raced;
+      try {
+        raced = jobCrudStore.findActiveByBusinessKey(businessKey);
+      } catch (RuntimeException lookupFailure) {
+        // PostgreSQL aborts the transaction on a failed insert, so the lookup can also fail.
+        e.addSuppressed(lookupFailure);
+        throw e;
+      }
+      if (raced.isPresent()) {
+        return resolveActiveBusinessKey(raced.get(), businessKey, idempotencyKey, e);
+      }
+      throw e;
+    }
     UUID jobId = saved.getId();
 
     if (isSignalWaiting && eventPublisher != null) {
@@ -393,6 +402,32 @@ public class DefaultJobCreationService
 
     log.debugf("Job submitted (id=%s, type=SINGLE, delay=%s)", jobId, state.delay());
     return () -> jobId;
+  }
+
+  private JobHandle resolveActiveBusinessKey(
+      JobEntity active,
+      String businessKey,
+      String idempotencyKey,
+      RatchetTransientStoreException cause) {
+    UUID activeId = active.getId();
+    if (idempotencyKey.equals(active.getIdempotencyKey())) {
+      if (cause != null) {
+        // The failed insert left this transaction rollback-only, so a handle cannot be returned
+        // from it. A retry in a fresh transaction resolves the permanent reservation.
+        throw new DuplicateIdempotencyKeyException(idempotencyKey, cause);
+      }
+      log.debugf(
+          "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, activeId);
+      return () -> activeId;
+    }
+    throw new DuplicateBusinessKeyException(
+        businessKey,
+        "Active job already exists with business key '"
+            + businessKey
+            + "' (jobId="
+            + activeId
+            + ")",
+        cause);
   }
 
   /**

@@ -289,7 +289,9 @@ If you see persistent failures, check if your code is double-submitting in a ret
 ERROR: duplicate key value violates unique constraint "pk_scheduler_business_key_reservation"
 ```
 
-Two active jobs share the same business key. This is expected behavior -- the `scheduler_business_key_reservation` primary key prevents duplicate scheduling. The job that violated the constraint was correctly rejected.
+An active job (PENDING, RUNNING, PAUSED, or WAITING) already holds the business key. When `submit()` finds that job with a different idempotency key, it throws `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state and releases the key.
+
+When two submissions race for the same business key, the loser's insert fails. Ratchet looks the key up again and throws `DuplicateBusinessKeyException` if another job holds it. On PostgreSQL the failed insert aborts the transaction, so that lookup can fail too; Ratchet then rethrows the original `RatchetTransientStoreException`. Retrying in a fresh transaction reports the conflict, or succeeds if the other job has already finished.
 
 If this is unexpected, query for the existing active job:
 
@@ -300,7 +302,7 @@ SELECT q.job_id, q.status, q.scheduled_time, c.created_at
 FROM scheduler_job_queue q
 JOIN scheduler_job c ON c.job_id = q.job_id
 WHERE q.business_key = 'your-business-key'
-  AND q.status IN ('PENDING', 'RUNNING', 'PAUSED');
+  AND q.status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING');
 ```
 
 ## Timeout behavior

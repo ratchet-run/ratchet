@@ -143,9 +143,11 @@ When you call `submit()` on a builder, the engine:
 1. Analyzes the lambda to extract target class, method, and arguments
 2. Converts that metadata into a persisted job payload via the active `JobInvocationResolver`
 3. Checks the idempotency key for duplicates (globally unique, forever)
-4. Checks the business key for active conflicts (unique among PENDING/RUNNING jobs)
+4. Checks the business key for active conflicts (unique among PENDING/RUNNING/PAUSED/WAITING jobs)
 5. Persists the `JobEntity` with status PENDING
 6. For immediate or CRITICAL-priority jobs, publishes a wakeup notification via `ClusterCoordinator`
+
+A conflicting business key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until the active job reaches a terminal state. A racing submission with the same idempotency key either returns the original job's handle or throws `DuplicateIdempotencyKeyException`. Retrying that submission in a fresh transaction returns the original handle.
 
 ```java
 JobHandle handle = scheduler.enqueue(() -> service.process(id))
