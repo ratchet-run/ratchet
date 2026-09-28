@@ -17,7 +17,7 @@ Choose a base image that provides the Jakarta EE services Ratchet's default RI r
 | **WildFly EE 11** | `quay.io/wildfly/wildfly:41.0.1.Final-jdk21` | Recommended for Ratchet. CI tests WildFly 41.0.1.Final. Needs Java 21+ |
 | **WildFly EE 10** | `quay.io/wildfly/wildfly:39.0.1.Final-2-jdk17` | Jakarta EE 10 line. CI tests WildFly 39.0.1.Final |
 | **Payara Micro** | `payara/micro:7.2026.9` | Lightweight, good for microservices. Payara 7 is Jakarta EE 11; this tag runs JDK 21 (`7.2026.9-jdk25` for JDK 25). Payara Community 6 is end of life |
-| **Open Liberty** | `icr.io/appcafe/open-liberty:26.0.0.2-full-java17-openj9` | Feature-based configuration |
+| **Open Liberty** | `icr.io/appcafe/open-liberty:26.0.0.9-full-java21-openj9-ubi-minimal` | Feature-based configuration. Enable `webProfile-11.0` for Jakarta EE 11 or `webProfile-10.0` for EE 10 in `server.xml` |
 
 ## WildFly Dockerfile
 
