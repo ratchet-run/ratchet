@@ -265,6 +265,7 @@ server_label_for() {
     payara-managed) echo 'Payara EE 10' ;;
     payara-ee11-managed) echo 'Payara EE 11' ;;
     openliberty-managed) echo 'Open Liberty EE 10' ;;
+    openliberty-ee11-managed) echo 'Open Liberty EE 11' ;;
     glassfish-managed) echo 'GlassFish EE 11' ;;
     *)
       echo "No display label for server id '$1'. Add a label for it in scripts/materialize-runtime-conformance-reports.sh." >&2

@@ -13,6 +13,7 @@ SERVERS=(
   payara-managed
   payara-ee11-managed
   openliberty-managed
+  openliberty-ee11-managed
   glassfish-managed
 )
 DATABASES=(mysql postgresql mongodb oracle sqlserver)
@@ -33,6 +34,7 @@ server_label() {
     payara-managed) echo 'Payara EE 10' ;;
     payara-ee11-managed) echo 'Payara EE 11' ;;
     openliberty-managed) echo 'Open Liberty EE 10' ;;
+    openliberty-ee11-managed) echo 'Open Liberty EE 11' ;;
     glassfish-managed) echo 'GlassFish EE 11' ;;
     *) fail "unknown server: $1" ;;
   esac

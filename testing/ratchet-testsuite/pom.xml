@@ -200,7 +200,8 @@
       <plugins>
         <!--
           EE 11-only test source root (VirtualThreadExecutionIT). Added only when an
-          EE 11 server profile (wildfly-ee11-managed / payara-ee11-managed / glassfish-managed) switches this
+          EE 11 server profile (wildfly-ee11-managed / payara-ee11-managed / openliberty-ee11-managed /
+          glassfish-managed) switches this
           plugin on. EE 10 server profiles never compile it, so the virtual-thread IT
           is not "skipped" there — it simply isn't part of those builds.
         -->
@@ -1429,6 +1430,107 @@
 &lt;server description="Ratchet Open Liberty Arquillian test server"&gt;
   &lt;featureManager&gt;
     &lt;feature&gt;webProfile-10.0&lt;/feature&gt;
+    &lt;feature&gt;localConnector-1.0&lt;/feature&gt;
+  &lt;/featureManager&gt;
+
+  &lt;httpEndpoint id="defaultHttpEndpoint"
+                host="localhost"
+                httpPort="${openliberty.http.port}"
+                httpsPort="${openliberty.https.port}"/&gt;
+
+  &lt;applicationMonitor updateTrigger="mbean"/&gt;
+&lt;/server&gt;</echo>
+                    <chmod file="${openliberty.home}/bin/server" perm="755"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
+      Open Liberty on Jakarta EE 11 (webProfile-11.0) / JDK 21. Mirrors openliberty-managed
+      (same runtime version, same ports and server directory) but enables webProfile-11.0 and
+      adds the EE 11 test source root (VirtualThreadExecutionIT, ExecutionTargetRoutingIT).
+      The parent same-id profile supplies the JDK 21 enforcer.
+    -->
+    <profile>
+      <id>openliberty-ee11-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>openliberty-ee11-managed</testsuite.profile>
+        <arquillian.launch>openliberty-ee11-managed</arquillian.launch>
+        <openliberty.home>${project.build.directory}/openliberty/wlp</openliberty.home>
+        <openliberty.server.name>defaultServer</openliberty.server.name>
+        <openliberty.server.config.dir>${openliberty.home}/usr/servers/${openliberty.server.name}</openliberty.server.config.dir>
+        <openliberty.http.port>29080</openliberty.http.port>
+        <openliberty.https.port>29443</openliberty.https.port>
+        <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
+        <jakarta.ee.version>11.0.0</jakarta.ee.version>
+        <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
+        <maven.compiler.testRelease>21</maven.compiler.testRelease>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>io.openliberty.arquillian</groupId>
+          <artifactId>arquillian-liberty-managed-jakarta-junit5</artifactId>
+          <type>pom</type>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-openliberty</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>io.openliberty</groupId>
+                      <artifactId>openliberty-runtime</artifactId>
+                      <version>${openliberty.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}/openliberty</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>prepare-openliberty-server</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <mkdir dir="${openliberty.server.config.dir}/configDropins/defaults"/>
+                    <mkdir dir="${openliberty.server.config.dir}/jdbc"/>
+                    <delete file="${openliberty.server.config.dir}/configDropins/defaults/ratchet-datasource.xml" quiet="true"/>
+                    <echo file="${openliberty.server.config.dir}/server.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;server description="Ratchet Open Liberty EE 11 Arquillian test server"&gt;
+  &lt;featureManager&gt;
+    &lt;feature&gt;webProfile-11.0&lt;/feature&gt;
     &lt;feature&gt;localConnector-1.0&lt;/feature&gt;
   &lt;/featureManager&gt;
 

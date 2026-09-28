@@ -77,7 +77,7 @@ import run.ratchet.testsuite.util.TestClassPolicy;
  * <ul>
  *   <li>Honored ({@code JobEntity.getCallerPrincipal()} equals {@link
  *       EjbModuleCallerPrincipalProvider#STUB_PRINCIPAL}): {@code wildfly-managed}, {@code
- *       wildfly-ee11-managed}, {@code openliberty-managed}.
+ *       wildfly-ee11-managed}, {@code openliberty-managed}, {@code openliberty-ee11-managed}.
  *   <li>Not honored ({@code JobEntity.getCallerPrincipal()} is {@code null} — the default
  *       provider's result in this unauthenticated test context): {@code payara-managed}, {@code
  *       glassfish-managed}.
@@ -98,7 +98,11 @@ class EarEjbSubmoduleOverrideIT extends BaseRatchetIT {
    * Measured against a live 5-server run (mysql); see class Javadoc.
    */
   private static final Set<String> SUBMODULE_ALTERNATIVE_HONORING_PROFILES =
-      Set.of("wildfly-managed", "wildfly-ee11-managed", "openliberty-managed");
+      Set.of(
+          "wildfly-managed",
+          "wildfly-ee11-managed",
+          "openliberty-managed",
+          "openliberty-ee11-managed");
 
   @Inject private TestJobService jobService;
 
