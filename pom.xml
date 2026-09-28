@@ -729,7 +729,8 @@
       and the umbrella jakartaee-web-api to 11.0.0. Intended for compile-time
       verification only. EE 11 runtime coverage comes from the managed-server
       profiles that deploy to EE 11 containers (wildfly-ee11-managed on
-      standard WildFly 40+, payara-ee11-managed on Payara 7, glassfish-managed
+      standard WildFly 40+, payara-ee11-managed on Payara 7,
+      openliberty-ee11-managed on Open Liberty webProfile-11.0, glassfish-managed
       on GlassFish 8), not from this
       profile. The default build remains EE 10 to preserve the EE 10
       managed-server lanes.
