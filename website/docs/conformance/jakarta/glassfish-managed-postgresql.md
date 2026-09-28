@@ -1,7 +1,7 @@
 ---
 id: glassfish-managed-postgresql
-title: "GlassFish (JDK 21) / PostgreSQL"
-sidebar_label: "GlassFish (JDK 21) / PostgreSQL"
+title: "GlassFish EE 11 / PostgreSQL"
+sidebar_label: "GlassFish EE 11 / PostgreSQL"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

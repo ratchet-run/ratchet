@@ -1,7 +1,7 @@
 ---
 id: wildfly-ee11-managed-mongodb
-title: "WildFly (EE 11) / MongoDB"
-sidebar_label: "WildFly (EE 11) / MongoDB"
+title: "WildFly EE 11 / MongoDB"
+sidebar_label: "WildFly EE 11 / MongoDB"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

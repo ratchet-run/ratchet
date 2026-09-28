@@ -1,7 +1,7 @@
 ---
 id: openliberty-managed-oracle
-title: "Open Liberty / Oracle"
-sidebar_label: "Open Liberty / Oracle"
+title: "Open Liberty EE 10 / Oracle"
+sidebar_label: "Open Liberty EE 10 / Oracle"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

@@ -1,7 +1,7 @@
 ---
 id: wildfly-managed-mysql
-title: "WildFly / MySQL"
-sidebar_label: "WildFly / MySQL"
+title: "WildFly EE 10 / MySQL"
+sidebar_label: "WildFly EE 10 / MySQL"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

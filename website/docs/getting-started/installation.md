@@ -243,10 +243,11 @@ Servers known to work:
 
 | Server | Version | Notes |
 |--------|---------|-------|
-| WildFly | Jakarta EE 10 line; CI-managed tests currently use 39.0.1.Final | Primary managed test target; an EE 11 line (WildFly 40.x) is also CI-verified |
-| Open Liberty | Jakarta EE 10 `webProfile-10.0`; CI-managed tests currently use 26.0.0.2 | Requires CDI, Persistence, and managed executor support |
-| Payara | Payara 6 line; CI-managed tests currently use 6.2025.11 | Jakarta EE 10 runtime |
-| GlassFish | GlassFish 8 / Omnifish line | Jakarta EE 11 verification profile; currently tracked with a known upstream workaround |
+| WildFly EE 10 | WildFly 39; CI-managed tests currently use 39.0.1.Final | Primary managed test target |
+| WildFly EE 11 | WildFly 40; CI-managed tests currently use 40.0.0.Final | Jakarta EE 11 runtime |
+| Open Liberty EE 10 | `webProfile-10.0`; CI-managed tests currently use 26.0.0.2 | Requires CDI, Persistence, and managed executor support |
+| Payara EE 10 | Payara Community 6; CI-managed tests currently use 6.2025.11 | Jakarta EE 10 runtime. Payara Community 6 reached end of life with 6.2025.11 |
+| GlassFish EE 11 | GlassFish 8 / Omnifish line; CI-managed tests currently use 8.0.1 | Jakarta EE 11 runtime; currently tracked with a known upstream workaround |
 
 Plain Web Profile or standalone CDI environments can opt into
 `run.ratchet.ri.cdi.StandaloneExecutorProvider` as an alternative

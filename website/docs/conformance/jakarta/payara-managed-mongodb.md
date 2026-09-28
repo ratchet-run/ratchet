@@ -1,7 +1,7 @@
 ---
 id: payara-managed-mongodb
-title: "Payara / MongoDB"
-sidebar_label: "Payara / MongoDB"
+title: "Payara EE 10 / MongoDB"
+sidebar_label: "Payara EE 10 / MongoDB"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

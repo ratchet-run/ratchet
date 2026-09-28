@@ -1,7 +1,7 @@
 ---
 id: wildfly-ee11-managed-oracle
-title: "WildFly (EE 11) / Oracle"
-sidebar_label: "WildFly (EE 11) / Oracle"
+title: "WildFly EE 11 / Oracle"
+sidebar_label: "WildFly EE 11 / Oracle"
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

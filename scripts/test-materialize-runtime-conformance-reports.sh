@@ -27,11 +27,11 @@ fail() {
 
 server_label() {
   case "$1" in
-    wildfly-managed) echo 'WildFly' ;;
-    wildfly-ee11-managed) echo 'WildFly (EE 11)' ;;
-    payara-managed) echo 'Payara' ;;
-    openliberty-managed) echo 'Open Liberty' ;;
-    glassfish-managed) echo 'GlassFish' ;;
+    wildfly-managed) echo 'WildFly EE 10' ;;
+    wildfly-ee11-managed) echo 'WildFly EE 11' ;;
+    payara-managed) echo 'Payara EE 10' ;;
+    openliberty-managed) echo 'Open Liberty EE 10' ;;
+    glassfish-managed) echo 'GlassFish EE 11' ;;
     *) fail "unknown server: $1" ;;
   esac
 }

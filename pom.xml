@@ -725,10 +725,11 @@
       Jakarta API version property to its EE 11 release (CDI 4.1,
       persistence 3.2, security 4.0, annotation 3.0, interceptor 2.2, etc.)
       and the umbrella jakartaee-web-api to 11.0.0. Intended for compile-time
-      verification only — runtime container version bumps (Payara 7,
-      WildFly Preview, Open Liberty webProfile-11.0) are tracked separately.
-      The default build remains EE 10 to preserve the existing managed-server
-      test matrix.
+      verification only. EE 11 runtime coverage comes from the managed-server
+      profiles that deploy to EE 11 containers (wildfly-ee11-managed on
+      standard WildFly 40+, glassfish-managed on GlassFish 8), not from this
+      profile. The default build remains EE 10 to preserve the EE 10
+      managed-server lanes.
 
       Usage: mvn -P jakarta-ee11-verify clean compile
     -->
