@@ -136,6 +136,56 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
   }
 
   @Test
+  void submit_returnsExistingJob_whenRacerCommitsBetweenIdempotencyAndBusinessKeyLookups() {
+    DefaultJobCreationService service = newService();
+    String key = "runtime-raced";
+    UUID existingId = UUID.randomUUID();
+
+    JobEntity existing = new JobEntity();
+    existing.setId(existingId);
+    existing.setIdempotencyKey(key);
+    existing.setBusinessKey("raced");
+
+    // The racer commits after the idempotency lookup misses but before the business-key lookup,
+    // so only the second lookup sees its job.
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey(key)).thenReturn(Optional.empty());
+    when(jobCrudStore.findActiveByBusinessKey("raced")).thenReturn(Optional.of(existing));
+
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
+    builder.withIdempotencyKey(key).withBusinessKey("raced");
+
+    JobHandle handle = service.submit(builder);
+
+    assertEquals(existingId, handle.id());
+    verify(jobCrudStore, times(0)).create(any(JobEntity.class));
+  }
+
+  @Test
+  void submit_rejectsActiveBusinessKey_whenIdempotencyKeyDiffers() {
+    DefaultJobCreationService service = newService();
+
+    JobEntity existing = new JobEntity();
+    existing.setId(UUID.randomUUID());
+    existing.setIdempotencyKey("someone-else");
+    existing.setBusinessKey("raced");
+
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("mine")).thenReturn(Optional.empty());
+    when(jobCrudStore.findActiveByBusinessKey("raced")).thenReturn(Optional.of(existing));
+
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceIdempotencyRaceTest::noopTask, Duration.ZERO);
+    builder.withIdempotencyKey("mine").withBusinessKey("raced");
+
+    Assertions.assertThrows(IllegalStateException.class, () -> service.submit(builder));
+    verify(jobCrudStore, times(0)).create(any(JobEntity.class));
+  }
+
+  @Test
   void submit_returnsExistingJob_whenIdempotencyKeyResolvesBeforeInsert() {
     DefaultJobCreationService service = newService();
     String key = "order-7";

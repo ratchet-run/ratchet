@@ -276,6 +276,15 @@ public class DefaultJobCreationService
     if (businessKey != null) {
       Optional<JobEntity> activeByBk = jobCrudStore.findActiveByBusinessKey(businessKey);
       if (activeByBk.isPresent()) {
+        // A racer with the same idempotency key can commit between the two lookups. Its job is
+        // the one the idempotency lookup would have returned, so resolve to it the same way.
+        UUID activeId = activeByBk.get().getId();
+        if (idempotencyKey.equals(activeByBk.get().getIdempotencyKey())) {
+          log.debugf(
+              "Duplicate idempotency key '%s', returning existing job %s",
+              idempotencyKey, activeId);
+          return () -> activeId;
+        }
         throw new IllegalStateException(
             "Active job already exists with business key '"
                 + businessKey
