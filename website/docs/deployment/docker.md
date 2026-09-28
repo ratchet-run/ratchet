@@ -14,7 +14,8 @@ Choose a base image that provides the Jakarta EE services Ratchet's default RI r
 
 | Runtime | Base Image | Notes |
 |---------|-----------|-------|
-| **WildFly** | `quay.io/wildfly/wildfly:39.0.1.Final-jdk17` | Recommended for Ratchet (used in CI) |
+| **WildFly EE 11** | `quay.io/wildfly/wildfly:41.0.1.Final-jdk21` | Recommended for Ratchet. CI tests WildFly 41.0.1.Final. Needs Java 21+ |
+| **WildFly EE 10** | `quay.io/wildfly/wildfly:39.0.1.Final-2-jdk17` | Jakarta EE 10 line. CI tests WildFly 39.0.1.Final |
 | **Payara Micro** | `payara/micro:7.2026.9` | Lightweight, good for microservices. Payara 7 is Jakarta EE 11; this tag runs JDK 21 (`7.2026.9-jdk25` for JDK 25). Payara Community 6 is end of life |
 | **Open Liberty** | `icr.io/appcafe/open-liberty:26.0.0.2-full-java17-openj9` | Feature-based configuration |
 
@@ -23,7 +24,7 @@ Choose a base image that provides the Jakarta EE services Ratchet's default RI r
 This Dockerfile builds a WAR deployment on WildFly with a PostgreSQL data source:
 
 ```dockerfile
-FROM quay.io/wildfly/wildfly:39.0.1.Final-jdk17
+FROM quay.io/wildfly/wildfly:41.0.1.Final-jdk21
 
 # Add the PostgreSQL JDBC driver
 ADD --chown=jboss:root \
@@ -81,7 +82,7 @@ stop-embedded-server
 For MySQL, swap the driver and data source configuration:
 
 ```dockerfile
-FROM quay.io/wildfly/wildfly:39.0.1.Final-jdk17
+FROM quay.io/wildfly/wildfly:41.0.1.Final-jdk21
 
 ADD --chown=jboss:root \
     https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar \
