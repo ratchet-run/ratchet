@@ -990,7 +990,7 @@
                   <target>
                     <chmod file="${payara.home}/bin/asadmin" perm="755"/>
                     <!--
-                      Payara 6's domain.xml writes attributes in an order
+                      Payara 7's domain.xml (same layout as Payara 6) writes attributes in an order
                       that the original element-specific patterns (which
                       hardcoded protocol-before-port, lazy-init-before-id,
                       etc.) did not match, leaving the listeners on their
@@ -1064,7 +1064,7 @@
                                    flags="g"
                                    byline="true"/>
                     <!--
-                      Hazelcast tags in Payara 6's domain.xml already ship
+                      Hazelcast tags in Payara 7's domain.xml (as in Payara 6) already ship
                       with attributes (and the HZ_LISTENER_PORT entry uses
                       a self-closing form), so the literal &lt;replace&gt;
                       tokens never matched. Rewrite the port attributes
