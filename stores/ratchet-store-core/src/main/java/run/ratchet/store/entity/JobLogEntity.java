@@ -16,21 +16,23 @@
 package run.ratchet.store.entity;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import run.ratchet.store.converter.JsonObjectMapConverter;
+import run.ratchet.store.converter.JsonMapColumns;
 import run.ratchet.store.id.UuidV7EntityListener;
 
 /** Immutable log entry for job execution events. */
@@ -61,8 +63,13 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(nullable = false)
   private String message;
 
-  @Convert(converter = JsonObjectMapConverter.class)
-  private Map<String, Object> mdc;
+  // Persist JSON as a basic String: strict JPA providers drop @Convert-only Map attributes.
+  @Column(name = "mdc")
+  private String mdc;
+
+  @Transient private Map<String, Object> mdcMap;
+
+  @Transient private boolean mdcDecoded;
 
   protected JobLogEntity() {}
 
@@ -76,7 +83,8 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.ts = Objects.requireNonNull(ts, "ts");
     this.level = Objects.requireNonNull(level, "level");
     this.message = Objects.requireNonNull(message, "message");
-    this.mdc = copyMdc(mdc);
+    this.mdcMap = copyMdc(mdc);
+    this.mdcDecoded = true;
   }
 
   public UUID getId() {
@@ -104,7 +112,19 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, Object> getMdc() {
-    return copyMdc(mdc);
+    if (!mdcDecoded) {
+      mdcMap = JsonMapColumns.readObjectMap(mdc);
+      mdcDecoded = true;
+    }
+    return copyMdc(mdcMap);
+  }
+
+  @PrePersist
+  @PreUpdate
+  void syncJsonMaps() {
+    if (mdcDecoded) {
+      mdc = JsonMapColumns.writeObjectMap(mdcMap);
+    }
   }
 
   // Identity-based equality on the assigned primary key. Content-based equality (jobId/ts/

@@ -42,7 +42,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JobPriorityConverter;
-import run.ratchet.store.converter.JsonMapConverter;
+import run.ratchet.store.converter.JsonMapColumns;
 import run.ratchet.store.id.UuidV7EntityListener;
 import run.ratchet.store.spi.RecurringJobStore;
 
@@ -103,12 +103,21 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(nullable = false)
   private JobPayload payload;
 
-  @Convert(converter = JsonMapConverter.class)
-  private Map<String, String> params;
+  // Map is not a JPA basic type; strict providers drop @Convert-only Map attributes. Persist JSON
+  // Strings for portability, synced from the transient maps only in JPA lifecycle callbacks.
+  @Column(name = "params")
+  private String params;
 
-  @Convert(converter = JsonMapConverter.class)
+  @Transient private Map<String, String> paramsMap;
+
+  @Transient private boolean paramsDecoded;
+
   @Column(name = "trace_context")
-  private Map<String, String> traceContext;
+  private String traceContext;
+
+  @Transient private Map<String, String> traceContextMap;
+
+  @Transient private boolean traceContextDecoded;
 
   // Per-row encryption metadata. encryptedPayload records whether this row's protected surfaces are
   // stored as ciphertext (the global switch OR the job's withEncryptedPayload() opt-in); read paths
@@ -359,11 +368,16 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, String> getParams() {
-    return params;
+    if (!paramsDecoded) {
+      paramsMap = JsonMapColumns.readStringMap(params);
+      paramsDecoded = true;
+    }
+    return paramsMap;
   }
 
   public void setParams(Map<String, String> params) {
-    this.params = params;
+    this.paramsMap = params;
+    this.paramsDecoded = true;
   }
 
   public boolean isEncryptedPayload() {
@@ -383,11 +397,16 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, String> getTraceContext() {
-    return traceContext;
+    if (!traceContextDecoded) {
+      traceContextMap = JsonMapColumns.readStringMap(traceContext);
+      traceContextDecoded = true;
+    }
+    return traceContextMap;
   }
 
   public void setTraceContext(Map<String, String> traceContext) {
-    this.traceContext = traceContext;
+    this.traceContextMap = traceContext;
+    this.traceContextDecoded = true;
   }
 
   public String getTargetClass() {
@@ -696,6 +715,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @PrePersist
   void prePersist() {
     validateRequiredFields();
+    syncJsonMaps();
     Instant now = Instant.now();
     createdAt = now;
     updatedAt = now;
@@ -704,7 +724,17 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @PreUpdate
   void preUpdate() {
     validateRequiredFields();
+    syncJsonMaps();
     updatedAt = Instant.now();
+  }
+
+  private void syncJsonMaps() {
+    if (paramsDecoded) {
+      params = JsonMapColumns.writeStringMap(paramsMap);
+    }
+    if (traceContextDecoded) {
+      traceContext = JsonMapColumns.writeStringMap(traceContextMap);
+    }
   }
 
   private void validateRequiredFields() {

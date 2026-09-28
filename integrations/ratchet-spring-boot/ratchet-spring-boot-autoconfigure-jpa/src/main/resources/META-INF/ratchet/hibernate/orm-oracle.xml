@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Oracle Hibernate mappings scoped to Ratchet attributes. The shipped schema stores text and
-  serialized payloads in CLOB columns. Retain the existing converters and String JDBC binding;
+  serialized payloads in CLOB columns. Retain String JDBC binding and converters where needed;
   Oracle accepts String values for CLOB columns. Do not apply the EclipseLink UUID converter to
   Hibernate identifiers: Hibernate already maps Oracle UUID values to RAW(16).
   Persistent Instant attributes use the existing Timestamp converter because the schema stores
@@ -19,8 +19,6 @@
         <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="executionStartTime"/>
         <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="executionEndTime"/>
         <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="payload"/>
-        <convert converter="run.ratchet.store.converter.JsonMapConverter" attribute-name="params"/>
-        <convert converter="run.ratchet.store.converter.JsonMapConverter" attribute-name="traceContext"/>
         <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="onSuccessPayload"/>
         <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="onFailurePayload"/>
         <attributes>
@@ -91,7 +89,6 @@
 
     <entity class="run.ratchet.store.entity.JobLogEntity">
         <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="ts"/>
-        <convert converter="run.ratchet.store.converter.JsonObjectMapConverter" attribute-name="mdc"/>
         <attributes>
             <basic name="message">
                 <column name="message" column-definition="CLOB" nullable="false"/>
