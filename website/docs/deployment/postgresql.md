@@ -154,6 +154,8 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 
 A duplicate active business key fails against `pk_scheduler_business_key_reservation`. The `business_key` column on `scheduler_job` is observability-only and carries a plain (non-unique) `idx_job_business_key` index.
 
+When `submit()` finds an active owner with a different idempotency key, it throws `DuplicateBusinessKeyException`. A submission that loses the insert race aborts its PostgreSQL transaction, so Ratchet cannot look up the owner in it and throws `RatchetTransientStoreException` instead. Retrying in a fresh transaction then reports `DuplicateBusinessKeyException`, or succeeds if the owner has already finished. See [Active business key violation](../troubleshooting/common-issues.md#active-business-key-violation).
+
 ### Generated columns
 
 Target class and method name are extracted from the JSONB payload as generated columns for indexing:

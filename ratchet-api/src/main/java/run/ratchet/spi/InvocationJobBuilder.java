@@ -22,6 +22,7 @@ import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
 
 /**
  * Fluent builder for jobs created from pre-resolved {@link JobInvocation}s — the invocation-typed
@@ -67,6 +68,10 @@ public interface InvocationJobBuilder {
   /**
    * Sets the business key under the portable contract documented by {@link
    * JobBuilder#withBusinessKey(String)}.
+   *
+   * <p>{@link #submit()} throws {@link DuplicateBusinessKeyException} while an active job holds the
+   * key, unless its idempotency key matches this builder's and the original job's handle is
+   * returned.
    */
   InvocationJobBuilder withBusinessKey(String key);
 
@@ -104,6 +109,9 @@ public interface InvocationJobBuilder {
    * Persists the job (and any chained steps and branches) through the standard creation path.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
+   *
+   * @throws DuplicateBusinessKeyException if an active job already holds this builder's business
+   *     key
    */
   JobHandle submit();
 }

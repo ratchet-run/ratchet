@@ -28,6 +28,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.SimpleJob;
@@ -74,11 +75,12 @@ class BusinessKeyIT extends BaseRatchetIT {
     JobAssertions.assertJobStatus(jobCrudStore, first, JobStatus.RUNNING);
 
     // Second submission with same business key while first is active should fail
-    IllegalStateException thrown =
+    DuplicateBusinessKeyException thrown =
         assertThrows(
-            IllegalStateException.class,
+            DuplicateBusinessKeyException.class,
             () -> jobService.enqueue(SimpleJob::execute).withBusinessKey("user-123").submit(),
             "Should reject duplicate business key while first job is active");
+    assertEquals("user-123", thrown.businessKey());
     assertTrue(
         thrown.getMessage().contains("business key"),
         "Duplicate rejection should identify the business key constraint");

@@ -33,6 +33,7 @@ import org.springframework.data.mongodb.MongoDatabaseFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import run.ratchet.api.*;
+import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.ri.core.DrainController;
 
@@ -110,6 +111,11 @@ public class MongoRuntimeApplication {
     @ExceptionHandler(DuplicateIdempotencyKeyException.class)
     public ResponseEntity<String> duplicate() {
       return ResponseEntity.status(409).body("duplicate-idempotency");
+    }
+
+    @ExceptionHandler(DuplicateBusinessKeyException.class)
+    public ResponseEntity<String> duplicateBusinessKey() {
+      return ResponseEntity.status(409).body("duplicate-business-key");
     }
 
     @PostMapping("/submit")

@@ -206,7 +206,7 @@ Callbacks are scoped to a single job -- you attach them at submission time. Even
 
 **Tags** are lowercase labels for categorization and filtering. Use them to group related jobs (all billing jobs, all import jobs) for monitoring or bulk operations. You can cancel all recurring jobs with a given tag using `scheduler.cancelRecurringJobsByTag("billing")`.
 
-**Business key** prevents concurrent execution against the same entity. With `withBusinessKey("invoice-42")`, if another job with the same business key is already PENDING or RUNNING, the new submission is rejected. Once the first job reaches a terminal state (SUCCEEDED, FAILED, CANCELED), the key is available for reuse.
+**Business key** prevents concurrent execution against the same entity. With `withBusinessKey("invoice-42")`, an existing PENDING, RUNNING, PAUSED, or WAITING job with that key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until that job reaches a terminal state (SUCCEEDED, FAILED, CANCELED), when the key is available for reuse.
 
 This is different from the **idempotency key**, which is globally unique forever:
 

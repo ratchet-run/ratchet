@@ -171,7 +171,7 @@ Overrides the auto-generated idempotency key. By default, a UUID is generated at
 
 **Difference from `withBusinessKey`:**
 - `idempotencyKey` is UNIQUE globally -- once used, that key is consumed forever.
-- `businessKey` only blocks active (PENDING/RUNNING) jobs -- allows re-runs after completion.
+- `businessKey` only blocks active (PENDING/RUNNING/PAUSED/WAITING) jobs -- allows re-runs after completion.
 
 ```java
 // Webhook handler: same delivery ID = same job forever
@@ -186,7 +186,9 @@ scheduler.enqueue(() -> webhookHandler.process(payload))
 JobBuilder withBusinessKey(String key)
 ```
 
-Sets a business key for preventing concurrent execution against the same entity. Unlike `withIdempotencyKey`, the business key allows multiple completed jobs with the same key over time -- it only blocks when an active (PENDING/RUNNING) job exists with the same key.
+Sets a business key for preventing concurrent execution against the same entity. An active job (PENDING, RUNNING, PAUSED, or WAITING) holding the key causes `submit()` to throw `DuplicateBusinessKeyException`. Retrying does not help until that job reaches a terminal state and frees the key for reuse.
+
+A racing submission with the same idempotency key either returns the original job's handle or throws `DuplicateIdempotencyKeyException`. Retrying that submission in a fresh transaction returns the original handle.
 
 **Parameters:**
 - `key` -- the business key. If null or blank, no concurrent execution blocking is applied. After
