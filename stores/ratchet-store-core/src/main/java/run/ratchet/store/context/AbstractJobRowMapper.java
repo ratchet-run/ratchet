@@ -221,6 +221,10 @@ public abstract class AbstractJobRowMapper {
       j.setAttempts(requiredNumber(row, IDX_Q_ATTEMPTS, "q.attempts").intValue());
       j.setPickedBy((String) row[IDX_Q_PICKED_BY]);
       j.setPickedAt(RowValues.instantOrNull(row[IDX_Q_PICKED_AT]));
+      // The claim writes only the queue row, so a running attempt's start is its claim time.
+      if (resolved == JobStatus.RUNNING && j.getPickedAt() != null) {
+        j.setExecutionStartTime(j.getPickedAt());
+      }
       j.setPausedFromStatus(
           enumValueOrNull(row, IDX_Q_PAUSED, "q.paused_from_status", JobStatus.class));
       j.setLastError(RowValues.stringOrNull(row[IDX_Q_LAST_ERROR]));

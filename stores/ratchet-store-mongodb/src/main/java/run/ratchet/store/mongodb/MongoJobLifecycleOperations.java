@@ -553,6 +553,9 @@ final class MongoJobLifecycleOperations
                               set(SCHEDULED_TIME, DocumentMapper.toDate(Instant.now())),
                               set(PICKED_BY, null),
                               set(PICKED_AT, null),
+                              set(EXECUTION_START_TIME, null),
+                              set(EXECUTION_END_TIME, null),
+                              set(EXECUTION_DURATION_MS, null),
                               unset(TERMINATED_AT),
                               set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
                               inc(VERSION, 1))));
@@ -586,6 +589,9 @@ final class MongoJobLifecycleOperations
                             set(SCHEDULED_TIME, DocumentMapper.toDate(now)),
                             set(PICKED_BY, null),
                             set(PICKED_AT, null),
+                            set(EXECUTION_START_TIME, null),
+                            set(EXECUTION_END_TIME, null),
+                            set(EXECUTION_DURATION_MS, null),
                             unset(TERMINATED_AT),
                             set(UPDATED_AT, DocumentMapper.toDate(now)),
                             inc(VERSION, 1)));

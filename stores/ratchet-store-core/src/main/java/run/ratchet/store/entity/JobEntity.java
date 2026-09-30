@@ -543,6 +543,13 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.updatedAt = updatedAt;
   }
 
+  /**
+   * Returns when the current or last attempt started. While the job is RUNNING this is the claim
+   * time; completion records the worker-measured start. SQL stores derive the running value on read
+   * from the queue row's {@code picked_at}, so the {@code scheduler_job.execution_start_time}
+   * column itself stays null until the attempt completes. Null before the first claim or after a
+   * manual retry of a failed job.
+   */
   public Instant getExecutionStartTime() {
     return executionStartTime;
   }

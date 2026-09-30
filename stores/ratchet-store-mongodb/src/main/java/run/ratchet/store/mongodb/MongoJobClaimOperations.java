@@ -20,6 +20,7 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
+import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_TARGET;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
@@ -282,6 +283,7 @@ final class MongoJobClaimOperations {
                         set(STATUS, "RUNNING"),
                         set(PICKED_BY, nodeId),
                         set(PICKED_AT, nowDate),
+                        set(EXECUTION_START_TIME, nowDate),
                         set(UPDATED_AT, nowDate),
                         inc(VERSION, 1))));
           }
