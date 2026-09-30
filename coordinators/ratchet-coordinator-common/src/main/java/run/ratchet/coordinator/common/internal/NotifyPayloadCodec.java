@@ -15,7 +15,6 @@
  */
 package run.ratchet.coordinator.common.internal;
 
-import jakarta.json.Json;
 import jakarta.json.JsonObject;
 import jakarta.json.JsonObjectBuilder;
 import jakarta.json.JsonReader;
@@ -55,7 +54,8 @@ public final class NotifyPayloadCodec {
   public String encode(NotifyPayload payload) {
     Objects.requireNonNull(payload, "payload");
     JsonObjectBuilder builder =
-        Json.createObjectBuilder()
+        JsonProviders.provider()
+            .createObjectBuilder()
             .add("v", payload.version())
             .add("node", payload.node().value())
             .add("prio", payload.priority().name());
@@ -64,7 +64,7 @@ public final class NotifyPayloadCodec {
     }
     JsonObject obj = builder.build();
     StringWriter sw = new StringWriter(96);
-    try (JsonWriter writer = Json.createWriter(sw)) {
+    try (JsonWriter writer = JsonProviders.provider().createWriter(sw)) {
       writer.writeObject(obj);
     }
     return sw.toString();
@@ -75,7 +75,7 @@ public final class NotifyPayloadCodec {
       throw new DecodeException("empty notify payload");
     }
     JsonObject obj;
-    try (JsonReader reader = Json.createReader(new StringReader(json))) {
+    try (JsonReader reader = JsonProviders.provider().createReader(new StringReader(json))) {
       JsonValue root = reader.readValue();
       if (root.getValueType() != JsonValue.ValueType.OBJECT) {
         throw new DecodeException("notify payload root is not a JSON object");

@@ -17,7 +17,6 @@ package run.ratchet.store.util;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-import jakarta.json.Json;
 import jakarta.json.JsonObject;
 import jakarta.json.JsonObjectBuilder;
 import jakarta.json.JsonReader;
@@ -90,7 +89,9 @@ public final class PayloadEncryptor {
     if (json == null || json.isEmpty() || !active) {
       return json;
     }
-    return Json.createValue(encryptToFrame(json.getBytes(UTF_8), target)).toString();
+    return JsonProviderHolder.provider()
+        .createValue(encryptToFrame(json.getBytes(UTF_8), target))
+        .toString();
   }
 
   /**
@@ -121,7 +122,8 @@ public final class PayloadEncryptor {
     if (payloadJson == null || payloadJson.isEmpty() || !active) {
       return payloadJson;
     }
-    try (JsonReader reader = Json.createReader(new StringReader(payloadJson))) {
+    try (JsonReader reader =
+        JsonProviderHolder.provider().createReader(new StringReader(payloadJson))) {
       JsonValue root = reader.readValue();
       if (root.getValueType() != JsonValue.ValueType.OBJECT) {
         return payloadJson;
@@ -132,7 +134,7 @@ public final class PayloadEncryptor {
         return payloadJson;
       }
       String token = encryptToFrame(args.toString().getBytes(UTF_8), target);
-      return replaceArgs(object, Json.createValue(token));
+      return replaceArgs(object, JsonProviderHolder.provider().createValue(token));
     }
   }
 
@@ -263,7 +265,7 @@ public final class PayloadEncryptor {
   }
 
   private static String replaceArgs(JsonObject object, JsonValue newArgs) {
-    JsonObjectBuilder builder = Json.createObjectBuilder();
+    JsonObjectBuilder builder = JsonProviderHolder.provider().createObjectBuilder();
     for (var entry : object.entrySet()) {
       builder.add(entry.getKey(), ARGS.equals(entry.getKey()) ? newArgs : entry.getValue());
     }
@@ -276,7 +278,7 @@ public final class PayloadEncryptor {
       return mapJson;
     }
     JsonObject object = root.asJsonObject();
-    JsonObjectBuilder builder = Json.createObjectBuilder();
+    JsonObjectBuilder builder = JsonProviderHolder.provider().createObjectBuilder();
     for (var entry : object.entrySet()) {
       JsonValue value = entry.getValue();
       if (value.getValueType() == JsonValue.ValueType.STRING) {
@@ -297,7 +299,7 @@ public final class PayloadEncryptor {
   }
 
   private static JsonValue parse(String json) {
-    try (JsonReader reader = Json.createReader(new StringReader(json))) {
+    try (JsonReader reader = JsonProviderHolder.provider().createReader(new StringReader(json))) {
       return reader.readValue();
     }
   }

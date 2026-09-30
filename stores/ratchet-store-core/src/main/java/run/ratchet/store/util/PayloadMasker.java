@@ -15,7 +15,6 @@
  */
 package run.ratchet.store.util;
 
-import jakarta.json.Json;
 import jakarta.json.JsonArray;
 import jakarta.json.JsonArrayBuilder;
 import jakarta.json.JsonObject;
@@ -55,7 +54,8 @@ public final class PayloadMasker {
       return null;
     }
 
-    try (JsonReader reader = Json.createReader(new StringReader(payloadJson))) {
+    try (JsonReader reader =
+        JsonProviderHolder.provider().createReader(new StringReader(payloadJson))) {
       JsonValue root = reader.readValue();
       if (root.getValueType() == JsonValue.ValueType.OBJECT) {
         return maskObject(root.asJsonObject(), context).build().toString();
@@ -118,7 +118,7 @@ public final class PayloadMasker {
   }
 
   private static JsonObjectBuilder maskObject(JsonObject object, MaskingContext context) {
-    JsonObjectBuilder builder = Json.createObjectBuilder();
+    JsonObjectBuilder builder = JsonProviderHolder.provider().createObjectBuilder();
     for (var entry : object.entrySet()) {
       String key = entry.getKey();
       JsonValue value = entry.getValue();
@@ -136,7 +136,7 @@ public final class PayloadMasker {
   }
 
   private static JsonArrayBuilder maskArray(JsonArray array, MaskingContext context) {
-    JsonArrayBuilder builder = Json.createArrayBuilder();
+    JsonArrayBuilder builder = JsonProviderHolder.provider().createArrayBuilder();
     for (JsonValue item : array) {
       if (item.getValueType() == JsonValue.ValueType.OBJECT) {
         builder.add(maskObject(item.asJsonObject(), context));

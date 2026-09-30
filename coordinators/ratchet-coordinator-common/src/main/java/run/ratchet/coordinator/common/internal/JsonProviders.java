@@ -19,7 +19,7 @@ import jakarta.json.JsonException;
 import jakarta.json.spi.JsonProvider;
 
 /**
- * JSON-P provider probe shared by coordinator transports.
+ * JSON-P provider probe and cached provider shared by coordinator transports.
  *
  * @apiNote Framework-internal. This class is consumed only by Ratchet's bundled coordinator
  *     transports; it is not part of the public coordinator SPI and may change without notice.
@@ -27,6 +27,15 @@ import jakarta.json.spi.JsonProvider;
 public final class JsonProviders {
 
   private JsonProviders() {}
+
+  /**
+   * Returns the JSON-P provider, resolved once. The static {@code jakarta.json.Json} factories run
+   * a {@link java.util.ServiceLoader} scan on every call; the codec encodes and decodes a wakeup
+   * envelope per notification, so it uses this cached instance instead.
+   */
+  public static JsonProvider provider() {
+    return Holder.PROVIDER;
+  }
 
   public static void requireJsonProvider() {
     try {
@@ -38,5 +47,9 @@ public final class JsonProviders {
               + " scope, or deploy into a Jakarta EE container that supplies one.",
           ex);
     }
+  }
+
+  private static final class Holder {
+    static final JsonProvider PROVIDER = JsonProvider.provider();
   }
 }

@@ -15,7 +15,6 @@
  */
 package run.ratchet.store.util;
 
-import jakarta.json.Json;
 import jakarta.json.JsonArrayBuilder;
 import jakarta.json.JsonObjectBuilder;
 import java.time.Instant;
@@ -52,7 +51,7 @@ public final class ExtensionArchiveJson {
     if (properties == null || properties.isEmpty()) {
       return null;
     }
-    JsonObjectBuilder builder = Json.createObjectBuilder();
+    JsonObjectBuilder builder = JsonProviderHolder.provider().createObjectBuilder();
     properties.forEach(builder::add);
     return builder.build().toString();
   }
@@ -65,10 +64,11 @@ public final class ExtensionArchiveJson {
     if (rows == null || rows.isEmpty()) {
       return null;
     }
-    JsonArrayBuilder array = Json.createArrayBuilder();
+    JsonArrayBuilder array = JsonProviderHolder.provider().createArrayBuilder();
     for (StateRow row : rows) {
       JsonObjectBuilder entry =
-          Json.createObjectBuilder()
+          JsonProviderHolder.provider()
+              .createObjectBuilder()
               .add("namespace", row.namespace())
               .add("state", row.state())
               .add("encrypted_state", row.encryptedState())
