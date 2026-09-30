@@ -145,7 +145,7 @@ jobs:
 
       - name: Upload runtime SARIF
         if: ${{ !cancelled() && hashFiles('target/owasp/reports/runtime/dependency-check-report.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4.38.1
+        uses: github/codeql-action/upload-sarif@v4.38.2
         with:
           sarif_file: target/owasp/reports/runtime/dependency-check-report.sarif
           category: owasp-dependency-check-runtime
@@ -153,7 +153,7 @@ jobs:
 
       - name: Upload tooling SARIF
         if: ${{ !cancelled() && hashFiles('target/owasp/reports/tooling/dependency-check-report.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4.38.1
+        uses: github/codeql-action/upload-sarif@v4.38.2
         with:
           sarif_file: target/owasp/reports/tooling/dependency-check-report.sarif
           category: owasp-dependency-check-tooling
@@ -161,7 +161,7 @@ jobs:
 
       - name: Upload tests SARIF
         if: ${{ !cancelled() && hashFiles('target/owasp/reports/tests/dependency-check-report.sarif') != '' }}
-        uses: github/codeql-action/upload-sarif@v4.38.1
+        uses: github/codeql-action/upload-sarif@v4.38.2
         with:
           sarif_file: target/owasp/reports/tests/dependency-check-report.sarif
           category: owasp-dependency-check-tests
