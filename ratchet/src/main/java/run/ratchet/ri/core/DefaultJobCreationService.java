@@ -295,16 +295,7 @@ public class DefaultJobCreationService
           "Signal-waiting job creation requires a store advertising the SignalStore capability");
     }
     String resourceName = builder.resourceName();
-    boolean resourceGated = resourceName != null && !resourceName.isBlank();
-    if (resourceGated && !resourcePermitCapabilityAvailable) {
-      // The caller asked for concurrency gating on a named resource, but the store cannot enforce
-      // it. Reject the submission rather than silently running the job with unbounded concurrency.
-      throw new UnsupportedOperationException(
-          "Job declares resource '"
-              + resourceName
-              + "' but the store does not advertise the ResourcePermitStore capability; resource"
-              + " concurrency gating cannot be enforced");
-    }
+    requireResourcePermitCapability(resourceName, "Job declares resource");
     Duration signalTimeout = isSignalWaiting ? state.awaitSignalTimeout() : null;
     Instant now = effective().instant();
 
@@ -447,6 +438,7 @@ public class DefaultJobCreationService
 
   private JobHandle submitPrepared(DefaultBatchBuilder builder) {
     requireBatchCapability();
+    requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
     String callerPrincipal = resolveCallerPrincipal();
     JobEntity parent = newBatchParent(callerPrincipal);
     parent.setExecutionTarget(builder.executionTarget());
@@ -483,6 +475,7 @@ public class DefaultJobCreationService
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
       childJob.setExecutionTarget(builder.executionTarget());
+      childJob.setResourceName(builder.childResourceName());
       applyOptions(childJob, builder.childOptions());
       stampCallerPrincipal(childJob, callerPrincipal);
       checkCreateAuthorization(childJob);
@@ -529,6 +522,7 @@ public class DefaultJobCreationService
   private <T extends Serializable> JobHandle submitPrepared(
       DefaultStreamingBatchBuilder<T> builder) {
     requireBatchCapability();
+    requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
     builder.validateReady();
 
     String callerPrincipal = resolveCallerPrincipal();
@@ -785,6 +779,19 @@ public class DefaultJobCreationService
         && Objects.equals(existing.misfirePolicy(), replacement.misfirePolicy());
   }
 
+  private void requireResourcePermitCapability(String resourceName, String subject) {
+    if (resourceName != null && !resourceName.isBlank() && !resourcePermitCapabilityAvailable) {
+      // The caller asked for concurrency gating on a named resource, but the store cannot enforce
+      // it. Reject the submission rather than silently running the job with unbounded concurrency.
+      throw new UnsupportedOperationException(
+          subject
+              + " '"
+              + resourceName
+              + "' but the store does not advertise the ResourcePermitStore capability; resource"
+              + " concurrency gating cannot be enforced");
+    }
+  }
+
   private void requireBatchCapability() {
     if (batchStore == null) {
       throw new UnsupportedOperationException(
@@ -934,6 +941,7 @@ public class DefaultJobCreationService
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
       child.setExecutionTarget(builder.executionTarget());
+      child.setResourceName(builder.childResourceName());
       applyOptions(child, builder.childOptions());
       stampCallerPrincipal(child, callerPrincipal);
       checkCreateAuthorization(child);

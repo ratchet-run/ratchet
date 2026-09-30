@@ -56,6 +56,7 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
   private Consumer<StreamingBatchContext> localProgressHook;
   private SerializableConsumer<BatchContext> batchProgressHook;
   private String executionTarget;
+  private String childResourceName;
 
   DefaultStreamingBatchBuilder(String name, StreamingBatchSubmitter submitter) {
     this.name = name;
@@ -117,6 +118,16 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
   public StreamingBatchBuilder<T> withMaxRetries(int retries) {
     childRetryOptions.withMaxRetries(retries);
     return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> withResource(String resourceName) {
+    this.childResourceName = DefaultJobBuilder.normalizeResourceName(resourceName);
+    return this;
+  }
+
+  String childResourceName() {
+    return childResourceName;
   }
 
   @Override

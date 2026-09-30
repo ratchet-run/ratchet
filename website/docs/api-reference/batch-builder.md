@@ -71,6 +71,27 @@ scheduler.enqueueBatch("Process Orders")
     .submit();
 ```
 
+### withResource
+
+```java
+BatchBuilder withResource(String resourceName)
+```
+
+Every child acquires a permit from the named resource pool before it runs. At capacity, children are rescheduled without counting as retries. The configured permit count caps how many children run at once. That count is shared with all other jobs using the same resource name, inside or outside the batch.
+
+The setting applies to every child regardless of call order. The no-op parent, progress hooks, and workflow branch jobs do not inherit it. Null or blank disables resource limiting. Other names are trimmed.
+
+`submit()` throws `UnsupportedOperationException` if a resource is set and the store does not advertise the `ResourcePermitStore` capability. Streaming batches have the same behavior at `start()`.
+
+Configure permit counts and retry delays in `scheduler_resource_limit`, using `max_concurrent` and `retry_delay_ms`. See [Performance Tuning](../deployment/performance-tuning.md).
+
+```java
+scheduler.enqueueBatch("Payments")
+    .forEach(paymentIds, id -> paymentService.charge(id))
+    .withResource("payment-api")
+    .submit();
+```
+
 ### onProgress
 
 ```java
@@ -261,14 +282,15 @@ Obtained from [`JobSchedulerService.streamingBatch()`](./job-scheduler-service#s
 
 Framework extensions that build invocations directly (rather than serializing lambdas) have mirrored builders — `InvocationBatchBuilder` and `InvocationStreamingBatchBuilder<T>` — on the [`InvocationSubmissionService`](./spi-interfaces#invocationsubmissionservice) SPI.
 
-`StreamingBatchBuilder` exposes the same child retry methods as `BatchBuilder`:
+`StreamingBatchBuilder` exposes the same child retry and resource methods as `BatchBuilder`:
 
 ```java
 StreamingBatchBuilder<T> withMaxRetries(int retries)
 StreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param)
+StreamingBatchBuilder<T> withResource(String resourceName)
 ```
 
-The invocation-typed mirrors expose the same methods and persist the same child retry options.
+The invocation-typed mirrors expose the same methods and persist the same child retry options and resource name.
 
 ### fromStream
 

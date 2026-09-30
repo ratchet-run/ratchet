@@ -171,6 +171,38 @@ class DefaultJobCreationServiceAuthorizationTest {
         new JakartaAfterCommitRegistrar(txRegistry));
   }
 
+  private DefaultJobCreationService serviceWithoutResourceCapability(
+      CallerPrincipalProvider principalProvider,
+      JobAuthorizationPolicy authorizationPolicy,
+      InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
+      Clock clock) {
+    return new DefaultJobCreationService(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        jobBulkStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        recurringJobStore,
+        wakeupService,
+        recurringScheduler,
+        new DefaultJobInvocationResolver(),
+        new JobPayloadInputValidator(),
+        principalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        null,
+        eventPublisher,
+        metricsCollector,
+        clock,
+        true,
+        false,
+        null,
+        new JakartaAfterCommitRegistrar(txRegistry));
+  }
+
   private DefaultJobCreationService serviceWithResolver(
       CallerPrincipalProvider principalProvider, CallerPrincipalResolver callerPrincipalResolver) {
     return new DefaultJobCreationService(
@@ -638,13 +670,17 @@ class DefaultJobCreationServiceAuthorizationTest {
     when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
 
     DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
-    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.forEach(
+        List.of("one", "two"), DefaultJobCreationServiceAuthorizationTest::consumeString);
     builder.withMaxRetries(3).withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2));
+    builder.withResource("  gateway  ");
 
     service.submit(builder);
 
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
     verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(2, childrenCaptor.getValue().size());
+    childrenCaptor.getValue().forEach(child -> assertEquals("gateway", child.getResourceName()));
     JobEntity child = childrenCaptor.getValue().get(0);
     assertEquals(3, child.getMaxRetries());
     assertEquals(BackoffPolicy.EXPONENTIAL, child.getBackoffPolicy());
@@ -659,6 +695,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
     builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
     builder
+        .withResource("gateway")
         .withMaxRetries(3)
         .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(1))
         .thenOnBatchSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask);
@@ -668,6 +705,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     ArgumentCaptor<JobEntity> createdCaptor = ArgumentCaptor.forClass(JobEntity.class);
     verify(jobCrudStore, times(2)).create(createdCaptor.capture());
     List<JobEntity> created = createdCaptor.getAllValues();
+    created.forEach(job -> assertNull(job.getResourceName()));
     assertEquals(0, created.get(0).getMaxRetries(), "batch parent must not inherit child retries");
     assertEquals(
         0, created.get(1).getMaxRetries(), "workflow branch must not inherit child retries");
@@ -734,18 +772,87 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     DefaultStreamingBatchBuilder<String> builder =
         new DefaultStreamingBatchBuilder<>("test-batch", service);
-    builder.fromStream(Stream.of("one"));
+    builder.withChunkSize(2);
+    builder.fromStream(Stream.of("one", "two", "three"));
     builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
     builder.withMaxRetries(2).withBackoff(BackoffPolicy.FIXED, Duration.ofMillis(750));
+    builder.withResource("  gateway  ");
 
     service.submit(builder);
 
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
-    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    verify(jobBulkStore, times(2)).bulkInsert(childrenCaptor.capture());
+    childrenCaptor
+        .getAllValues()
+        .forEach(chunk -> chunk.forEach(child -> assertEquals("gateway", child.getResourceName())));
     JobEntity child = childrenCaptor.getValue().get(0);
+    assertEquals("gateway", child.getResourceName());
     assertEquals(2, child.getMaxRetries());
     assertEquals(BackoffPolicy.FIXED, child.getBackoffPolicy());
     assertEquals(750, child.getBackoffParamMs());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_blankResourceClearsChildResource() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("blank-resource", service);
+    builder.withResource("gateway");
+    builder.forEach(
+        List.of("one", "two"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("   ");
+
+    builder.submit();
+
+    ArgumentCaptor<List<JobEntity>> captor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(captor.capture());
+    captor.getValue().forEach(child -> assertNull(child.getResourceName()));
+  }
+
+  @Test
+  void batchSubmit_resourceWithoutCapabilityRejectsBeforeWritesEvenWhenEmpty() {
+    DefaultJobCreationService limited =
+        serviceWithoutResourceCapability(
+            principalProviderReturning(CAPTURED_PRINCIPAL),
+            authorizationPolicy,
+            eventPublisher,
+            metricsCollector,
+            Clock.systemUTC());
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("resource", limited);
+    builder.withResource("gateway");
+
+    UnsupportedOperationException exception =
+        assertThrows(UnsupportedOperationException.class, builder::submit);
+    assertEquals(
+        "Batch declares child resource 'gateway' but the store does not advertise the"
+            + " ResourcePermitStore capability; resource concurrency gating cannot be enforced",
+        exception.getMessage());
+    verify(jobCrudStore, never()).create(any());
+    verify(jobCrudStore, never()).save(any());
+    verify(batchStore, never()).saveBatch(any());
+    verify(jobBulkStore, never()).bulkInsert(any());
+  }
+
+  @Test
+  void streamingBatchSubmit_resourceWithoutCapabilityRejectsBeforeWrites() {
+    DefaultJobCreationService limited =
+        serviceWithoutResourceCapability(
+            principalProviderReturning(CAPTURED_PRINCIPAL),
+            authorizationPolicy,
+            eventPublisher,
+            metricsCollector,
+            Clock.systemUTC());
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("resource", limited);
+    builder.fromStream(Stream.of("one"));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withResource("gateway");
+
+    assertThrows(UnsupportedOperationException.class, builder::start);
+    verify(jobCrudStore, never()).create(any());
+    verify(jobCrudStore, never()).save(any());
+    verify(batchStore, never()).saveBatch(any());
+    verify(jobBulkStore, never()).bulkInsert(any());
   }
 
   @Test

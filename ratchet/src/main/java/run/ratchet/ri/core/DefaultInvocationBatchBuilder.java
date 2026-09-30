@@ -83,6 +83,12 @@ final class DefaultInvocationBatchBuilder implements InvocationBatchBuilder {
   }
 
   @Override
+  public InvocationBatchBuilder withResource(String resourceName) {
+    delegate.withResource(resourceName);
+    return this;
+  }
+
+  @Override
   public InvocationBatchBuilder withMaxRetries(int retries) {
     delegate.withMaxRetries(retries);
     return this;

@@ -144,6 +144,7 @@ scheduler.enqueueBatch("Data Migration")
 | `forEach(items, action)` | Process each item in the collection |
 | `withMaxRetries(retries)` | Set child retry attempts (default: 0) |
 | `withBackoff(policy, delay)` | Set the child retry backoff policy |
+| `withResource(name)` | Share named resource permits across all children and other jobs using that name |
 | `onProgress(hook)` | Track progress during execution |
 | `thenOnBatchSuccess(task)` | Execute on 100% success |
 | `thenOnBatchFailure(task)` | Execute on any failure |
@@ -226,6 +227,7 @@ scheduler.<Record>streamingBatch("ETL Pipeline")
 | `withChunkSize(size)` | Items per bulk insert (default: 100) |
 | `withMaxRetries(retries)` | Set child retry attempts (default: 0) |
 | `withBackoff(policy, delay)` | Set the child retry backoff policy |
+| `withResource(name)` | Share named resource permits across all children and other jobs using that name |
 | `onProgress(hook)` | Track streaming progress |
 | `onBatchProgress(hook)` | Track batch execution progress |
 | `thenOnBatchSuccess(task)` | Execute on 100% success |

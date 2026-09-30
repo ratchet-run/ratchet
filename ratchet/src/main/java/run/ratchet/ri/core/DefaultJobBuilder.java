@@ -201,9 +201,13 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
 
   @Override
   public JobBuilder withResource(String resourceName) {
-    this.resourceName =
-        (resourceName != null && !resourceName.isBlank()) ? resourceName.trim() : null;
+    this.resourceName = normalizeResourceName(resourceName);
     return this;
+  }
+
+  /** Trims a resource name; null or blank means no resource limiting and becomes null. */
+  static String normalizeResourceName(String resourceName) {
+    return (resourceName != null && !resourceName.isBlank()) ? resourceName.trim() : null;
   }
 
   @Override

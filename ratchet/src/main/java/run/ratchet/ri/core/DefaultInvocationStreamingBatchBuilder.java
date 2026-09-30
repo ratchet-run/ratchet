@@ -77,6 +77,12 @@ final class DefaultInvocationStreamingBatchBuilder<T extends Serializable>
   }
 
   @Override
+  public InvocationStreamingBatchBuilder<T> withResource(String resourceName) {
+    state.withResource(resourceName);
+    return this;
+  }
+
+  @Override
   public InvocationStreamingBatchBuilder<T> withMaxRetries(int retries) {
     state.withMaxRetries(retries);
     return this;
