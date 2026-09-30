@@ -20,11 +20,8 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.io.Serial;
@@ -80,14 +77,6 @@ public class WorkflowConditionEntity
 
   @Column(name = "created_at", nullable = false)
   private Instant createdAt;
-
-  @ManyToOne(fetch = FetchType.LAZY)
-  @JoinColumn(name = "parent_job_id", insertable = false, updatable = false)
-  private transient JobEntity parentJob;
-
-  @ManyToOne(fetch = FetchType.LAZY)
-  @JoinColumn(name = "child_job_id", insertable = false, updatable = false)
-  private transient JobEntity childJob;
 
   public WorkflowConditionEntity() {}
 
@@ -153,22 +142,6 @@ public class WorkflowConditionEntity
 
   public void setCreatedAt(Instant createdAt) {
     this.createdAt = createdAt;
-  }
-
-  public JobEntity getParentJob() {
-    return parentJob;
-  }
-
-  public void setParentJob(JobEntity parentJob) {
-    this.parentJob = parentJob;
-  }
-
-  public JobEntity getChildJob() {
-    return childJob;
-  }
-
-  public void setChildJob(JobEntity childJob) {
-    this.childJob = childJob;
   }
 
   // Identity-based equality on the assigned primary key. Including mutable fields (notably
