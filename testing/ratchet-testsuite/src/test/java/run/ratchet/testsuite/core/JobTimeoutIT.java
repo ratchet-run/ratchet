@@ -71,7 +71,7 @@ class JobTimeoutIT extends BaseRatchetIT {
   }
 
   @Test
-  void slowJob_hardTimeoutWithNoRetriesLeft_runsOnFailureOnce() throws InterruptedException {
+  void slowJob_hardTimeoutWithNoRetriesLeft_runsOnFailureOnce() {
     JobHandle handle =
         jobService
             .enqueue(SlowJob::execute)
@@ -85,8 +85,12 @@ class JobTimeoutIT extends BaseRatchetIT {
         .atMost(Duration.ofSeconds(10))
         .untilAsserted(() -> assertEquals(1, SlowJob.failureCallbackCount()));
     // Give a late worker-side failure path time to (wrongly) run the callback a second time.
-    Thread.sleep(2_000);
-    assertEquals(1, SlowJob.failureCallbackCount(), "onFailure must run exactly once");
+    await()
+        .during(Duration.ofSeconds(2))
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(
+            () ->
+                assertEquals(1, SlowJob.failureCallbackCount(), "onFailure must run exactly once"));
     assertEquals(handle.id(), SlowJob.failureCallbackJobId());
   }
 

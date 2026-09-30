@@ -370,9 +370,13 @@ public class JobTimeoutHandler {
 
   /**
    * Runs a timeout transition and, when it failed the job terminally, invokes the job's {@code
-   * onFailure} callback on this thread after the transition's transaction commits. Only the path
-   * that won the terminal compare-and-swap in {@code commitCompletion} gets a transition back, so
-   * the callback runs at most once per job. A retried or already-finalised job gets none.
+   * onFailure} callback on this thread once {@link PostExecutionHandler#handleTimeoutTransition}
+   * returns {@code true}, which happens only after the terminal transition has committed. Under CDI
+   * the call goes through the transactional proxy, which commits its {@code REQUIRES_NEW}
+   * transaction before returning; with no managed transaction around it, the store commits {@code
+   * commitCompletion} itself. This thread has no outer transaction to defer to. Only the path that
+   * won the terminal compare-and-swap in {@code commitCompletion} gets a transition back, so the
+   * callback runs at most once per job. A retried or already-finalised job gets none.
    */
   private void runTimeoutTransition(
       Throwable timeoutEx,
