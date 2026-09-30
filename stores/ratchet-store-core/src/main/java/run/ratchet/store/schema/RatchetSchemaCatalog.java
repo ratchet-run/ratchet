@@ -25,6 +25,7 @@ import static run.ratchet.store.schema.LogicalType.TEXT;
 import static run.ratchet.store.schema.LogicalType.TIMESTAMP_TZ;
 import static run.ratchet.store.schema.LogicalType.UUID;
 
+import java.util.ArrayList;
 import java.util.List;
 import run.ratchet.store.schema.DeprecatedArtifact.DroppedColumn;
 import run.ratchet.store.schema.DeprecatedArtifact.DroppedIndex;
@@ -53,7 +54,7 @@ public final class RatchetSchemaCatalog {
    * Revision of this catalog's conformance contract. It is independent of the bundled SQL migration
    * ledger versions.
    */
-  public static final int CURRENT_VERSION = 13;
+  public static final int CURRENT_VERSION = 14;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -78,7 +79,7 @@ public final class RatchetSchemaCatalog {
               schedulerResourcePermit(),
               schedulerJobProperties(),
               schedulerJobExtensionState()),
-          v005Drops());
+          deprecatedArtifacts());
 
   private RatchetSchemaCatalog() {}
 
@@ -195,7 +196,6 @@ public final class RatchetSchemaCatalog {
         .column(required("node_id", TEXT))
         .column(required("heartbeat_ts", TIMESTAMP_TZ))
         .column(required("started_at", TIMESTAMP_TZ))
-        .column(nullable("node_info", TEXT))
         .primaryKey("node_id")
         .index(Index.of("idx_node_heartbeat", "heartbeat_ts"))
         .build();
@@ -517,6 +517,20 @@ public final class RatchetSchemaCatalog {
                 OnDeleteAction.CASCADE))
         .index(Index.of("idx_extension_state_key_id", "encryption_key_id"))
         .build();
+  }
+
+  private static List<DeprecatedArtifact> deprecatedArtifacts() {
+    List<DeprecatedArtifact> artifacts = new ArrayList<>(v005Drops());
+    artifacts.addAll(v009Drops());
+    return List.copyOf(artifacts);
+  }
+
+  /**
+   * Artifacts removed by migration V009. {@code scheduler_node.node_info} was never written by any
+   * store.
+   */
+  private static List<DeprecatedArtifact> v009Drops() {
+    return List.of(new DroppedColumn("scheduler_node", "node_info", 9));
   }
 
   /**

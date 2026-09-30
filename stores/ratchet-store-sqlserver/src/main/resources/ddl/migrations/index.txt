@@ -6,3 +6,4 @@ V005__remove_dead_dlq_alert_subsystem.sql
 V006__drop_recurring_master_fk.sql
 V007__permanent_idempotency_keys.sql
 V008__priority_ordered_claim_index.sql
+V009__drop_node_info.sql

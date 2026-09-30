@@ -5,6 +5,13 @@ description: Upgrade steps between Ratchet releases, including the coordinated 0
 
 # Upgrading
 
+## Upgrade from 0.5.0 to 0.5.1
+
+SQL stores gain `V009__drop_node_info.sql`, which drops the unused `scheduler_node.node_info`
+column. Ratchet never wrote to it, so no data is lost. Apply it through the configured migration
+mechanism, or use the updated canonical schema for new installations. MongoDB needs no change;
+existing node documents may still carry an empty `node_info` field, which Ratchet ignores.
+
 ## Upgrade from 0.4.0 to 0.5.0
 
 0.5.0 adds no schema migrations. SQL stores stay at `V008`, and MongoDB needs no new

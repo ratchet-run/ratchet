@@ -182,10 +182,10 @@ Each node maintains a heartbeat in the `scheduler_node` table:
 SELECT * FROM scheduler_node;
 
 -- Example output:
--- node_id          | heartbeat_ts             | started_at               | node_info
--- ratchet-node-0   | 2026-03-31 10:00:05.123  | 2026-03-31 08:00:00.000  | WildFly 39.0.1
--- ratchet-node-1   | 2026-03-31 10:00:04.456  | 2026-03-31 08:00:01.000  | WildFly 39.0.1
--- ratchet-node-2   | 2026-03-31 10:00:05.789  | 2026-03-31 08:00:02.000  | WildFly 39.0.1
+-- node_id          | heartbeat_ts             | started_at
+-- ratchet-node-0   | 2026-03-31 10:00:05.123  | 2026-03-31 08:00:00.000
+-- ratchet-node-1   | 2026-03-31 10:00:04.456  | 2026-03-31 08:00:01.000
+-- ratchet-node-2   | 2026-03-31 10:00:05.789  | 2026-03-31 08:00:02.000
 ```
 
 Heartbeats are used to:

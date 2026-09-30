@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS scheduler_node
     node_id      VARCHAR(64) NOT NULL,
     heartbeat_ts DATETIME(6) NOT NULL,
     started_at   DATETIME(6) NOT NULL,
-    node_info    TEXT        NULL,
     PRIMARY KEY (node_id),
     INDEX idx_node_heartbeat (heartbeat_ts)
 ) ENGINE = InnoDB

@@ -98,7 +98,6 @@ Each node registers itself in the `scheduler_node` table:
 | `node_id` | Unique identifier (hostname, UUID, or configured value) |
 | `heartbeat_ts` | Last time this node checked in |
 | `started_at` | When the node first registered |
-| `node_info` | Optional JSON metadata (version, IP, etc.) |
 
 The engine calls `NodeStore.upsertHeartbeat(nodeId, timestamp)` periodically. This creates the record on first call and updates it thereafter.
 

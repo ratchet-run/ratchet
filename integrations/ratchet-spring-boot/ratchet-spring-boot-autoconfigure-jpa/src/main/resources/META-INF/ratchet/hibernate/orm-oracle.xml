@@ -109,12 +109,6 @@
     <entity class="run.ratchet.store.entity.NodeEntity">
         <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="lastHeartbeat"/>
         <convert converter="run.ratchet.store.converter.InstantAttributeConverter" attribute-name="startedAt"/>
-        <convert converter="run.ratchet.store.converter.JsonObjectMapConverter" attribute-name="nodeInfo"/>
-        <attributes>
-            <basic name="nodeInfo">
-                <column name="node_info" column-definition="CLOB"/>
-            </basic>
-        </attributes>
     </entity>
 
     <entity class="run.ratchet.store.entity.WorkflowConditionEntity">
