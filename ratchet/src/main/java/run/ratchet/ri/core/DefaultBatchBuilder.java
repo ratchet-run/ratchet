@@ -56,6 +56,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   private final BatchChildRetryOptions childRetryOptions = new BatchChildRetryOptions();
   private SerializableConsumer<BatchContext> progressHook;
   private String executionTarget;
+  private String childResourceName;
 
   DefaultBatchBuilder(String name, BatchSubmitter submitter) {
     this(name, submitter, new DefaultJobInvocationResolver());
@@ -105,6 +106,17 @@ public class DefaultBatchBuilder implements BatchBuilder {
   public BatchBuilder withMaxRetries(int retries) {
     childRetryOptions.withMaxRetries(retries);
     return this;
+  }
+
+  @Override
+  public BatchBuilder withResource(String resourceName) {
+    this.childResourceName =
+        (resourceName != null && !resourceName.isBlank()) ? resourceName.trim() : null;
+    return this;
+  }
+
+  String childResourceName() {
+    return childResourceName;
   }
 
   @Override

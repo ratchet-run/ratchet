@@ -80,6 +80,9 @@ public interface InvocationBatchBuilder {
     throw new UnsupportedOperationException("Invocation batch child retries are not supported");
   }
 
+  /** Sets the named resource pool acquired by every child job. */
+  InvocationBatchBuilder withResource(String resourceName);
+
   /**
    * Persists the batch parent and all children through the standard creation path.
    *

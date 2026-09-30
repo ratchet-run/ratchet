@@ -293,6 +293,15 @@ scheduler.enqueue(() -> paymentService.charge(paymentId))
 
 When a job with a resource runs, it attempts to acquire a permit from the `ResourcePermitService`. If no permits are available (resource at capacity), the job is rescheduled with a delay -- without counting as a retry attempt. This is distinct from retry logic: the job isn't failing, it's waiting for capacity.
 
+Batch builders can apply a resource to every child with `withResource`. The resource permit count caps how many children run at once without lowering pool-wide concurrency. All jobs using that resource share the same permits. The parent, progress hooks, and workflow branches do not acquire them.
+
+```java
+scheduler.enqueueBatch("Payments")
+    .forEach(paymentIds, id -> paymentService.charge(id))
+    .withResource("payment-api")
+    .submit();
+```
+
 ## Related
 
 - [Execution Model](./execution-model.md) -- How polling and execution work together
