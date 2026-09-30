@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -80,6 +81,25 @@ class DocumentMapperTest {
         .append("methodDescriptor", payload.methodDescriptor())
         .append("isStatic", payload.isStatic())
         .append("args", payload.args());
+  }
+
+  @Test
+  void documentShapedPayloadRetainsRuntimeIndexesIncludingNumericValues() {
+    JobPayload payload =
+        new JobPayload(
+            "Target",
+            "callback",
+            "(Ljava/lang/String;Ljava/lang/Object;)V",
+            true,
+            Arrays.asList("c", null),
+            Arrays.asList(null, 0));
+    Document doc = DocumentMapper.toDocument(job(payload));
+    doc.put(
+        "payload",
+        legacyPayloadDocument(payload).append("runtimeArgIndexes", Arrays.asList(null, 0L)));
+    assertEquals(payload, DocumentMapper.toJobEntity(doc).getPayload());
+    assertEquals(
+        payload, DocumentMapper.toJobEntity(DocumentMapper.toDocument(job(payload))).getPayload());
   }
 
   @Test

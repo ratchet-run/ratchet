@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import jakarta.json.bind.JsonbBuilder;
 import java.io.ObjectStreamClass;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +32,29 @@ import run.ratchet.store.entity.JobPayload;
 class JobPayloadConverterTest {
 
   private final JobPayloadConverter converter = new JobPayloadConverter();
+
+  @Test
+  void runtimeSlotsRoundTripAndAbsentIndexesRemainNull() {
+    JobPayload payload =
+        new JobPayload(
+            "Target",
+            "callback",
+            "(Ljava/lang/String;Ljava/lang/Object;)V",
+            true,
+            Arrays.asList("c", null),
+            Arrays.asList(null, 0));
+    String json = converter.convertToDatabaseColumn(payload);
+    JobPayload restored = converter.convertToEntityAttribute(json);
+    assertEquals(payload, restored);
+    Map<?, ?> parsed = JsonbBuilder.create().fromJson(json, Map.class);
+    assertEquals(Arrays.asList(null, 0), restored.runtimeArgIndexes());
+    assertEquals(Arrays.asList("c", null), parsed.get("args"));
+
+    String ordinaryJson = converter.convertToDatabaseColumn(samplePayload());
+    Map<?, ?> ordinary = JsonbBuilder.create().fromJson(ordinaryJson, Map.class);
+    assertEquals(false, ordinary.containsKey("runtimeArgIndexes"));
+    assertNull(converter.convertToEntityAttribute(ordinaryJson).runtimeArgIndexes());
+  }
 
   @Test
   void roundtrip_preservesAllFields() {

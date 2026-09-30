@@ -204,12 +204,11 @@ Configure per-job failure handlers:
 ```java
 scheduler.enqueue(() -> importService.processFile(fileId))
     .withMaxRetries(3)
-    .onFailure((ctx, error) -> {
-        alertService.sendFailureAlert(ctx.jobId(), error);
-        cleanupService.removePartialImport(fileId);
-    })
+    .onFailure((ctx, error) -> importService.handleFailure(ctx, error, fileId))
     .submit();
 ```
+
+The callback must reference a public method or pass its parameters straight to one public method. Put alerting and cleanup inside that method.
 
 The callback receives:
 - `JobContext ctx` -- the execution context with job ID and parameters

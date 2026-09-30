@@ -18,6 +18,7 @@ package run.ratchet.api;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.api.exception.SignalTimeoutException;
@@ -33,8 +34,8 @@ import run.ratchet.api.exception.SignalTimeoutException;
  *     .withMaxRetries(3)
  *     .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(10))
  *     .withTags("order-processing", "customer-123")
- *     .onSuccess(ctx -> log.info("Order {} processed", orderId))
- *     .onFailure((ctx, error) -> alertService.sendAlert(error))
+ *     .onSuccess(ctx -> orderEvents.processed(ctx, orderId))
+ *     .onFailure((ctx, error) -> alertService.sendAlert(ctx, error))
  *     .submit();
  * }</pre>
  *
@@ -100,6 +101,12 @@ public interface JobBuilder {
    * original worker may still be running. On a signal timeout, it runs on the thread that scans for
    * expired signal waits.
    *
+   * <p>The callback receives the live context of the finished job and the exception from the final
+   * attempt. Hard timeouts supply a {@link TimeoutException}; signal timeouts supply a {@link
+   * SignalTimeoutException}. Use a reference to a public static or CDI bean method, or a lambda
+   * with exactly one public method call that passes ctx and error straight through, optionally with
+   * captured values. Read ctx or error inside that method, not inside the lambda.
+   *
    * @param handler failure callback; receives the job context and failure
    * @return this builder
    */
@@ -107,6 +114,11 @@ public interface JobBuilder {
 
   /**
    * Registers a callback invoked after this job succeeds.
+   *
+   * <p>The callback receives the live context of the finished job. Use a reference to a public
+   * static or CDI bean method, or a lambda with exactly one public method call that passes ctx
+   * straight through, optionally with captured values. Read ctx inside that method, not inside the
+   * lambda.
    *
    * @param handler success callback; receives the job context
    * @return this builder

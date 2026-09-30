@@ -19,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,39 @@ class JobPayloadInputValidatorTest {
   @AfterEach
   void discardPreparedSerializations() {
     new JobPayloadConverter().discardAllPreparedSerializations();
+  }
+
+  @Test
+  void runtimeSlotsMustBeAlignedNonNegativeAndEmptyInStorage() {
+    JobPayload valid = runtimePayload(Arrays.asList((Object) null), List.of(0));
+    assertDoesNotThrow(() -> validator.validateAtCreation(valid));
+    assertTrue(
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                    validator.validateAtCreation(
+                        runtimePayload(Arrays.asList((Object) null), List.of(0, 1))))
+            .getMessage()
+            .contains("index count"));
+    assertTrue(
+        assertThrows(
+                IllegalArgumentException.class,
+                () ->
+                    validator.validateAtCreation(
+                        runtimePayload(Arrays.asList((Object) null), List.of(-1))))
+            .getMessage()
+            .contains("non-negative"));
+    assertTrue(
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> validator.validateAtCreation(runtimePayload(List.of("stored"), List.of(0))))
+            .getMessage()
+            .contains("must be null"));
+  }
+
+  private JobPayload runtimePayload(List<Object> args, List<Integer> indexes) {
+    return new JobPayload(
+        Target.class.getName(), "greet", "(Ljava/lang/String;)V", false, args, indexes);
   }
 
   @Test

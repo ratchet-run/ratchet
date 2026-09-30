@@ -24,6 +24,24 @@ import org.junit.jupiter.api.Test;
 
 class JobInvocationTest {
   @Test
+  void runtimeIndexesAreNormalizedAndDefensivelyCopied() {
+    List<Integer> indexes = new ArrayList<>(Arrays.asList(null, 0));
+    JobInvocation payload =
+        new JobInvocation("Target", "callback", "()V", true, List.of(), indexes);
+    indexes.set(1, 3);
+    assertEquals(Arrays.asList(null, 0), payload.runtimeArgIndexes());
+    assertThrows(UnsupportedOperationException.class, () -> payload.runtimeArgIndexes().set(1, 2));
+    assertEquals(
+        null,
+        new JobInvocation("Target", "callback", "()V", true, List.of(), Arrays.asList(null, null))
+            .runtimeArgIndexes());
+    assertEquals(
+        null,
+        new JobInvocation("Target", "callback", "()V", true, List.of(), List.of())
+            .runtimeArgIndexes());
+  }
+
+  @Test
   void nullableArgumentsArePreservedInAnImmutableDefensiveCopy() {
     List<Object> args = new ArrayList<>(Arrays.asList("first", null, 3L));
     JobInvocation invocation = new JobInvocation("Target", "run", "", true, args);

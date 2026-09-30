@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -65,6 +66,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.SerializableBiConsumer;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
@@ -73,6 +75,7 @@ import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
+import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
@@ -123,6 +126,71 @@ class JobTimeoutHandlerTest {
               return terminalJob.isPresent();
             });
     handler = newHandler(null, null, JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+  }
+
+  @Test
+  void hardTimeoutSuppliesContextAndTheTimeoutException() throws Exception {
+    JobEntity job = callbackJob(0);
+    job.setOnFailurePayload(
+        JobPayloadFactory.fromLambda(
+            (SerializableBiConsumer<JobContext, Throwable>) CallbackRecorder::failure));
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenReturn(true);
+    captureRuntimeCallback(
+        job, TimeoutException.class, "Hard timeout exceeded (" + TIMEOUT_SEC + "s)");
+
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
+    verify(payloadInvoker).invoke(invoked.capture());
+    ArgumentCaptor<Throwable> timeout = ArgumentCaptor.forClass(Throwable.class);
+    verify(lifecycleFacade)
+        .handleTimeoutTransition(timeout.capture(), anyBoolean(), any(Supplier.class));
+    assertSame(timeout.getValue(), invoked.getValue().args().get(1));
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void signalTimeoutSuppliesContextAndTheSignalTimeoutException() throws Exception {
+    JobEntity job = signalCallbackJob(0);
+    job.setOnFailurePayload(
+        JobPayloadFactory.fromLambda(
+            (SerializableBiConsumer<JobContext, Throwable>)
+                (ctx, error) -> CallbackRecorder.failure(ctx, error)));
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.WAITING), eq(true), any(), any()))
+        .thenReturn(true);
+    captureRuntimeCallback(
+        job, SignalTimeoutException.class, "Signal timeout exceeded for key: approval");
+
+    callbackHandler().processSignalTimeout(job, Instant.now());
+
+    ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
+    verify(payloadInvoker).invoke(invoked.capture());
+    ArgumentCaptor<Throwable> timeout = ArgumentCaptor.forClass(Throwable.class);
+    verify(lifecycleFacade)
+        .handleTimeoutTransition(timeout.capture(), anyBoolean(), any(Supplier.class));
+    assertSame(timeout.getValue(), invoked.getValue().args().get(1));
+    assertNull(JobContext.currentOrNull());
+  }
+
+  private void captureRuntimeCallback(
+      JobEntity job, Class<? extends Throwable> errorType, String message) throws Exception {
+    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    doAnswer(
+            invocation -> {
+              JobPayload payload = invocation.getArgument(0);
+              JobContext ctx = assertInstanceOf(JobContext.class, payload.args().get(0));
+              assertEquals(JOB_ID, ctx.jobId());
+              assertSame(JobContext.currentOrNull(), ctx);
+              Throwable failure = assertInstanceOf(errorType, payload.args().get(1));
+              assertEquals(message, failure.getMessage());
+              return null;
+            })
+        .when(payloadInvoker)
+        .invoke(any(JobPayload.class));
   }
 
   @Test

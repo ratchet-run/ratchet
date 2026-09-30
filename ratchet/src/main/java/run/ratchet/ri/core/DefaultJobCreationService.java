@@ -35,6 +35,7 @@ import java.util.UUID;
 import java.util.function.Function;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobBuilder;
+import run.ratchet.api.JobContext;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
@@ -319,10 +320,10 @@ public class DefaultJobCreationService
     // encrypted-or-not decision (global switch OR this flag) and the encryption_key_id column.
     job.setEncryptedPayload(state.encryptedPayload());
     if (builder.onSuccess() != null) {
-      job.setOnSuccessPayload(payload(builder.onSuccess()));
+      job.setOnSuccessPayload(callbackPayload(builder.onSuccess()));
     }
     if (state.onFailure() != null) {
-      job.setOnFailurePayload(payload(state.onFailure()));
+      job.setOnFailurePayload(callbackPayload(state.onFailure()));
     }
     stampCallerPrincipal(job, callerPrincipal);
     captureTraceContext(job);
@@ -1035,6 +1036,36 @@ public class DefaultJobCreationService
       }
     }
     workflowConditionStore.saveCondition(condition);
+  }
+
+  /**
+   * Resolves an onSuccess/onFailure callback. A callback whose target is its own {@link JobContext}
+   * or {@link Throwable} parameter (for example {@code ctx -> ctx.jobId()} or {@code
+   * Throwable::printStackTrace}) resolves to an unbound receiver the engine cannot supply, so it is
+   * rejected here instead of failing silently when the job finishes.
+   */
+  private JobPayload callbackPayload(Serializable callback) {
+    JobPayload payload = payload(callback);
+    if (!payload.isStatic() && isCallbackParameterType(payload.target())) {
+      throw new IllegalArgumentException(
+          """
+          The callback calls a method on its own ctx or error parameter (%s.%s), which Ratchet \
+          cannot persist. Use a method reference such as Handler::onFailure, or pass the \
+          parameters straight to one public method, e.g. (ctx, error) -> \
+          handler.onFailure(ctx, error), and do the work on ctx/error inside that method."""
+              .formatted(payload.target(), payload.method()));
+    }
+    return payload;
+  }
+
+  private static boolean isCallbackParameterType(String className) {
+    try {
+      Class<?> type =
+          Class.forName(className, false, Thread.currentThread().getContextClassLoader());
+      return JobContext.class.isAssignableFrom(type) || Throwable.class.isAssignableFrom(type);
+    } catch (ClassNotFoundException | LinkageError e) {
+      return false;
+    }
   }
 
   private JobPayload payload(Serializable callback) {

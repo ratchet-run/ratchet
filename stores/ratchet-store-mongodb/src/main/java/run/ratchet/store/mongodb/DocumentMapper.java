@@ -17,6 +17,7 @@ package run.ratchet.store.mongodb;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -742,12 +743,20 @@ public final class DocumentMapper {
       return null;
     }
     List<Object> args = documentToArgs(doc.get("args"));
+    List<Integer> runtimeArgIndexes = null;
+    if (doc.get("runtimeArgIndexes") instanceof List<?> indexes) {
+      runtimeArgIndexes = new ArrayList<>(indexes.size());
+      for (Object index : indexes) {
+        runtimeArgIndexes.add(index == null ? null : ((Number) index).intValue());
+      }
+    }
     return new JobPayload(
         doc.getString("target"),
         doc.getString("method"),
         doc.getString("methodDescriptor"),
         doc.getBoolean("isStatic", false),
-        args);
+        args,
+        runtimeArgIndexes);
   }
 
   static Document paramsToDocument(
@@ -796,7 +805,8 @@ public final class DocumentMapper {
       return List.of();
     }
     if (value instanceof List<?> args) {
-      return List.copyOf(args);
+      // Runtime-parameter slots are stored as null, so the copy must allow null elements.
+      return Collections.unmodifiableList(new ArrayList<>(args));
     }
     throw new IllegalArgumentException(
         "Expected MongoDB payload args list, got: " + value.getClass());

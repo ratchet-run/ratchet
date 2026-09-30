@@ -35,6 +35,9 @@ import run.ratchet.api.Incubating;
  * @param methodDescriptor JVM method descriptor
  * @param staticMethod whether the invocation targets a static method
  * @param arguments persisted invocation arguments; {@code null} is normalized to an empty list
+ * @param runtimeArgIndexes indexes of functional-interface parameters, aligned with arguments; null
+ *     entries identify stored values. Runtime slots contain null in arguments. Runtime values are
+ *     supplied at invocation time and are never persisted.
  */
 @Incubating
 public record JobInvocation(
@@ -42,12 +45,26 @@ public record JobInvocation(
     String methodName,
     String methodDescriptor,
     boolean staticMethod,
-    List<Object> arguments)
+    List<Object> arguments,
+    List<Integer> runtimeArgIndexes)
     implements Serializable {
 
   @Serial private static final long serialVersionUID = 1L;
 
+  public JobInvocation(
+      String targetClass,
+      String methodName,
+      String methodDescriptor,
+      boolean staticMethod,
+      List<Object> arguments) {
+    this(targetClass, methodName, methodDescriptor, staticMethod, arguments, null);
+  }
+
   public JobInvocation {
+    runtimeArgIndexes =
+        runtimeArgIndexes == null || runtimeArgIndexes.stream().allMatch(index -> index == null)
+            ? null
+            : Collections.unmodifiableList(new ArrayList<>(runtimeArgIndexes));
     arguments =
         arguments == null ? List.of() : Collections.unmodifiableList(new ArrayList<>(arguments));
   }

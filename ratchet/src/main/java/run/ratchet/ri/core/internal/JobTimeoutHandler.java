@@ -394,7 +394,7 @@ public class JobTimeoutHandler {
             });
     JobEntity job = terminalJob.get();
     if (committed && callbackInvoker != null && job != null) {
-      callbackInvoker.invokeInJobContext(job, job.getOnFailurePayload(), "onFailure");
+      callbackInvoker.invokeOnFailureInJobContext(job, timeoutEx);
     }
   }
 

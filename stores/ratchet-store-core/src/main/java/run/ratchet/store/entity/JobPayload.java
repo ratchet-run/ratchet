@@ -15,15 +15,47 @@
  */
 package run.ratchet.store.entity;
 
+import jakarta.json.bind.annotation.JsonbCreator;
 import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.objectweb.asm.Type;
 
-/** Serializable payload describing a method invocation for job execution. */
+/**
+ * Serializable payload describing a method invocation for job execution.
+ *
+ * @param target target class name
+ * @param method target method name
+ * @param methodDescriptor JVM method descriptor
+ * @param isStatic whether the target method is static
+ * @param args stored invocation arguments
+ * @param runtimeArgIndexes indexes of functional-interface parameters, aligned with args; null
+ *     entries identify stored values. Runtime slots contain null in args. Runtime values are never
+ *     persisted. This field is omitted from JSON when null.
+ */
 public record JobPayload(
-    String target, String method, String methodDescriptor, boolean isStatic, List<Object> args)
+    String target,
+    String method,
+    String methodDescriptor,
+    boolean isStatic,
+    List<Object> args,
+    List<Integer> runtimeArgIndexes)
     implements Serializable {
+
+  @JsonbCreator
+  public JobPayload {
+    runtimeArgIndexes =
+        runtimeArgIndexes == null || runtimeArgIndexes.stream().allMatch(index -> index == null)
+            ? null
+            : Collections.unmodifiableList(new ArrayList<>(runtimeArgIndexes));
+  }
+
+  public JobPayload(
+      String target, String method, String methodDescriptor, boolean isStatic, List<Object> args) {
+    this(target, method, methodDescriptor, isStatic, args, null);
+  }
 
   private static final Map<Character, Class<?>> PRIMITIVE_TYPES =
       Map.of(

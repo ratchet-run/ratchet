@@ -804,7 +804,7 @@ public class JobTask implements Callable<Void> {
     job.setExecutionDurationMs(executionMs);
     job.setQueueWaitMs(queueMs);
 
-    callbackInvoker.invoke(job, job.getOnSuccessPayload(), "onSuccess");
+    callbackInvoker.invokeOnSuccess(job);
 
     log.debugf("Job %s succeeded in %s ms", job.getId(), executionMs);
   }
@@ -857,7 +857,7 @@ public class JobTask implements Callable<Void> {
     job.setLastError(sanitized);
     if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
       job.setStatus(JobStatus.FAILED);
-      callbackInvoker.invoke(job, job.getOnFailurePayload(), "onFailure");
+      callbackInvoker.invokeOnFailure(job, ex);
       return true;
     }
     return false;
@@ -878,7 +878,8 @@ public class JobTask implements Callable<Void> {
             payload.method(),
             payload.methodDescriptor(),
             payload.isStatic(),
-            payload.args());
+            payload.args(),
+            payload.runtimeArgIndexes());
     JobInvocation resolved = argResolver.resolveArguments(jobId, invocation);
     if (resolved == null || resolved == invocation) {
       return payload;
@@ -888,7 +889,8 @@ public class JobTask implements Callable<Void> {
         payload.method(),
         payload.methodDescriptor(),
         payload.isStatic(),
-        resolved.arguments());
+        resolved.arguments(),
+        resolved.runtimeArgIndexes());
   }
 
   private Object runPayload(JobPayload payload) throws Exception {

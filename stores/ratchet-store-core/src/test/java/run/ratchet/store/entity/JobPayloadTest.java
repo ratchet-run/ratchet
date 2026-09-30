@@ -20,10 +20,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class JobPayloadTest {
+
+  @Test
+  void runtimeIndexesAreNormalizedAndDefensivelyCopied() {
+    List<Integer> indexes = new ArrayList<>(Arrays.asList(null, 0));
+    JobPayload payload = new JobPayload("Target", "callback", "()V", true, List.of(), indexes);
+    indexes.set(1, 3);
+    assertEquals(Arrays.asList(null, 0), payload.runtimeArgIndexes());
+    assertThrows(UnsupportedOperationException.class, () -> payload.runtimeArgIndexes().set(1, 2));
+    assertEquals(
+        null,
+        new JobPayload("Target", "callback", "()V", true, List.of(), Arrays.asList(null, null))
+            .runtimeArgIndexes());
+    assertEquals(
+        null,
+        new JobPayload("Target", "callback", "()V", true, List.of(), List.of())
+            .runtimeArgIndexes());
+  }
 
   @Test
   void noParams_returnsEmptyArray() {

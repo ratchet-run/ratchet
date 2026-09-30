@@ -21,8 +21,8 @@ JobHandle handle = scheduler.enqueue(() -> orderService.process(orderId))
     .withTimeout(Duration.ofMinutes(5))
     .withTags("order-processing", "customer-123")
     .withParam("orderId", String.valueOf(orderId))
-    .onSuccess(ctx -> log.info("Order {} processed", orderId))
-    .onFailure((ctx, error) -> alertService.sendAlert(error))
+    .onSuccess(ctx -> orderEvents.processed(ctx, orderId))
+    .onFailure((ctx, error) -> alertService.sendAlert(ctx, error))
     .submit();
 ```
 
@@ -312,12 +312,14 @@ JobBuilder onSuccess(SerializableConsumer<JobContext> s)
 
 Registers a callback invoked after successful job completion. The callback receives the [`JobContext`](./job-context) of the completed job.
 
+Use a method reference to a public static or CDI bean method, or make exactly one public method call in the lambda. Pass `ctx` straight through and read it inside that method. Captured values may also be passed.
+
 **Parameters:**
 - `s` -- success callback accepting a `JobContext`.
 
 ```java
 scheduler.enqueue(() -> importService.importData(batchId))
-    .onSuccess(ctx -> log.info("Job {} completed", ctx.jobId()))
+    .onSuccess(completionService::completed)
     .submit();
 ```
 
@@ -327,16 +329,16 @@ scheduler.enqueue(() -> importService.importData(batchId))
 JobBuilder onFailure(SerializableBiConsumer<JobContext, Throwable> f)
 ```
 
-Registers a callback invoked if the job fails. The callback receives both the `JobContext` and the `Throwable` that caused the failure.
+Registers a callback invoked after terminal failure. It receives the live `JobContext` and the exception from the final attempt. Hard timeouts supply a `TimeoutException`. Signal timeouts supply a `SignalTimeoutException`.
+
+Use a method reference to a public static or CDI bean method, or make exactly one public method call in the lambda. Pass `ctx` and `error` straight through. Read their values inside that method.
 
 **Parameters:**
 - `f` -- failure callback accepting a `JobContext` and `Throwable`.
 
 ```java
 scheduler.enqueue(() -> riskyService.execute())
-    .onFailure((ctx, error) -> {
-        alertService.page("Job " + ctx.jobId() + " failed: " + error.getMessage());
-    })
+    .onFailure(alertService::pageFailure)
     .submit();
 ```
 
@@ -576,8 +578,8 @@ JobHandle handle = scheduler.enqueue(() -> paymentService.charge(orderId, amount
     .withParam("orderId", String.valueOf(orderId))
     .withParam("amount", amount.toString())
     // Callbacks
-    .onSuccess(ctx -> log.info("Payment charged for order {}", ctx.param("orderId")))
-    .onFailure((ctx, err) -> alertService.paymentFailed(ctx.param("orderId"), err))
+    .onSuccess(ctx -> orderEvents.paymentCharged(ctx, orderId))
+    .onFailure((ctx, err) -> alertService.paymentFailed(ctx, err))
     // Workflow branches
     .thenOnSuccess(() -> fulfillmentService.startFulfillment(orderId))
     .thenOnFailure(() -> orderService.markPaymentFailed(orderId))
