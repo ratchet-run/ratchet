@@ -535,6 +535,18 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+      # Cache third-party dependencies only. A fresh repository per cell downloads the whole
+      # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ratchet-staged-repository
+          key: m2-spring-boot-consumer-${{ runner.os }}-${{ matrix.boot }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-spring-boot-consumer-${{ runner.os }}-${{ matrix.boot }}-
+            m2-spring-boot-consumer-${{ runner.os }}-
+      - name: Remove cached Ratchet artifacts
+        # Stage this checkout's artifacts, never a copy restored from an earlier run.
+        run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
       # Compile shared artifacts on Java 17, then test the selected consumer runtime.
       - name: Stage Spring Boot artifacts in an isolated Maven repository
         run: >-
@@ -569,6 +581,10 @@ jobs:
           path: |
             integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Runs before the cache post-step saves the repository.
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
 
   spring-boot-runtime:
     needs: changes
@@ -587,6 +603,18 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+      # Cache third-party dependencies only. A fresh repository per cell downloads the whole
+      # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ratchet-runtime-repository
+          key: m2-spring-boot-runtime-${{ runner.os }}-${{ matrix.boot }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-spring-boot-runtime-${{ runner.os }}-${{ matrix.boot }}-
+            m2-spring-boot-runtime-${{ runner.os }}-
+      - name: Remove cached Ratchet artifacts
+        # Stage this checkout's artifacts, never a copy restored from an earlier run.
+        run: rm -rf "$RUNNER_TEMP/ratchet-runtime-repository/run/ratchet"
       - name: Stage current Spring artifacts
         run: >-
           mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-runtime-repository"
@@ -625,6 +653,10 @@ jobs:
             spring-runtime.log
             integrations/ratchet-spring-boot/consumer-tests/**/target/runtime-*.log
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Runs before the cache post-step saves the repository.
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ratchet-runtime-repository/run/ratchet"
 
   # Native executables are launched by a JVM Testcontainers harness. Keep every Boot/store cell
   # required, even though the regular Java 17/21 matrix above remains the compatibility gate.
@@ -646,6 +678,18 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      # Cache third-party dependencies only. A fresh repository per cell downloads the whole
+      # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ratchet-native-repository
+          key: m2-spring-boot-native-${{ runner.os }}-${{ matrix.boot }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-spring-boot-native-${{ runner.os }}-${{ matrix.boot }}-
+            m2-spring-boot-native-${{ runner.os }}-
+      - name: Remove cached Ratchet artifacts
+        # Stage this checkout's artifacts, never a copy restored from an earlier run.
+        run: rm -rf "$RUNNER_TEMP/ratchet-native-repository/run/ratchet"
       - name: Stage current Spring artifacts
         run: |
           set -o pipefail
@@ -690,6 +734,10 @@ jobs:
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/spring-aot/main/resources/
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Runs before the cache post-step saves the repository.
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ratchet-native-repository/run/ratchet"
 
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
