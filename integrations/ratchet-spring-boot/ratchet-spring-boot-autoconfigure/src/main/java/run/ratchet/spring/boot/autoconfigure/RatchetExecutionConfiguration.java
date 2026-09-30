@@ -51,6 +51,7 @@ import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.JobSuccessFinalizer;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerCycleExecutor;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
@@ -437,7 +438,11 @@ class RatchetExecutionConfiguration {
       MetricsCollector metrics,
       AfterCommitRegistrar registrar,
       SingletonLeaseService leases,
-      ErrorSanitizer sanitizer) {
+      ErrorSanitizer sanitizer,
+      PreExecutionValidator validationFacade,
+      JobPayloadInvoker payloadInvoker,
+      PayloadSerializer payloadSerializer,
+      ExecutionObserver observabilityFacade) {
     return new JobTimeoutHandler(
         registrar,
         store,
@@ -452,6 +457,8 @@ class RatchetExecutionConfiguration {
         metrics,
         options.timeout().signalTimeoutBatchSize(),
         leases,
-        sanitizer);
+        sanitizer,
+        new LifecycleCallbackInvoker(
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
   }
 }

@@ -15,6 +15,8 @@
  */
 package run.ratchet.testsuite.core;
 
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -66,6 +68,30 @@ class JobTimeoutIT extends BaseRatchetIT {
     assertNotNull(handle);
     JobAssertions.assertJobFailed(jobCrudStore, handle);
     assertTrue(SlowJob.hasStarted(), "Job should start before timing out");
+  }
+
+  @Test
+  void slowJob_hardTimeoutWithNoRetriesLeft_runsOnFailureOnce() {
+    JobHandle handle =
+        jobService
+            .enqueue(SlowJob::execute)
+            .withTimeout(Duration.ofSeconds(1))
+            .withMaxRetries(0)
+            .onFailure((ctx, failure) -> SlowJob.recordFailureCallback())
+            .submit();
+
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(() -> assertEquals(1, SlowJob.failureCallbackCount()));
+    // Give a late worker-side failure path time to (wrongly) run the callback a second time.
+    await()
+        .during(Duration.ofSeconds(2))
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(
+            () ->
+                assertEquals(1, SlowJob.failureCallbackCount(), "onFailure must run exactly once"));
+    assertEquals(handle.id(), SlowJob.failureCallbackJobId());
   }
 
   @Test

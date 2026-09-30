@@ -15,8 +15,11 @@
  */
 package run.ratchet.ri.core.internal;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,7 +27,9 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -57,8 +62,10 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
@@ -69,8 +76,10 @@ import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransiti
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
@@ -93,6 +102,11 @@ class JobTimeoutHandlerTest {
   @Mock private TransactionSynchronizationRegistry txRegistry;
   @Mock private ErrorSanitizer errorSanitizer;
 
+  @Mock private PreExecutionValidator validationFacade;
+  @Mock private JobPayloadInvoker payloadInvoker;
+  @Mock private PayloadSerializer payloadSerializer;
+  @Mock private ExecutionObserver observabilityFacade;
+
   private JobTimeoutHandler handler;
   private TerminalTimeoutTransition terminalTimeoutTransition;
 
@@ -109,6 +123,194 @@ class JobTimeoutHandlerTest {
               return terminalJob.isPresent();
             });
     handler = newHandler(null, null, JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+  }
+
+  @Test
+  void terminalHardTimeoutInvokesCallbackOnceInJobContextAfterTransition() throws Exception {
+    JobEntity job = callbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenReturn(true);
+    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    doAnswer(
+            invocation -> {
+              assertNotNull(terminalTimeoutTransition);
+              JobContext context = JobContext.currentOrNull();
+              assertNotNull(context);
+              assertEquals(JOB_ID, context.jobId());
+              assertEquals(job.getCallerPrincipal(), context.callerPrincipal());
+              return null;
+            })
+        .when(payloadInvoker)
+        .invoke(job.getOnFailurePayload());
+
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    verify(validationFacade).validateSecurity(job.getOnFailurePayload());
+    verify(payloadInvoker, times(1)).invoke(job.getOnFailurePayload());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void hardTimeoutWithRetriesRemainingDoesNotInvokeCallback() throws Exception {
+    callbackJob(1);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1))).thenReturn(true);
+
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    verify(payloadInvoker, never()).invoke(any());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void terminalHardTimeoutLosingCasDoesNotInvokeCallback() throws Exception {
+    callbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenReturn(false);
+
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    verify(payloadInvoker, never()).invoke(any());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void terminalHardTimeoutCallbackFailureIsReportedAndContextCleared() throws Exception {
+    JobEntity job = callbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenReturn(true);
+    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    RuntimeException failure = new RuntimeException("callback failed");
+    doThrow(failure).when(payloadInvoker).invoke(job.getOnFailurePayload());
+
+    JobTimeoutHandler callbackHandler = callbackHandler();
+    assertDoesNotThrow(() -> callbackHandler.processHardTimeout(JOB_ID, TIMEOUT_SEC));
+
+    verify(observabilityFacade).recordCallbackFailure(job, failure, 1);
+    ArgumentCaptor<JobCallbackFailedEvent> event =
+        ArgumentCaptor.forClass(JobCallbackFailedEvent.class);
+    verify(observabilityFacade).publishEvent(event.capture());
+    assertEquals(
+        JobCallbackFailedEvent.CallbackType.ON_FAILURE, event.getValue().getCallbackType());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void terminalSignalTimeoutInvokesCallbackOnceInJobContextAfterTransition() throws Exception {
+    JobEntity job = signalCallbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.WAITING), eq(true), any(), any()))
+        .thenReturn(true);
+    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    doAnswer(
+            invocation -> {
+              assertNotNull(terminalTimeoutTransition);
+              JobContext context = JobContext.currentOrNull();
+              assertNotNull(context);
+              assertEquals(JOB_ID, context.jobId());
+              assertEquals(job.getCallerPrincipal(), context.callerPrincipal());
+              return null;
+            })
+        .when(payloadInvoker)
+        .invoke(job.getOnFailurePayload());
+
+    callbackHandler().processSignalTimeout(job, Instant.now());
+
+    verify(validationFacade).validateSecurity(job.getOnFailurePayload());
+    verify(payloadInvoker, times(1)).invoke(job.getOnFailurePayload());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void signalTimeoutWithRetriesRemainingDoesNotInvokeCallback() throws Exception {
+    JobEntity job = signalCallbackJob(1);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1))).thenReturn(true);
+
+    callbackHandler().processSignalTimeout(job, Instant.now());
+
+    verify(payloadInvoker, never()).invoke(any());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void terminalSignalTimeoutLosingCasDoesNotInvokeCallback() throws Exception {
+    JobEntity job = signalCallbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.WAITING), eq(true), any(), any()))
+        .thenReturn(false);
+
+    callbackHandler().processSignalTimeout(job, Instant.now());
+
+    verify(payloadInvoker, never()).invoke(any());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void terminalSignalTimeoutCallbackFailureIsReportedAndContextCleared() throws Exception {
+    JobEntity job = signalCallbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.WAITING), eq(true), any(), any()))
+        .thenReturn(true);
+    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    RuntimeException failure = new RuntimeException("callback failed");
+    doThrow(failure).when(payloadInvoker).invoke(job.getOnFailurePayload());
+
+    JobTimeoutHandler callbackHandler = callbackHandler();
+    assertDoesNotThrow(() -> callbackHandler.processSignalTimeout(job, Instant.now()));
+
+    verify(observabilityFacade).recordCallbackFailure(job, failure, 1);
+    ArgumentCaptor<JobCallbackFailedEvent> event =
+        ArgumentCaptor.forClass(JobCallbackFailedEvent.class);
+    verify(observabilityFacade).publishEvent(event.capture());
+    assertEquals(
+        JobCallbackFailedEvent.CallbackType.ON_FAILURE, event.getValue().getCallbackType());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  private JobEntity signalCallbackJob(int maxRetries) {
+    JobEntity job = waitingJobWithMaxRetries(maxRetries);
+    job.setCallerPrincipal("callback-owner");
+    job.setOnFailurePayload(
+        new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of()));
+    return job;
+  }
+
+  private JobEntity callbackJob(int maxRetries) {
+    JobEntity job = jobWithMaxRetries(maxRetries);
+    job.setCallerPrincipal("callback-owner");
+    job.setOnFailurePayload(
+        new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of()));
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    return job;
+  }
+
+  private JobTimeoutHandler callbackHandler() {
+    Clock clock = Clock.systemUTC();
+    return new JobTimeoutHandler(
+        new JakartaAfterCommitRegistrar(null),
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        80,
+        60L,
+        clock,
+        null,
+        null,
+        null,
+        JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+        null,
+        null,
+        new LifecycleCallbackInvoker(
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
   }
 
   @Test
@@ -245,6 +447,7 @@ class JobTimeoutHandlerTest {
             null,
             null,
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            null,
             null,
             null);
     JobEntity job = jobWithMaxRetries(3);

@@ -15,7 +15,11 @@
  */
 package run.ratchet.testsuite.app;
 
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import run.ratchet.api.JobContext;
 
 /**
  * Job with configurable sleep duration. Used for timeout and cancellation tests.
@@ -26,12 +30,29 @@ public class SlowJob {
 
   private static final AtomicBoolean STARTED = new AtomicBoolean(false);
   private static final AtomicBoolean COMPLETED = new AtomicBoolean(false);
+  private static final AtomicInteger FAILURE_CALLBACKS = new AtomicInteger();
+  private static final AtomicReference<UUID> FAILURE_CALLBACK_JOB_ID = new AtomicReference<>();
   private static volatile long sleepMs = 60_000;
 
   public static void execute() throws InterruptedException {
     STARTED.set(true);
     Thread.sleep(sleepMs);
     COMPLETED.set(true);
+  }
+
+  /** onFailure callback target: counts calls and records the job id from the bound context. */
+  public static void recordFailureCallback() {
+    JobContext context = JobContext.currentOrNull();
+    FAILURE_CALLBACK_JOB_ID.set(context != null ? context.jobId() : null);
+    FAILURE_CALLBACKS.incrementAndGet();
+  }
+
+  public static int failureCallbackCount() {
+    return FAILURE_CALLBACKS.get();
+  }
+
+  public static UUID failureCallbackJobId() {
+    return FAILURE_CALLBACK_JOB_ID.get();
   }
 
   public static void setSleepMs(long ms) {
@@ -50,5 +71,7 @@ public class SlowJob {
     sleepMs = 60_000;
     STARTED.set(false);
     COMPLETED.set(false);
+    FAILURE_CALLBACKS.set(0);
+    FAILURE_CALLBACK_JOB_ID.set(null);
   }
 }

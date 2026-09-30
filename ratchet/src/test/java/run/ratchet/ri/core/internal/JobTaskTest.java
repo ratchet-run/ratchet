@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -819,6 +820,47 @@ class JobTaskTest {
     Assertions.assertEquals("safe do not retry", job.getLastError());
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void workerFailureLosingTerminalCasDoesNotInvokeOnFailure() throws Exception {
+    JobPayloadInvoker payloadInvoker = mock(JobPayloadInvoker.class);
+    JobTask jobTask =
+        new JobTask(
+            jobStore,
+            resourcePermitService,
+            lifecycleFacade,
+            nodeIdProvider,
+            observabilityFacade,
+            validationFacade,
+            payloadInvoker,
+            new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
+            retryPolicy,
+            resilienceStrategy,
+            errorSanitizer,
+            context -> noopLogger(),
+            (jobId, result) -> SerializedJobResult.empty(),
+            null,
+            null,
+            null,
+            FIXED_CLOCK,
+            null);
+    JobEntity job = createTestJob();
+    JobPayload callback = new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of());
+    job.setOnFailurePayload(callback);
+    initJobTaskWithDefaultStubs(jobTask, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    RuntimeException error = new RuntimeException("worker failed after timeout");
+    when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
+    when(validationFacade.shouldNotRetry(error)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(payloadInvoker, never()).invoke(callback);
   }
 
   @Test

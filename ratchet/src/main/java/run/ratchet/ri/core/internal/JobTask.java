@@ -29,7 +29,6 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
-import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
@@ -96,6 +95,7 @@ public class JobTask implements Callable<Void> {
   private final PayloadSerializer payloadSerializer;
   private final JobTimeoutHandler timeoutHandler;
   private final Clock clock;
+  private final LifecycleCallbackInvoker callbackInvoker;
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
@@ -126,6 +126,7 @@ public class JobTask implements Callable<Void> {
     this.payloadSerializer = null;
     this.timeoutHandler = null;
     this.clock = null;
+    this.callbackInvoker = null;
     this.argResolver = null;
   }
 
@@ -167,6 +168,9 @@ public class JobTask implements Callable<Void> {
     this.payloadSerializer = payloadSerializer;
     this.timeoutHandler = timeoutHandler;
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
+    this.callbackInvoker =
+        new LifecycleCallbackInvoker(
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock);
   }
 
   /**
@@ -800,7 +804,7 @@ public class JobTask implements Callable<Void> {
     job.setExecutionDurationMs(executionMs);
     job.setQueueWaitMs(queueMs);
 
-    invokeCallback(job.getOnSuccessPayload(), "onSuccess");
+    callbackInvoker.invoke(job, job.getOnSuccessPayload(), "onSuccess");
 
     log.debugf("Job %s succeeded in %s ms", job.getId(), executionMs);
   }
@@ -853,57 +857,10 @@ public class JobTask implements Callable<Void> {
     job.setLastError(sanitized);
     if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
       job.setStatus(JobStatus.FAILED);
-      invokeCallback(job.getOnFailurePayload(), "onFailure");
+      callbackInvoker.invoke(job, job.getOnFailurePayload(), "onFailure");
       return true;
     }
     return false;
-  }
-
-  private void invokeCallback(JobPayload callbackPayload, String callbackName) {
-    if (callbackPayload == null) {
-      return;
-    }
-    try {
-      validationFacade.validateSecurity(callbackPayload);
-      JobPayload invocationPayload =
-          payloadInvoker.materializeArguments(callbackPayload, payloadSerializer);
-      payloadInvoker.invoke(invocationPayload);
-    } catch (Exception e) {
-      // Log + metric + event; parent job still succeeds
-      log.errorf(
-          e,
-          "Job %s %s callback failed: %s: %s",
-          job.getId(),
-          callbackName,
-          e.getClass().getName(),
-          e.getMessage());
-      try {
-        observabilityFacade.recordCallbackFailure(job, e, 1);
-      } catch (Exception metricEx) {
-        log.warnf("Callback metric error for job %s: %s", job.getId(), metricEx.getMessage());
-      }
-      try {
-        JobCallbackFailedEvent.CallbackType type =
-            "onSuccess".equals(callbackName)
-                ? JobCallbackFailedEvent.CallbackType.ON_SUCCESS
-                : JobCallbackFailedEvent.CallbackType.ON_FAILURE;
-        observabilityFacade.publishEvent(
-            new JobCallbackFailedEvent(
-                job.getId(),
-                job.getBusinessKey(),
-                job.getRecurringMasterId(),
-                job.getPublicJobType(),
-                job.getPriority(),
-                job.getPickedBy(),
-                effective().instant(),
-                type,
-                e.getMessage(),
-                e.getClass().getName(),
-                1));
-      } catch (Exception eventEx) {
-        log.warnf("Callback event publish error for job %s: %s", job.getId(), eventEx.getMessage());
-      }
-    }
   }
 
   /**

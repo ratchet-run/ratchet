@@ -31,6 +31,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
@@ -73,6 +75,9 @@ public class JobTimeoutHandler {
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final SingletonLeaseService singletonLeaseService;
   private final ErrorSanitizer errorSanitizer;
+  // Runs onFailure after a terminal timeout commits: on the hard-timeout watchdog's thread, or on
+  // the thread running the signal-timeout scan.
+  private final LifecycleCallbackInvoker callbackInvoker;
 
   /**
    * Job ids the hard-timeout watchdog has cancelled and is about to retry/finalize itself. The
@@ -98,6 +103,7 @@ public class JobTimeoutHandler {
     this.afterCommitRegistrar = null;
     this.singletonLeaseService = null;
     this.errorSanitizer = null;
+    this.callbackInvoker = null;
   }
 
   public JobTimeoutHandler(
@@ -219,7 +225,8 @@ public class JobTimeoutHandler {
         metricsCollector,
         signalTimeoutBatchSize,
         singletonLeaseService,
-        errorSanitizer);
+        errorSanitizer,
+        null);
   }
 
   public JobTimeoutHandler(
@@ -236,7 +243,8 @@ public class JobTimeoutHandler {
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
       SingletonLeaseService singletonLeaseService,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      LifecycleCallbackInvoker callbackInvoker) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -251,6 +259,7 @@ public class JobTimeoutHandler {
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.singletonLeaseService = singletonLeaseService;
     this.errorSanitizer = errorSanitizer;
+    this.callbackInvoker = callbackInvoker;
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -351,10 +360,42 @@ public class JobTimeoutHandler {
     Duration observedElapsedTime = elapsedTime.isNegative() ? Duration.ZERO : elapsedTime;
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
-    lifecycleFacade.handleTimeoutTransition(
+    // The interrupted worker cannot also run onFailure: it defers to the watchdog marker, gets
+    // incrementRetryAttempt == -1, or loses completeFailure's CAS in transitionToDlq.
+    runTimeoutTransition(
         timeoutEx,
         false,
         () -> applyHardTimeoutTransition(jobId, timeoutEx, timeoutSec, observedElapsedTime));
+  }
+
+  /**
+   * Runs a timeout transition and, when it failed the job terminally, invokes the job's {@code
+   * onFailure} callback on this thread once {@link PostExecutionHandler#handleTimeoutTransition}
+   * returns {@code true}, which happens only after the terminal transition has committed. Under CDI
+   * the call goes through the transactional proxy, which commits its {@code REQUIRES_NEW}
+   * transaction before returning; with no managed transaction around it, the store commits {@code
+   * commitCompletion} itself. This thread has no outer transaction to defer to. Only the path that
+   * won the terminal compare-and-swap in {@code commitCompletion} gets a transition back, so the
+   * callback runs at most once per job. A retried or already-finalised job gets none.
+   */
+  private void runTimeoutTransition(
+      Throwable timeoutEx,
+      boolean cancelChainOnFailure,
+      Supplier<Optional<TerminalTimeoutTransition>> transition) {
+    AtomicReference<JobEntity> terminalJob = new AtomicReference<>();
+    boolean committed =
+        lifecycleFacade.handleTimeoutTransition(
+            timeoutEx,
+            cancelChainOnFailure,
+            () -> {
+              Optional<TerminalTimeoutTransition> outcome = transition.get();
+              outcome.ifPresent(terminal -> terminalJob.set(terminal.job()));
+              return outcome;
+            });
+    JobEntity job = terminalJob.get();
+    if (committed && callbackInvoker != null && job != null) {
+      callbackInvoker.invokeInJobContext(job, job.getOnFailurePayload(), "onFailure");
+    }
   }
 
   private Optional<TerminalTimeoutTransition> applyHardTimeoutTransition(
@@ -438,7 +479,7 @@ public class JobTimeoutHandler {
     String message = "Signal timeout exceeded for key: " + job.getSignalKey();
     SignalTimeoutException timeoutEx = new SignalTimeoutException(message);
 
-    lifecycleFacade.handleTimeoutTransition(
+    runTimeoutTransition(
         timeoutEx, true, () -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
