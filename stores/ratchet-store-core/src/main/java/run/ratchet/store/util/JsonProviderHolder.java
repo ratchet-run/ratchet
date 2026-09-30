@@ -18,7 +18,7 @@ package run.ratchet.store.util;
 import jakarta.json.spi.JsonProvider;
 
 /**
- * Process-wide JSON-P provider for store row mapping.
+ * JSON-P provider for store row mapping, cached once per class loader that loads this class.
  *
  * <p>The static {@code jakarta.json.Json} factory methods call {@link JsonProvider#provider()},
  * which runs a fresh {@link java.util.ServiceLoader} scan on every call. Row hydration parses every

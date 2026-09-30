@@ -28,18 +28,33 @@ public final class JsonProviders {
 
   private JsonProviders() {}
 
+  private static volatile JsonProvider cached;
+
   /**
-   * Returns the JSON-P provider, resolved once. The static {@code jakarta.json.Json} factories run
-   * a {@link java.util.ServiceLoader} scan on every call; the codec encodes and decodes a wakeup
-   * envelope per notification, so it uses this cached instance instead.
+   * Returns the JSON-P provider, resolved once per class loader that loads this class. The static
+   * {@code jakarta.json.Json} factories run a {@link java.util.ServiceLoader} scan on every call;
+   * the codec encodes and decodes a wakeup envelope per notification, so it uses this cached
+   * instance instead. A failed lookup is not cached, so a later call retries it.
+   *
+   * @throws JsonException if no JSON-P provider is available
    */
   public static JsonProvider provider() {
-    return Holder.PROVIDER;
+    JsonProvider provider = cached;
+    if (provider == null) {
+      synchronized (JsonProviders.class) {
+        provider = cached;
+        if (provider == null) {
+          provider = JsonProvider.provider();
+          cached = provider;
+        }
+      }
+    }
+    return provider;
   }
 
   public static void requireJsonProvider() {
     try {
-      JsonProvider.provider();
+      provider();
     } catch (JsonException ex) {
       throw new IllegalStateException(
           "No JSON-P provider (jakarta.json.spi.JsonProvider) found on the classpath. Add"
@@ -47,9 +62,5 @@ public final class JsonProviders {
               + " scope, or deploy into a Jakarta EE container that supplies one.",
           ex);
     }
-  }
-
-  private static final class Holder {
-    static final JsonProvider PROVIDER = JsonProvider.provider();
   }
 }
