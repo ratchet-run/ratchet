@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS scheduler_node
     node_id      VARCHAR2(64) NOT NULL,
     heartbeat_ts TIMESTAMP(6) NOT NULL,
     started_at   TIMESTAMP(6) NOT NULL,
-    node_info    CLOB,
     CONSTRAINT pk_scheduler_node PRIMARY KEY (node_id)
 );
 

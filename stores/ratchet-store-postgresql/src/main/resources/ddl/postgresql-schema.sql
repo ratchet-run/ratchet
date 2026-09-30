@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS scheduler_node
     node_id VARCHAR(64) NOT NULL,
     heartbeat_ts TIMESTAMPTZ(6) NOT NULL,
     started_at TIMESTAMPTZ(6) NOT NULL,
-    node_info TEXT,
     CONSTRAINT pk_scheduler_node PRIMARY KEY (node_id)
 );
 

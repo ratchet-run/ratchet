@@ -16,6 +16,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
@@ -100,6 +101,38 @@ public abstract class AbstractSchemaMigratorContract {
       }
       assertTrue(names.contains("idx_claim_executable"), names.toString());
       assertTrue(names.contains("idx_claim_pending_priority"), names.toString());
+    }
+  }
+
+  @Test
+  void nodeInfoDropMigrationIsIdempotentOnRepeat() throws Exception {
+    resetDatabase();
+    newMigrator().migrate();
+    assertFalse(nodeInfoColumnExists(), "V009 should drop scheduler_node.node_info");
+    try (Connection connection = newJdbcConnection();
+        var statement = connection.createStatement()) {
+      // Simulate applying the migration to a consolidated schema that never had the column.
+      statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '009'");
+    }
+    var result = newMigrator().migrate();
+    assertEquals(
+        List.of("009"),
+        result.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+    assertFalse(nodeInfoColumnExists(), "scheduler_node.node_info should stay absent");
+  }
+
+  private boolean nodeInfoColumnExists() throws SQLException {
+    try (Connection connection = newJdbcConnection()) {
+      var metadata = connection.getMetaData();
+      boolean upper = metadata.storesUpperCaseIdentifiers();
+      try (ResultSet rows =
+          metadata.getColumns(
+              connection.getCatalog(),
+              connection.getSchema(),
+              upper ? "SCHEDULER_NODE" : "scheduler_node",
+              upper ? "NODE_INFO" : "node_info")) {
+        return rows.next();
+      }
     }
   }
 

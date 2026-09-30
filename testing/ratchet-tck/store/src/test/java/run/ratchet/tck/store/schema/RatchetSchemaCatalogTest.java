@@ -103,9 +103,9 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        13,
+        14,
         RatchetSchemaCatalog.CURRENT_VERSION,
-        "catalog version should track the combined workflow, recurring, and DLQ schema revision");
+        "catalog version should track the combined workflow, recurring, DLQ, and node schema revision");
   }
 
   @Test
@@ -138,6 +138,23 @@ class RatchetSchemaCatalogTest {
                         && droppedTable.table().equals("scheduler_dlq_alerts")
                         && droppedTable.sinceVersion() == 5),
         "migration V005 must mark scheduler_dlq_alerts as removed");
+  }
+
+  @Test
+  void nodeInfoIsRemovedAtMigrationVersionNine() {
+    assertTrue(
+        table("scheduler_node").columns().stream()
+            .noneMatch(column -> column.name().equals("node_info")),
+        "the never-written node_info column must not remain in the current schema");
+    assertTrue(
+        RatchetSchemaCatalog.CURRENT.deprecated().stream()
+            .anyMatch(
+                artifact ->
+                    artifact instanceof DeprecatedArtifact.DroppedColumn droppedColumn
+                        && droppedColumn.table().equals("scheduler_node")
+                        && droppedColumn.column().equals("node_info")
+                        && droppedColumn.sinceVersion() == 9),
+        "migration V009 must mark scheduler_node.node_info as removed");
   }
 
   private static List<String> signalColumns() {

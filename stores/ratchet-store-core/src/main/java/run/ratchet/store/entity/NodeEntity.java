@@ -16,15 +16,12 @@
 package run.ratchet.store.entity;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Objects;
-import run.ratchet.store.converter.JsonObjectMapConverter;
 
 /** Active scheduler node in the distributed cluster. */
 @Entity
@@ -42,10 +39,6 @@ public class NodeEntity {
 
   @Column(name = "started_at", nullable = false)
   private Instant startedAt;
-
-  @Convert(converter = JsonObjectMapConverter.class)
-  @Column(name = "node_info")
-  private Map<String, Object> nodeInfo;
 
   public String getId() {
     return id;
@@ -69,14 +62,6 @@ public class NodeEntity {
 
   public void setStartedAt(Instant startedAt) {
     this.startedAt = startedAt;
-  }
-
-  public Map<String, Object> getNodeInfo() {
-    return nodeInfo;
-  }
-
-  public void setNodeInfo(Map<String, Object> nodeInfo) {
-    this.nodeInfo = nodeInfo;
   }
 
   @Override

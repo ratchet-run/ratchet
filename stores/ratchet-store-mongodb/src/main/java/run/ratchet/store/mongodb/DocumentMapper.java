@@ -403,7 +403,6 @@ public final class DocumentMapper {
     doc.append("_id", node.getId());
     doc.append("heartbeat_ts", toDate(node.getLastHeartbeat()));
     doc.append("started_at", toDate(node.getStartedAt()));
-    doc.append("node_info", nodeInfoToDocument(node.getNodeInfo()));
     return doc;
   }
 
@@ -412,7 +411,6 @@ public final class DocumentMapper {
     node.setId(doc.getString("_id"));
     node.setLastHeartbeat(toInstant(doc.getDate("heartbeat_ts")));
     node.setStartedAt(toInstant(doc.getDate("started_at")));
-    node.setNodeInfo(documentToNodeInfo(doc.get("node_info", Document.class)));
     return node;
   }
 
@@ -459,7 +457,7 @@ public final class DocumentMapper {
     doc.append("ts", toDate(logEntry.getTs()));
     doc.append("level", enumName(logEntry.getLevel()));
     doc.append("message", logEntry.getMessage());
-    doc.append("mdc", nodeInfoToDocument(logEntry.getMdc()));
+    doc.append("mdc", mapToDocument(logEntry.getMdc()));
     return doc;
   }
 
@@ -470,7 +468,7 @@ public final class DocumentMapper {
             toInstant(doc.getDate("ts")),
             requiredEnumValue(doc, "level", JobLogEntity.LogLevel.class),
             doc.getString("message"),
-            documentToNodeInfo(doc.get("mdc", Document.class)));
+            documentToMap(doc.get("mdc", Document.class)));
     logEntry.setId(doc.get("_id", UUID.class));
     return logEntry;
   }
@@ -804,21 +802,21 @@ public final class DocumentMapper {
         "Expected MongoDB payload args list, got: " + value.getClass());
   }
 
-  private static Document nodeInfoToDocument(Map<String, Object> nodeInfo) {
-    if (nodeInfo == null) {
+  private static Document mapToDocument(Map<String, Object> map) {
+    if (map == null) {
       return new Document();
     }
     Document doc = new Document();
-    nodeInfo.forEach(doc::append);
+    map.forEach(doc::append);
     return doc;
   }
 
   /**
-   * Callers must supply primitives or Strings via {@link #nodeInfoToDocument}; BSON-native types
+   * Callers must supply primitives or Strings via {@link #mapToDocument}; BSON-native types
    * (ObjectId, Date, Decimal128) surface here as their raw Java forms rather than the nested map
    * wrappers that the prior extended-JSON roundtrip produced.
    */
-  private static Map<String, Object> documentToNodeInfo(Document doc) {
+  private static Map<String, Object> documentToMap(Document doc) {
     return doc == null ? Collections.emptyMap() : new LinkedHashMap<>(doc);
   }
 

@@ -47,7 +47,6 @@ CREATE TABLE scheduler_node
     node_id      VARCHAR(64)  NOT NULL,
     heartbeat_ts DATETIME2(6) NOT NULL,
     started_at   DATETIME2(6) NOT NULL,
-    node_info    NVARCHAR(MAX),
     CONSTRAINT pk_scheduler_node PRIMARY KEY (node_id)
 );
 
