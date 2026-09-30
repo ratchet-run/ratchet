@@ -346,13 +346,14 @@ asadmin set-log-levels run.ratchet=FINE
 
 ### Reading the log output
 
-Ratchet logs follow a consistent pattern. A healthy job execution looks like:
+Ratchet logs follow a consistent pattern. A healthy job execution logs nothing at INFO. Its
+lifecycle lines are at DEBUG, so set `run.ratchet.ri.core.internal.JobTask` to DEBUG to see them:
 
 ```
-INFO  JobTask - Job 12345 starting execution [type=SINGLE, priority=NORMAL, attempt=1/4, payload=MyService.processData]
-INFO  JobTask - Job 12345 resolving target: com.myapp.MyService.processData (static=false)
-INFO  JobTask - Job 12345 succeeded in 234 ms
-INFO  JobTask - Job 12345 execution complete - cleaning up context
+DEBUG JobTask - Job 12345 starting execution [type=SINGLE, priority=NORMAL, attempt=1/4, payload=MyService.processData]
+DEBUG JobTask - Job 12345 resolving target: com.myapp.MyService.processData (static=false)
+DEBUG JobTask - Job 12345 succeeded in 234 ms
+DEBUG JobTask - Job 12345 execution complete - cleaning up context
 ```
 
 A failed job with retry:

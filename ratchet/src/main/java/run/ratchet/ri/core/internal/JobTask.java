@@ -286,8 +286,8 @@ public class JobTask implements Callable<Void> {
               jobEntity.getPickedBy(),
               start));
 
-      if (log.isInfoEnabled()) {
-        log.infov(
+      if (log.isDebugEnabled()) {
+        log.debugv(
             "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
             jobId,
             jobEntity.getJobType(),
@@ -350,7 +350,7 @@ public class JobTask implements Callable<Void> {
         if (permitAcquired) {
           releaseResourcePermit();
         }
-        log.infof("Job %s execution complete - cleaning up context", jobId);
+        log.debugf("Job %s execution complete - cleaning up context", jobId);
         currentScope.close();
       }
     } finally {
@@ -802,7 +802,7 @@ public class JobTask implements Callable<Void> {
 
     invokeCallback(job.getOnSuccessPayload(), "onSuccess");
 
-    log.infof("Job %s succeeded in %s ms", job.getId(), executionMs);
+    log.debugf("Job %s succeeded in %s ms", job.getId(), executionMs);
   }
 
   /**
@@ -938,7 +938,7 @@ public class JobTask implements Callable<Void> {
     // validateSecurity() is called by call() BEFORE entering the resilience scope.
     // Do not re-validate here — security exceptions inside the breaker would poison it.
 
-    log.infof(
+    log.debugf(
         "Job %s resolving target: %s.%s (static=%s)",
         job.getId(), payload.target(), payload.method(), payload.isStatic());
 

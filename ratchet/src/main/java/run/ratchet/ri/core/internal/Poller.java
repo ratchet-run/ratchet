@@ -205,7 +205,7 @@ public class Poller {
       boolean wasInDeepIdle = strategy.isInDeepIdle();
       strategy.onWakeup();
       if (wasInDeepIdle) {
-        log.info("Wakeup received - exited deep idle mode");
+        log.debug("Wakeup received - exited deep idle mode");
       } else {
         log.debug("Wakeup received - reset to minimum delay");
       }
@@ -256,7 +256,7 @@ public class Poller {
         }
       }
     }
-    log.infov("Claimed {0} job(s) for execution", jobCount);
+    log.debugv("Claimed {0} job(s) for execution", jobCount);
   }
 
   private long pollOnce() {
