@@ -110,8 +110,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   @Override
   public BatchBuilder withResource(String resourceName) {
-    this.childResourceName =
-        (resourceName != null && !resourceName.isBlank()) ? resourceName.trim() : null;
+    this.childResourceName = DefaultJobBuilder.normalizeResourceName(resourceName);
     return this;
   }
 

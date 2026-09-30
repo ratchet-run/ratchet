@@ -122,8 +122,7 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
 
   @Override
   public StreamingBatchBuilder<T> withResource(String resourceName) {
-    this.childResourceName =
-        (resourceName != null && !resourceName.isBlank()) ? resourceName.trim() : null;
+    this.childResourceName = DefaultJobBuilder.normalizeResourceName(resourceName);
     return this;
   }
 

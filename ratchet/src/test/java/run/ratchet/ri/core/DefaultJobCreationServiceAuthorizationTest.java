@@ -682,7 +682,6 @@ class DefaultJobCreationServiceAuthorizationTest {
     assertEquals(2, childrenCaptor.getValue().size());
     childrenCaptor.getValue().forEach(child -> assertEquals("gateway", child.getResourceName()));
     JobEntity child = childrenCaptor.getValue().get(0);
-    assertEquals("gateway", child.getResourceName());
     assertEquals(3, child.getMaxRetries());
     assertEquals(BackoffPolicy.EXPONENTIAL, child.getBackoffPolicy());
     assertEquals(2_000, child.getBackoffParamMs());
