@@ -33,7 +33,7 @@ import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
- * Exercises Ratchet's virtual-thread execution path on Jakarta EE 11 containers (WildFly 40,
+ * Exercises Ratchet's virtual-thread execution path on Jakarta EE 11 containers (WildFly 41,
  * GlassFish 8). Compiled and run only under the EE 11 server profiles (the {@code
  * src/test/java-ee11} source root); the EE 10 profiles never see it, so it is not "skipped" there.
  *
@@ -45,7 +45,7 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
  * resolved and used the configured executor: {@code DefaultExecutorProvider} fails on first use if
  * {@code java:app/concurrent/RatchetTestVirtualExecutor} cannot be resolved. Whether those threads are
  * <em>virtual</em> depends on the container: GlassFish 8 (the EE 11 RI, via {@code concurro}) honors
- * {@code virtual = true}; WildFly 40.0.0.Final does not yet implement virtual threads for managed
+ * {@code virtual = true}; WildFly 41.0.1.Final does not yet implement virtual threads for managed
  * executors (its {@code wildfly-concurrency-impl} has no virtual wiring), so it runs the same jobs
  * on platform threads. The hard {@code isVirtual()} assertion therefore runs on GlassFish; WildFly
  * gets the wiring + concurrency check.
@@ -75,7 +75,7 @@ class VirtualThreadExecutionIT extends BaseRatchetIT {
 
   /**
    * True only on containers that actually implement virtual threads for Jakarta Concurrency
-   * managed executors. GlassFish 8 (the EE 11 reference implementation) does; WildFly 40.0.0.Final
+   * managed executors. GlassFish 8 (the EE 11 reference implementation) does; WildFly 41.0.1.Final
    * binds and uses the {@code virtual = true} executor but still hands out platform threads
    * (verified by running this same deployment on both: {@code isVirtual()} is true on GlassFish,
    * false on WildFly). When WildFly implements it, drop this guard for WildFly.

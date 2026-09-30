@@ -38,7 +38,7 @@
   </container>
 
   <!--
-    WildFly 40 on Jakarta EE 11 (JDK 21). Same managed-container wiring as
+    WildFly 41 on Jakarta EE 11 (JDK 21). Same managed-container wiring as
     wildfly-managed, but a distinct port-offset (21000) and management port
     (30990) so an EE 11 run never collides with a stray EE 10 server. The
     wildfly-ee11-managed Maven profile overrides ${wildfly.version} to the
@@ -49,9 +49,10 @@
       <property name="jbossHome">${project.build.directory}/wildfly-${wildfly.version}</property>
       <property name="serverConfig">standalone.xml</property>
       <!--
-        Virtual-thread managed executors are a "preview"-stability feature in WildFly 40;
-        @ManagedExecutorDefinition(virtual = true) is silently honored as platform threads
-        at the default "community" level. Boot at preview so virtual=true takes effect.
+        The server boots at "preview" stability, but that does not enable virtual threads:
+        WildFly 41.0.1.Final has no virtual-thread wiring for managed executors at any
+        stability level, so @ManagedExecutorDefinition(virtual = true) runs on platform
+        threads. The EE 11 ITs assert isVirtual() only on GlassFish.
       -->
       <property name="jbossArguments">--stability=preview</property>
       <property name="javaVmArguments">
