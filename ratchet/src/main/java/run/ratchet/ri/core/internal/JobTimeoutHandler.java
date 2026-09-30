@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
@@ -74,7 +75,8 @@ public class JobTimeoutHandler {
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final SingletonLeaseService singletonLeaseService;
   private final ErrorSanitizer errorSanitizer;
-  // Invokes callbacks on the timeout watchdog's scheduler thread, after terminal commit.
+  // Runs onFailure after a terminal timeout commits: on the hard-timeout watchdog's thread, or on
+  // the thread running the signal-timeout scan.
   private final LifecycleCallbackInvoker callbackInvoker;
 
   /**
@@ -358,20 +360,34 @@ public class JobTimeoutHandler {
     Duration observedElapsedTime = elapsedTime.isNegative() ? Duration.ZERO : elapsedTime;
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
+    // The interrupted worker cannot also run onFailure: it defers to the watchdog marker, gets
+    // incrementRetryAttempt == -1, or loses completeFailure's CAS in transitionToDlq.
+    runTimeoutTransition(
+        timeoutEx,
+        false,
+        () -> applyHardTimeoutTransition(jobId, timeoutEx, timeoutSec, observedElapsedTime));
+  }
+
+  /**
+   * Runs a timeout transition and, when it failed the job terminally, invokes the job's {@code
+   * onFailure} callback on this thread after the transition's transaction commits. Only the path
+   * that won the terminal compare-and-swap in {@code commitCompletion} gets a transition back, so
+   * the callback runs at most once per job. A retried or already-finalised job gets none.
+   */
+  private void runTimeoutTransition(
+      Throwable timeoutEx,
+      boolean cancelChainOnFailure,
+      Supplier<Optional<TerminalTimeoutTransition>> transition) {
     AtomicReference<JobEntity> terminalJob = new AtomicReference<>();
     boolean committed =
         lifecycleFacade.handleTimeoutTransition(
             timeoutEx,
-            false,
+            cancelChainOnFailure,
             () -> {
-              Optional<TerminalTimeoutTransition> outcome =
-                  applyHardTimeoutTransition(jobId, timeoutEx, timeoutSec, observedElapsedTime);
-              outcome.ifPresent(transition -> terminalJob.set(transition.job()));
+              Optional<TerminalTimeoutTransition> outcome = transition.get();
+              outcome.ifPresent(terminal -> terminalJob.set(terminal.job()));
               return outcome;
             });
-    // Only the RUNNING->FAILED CAS winner in commitCompletion invokes the callback, after commit.
-    // The worker defers to the watchdog marker, gets incrementRetryAttempt == -1, or loses
-    // completeFailure's CAS in transitionToDlq, so no additional marker is needed.
     JobEntity job = terminalJob.get();
     if (committed && callbackInvoker != null && job != null) {
       callbackInvoker.invokeInJobContext(job, job.getOnFailurePayload(), "onFailure");
@@ -459,7 +475,7 @@ public class JobTimeoutHandler {
     String message = "Signal timeout exceeded for key: " + job.getSignalKey();
     SignalTimeoutException timeoutEx = new SignalTimeoutException(message);
 
-    lifecycleFacade.handleTimeoutTransition(
+    runTimeoutTransition(
         timeoutEx, true, () -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
