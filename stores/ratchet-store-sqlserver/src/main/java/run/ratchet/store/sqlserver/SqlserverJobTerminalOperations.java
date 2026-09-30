@@ -378,13 +378,16 @@ final class SqlserverJobTerminalOperations {
           .setParameter(1, UuidByteArrayConverter.toBytes(id))
           .executeUpdate();
 
+      // SYSUTCDATETIME() ticks every few milliseconds on Linux and has seven fractional digits, so
+      // storing it in DATETIME2(6) can round up past the clock. Back off one microsecond so the
+      // reset job is due to a claim in the same tick.
       // language=SQL Server
       String insertHotSql =
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
              timeout_sec, max_retries, attempts, version, updated_at, execution_target)
-          VALUES (?, 'PENDING', ?, ?, SYSUTCDATETIME(), ?, ?, ?, 0, 0,
+          VALUES (?, 'PENDING', ?, ?, DATEADD(MICROSECOND, -1, SYSUTCDATETIME()), ?, ?, ?, 0, 0,
                   SYSUTCDATETIME(), ?)
           """;
       ctx.em()
@@ -437,13 +440,15 @@ final class SqlserverJobTerminalOperations {
       int cleared = bindIds(clearTerminalSql, ids).executeUpdate();
       requireCompleteBulkSelection(ids, cleared);
 
+      // Same one-microsecond back-off as the single-job reset above.
       // language=SQL Server
       String insertHotSql =
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
              timeout_sec, max_retries, attempts, version, updated_at, execution_target)
-          SELECT job_id, 'PENDING', job_type, priority, SYSUTCDATETIME(), business_key,
+          SELECT job_id, 'PENDING', job_type, priority,
+                 DATEADD(MICROSECOND, -1, SYSUTCDATETIME()), business_key,
                  timeout_sec, max_retries, 0, 0, SYSUTCDATETIME(), execution_target
           FROM scheduler_job
           WHERE job_id IN (%s)

@@ -165,6 +165,7 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
         job.setStatus(JobStatus.RUNNING);
         job.setPickedBy(nodeId);
         job.setPickedAt(now);
+        job.setExecutionStartTime(now);
       }
       return ordered;
     } catch (RuntimeException e) {

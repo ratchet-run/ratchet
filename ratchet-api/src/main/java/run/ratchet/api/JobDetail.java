@@ -33,8 +33,9 @@ import java.util.UUID;
  * @param jobResult serialized job result, or null if the job has not produced one
  * @param resultType fully-qualified result class name, Ratchet's reserved truncation-state
  *     sentinel, or null when no result is available
- * @param executionStartTime when the current or last execution attempt started, or null if
- *     unstarted
+ * @param executionStartTime while an attempt runs, the time it was claimed; after it completes, the
+ *     start time the worker measured; null before the first claim or after a manual retry of a
+ *     failed job
  * @param executionEndTime when the current or last execution attempt ended, or null if still
  *     running or unstarted
  * @param executionDurationMs execution duration in milliseconds, or null if unavailable

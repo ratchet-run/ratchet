@@ -16,6 +16,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -72,6 +73,69 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
       assertEquals(JobStatus.RUNNING, job.getStatus(), "Claimed job should be RUNNING");
       assertEquals("node-1", job.getPickedBy(), "Claimed job should record the claiming node");
     }
+  }
+
+  @Test
+  void claimNextBatch_recordsExecutionStartTimeAtClaim() {
+    JobEntity pending = persist(newPendingJob());
+
+    List<JobEntity> claimed = store().claimNextBatch(10, "node-1");
+
+    assertEquals(1, claimed.size());
+    JobEntity job = claimed.get(0);
+    assertEquals(pending.getId(), job.getId());
+    assertNotNull(job.getExecutionStartTime());
+    assertEquals(job.getPickedAt(), job.getExecutionStartTime());
+
+    JobEntity reloaded = store().findById(pending.getId()).orElseThrow();
+    assertNotNull(reloaded.getExecutionStartTime());
+    assertEquals(reloaded.getPickedAt(), reloaded.getExecutionStartTime());
+  }
+
+  @Test
+  void claimNextBatchOptimized_recordsExecutionStartTimeAtClaim() {
+    JobEntity pending = persist(newPendingJob());
+
+    List<JobClaimDto> claimed =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-1");
+
+    assertEquals(1, claimed.size());
+    assertEquals(pending.getId(), claimed.get(0).id());
+    JobEntity reloaded = store().findById(pending.getId()).orElseThrow();
+    assertNotNull(reloaded.getExecutionStartTime());
+    assertEquals(reloaded.getPickedAt(), reloaded.getExecutionStartTime());
+  }
+
+  @Test
+  void executionStartTime_clearedByFailedResetAndRewrittenOnReclaim() {
+    UUID id = persist(newPendingJob()).getId();
+    assertEquals(1, store().claimNextBatch(10, "node-1").size());
+    assertNotNull(store().findById(id).orElseThrow().getExecutionStartTime());
+
+    assertTrue(store().compareAndSwapStatus(id, JobStatus.RUNNING, JobStatus.FAILED, "boom"));
+    assertTrue(store().resetFailedToPending(id));
+    assertNull(store().findById(id).orElseThrow().getExecutionStartTime());
+
+    assertEquals(1, store().claimNextBatch(10, "node-1").size());
+    JobEntity reloaded = store().findById(id).orElseThrow();
+    assertNotNull(reloaded.getExecutionStartTime());
+    assertEquals(reloaded.getPickedAt(), reloaded.getExecutionStartTime());
+  }
+
+  @Test
+  void executionStartTime_rewrittenOnReclaimAfterAutomaticRetry() {
+    UUID id = persist(newPendingJob()).getId();
+    assertEquals(1, store().claimNextBatch(10, "node-1").size());
+    Instant firstPickedAt = store().findById(id).orElseThrow().getPickedAt();
+    assertNotNull(firstPickedAt);
+
+    assertTrue(store().scheduleJobRetry(id, "transient", Instant.now().minusSeconds(1), 1));
+    assertEquals(1, store().claimNextBatch(10, "node-1").size());
+
+    JobEntity reloaded = store().findById(id).orElseThrow();
+    assertNotNull(reloaded.getExecutionStartTime());
+    assertEquals(reloaded.getPickedAt(), reloaded.getExecutionStartTime());
+    assertFalse(reloaded.getPickedAt().isBefore(firstPickedAt));
   }
 
   @Test
