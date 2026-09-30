@@ -48,9 +48,9 @@ store under test does not advertise that capability.
 ## API and Jakarta Runtime Reports
 
 Results are published for WildFly EE 10, WildFly EE 11, Payara EE 10, Payara EE 11, Open Liberty
-EE 10, and GlassFish EE 11 across MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB, and regenerated
-after each successful CI run on `main`. Payara EE 10 runs on Payara Community 6, which reached end of
-life with 6.2025.11. Payara EE 11 runs on Payara Community 7.
+EE 10, Open Liberty EE 11, and GlassFish EE 11 across MySQL, PostgreSQL, Oracle, SQL Server, and
+MongoDB, and regenerated after each successful CI run on `main`. Payara EE 10 runs on Payara
+Community 6, which reached end of life with 6.2025.11. Payara EE 11 runs on Payara Community 7.
 
 - [API Conformance Matrix](./api/) -- Tier 2 results across all runtimes
 - [Jakarta Runtime Conformance Matrix](./jakarta/) -- Tier 3 results across all runtimes

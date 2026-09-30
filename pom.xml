@@ -164,7 +164,7 @@
     -->
     <glassfish.version>8.0.1</glassfish.version>
     <glassfish-arquillian.version>2.1.3</glassfish-arquillian.version>
-    <openliberty.version>26.0.0.2</openliberty.version>
+    <openliberty.version>26.0.0.9</openliberty.version>
     <openliberty-arquillian.version>2.1.4</openliberty-arquillian.version>
     <mysql-connector.version>8.4.0</mysql-connector.version>
     <protobuf-java.version>3.25.9</protobuf-java.version>
@@ -729,7 +729,8 @@
       and the umbrella jakartaee-web-api to 11.0.0. Intended for compile-time
       verification only. EE 11 runtime coverage comes from the managed-server
       profiles that deploy to EE 11 containers (wildfly-ee11-managed on
-      standard WildFly 40+, payara-ee11-managed on Payara 7, glassfish-managed
+      standard WildFly 40+, payara-ee11-managed on Payara 7,
+      openliberty-ee11-managed on Open Liberty webProfile-11.0, glassfish-managed
       on GlassFish 8), not from this
       profile. The default build remains EE 10 to preserve the EE 10
       managed-server lanes.
@@ -819,6 +820,45 @@
                       <version>[21,)</version>
                       <message>
                         The wildfly-ee11-managed profile targets WildFly 41 on JDK 21.
+                        Re-run with JDK 21+ on PATH (or via JAVA_HOME).
+                      </message>
+                    </requireJavaVersion>
+                  </rules>
+                  <fail>true</fail>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
+      Open Liberty / Jakarta EE 11 managed-server test profile (webProfile-11.0, GA
+      since 26.0.0.5). Open Liberty runs EE 11 features on JDK 21 and later. The server
+      config and the EE 11-only test sources live in ratchet-testsuite's same-id profile.
+    -->
+    <profile>
+      <id>openliberty-ee11-managed</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>3.5.0</version>
+            <executions>
+              <execution>
+                <id>enforce-jdk21-for-openliberty-ee11</id>
+                <phase>validate</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireJavaVersion>
+                      <version>[21,)</version>
+                      <message>
+                        The openliberty-ee11-managed profile runs Open Liberty webProfile-11.0 on JDK 21.
                         Re-run with JDK 21+ on PATH (or via JAVA_HOME).
                       </message>
                     </requireJavaVersion>

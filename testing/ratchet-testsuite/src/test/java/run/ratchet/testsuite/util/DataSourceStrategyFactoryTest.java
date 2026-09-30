@@ -49,6 +49,7 @@ class DataSourceStrategyFactoryTest {
     assertStrategy("payara-ee11-managed", PayaraDataSourceStrategy.class);
     assertStrategy("glassfish-managed", GlassFishDataSourceStrategy.class);
     assertStrategy("openliberty-managed", OpenLibertyDataSourceStrategy.class);
+    assertStrategy("openliberty-ee11-managed", OpenLibertyDataSourceStrategy.class);
   }
 
   @Test
