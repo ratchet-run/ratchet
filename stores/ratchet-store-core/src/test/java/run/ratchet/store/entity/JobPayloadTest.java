@@ -125,6 +125,6 @@ class JobPayloadTest {
   }
 
   private JobPayload payload(String descriptor) {
-    return new JobPayload("com.example.Foo", "bar", descriptor, false, List.of());
+    return new JobPayload("com.example.Foo", "bar", descriptor, false, List.of(), null);
   }
 }

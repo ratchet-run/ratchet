@@ -331,6 +331,11 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       // An unbound instance reference reserves functional parameter 0 for its receiver.
       // Static and bound references have no receiver parameter in the functional signature.
       int offset = functionalCount - (targetCount - capturedCount);
+      if (!isStatic
+          && serializedLambda.getCapturedArgCount() == 0
+          && functionalCount == targetCount + 1) {
+        receiver = new RuntimeParameter(0);
+      }
       if (offset >= 0 && offset <= functionalCount && capturedCount <= targetCount) {
         invocationArguments = new ArrayList<>(invocationArguments);
         for (int j = capturedCount; j < targetCount; j++) {

@@ -55,7 +55,8 @@ class PayloadSerializerHolderTest {
     PayloadSerializerHolder.set(recorder);
 
     JobPayloadConverter converter = new JobPayloadConverter();
-    JobPayload payload = new JobPayload("com.example.Svc", "run", "()V", true, List.of("a", "b"));
+    JobPayload payload =
+        new JobPayload("com.example.Svc", "run", "()V", true, List.of("a", "b"), null);
 
     String json = converter.convertToDatabaseColumn(payload);
     assertNotNull(json);
@@ -71,7 +72,7 @@ class PayloadSerializerHolderTest {
   void unset_fallsBackToInternalJsonb() {
     PayloadSerializerHolder.set(null);
     JobPayloadConverter converter = new JobPayloadConverter();
-    JobPayload payload = new JobPayload("t", "m", "()V", false, List.of());
+    JobPayload payload = new JobPayload("t", "m", "()V", false, List.of(), null);
 
     // Fallback path must still work for unit tests / non-CDI environments.
     String json = converter.convertToDatabaseColumn(payload);
@@ -83,7 +84,7 @@ class PayloadSerializerHolderTest {
   void jobPayloadConverter_wrapsSerializationErrors() {
     PayloadSerializerHolder.set(new ThrowingSerializer());
     JobPayloadConverter converter = new JobPayloadConverter();
-    JobPayload payload = new JobPayload("t", "m", "()V", false, List.of());
+    JobPayload payload = new JobPayload("t", "m", "()V", false, List.of(), null);
 
     IllegalArgumentException thrown =
         assertThrows(

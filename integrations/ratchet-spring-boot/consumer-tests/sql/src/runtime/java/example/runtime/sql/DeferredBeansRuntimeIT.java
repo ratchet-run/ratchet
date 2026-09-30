@@ -65,7 +65,7 @@ class DeferredBeansRuntimeIT {
                 .getBean(InvocationSubmissionService.class)
                 .enqueueInvocation(
                     new JobInvocation(
-                        DeferredTask.class.getName(), "unavailable", "()V", false, List.of()))
+                        DeferredTask.class.getName(), "unavailable", "()V", false, List.of(), null))
                 .withMaxRetries(5)
                 .submit();
         RuntimeSupport.status(context, handle, JobStatus.FAILED);

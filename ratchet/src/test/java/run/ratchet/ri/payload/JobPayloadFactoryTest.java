@@ -30,9 +30,69 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.SerializableBiConsumer;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
+import run.ratchet.api.SerializablePredicate;
 import run.ratchet.store.entity.JobPayload;
 
 class JobPayloadFactoryTest {
+  public static final class Item implements Serializable {
+    public void noArg() {}
+
+    public void withArg(int value) {}
+
+    public boolean isOk() {
+      return true;
+    }
+  }
+
+  @Test
+  void batchParameterReceiversAreRejectedForBothLambdaAndReference() {
+    Item item = new Item();
+    for (SerializableConsumer<Item> action :
+        List.<SerializableConsumer<Item>>of(
+            value -> value.noArg(), value -> value.withArg(1), Item::noArg)) {
+      var error =
+          assertThrows(
+              IllegalArgumentException.class,
+              () -> JobPayloadFactory.toInvocation(action, List.of(item)));
+      assertTrue(error.getMessage().contains("batch action calls a method on its item parameter"));
+      assertTrue(error.getMessage().contains("item -> service.refresh(item)"));
+    }
+    var invocation =
+        JobPayloadFactory.toInvocation(
+            (SerializableConsumer<Item>) value -> duplicateItem(value, value), List.of(item));
+    assertEquals(List.of(item, item), invocation.arguments());
+    assertEquals(null, invocation.runtimeArgIndexes());
+  }
+
+  public static void duplicateItem(Item first, Item second) {}
+
+  @Test
+  void conditionParameterReceiverIsAllowedOnlyWithoutArguments() {
+    for (SerializablePredicate<Item> predicate :
+        List.<SerializablePredicate<Item>>of(value -> value.isOk(), Item::isOk)) {
+      JobPayload payload = JobPayloadFactory.fromConditionLambda(predicate);
+      assertEquals(List.of(), payload.args());
+      assertEquals(null, payload.runtimeArgIndexes());
+    }
+    var error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobPayloadFactory.fromConditionLambda(
+                    (SerializableConsumer<Item>) value -> value.withArg(1)));
+    assertTrue(error.getMessage().contains("condition calls a method on its parameter"));
+  }
+
+  @Test
+  void callbackContextReceiverIsRejected() {
+    var error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobPayloadFactory.fromLambda(
+                    (SerializableConsumer<JobContext>) ctx -> ctx.jobId()));
+    assertTrue(error.getMessage().contains("callback calls a method on its own parameter"));
+  }
 
   @Test
   void indexedBindingPreservesReorderingAndDuplicateUsesWithoutArityOverride() {

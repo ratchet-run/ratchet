@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import java.io.Serializable;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -64,6 +65,61 @@ import run.ratchet.store.util.PayloadEncryptor;
 
 @ExtendWith(MockitoExtension.class)
 class WorkflowConditionEvaluatorTest {
+  public static boolean nullsBesideContext(Object literal, Object captured, JobResult<?> result) {
+    return literal == null && captured == null && result != null && result.isSuccess();
+  }
+
+  public static boolean allSlotsReceiveContext(Object first, Object second, JobResult<?> result) {
+    return first == result && second == result && result.isSuccess();
+  }
+
+  @Test
+  void explicitIndexesPreserveLiteralAndCapturedNulls() {
+    Object captured = null;
+    SerializablePredicate<JobResult<?>> predicate =
+        result -> nullsBesideContext(null, captured, result);
+    String expression = serializeCondition(predicate);
+    assertTrue(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
+            parentJob(JobStatus.SUCCEEDED)));
+  }
+
+  @Test
+  void absentIndexesRetainFillEveryNullBehavior() {
+    JobPayload payload =
+        new JobPayload(
+            WorkflowConditionEvaluatorTest.class.getName(),
+            "allSlotsReceiveContext",
+            "(Ljava/lang/Object;Ljava/lang/Object;Lrun/ratchet/api/JobResult;)Z",
+            true,
+            Arrays.asList(null, null, null),
+            null);
+    assertTrue(
+        evaluator.evaluate(
+            conditionWithExpression(
+                WorkflowCondition.ConditionType.CUSTOM, payloadSerializer.serialize(payload)),
+            parentJob(JobStatus.SUCCEEDED)));
+  }
+
+  @Test
+  void conditionRejectsUnavailableParameterIndex() {
+    JobPayload payload =
+        new JobPayload(
+            WorkflowConditionEvaluatorTest.class.getName(),
+            "allSlotsReceiveContext",
+            "(Ljava/lang/Object;Ljava/lang/Object;Lrun/ratchet/api/JobResult;)Z",
+            true,
+            Arrays.asList(null, null, null),
+            Arrays.asList(null, null, 1));
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            evaluator.evaluate(
+                conditionWithExpression(
+                    WorkflowCondition.ConditionType.CUSTOM, payloadSerializer.serialize(payload)),
+                parentJob(JobStatus.SUCCEEDED)));
+  }
 
   /** Static predicate methods used as method references in tests — avoids CDI bean lookup. */
   public static final class TestConditions {
@@ -166,7 +222,7 @@ class WorkflowConditionEvaluatorTest {
   }
 
   private String serializeCondition(Serializable predicate) {
-    return payloadSerializer.serialize(JobPayloadFactory.fromLambda(predicate));
+    return payloadSerializer.serialize(JobPayloadFactory.fromConditionLambda(predicate));
   }
 
   private WorkflowConditionEvaluator evaluatorAllowingBranchDecision() {
@@ -463,7 +519,7 @@ class WorkflowConditionEvaluatorTest {
   void customCondition_unknownTargetClass_failsHard() {
     String expression =
         payloadSerializer.serialize(
-            new JobPayload("com.example.DoesNotExist", "test", "()Z", true, List.of()));
+            new JobPayload("com.example.DoesNotExist", "test", "()Z", true, List.of(), null));
 
     assertThrows(
         IllegalStateException.class,
@@ -477,7 +533,8 @@ class WorkflowConditionEvaluatorTest {
   void customCondition_unknownMethod_failsHard() {
     String expression =
         payloadSerializer.serialize(
-            new JobPayload(TestConditions.class.getName(), "doesNotExist", "()Z", true, List.of()));
+            new JobPayload(
+                TestConditions.class.getName(), "doesNotExist", "()Z", true, List.of(), null));
 
     assertThrows(
         IllegalStateException.class,
@@ -501,7 +558,8 @@ class WorkflowConditionEvaluatorTest {
                 "jobSucceeded",
                 "(Lrun/ratchet/api/JobResult;)Z",
                 true,
-                List.of()));
+                List.of(),
+                null));
 
     assertFalse(
         restrictedEvaluator.evaluate(
@@ -518,7 +576,8 @@ class WorkflowConditionEvaluatorTest {
                 "throwsDuringEvaluation",
                 "(Lrun/ratchet/api/JobResult;)Z",
                 true,
-                List.of()));
+                List.of(),
+                null));
 
     assertFalse(
         evaluator.evaluate(
@@ -784,7 +843,8 @@ class WorkflowConditionEvaluatorTest {
                 "hasExpectedFailureCount",
                 "(Lrun/ratchet/api/BatchContext;)Z",
                 false,
-                Collections.singletonList(null)));
+                Collections.singletonList(null),
+                null));
 
     assertTrue(
         evaluator.evaluate(

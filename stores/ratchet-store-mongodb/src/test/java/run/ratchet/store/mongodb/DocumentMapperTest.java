@@ -72,7 +72,7 @@ class DocumentMapperTest {
   }
 
   private static JobPayload payload(String target, String method) {
-    return new JobPayload(target, method, "()V", true, List.of());
+    return new JobPayload(target, method, "()V", true, List.of(), null);
   }
 
   private static Document legacyPayloadDocument(JobPayload payload) {
@@ -81,6 +81,26 @@ class DocumentMapperTest {
         .append("methodDescriptor", payload.methodDescriptor())
         .append("isStatic", payload.isStatic())
         .append("args", payload.args());
+  }
+
+  @Test
+  void documentShapedPayloadRejectsNonNumericRuntimeIndex() {
+    JobPayload payload =
+        new JobPayload(
+            "Target",
+            "callback",
+            "(Ljava/lang/Object;)V",
+            true,
+            Arrays.asList((Object) null),
+            List.of(0));
+    Document doc = DocumentMapper.toDocument(job(payload));
+    doc.put("payload", legacyPayloadDocument(payload).append("runtimeArgIndexes", List.of("zero")));
+    Exception error = assertThrows(Exception.class, () -> DocumentMapper.toJobEntity(doc));
+    Throwable cause = error;
+    while (!(cause instanceof IllegalArgumentException) && cause.getCause() != null) {
+      cause = cause.getCause();
+    }
+    assertTrue(cause.getMessage().contains("java.lang.String: zero"), cause.getMessage());
   }
 
   @Test

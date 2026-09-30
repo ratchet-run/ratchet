@@ -27,7 +27,8 @@ import run.ratchet.store.entity.JobPayload;
 class BatchProgressRowsTest {
 
   private final UUID batchId = UUID.fromString("019ae3d1-3f82-7e18-9f09-a9f000000001");
-  private final JobPayload progressHook = new JobPayload("Target", "hook", "()V", false, List.of());
+  private final JobPayload progressHook =
+      new JobPayload("Target", "hook", "()V", false, List.of(), null);
 
   @Test
   void fromCurrentRowMapsReturnedCounterValues() {
@@ -79,7 +80,8 @@ class BatchProgressRowsTest {
                 BatchProgressRows.fromCurrentRow(batchId, new Object[] {1, 0, 2}, ignored -> null));
 
     assertEquals(
-        "Batch progress row must contain completed, failed, total, and progress hook columns; got 3",
+        "Batch progress row must contain completed, failed, total, and progress hook columns; got"
+            + " 3",
         ex.getMessage());
   }
 

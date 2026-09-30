@@ -67,7 +67,7 @@ public final class JobPayloadFactory {
   static final String RECURRING_DISPATCH_TARGET = "run.ratchet.ri.cdi.RecurringMethodInvoker";
 
   private static final JobPayload NOOP =
-      new JobPayload(COORDINATION_PLACEHOLDER_TARGET, "noop", "()V", true, List.of());
+      new JobPayload(COORDINATION_PLACEHOLDER_TARGET, "noop", "()V", true, List.of(), null);
 
   private static final ClassValue<ConcurrentMap<MethodLookupKey, VisibilityVerdict>>
       VISIBILITY_CACHE = reflectionCache();
@@ -101,25 +101,33 @@ public final class JobPayloadFactory {
   public static JobInvocation toInvocation(Serializable lambda, List<Object> runtimeArgs) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
     Objects.requireNonNull(runtimeArgs, "Runtime args must not be null");
-    return toInvocationInternal(lambda, runtimeArgs);
+    return toInvocationInternal(lambda, runtimeArgs, false);
   }
 
   public static JobInvocation toInvocation(Serializable lambda) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
-    return toInvocationInternal(lambda, List.of());
+    return toInvocationInternal(lambda, List.of(), false);
   }
 
-  private static JobInvocation toInvocationInternal(Serializable lambda, List<Object> runtimeArgs) {
+  /** Creates a workflow condition whose SAM parameter may be a no-argument receiver. */
+  public static JobPayload fromConditionLambda(Serializable lambda) {
+    Objects.requireNonNull(lambda, "Lambda must not be null");
+    return fromInvocation(toInvocationInternal(lambda, List.of(), true));
+  }
+
+  private static JobInvocation toInvocationInternal(
+      Serializable lambda, List<Object> runtimeArgs, boolean condition) {
     SerializedLambda sl = toSerializedLambda(lambda);
     InspectionResult inspection = AsmLambdaAnalyzer.inspect(sl);
 
     if (inspection.steps().size() != 1) {
       throw new IllegalArgumentException(
-          singleInvocationError(lambda, inspection.steps().size(), sl));
+          singleInvocationError(lambda, inspection.steps().size(), sl, runtimeArgs, condition));
     }
 
     InvocationStep step = resolveNestedFunctionalInvocation(inspection.last());
-    if (step.receiver() instanceof RuntimeParameter receiver
+    if (condition
+        && step.receiver() instanceof RuntimeParameter receiver
         && receiver.index() == 0
         && step.arguments().isEmpty()) {
       // `r -> r.isOk()` calls a no-arg method on the first parameter. That is the same shape as
@@ -134,9 +142,7 @@ public final class JobPayloadFactory {
               null);
     }
     if (step.receiver() instanceof RuntimeParameter) {
-      throw new IllegalArgumentException(
-          "The lambda calls a method on its own parameter, which Ratchet cannot persist. "
-              + CALLBACK_GUIDANCE);
+      throw new IllegalArgumentException(receiverError(runtimeArgs, condition));
     }
     rejectNonPublicMethod(step);
     List<Object> args = new ArrayList<>(mergeInvocationArguments(step, runtimeArgs));
@@ -198,6 +204,32 @@ public final class JobPayloadFactory {
     return RECURRING_DISPATCH_TARGET.equals(className);
   }
 
+  private static String receiverError(List<Object> runtimeArgs, boolean condition) {
+    if (condition) {
+      return "The condition calls a method on its parameter with an unsupported receiver shape; "
+          + "only a no-argument method on parameter 0 is supported. Pass the parameter straight "
+          + "to one public condition method instead.";
+    }
+    if (!runtimeArgs.isEmpty()) {
+      return "The batch action calls a method on its item parameter, which Ratchet cannot persist."
+          + " Pass the item straight to one public method instead, e.g. item ->"
+          + " service.refresh(item), and call methods on the item inside that method.";
+    }
+    return "The callback calls a method on its own parameter (ctx, error or the batch context), "
+        + "which Ratchet cannot persist. "
+        + CALLBACK_GUIDANCE;
+  }
+
+  /** Rejects slots on task payloads, whose invocation supplies no runtime parameters. */
+  public static JobPayload requireTaskArguments(JobPayload payload) {
+    if (payload.runtimeArgIndexes() != null) {
+      throw new IllegalArgumentException(
+          "The payload declares runtime parameter slots (runtimeArgIndexes) but a job task receives"
+              + " no runtime arguments; supply every argument in the invocation");
+    }
+    return payload;
+  }
+
   private static final String CALLBACK_GUIDANCE =
       "Use a method reference such as Handler::onFailure, or pass the parameters straight to "
           + "one public method, e.g. (ctx, error) -> handler.onFailure(ctx, error), and do the "
@@ -205,20 +237,23 @@ public final class JobPayloadFactory {
           + "call methods on ctx or error inside the lambda.";
 
   private static String singleInvocationError(
-      Serializable lambda, int stepCount, SerializedLambda sl) {
+      Serializable lambda,
+      int stepCount,
+      SerializedLambda sl,
+      List<Object> runtimeArgs,
+      boolean condition) {
     String message =
-        "Job scheduler requires exactly one method invocation (method reference or single method"
-            + " call). Found "
-            + stepCount
-            + " invocations in lambda: "
-            + lambda
-            + ". "
-            + "\n\nFor complex multi-step logic, create a dedicated method in a CDI bean and"
-            + " reference it: "
-            + "\n  scheduler.enqueue(() -> myService.processComplexJob(args)).submit(); "
-            + "\n\nSee SerializableCheckedRunnable JavaDoc for examples and workarounds.";
+        """
+        Job scheduler requires exactly one method invocation (method reference or single method call). Found %s invocations in lambda: %s.
+
+        For complex multi-step logic, create a dedicated method in a CDI bean and reference it:
+          scheduler.enqueue(() -> myService.processComplexJob(args)).submit();
+
+        See SerializableCheckedRunnable JavaDoc for examples and workarounds.\
+        """
+            .formatted(stepCount, lambda);
     return Type.getArgumentTypes(sl.getInstantiatedMethodType()).length > 0
-        ? message + "\n\n" + CALLBACK_GUIDANCE
+        ? message + "\n\n" + receiverError(runtimeArgs, condition)
         : message;
   }
 

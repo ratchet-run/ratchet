@@ -69,7 +69,7 @@ class JobEntityLifecycleTest {
     job.setBackoffPolicy(BackoffPolicy.NONE);
     job.setCronExpr("");
     job.setZoneId("UTC");
-    job.setPayload(new JobPayload("com.example.Job", "run", "()V", false, List.of()));
+    job.setPayload(new JobPayload("com.example.Job", "run", "()V", false, List.of(), null));
     job.setIdempotencyKey("idem-1");
     return job;
   }

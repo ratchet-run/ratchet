@@ -747,6 +747,13 @@ public final class DocumentMapper {
     if (doc.get("runtimeArgIndexes") instanceof List<?> indexes) {
       runtimeArgIndexes = new ArrayList<>(indexes.size());
       for (Object index : indexes) {
+        if (index != null && !(index instanceof Number)) {
+          throw new IllegalArgumentException(
+              "Expected MongoDB runtimeArgIndexes element to be null or a number, got "
+                  + index.getClass().getName()
+                  + ": "
+                  + index);
+        }
         runtimeArgIndexes.add(index == null ? null : ((Number) index).intValue());
       }
     }

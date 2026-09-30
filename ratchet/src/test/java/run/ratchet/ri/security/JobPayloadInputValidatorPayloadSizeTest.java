@@ -141,7 +141,7 @@ class JobPayloadInputValidatorPayloadSizeTest {
 
   private static JobPayload payload() {
     return new JobPayload(
-        Target.class.getName(), "accept", "(Ljava/lang/String;)V", true, List.of("value"));
+        Target.class.getName(), "accept", "(Ljava/lang/String;)V", true, List.of("value"), null);
   }
 
   public static final class Target {

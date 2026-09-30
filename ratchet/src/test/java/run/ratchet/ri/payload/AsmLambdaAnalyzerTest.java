@@ -35,6 +35,17 @@ import run.ratchet.api.SerializableConsumer;
 import run.ratchet.ri.payload.AsmLambdaAnalyzer.RuntimeParameter;
 
 class AsmLambdaAnalyzerTest {
+  public static void wideString(long a, double b, String value) {}
+
+  @Test
+  void wideCapturesBeforeOneParameterKeepIndexZero() {
+    long a = Long.parseLong("42");
+    double b = Double.parseDouble("0.5");
+    SerializableConsumer<String> callback = value -> wideString(a, b, value);
+    var invocation = JobPayloadFactory.toInvocation(callback);
+    assertEquals(Arrays.asList(a, b, null), invocation.arguments());
+    assertEquals(Arrays.asList(null, null, 0), invocation.runtimeArgIndexes());
+  }
 
   private final Target instanceTarget = new Target();
 
@@ -96,14 +107,14 @@ class AsmLambdaAnalyzerTest {
         AsmLambdaAnalyzer.inspect(
                 LambdaSerialization.toSerializedLambda(callback, "Expected lambda"))
             .last();
-    assertEquals(null, step.receiver());
+    assertEquals(new RuntimeParameter(0), step.receiver());
     assertEquals(List.of(new RuntimeParameter(1)), step.arguments());
     UnboundPredicate predicate = Target::isOk;
     var predicateStep =
         AsmLambdaAnalyzer.inspect(
                 LambdaSerialization.toSerializedLambda(predicate, "Expected lambda"))
             .last();
-    assertEquals(null, predicateStep.receiver());
+    assertEquals(new RuntimeParameter(0), predicateStep.receiver());
     assertEquals(List.of(), predicateStep.arguments());
   }
 

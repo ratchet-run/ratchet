@@ -51,15 +51,6 @@ public record JobInvocation(
 
   @Serial private static final long serialVersionUID = 1L;
 
-  public JobInvocation(
-      String targetClass,
-      String methodName,
-      String methodDescriptor,
-      boolean staticMethod,
-      List<Object> arguments) {
-    this(targetClass, methodName, methodDescriptor, staticMethod, arguments, null);
-  }
-
   public JobInvocation {
     runtimeArgIndexes =
         runtimeArgIndexes == null || runtimeArgIndexes.stream().allMatch(index -> index == null)

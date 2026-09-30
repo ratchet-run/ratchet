@@ -44,7 +44,7 @@ class OracleRecurringJobStoreContractTest extends AbstractRecurringJobStoreContr
 
   @Override
   protected JobPayload noopPayload() {
-    return new JobPayload("run.ratchet.tck.store.NoopTask", "run", "()V", true, List.of());
+    return new JobPayload("run.ratchet.tck.store.NoopTask", "run", "()V", true, List.of(), null);
   }
 
   @Override

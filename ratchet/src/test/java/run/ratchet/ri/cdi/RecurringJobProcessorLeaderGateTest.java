@@ -107,7 +107,8 @@ class RecurringJobProcessorLeaderGateTest {
             RecurringMethodInvoker.invocationMethod().getName(),
             Type.getMethodDescriptor(RecurringMethodInvoker.invocationMethod()),
             false,
-            List.of(LeaderGateBean.class.getName(), "run", false)),
+            List.of(LeaderGateBean.class.getName(), "run", false),
+            null),
         invocationCaptor.getValue());
     verify(recurringJobBuilder).withBusinessKey("leader-gate-job");
     verify(recurringJobBuilder).submit();

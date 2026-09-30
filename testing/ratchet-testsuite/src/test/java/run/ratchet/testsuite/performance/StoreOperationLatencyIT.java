@@ -216,7 +216,8 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
     job.setScheduledTime(Instant.now());
     job.setBusinessKey("perf-store-" + suffix);
     job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload(TimingJob.class.getName(), "execute", "()V", true, List.of()));
+    job.setPayload(
+        new JobPayload(TimingJob.class.getName(), "execute", "()V", true, List.of(), null));
     return job;
   }
 }

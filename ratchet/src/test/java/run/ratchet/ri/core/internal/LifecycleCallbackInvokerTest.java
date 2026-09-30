@@ -36,6 +36,33 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 
 class LifecycleCallbackInvokerTest {
+  @Test
+  void missingContextStillInvokesCallbackWithNull() throws Exception {
+    JobMdcContext.clear();
+    JobEntity job = new JobEntity();
+    job.setId(UUID.randomUUID());
+    JobPayload callback =
+        new JobPayload(
+            "Target",
+            "success",
+            "(Ljava/lang/Object;)V",
+            true,
+            Arrays.asList((Object) null),
+            List.of(0));
+    job.setOnSuccessPayload(callback);
+    PreExecutionValidator validator = mock(PreExecutionValidator.class);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    PayloadSerializer serializer = mock(PayloadSerializer.class);
+    ExecutionObserver observer = mock(ExecutionObserver.class);
+    when(invoker.materializeArguments(callback, serializer)).thenReturn(callback);
+    new LifecycleCallbackInvoker(validator, invoker, serializer, observer, Clock.systemUTC())
+        .invokeOnSuccess(job);
+    ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
+    verify(invoker).invoke(invoked.capture());
+    assertEquals(Arrays.asList((Object) null), invoked.getValue().args());
+    verify(observer, never()).recordCallbackFailure(any(), any(), eq(1));
+  }
+
   @AfterEach
   void clearContext() {
     JobMdcContext.clear();
@@ -69,7 +96,9 @@ class LifecycleCallbackInvokerTest {
     verify(observer).recordCallbackFailure(eq(job), failure.capture(), eq(1));
     assertEquals(IllegalStateException.class, failure.getValue().getClass());
     assertEquals(
-        "onSuccess callback expects runtime parameter 1 but only 1 are supplied",
+        "Job "
+            + job.getId()
+            + " onSuccess callback expects runtime parameter 1 but only 1 is supplied",
         failure.getValue().getMessage());
     ArgumentCaptor<JobCallbackFailedEvent> event =
         ArgumentCaptor.forClass(JobCallbackFailedEvent.class);

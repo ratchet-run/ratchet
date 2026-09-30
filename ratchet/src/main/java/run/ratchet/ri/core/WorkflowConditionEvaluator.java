@@ -20,6 +20,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,7 @@ import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.payload.ArgumentMaterializer;
+import run.ratchet.ri.payload.RuntimeArguments;
 import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -266,7 +268,8 @@ public class WorkflowConditionEvaluator {
    *   <li><b>Instance method on context</b> ({@code args} empty, {@code !isStatic}) — {@code
    *       contextArg} is the receiver (e.g. {@code JobResult::isSuccess}).
    *   <li><b>Instance method via CDI bean</b> ({@code args} non-empty, {@code !isStatic}) — CDI
-   *       bean is the receiver; null slots are filled with {@code contextArg}.
+   *       bean is the receiver; indexed slots are filled with {@code contextArg}. Without index
+   *       metadata, all null slots receive the context argument.
    * </ul>
    */
   private boolean invokePredicatePayload(String expression, Object contextArg, UUID parentJobId) {
@@ -294,7 +297,7 @@ public class WorkflowConditionEvaluator {
           // Static method reference: SAM parameter maps to the method's first parameter
           args = payload.parameterTypes().length > 0 ? new Object[] {contextArg} : new Object[0];
         } else {
-          args = fillArgs(payload.args(), contextArg);
+          args = fillArgs(payload, contextArg);
         }
       } else if (payload.args().isEmpty()) {
         // Instance method reference where the SAM parameter is the receiver (e.g. Result::isOk)
@@ -304,7 +307,7 @@ public class WorkflowConditionEvaluator {
         try (BeanResolver.ManagedBean handle = beanResolver.acquire(cls)) {
           target = handle.instance();
           method = ManagedInvocation.exposedMethod(method, target);
-          args = fillArgs(payload.args(), contextArg);
+          args = fillArgs(payload, contextArg);
           return invokeCondition(method, target, args);
         }
       }
@@ -342,7 +345,14 @@ public class WorkflowConditionEvaluator {
     }
   }
 
-  private static Object[] fillArgs(List<Object> stored, Object contextArg) {
+  private static Object[] fillArgs(JobPayload payload, Object contextArg) {
+    if (payload.runtimeArgIndexes() != null) {
+      return RuntimeArguments.bind(
+              payload, Collections.singletonList(contextArg), "Workflow condition")
+          .args()
+          .toArray();
+    }
+    List<Object> stored = payload.args();
     Object[] result = new Object[stored.size()];
     for (int i = 0; i < stored.size(); i++) {
       result[i] = stored.get(i) != null ? stored.get(i) : contextArg;

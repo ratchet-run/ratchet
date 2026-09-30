@@ -104,7 +104,7 @@ class ArgumentMaterializerTest {
   }
 
   private static JobPayload payload(String descriptor, List<Object> args) {
-    return new JobPayload("allowed.Target", "run", descriptor, true, args);
+    return new JobPayload("allowed.Target", "run", descriptor, true, args, null);
   }
 
   private static PayloadSerializer failIfCalledSerializer() {

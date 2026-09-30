@@ -347,7 +347,7 @@ class JobTimeoutHandlerTest {
     JobEntity job = waitingJobWithMaxRetries(maxRetries);
     job.setCallerPrincipal("callback-owner");
     job.setOnFailurePayload(
-        new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of()));
+        new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of(), null));
     return job;
   }
 
@@ -355,7 +355,7 @@ class JobTimeoutHandlerTest {
     JobEntity job = jobWithMaxRetries(maxRetries);
     job.setCallerPrincipal("callback-owner");
     job.setOnFailurePayload(
-        new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of()));
+        new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of(), null));
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     return job;
   }

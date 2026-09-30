@@ -30,6 +30,25 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobPayload;
 
 class JobPayloadConverterTest {
+  @Test
+  void explicitNullIndexesAndNullIndexListRoundTrip() {
+    JobPayload payload =
+        new JobPayload(
+            "Target",
+            "callback",
+            "(Ljava/lang/String;Ljava/lang/Object;Ljava/lang/String;)V",
+            true,
+            Arrays.asList("before", null, "after"),
+            Arrays.asList(null, 0, null));
+    assertEquals(
+        payload, converter.convertToEntityAttribute(converter.convertToDatabaseColumn(payload)));
+    String json =
+        """
+        {"target":"Target","method":"callback","methodDescriptor":"()V",
+         "isStatic":true,"args":[],"runtimeArgIndexes":null}
+        """;
+    assertNull(converter.convertToEntityAttribute(json).runtimeArgIndexes());
+  }
 
   private final JobPayloadConverter converter = new JobPayloadConverter();
 
@@ -111,7 +130,8 @@ class JobPayloadConverterTest {
 
   @Test
   void roundtrip_preservesEmptyArgs() {
-    JobPayload original = new JobPayload("com.example.MyService", "ping", "()V", true, List.of());
+    JobPayload original =
+        new JobPayload("com.example.MyService", "ping", "()V", true, List.of(), null);
 
     JobPayload restored =
         converter.convertToEntityAttribute(converter.convertToDatabaseColumn(original));
@@ -127,7 +147,8 @@ class JobPayloadConverterTest {
             "process",
             "(Ljava/util/Map;)V",
             true,
-            List.of(Map.of("nested", List.of("a", "b"), "enabled", true)));
+            List.of(Map.of("nested", List.of("a", "b"), "enabled", true)),
+            null);
 
     JobPayload restored =
         converter.convertToEntityAttribute(converter.convertToDatabaseColumn(original));
@@ -184,7 +205,7 @@ class JobPayloadConverterTest {
   @Test
   void preparationScopes_preserveOuterSubmissionAcrossNestedSubmission() {
     JobPayload outer = samplePayload();
-    JobPayload inner = new JobPayload("com.example.Nested", "run", "()V", true, List.of());
+    JobPayload inner = new JobPayload("com.example.Nested", "run", "()V", true, List.of(), null);
     String normalOuter = converter.convertToDatabaseColumn(outer);
     String normalInner = converter.convertToDatabaseColumn(inner);
 
@@ -233,6 +254,6 @@ class JobPayloadConverterTest {
 
   private JobPayload samplePayload() {
     return new JobPayload(
-        "com.example.MyService", "process", "(Ljava/lang/String;)V", true, List.of("hello"));
+        "com.example.MyService", "process", "(Ljava/lang/String;)V", true, List.of("hello"), null);
   }
 }

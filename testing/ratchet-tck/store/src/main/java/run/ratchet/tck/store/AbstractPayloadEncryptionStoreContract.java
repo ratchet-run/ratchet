@@ -96,7 +96,8 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
             "charge",
             "(Ljava/lang/String;)V",
             true,
-            List.of("4111-secret-pan")));
+            List.of("4111-secret-pan"),
+            null));
     job.setParams(Map.of("apiKey", "super-secret-value"));
 
     JobEntity saved = persist(job);
@@ -146,7 +147,8 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
                 "charge",
                 "(Ljava/lang/String;)V",
                 true,
-                List.of("4111-recurring-secret")),
+                List.of("4111-recurring-secret"),
+                null),
             null,
             null,
             null,
@@ -191,7 +193,8 @@ public abstract class AbstractPayloadEncryptionStoreContract implements JobStore
             "charge",
             "(Ljava/lang/String;)V",
             true,
-            List.of("4111-wrapped-secret")));
+            List.of("4111-wrapped-secret"),
+            null));
 
     JobEntity saved = persist(job);
     JobEntity reloaded = store().findById(saved.getId()).orElseThrow();

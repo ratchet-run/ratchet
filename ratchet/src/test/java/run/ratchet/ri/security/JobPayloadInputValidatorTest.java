@@ -75,7 +75,7 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void nullTargetClassReportsError() {
-    JobPayload payload = new JobPayload(null, "run", "()V", false, List.of());
+    JobPayload payload = new JobPayload(null, "run", "()V", false, List.of(), null);
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("Target class"));
@@ -83,7 +83,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void nullMethodNameReportsError() {
-    JobPayload payload = new JobPayload(Target.class.getName(), null, "()V", false, List.of());
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), null, "()V", false, List.of(), null);
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("Method name"));
@@ -91,7 +92,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void nullMethodDescriptorReportsError() {
-    JobPayload payload = new JobPayload(Target.class.getName(), "run", null, false, List.of());
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "run", null, false, List.of(), null);
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("Method descriptor"));
@@ -99,7 +101,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void validPayloadPasses() {
-    JobPayload payload = new JobPayload(Target.class.getName(), "run", "()V", false, List.of());
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "run", "()V", false, List.of(), null);
     assertDoesNotThrow(() -> validator.validateAtCreation(payload));
   }
 
@@ -107,14 +110,19 @@ class JobPayloadInputValidatorTest {
   void validPayloadWithArgPasses() {
     JobPayload payload =
         new JobPayload(
-            Target.class.getName(), "greet", "(Ljava/lang/String;)V", false, List.of("Alice"));
+            Target.class.getName(),
+            "greet",
+            "(Ljava/lang/String;)V",
+            false,
+            List.of("Alice"),
+            null);
     assertDoesNotThrow(() -> validator.validateAtCreation(payload));
   }
 
   @Test
   void argumentTypeMismatchReportsError() {
     JobPayload payload =
-        new JobPayload(Target.class.getName(), "add", "(II)V", false, List.of(1, "two"));
+        new JobPayload(Target.class.getName(), "add", "(II)V", false, List.of(1, "two"), null);
 
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
@@ -126,7 +134,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void argumentCountMismatchReportsError() {
-    JobPayload payload = new JobPayload(Target.class.getName(), "add", "(II)V", false, List.of(1));
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "add", "(II)V", false, List.of(1), null);
 
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
@@ -139,7 +148,7 @@ class JobPayloadInputValidatorTest {
   @Test
   void nullArgsReportsClearValidationError() {
     JobPayload payload =
-        new JobPayload(Target.class.getName(), "greet", "(Ljava/lang/String;)V", false, null);
+        new JobPayload(Target.class.getName(), "greet", "(Ljava/lang/String;)V", false, null, null);
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("Arguments cannot be null"));
@@ -147,7 +156,7 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void malformedBaseFieldsAccumulateBeforeSignatureValidation() {
-    JobPayload payload = new JobPayload(null, null, null, false, null);
+    JobPayload payload = new JobPayload(null, null, null, false, null, null);
 
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
@@ -160,7 +169,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void privateMethodReportsVisibilityError() {
-    JobPayload payload = new JobPayload(Target.class.getName(), "hidden", "()V", false, List.of());
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "hidden", "()V", false, List.of(), null);
 
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
@@ -171,7 +181,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void protectedMethodReportsVisibilityError() {
-    JobPayload payload = new JobPayload(Target.class.getName(), "guarded", "()V", false, List.of());
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "guarded", "()V", false, List.of(), null);
 
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
@@ -182,7 +193,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void packagePrivateMethodReportsVisibilityError() {
-    JobPayload payload = new JobPayload(Target.class.getName(), "local", "()V", false, List.of());
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "local", "()V", false, List.of(), null);
 
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
@@ -194,7 +206,7 @@ class JobPayloadInputValidatorTest {
   @Test
   void nonExistentClassReportsError() {
     JobPayload payload =
-        new JobPayload("com.nonexistent.NoSuchClass", "run", "()V", false, List.of());
+        new JobPayload("com.nonexistent.NoSuchClass", "run", "()V", false, List.of(), null);
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("Target class not found"));
@@ -205,7 +217,7 @@ class JobPayloadInputValidatorTest {
     ClassLoader original = Thread.currentThread().getContextClassLoader();
     Thread.currentThread().setContextClassLoader(new LinkageFailureClassLoader(original));
     try {
-      JobPayload payload = new JobPayload("example.Broken", "run", "()V", false, List.of());
+      JobPayload payload = new JobPayload("example.Broken", "run", "()V", false, List.of(), null);
 
       IllegalArgumentException ex =
           assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
@@ -219,7 +231,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void invalidTargetClassNameRejectedBeforeClassLoading() {
-    JobPayload payload = new JobPayload("java.lang..Runtime", "exec", "()V", false, List.of());
+    JobPayload payload =
+        new JobPayload("java.lang..Runtime", "exec", "()V", false, List.of(), null);
 
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
@@ -231,7 +244,7 @@ class JobPayloadInputValidatorTest {
   @Test
   void nonExistentMethodReportsError() {
     JobPayload payload =
-        new JobPayload(Target.class.getName(), "noSuchMethod", "()V", false, List.of());
+        new JobPayload(Target.class.getName(), "noSuchMethod", "()V", false, List.of(), null);
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("not found"));
@@ -239,7 +252,8 @@ class JobPayloadInputValidatorTest {
 
   @Test
   void signatureValidationExceptionIsReportedAsValidationError() throws Exception {
-    JobPayload payload = new JobPayload(Target.class.getName(), "run", "()V", false, List.of());
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "run", "()V", false, List.of(), null);
     List<String> errors = new ArrayList<>();
     Method validateMethodSignature =
         JobPayloadInputValidator.class.getDeclaredMethod(

@@ -406,7 +406,8 @@ class JobTaskTest {
             "annotatedJobMethod",
             "()Ljava/lang/String;",
             true,
-            List.of()));
+            List.of(),
+            null));
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
@@ -906,7 +907,8 @@ class JobTaskTest {
             FIXED_CLOCK,
             null);
     JobEntity job = createTestJob();
-    JobPayload callback = new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of());
+    JobPayload callback =
+        new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of(), null);
     job.setOnFailurePayload(callback);
     initJobTaskWithDefaultStubs(jobTask, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
@@ -1036,7 +1038,8 @@ class JobTaskTest {
     UUID recurringMasterId = UUID.fromString("019c1f33-09c0-7000-8000-000000000125");
     job.setRecurringMasterId(recurringMasterId);
     job.setOnSuccessPayload(
-        new JobPayload(JobTaskTest.class.getName(), "failingCallback", "()V", true, List.of()));
+        new JobPayload(
+            JobTaskTest.class.getName(), "failingCallback", "()V", true, List.of(), null));
     initJobTaskWithDefaultStubs(fixedClockTask, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
@@ -1306,7 +1309,8 @@ class JobTaskTest {
             "captureSignalDecision",
             "()Ljava/lang/String;",
             true,
-            List.of()));
+            List.of(),
+            null));
     job.setSignalPayload("\"payload\"");
     job.setSignalPayloadType(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION);
     job.setSignalOutcome("REJECTED");
@@ -1393,7 +1397,8 @@ class JobTaskTest {
             "captureSignalString",
             "()Ljava/lang/String;",
             true,
-            List.of()));
+            List.of(),
+            null));
     job.setSignalPayload(signalSerializer.serialize("hello"));
     // Any non-DECISION marker drives the raw-Serializable branch.
     job.setSignalPayloadType("RAW");
@@ -1461,7 +1466,8 @@ class JobTaskTest {
                 "evil",
                 invocation.methodDescriptor(),
                 true,
-                List.of("patched"));
+                List.of("patched"),
+                null);
     JobTask resolving =
         new JobTask(
             jobStore,
@@ -1490,7 +1496,8 @@ class JobTaskTest {
             "captureArg",
             "(Ljava/lang/String;)Ljava/lang/String;",
             true,
-            List.of("original")));
+            List.of("original"),
+            null));
     initJobTaskWithDefaultStubs(resolving, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
@@ -1514,7 +1521,12 @@ class JobTaskTest {
     job.setMaxRetries(3);
     job.setPayload(
         new JobPayload(
-            JobTaskTest.class.getName(), "testJobMethod", "()Ljava/lang/String;", true, List.of()));
+            JobTaskTest.class.getName(),
+            "testJobMethod",
+            "()Ljava/lang/String;",
+            true,
+            List.of(),
+            null));
     return job;
   }
 

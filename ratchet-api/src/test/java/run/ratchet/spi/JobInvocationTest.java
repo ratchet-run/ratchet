@@ -44,10 +44,10 @@ class JobInvocationTest {
   @Test
   void nullableArgumentsArePreservedInAnImmutableDefensiveCopy() {
     List<Object> args = new ArrayList<>(Arrays.asList("first", null, 3L));
-    JobInvocation invocation = new JobInvocation("Target", "run", "", true, args);
+    JobInvocation invocation = new JobInvocation("Target", "run", "", true, args, null);
     args.set(0, "changed");
     assertEquals(Arrays.asList("first", null, 3L), invocation.arguments());
     assertThrows(UnsupportedOperationException.class, () -> invocation.arguments().set(1, "x"));
-    assertTrue(new JobInvocation("Target", "run", "", true, null).arguments().isEmpty());
+    assertTrue(new JobInvocation("Target", "run", "", true, null, null).arguments().isEmpty());
   }
 }

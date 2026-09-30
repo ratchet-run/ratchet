@@ -46,15 +46,12 @@ public record JobPayload(
 
   @JsonbCreator
   public JobPayload {
+    // Runtime slots hold null, so the copy must allow null elements (List.copyOf does not).
+    args = args == null ? null : Collections.unmodifiableList(new ArrayList<>(args));
     runtimeArgIndexes =
         runtimeArgIndexes == null || runtimeArgIndexes.stream().allMatch(index -> index == null)
             ? null
             : Collections.unmodifiableList(new ArrayList<>(runtimeArgIndexes));
-  }
-
-  public JobPayload(
-      String target, String method, String methodDescriptor, boolean isStatic, List<Object> args) {
-    this(target, method, methodDescriptor, isStatic, args, null);
   }
 
   private static final Map<Character, Class<?>> PRIMITIVE_TYPES =

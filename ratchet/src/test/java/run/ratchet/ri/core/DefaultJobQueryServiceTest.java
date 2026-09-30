@@ -116,7 +116,7 @@ class DefaultJobQueryServiceTest {
     e.setJobType(JobExecutionType.SINGLE);
     e.setPriority(JobPriority.NORMAL);
     e.setBackoffPolicy(BackoffPolicy.NONE);
-    e.setPayload(new JobPayload("com.example.TestJob", "run", "()V", false, List.of()));
+    e.setPayload(new JobPayload("com.example.TestJob", "run", "()V", false, List.of(), null));
     e.setCreatedAt(Instant.now());
     e.setScheduledTime(Instant.now());
     return e;
@@ -156,7 +156,7 @@ class DefaultJobQueryServiceTest {
             BackoffPolicy.NONE,
             0,
             0,
-            new JobPayload("com.example.Recurring", "tick", "()V", true, List.of()),
+            new JobPayload("com.example.Recurring", "tick", "()V", true, List.of(), null),
             null,
             null,
             "bk-rec",
@@ -885,7 +885,7 @@ class DefaultJobQueryServiceTest {
         BackoffPolicy.NONE,
         0,
         0,
-        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of()),
+        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of(), null),
         null,
         null,
         null,
@@ -910,7 +910,7 @@ class DefaultJobQueryServiceTest {
         BackoffPolicy.NONE,
         0,
         0,
-        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of()),
+        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of(), null),
         null,
         null,
         null,
@@ -935,7 +935,7 @@ class DefaultJobQueryServiceTest {
         BackoffPolicy.NONE,
         0,
         0,
-        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of()),
+        new JobPayload("com.example.Recurring", "tick", "()V", true, List.of(), null),
         null,
         null,
         businessKey,

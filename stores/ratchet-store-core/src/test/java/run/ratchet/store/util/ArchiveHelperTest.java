@@ -67,7 +67,7 @@ class ArchiveHelperTest {
     job.setZoneId("UTC");
     job.setScheduledTime(Instant.parse("2026-05-07T12:00:00Z"));
     job.setCreatedAt(Instant.parse("2026-05-07T12:00:01Z"));
-    job.setPayload(new JobPayload("com.example.Job", "run", "()V", false, List.of()));
+    job.setPayload(new JobPayload("com.example.Job", "run", "()V", false, List.of(), null));
     job.setIdempotencyKey("idem-1");
     return job;
   }
