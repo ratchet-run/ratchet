@@ -326,8 +326,8 @@ write_ci_fixture "${combo_root}" 'glassfish-managed:sqlserver'
 [[ -f "${combo_root}/docs/jakarta/glassfish-managed-sqlserver.md" ]] \
   || fail "removed Jakarta combination page was not pre-seeded"
 combo_output="$(run_materializer "${combo_root}")"
-grep -Fq 'Materialized 58 runtime conformance reports for 29 server/database combinations' <<< "${combo_output}" \
-  || fail "reduced matrix summary did not report 58 reports for 29 combinations"
+grep -Fq 'Materialized 68 runtime conformance reports for 34 server/database combinations' <<< "${combo_output}" \
+  || fail "reduced matrix summary did not report 68 reports for 34 combinations"
 [[ -d "${combo_root}/runtime/tck-conformance-reports-glassfish-managed-sqlserver" ]] \
   || fail "materializer touched the removed combination artifact directory"
 assert_materialized "${combo_root}/docs" glassfish-managed sqlserver
@@ -347,5 +347,5 @@ expect_failure 'weblogic-managed' \
 echo 'PASS: runtime conformance reports materialize from flattened and nested artifacts'
 echo 'PASS: missing, duplicate, empty, and placeholder reports fail closed'
 echo 'PASS: stale conformance pages are pruned while index pages are preserved'
-echo 'PASS: ci.yml matrix removal materializes 58 reports for 29 combinations'
+echo 'PASS: ci.yml matrix removal materializes 68 reports for 34 combinations'
 echo 'PASS: empty matrices and unknown display labels fail closed'
