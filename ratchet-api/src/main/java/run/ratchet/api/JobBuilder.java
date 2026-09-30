@@ -220,12 +220,17 @@ public interface JobBuilder {
    * remains at least once.
    *
    * <p>The key is persisted in a UUID-sized {@code VARCHAR(36)} column, so it must be at most 36
-   * characters. A longer key is rejected when the job is submitted. {@link
-   * #withBusinessKey(String)} accepts up to 255 printable ASCII characters. The auto-generated
-   * default is a 36-character UUID.
+   * characters. This method trims the key and checks its length as soon as it is called, so a
+   * longer key throws here. {@link #withBusinessKey(String)} accepts up to 255 printable ASCII
+   * characters. The auto-generated default is a 36-character UUID.
+   *
+   * <p>If your natural key is longer than 36 characters, hash it to a 36-character value first, for
+   * example {@code UUID.nameUUIDFromBytes(naturalKey.getBytes(StandardCharsets.UTF_8))
+   * .toString()}.
    *
    * @param key if null or blank, the auto-generated UUID is kept
    * @return this builder
+   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters
    */
   JobBuilder withIdempotencyKey(String key);
 
