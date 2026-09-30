@@ -538,6 +538,7 @@ final class MongoJobLifecycleOperations
     return booleanMutation(
         "reset_failed_to_pending",
         () -> {
+          Instant now = Instant.now();
           return transactionalStatusMutation(
               id,
               JobStatus.PENDING,
@@ -550,14 +551,14 @@ final class MongoJobLifecycleOperations
                               set(STATUS, "PENDING"),
                               set(ATTEMPTS, 0),
                               set(LAST_ERROR, null),
-                              set(SCHEDULED_TIME, DocumentMapper.toDate(Instant.now())),
+                              set(SCHEDULED_TIME, DocumentMapper.toDate(now)),
                               set(PICKED_BY, null),
                               set(PICKED_AT, null),
                               set(EXECUTION_START_TIME, null),
                               set(EXECUTION_END_TIME, null),
                               set(EXECUTION_DURATION_MS, null),
                               unset(TERMINATED_AT),
-                              set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                              set(UPDATED_AT, DocumentMapper.toDate(now)),
                               inc(VERSION, 1))));
         });
   }
