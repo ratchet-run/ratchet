@@ -31,6 +31,16 @@ public class ResourceTestJob {
     COMPLETED.incrementAndGet();
   }
 
+  /** Batch-child entry point: each item runs the same permit-gated body as {@link #execute()}. */
+  public static void executeItem(String item) {
+    try {
+      execute();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while processing " + item, e);
+    }
+  }
+
   public static int getMaxConcurrentSeen() {
     return MAX_CONCURRENT.get();
   }
