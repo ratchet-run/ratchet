@@ -1,0 +1,10 @@
+---
+id: payara-ee11-managed-mysql
+title: "Payara EE 11 / MySQL"
+sidebar_label: "Payara EE 11 / MySQL"
+---
+
+> This page is generated automatically after each successful CI run on `main`.
+> If you are reading a locally built copy of the docs, run
+> `mvn verify -P payara-ee11-managed,mysql -pl :ratchet-testsuite -am` and copy
+> `ratchet-testsuite/target/tck-api-conformance-report.md` here to see live results.
