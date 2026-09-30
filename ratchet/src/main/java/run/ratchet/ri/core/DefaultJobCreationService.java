@@ -908,7 +908,9 @@ public class DefaultJobCreationService
         items,
         callerPrincipal,
         item ->
-            validate(JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item))));
+            validate(
+                JobPayloadFactory.requireTaskArguments(
+                    JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item)))));
   }
 
   private <T extends Serializable> int createStreamingChildJobs(

@@ -101,6 +101,29 @@ class DefaultInvocationSubmissionServiceTest {
         () -> builder.forEachInvocation(List.of("item"), item -> invocation));
   }
 
+  @Test
+  void streamingInvocationBatchRuntimeSlotsAreRejected() {
+    JobInvocation invocation =
+        new JobInvocation(
+            TARGET,
+            "sendInvoice",
+            "(Ljava/lang/String;)V",
+            true,
+            Arrays.asList((Object) null),
+            List.of(0));
+    var error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                service
+                    .invocationStreamingBatch("stream")
+                    .fromStream(Stream.of("item"))
+                    .process(item -> invocation)
+                    .start());
+    Assertions.assertTrue(error.getMessage().contains("job task receives no runtime arguments"));
+    verify(jobBulkStore, Mockito.never()).bulkInsert(any());
+  }
+
   private static final String TARGET = DefaultInvocationSubmissionServiceTest.class.getName();
 
   @Mock private JobBatchStatusStore jobBatchStatusStore;
