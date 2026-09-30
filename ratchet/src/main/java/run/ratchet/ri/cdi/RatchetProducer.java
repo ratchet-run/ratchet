@@ -37,11 +37,14 @@ import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
 import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
+import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
+import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.PreExecutionValidator;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
@@ -164,7 +167,11 @@ public class RatchetProducer {
       Instance<SignalStore> signalStore,
       SingletonLeaseService singletonLeaseService,
       ErrorSanitizer errorSanitizer,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      PreExecutionValidator validationFacade,
+      JobPayloadInvoker payloadInvoker,
+      PayloadSerializer payloadSerializer,
+      ExecutionObserver observabilityFacade) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
     int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
@@ -183,7 +190,9 @@ public class RatchetProducer {
         metricsCollector,
         signalTimeoutBatchSize,
         singletonLeaseService,
-        errorSanitizer);
+        errorSanitizer,
+        new LifecycleCallbackInvoker(
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
   }
 
   @Produces

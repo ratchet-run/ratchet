@@ -31,6 +31,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
@@ -73,6 +74,8 @@ public class JobTimeoutHandler {
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final SingletonLeaseService singletonLeaseService;
   private final ErrorSanitizer errorSanitizer;
+  // Invokes callbacks on the timeout watchdog's scheduler thread, after terminal commit.
+  private final LifecycleCallbackInvoker callbackInvoker;
 
   /**
    * Job ids the hard-timeout watchdog has cancelled and is about to retry/finalize itself. The
@@ -98,6 +101,7 @@ public class JobTimeoutHandler {
     this.afterCommitRegistrar = null;
     this.singletonLeaseService = null;
     this.errorSanitizer = null;
+    this.callbackInvoker = null;
   }
 
   public JobTimeoutHandler(
@@ -219,7 +223,8 @@ public class JobTimeoutHandler {
         metricsCollector,
         signalTimeoutBatchSize,
         singletonLeaseService,
-        errorSanitizer);
+        errorSanitizer,
+        null);
   }
 
   public JobTimeoutHandler(
@@ -236,7 +241,8 @@ public class JobTimeoutHandler {
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
       SingletonLeaseService singletonLeaseService,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      LifecycleCallbackInvoker callbackInvoker) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -251,6 +257,7 @@ public class JobTimeoutHandler {
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.singletonLeaseService = singletonLeaseService;
     this.errorSanitizer = errorSanitizer;
+    this.callbackInvoker = callbackInvoker;
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -351,10 +358,24 @@ public class JobTimeoutHandler {
     Duration observedElapsedTime = elapsedTime.isNegative() ? Duration.ZERO : elapsedTime;
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
-    lifecycleFacade.handleTimeoutTransition(
-        timeoutEx,
-        false,
-        () -> applyHardTimeoutTransition(jobId, timeoutEx, timeoutSec, observedElapsedTime));
+    AtomicReference<JobEntity> terminalJob = new AtomicReference<>();
+    boolean committed =
+        lifecycleFacade.handleTimeoutTransition(
+            timeoutEx,
+            false,
+            () -> {
+              Optional<TerminalTimeoutTransition> outcome =
+                  applyHardTimeoutTransition(jobId, timeoutEx, timeoutSec, observedElapsedTime);
+              outcome.ifPresent(transition -> terminalJob.set(transition.job()));
+              return outcome;
+            });
+    // Only the RUNNING->FAILED CAS winner in commitCompletion invokes the callback, after commit.
+    // The worker defers to the watchdog marker, gets incrementRetryAttempt == -1, or loses
+    // completeFailure's CAS in transitionToDlq, so no additional marker is needed.
+    JobEntity job = terminalJob.get();
+    if (committed && callbackInvoker != null && job != null) {
+      callbackInvoker.invokeInJobContext(job, job.getOnFailurePayload(), "onFailure");
+    }
   }
 
   private Optional<TerminalTimeoutTransition> applyHardTimeoutTransition(

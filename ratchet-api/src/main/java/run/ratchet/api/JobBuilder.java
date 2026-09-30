@@ -93,7 +93,9 @@ public interface JobBuilder {
   JobBuilder immediate();
 
   /**
-   * Registers a callback invoked after this job fails.
+   * Registers a callback invoked once after this job fails terminally, after retries are exhausted,
+   * including when a hard timeout ends the final attempt. On a hard timeout, it runs on the timeout
+   * watchdog's thread while the interrupted original worker may still be running.
    *
    * @param handler failure callback; receives the job context and failure
    * @return this builder
