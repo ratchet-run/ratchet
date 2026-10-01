@@ -19,7 +19,7 @@ import jakarta.json.JsonException;
 import jakarta.json.spi.JsonProvider;
 
 /**
- * JSON-P provider probe shared by coordinator transports.
+ * JSON-P provider probe and cached provider shared by coordinator transports.
  *
  * @apiNote Framework-internal. This class is consumed only by Ratchet's bundled coordinator
  *     transports; it is not part of the public coordinator SPI and may change without notice.
@@ -28,9 +28,33 @@ public final class JsonProviders {
 
   private JsonProviders() {}
 
+  private static volatile JsonProvider cached;
+
+  /**
+   * Returns the JSON-P provider, resolved once per class loader that loads this class. The static
+   * {@code jakarta.json.Json} factories run a {@link java.util.ServiceLoader} scan on every call;
+   * the codec encodes and decodes a wakeup envelope per notification, so it uses this cached
+   * instance instead. A failed lookup is not cached, so a later call retries it.
+   *
+   * @throws JsonException if no JSON-P provider is available
+   */
+  public static JsonProvider provider() {
+    JsonProvider provider = cached;
+    if (provider == null) {
+      synchronized (JsonProviders.class) {
+        provider = cached;
+        if (provider == null) {
+          provider = JsonProvider.provider();
+          cached = provider;
+        }
+      }
+    }
+    return provider;
+  }
+
   public static void requireJsonProvider() {
     try {
-      JsonProvider.provider();
+      provider();
     } catch (JsonException ex) {
       throw new IllegalStateException(
           "No JSON-P provider (jakarta.json.spi.JsonProvider) found on the classpath. Add"
