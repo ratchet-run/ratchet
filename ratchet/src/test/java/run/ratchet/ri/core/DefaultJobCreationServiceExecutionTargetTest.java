@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -303,6 +304,27 @@ class DefaultJobCreationServiceExecutionTargetTest {
   }
 
   @Test
+  void callbackCallingMethodOnItsOwnParameter_isRejectedAtSubmit() {
+    DefaultJobBuilder successBuilder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceExecutionTargetTest::noopTask, Duration.ZERO);
+    successBuilder.onSuccess(ctx -> ctx.jobId());
+    IllegalArgumentException successError =
+        assertThrows(IllegalArgumentException.class, () -> service.submit(successBuilder));
+    assertTrue(successError.getMessage().contains("method reference"));
+
+    DefaultJobBuilder failureBuilder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceExecutionTargetTest::noopTask, Duration.ZERO);
+    failureBuilder.onFailure((ctx, error) -> error.printStackTrace());
+    IllegalArgumentException failureError =
+        assertThrows(IllegalArgumentException.class, () -> service.submit(failureBuilder));
+    assertTrue(failureError.getMessage().contains("method reference"));
+  }
+
+  @Test
   void workflowBranchPredicateExpression_encryptsStoredPayloadArgs() {
     EncryptionTestKit.install(true);
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
@@ -322,13 +344,15 @@ class DefaultJobCreationServiceExecutionTargetTest {
     WorkflowConditionEntity condition = conditionCaptor.getValue();
     String storedExpression = condition.getConditionExpression();
 
-    // args is now a framed ciphertext string, so the key "args" is present but the [] is not.
+    // args is now a framed ciphertext string, so the key "args" is present but the array is not.
+    // The runtime slot index stays cleartext beside it; it holds no argument value.
     assertTrue(storedExpression.contains("\"args\":\""));
-    assertFalse(storedExpression.contains("\"args\":[]"));
-    assertTrue(
+    assertFalse(storedExpression.contains("\"args\":[null]"));
+    String decrypted =
         PayloadEncryptor.decryptArgs(
-                storedExpression, EncryptionTarget.predicate(condition.getParentJobId()))
-            .contains("\"args\":[]"));
+            storedExpression, EncryptionTarget.predicate(condition.getParentJobId()));
+    assertTrue(decrypted.contains("\"args\":[null]"));
+    assertTrue(decrypted.contains("\"runtimeArgIndexes\":[0]"));
   }
 
   @Test

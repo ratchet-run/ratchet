@@ -108,7 +108,8 @@ public final class ArgumentMaterializer {
         payload.method(),
         payload.methodDescriptor(),
         payload.isStatic(),
-        Collections.unmodifiableList(Arrays.asList(restored)));
+        Collections.unmodifiableList(Arrays.asList(restored)),
+        payload.runtimeArgIndexes());
   }
 
   private static Class<?> boxed(Class<?> type) {

@@ -199,13 +199,14 @@ public class NativeVerification {
       track(
           invocations
               .enqueueInvocation(
-                  new JobInvocation(LazyJob.class.getName(), "execute", "()V", false, List.of()))
+                  new JobInvocation(
+                      LazyJob.class.getName(), "execute", "()V", false, List.of(), null))
               .submit());
       track(
           invocations
               .enqueueInvocation(
                   new JobInvocation(
-                      PrototypeJob.class.getName(), "execute", "()V", false, List.of()))
+                      PrototypeJob.class.getName(), "execute", "()V", false, List.of(), null))
               .submit());
       check(
           !policy.isAllowed(DeniedJob.class.getName()), "native registration changed ClassPolicy");

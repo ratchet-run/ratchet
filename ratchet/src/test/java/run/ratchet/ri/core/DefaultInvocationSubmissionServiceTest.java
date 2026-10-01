@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -67,6 +68,61 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 
 @ExtendWith(MockitoExtension.class)
 class DefaultInvocationSubmissionServiceTest {
+  @Test
+  void taskRuntimeSlotsAreRejectedAtSubmit() {
+    JobInvocation invocation =
+        new JobInvocation(
+            TARGET,
+            "sendInvoice",
+            "(Ljava/lang/String;)V",
+            true,
+            Arrays.asList((Object) null),
+            List.of(0));
+    var error =
+        assertThrows(
+            IllegalArgumentException.class, () -> service.enqueueInvocation(invocation).submit());
+    Assertions.assertTrue(error.getMessage().contains("job task receives no runtime arguments"));
+    verify(jobCrudStore, Mockito.never()).create(any());
+  }
+
+  @Test
+  void batchInvocationRuntimeSlotsAreRejected() {
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("indexed", creationService);
+    JobInvocation invocation =
+        new JobInvocation(
+            TARGET,
+            "sendInvoice",
+            "(Ljava/lang/String;)V",
+            true,
+            Arrays.asList((Object) null),
+            List.of(0));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> builder.forEachInvocation(List.of("item"), item -> invocation));
+  }
+
+  @Test
+  void streamingInvocationBatchRuntimeSlotsAreRejected() {
+    JobInvocation invocation =
+        new JobInvocation(
+            TARGET,
+            "sendInvoice",
+            "(Ljava/lang/String;)V",
+            true,
+            Arrays.asList((Object) null),
+            List.of(0));
+    var error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                service
+                    .invocationStreamingBatch("stream")
+                    .fromStream(Stream.of("item"))
+                    .process(item -> invocation)
+                    .start());
+    Assertions.assertTrue(error.getMessage().contains("job task receives no runtime arguments"));
+    verify(jobBulkStore, Mockito.never()).bulkInsert(any());
+  }
 
   private static final String TARGET = DefaultInvocationSubmissionServiceTest.class.getName();
 
@@ -145,7 +201,7 @@ class DefaultInvocationSubmissionServiceTest {
 
   private static JobInvocation sendInvoiceInvocation() {
     return new JobInvocation(
-        TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of("inv_123"));
+        TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of("inv_123"), null);
   }
 
   @Test
@@ -215,7 +271,8 @@ class DefaultInvocationSubmissionServiceTest {
   @Test
   void then_chainsASecondInvocationStep() {
     JobInvocation next =
-        new JobInvocation(TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of("inv_2"));
+        new JobInvocation(
+            TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of("inv_2"), null);
 
     service.enqueueInvocation(sendInvoiceInvocation()).then(next).submit();
 
@@ -229,7 +286,7 @@ class DefaultInvocationSubmissionServiceTest {
   @Test
   void invocationCondition_persistsAsCustomConditionPayload() {
     JobInvocation predicate =
-        new JobInvocation(TARGET, "wasPaid", "(Ljava/lang/Object;)Z", true, List.of());
+        new JobInvocation(TARGET, "wasPaid", "(Ljava/lang/Object;)Z", true, List.of(), null);
     WorkflowCondition condition = service.invocationCondition(predicate);
     assertEquals(WorkflowCondition.ConditionType.CUSTOM, condition.type());
 
@@ -258,7 +315,7 @@ class DefaultInvocationSubmissionServiceTest {
             List.of("inv_1", "inv_2"),
             id ->
                 new JobInvocation(
-                    TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+                    TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id), null))
         .withResource("  gateway  ")
         .withMaxRetries(4)
         .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(3))
@@ -297,7 +354,7 @@ class DefaultInvocationSubmissionServiceTest {
         .process(
             id ->
                 new JobInvocation(
-                    TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+                    TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id), null))
         .withResource("  gateway  ")
         .withMaxRetries(2)
         .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofMillis(500))
@@ -336,7 +393,12 @@ class DefaultInvocationSubmissionServiceTest {
                 .process(
                     id ->
                         new JobInvocation(
-                            TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+                            TARGET,
+                            "sendInvoice",
+                            "(Ljava/lang/String;)V",
+                            true,
+                            List.of(id),
+                            null))
                 .start());
 
     BatchChunkFailureEvent event =
@@ -369,7 +431,12 @@ class DefaultInvocationSubmissionServiceTest {
                 .process(
                     id ->
                         new JobInvocation(
-                            TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id)))
+                            TARGET,
+                            "sendInvoice",
+                            "(Ljava/lang/String;)V",
+                            true,
+                            List.of(id),
+                            null))
                 .start());
 
     BatchChunkFailureEvent event =

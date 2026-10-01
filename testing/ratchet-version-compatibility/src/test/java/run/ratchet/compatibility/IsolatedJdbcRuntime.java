@@ -141,21 +141,37 @@ final class IsolatedJdbcRuntime implements AutoCloseable {
           invokeSetter(job, "setIdempotencyKey", String.class, jobId.toString());
           invokeSetter(job, "setBusinessKey", String.class, businessKey);
 
-          Constructor<?> payloadConstructor =
-              jobPayloadClass.getConstructor(
-                  String.class, String.class, String.class, boolean.class, List.class);
-          Object payload =
-              payloadConstructor.newInstance(
-                  "com.example.CompatibilityJob",
-                  "execute",
-                  "(Ljava/lang/String;)V",
-                  true,
-                  List.of(payloadArgument));
+          Object payload = newPayload(payloadArgument);
           invokeSetter(job, "setPayload", jobPayloadClass, payload);
 
           transaction(() -> invokeStore("create", new Class<?>[] {jobEntityClass}, job));
           return null;
         });
+  }
+
+  /**
+   * Builds a payload on either side of the runtime-slot change: released versions only have the
+   * five-argument constructor, the snapshot only has the one that also takes runtimeArgIndexes.
+   */
+  private Object newPayload(String payloadArgument) throws ReflectiveOperationException {
+    Object[] args = {
+      "com.example.CompatibilityJob",
+      "execute",
+      "(Ljava/lang/String;)V",
+      true,
+      List.of(payloadArgument)
+    };
+    try {
+      Constructor<?> withIndexes =
+          jobPayloadClass.getConstructor(
+              String.class, String.class, String.class, boolean.class, List.class, List.class);
+      Object[] withNullIndexes = Arrays.copyOf(args, args.length + 1);
+      return withIndexes.newInstance(withNullIndexes);
+    } catch (NoSuchMethodException e) {
+      return jobPayloadClass
+          .getConstructor(String.class, String.class, String.class, boolean.class, List.class)
+          .newInstance(args);
+    }
   }
 
   void consumeJob(

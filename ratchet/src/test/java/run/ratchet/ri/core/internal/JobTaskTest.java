@@ -60,7 +60,9 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.SerializableBiConsumer;
 import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCompletedEvent;
@@ -154,6 +156,61 @@ class JobTaskTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
+  void successCallbacksReceiveTheCurrentContextForInlineAndMethodReference() throws Exception {
+    for (SerializableConsumer<JobContext> callback :
+        List.<SerializableConsumer<JobContext>>of(
+            ctx -> CallbackRecorder.success(ctx), CallbackRecorder::success)) {
+      CallbackRecorder.reset();
+      JobEntity job = createTestJob();
+      job.setOnSuccessPayload(JobPayloadFactory.fromLambda(callback));
+      initJobTaskWithDefaultStubs(job);
+      when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+      when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+      when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+          .thenAnswer(invocation -> ((Callable<?>) invocation.getArgument(1)).call());
+      when(lifecycleFacade.completeSuccess(
+              any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+          .thenReturn(true);
+
+      jobTask.call();
+
+      Assertions.assertNotNull(CallbackRecorder.context);
+      Assertions.assertEquals(JOB_UUID, CallbackRecorder.context.jobId());
+      Assertions.assertSame(CallbackRecorder.currentContext, CallbackRecorder.context);
+      Assertions.assertNull(JobContext.currentOrNull());
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void terminalFailureCallbacksReceiveTheOriginalExceptionForBothForms() throws Exception {
+    for (SerializableBiConsumer<JobContext, Throwable> callback :
+        List.<SerializableBiConsumer<JobContext, Throwable>>of(
+            (ctx, err) -> CallbackRecorder.failure(ctx, err), CallbackRecorder::failure)) {
+      CallbackRecorder.reset();
+      JobEntity job = createTestJob();
+      job.setMaxRetries(0);
+      job.setOnFailurePayload(JobPayloadFactory.fromLambda(callback));
+      initJobTaskWithDefaultStubs(job);
+      when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+      when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+      RuntimeException failure = new IllegalStateException("final attempt failed");
+      doThrow(failure).when(resilienceStrategy).execute(anyString(), any(Callable.class));
+      when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
+      when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+
+      jobTask.call();
+
+      Assertions.assertNotNull(CallbackRecorder.context);
+      Assertions.assertEquals(JOB_UUID, CallbackRecorder.context.jobId());
+      Assertions.assertSame(CallbackRecorder.currentContext, CallbackRecorder.context);
+      Assertions.assertSame(failure, CallbackRecorder.failure);
+      Assertions.assertNull(JobContext.currentOrNull());
+    }
+  }
+
+  @Test
   void constructorRejectsNullClock() {
     Assertions.assertThrows(
         NullPointerException.class,
@@ -200,6 +257,7 @@ class JobTaskTest {
 
   @BeforeEach
   void setUp() {
+    CallbackRecorder.reset();
     OBSERVED_SIGNAL_DECISION.remove();
     OBSERVED_CUSTOM_ARGUMENT.remove();
     JsonbTestPayloadSerializer serializer = new JsonbTestPayloadSerializer();
@@ -227,6 +285,7 @@ class JobTaskTest {
 
   @AfterEach
   void tearDown() {
+    CallbackRecorder.reset();
     OBSERVED_SIGNAL_DECISION.remove();
     OBSERVED_SIGNAL_STRING.remove();
     OBSERVED_CUSTOM_ARGUMENT.remove();
@@ -347,7 +406,8 @@ class JobTaskTest {
             "annotatedJobMethod",
             "()Ljava/lang/String;",
             true,
-            List.of()));
+            List.of(),
+            null));
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
@@ -847,7 +907,8 @@ class JobTaskTest {
             FIXED_CLOCK,
             null);
     JobEntity job = createTestJob();
-    JobPayload callback = new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of());
+    JobPayload callback =
+        new JobPayload(getClass().getName(), "onFailure", "()V", true, List.of(), null);
     job.setOnFailurePayload(callback);
     initJobTaskWithDefaultStubs(jobTask, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
@@ -977,7 +1038,8 @@ class JobTaskTest {
     UUID recurringMasterId = UUID.fromString("019c1f33-09c0-7000-8000-000000000125");
     job.setRecurringMasterId(recurringMasterId);
     job.setOnSuccessPayload(
-        new JobPayload(JobTaskTest.class.getName(), "failingCallback", "()V", true, List.of()));
+        new JobPayload(
+            JobTaskTest.class.getName(), "failingCallback", "()V", true, List.of(), null));
     initJobTaskWithDefaultStubs(fixedClockTask, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
@@ -1247,7 +1309,8 @@ class JobTaskTest {
             "captureSignalDecision",
             "()Ljava/lang/String;",
             true,
-            List.of()));
+            List.of(),
+            null));
     job.setSignalPayload("\"payload\"");
     job.setSignalPayloadType(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION);
     job.setSignalOutcome("REJECTED");
@@ -1334,7 +1397,8 @@ class JobTaskTest {
             "captureSignalString",
             "()Ljava/lang/String;",
             true,
-            List.of()));
+            List.of(),
+            null));
     job.setSignalPayload(signalSerializer.serialize("hello"));
     // Any non-DECISION marker drives the raw-Serializable branch.
     job.setSignalPayloadType("RAW");
@@ -1402,7 +1466,8 @@ class JobTaskTest {
                 "evil",
                 invocation.methodDescriptor(),
                 true,
-                List.of("patched"));
+                List.of("patched"),
+                null);
     JobTask resolving =
         new JobTask(
             jobStore,
@@ -1431,7 +1496,8 @@ class JobTaskTest {
             "captureArg",
             "(Ljava/lang/String;)Ljava/lang/String;",
             true,
-            List.of("original")));
+            List.of("original"),
+            null));
     initJobTaskWithDefaultStubs(resolving, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
@@ -1455,7 +1521,12 @@ class JobTaskTest {
     job.setMaxRetries(3);
     job.setPayload(
         new JobPayload(
-            JobTaskTest.class.getName(), "testJobMethod", "()Ljava/lang/String;", true, List.of()));
+            JobTaskTest.class.getName(),
+            "testJobMethod",
+            "()Ljava/lang/String;",
+            true,
+            List.of(),
+            null));
     return job;
   }
 

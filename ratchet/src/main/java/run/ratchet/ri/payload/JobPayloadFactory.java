@@ -29,6 +29,7 @@ import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 import run.ratchet.ri.payload.AsmLambdaAnalyzer.InspectionResult;
 import run.ratchet.ri.payload.AsmLambdaAnalyzer.InvocationStep;
+import run.ratchet.ri.payload.AsmLambdaAnalyzer.RuntimeParameter;
 import run.ratchet.spi.JobInvocation;
 import run.ratchet.store.entity.JobPayload;
 
@@ -66,7 +67,7 @@ public final class JobPayloadFactory {
   static final String RECURRING_DISPATCH_TARGET = "run.ratchet.ri.cdi.RecurringMethodInvoker";
 
   private static final JobPayload NOOP =
-      new JobPayload(COORDINATION_PLACEHOLDER_TARGET, "noop", "()V", true, List.of());
+      new JobPayload(COORDINATION_PLACEHOLDER_TARGET, "noop", "()V", true, List.of(), null);
 
   private static final ClassValue<ConcurrentMap<MethodLookupKey, VisibilityVerdict>>
       VISIBILITY_CACHE = reflectionCache();
@@ -100,32 +101,68 @@ public final class JobPayloadFactory {
   public static JobInvocation toInvocation(Serializable lambda, List<Object> runtimeArgs) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
     Objects.requireNonNull(runtimeArgs, "Runtime args must not be null");
-    return toInvocationInternal(lambda, runtimeArgs);
+    return toInvocationInternal(lambda, runtimeArgs, false);
   }
 
   public static JobInvocation toInvocation(Serializable lambda) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
-    return toInvocationInternal(lambda, List.of());
+    return toInvocationInternal(lambda, List.of(), false);
   }
 
-  private static JobInvocation toInvocationInternal(Serializable lambda, List<Object> runtimeArgs) {
+  /** Creates a workflow condition whose SAM parameter may be a no-argument receiver. */
+  public static JobPayload fromConditionLambda(Serializable lambda) {
+    Objects.requireNonNull(lambda, "Lambda must not be null");
+    return fromInvocation(toInvocationInternal(lambda, List.of(), true));
+  }
+
+  private static JobInvocation toInvocationInternal(
+      Serializable lambda, List<Object> runtimeArgs, boolean condition) {
     SerializedLambda sl = toSerializedLambda(lambda);
     InspectionResult inspection = AsmLambdaAnalyzer.inspect(sl);
 
     if (inspection.steps().size() != 1) {
-      throw new IllegalArgumentException(singleInvocationError(lambda, inspection.steps().size()));
+      throw new IllegalArgumentException(
+          singleInvocationError(lambda, inspection.steps().size(), sl, runtimeArgs, condition));
     }
 
     InvocationStep step = resolveNestedFunctionalInvocation(inspection.last());
+    if (condition
+        && step.receiver() instanceof RuntimeParameter receiver
+        && receiver.index() == 0
+        && step.arguments().isEmpty()) {
+      // `r -> r.isOk()` calls a no-arg method on the first parameter. That is the same shape as
+      // the unbound reference `Result::isOk`, which workflow conditions invoke on their argument.
+      step =
+          new InvocationStep(
+              step.ownerInternalName(),
+              step.methodName(),
+              step.methodDescriptor(),
+              step.isStatic(),
+              step.arguments(),
+              null);
+    }
+    if (step.receiver() instanceof RuntimeParameter) {
+      throw new IllegalArgumentException(receiverError(runtimeArgs, condition));
+    }
     rejectNonPublicMethod(step);
-    List<Object> args = mergeInvocationArguments(step, runtimeArgs);
+    List<Object> args = new ArrayList<>(mergeInvocationArguments(step, runtimeArgs));
+    List<Integer> indexes = new ArrayList<>(args.size());
+    for (int i = 0; i < args.size(); i++) {
+      if (args.get(i) instanceof RuntimeParameter param) {
+        indexes.add(param.index());
+        args.set(i, null);
+      } else {
+        indexes.add(null);
+      }
+    }
 
     return new JobInvocation(
         internalNameToFqcn(step.ownerInternalName()),
         step.methodName(),
         step.methodDescriptor(),
         step.isStatic(),
-        args);
+        args,
+        indexes);
   }
 
   public static JobPayload fromInvocation(JobInvocation invocation) {
@@ -135,7 +172,8 @@ public final class JobPayloadFactory {
         invocation.methodName(),
         invocation.methodDescriptor(),
         invocation.staticMethod(),
-        invocation.arguments());
+        invocation.arguments(),
+        invocation.runtimeArgIndexes());
   }
 
   public static JobPayload noop() {
@@ -166,17 +204,57 @@ public final class JobPayloadFactory {
     return RECURRING_DISPATCH_TARGET.equals(className);
   }
 
-  private static String singleInvocationError(Serializable lambda, int stepCount) {
-    return "Job scheduler requires exactly one method invocation (method reference or single method"
-        + " call). Found "
-        + stepCount
-        + " invocations in lambda: "
-        + lambda
-        + ". "
-        + "\n\nFor complex multi-step logic, create a dedicated method in a CDI bean and"
-        + " reference it: "
-        + "\n  scheduler.enqueue(() -> myService.processComplexJob(args)).submit(); "
-        + "\n\nSee SerializableCheckedRunnable JavaDoc for examples and workarounds.";
+  private static String receiverError(List<Object> runtimeArgs, boolean condition) {
+    if (condition) {
+      return "The condition calls a method on its parameter with an unsupported receiver shape; "
+          + "only a no-argument method on parameter 0 is supported. Pass the parameter straight "
+          + "to one public condition method instead.";
+    }
+    if (!runtimeArgs.isEmpty()) {
+      return "The batch action calls a method on its item parameter, which Ratchet cannot persist."
+          + " Pass the item straight to one public method instead, e.g. item ->"
+          + " service.refresh(item), and call methods on the item inside that method.";
+    }
+    return "The callback calls a method on its own parameter (ctx, error or the batch context), "
+        + "which Ratchet cannot persist. "
+        + CALLBACK_GUIDANCE;
+  }
+
+  /** Rejects slots on task payloads, whose invocation supplies no runtime parameters. */
+  public static JobPayload requireTaskArguments(JobPayload payload) {
+    if (payload.runtimeArgIndexes() != null) {
+      throw new IllegalArgumentException(
+          "The payload declares runtime parameter slots (runtimeArgIndexes) but a job task receives"
+              + " no runtime arguments; supply every argument in the invocation");
+    }
+    return payload;
+  }
+
+  private static final String CALLBACK_GUIDANCE =
+      "Use a method reference such as Handler::onFailure, or pass the parameters straight to "
+          + "one public method, e.g. (ctx, error) -> handler.onFailure(ctx, error), and do the "
+          + "work on ctx/error inside that method. Callbacks such as onSuccess/onFailure cannot "
+          + "call methods on ctx or error inside the lambda.";
+
+  private static String singleInvocationError(
+      Serializable lambda,
+      int stepCount,
+      SerializedLambda sl,
+      List<Object> runtimeArgs,
+      boolean condition) {
+    String message =
+        """
+        Job scheduler requires exactly one method invocation (method reference or single method call). Found %s invocations in lambda: %s.
+
+        For complex multi-step logic, create a dedicated method in a CDI bean and reference it:
+          scheduler.enqueue(() -> myService.processComplexJob(args)).submit();
+
+        See SerializableCheckedRunnable JavaDoc for examples and workarounds.\
+        """
+            .formatted(stepCount, lambda);
+    return Type.getArgumentTypes(sl.getInstantiatedMethodType()).length > 0
+        ? message + "\n\n" + receiverError(runtimeArgs, condition)
+        : message;
   }
 
   private static String internalNameToFqcn(String internal) {
@@ -284,10 +362,10 @@ public final class JobPayloadFactory {
   private static List<Object> mergeInvocationArguments(
       InvocationStep nestedStep, List<Object> wrapperArgs) {
     /*
-     * Functional adapter unwrapping merges wrapper-supplied values into unresolved null slots from
-     * the nested invocation. If ASM already resolved every nested parameter but the wrapper captured
-     * the complete target argument list, the arity fallback below keeps those wrapper values instead
-     * of dropping them as leftovers.
+     * Runtime parameter markers bind by functional parameter index first, including markers passed
+     * through another adapter. Only remaining, originally plain null slots use positional fallback.
+     * When no markers were substituted and the wrapper supplies the complete target argument list,
+     * the arity fallback keeps those wrapper values instead of dropping them as leftovers.
      */
     int nestedParamCount = Type.getArgumentTypes(nestedStep.methodDescriptor()).length;
 
@@ -303,26 +381,43 @@ public final class JobPayloadFactory {
 
     List<Object> nestedArgs = nestedStep.arguments();
     if (nestedArgs.isEmpty()) {
-      return List.copyOf(wrapperArgs);
+      return new ArrayList<>(wrapperArgs);
     }
 
     List<Object> merged = new ArrayList<>(nestedArgs);
-    int wrapperIndex = 0;
-    for (int i = 0; i < merged.size() && wrapperIndex < wrapperArgs.size(); i++) {
-      if (merged.get(i) == null) {
-        merged.set(i, wrapperArgs.get(wrapperIndex++));
+    boolean[] consumed = new boolean[wrapperArgs.size()];
+    boolean substituted = false;
+    for (int i = 0; i < merged.size(); i++) {
+      if (merged.get(i) instanceof RuntimeParameter param
+          && param.index() >= 0
+          && param.index() < wrapperArgs.size()) {
+        merged.set(i, wrapperArgs.get(param.index()));
+        consumed[param.index()] = true;
+        substituted = true;
       }
     }
 
+    int wrapperIndex = 0;
+    for (int i = 0; i < merged.size(); i++) {
+      while (wrapperIndex < consumed.length && consumed[wrapperIndex]) {
+        wrapperIndex++;
+      }
+      // Only original plain nulls are fallback slots. A substituted null is a real value.
+      if (nestedArgs.get(i) == null && wrapperIndex < wrapperArgs.size()) {
+        merged.set(i, wrapperArgs.get(wrapperIndex));
+        consumed[wrapperIndex++] = true;
+      }
+    }
+    while (wrapperIndex < consumed.length && consumed[wrapperIndex]) {
+      wrapperIndex++;
+    }
     if (wrapperIndex == wrapperArgs.size()) {
-      return List.copyOf(merged);
+      return merged;
     }
-
-    if (wrapperArgs.size() == nestedParamCount) {
-      return List.copyOf(wrapperArgs);
+    if (!substituted && wrapperArgs.size() == nestedParamCount) {
+      return new ArrayList<>(wrapperArgs);
     }
-
-    return List.copyOf(merged);
+    return merged;
   }
 
   private static boolean isSerializableFunctionalInterfaceMethod(InvocationStep step) {

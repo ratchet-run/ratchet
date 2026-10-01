@@ -16,8 +16,14 @@
 package run.ratchet.ri.core.internal;
 
 import java.time.Clock;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobContext;
 import run.ratchet.api.event.JobCallbackFailedEvent;
+import run.ratchet.api.event.JobCallbackFailedEvent.CallbackType;
+import run.ratchet.ri.payload.RuntimeArguments;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
@@ -45,14 +51,47 @@ public final class LifecycleCallbackInvoker {
     this.clock = clock;
   }
 
-  public void invoke(JobEntity job, JobPayload callbackPayload, String callbackName) {
+  public void invokeOnSuccess(JobEntity job) {
+    invoke(
+        job,
+        job.getOnSuccessPayload(),
+        CallbackType.ON_SUCCESS,
+        Collections.singletonList(JobContext.currentOrNull()));
+  }
+
+  public void invokeOnFailure(JobEntity job, Throwable failure) {
+    invoke(
+        job,
+        job.getOnFailurePayload(),
+        CallbackType.ON_FAILURE,
+        Arrays.asList(JobContext.currentOrNull(), failure));
+  }
+
+  private void invoke(
+      JobEntity job,
+      JobPayload callbackPayload,
+      CallbackType callbackType,
+      List<Object> runtimeArgs) {
     if (callbackPayload == null) {
       return;
     }
+    String callbackName = displayName(callbackType);
     try {
       validationFacade.validateSecurity(callbackPayload);
       JobPayload invocationPayload =
           payloadInvoker.materializeArguments(callbackPayload, payloadSerializer);
+      if (invocationPayload.runtimeArgIndexes() != null
+          && invocationPayload.runtimeArgIndexes().contains(0)
+          && runtimeArgs.get(0) == null) {
+        log.warnf(
+            "Missing JobContext for job %s %s callback; invoking with null context",
+            job.getId(), callbackName);
+      }
+      invocationPayload =
+          RuntimeArguments.bind(
+              invocationPayload,
+              runtimeArgs,
+              "Job " + job.getId() + " " + callbackName + " callback");
       payloadInvoker.invoke(invocationPayload);
     } catch (Exception e) {
       // Log + metric + event; preserve the parent job outcome.
@@ -69,10 +108,6 @@ public final class LifecycleCallbackInvoker {
         log.warnf("Callback metric error for job %s: %s", job.getId(), metricEx.getMessage());
       }
       try {
-        JobCallbackFailedEvent.CallbackType type =
-            "onSuccess".equals(callbackName)
-                ? JobCallbackFailedEvent.CallbackType.ON_SUCCESS
-                : JobCallbackFailedEvent.CallbackType.ON_FAILURE;
         observabilityFacade.publishEvent(
             new JobCallbackFailedEvent(
                 job.getId(),
@@ -82,7 +117,7 @@ public final class LifecycleCallbackInvoker {
                 job.getPriority(),
                 job.getPickedBy(),
                 clock.instant(),
-                type,
+                callbackType,
                 e.getMessage(),
                 e.getClass().getName(),
                 1));
@@ -92,15 +127,22 @@ public final class LifecycleCallbackInvoker {
     }
   }
 
+  private static String displayName(CallbackType callbackType) {
+    return switch (callbackType) {
+      case ON_SUCCESS -> "onSuccess";
+      case ON_FAILURE -> "onFailure";
+    };
+  }
+
   /** Binds and clears job context for callers without a context on their current thread. */
-  public void invokeInJobContext(JobEntity job, JobPayload payload, String name) {
-    if (payload == null) {
+  public void invokeOnFailureInJobContext(JobEntity job, Throwable failure) {
+    if (job.getOnFailurePayload() == null) {
       return;
     }
     try {
       JobMdcContext.bindJobContext(
           job.getId(), job.getParams(), job.getPickedBy(), job.getCallerPrincipal());
-      invoke(job, payload, name);
+      invokeOnFailure(job, failure);
     } finally {
       JobMdcContext.clear();
     }

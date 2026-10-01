@@ -214,9 +214,27 @@ public class JobPayloadInputValidator {
         return;
       }
 
-      // Empty args with a non-zero-arg method is the "all arguments supplied at runtime"
-      // case (progress hooks, onSuccess/onFailure callbacks, etc.) where the framework injects
-      // the call argument when invoking. Only flag a true count mismatch.
+      List<Integer> runtimeIndexes = payload.runtimeArgIndexes();
+      if (runtimeIndexes != null) {
+        if (runtimeIndexes.size() != args.size()) {
+          errors.add("Runtime argument index count must equal argument count");
+        } else {
+          for (int i = 0; i < runtimeIndexes.size(); i++) {
+            Integer index = runtimeIndexes.get(i);
+            if (index != null) {
+              if (index < 0) {
+                errors.add("Runtime argument index at position " + i + " must be non-negative");
+              }
+              if (args.get(i) != null) {
+                errors.add("Runtime argument at position " + i + " must be null in storage");
+              }
+            }
+          }
+        }
+      }
+
+      // Empty args remain allowed for batch progress hooks and workflow-condition references,
+      // whose arguments are supplied outside the payload. Job callbacks declare runtime slots.
       if (!args.isEmpty() && args.size() != methodParamTypes.length) {
         errors.add(
             "Argument count mismatch: expected "

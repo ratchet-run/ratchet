@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.inOrder;
@@ -32,6 +33,7 @@ import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.time.Instant;
@@ -49,9 +51,11 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
@@ -61,6 +65,7 @@ import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.WorkflowCompletionPlan;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
@@ -69,6 +74,7 @@ import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -76,6 +82,54 @@ import run.ratchet.store.spi.JobTerminalStore;
 
 @ExtendWith(MockitoExtension.class)
 class BatchServiceTest {
+  public static final class Hooks {
+    static Object album;
+    static BatchContext context;
+
+    public static void record(long albumId, BatchContext ctx) {
+      album = albumId;
+      context = ctx;
+    }
+
+    public static void onProgress(BatchContext ctx) {
+      context = ctx;
+    }
+  }
+
+  @Test
+  void progressHookBindsContextBesideCapturedValueAndSupportsMethodReference() throws Exception {
+    when(classPolicy.isAllowed(Hooks.class.getName())).thenReturn(true);
+    BatchContext ctx = new BatchContext(UUID.randomUUID(), 3, 1, 0);
+    Method execute =
+        BatchService.class.getDeclaredMethod(
+            "executeProgressHook", JobPayload.class, BatchContext.class);
+    execute.setAccessible(true);
+    long albumId = Long.parseLong("42");
+    JobPayload indexed =
+        JobPayloadFactory.fromLambda(
+            (SerializableConsumer<BatchContext>) value -> Hooks.record(albumId, value));
+    execute.invoke(batchService, indexed, ctx);
+    assertEquals(albumId, Hooks.album);
+    assertSame(ctx, Hooks.context);
+    Hooks.context = null;
+    execute.invoke(
+        batchService,
+        JobPayloadFactory.fromLambda((SerializableConsumer<BatchContext>) Hooks::onProgress),
+        ctx);
+    assertSame(ctx, Hooks.context);
+    Hooks.context = null;
+    execute.invoke(
+        batchService,
+        new JobPayload(
+            Hooks.class.getName(),
+            "onProgress",
+            "(Lrun/ratchet/api/BatchContext;)V",
+            true,
+            List.of(),
+            null),
+        ctx);
+    assertSame(ctx, Hooks.context);
+  }
 
   private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
@@ -118,7 +172,8 @@ class BatchServiceTest {
             beanResolver,
             FIXED_CLOCK,
             new JakartaAfterCommitRegistrar(txRegistry),
-            batchCompletionTransaction);
+            batchCompletionTransaction,
+            null);
   }
 
   @Test

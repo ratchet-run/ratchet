@@ -73,7 +73,7 @@ public abstract class SpringStoreContracts implements JobStoreContractFixture {
     job.setPriority(JobPriority.NORMAL);
     job.setBackoffPolicy(BackoffPolicy.NONE);
     job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload(target, "execute", "()V", false, List.of()));
+    job.setPayload(new JobPayload(target, "execute", "()V", false, List.of(), null));
     return job;
   }
 }

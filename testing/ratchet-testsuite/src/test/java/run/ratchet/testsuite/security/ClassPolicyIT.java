@@ -98,7 +98,7 @@ class ClassPolicyIT extends BaseRatchetIT {
   @Test
   void securityValidator_shouldAcceptAllowedClass() {
     JobPayload payload =
-        new JobPayload(SimpleJob.class.getName(), "execute", "()V", true, List.of());
+        new JobPayload(SimpleJob.class.getName(), "execute", "()V", true, List.of(), null);
 
     assertDoesNotThrow(
         () -> securityValidator.validate(payload),
@@ -108,7 +108,8 @@ class ClassPolicyIT extends BaseRatchetIT {
   @Test
   void securityValidator_shouldRejectJdkClasses() {
     JobPayload payload =
-        new JobPayload("java.lang.Runtime", "getRuntime", "()Ljava/lang/Runtime;", true, List.of());
+        new JobPayload(
+            "java.lang.Runtime", "getRuntime", "()Ljava/lang/Runtime;", true, List.of(), null);
 
     assertThrows(
         SecurityException.class,
@@ -130,7 +131,7 @@ class ClassPolicyIT extends BaseRatchetIT {
     JobSecurityValidator customValidator = new JobSecurityValidator(custom);
 
     JobPayload payload =
-        new JobPayload(SimpleJob.class.getName(), "execute", "()V", true, List.of());
+        new JobPayload(SimpleJob.class.getName(), "execute", "()V", true, List.of(), null);
 
     assertDoesNotThrow(
         () -> customValidator.validate(payload),

@@ -43,10 +43,14 @@ import run.ratchet.ri.core.internal.ManagedInvocation;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.WorkflowCompletionPlan;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
+import run.ratchet.ri.payload.ArgumentCoercion;
+import run.ratchet.ri.payload.ArgumentMaterializer;
+import run.ratchet.ri.payload.RuntimeArguments;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -81,6 +85,7 @@ public class BatchService {
   private final WorkflowScheduler workflowScheduler;
   private final ClassPolicy classPolicy;
   private final BeanResolver beanResolver;
+  private final PayloadSerializer payloadSerializer;
   private final Clock clock;
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final BatchCompletionTransaction batchCompletionTransaction;
@@ -96,6 +101,7 @@ public class BatchService {
     this.workflowScheduler = null;
     this.classPolicy = null;
     this.beanResolver = null;
+    this.payloadSerializer = null;
     this.clock = null;
     this.afterCommitRegistrar = null;
     this.batchCompletionTransaction = null;
@@ -115,7 +121,8 @@ public class BatchService {
       BeanResolver beanResolver,
       Clock clock,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchCompletionTransaction batchCompletionTransaction) {
+      BatchCompletionTransaction batchCompletionTransaction,
+      PayloadSerializer payloadSerializer) {
     this(
         batchStore.isResolvable() ? batchStore.get() : null,
         jobCrudStore,
@@ -129,7 +136,8 @@ public class BatchService {
         beanResolver,
         clock,
         afterCommitRegistrar,
-        batchCompletionTransaction);
+        batchCompletionTransaction,
+        payloadSerializer);
   }
 
   public BatchService(
@@ -145,7 +153,8 @@ public class BatchService {
       BeanResolver beanResolver,
       Clock clock,
       AfterCommitRegistrar afterCommitRegistrar,
-      BatchCompletionTransaction batchCompletionTransaction) {
+      BatchCompletionTransaction batchCompletionTransaction,
+      PayloadSerializer payloadSerializer) {
     this.batchStore = batchStore;
     this.jobCrudStore = jobCrudStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -156,6 +165,7 @@ public class BatchService {
     this.workflowScheduler = workflowScheduler;
     this.classPolicy = classPolicy;
     this.beanResolver = beanResolver;
+    this.payloadSerializer = payloadSerializer;
     this.clock = clock;
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.batchCompletionTransaction = batchCompletionTransaction;
@@ -258,14 +268,24 @@ public class BatchService {
     Class<?> cls = loadProgressHookClass(targetName);
     Method method = resolveHookMethod(cls, payload);
 
+    Object[] args;
+    if (payload.runtimeArgIndexes() != null) {
+      JobPayload materialized =
+          ArgumentMaterializer.materialize(payload, payloadSerializer, classPolicy);
+      args =
+          RuntimeArguments.bind(materialized, List.of(ctx), "Batch progress hook").args().toArray();
+    } else {
+      args = payload.args().isEmpty() ? new Object[] {ctx} : payload.args().toArray();
+    }
+    args = ArgumentCoercion.coerce(method.getParameterTypes(), args);
     if (payload.isStatic()) {
-      method.invoke(null, ctx);
+      method.invoke(null, args);
       return;
     }
 
     try (BeanResolver.ManagedBean bean = beanResolver.acquire(cls)) {
       Object instance = bean.instance();
-      ManagedInvocation.exposedMethod(method, instance).invoke(instance, ctx);
+      ManagedInvocation.exposedMethod(method, instance).invoke(instance, args);
     }
   }
 

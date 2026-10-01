@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -71,7 +72,7 @@ class DocumentMapperTest {
   }
 
   private static JobPayload payload(String target, String method) {
-    return new JobPayload(target, method, "()V", true, List.of());
+    return new JobPayload(target, method, "()V", true, List.of(), null);
   }
 
   private static Document legacyPayloadDocument(JobPayload payload) {
@@ -80,6 +81,45 @@ class DocumentMapperTest {
         .append("methodDescriptor", payload.methodDescriptor())
         .append("isStatic", payload.isStatic())
         .append("args", payload.args());
+  }
+
+  @Test
+  void documentShapedPayloadRejectsNonNumericRuntimeIndex() {
+    JobPayload payload =
+        new JobPayload(
+            "Target",
+            "callback",
+            "(Ljava/lang/Object;)V",
+            true,
+            Arrays.asList((Object) null),
+            List.of(0));
+    Document doc = DocumentMapper.toDocument(job(payload));
+    doc.put("payload", legacyPayloadDocument(payload).append("runtimeArgIndexes", List.of("zero")));
+    Exception error = assertThrows(Exception.class, () -> DocumentMapper.toJobEntity(doc));
+    Throwable cause = error;
+    while (!(cause instanceof IllegalArgumentException) && cause.getCause() != null) {
+      cause = cause.getCause();
+    }
+    assertTrue(cause.getMessage().contains("java.lang.String: zero"), cause.getMessage());
+  }
+
+  @Test
+  void documentShapedPayloadRetainsRuntimeIndexesIncludingNumericValues() {
+    JobPayload payload =
+        new JobPayload(
+            "Target",
+            "callback",
+            "(Ljava/lang/String;Ljava/lang/Object;)V",
+            true,
+            Arrays.asList("c", null),
+            Arrays.asList(null, 0));
+    Document doc = DocumentMapper.toDocument(job(payload));
+    doc.put(
+        "payload",
+        legacyPayloadDocument(payload).append("runtimeArgIndexes", Arrays.asList(null, 0L)));
+    assertEquals(payload, DocumentMapper.toJobEntity(doc).getPayload());
+    assertEquals(
+        payload, DocumentMapper.toJobEntity(DocumentMapper.toDocument(job(payload))).getPayload());
   }
 
   @Test

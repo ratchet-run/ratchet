@@ -189,17 +189,22 @@ public class DefaultBatchBuilder implements BatchBuilder {
   <T extends Serializable> void forEachInvocation(
       Collection<T> items, Function<T, JobInvocation> invocationFactory) {
     for (T item : items) {
-      children.add(new ChildSpec(JobPayloadFactory.fromInvocation(invocationFactory.apply(item))));
+      children.add(
+          new ChildSpec(
+              JobPayloadFactory.requireTaskArguments(
+                  JobPayloadFactory.fromInvocation(invocationFactory.apply(item)))));
     }
   }
 
   private JobPayload payload(Serializable callback) {
-    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
+    return JobPayloadFactory.requireTaskArguments(
+        JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback)));
   }
 
   private JobPayload payload(Serializable callback, List<Object> runtimeArguments) {
-    return JobPayloadFactory.fromInvocation(
-        jobInvocationResolver.resolve(callback, runtimeArguments));
+    return JobPayloadFactory.requireTaskArguments(
+        JobPayloadFactory.fromInvocation(
+            jobInvocationResolver.resolve(callback, runtimeArguments)));
   }
 
   record ChildSpec(JobPayload payload) {}

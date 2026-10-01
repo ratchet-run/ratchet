@@ -33,7 +33,7 @@ class JobSecurityValidatorTest {
   void allowedClassAndPublicMethodPasses() {
     JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
     JobPayload payload =
-        new JobPayload(SampleTarget.class.getName(), "doWork", "()V", false, List.of());
+        new JobPayload(SampleTarget.class.getName(), "doWork", "()V", false, List.of(), null);
     assertDoesNotThrow(() -> validator.validate(payload));
   }
 
@@ -41,7 +41,7 @@ class JobSecurityValidatorTest {
   void disallowedClassThrowsSecurityException() {
     JobSecurityValidator validator = validatorAllowing("com.trusted.");
     JobPayload payload =
-        new JobPayload(SampleTarget.class.getName(), "doWork", "()V", false, List.of());
+        new JobPayload(SampleTarget.class.getName(), "doWork", "()V", false, List.of(), null);
     assertThrows(SecurityException.class, () -> validator.validate(payload));
   }
 
@@ -54,14 +54,14 @@ class JobSecurityValidatorTest {
   @Test
   void nullTargetClassThrowsSecurityException() {
     JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
-    JobPayload payload = new JobPayload(null, "doWork", "()V", false, List.of());
+    JobPayload payload = new JobPayload(null, "doWork", "()V", false, List.of(), null);
     assertThrows(SecurityException.class, () -> validator.validate(payload));
   }
 
   @Test
   void emptyTargetClassThrowsSecurityException() {
     JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
-    JobPayload payload = new JobPayload("", "doWork", "()V", false, List.of());
+    JobPayload payload = new JobPayload("", "doWork", "()V", false, List.of(), null);
 
     SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
 
@@ -72,7 +72,7 @@ class JobSecurityValidatorTest {
   void nonPublicMethodThrowsSecurityException() {
     JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
     JobPayload payload =
-        new JobPayload(SampleTarget.class.getName(), "secretMethod", "()V", false, List.of());
+        new JobPayload(SampleTarget.class.getName(), "secretMethod", "()V", false, List.of(), null);
     SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
     assertEquals("Only public methods can be scheduled as jobs.", ex.getMessage());
     assertFalse(ex.getMessage().contains("private"));
@@ -83,7 +83,7 @@ class JobSecurityValidatorTest {
   void nonExistentMethodThrowsSecurityExceptionWithReflectiveCause() {
     JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
     JobPayload payload =
-        new JobPayload(SampleTarget.class.getName(), "noSuchMethod", "()V", false, List.of());
+        new JobPayload(SampleTarget.class.getName(), "noSuchMethod", "()V", false, List.of(), null);
 
     SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
 
@@ -99,7 +99,8 @@ class JobSecurityValidatorTest {
             "doWorkWithArg",
             "(Ljava/lang/String;)V",
             false,
-            List.of("hello"));
+            List.of("hello"),
+            null);
     assertDoesNotThrow(() -> validator.validate(payload));
   }
 
@@ -112,7 +113,8 @@ class JobSecurityValidatorTest {
             "invoke",
             "(Ljava/lang/String;Ljava/lang/String;Z)V",
             false,
-            List.of(SampleTarget.class.getName(), "doWork", false));
+            List.of(SampleTarget.class.getName(), "doWork", false),
+            null);
 
     assertDoesNotThrow(() -> validator.validate(payload));
   }
@@ -127,7 +129,8 @@ class JobSecurityValidatorTest {
             "secretMethod",
             "()V",
             false,
-            List.of());
+            List.of(),
+            null);
 
     assertThrows(SecurityException.class, () -> validator.validate(payload));
     assertEquals(
@@ -140,7 +143,7 @@ class JobSecurityValidatorTest {
     int before = CLINIT_COUNTER.get();
     JobPayload payload =
         new JobPayload(
-            SideEffectingTarget.class.getName(), "secretMethod", "()V", false, List.of());
+            SideEffectingTarget.class.getName(), "secretMethod", "()V", false, List.of(), null);
 
     SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
 

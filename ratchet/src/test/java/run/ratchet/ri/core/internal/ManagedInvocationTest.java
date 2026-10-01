@@ -107,7 +107,7 @@ class ManagedInvocationTest {
     JobPayloadInvoker invoker = new JobPayloadInvoker(resolver, n -> true);
     JobPayload payload =
         new JobPayload(
-            ConcreteJob.class.getName(), "execute", "()Ljava/lang/String;", false, List.of());
+            ConcreteJob.class.getName(), "execute", "()Ljava/lang/String;", false, List.of(), null);
     assertEquals("managed", invoker.invoke(payload));
     assertThrows(IllegalArgumentException.class, () -> invoker.invoke(payload));
     assertEquals(2, intercepted.get());
@@ -117,7 +117,12 @@ class ManagedInvocationTest {
         () ->
             invoker.invoke(
                 new JobPayload(
-                    ConcreteJob.class.getName(), "hiddenFromProxy", "()V", false, List.of())));
+                    ConcreteJob.class.getName(),
+                    "hiddenFromProxy",
+                    "()V",
+                    false,
+                    List.of(),
+                    null)));
     assertEquals(3, released.get());
   }
 }

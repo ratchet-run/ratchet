@@ -674,7 +674,8 @@ public class RecurringJobProcessor {
                 RECURRING_INVOKE_METHOD.getName(),
                 RECURRING_INVOKE_DESCRIPTOR,
                 false,
-                List.of(className, methodName, hasJobContextParam)));
+                List.of(className, methodName, hasJobContextParam),
+                null));
 
     JobOptions options =
         JobOptions.defaults()

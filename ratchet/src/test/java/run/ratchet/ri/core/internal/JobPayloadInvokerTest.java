@@ -141,7 +141,7 @@ class JobPayloadInvokerTest {
 
   private static JobPayload payload(
       Class<?> target, String method, String descriptor, boolean isStatic, List<Object> args) {
-    return new JobPayload(target.getName(), method, descriptor, isStatic, args);
+    return new JobPayload(target.getName(), method, descriptor, isStatic, args, null);
   }
 
   private static BeanResolver unusedBeanResolver() {

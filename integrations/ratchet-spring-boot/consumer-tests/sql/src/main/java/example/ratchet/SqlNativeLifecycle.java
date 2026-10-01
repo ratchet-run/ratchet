@@ -74,17 +74,20 @@ public class SqlNativeLifecycle {
       var singleton =
           submissions
               .enqueueInvocation(
-                  new JobInvocation(ClassTask.class.getName(), "run", "()V", false, List.of()))
+                  new JobInvocation(
+                      ClassTask.class.getName(), "run", "()V", false, List.of(), null))
               .submit();
       var first =
           submissions
               .enqueueInvocation(
-                  new JobInvocation(PrototypeTask.class.getName(), "run", "()V", false, List.of()))
+                  new JobInvocation(
+                      PrototypeTask.class.getName(), "run", "()V", false, List.of(), null))
               .submit();
       var second =
           submissions
               .enqueueInvocation(
-                  new JobInvocation(PrototypeTask.class.getName(), "run", "()V", false, List.of()))
+                  new JobInvocation(
+                      PrototypeTask.class.getName(), "run", "()V", false, List.of(), null))
               .submit();
       await(
           () ->

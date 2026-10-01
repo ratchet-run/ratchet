@@ -19,15 +19,34 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
+import run.ratchet.api.JobContext;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobPayload;
 
 class ArgumentMaterializerTest {
+
+  @Test
+  void restoringCapturedArgumentsPreservesRuntimeSlots() {
+    JobPayload payload =
+        new JobPayload(
+            "allowed.Target",
+            "run",
+            Type.getMethodDescriptor(
+                Type.VOID_TYPE, Type.getType(CustomArgument.class), Type.getType(JobContext.class)),
+            true,
+            Arrays.asList(Map.of("reference", "invoice-42", "attempt", 3), null),
+            Arrays.asList(null, 0));
+    JobPayload restored =
+        ArgumentMaterializer.materialize(payload, new JsonbTestPayloadSerializer(), name -> true);
+    assertEquals(Arrays.asList(new CustomArgument("invoice-42", 3), null), restored.args());
+    assertEquals(Arrays.asList(null, 0), restored.runtimeArgIndexes());
+  }
 
   @Test
   void restoresAllowedCustomArgumentFromItsJsonNativeShape() {
@@ -85,7 +104,7 @@ class ArgumentMaterializerTest {
   }
 
   private static JobPayload payload(String descriptor, List<Object> args) {
-    return new JobPayload("allowed.Target", "run", descriptor, true, args);
+    return new JobPayload("allowed.Target", "run", descriptor, true, args, null);
   }
 
   private static PayloadSerializer failIfCalledSerializer() {

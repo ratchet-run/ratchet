@@ -73,14 +73,14 @@ public class InvoiceService {
         ctx.logger().info("Invoice " + invoiceId + " processed successfully");
     }
 
-    private void onInvoiceProcessed(JobContext ctx) {
+    public void onInvoiceProcessed(JobContext ctx) {
         String email = ctx.param("customerEmail");
         String invoiceId = ctx.param("invoiceId");
         log.info("Invoice " + invoiceId + " completed. Notifying " + email);
         // Send confirmation email...
     }
 
-    private void onInvoiceFailed(JobContext ctx, Throwable error) {
+    public void onInvoiceFailed(JobContext ctx, Throwable error) {
         String invoiceId = ctx.param("invoiceId");
         log.severe("Invoice " + invoiceId + " failed after all retries: " + error.getMessage());
         // Alert the billing team...
@@ -174,10 +174,12 @@ Parameters vs. lambda arguments serve different purposes:
 Parameters are especially useful in callbacks, where you need context that wasn't passed through the lambda:
 
 ```java
-.onSuccess(ctx -> {
+.onSuccess(this::sendConfirmation)
+
+public void sendConfirmation(JobContext ctx) {
     String email = ctx.param("customerEmail");
-    sendConfirmation(email);
-})
+    sendConfirmationEmail(email);
+}
 ```
 
 ## Step 5: Add Callbacks
@@ -406,12 +408,17 @@ public class InvoiceService {
             .withParam("customerEmail", customerEmail)
             .withBusinessKey("invoice-" + invoiceId)
             .withTags("billing", "invoice")
-            .onSuccess(ctx ->
-                log.info("Invoice " + ctx.param("invoiceId") + " processed for "
-                    + ctx.param("customerEmail")))
-            .onFailure((ctx, error) ->
-                log.severe("Invoice processing failed: " + error.getMessage()))
+            .onSuccess(this::onInvoiceProcessed)
+            .onFailure(this::onInvoiceFailed)
             .submit();
+    }
+
+    public void onInvoiceProcessed(JobContext ctx) {
+        log.info("Invoice processed for " + ctx.param("customerEmail"));
+    }
+
+    public void onInvoiceFailed(JobContext ctx, Throwable error) {
+        log.severe("Invoice " + ctx.jobId() + " failed: " + error.getMessage());
     }
 
     public void processInvoice(long invoiceId) throws Exception {

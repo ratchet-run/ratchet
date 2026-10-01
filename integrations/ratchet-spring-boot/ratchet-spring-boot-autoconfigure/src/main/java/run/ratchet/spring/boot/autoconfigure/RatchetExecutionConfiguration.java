@@ -410,7 +410,8 @@ class RatchetExecutionConfiguration {
       BeanResolver resolver,
       Clock clock,
       AfterCommitRegistrar registrar,
-      BatchCompletionTransaction completionTransaction) {
+      BatchCompletionTransaction completionTransaction,
+      PayloadSerializer payloadSerializer) {
     return new BatchService(
         store.capability(BatchStore.class).orElse(null),
         store,
@@ -424,7 +425,8 @@ class RatchetExecutionConfiguration {
         resolver,
         clock,
         registrar,
-        completionTransaction);
+        completionTransaction,
+        payloadSerializer);
   }
 
   @Bean

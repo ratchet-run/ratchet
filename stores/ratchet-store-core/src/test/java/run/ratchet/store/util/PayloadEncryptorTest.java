@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
@@ -29,6 +30,8 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.testsupport.AesGcmTestEngine;
 import run.ratchet.store.testsupport.StaticKeyProvider;
 
@@ -55,6 +58,26 @@ class PayloadEncryptorTest {
   @AfterEach
   void reset() {
     EncryptionHolder.disable();
+  }
+
+  @Test
+  void encryptedArgsPreserveRuntimeSlotMetadata() {
+    JobPayload payload =
+        new JobPayload(
+            "Target",
+            "callback",
+            "(Ljava/lang/String;Ljava/lang/Object;)V",
+            true,
+            Arrays.asList("secret", null),
+            Arrays.asList(null, 0));
+    JobPayloadConverter converter = new JobPayloadConverter();
+    String json = converter.convertToDatabaseColumn(payload);
+    String encrypted = PayloadEncryptor.encryptArgs(json, true, args);
+    assertFalse(encrypted.contains("secret"));
+    assertTrue(encrypted.contains("runtimeArgIndexes"));
+    JobPayload restored =
+        converter.convertToEntityAttribute(PayloadEncryptor.decryptArgs(encrypted, args));
+    assertEquals(payload, restored);
   }
 
   @Test

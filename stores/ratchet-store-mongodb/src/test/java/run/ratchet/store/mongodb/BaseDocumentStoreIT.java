@@ -112,7 +112,7 @@ public abstract class BaseDocumentStoreIT {
     job.setPriority(priority);
     job.setBackoffPolicy(BackoffPolicy.NONE);
     job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload("com.example.TestJob", "execute", "()V", false, List.of()));
+    job.setPayload(new JobPayload("com.example.TestJob", "execute", "()V", false, List.of(), null));
     return job;
   }
 
@@ -124,7 +124,8 @@ public abstract class BaseDocumentStoreIT {
     job.setPriority(JobPriority.NORMAL);
     job.setBackoffPolicy(BackoffPolicy.NONE);
     job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload("com.example.BatchJob", "execute", "()V", false, List.of()));
+    job.setPayload(
+        new JobPayload("com.example.BatchJob", "execute", "()V", false, List.of(), null));
     return job;
   }
 
@@ -136,7 +137,8 @@ public abstract class BaseDocumentStoreIT {
     job.setPriority(JobPriority.NORMAL);
     job.setBackoffPolicy(BackoffPolicy.NONE);
     job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload("com.example.BatchChildJob", "execute", "()V", false, List.of()));
+    job.setPayload(
+        new JobPayload("com.example.BatchChildJob", "execute", "()V", false, List.of(), null));
     return job;
   }
 
@@ -148,7 +150,8 @@ public abstract class BaseDocumentStoreIT {
     job.setPriority(JobPriority.NORMAL);
     job.setBackoffPolicy(BackoffPolicy.NONE);
     job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload("com.example.ChainStepJob", "execute", "()V", false, List.of()));
+    job.setPayload(
+        new JobPayload("com.example.ChainStepJob", "execute", "()V", false, List.of(), null));
     return job;
   }
 }

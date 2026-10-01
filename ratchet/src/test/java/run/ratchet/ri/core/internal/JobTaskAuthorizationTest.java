@@ -302,7 +302,8 @@ class JobTaskAuthorizationTest {
             "targetMethod",
             "()Ljava/lang/String;",
             true,
-            List.of()));
+            List.of(),
+            null));
     return job;
   }
 

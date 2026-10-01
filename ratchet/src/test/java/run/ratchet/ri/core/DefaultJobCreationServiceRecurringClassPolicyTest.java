@@ -141,6 +141,7 @@ class DefaultJobCreationServiceRecurringClassPolicyTest {
         "invoke",
         "(Ljava/lang/String;Ljava/lang/String;Z)V",
         false,
-        List.of(AppRecurringBean.class.getName(), "doWork", Boolean.FALSE));
+        List.of(AppRecurringBean.class.getName(), "doWork", Boolean.FALSE),
+        null);
   }
 }

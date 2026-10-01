@@ -118,7 +118,7 @@ public interface SerializableConsumer<T> extends Consumer<T>, Serializable {
 ```java
 // Success callback
 scheduler.enqueue(() -> processOrder(orderId))
-    .onSuccess(ctx -> log.info("Job {} succeeded", ctx.jobId()))
+    .onSuccess(this::handleSuccess)
     .submit();
 
 // Batch progress monitoring
@@ -132,7 +132,7 @@ scheduler.enqueue(() -> processOrder(orderId))
     .onSuccess(this::handleSuccess)
     .submit();
 
-private void handleSuccess(JobContext ctx) {
+public void handleSuccess(JobContext ctx) {
     updateOrderStatus(ctx.param("orderId"), "COMPLETE");
 }
 ```
@@ -148,6 +148,8 @@ public interface SerializableBiConsumer<T, U> extends BiConsumer<T, U>, Serializ
 }
 ```
 
+Callbacks use a public static or CDI bean method. A lambda must make exactly one public method call and pass `ctx` and `error` straight through. Read their values inside that method.
+
 **Used in:** `JobBuilder.onFailure()` (as `SerializableBiConsumer<JobContext, Throwable>`).
 
 ### Examples
@@ -155,10 +157,7 @@ public interface SerializableBiConsumer<T, U> extends BiConsumer<T, U>, Serializ
 ```java
 // Failure callback with context and error
 scheduler.enqueue(() -> riskyOperation())
-    .onFailure((ctx, error) -> {
-        log.error("Job {} failed: {}", ctx.jobId(), error.getMessage());
-        alertService.sendAlert(ctx.jobId(), error);
-    })
+    .onFailure((ctx, error) -> alertService.sendAlert(ctx, error))
     .submit();
 
 // Method reference
@@ -166,7 +165,7 @@ scheduler.enqueue(() -> riskyOperation())
     .onFailure(this::handleFailure)
     .submit();
 
-private void handleFailure(JobContext ctx, Throwable error) {
+public void handleFailure(JobContext ctx, Throwable error) {
     log.error("Job {} failed", ctx.jobId(), error);
 }
 ```

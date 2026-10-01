@@ -185,7 +185,8 @@ class SqlLifecycleTest {
               "complete",
               "(Ljava/lang/String;)V",
               false,
-              List.of("unsupported"));
+              List.of("unsupported"),
+              null);
 
       assertThatThrownBy(
               () ->
@@ -272,7 +273,8 @@ class SqlLifecycleTest {
       for (int i = 0; i < 2; i++) {
         submissions
             .enqueueInvocation(
-                new JobInvocation(PrototypeTask.class.getName(), "run", "()V", false, List.of()))
+                new JobInvocation(
+                    PrototypeTask.class.getName(), "run", "()V", false, List.of(), null))
             .immediate()
             .submit();
       }
@@ -294,7 +296,8 @@ class SqlLifecycleTest {
       context
           .getBean(InvocationSubmissionService.class)
           .enqueueInvocation(
-              new JobInvocation(SingletonTask.class.getName(), "run", "()V", false, List.of()))
+              new JobInvocation(
+                  SingletonTask.class.getName(), "run", "()V", false, List.of(), null))
           .immediate()
           .submit();
       await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(EXECUTED).hasValue(1));
@@ -428,7 +431,7 @@ class SqlLifecycleTest {
     context
         .getBean(InvocationSubmissionService.class)
         .enqueueInvocation(
-            new JobInvocation(BlockingTask.class.getName(), "run", "()V", false, List.of()))
+            new JobInvocation(BlockingTask.class.getName(), "run", "()V", false, List.of(), null))
         .immediate()
         .submit();
   }
@@ -567,7 +570,8 @@ class SqlLifecycleTest {
                     "complete",
                     "(Ljava/lang/String;)V",
                     false,
-                    List.of("unused")))
+                    List.of("unused"),
+                    null))
             .withBusinessKey(key)
             .submit();
     new TransactionTemplate(context.getBean(PlatformTransactionManager.class))

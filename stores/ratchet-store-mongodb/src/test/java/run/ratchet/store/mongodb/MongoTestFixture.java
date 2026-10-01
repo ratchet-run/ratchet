@@ -125,7 +125,7 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     job.setPriority(JobPriority.NORMAL);
     job.setBackoffPolicy(BackoffPolicy.NONE);
     job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload("com.example.TestJob", "execute", "()V", false, List.of()));
+    job.setPayload(new JobPayload("com.example.TestJob", "execute", "()V", false, List.of(), null));
     return job;
   }
 
@@ -138,7 +138,8 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     job.setPriority(JobPriority.NORMAL);
     job.setBackoffPolicy(BackoffPolicy.NONE);
     job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload("com.example.BatchJob", "execute", "()V", false, List.of()));
+    job.setPayload(
+        new JobPayload("com.example.BatchJob", "execute", "()V", false, List.of(), null));
     return job;
   }
 

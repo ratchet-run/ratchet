@@ -53,8 +53,8 @@ import run.ratchet.spi.LambdaDescriptor;
  * resolved arguments).
  *
  * <p>The simulated stack uses a sealed {@link Value} interface ({@link ConstantValue}, {@link
- * CapturedValue}, {@link NewInstanceMarker}, {@link UnknownValue}) so unsupported instructions
- * degrade gracefully without corrupting the analysis.
+ * CapturedValue}, {@link RuntimeParamValue}, {@link NewInstanceMarker}, {@link UnknownValue}) so
+ * unsupported instructions degrade gracefully without corrupting the analysis.
  */
 public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
 
@@ -166,6 +166,8 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       capturedValues[i] = serializedLambda.getCapturedArg(i);
     }
     Map<Integer, Integer> capturesBySlot = new HashMap<>();
+    Map<Integer, Integer> runtimeParamsBySlot = new HashMap<>();
+    int functionalIndex = 0;
     int captureIndex = 0;
     int localSlot = 0;
     if ((lambdaMethod.access & Opcodes.ACC_STATIC) == 0) {
@@ -175,10 +177,11 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       localSlot++;
     }
     for (Type argumentType : Type.getArgumentTypes(lambdaMethod.desc)) {
-      if (captureIndex >= capturedValues.length) {
-        break;
+      if (captureIndex < capturedValues.length) {
+        capturesBySlot.put(localSlot, captureIndex++);
+      } else {
+        runtimeParamsBySlot.put(localSlot, functionalIndex++);
       }
-      capturesBySlot.put(localSlot, captureIndex++);
       localSlot += argumentType.getSize();
     }
 
@@ -216,6 +219,8 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
           Integer capturedIndex = capturesBySlot.get(varIndex);
           if (capturedIndex != null) {
             operandStack.push(new CapturedValue(capturedIndex));
+          } else if (runtimeParamsBySlot.containsKey(varIndex)) {
+            operandStack.push(new RuntimeParamValue(runtimeParamsBySlot.get(varIndex)));
           } else {
             operandStack.push(UnknownValue.INSTANCE);
           }
@@ -315,6 +320,30 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       invocationArguments = capturedArguments.subList(1, capturedArguments.size());
     }
 
+    int kind = serializedLambda.getImplMethodKind();
+    if (kind == Opcodes.H_INVOKESTATIC
+        || kind == Opcodes.H_INVOKEVIRTUAL
+        || kind == Opcodes.H_INVOKEINTERFACE) {
+      int targetCount = Type.getArgumentTypes(serializedLambda.getImplMethodSignature()).length;
+      int functionalCount =
+          Type.getArgumentTypes(serializedLambda.getInstantiatedMethodType()).length;
+      int capturedCount = invocationArguments.size();
+      // An unbound instance reference reserves functional parameter 0 for its receiver.
+      // Static and bound references have no receiver parameter in the functional signature.
+      int offset = functionalCount - (targetCount - capturedCount);
+      if (!isStatic
+          && serializedLambda.getCapturedArgCount() == 0
+          && functionalCount == targetCount + 1) {
+        receiver = new RuntimeParameter(0);
+      }
+      if (offset >= 0 && offset <= functionalCount && capturedCount <= targetCount) {
+        invocationArguments = new ArrayList<>(invocationArguments);
+        for (int j = capturedCount; j < targetCount; j++) {
+          invocationArguments.add(new RuntimeParameter(offset + j - capturedCount));
+        }
+      }
+    }
+
     return new InvocationStep(
         serializedLambda.getImplClass(),
         serializedLambda.getImplMethodName(),
@@ -406,6 +435,8 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       return cv.value();
     } else if (abstractValue instanceof CapturedValue cap) {
       return capturedValues[cap.index()];
+    } else if (abstractValue instanceof RuntimeParamValue param) {
+      return new RuntimeParameter(param.index());
     }
     return null;
   }
@@ -425,7 +456,9 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         step.methodName(),
         step.methodDescriptor(),
         step.isStatic(),
-        step.arguments().toArray());
+        step.arguments().stream()
+            .map(value -> value instanceof RuntimeParameter ? null : value)
+            .toArray());
   }
 
   private enum UnknownValue implements Value {
@@ -433,7 +466,11 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   }
 
   private sealed interface Value
-      permits ConstantValue, CapturedValue, NewInstanceMarker, UnknownValue {}
+      permits ConstantValue, CapturedValue, RuntimeParamValue, NewInstanceMarker, UnknownValue {}
+
+  record RuntimeParameter(int index) {}
+
+  private record RuntimeParamValue(int index) implements Value {}
 
   record InvocationStep(
       String ownerInternalName,

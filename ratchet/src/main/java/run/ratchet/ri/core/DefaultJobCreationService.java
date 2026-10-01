@@ -319,10 +319,10 @@ public class DefaultJobCreationService
     // encrypted-or-not decision (global switch OR this flag) and the encryption_key_id column.
     job.setEncryptedPayload(state.encryptedPayload());
     if (builder.onSuccess() != null) {
-      job.setOnSuccessPayload(payload(builder.onSuccess()));
+      job.setOnSuccessPayload(runtimePayload(builder.onSuccess()));
     }
     if (state.onFailure() != null) {
-      job.setOnFailurePayload(payload(state.onFailure()));
+      job.setOnFailurePayload(runtimePayload(state.onFailure()));
     }
     stampCallerPrincipal(job, callerPrincipal);
     captureTraceContext(job);
@@ -452,7 +452,7 @@ public class DefaultJobCreationService
     batch.setCompletedItems(0);
     batch.setFailedItems(0);
     if (builder.progressHook() != null) {
-      batch.setProgressHook(payload(builder.progressHook()));
+      batch.setProgressHook(runtimePayload(builder.progressHook()));
     }
     saveBatch(batch);
 
@@ -471,7 +471,7 @@ public class DefaultJobCreationService
       childJob.setStatus(JobStatus.PENDING);
       childJob.setPriority(JobPriority.NORMAL);
       childJob.setScheduledTime(effective().instant());
-      childJob.setPayload(validate(child.payload()));
+      childJob.setPayload(validate(JobPayloadFactory.requireTaskArguments(child.payload())));
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
       childJob.setExecutionTarget(builder.executionTarget());
@@ -541,7 +541,7 @@ public class DefaultJobCreationService
     batch.setCompletedItems(0);
     batch.setFailedItems(0);
     if (builder.batchProgressHook() != null) {
-      batch.setProgressHook(payload(builder.batchProgressHook()));
+      batch.setProgressHook(runtimePayload(builder.batchProgressHook()));
     }
     saveBatch(batch);
 
@@ -908,7 +908,9 @@ public class DefaultJobCreationService
         items,
         callerPrincipal,
         item ->
-            validate(JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item))));
+            validate(
+                JobPayloadFactory.requireTaskArguments(
+                    JobPayloadFactory.fromInvocation(builder.invocationFactory().apply(item)))));
   }
 
   private <T extends Serializable> int createStreamingChildJobs(
@@ -1017,7 +1019,7 @@ public class DefaultJobCreationService
         JobPayload p =
             expr instanceof JobInvocation invocation
                 ? validate(JobPayloadFactory.fromInvocation(invocation))
-                : validate(JobPayloadFactory.fromLambda(expr));
+                : validate(JobPayloadFactory.fromConditionLambda(expr));
         // The predicate belongs to the parent job, binds the parent id, and follows the parent's
         // encryption opt-in: an opted-in workflow encrypts its predicate even when the global
         // switch is off.
@@ -1038,18 +1040,27 @@ public class DefaultJobCreationService
   }
 
   private JobPayload payload(Serializable callback) {
+    return validate(JobPayloadFactory.requireTaskArguments(resolvePayload(callback)));
+  }
+
+  private JobPayload runtimePayload(Serializable callback) {
+    return validate(resolvePayload(callback));
+  }
+
+  private JobPayload resolvePayload(Serializable callback) {
     // Pre-resolved invocations (from InvocationSubmissionService facades) skip lambda resolution;
     // they still run through the same validation and class-policy gate below.
     if (callback instanceof InvocationAdapter adapter) {
-      return validate(JobPayloadFactory.fromInvocation(adapter.invocation()));
+      return JobPayloadFactory.fromInvocation(adapter.invocation());
     }
-    return validate(JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback)));
+    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
   }
 
   private JobPayload payload(Serializable callback, List<Object> runtimeArguments) {
     return validate(
-        JobPayloadFactory.fromInvocation(
-            jobInvocationResolver.resolve(callback, runtimeArguments)));
+        JobPayloadFactory.requireTaskArguments(
+            JobPayloadFactory.fromInvocation(
+                jobInvocationResolver.resolve(callback, runtimeArguments))));
   }
 
   private JobPayload validate(JobPayload payload) {
