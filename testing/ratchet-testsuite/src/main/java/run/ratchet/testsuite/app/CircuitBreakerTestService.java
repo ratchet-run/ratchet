@@ -72,6 +72,24 @@ public class CircuitBreakerTestService {
     return "success";
   }
 
+  /**
+   * Calls a service whose argument failures are excluded from circuit breaker accounting.
+   *
+   * @return success when the fixture is configured to succeed
+   * @throws IllegalArgumentException when the fixture is configured to fail
+   */
+  @CircuitBreakerProtected(
+      service = "ignore-test-service",
+      profile = CircuitBreakerProfile.FAST,
+      ignoreExceptions = IllegalArgumentException.class)
+  public String callServiceWithIgnoredFailure() {
+    CALL_COUNT.incrementAndGet();
+    if (shouldFail) {
+      throw new IllegalArgumentException("Simulated ignored failure");
+    }
+    return "success";
+  }
+
   @ApplicationScoped
   public static class TestCircuitBreakerConfigProvider implements CircuitBreakerConfigProvider {
 

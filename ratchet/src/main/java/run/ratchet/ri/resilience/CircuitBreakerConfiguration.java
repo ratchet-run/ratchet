@@ -17,6 +17,7 @@ package run.ratchet.ri.resilience;
 
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.spi.CircuitBreakerConfig;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 
 /**
  * Configuration for a circuit breaker instance.
@@ -27,15 +28,20 @@ import run.ratchet.spi.CircuitBreakerConfig;
  *     HALF_OPEN
  * @param permittedCallsInHalfOpen number of trial calls allowed in HALF_OPEN state
  * @param minimumCalls minimum calls before evaluating failure rate
+ * @param exceptionFilter exception accounting rules, or null to record all exceptions
  */
 public record CircuitBreakerConfiguration(
     float failureRateThreshold,
     int slidingWindowSize,
     long waitDurationMs,
     int permittedCallsInHalfOpen,
-    int minimumCalls) {
+    int minimumCalls,
+    CircuitBreakerExceptionFilter exceptionFilter) {
 
+  /** Creates a validated breaker configuration. */
   public CircuitBreakerConfiguration {
+    exceptionFilter =
+        exceptionFilter == null ? CircuitBreakerExceptionFilter.RECORD_ALL : exceptionFilter;
     if (failureRateThreshold < 0.0f || failureRateThreshold > 100.0f) {
       throw new IllegalArgumentException("failureRateThreshold must be between 0 and 100");
     }
@@ -51,6 +57,22 @@ public record CircuitBreakerConfiguration(
     if (minimumCalls <= 0) {
       throw new IllegalArgumentException("minimumCalls must be greater than zero");
     }
+  }
+
+  /** Creates a configuration that records every exception as a failure. */
+  public CircuitBreakerConfiguration(
+      float failureRateThreshold,
+      int slidingWindowSize,
+      long waitDurationMs,
+      int permittedCallsInHalfOpen,
+      int minimumCalls) {
+    this(
+        failureRateThreshold,
+        slidingWindowSize,
+        waitDurationMs,
+        permittedCallsInHalfOpen,
+        minimumCalls,
+        CircuitBreakerExceptionFilter.RECORD_ALL);
   }
 
   public static final CircuitBreakerConfiguration DEFAULT =
@@ -84,6 +106,7 @@ public record CircuitBreakerConfiguration(
         config.slidingWindowSize(),
         config.waitDurationMs(),
         config.permittedCallsInHalfOpen(),
-        config.minimumCalls());
+        config.minimumCalls(),
+        config.exceptionFilter());
   }
 }

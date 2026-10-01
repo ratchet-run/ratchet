@@ -86,6 +86,8 @@ Method-level annotations take precedence over class-level annotations, allowing 
 |-----------|------|---------|-------------|
 | `service` | `String` | `""` (auto-derived) | Service name for the circuit breaker. If empty, defaults to `ClassName.methodName`. Must come from a bounded vocabulary; do not use dynamic values like tenant IDs. |
 | `profile` | `CircuitBreakerProfile` | `DEFAULT` | Pre-configured circuit breaker profile controlling thresholds and timing. |
+| `recordExceptions` | `Class<? extends Throwable>[]` | `{}` | Failure classes matched through the cause chain, including subclasses. |
+| `ignoreExceptions` | `Class<? extends Throwable>[]` | `{}` | Classes excluded from accounting through the cause chain. Ignore matches win. |
 
 ### Service Name Best Practices
 
@@ -190,6 +192,56 @@ RatchetOptions.builder()
 If your `RatchetOptions` producer uses `RatchetOptionsFactory.fromEnvironment()`, profile thresholds are read from canonical `ratchet.circuit-breaker.<profile>.*` properties and `RATCHET_CB_<PROFILE>_...` environment variables.
 
 Set `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false))` to make both the scheduler resilience wrapper and the `@CircuitBreakerProtected` interceptor pass through without consulting circuit state.
+
+## Choosing Which Exceptions Count
+
+Use `recordExceptions` to select failures and `ignoreExceptions` to exclude exceptions from breaker accounting. Matching checks the thrown exception and each cause, including subclasses, and stops safely if causes form a cycle. Ignore matches always win over record classes and predicates.
+
+With an empty record list and no predicate, every exception not ignored counts as a failure. With a record list or predicate, exceptions matching neither count as successes and reduce the failure rate. Ignored exceptions count as neither success nor failure and leave the sliding window untouched. In HALF_OPEN, they release their trial permit so later calls can test recovery. Every exception is rethrown unchanged, regardless of how it is counted.
+
+```java
+@CircuitBreakerProtected(
+    service = "inventory-api",
+    recordExceptions = IOException.class,
+    ignoreExceptions = IllegalArgumentException.class
+)
+public Inventory fetchInventory(String sku) throws IOException {
+    return client.fetch(sku);
+}
+```
+
+The resolved annotation's record and ignore lists are unioned with the profile configuration's lists. Method annotations take precedence over class annotations. Predicates are OR'd when filters are merged and receive the original top-level throwable. Annotations cannot hold predicates.
+
+There is no properties-file binding for exception lists. Use a `CircuitBreakerConfigProvider` for configuration lists or predicates:
+
+```java
+import jakarta.enterprise.context.ApplicationScoped;
+import java.io.IOException;
+import java.util.List;
+import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.spi.CircuitBreakerConfig;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
+
+@ApplicationScoped
+public class ApplicationCircuitBreakerConfig implements CircuitBreakerConfigProvider {
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+
+    @Override
+    public CircuitBreakerConfig configFor(CircuitBreakerProfile profile) {
+        return new CircuitBreakerConfig(
+            50.0f, 100, 30_000L, 3, 5,
+            List.of(IOException.class),
+            List.of(IllegalArgumentException.class),
+            failure -> failure instanceof IllegalStateException
+        );
+    }
+}
+```
+
+This example records I/O failures anywhere in the cause chain or a top-level `IllegalStateException`, unless an ignored argument exception appears in the chain. Other exceptions count as successes.
 
 ## Programmatic Access via CircuitBreakerRegistry
 
