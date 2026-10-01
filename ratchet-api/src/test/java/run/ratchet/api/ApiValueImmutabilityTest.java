@@ -124,12 +124,32 @@ class ApiValueImmutabilityTest {
   void lambdaDescriptorDefensivelyCopiesCapturedArgs() {
     Object[] captured = {"first"};
 
-    LambdaDescriptor descriptor = new LambdaDescriptor("Target", "method", "()V", false, captured);
+    LambdaDescriptor descriptor =
+        new LambdaDescriptor("Target", "method", "()V", false, captured, null);
     captured[0] = "changed";
     Object[] returned = descriptor.capturedArgs();
     returned[0] = "also changed";
 
     assertEquals("first", descriptor.capturedArgs()[0]);
+  }
+
+  @Test
+  void lambdaDescriptorDefensivelyCopiesRuntimeArgIndexes() {
+    List<Integer> indexes = new ArrayList<>();
+    indexes.add(null);
+    indexes.add(1);
+    LambdaDescriptor descriptor =
+        new LambdaDescriptor("Target", "method", "()V", false, new Object[] {"key", null}, indexes);
+    indexes.set(1, 0);
+
+    assertEquals(null, descriptor.runtimeArgIndexes().get(0));
+    assertEquals(1, descriptor.runtimeArgIndexes().get(1));
+    assertThrows(
+        UnsupportedOperationException.class, () -> descriptor.runtimeArgIndexes().set(1, 0));
+    assertEquals(
+        null,
+        new LambdaDescriptor("Target", "method", "()V", false, null, indexes.subList(0, 1))
+            .runtimeArgIndexes());
   }
 
   private static JobSummary summary(List<String> tags) {

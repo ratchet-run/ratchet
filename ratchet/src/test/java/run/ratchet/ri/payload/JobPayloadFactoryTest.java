@@ -129,6 +129,7 @@ class JobPayloadFactoryTest {
     JobPayload payload = JobPayloadFactory.fromLambda(callback);
     assertEquals(Arrays.asList(null, null), payload.args());
     assertEquals(indexes, payload.runtimeArgIndexes());
+    assertEquals(indexes, new AsmLambdaAnalyzer().analyze(callback).runtimeArgIndexes());
     assertEquals(
         Arrays.asList(null, null),
         Arrays.asList(new AsmLambdaAnalyzer().analyze(callback).capturedArgs()));
@@ -137,10 +138,11 @@ class JobPayloadFactoryTest {
   @Test
   void capturedValuesAndRuntimeParametersKeepTheirPositions() {
     String orderId = "order-42";
-    JobPayload payload =
-        JobPayloadFactory.fromLambda(
-            (SerializableBiConsumer<JobContext, Throwable>)
-                (ctx, err) -> PayloadTarget.withKey(orderId, err));
+    SerializableBiConsumer<JobContext, Throwable> callback =
+        (ctx, err) -> PayloadTarget.withKey(orderId, err);
+    JobPayload payload = JobPayloadFactory.fromLambda(callback);
+    assertEquals(
+        Arrays.asList(null, 1), new AsmLambdaAnalyzer().analyze(callback).runtimeArgIndexes());
     assertEquals(Arrays.asList(orderId, null), payload.args());
     assertEquals(Arrays.asList(null, 1), payload.runtimeArgIndexes());
   }

@@ -26,6 +26,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobContext;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
@@ -429,6 +430,12 @@ public class JobTask implements Callable<Void> {
    * {@link PostExecutionHandler} composite that owns the terminal transition, ordered failure/DLQ
    * event registration, and batch/workflow bookkeeping in one {@code REQUIRES_NEW} transaction. If
    * that transaction fails, it rolls back as a unit and stale-RUNNING recovery can reclaim the job.
+   *
+   * <p>onFailure does not run here. AbstractJobRowMapper and Mongo DocumentMapper decrypt the job
+   * payload, parameters, and both callback payloads as one unit: findById fails as a whole, and no
+   * store read returns the callback payload alone. The claim snapshot has no callback payload. A
+   * poisoned signal payload fails later in deserializeSignalPayload, after the entity loaded, and
+   * goes through normal failure handling or handleFailureSafely, which runs onFailure.
    */
   private void deadLetterPoisonedJob(UUID jobId, Throwable ex) {
     log.errorf(
@@ -547,6 +554,7 @@ public class JobTask implements Callable<Void> {
     return null;
   }
 
+  /** Runs onFailure once the forced FAILED transition commits if failure handling itself fails. */
   private void handleFailureSafely(Throwable t) {
     try {
       handleFailure(t);
@@ -561,10 +569,12 @@ public class JobTask implements Callable<Void> {
       } catch (Throwable sanitizerError) {
         safeError = t.getClass().getName();
       }
+      boolean failed = false;
       try {
         job.setLastError(safeError);
         if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
           job.setStatus(JobStatus.FAILED);
+          failed = true;
         }
       } catch (Throwable lastResort) {
         log.errorf(
@@ -572,6 +582,27 @@ public class JobTask implements Callable<Void> {
             "Job %s could not be transitioned to FAILED — will require orphan recovery",
             job.getId());
       }
+      if (failed) {
+        invokeOnFailureAfterLastResort(t);
+      }
+    }
+  }
+
+  private void invokeOnFailureAfterLastResort(Throwable t) {
+    if (callbackInvoker == null) {
+      return;
+    }
+    try {
+      if (JobContext.currentOrNull() != null) {
+        callbackInvoker.invokeOnFailure(job, t);
+      } else {
+        callbackInvoker.invokeOnFailureInJobContext(job, t);
+      }
+    } catch (Throwable callbackError) {
+      log.errorf(
+          callbackError,
+          "Job %s onFailure callback failed after last-resort failure handling",
+          job.getId());
     }
   }
 
@@ -686,6 +717,10 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  /**
+   * Cancellation ends the job CANCELED, not FAILED, so onFailure does not run. A canceled batch
+   * child still counts toward the batch's failed items, but the child itself is CANCELED.
+   */
   private void handleCanceledDuringExecution(Instant start) {
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 

@@ -47,14 +47,18 @@ import run.ratchet.ri.core.internal.DefaultJobArchivingService;
 import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.internal.DefaultRecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
+import run.ratchet.ri.core.internal.ExecutionObserver;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
+import run.ratchet.ri.core.internal.JobPayloadInvoker;
+import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
 import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.PreExecutionValidator;
 import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
@@ -64,6 +68,7 @@ import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.InvocationSubmissionService;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.converter.RuntimeContextInstallation;
 import run.ratchet.store.spi.ArchiveStore;
@@ -77,8 +82,20 @@ class RatchetRuntimeConfiguration {
   @Bean(destroyMethod = "")
   @ConditionalOnMissingBean
   RetryBufferManager retryBufferManager(
-      JobStateManager jobStateManager, PostExecutionHandler lifecycleFacade) {
-    return new RetryBufferManager(jobStateManager, lifecycleFacade);
+      JobStateManager jobStateManager,
+      PostExecutionHandler lifecycleFacade,
+      JobStore store,
+      PreExecutionValidator validationFacade,
+      JobPayloadInvoker payloadInvoker,
+      PayloadSerializer payloadSerializer,
+      ExecutionObserver observabilityFacade,
+      Clock clock) {
+    return new RetryBufferManager(
+        jobStateManager,
+        lifecycleFacade,
+        store,
+        new LifecycleCallbackInvoker(
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
   }
 
   @Bean(destroyMethod = "")

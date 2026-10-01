@@ -458,7 +458,10 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         step.isStatic(),
         step.arguments().stream()
             .map(value -> value instanceof RuntimeParameter ? null : value)
-            .toArray());
+            .toArray(),
+        step.arguments().stream()
+            .map(value -> value instanceof RuntimeParameter rp ? rp.index() : null)
+            .toList());
   }
 
   private enum UnknownValue implements Value {

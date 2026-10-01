@@ -72,6 +72,8 @@ class AsmLambdaAnalyzerTest {
         Arrays.asList(null, null),
         Arrays.asList(new AsmLambdaAnalyzer().analyze(callback).capturedArgs()));
 
+    assertEquals(List.of(0, 1), new AsmLambdaAnalyzer().analyze(callback).runtimeArgIndexes());
+
     SerializableConsumer<JobContext> receiver = ctx -> ctx.jobId();
     var receiverStep =
         AsmLambdaAnalyzer.inspect(
