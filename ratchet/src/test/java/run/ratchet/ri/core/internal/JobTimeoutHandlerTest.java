@@ -17,6 +17,7 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -52,6 +54,9 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -112,6 +117,139 @@ class JobTimeoutHandlerTest {
 
   private JobTimeoutHandler handler;
   private TerminalTimeoutTransition terminalTimeoutTransition;
+
+  private JobTimeoutHandler handlerWithGrace(long grace) {
+    return new JobTimeoutHandler(
+        new JakartaAfterCommitRegistrar(null),
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        80,
+        60L,
+        Clock.systemUTC(),
+        eventPublisher,
+        signalStore,
+        metricsCollector,
+        500,
+        grace,
+        null,
+        null,
+        null);
+  }
+
+  @Test
+  void timeoutHandlesCancelEveryScheduledTask() {
+    ScheduledFuture<?> soft = mock(ScheduledFuture.class);
+    ScheduledFuture<?> request = mock(ScheduledFuture.class);
+    ScheduledFuture<?> hard = mock(ScheduledFuture.class);
+    new JobTimeoutHandler.TimeoutHandles(soft, request, hard).cancel();
+    verify(soft).cancel(false);
+    verify(request).cancel(false);
+    verify(hard).cancel(false);
+    assertDoesNotThrow(() -> new JobTimeoutHandler.TimeoutHandles(null, null, null).cancel());
+  }
+
+  @Test
+  void graceSchedulesRequestBeforeHardTimeoutWithoutInterrupting() {
+    handler = handlerWithGrace(3L);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now());
+    Future<?> future = mock(Future.class);
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    handler.scheduleTimeoutMonitoring(attempt, future, scheduler, attempt.executionStartTime());
+    ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
+    ArgumentCaptor<Long> delays = ArgumentCaptor.forClass(Long.class);
+    verify(scheduler, times(3)).schedule(tasks.capture(), delays.capture(), eq(TimeUnit.SECONDS));
+    assertEquals(List.of(8L, 7L, 10L), delays.getAllValues());
+    tasks.getAllValues().get(1).run();
+    assertTrue(attempt.isCancellationRequested());
+    verify(future, never()).cancel(anyBoolean());
+    tasks.getAllValues().get(2).run();
+    verify(future).cancel(true);
+  }
+
+  @Test
+  void zeroGraceSetsFlagBeforeInterruptAndSchedulesNoEarlyRequest() {
+    handler = handlerWithGrace(0L);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now());
+    Future<?> future = mock(Future.class);
+    AtomicBoolean flagAtInterrupt = new AtomicBoolean();
+    when(future.cancel(true))
+        .thenAnswer(
+            invocation -> {
+              flagAtInterrupt.set(attempt.isCancellationRequested());
+              return true;
+            });
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    JobTimeoutHandler.TimeoutHandles handles =
+        handler.scheduleTimeoutMonitoring(attempt, future, scheduler, attempt.executionStartTime());
+    assertNull(handles.cancellationRequest());
+    ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
+    verify(scheduler, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
+    tasks.getAllValues().get(1).run();
+    assertTrue(flagAtInterrupt.get());
+    verify(future).cancel(true);
+  }
+
+  @Test
+  void graceAtOrAboveTimeoutDoesNotScheduleEarlyRequest() {
+    for (long grace : List.of(10L, 11L)) {
+      handler = handlerWithGrace(grace);
+      JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now());
+      ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+      assertNull(
+          handler
+              .scheduleTimeoutMonitoring(
+                  attempt, mock(Future.class), scheduler, attempt.executionStartTime())
+              .cancellationRequest());
+      verify(scheduler, times(2)).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  void attemptsHaveIndependentFlagsAndEffectiveDeadlines() {
+    Instant start = Instant.parse("2026-10-01T12:00:00Z");
+    JobAttemptControl first = handler.newAttempt(JOB_ID, 10, start);
+    JobAttemptControl retry = handler.newAttempt(JOB_ID, 10, start);
+    first.requestCancellation();
+    assertTrue(first.isCancellationRequested());
+    assertFalse(retry.isCancellationRequested());
+    assertEquals(start.plusSeconds(10), first.deadline());
+    assertEquals(start.plusSeconds(60), handler.newAttempt(JOB_ID, 0, start).deadline());
+    assertEquals(start.plusSeconds(60), handler.newAttempt(JOB_ID, -1, start).deadline());
+  }
+
+  @Test
+  void workerClaimPreventsHardInterruptAndTransition() {
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now());
+    assertTrue(attempt.claimTimeout());
+    Future<?> future = mock(Future.class);
+    ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+    handler.scheduleTimeoutMonitoring(attempt, future, scheduler, attempt.executionStartTime());
+    ArgumentCaptor<Runnable> tasks = ArgumentCaptor.forClass(Runnable.class);
+    verify(scheduler, times(2)).schedule(tasks.capture(), anyLong(), eq(TimeUnit.SECONDS));
+    tasks.getAllValues().get(1).run();
+    verify(future, never()).cancel(anyBoolean());
+    verify(jobCrudStore, never()).findById(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+  }
+
+  @Test
+  void cooperativeTimeoutUsesHardTimeoutRetryTransition() {
+    handler = handlerWithGrace(3L);
+    JobEntity job = jobWithMaxRetries(3);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+        .thenReturn(true);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now());
+    attempt.requestCancellation();
+    assertTrue(attempt.claimTimeout());
+    handler.processCooperativeTimeout(attempt);
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID);
+    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
+    verify(eventPublisher).publish(any(JobExecutionTimedOutEvent.class));
+  }
 
   @BeforeEach
   void setUp() {
@@ -375,6 +513,7 @@ class JobTimeoutHandlerTest {
         null,
         null,
         JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+        0L,
         null,
         null,
         new LifecycleCallbackInvoker(
@@ -406,13 +545,15 @@ class JobTimeoutHandlerTest {
     FutureTask<Void> future = new FutureTask<>(() -> null);
     Method method =
         JobTimeoutHandler.class.getDeclaredMethod(
-            "handleHardTimeoutById", UUID.class, Future.class, Instant.class, long.class);
+            "handleHardTimeoutById", JobAttemptControl.class, Future.class);
     method.setAccessible(true);
 
     InvocationTargetException thrown =
         assertThrows(
             InvocationTargetException.class,
-            () -> method.invoke(handler, JOB_ID, future, Instant.EPOCH, TIMEOUT_SEC));
+            () ->
+                method.invoke(
+                    handler, handler.newAttempt(JOB_ID, (int) TIMEOUT_SEC, Instant.EPOCH), future));
 
     assertInstanceOf(IllegalStateException.class, thrown.getCause());
     assertTrue(future.isCancelled());
@@ -515,6 +656,7 @@ class JobTimeoutHandlerTest {
             null,
             null,
             JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            0L,
             null,
             null,
             null);

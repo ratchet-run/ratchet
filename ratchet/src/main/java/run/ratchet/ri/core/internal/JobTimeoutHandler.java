@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.event.JobExecutionTimedOutEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
@@ -52,8 +53,9 @@ import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.SignalStore;
 
 /**
- * Enforces job execution timeouts with a two-tier strategy: a soft warning at a configurable
- * percentage of the limit (default 80%), then a hard cancel + DLQ escalation at 100%.
+ * Enforces job execution timeouts with three tiers: a soft warning at a configurable percentage
+ * (default 80%), an optional cooperative cancellation request at timeout minus grace, and a hard
+ * cancel at 100%.
  */
 public class JobTimeoutHandler {
 
@@ -72,6 +74,7 @@ public class JobTimeoutHandler {
   private final long defaultTimeoutSeconds;
   private final Clock clock;
   private final int signalTimeoutBatchSize;
+  private final long cancellationGraceSeconds;
   private final AfterCommitRegistrar afterCommitRegistrar;
   private final SingletonLeaseService singletonLeaseService;
   private final ErrorSanitizer errorSanitizer;
@@ -100,6 +103,7 @@ public class JobTimeoutHandler {
     this.defaultTimeoutSeconds = 0;
     this.clock = null;
     this.signalTimeoutBatchSize = 0;
+    this.cancellationGraceSeconds = 0L;
     this.afterCommitRegistrar = null;
     this.singletonLeaseService = null;
     this.errorSanitizer = null;
@@ -224,6 +228,7 @@ public class JobTimeoutHandler {
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
+        0L,
         singletonLeaseService,
         errorSanitizer,
         null);
@@ -242,6 +247,7 @@ public class JobTimeoutHandler {
       SignalStore signalStore,
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
+      long cancellationGraceSeconds,
       SingletonLeaseService singletonLeaseService,
       ErrorSanitizer errorSanitizer,
       LifecycleCallbackInvoker callbackInvoker) {
@@ -256,52 +262,65 @@ public class JobTimeoutHandler {
     this.signalStore = signalStore;
     this.metricsCollector = metricsCollector;
     this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
+    this.cancellationGraceSeconds = Math.max(0L, cancellationGraceSeconds);
     this.afterCommitRegistrar = afterCommitRegistrar;
     this.singletonLeaseService = singletonLeaseService;
     this.errorSanitizer = errorSanitizer;
     this.callbackInvoker = callbackInvoker;
   }
 
-  public TimeoutHandles scheduleTimeoutMonitoring(
-      JobEntity job,
-      Future<?> future,
-      ScheduledExecutorService scheduler,
-      Instant executionStartTime) {
-    return scheduleTimeoutMonitoring(
-        job.getId(), job.getTimeoutSec(), future, scheduler, executionStartTime);
+  private long effectiveTimeoutSeconds(int jobTimeoutSec) {
+    return jobTimeoutSec > 0 ? jobTimeoutSec : defaultTimeoutSeconds;
+  }
+
+  public JobAttemptControl newAttempt(UUID jobId, int jobTimeoutSec, Instant executionStartTime) {
+    long timeoutSec = effectiveTimeoutSeconds(jobTimeoutSec);
+    return new JobAttemptControl(
+        jobId, executionStartTime.plusSeconds(timeoutSec), timeoutSec, executionStartTime);
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
-      UUID jobId,
-      int jobTimeoutSec,
+      JobAttemptControl attempt,
       Future<?> future,
       ScheduledExecutorService scheduler,
       Instant executionStartTime) {
-    long timeoutSec = jobTimeoutSec;
-    if (timeoutSec <= 0) {
-      timeoutSec = defaultTimeoutSeconds;
-    }
-
-    final long finalTimeoutSec = timeoutSec;
-    final AtomicBoolean softTimeoutSent = new AtomicBoolean(false);
-
-    long softTimeoutSec = (timeoutSec * softTimeoutPercent) / 100;
-
+    UUID jobId = attempt.jobId();
+    long timeoutSec = attempt.timeoutSeconds();
+    AtomicBoolean softTimeoutSent = new AtomicBoolean(false);
     ScheduledFuture<?> soft =
         scheduler.schedule(
             () ->
                 handleSoftTimeoutById(
-                    jobId, future, softTimeoutSent, executionStartTime, finalTimeoutSec),
-            softTimeoutSec,
+                    jobId, future, softTimeoutSent, executionStartTime, timeoutSec),
+            (timeoutSec * softTimeoutPercent) / 100,
             TimeUnit.SECONDS);
-
+    ScheduledFuture<?> cancellationRequest = null;
+    if (cancellationGraceSeconds > 0 && cancellationGraceSeconds < timeoutSec) {
+      cancellationRequest =
+          scheduler.schedule(
+              () -> {
+                if (!future.isDone()) {
+                  attempt.requestCancellation();
+                  log.infof(
+                      "Job %s requested to stop: %ds before its %ds timeout",
+                      jobId, cancellationGraceSeconds, timeoutSec);
+                }
+              },
+              timeoutSec - cancellationGraceSeconds,
+              TimeUnit.SECONDS);
+    }
     ScheduledFuture<?> hard =
         scheduler.schedule(
-            () -> handleHardTimeoutById(jobId, future, executionStartTime, finalTimeoutSec),
-            timeoutSec,
-            TimeUnit.SECONDS);
+            () -> handleHardTimeoutById(attempt, future), timeoutSec, TimeUnit.SECONDS);
+    return new TimeoutHandles(soft, cancellationRequest, hard);
+  }
 
-    return new TimeoutHandles(soft, hard);
+  void processCooperativeTimeout(JobAttemptControl attempt) {
+    Duration elapsed = Duration.between(attempt.executionStartTime(), effective().instant());
+    log.warnf(
+        "Job %s stopped cooperatively after a cancellation request; handling as a timeout",
+        attempt.jobId());
+    processHardTimeout(attempt.jobId(), attempt.timeoutSeconds(), elapsed);
   }
 
   /**
@@ -726,11 +745,18 @@ public class JobTimeoutHandler {
     }
   }
 
-  private void handleHardTimeoutById(
-      UUID jobId, Future<?> future, Instant executionStartTime, long timeoutSec) {
+  private void handleHardTimeoutById(JobAttemptControl attempt, Future<?> future) {
+    UUID jobId = attempt.jobId();
+    Instant executionStartTime = attempt.executionStartTime();
+    long timeoutSec = attempt.timeoutSeconds();
     if (future.isDone()) {
       return;
     }
+    if (!attempt.claimTimeout()) {
+      log.debugf("Job %s already stopped cooperatively; the worker owns the timeout", jobId);
+      return;
+    }
+    attempt.requestCancellation();
     Duration elapsed = Duration.between(executionStartTime, effective().instant());
     log.errorf(
         "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
@@ -764,14 +790,20 @@ public class JobTimeoutHandler {
   }
 
   /**
-   * Cancellable handle bundle for the soft and hard timeout tasks scheduled against a job
-   * execution. Callers must invoke {@link #cancel()} on job completion so the tasks do not linger
-   * in the scheduler queue until their original fire time.
+   * Cancellable handle bundle for the soft, cancellation-request, and hard timeout tasks scheduled
+   * against a job execution. Callers must invoke {@link #cancel()} on job completion so the tasks
+   * do not linger in the scheduler queue until their original fire time.
    */
-  public record TimeoutHandles(ScheduledFuture<?> soft, ScheduledFuture<?> hard) {
+  public record TimeoutHandles(
+      @Nullable ScheduledFuture<?> soft,
+      @Nullable ScheduledFuture<?> cancellationRequest,
+      ScheduledFuture<?> hard) {
     public void cancel() {
       if (soft != null) {
         soft.cancel(false);
+      }
+      if (cancellationRequest != null) {
+        cancellationRequest.cancel(false);
       }
       if (hard != null) {
         hard.cancel(false);

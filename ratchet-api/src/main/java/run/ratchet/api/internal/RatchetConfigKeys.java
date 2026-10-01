@@ -167,6 +167,12 @@ public final class RatchetConfigKeys {
   public static final RatchetConfigKey<Integer> SIGNAL_TIMEOUT_BATCH_SIZE =
       intKey(
           "ratchet.timeout.signal-timeout-batch-size", "RATCHET_SIGNAL_TIMEOUT_BATCH_SIZE", 500, 1);
+  public static final RatchetConfigKey<Long> CANCELLATION_GRACE_SECONDS =
+      longKey(
+          "ratchet.timeout.cancellation-grace-seconds",
+          "RATCHET_CANCELLATION_GRACE_SECONDS",
+          0L,
+          0L);
 
   public static final RatchetConfigKey<Boolean> DLQ_PURGE_ENABLED =
       boolKey("ratchet.dlq.purge-enabled", "RATCHET_DLQ_PURGE_ENABLED", true);

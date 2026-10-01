@@ -458,6 +458,7 @@ class RatchetExecutionConfiguration {
         store.capability(SignalStore.class).orElse(null),
         metrics,
         options.timeout().signalTimeoutBatchSize(),
+        options.timeout().cancellationGraceSeconds(),
         leases,
         sanitizer,
         new LifecycleCallbackInvoker(
