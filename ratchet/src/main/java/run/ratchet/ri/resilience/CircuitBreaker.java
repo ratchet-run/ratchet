@@ -24,6 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 
 /**
  * Lightweight circuit breaker state machine.
@@ -34,6 +35,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
  * <pre>
  * CLOSED (default)
  *   → Track success/failure in sliding window (ring buffer of last N calls)
+ *   → Non-recorded exceptions count as successes; ignored exceptions leave the window untouched
  *   → When failure rate >= threshold AND calls >= minimumCalls → OPEN
  *
  * OPEN
@@ -43,7 +45,8 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
  * HALF_OPEN
  *   → Allow up to permittedCallsInHalfOpen calls through concurrently
  *   → If all succeed → CLOSED
- *   → If any fail → OPEN
+ *   → If any recorded exception occurs → OPEN
+ *   → Non-recorded exceptions count as successes; ignored exceptions release their trial permit
  * </pre>
  *
  * <p>Once the breaker is OPEN, normal successes cannot close it because calls are rejected.
@@ -134,6 +137,22 @@ public class CircuitBreaker {
    * @throws Exception if the task throws
    */
   public <T> T execute(Callable<T> task) throws Exception {
+    return execute(task, null);
+  }
+
+  /**
+   * Executes a task with the union of configuration and per-call exception filters.
+   *
+   * @param task the task to execute
+   * @param callFilter the per-call filter, or null
+   * @param <T> the result type
+   * @return the task result
+   * @throws CircuitBreakerOpenException if the call is rejected
+   * @throws Exception the unchanged task exception
+   */
+  public <T> T execute(Callable<T> task, CircuitBreakerExceptionFilter callFilter)
+      throws Exception {
+    CircuitBreakerExceptionFilter filter = config.exceptionFilter().merge(callFilter);
     State current = getState();
 
     if (current == State.OPEN) {
@@ -142,11 +161,11 @@ public class CircuitBreaker {
     }
 
     if (current == State.HALF_OPEN) {
-      return executeInHalfOpen(task);
+      return executeInHalfOpen(task, filter);
     }
 
     // CLOSED
-    return executeInClosed(task);
+    return executeInClosed(task, filter);
   }
 
   public void transitionToOpen() {
@@ -198,18 +217,24 @@ public class CircuitBreaker {
     return Math.max(0L, openedAtMs + config.waitDurationMs() - clock.millis());
   }
 
-  private <T> T executeInClosed(Callable<T> task) throws Exception {
+  private <T> T executeInClosed(Callable<T> task, CircuitBreakerExceptionFilter filter)
+      throws Exception {
     try {
       T result = task.call();
       recordSuccess();
       return result;
     } catch (Exception e) {
-      recordFailure();
+      switch (filter.classify(e)) {
+        case RECORDED -> recordFailure();
+        case NOT_RECORDED -> recordSuccess();
+        case IGNORED -> {}
+      }
       throw e;
     }
   }
 
-  private <T> T executeInHalfOpen(Callable<T> task) throws Exception {
+  private <T> T executeInHalfOpen(Callable<T> task, CircuitBreakerExceptionFilter filter)
+      throws Exception {
     long admittedGeneration;
     lock.lock();
     try {
@@ -217,11 +242,11 @@ public class CircuitBreaker {
         throw new CircuitBreakerOpenException(
             "Circuit breaker '" + name + "' is no longer accepting this HALF_OPEN trial call");
       }
-      int attempt = ++halfOpenAttempts;
-      if (attempt > config.permittedCallsInHalfOpen()) {
+      if (halfOpenAttempts >= config.permittedCallsInHalfOpen()) {
         throw new CircuitBreakerOpenException(
             "Circuit breaker '" + name + "' is HALF_OPEN — trial calls exhausted");
       }
+      halfOpenAttempts++;
       admittedGeneration = halfOpenGeneration;
     } finally {
       lock.unlock();
@@ -229,44 +254,58 @@ public class CircuitBreaker {
 
     try {
       T result = task.call();
-      boolean transitioned = false;
-      lock.lock();
-      try {
-        if (isCurrentHalfOpenGeneration(admittedGeneration)) {
-          int successes = ++halfOpenSuccesses;
-          if (successes >= config.permittedCallsInHalfOpen()) {
-            if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
-              totalCalls = 0;
-              failureCount = 0;
-              windowIndex = 0;
-              Arrays.fill(window, UNINITIALIZED);
-              queueStateNotification(State.CLOSED);
-              transitioned = true;
-            }
-          }
-        }
-      } finally {
-        lock.unlock();
-      }
-      if (transitioned) {
+      if (onHalfOpenSuccess(admittedGeneration)) {
         publishPendingStateNotifications();
       }
       return result;
     } catch (Exception e) {
       boolean transitioned = false;
-      lock.lock();
-      try {
-        if (isCurrentHalfOpenGeneration(admittedGeneration)) {
-          transitioned = transitionToOpenUnderLock();
+      CircuitBreakerExceptionFilter.Outcome outcome = filter.classify(e);
+      switch (outcome) {
+        case NOT_RECORDED -> transitioned = onHalfOpenSuccess(admittedGeneration);
+        case RECORDED, IGNORED -> {
+          lock.lock();
+          try {
+            if (isCurrentHalfOpenGeneration(admittedGeneration)) {
+              if (outcome == CircuitBreakerExceptionFilter.Outcome.IGNORED) {
+                halfOpenAttempts--;
+              } else {
+                transitioned = transitionToOpenUnderLock();
+              }
+            }
+          } finally {
+            lock.unlock();
+          }
         }
-      } finally {
-        lock.unlock();
       }
       if (transitioned) {
         publishPendingStateNotifications();
       }
       throw e;
     }
+  }
+
+  private boolean onHalfOpenSuccess(long admittedGeneration) {
+    boolean transitioned = false;
+    lock.lock();
+    try {
+      if (isCurrentHalfOpenGeneration(admittedGeneration)) {
+        int successes = ++halfOpenSuccesses;
+        if (successes >= config.permittedCallsInHalfOpen()) {
+          if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
+            totalCalls = 0;
+            failureCount = 0;
+            windowIndex = 0;
+            Arrays.fill(window, UNINITIALIZED);
+            queueStateNotification(State.CLOSED);
+            transitioned = true;
+          }
+        }
+      }
+    } finally {
+      lock.unlock();
+    }
+    return transitioned;
   }
 
   // Must be called with lock held.

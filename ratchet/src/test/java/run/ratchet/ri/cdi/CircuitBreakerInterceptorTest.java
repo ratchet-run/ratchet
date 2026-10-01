@@ -16,6 +16,9 @@
 package run.ratchet.ri.cdi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,6 +68,59 @@ class CircuitBreakerInterceptorTest {
 
     assertEquals("ok", result);
     verify(registry).getBreaker("impl-service", CircuitBreakerProfile.FAST);
+  }
+
+  @Test
+  void methodFilterOverridesClassAnnotationAndIgnoresFailures() throws Exception {
+    assertAnnotationFilters("methodCall");
+  }
+
+  @Test
+  void classFilterAppliesWhenMethodHasNoAnnotation() throws Exception {
+    assertAnnotationFilters("classCall");
+  }
+
+  private void assertAnnotationFilters(String methodName) throws Exception {
+    CircuitBreaker breaker =
+        new CircuitBreaker("filtered", new CircuitBreakerConfiguration(50.0f, 20, 30_000L, 2, 3));
+    when(context.getMethod()).thenReturn(FilteredService.class.getMethod(methodName));
+    when(configProvider.isEnabled()).thenReturn(true);
+    when(registry.getBreaker("filtered", CircuitBreakerProfile.DEFAULT)).thenReturn(breaker);
+    IllegalArgumentException ignored = new IllegalArgumentException();
+    doThrow(ignored).when(context).proceed();
+    for (int i = 0; i < 10; i++) {
+      assertSame(
+          ignored,
+          assertThrows(IllegalArgumentException.class, () -> interceptor.intercept(context)));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    doThrow(new UnsupportedOperationException()).when(context).proceed();
+    for (int i = 0; i < 3; i++) {
+      assertThrows(UnsupportedOperationException.class, () -> interceptor.intercept(context));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    doThrow(new IllegalStateException()).when(context).proceed();
+    for (int i = 0; i < 3; i++) {
+      assertThrows(IllegalStateException.class, () -> interceptor.intercept(context));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  /** Class-level exception filter fixture. */
+  @CircuitBreakerProtected(
+      service = "filtered",
+      recordExceptions = IllegalStateException.class,
+      ignoreExceptions = IllegalArgumentException.class)
+  public static class FilteredService {
+    /** Uses the class-level filter. */
+    public void classCall() {}
+
+    /** Uses a method-level filter; ignoring wins even for a recorded superclass. */
+    @CircuitBreakerProtected(
+        service = "filtered",
+        recordExceptions = RuntimeException.class,
+        ignoreExceptions = {IllegalArgumentException.class, UnsupportedOperationException.class})
+    public void methodCall() {}
   }
 
   interface CircuitProtectedService {

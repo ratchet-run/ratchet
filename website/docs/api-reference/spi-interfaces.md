@@ -103,6 +103,10 @@ This interface is marked `@Incubating` and may change.
 @Incubating
 public interface ResilienceStrategy {
     <T> T execute(String serviceName, Callable<T> task) throws Exception;
+    default <T> T execute(String serviceName, CircuitBreakerExceptionFilter exceptionFilter,
+                         Callable<T> task) throws Exception {
+        return execute(serviceName, task);
+    }
     boolean isServiceAvailable(String serviceName);
     default Duration getRetryDelay(String serviceName);
 }
@@ -123,6 +127,15 @@ Executes the task with resilience protection.
 **Returns:** the result of the task.
 
 **Throws:** `CircuitBreakerOpenException` if a circuit-open rejection prevents the task from running; `Exception` if the task itself fails.
+
+### execute with an exception filter
+
+```java
+default <T> T execute(String serviceName, CircuitBreakerExceptionFilter exceptionFilter,
+                      Callable<T> task) throws Exception
+```
+
+The scheduler passes the filter resolved from the job method's `@CircuitBreakerProtected` annotation. The default delegates to the two-argument method and ignores the filter. Implementations that classify exceptions should override it. The built-in strategy merges this filter with the configured filter.
 
 ### isServiceAvailable
 
@@ -441,6 +454,14 @@ public interface CircuitBreakerConfigProvider {
     CircuitBreakerConfig configFor(CircuitBreakerProfile profile);
 }
 ```
+
+### CircuitBreakerConfig exception components
+
+`CircuitBreakerConfig` accepts eight constructor arguments: `failureRateThreshold`, `slidingWindowSize`, `waitDurationMs`, `permittedCallsInHalfOpen`, `minimumCalls`, `recordExceptions`, `ignoreExceptions`, and nullable `recordPredicate`. The five-argument constructor records every exception as a failure. Null lists become empty lists; supplied lists are copied and immutable.
+
+`exceptionFilter()` returns a `CircuitBreakerExceptionFilter`. Class matching walks the cause chain with cycle detection and includes subclasses. Ignore matches win. With no record classes or predicate, every exception not ignored is recorded. Otherwise record class matches or a predicate accepting the original throwable count as failures, and non-matching exceptions count as successes. Ignored exceptions count as neither. All exceptions are rethrown unchanged.
+
+Filters merge by unioning class lists and OR'ing predicates. Lambda predicates compare by identity, so two configs built with separate lambdas are not equal. Exception lists have no properties-file binding; supply them through `CircuitBreakerConfigProvider`. See [Choosing Which Exceptions Count](../advanced/circuit-breakers#choosing-which-exceptions-count) for examples.
 
 ## SchedulerLifecycleHook
 

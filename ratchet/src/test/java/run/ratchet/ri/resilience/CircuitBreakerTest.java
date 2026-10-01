@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 
 class CircuitBreakerTest {
 
@@ -492,6 +493,267 @@ class CircuitBreakerTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 0));
+  }
+
+  @Test
+  void ignoredExceptionsLeaveClosedAccountingUntouchedAndAreRethrownUnchanged() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(IllegalArgumentException.class), null);
+    breaker =
+        new CircuitBreaker(
+            "ignored", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2, filter), clock);
+    IllegalArgumentException ignored = new IllegalArgumentException("ignored");
+    for (int i = 0; i < 10; i++) {
+      assertSame(
+          ignored,
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  breaker.execute(
+                      () -> {
+                        throw ignored;
+                      })));
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    }
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new IllegalStateException();
+                }));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new IllegalStateException();
+                }));
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void nonRecordedExceptionsCountAsSuccessesAndDiluteFailureRate() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(IllegalStateException.class), List.of(), null);
+    breaker =
+        new CircuitBreaker(
+            "selective", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2, filter), clock);
+    for (int i = 0; i < 3; i++) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new IllegalArgumentException();
+                  }));
+    }
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new IllegalStateException();
+                }));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new IllegalStateException();
+                }));
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void perCallIgnoresApplyOnlyToThatCall() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(IllegalArgumentException.class), null);
+    for (int i = 0; i < 10; i++) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new IllegalArgumentException();
+                  },
+                  filter));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    for (int i = 0; i < 2; i++) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new IllegalArgumentException();
+                  }));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void configAndCallFiltersUnionTheirClassesAndIgnoreWins() {
+    CircuitBreakerExceptionFilter configFilter =
+        new CircuitBreakerExceptionFilter(
+            List.of(IllegalStateException.class), List.of(IllegalArgumentException.class), null);
+    CircuitBreakerExceptionFilter callFilter =
+        new CircuitBreakerExceptionFilter(
+            List.of(UnsupportedOperationException.class, IllegalArgumentException.class),
+            List.of(IllegalStateException.class),
+            null);
+    breaker =
+        new CircuitBreaker(
+            "merged", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2, configFilter), clock);
+    for (int i = 0; i < 10; i++) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new IllegalArgumentException();
+                  },
+                  callFilter));
+      assertThrows(
+          IllegalStateException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new IllegalStateException();
+                  },
+                  callFilter));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    assertThrows(
+        UnsupportedOperationException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new UnsupportedOperationException();
+                },
+                callFilter));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    assertThrows(
+        UnsupportedOperationException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new UnsupportedOperationException();
+                },
+                callFilter));
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void halfOpenIgnoresReleaseTrialPermitsAndSuccessesStillClose() throws Exception {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(IllegalArgumentException.class), null);
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    IllegalArgumentException ignored = new IllegalArgumentException();
+    for (int i = 0; i < 3; i++) {
+      assertSame(
+          ignored,
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  breaker.execute(
+                      () -> {
+                        throw ignored;
+                      },
+                      filter)));
+      assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    }
+    breaker.execute(() -> "first", filter);
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    breaker.execute(() -> "second", filter);
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+  }
+
+  @Test
+  void halfOpenNonRecordedExceptionsCountAsSuccessfulTrials() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(IllegalStateException.class), List.of(), null);
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new IllegalArgumentException();
+                },
+                filter));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new IllegalArgumentException();
+                },
+                filter));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+  }
+
+  @Test
+  void halfOpenRecordedFailureStillReopensWithAFilter() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(
+            List.of(IllegalStateException.class), List.of(IllegalArgumentException.class), null);
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new IllegalStateException();
+                },
+                filter));
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void rejectedHalfOpenCallsDoNotConsumeReleasedIgnoredPermits() throws Exception {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(IllegalArgumentException.class), null);
+    breaker =
+        new CircuitBreaker(
+            "ignored-concurrent", new CircuitBreakerConfiguration(50.0f, 4, 100L, 1, 2), clock);
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    IllegalArgumentException ignored = new IllegalArgumentException();
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<?> trial =
+          executor.submit(
+              () ->
+                  breaker.execute(
+                      () -> {
+                        started.countDown();
+                        release.await();
+                        throw ignored;
+                      },
+                      filter));
+      assertTrue(started.await(1, TimeUnit.SECONDS));
+      assertThrows(
+          CircuitBreakerOpenException.class, () -> breaker.execute(() -> "rejected", filter));
+      release.countDown();
+      ExecutionException failure =
+          assertThrows(ExecutionException.class, () -> trial.get(1, TimeUnit.SECONDS));
+      assertSame(ignored, failure.getCause());
+      assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+      assertEquals("recovery", breaker.execute(() -> "recovery", filter));
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+    }
   }
 
   private String blockingHalfOpenCall(CountDownLatch started, CountDownLatch release)

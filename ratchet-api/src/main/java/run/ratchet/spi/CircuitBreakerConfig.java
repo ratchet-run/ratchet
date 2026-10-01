@@ -15,7 +15,10 @@
  */
 package run.ratchet.spi;
 
+import java.util.List;
+import java.util.function.Predicate;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.Nullable;
 
 /**
  * Runtime configuration for one circuit breaker profile.
@@ -26,6 +29,12 @@ import run.ratchet.api.Incubating;
  * @param waitDurationMs time in milliseconds an open breaker waits before moving to half-open
  * @param permittedCallsInHalfOpen number of trial calls allowed while half-open
  * @param minimumCalls minimum calls required before the failure-rate threshold can open the breaker
+ * @param recordExceptions failure classes matched through the cause chain, including subclasses;
+ *     with no classes or predicate, all exceptions not ignored count as failures
+ * @param ignoreExceptions classes excluded from success and failure accounting through the cause
+ *     chain; ignore matches win over record classes and predicates
+ * @param recordPredicate optional predicate on the original throwable, OR'd with record class
+ *     matches; non-matching exceptions count as successes and are still rethrown unchanged
  */
 @Incubating
 public record CircuitBreakerConfig(
@@ -33,9 +42,15 @@ public record CircuitBreakerConfig(
     int slidingWindowSize,
     long waitDurationMs,
     int permittedCallsInHalfOpen,
-    int minimumCalls) {
+    int minimumCalls,
+    List<Class<? extends Throwable>> recordExceptions,
+    List<Class<? extends Throwable>> ignoreExceptions,
+    @Nullable Predicate<Throwable> recordPredicate) {
 
+  /** Creates a validated configuration with immutable exception lists. */
   public CircuitBreakerConfig {
+    recordExceptions = recordExceptions == null ? List.of() : List.copyOf(recordExceptions);
+    ignoreExceptions = ignoreExceptions == null ? List.of() : List.copyOf(ignoreExceptions);
     if (!Float.isFinite(failureRateThreshold)
         || failureRateThreshold < 0.0f
         || failureRateThreshold > 100.0f) {
@@ -54,5 +69,32 @@ public record CircuitBreakerConfig(
     if (minimumCalls <= 0) {
       throw new IllegalArgumentException("minimumCalls must be greater than 0");
     }
+  }
+
+  /** Creates a configuration that records every exception as a failure. */
+  public CircuitBreakerConfig(
+      float failureRateThreshold,
+      int slidingWindowSize,
+      long waitDurationMs,
+      int permittedCallsInHalfOpen,
+      int minimumCalls) {
+    this(
+        failureRateThreshold,
+        slidingWindowSize,
+        waitDurationMs,
+        permittedCallsInHalfOpen,
+        minimumCalls,
+        List.of(),
+        List.of(),
+        null);
+  }
+
+  /**
+   * Returns the exception classifier for this configuration.
+   *
+   * @return the configured exception filter
+   */
+  public CircuitBreakerExceptionFilter exceptionFilter() {
+    return new CircuitBreakerExceptionFilter(recordExceptions, ignoreExceptions, recordPredicate);
   }
 }

@@ -26,6 +26,7 @@ import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 
 /**
  * CDI interceptor that wraps methods annotated with {@link CircuitBreakerProtected} in circuit
@@ -82,7 +83,11 @@ public class CircuitBreakerInterceptor {
     }
 
     CircuitBreaker breaker = registry.getBreaker(serviceName, profile);
-    return breaker.execute(ctx::proceed);
+    CircuitBreakerProtected annotation = resolved.annotation();
+    CircuitBreakerExceptionFilter filter =
+        CircuitBreakerExceptionFilter.of(
+            annotation.recordExceptions(), annotation.ignoreExceptions());
+    return breaker.execute(ctx::proceed, filter);
   }
 
   private ResolvedCircuitBreakerAnnotation resolveAnnotation(InvocationContext ctx) {

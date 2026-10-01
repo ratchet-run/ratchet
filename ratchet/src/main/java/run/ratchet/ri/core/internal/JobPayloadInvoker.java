@@ -29,6 +29,7 @@ import run.ratchet.ri.payload.ArgumentCoercion;
 import run.ratchet.ri.payload.ArgumentMaterializer;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobPayload;
@@ -53,10 +54,10 @@ public class JobPayloadInvoker {
         }
       };
 
-  private final ClassValue<ConcurrentMap<MethodKey, String>> serviceNameCache =
+  private final ClassValue<ConcurrentMap<MethodKey, ResilienceTarget>> resilienceTargetCache =
       new ClassValue<>() {
         @Override
-        protected ConcurrentMap<MethodKey, String> computeValue(Class<?> type) {
+        protected ConcurrentMap<MethodKey, ResilienceTarget> computeValue(Class<?> type) {
           return new ConcurrentHashMap<>();
         }
       };
@@ -93,15 +94,15 @@ public class JobPayloadInvoker {
   }
 
   /**
-   * Returns the circuit-breaker service name for a payload, falling back to class and method when
-   * its target cannot be resolved.
+   * Returns the circuit-breaker service name and exception filter, falling back to class and method
+   * when its target cannot be resolved.
    */
-  public String serviceName(JobPayload payload) {
+  public ResilienceTarget resilienceTarget(JobPayload payload) {
     String fallback = simpleClassName(payload.target()) + "." + payload.method();
     try {
       Class<?> targetClass = loadAllowedClass(payload.target());
       MethodKey key = MethodKey.from(payload);
-      String cached = serviceNameCache.get(targetClass).get(key);
+      ResilienceTarget cached = resilienceTargetCache.get(targetClass).get(key);
       if (cached != null) {
         return cached;
       }
@@ -111,16 +112,31 @@ public class JobPayloadInvoker {
       if (annotation == null) {
         annotation = targetClass.getAnnotation(CircuitBreakerProtected.class);
       }
-      String resolved =
+      String serviceName =
           annotation != null && annotation.service() != null && !annotation.service().isBlank()
               ? annotation.service()
               : targetClass.getSimpleName() + "." + method.getName();
-      String existing = serviceNameCache.get(targetClass).putIfAbsent(key, resolved);
+      CircuitBreakerExceptionFilter filter =
+          annotation == null
+              ? CircuitBreakerExceptionFilter.RECORD_ALL
+              : CircuitBreakerExceptionFilter.of(
+                  annotation.recordExceptions(), annotation.ignoreExceptions());
+      ResilienceTarget resolved = new ResilienceTarget(serviceName, filter);
+      ResilienceTarget existing = resilienceTargetCache.get(targetClass).putIfAbsent(key, resolved);
       return existing != null ? existing : resolved;
     } catch (Exception e) {
-      return fallback;
+      return new ResilienceTarget(fallback, CircuitBreakerExceptionFilter.RECORD_ALL);
     }
   }
+
+  /**
+   * Resolved resilience metadata for a job target.
+   *
+   * @param serviceName the protected service key
+   * @param exceptionFilter exception accounting rules from the target annotation
+   */
+  public record ResilienceTarget(
+      String serviceName, CircuitBreakerExceptionFilter exceptionFilter) {}
 
   private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {
     if (className == null || className.isEmpty()) {
