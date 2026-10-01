@@ -44,8 +44,9 @@ public final class RatchetOptionsFactory {
                 "ratchet.worker.use-virtual-threads", "RATCHET_WORKER_USE_VIRTUAL_THREADS", false))
         .isPresent()) {
       LOG.warning(
-          "ratchet.worker.use-virtual-threads (RATCHET_WORKER_USE_VIRTUAL_THREADS) is retired and ignored; "
-              + "use ratchet.worker.default-threading-mode (RATCHET_WORKER_DEFAULT_THREADING_MODE) instead.");
+          "ratchet.worker.use-virtual-threads (RATCHET_WORKER_USE_VIRTUAL_THREADS) is retired and"
+              + " ignored; use ratchet.worker.default-threading-mode"
+              + " (RATCHET_WORKER_DEFAULT_THREADING_MODE) instead.");
     }
     return RatchetOptions.builder()
         .polling(
@@ -94,8 +95,9 @@ public final class RatchetOptionsFactory {
                 timeout
                     .softTimeoutPercent(config.get(RatchetConfigKeys.SOFT_TIMEOUT_PERCENT))
                     .defaultSlaSeconds(config.get(RatchetConfigKeys.WORKER_DEFAULT_SLA))
-                    .signalTimeoutBatchSize(
-                        config.get(RatchetConfigKeys.SIGNAL_TIMEOUT_BATCH_SIZE)))
+                    .signalTimeoutBatchSize(config.get(RatchetConfigKeys.SIGNAL_TIMEOUT_BATCH_SIZE))
+                    .cancellationGraceSeconds(
+                        config.get(RatchetConfigKeys.CANCELLATION_GRACE_SECONDS)))
         .maintenance(
             maintenance ->
                 maintenance

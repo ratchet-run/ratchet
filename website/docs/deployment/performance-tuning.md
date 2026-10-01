@@ -191,7 +191,7 @@ scheduler.enqueue(() -> longRunningTask())
     .submit();
 ```
 
-Jobs without a timeout (`timeout_sec = 0`) run indefinitely. In production, always set a timeout to prevent stuck jobs from blocking the thread pool.
+Jobs without their own timeout (`timeout_sec = 0`) use `ratchet.timeout.default-sla-seconds` (1800 seconds by default). In production, set a timeout that fits each job so stuck jobs do not block the thread pool. Long jobs that work in units can stop cleanly before the timeout; see [Stopping at a safe point](../concepts/execution-model.md#stopping-at-a-safe-point).
 
 Recommended timeouts by job type:
 

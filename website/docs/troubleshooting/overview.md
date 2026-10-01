@@ -196,6 +196,7 @@ Diagnostic-related settings:
 | `node.orphanScanIntervalMinutes(...)` | `5` | How often to scan for orphaned jobs |
 | `timeout.softTimeoutPercent(...)` | `80` | Percentage of timeout at which warning fires |
 | `timeout.defaultSlaSeconds(...)` | `1800` | Default job timeout in seconds (30 min) |
+| `timeout.cancellationGraceSeconds(...)` | `0` | Seconds before the timeout at which a cooperative job is asked to stop |
 | `circuitBreaker.enabled(...)` | `true` | Enable/disable the built-in circuit breaker |
 
 ## Getting Help

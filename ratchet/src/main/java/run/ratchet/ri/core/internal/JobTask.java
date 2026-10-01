@@ -21,7 +21,10 @@ import java.io.Serializable;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeoutException;
@@ -29,9 +32,11 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.KeyNotFoundException;
@@ -97,6 +102,7 @@ public class JobTask implements Callable<Void> {
   private final JobTimeoutHandler timeoutHandler;
   private final Clock clock;
   private final LifecycleCallbackInvoker callbackInvoker;
+  private @Nullable JobAttemptControl attempt;
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
@@ -250,7 +256,9 @@ public class JobTask implements Callable<Void> {
         nodeId,
         jobEntity.getCallerPrincipal(),
         jobType != null ? jobType.name() : null,
-        deserializedSignalPayload);
+        deserializedSignalPayload,
+        attempt != null ? attempt.deadline() : null,
+        attempt != null ? attempt::isCancellationRequested : () -> false);
 
     // The JobContext/MDC bound above must be cleared on every exit. Open the clearing try right
     // after the bind so a throw from the startup observability calls (metrics, execution recording)
@@ -364,6 +372,10 @@ public class JobTask implements Callable<Void> {
       JobMdcContext.clear();
     }
     return null;
+  }
+
+  public void attach(@Nullable JobAttemptControl attempt) {
+    this.attempt = attempt;
   }
 
   public void init(JobEntity job) {
@@ -750,8 +762,15 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleFailure(Throwable ex) {
-    log.errorf(
-        ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
+    boolean cooperativeStop =
+        attempt != null
+            && timeoutHandler != null
+            && attempt.isCancellationRequested()
+            && hasCancellationRequestedCause(ex);
+    if (!cooperativeStop) {
+      log.errorf(
+          ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
+    }
 
     // The hard-timeout watchdog interrupted this worker and already owns the retry/finalize for the
     // timeout (including the attempt increment). Defer to it so a single timeout does not burn two
@@ -761,6 +780,24 @@ public class JobTask implements Callable<Void> {
           "Job %s interrupted by hard-timeout watchdog — deferring retry to the watchdog",
           job.getId());
       logIfTimeout(ex);
+      return;
+    }
+
+    // The job stopped itself after a cancellation request. Whoever claims the attempt first (this
+    // worker or the hard-timeout watchdog) runs the timeout transition, so it happens once.
+    if (cooperativeStop) {
+      if (attempt.claimTimeout()) {
+        log.infof("Job %s stopped cooperatively after cancellation was requested", job.getId());
+        if (currentExecution != null) {
+          currentExecution.markFailed(ex);
+          observabilityFacade.saveExecution(currentExecution);
+        }
+        timeoutHandler.processCooperativeTimeout(attempt);
+      } else {
+        log.infof(
+            "Job %s stopped after the hard-timeout watchdog claimed it — deferring to the watchdog",
+            job.getId());
+      }
       return;
     }
 
@@ -789,6 +826,16 @@ public class JobTask implements Callable<Void> {
     } else {
       moveToDlq(ex, attempt);
     }
+  }
+
+  private static boolean hasCancellationRequestedCause(Throwable ex) {
+    Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+    for (int depth = 0; ex != null && depth < 256 && seen.add(ex); depth++, ex = ex.getCause()) {
+      if (ex instanceof CancellationRequestedException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void handleNonRetryableFailure(Throwable ex, int attempt) {

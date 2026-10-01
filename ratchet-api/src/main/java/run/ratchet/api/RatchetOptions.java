@@ -204,6 +204,7 @@ public class RatchetOptions {
     builder.retryBuffer.drainIntervalMs = retryBuffer.drainIntervalMs();
 
     builder.timeout.softTimeoutPercent = timeout.softTimeoutPercent();
+    builder.timeout.cancellationGraceSeconds = timeout.cancellationGraceSeconds();
     builder.timeout.defaultSlaSeconds = timeout.defaultSlaSeconds();
     builder.timeout.signalTimeoutBatchSize = timeout.signalTimeoutBatchSize();
 
@@ -684,9 +685,14 @@ public class RatchetOptions {
    * @param defaultSlaSeconds default execution SLA in seconds applied to jobs that do not declare
    *     their own
    * @param signalTimeoutBatchSize maximum number of WAITING jobs scanned per signal-timeout tick
+   * @param cancellationGraceSeconds seconds before the hard timeout at which the watchdog requests
+   *     cooperative cancellation; 0 disables the early request
    */
   public record TimeoutOptions(
-      int softTimeoutPercent, long defaultSlaSeconds, int signalTimeoutBatchSize) {}
+      int softTimeoutPercent,
+      long defaultSlaSeconds,
+      int signalTimeoutBatchSize,
+      long cancellationGraceSeconds) {}
 
   /**
    * Background-maintenance schedules: DLQ purge, job archive, log purge.
@@ -1261,6 +1267,7 @@ public class RatchetOptions {
     private int softTimeoutPercent = 80;
     private long defaultSlaSeconds = 1800L;
     private int signalTimeoutBatchSize = 500;
+    private long cancellationGraceSeconds = 0L;
 
     private TimeoutBuilder() {}
 
@@ -1282,8 +1289,15 @@ public class RatchetOptions {
       return this;
     }
 
+    public TimeoutBuilder cancellationGraceSeconds(long cancellationGraceSeconds) {
+      this.cancellationGraceSeconds =
+          atLeast("cancellationGraceSeconds", cancellationGraceSeconds, 0L);
+      return this;
+    }
+
     private TimeoutOptions build() {
-      return new TimeoutOptions(softTimeoutPercent, defaultSlaSeconds, signalTimeoutBatchSize);
+      return new TimeoutOptions(
+          softTimeoutPercent, defaultSlaSeconds, signalTimeoutBatchSize, cancellationGraceSeconds);
     }
   }
 
