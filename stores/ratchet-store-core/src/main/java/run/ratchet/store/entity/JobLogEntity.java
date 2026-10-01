@@ -16,7 +16,6 @@
 package run.ratchet.store.entity;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
@@ -24,13 +23,12 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.Instant;
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import run.ratchet.store.converter.JsonObjectMapConverter;
+import run.ratchet.store.converter.JsonMapColumns;
 import run.ratchet.store.id.UuidV7EntityListener;
 
 /** Immutable log entry for job execution events. */
@@ -61,8 +59,14 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(nullable = false)
   private String message;
 
-  @Convert(converter = JsonObjectMapConverter.class)
-  private Map<String, Object> mdc;
+  // JSON String is the persistent state; the constructor writes it immediately for JPA persistence.
+  @Column(name = "mdc")
+  private String mdc;
+
+  // Read cache and the JSON it represents, including provider-loaded changes.
+  @Transient private Map<String, Object> mdcMap;
+
+  @Transient private String mdcMapJson;
 
   protected JobLogEntity() {}
 
@@ -76,7 +80,9 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.ts = Objects.requireNonNull(ts, "ts");
     this.level = Objects.requireNonNull(level, "level");
     this.message = Objects.requireNonNull(message, "message");
-    this.mdc = copyMdc(mdc);
+    this.mdcMap = JsonMapColumns.freezeObjectMap(mdc);
+    this.mdc = JsonMapColumns.writeObjectMap(mdcMap);
+    this.mdcMapJson = this.mdc;
   }
 
   public UUID getId() {
@@ -104,7 +110,11 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, Object> getMdc() {
-    return copyMdc(mdc);
+    if (!Objects.equals(mdc, mdcMapJson)) {
+      mdcMap = JsonMapColumns.freezeObjectMap(JsonMapColumns.readObjectMap(mdc));
+      mdcMapJson = mdc;
+    }
+    return mdcMap;
   }
 
   // Identity-based equality on the assigned primary key. Content-based equality (jobId/ts/
@@ -134,12 +144,5 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     INFO,
     WARN,
     ERROR
-  }
-
-  private static Map<String, Object> copyMdc(Map<String, Object> mdc) {
-    if (mdc == null) {
-      return null;
-    }
-    return Collections.unmodifiableMap(new LinkedHashMap<>(mdc));
   }
 }

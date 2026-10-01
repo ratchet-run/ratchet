@@ -32,6 +32,8 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import jakarta.persistence.Transient;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -42,7 +44,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JobPriorityConverter;
-import run.ratchet.store.converter.JsonMapConverter;
+import run.ratchet.store.converter.JsonMapColumns;
 import run.ratchet.store.id.UuidV7EntityListener;
 import run.ratchet.store.spi.RecurringJobStore;
 
@@ -103,12 +105,23 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(nullable = false)
   private JobPayload payload;
 
-  @Convert(converter = JsonMapConverter.class)
-  private Map<String, String> params;
+  // JSON String is the persistent state; the setter writes it so JPA dirty checking sees changes.
+  @Column(name = "params")
+  private String params;
 
-  @Convert(converter = JsonMapConverter.class)
+  // Read cache and the JSON it represents, including provider-loaded changes.
+  @Transient private Map<String, String> paramsMap;
+
+  @Transient private String paramsMapJson;
+
+  // JSON String is the persistent state; the setter writes it so JPA dirty checking sees changes.
   @Column(name = "trace_context")
-  private Map<String, String> traceContext;
+  private String traceContext;
+
+  // Read cache and the JSON it represents, including provider-loaded changes.
+  @Transient private Map<String, String> traceContextMap;
+
+  @Transient private String traceContextMapJson;
 
   // Per-row encryption metadata. encryptedPayload records whether this row's protected surfaces are
   // stored as ciphertext (the global switch OR the job's withEncryptedPayload() opt-in); read paths
@@ -359,11 +372,18 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, String> getParams() {
-    return params;
+    if (!Objects.equals(params, paramsMapJson)) {
+      paramsMap = JsonMapColumns.readStringMap(params);
+      paramsMapJson = params;
+    }
+    return paramsMap == null ? null : Collections.unmodifiableMap(paramsMap);
   }
 
   public void setParams(Map<String, String> params) {
-    this.params = params;
+    Map<String, String> copy = params == null ? null : new LinkedHashMap<>(params);
+    this.params = JsonMapColumns.writeStringMap(copy);
+    this.paramsMap = copy;
+    this.paramsMapJson = this.params;
   }
 
   public boolean isEncryptedPayload() {
@@ -383,11 +403,18 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   }
 
   public Map<String, String> getTraceContext() {
-    return traceContext;
+    if (!Objects.equals(traceContext, traceContextMapJson)) {
+      traceContextMap = JsonMapColumns.readStringMap(traceContext);
+      traceContextMapJson = traceContext;
+    }
+    return traceContextMap == null ? null : Collections.unmodifiableMap(traceContextMap);
   }
 
   public void setTraceContext(Map<String, String> traceContext) {
-    this.traceContext = traceContext;
+    Map<String, String> copy = traceContext == null ? null : new LinkedHashMap<>(traceContext);
+    this.traceContext = JsonMapColumns.writeStringMap(copy);
+    this.traceContextMap = copy;
+    this.traceContextMapJson = this.traceContext;
   }
 
   public String getTargetClass() {

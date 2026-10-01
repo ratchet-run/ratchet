@@ -31,31 +31,12 @@ public class JsonMapConverter extends AbstractJsonAttributeConverter<Map<String,
 
   @Override
   protected String serialize(Map<String, String> attribute) {
-    return PayloadSerializerHolder.get().serialize(attribute);
+    return JsonMapColumns.writeStringMap(attribute);
   }
 
-  @SuppressWarnings("unchecked")
   @Override
   protected Map<String, String> deserialize(String dbData) {
-    Map<?, ?> raw = PayloadSerializerHolder.get().deserialize(dbData, Map.class);
-    if (raw == null) {
-      return null;
-    }
-    for (Map.Entry<?, ?> entry : raw.entrySet()) {
-      if (!(entry.getKey() instanceof String) || !(entry.getValue() instanceof String)) {
-        throw new IllegalArgumentException(
-            "JSON map column contains non-String entry: key="
-                + entry.getKey()
-                + " ("
-                + (entry.getKey() == null ? "null" : entry.getKey().getClass().getSimpleName())
-                + "), value="
-                + entry.getValue()
-                + " ("
-                + (entry.getValue() == null ? "null" : entry.getValue().getClass().getSimpleName())
-                + ")");
-      }
-    }
-    return (Map<String, String>) raw;
+    return JsonMapColumns.readStringMap(dbData);
   }
 
   @Override

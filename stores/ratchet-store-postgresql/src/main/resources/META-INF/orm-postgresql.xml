@@ -12,8 +12,6 @@
 
     <entity class="run.ratchet.store.entity.JobEntity">
         <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="payload"/>
-        <convert converter="run.ratchet.store.converter.JsonMapConverter" attribute-name="params"/>
-        <convert converter="run.ratchet.store.converter.JsonMapConverter" attribute-name="traceContext"/>
         <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="onSuccessPayload"/>
         <convert converter="run.ratchet.store.converter.JobPayloadConverter" attribute-name="onFailurePayload"/>
         <attributes>

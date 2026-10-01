@@ -36,13 +36,12 @@ public class JsonObjectMapConverter extends AbstractJsonAttributeConverter<Map<S
 
   @Override
   protected String serialize(Map<String, Object> attribute) {
-    return PayloadSerializerHolder.get().serialize(attribute);
+    return JsonMapColumns.writeObjectMap(attribute);
   }
 
-  @SuppressWarnings("unchecked")
   @Override
   protected Map<String, Object> deserialize(String dbData) {
-    return (Map<String, Object>) PayloadSerializerHolder.get().deserialize(dbData, Map.class);
+    return JsonMapColumns.readObjectMap(dbData);
   }
 
   @Override
