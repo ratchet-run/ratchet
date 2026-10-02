@@ -42,6 +42,24 @@ public interface ResilienceStrategy {
   <T> T execute(String serviceName, Callable<T> task) throws Exception;
 
   /**
+   * Executes a task with the filter resolved from the job method's CircuitBreakerProtected
+   * annotation by the scheduler. The default ignores the filter; implementations that classify
+   * exceptions should override this method.
+   *
+   * @param serviceName the protected service key
+   * @param exceptionFilter the per-call exception filter
+   * @param task the task to execute
+   * @param <T> the return type
+   * @return the task result
+   * @throws Exception if the task fails or the circuit rejects it
+   */
+  default <T> T execute(
+      String serviceName, CircuitBreakerExceptionFilter exceptionFilter, Callable<T> task)
+      throws Exception {
+    return execute(serviceName, task);
+  }
+
+  /**
    * Checks whether a service is currently available (circuit not open).
    *
    * <p>This method is an advisory pre-check only. Availability can change immediately after it
