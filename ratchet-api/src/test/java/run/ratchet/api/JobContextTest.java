@@ -15,17 +15,100 @@
  */
 package run.ratchet.api;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.exception.CancellationRequestedException;
 
 class JobContextTest {
+
+  @Test
+  void legacyContextHasNoDeadlineOrCancellation() {
+    JobContext context = JobContext.bind(UUID.randomUUID(), null);
+    assertEquals(Optional.empty(), context.deadline());
+    assertFalse(context.isCancellationRequested());
+    assertDoesNotThrow(context::throwIfCancellationRequested);
+  }
+
+  @Test
+  void watchedContextObservesCancellationFromAnotherThread() throws InterruptedException {
+    Instant deadline = Instant.parse("2026-10-01T12:00:00Z");
+    AtomicBoolean requested = new AtomicBoolean();
+    JobContext context =
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, deadline, requested::get);
+    assertEquals(Optional.of(deadline), context.deadline());
+    assertFalse(context.isCancellationRequested());
+    assertDoesNotThrow(context::throwIfCancellationRequested);
+    Thread watchdog = new Thread(() -> requested.set(true));
+    watchdog.start();
+    watchdog.join();
+    assertTrue(context.isCancellationRequested());
+    assertThrows(CancellationRequestedException.class, context::throwIfCancellationRequested);
+  }
+
+  @Test
+  void cancellationExceptionRecordsRequestStateWhenCreated() {
+    AtomicBoolean requested = new AtomicBoolean();
+    JobContext context =
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, requested::get);
+    CancellationRequestedException early = new CancellationRequestedException("stop");
+    requested.set(true);
+    CancellationRequestedException late = new CancellationRequestedException("stop");
+    CancellationRequestedException thrown =
+        assertThrows(CancellationRequestedException.class, context::throwIfCancellationRequested);
+
+    assertFalse(early.isCancellationRequested());
+    assertTrue(late.isCancellationRequested());
+    assertTrue(thrown.isCancellationRequested());
+  }
+
+  @Test
+  void cancellationExceptionWithoutContextRecordsNoRequest() {
+    assertFalse(new CancellationRequestedException("stop").isCancellationRequested());
+    assertFalse(
+        new CancellationRequestedException("stop", new IllegalStateException())
+            .isCancellationRequested());
+  }
+
+  @Test
+  void throwIfCancellationRequestedRecordsRequestOffTheJobThread() throws InterruptedException {
+    JobContext context =
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true);
+    AtomicReference<CancellationRequestedException> thrown = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                context.throwIfCancellationRequested();
+              } catch (CancellationRequestedException e) {
+                thrown.set(e);
+              }
+            });
+    worker.start();
+    worker.join();
+
+    assertTrue(thrown.get().isCancellationRequested());
+  }
+
+  @Test
+  void watchedContextRequiresCancellationSupplier() {
+    assertThrows(
+        NullPointerException.class,
+        () -> JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, null));
+  }
 
   @AfterEach
   void clearContext() {

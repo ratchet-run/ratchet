@@ -38,6 +38,29 @@ import run.ratchet.spi.RatchetConfigSource;
 class RatchetOptionsFactoryTest {
 
   @Test
+  void readsCancellationGracePropertyAndEnvironmentVariable() {
+    assertEquals(
+        0L,
+        optionsFrom(new MapRatchetConfigSource(Map.of(), Map.of()))
+            .timeout()
+            .cancellationGraceSeconds());
+    assertEquals(
+        3L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.timeout.cancellation-grace-seconds", "3"), Map.of()))
+            .timeout()
+            .cancellationGraceSeconds());
+    assertEquals(
+        4L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(), Map.of("RATCHET_CANCELLATION_GRACE_SECONDS", "4")))
+            .timeout()
+            .cancellationGraceSeconds());
+  }
+
+  @Test
   void retiredVirtualThreadPropertyAndEnvironmentVariableWarn() {
     var messages = new ArrayList<String>();
     var logger = Logger.getLogger(RatchetOptionsFactory.class.getName());

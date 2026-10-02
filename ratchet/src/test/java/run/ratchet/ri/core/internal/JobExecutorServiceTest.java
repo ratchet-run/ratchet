@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -170,8 +169,11 @@ class JobExecutorServiceTest {
         .when(jobExecutor)
         .execute(any(Runnable.class));
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+            any(JobAttemptControl.class),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
 
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     ExecutionResult result = invokeExecute(() -> null, handlesRef);
@@ -182,7 +184,7 @@ class JobExecutorServiceTest {
     verify(hardTimeout).cancel(false);
     verify(timeoutHandler)
         .scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
+            any(JobAttemptControl.class), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
   }
 
   @Test
@@ -198,7 +200,10 @@ class JobExecutorServiceTest {
   void watchdogSchedulingFailureRejectsWithoutSubmittingTask() throws Exception {
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+            any(JobAttemptControl.class),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class)))
         .thenThrow(new RejectedExecutionException("scheduler stopped"));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
@@ -215,8 +220,11 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenThrow(lookupFailure);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+            any(JobAttemptControl.class),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
 
@@ -237,8 +245,11 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+            any(JobAttemptControl.class),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
     doAnswer(
             invocation -> {
               enteredExecute.countDown();
@@ -277,8 +288,11 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+            any(JobAttemptControl.class),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
     AtomicReference<Thread> runner = new AtomicReference<>();
     doAnswer(
             invocation -> {
@@ -323,8 +337,24 @@ class JobExecutorServiceTest {
       throws Exception {
     Method method =
         DefaultJobExecutorService.class.getDeclaredMethod(
-            "execute", UUID.class, int.class, Callable.class, AtomicReference.class, String.class);
+            "execute",
+            UUID.class,
+            JobAttemptControl.class,
+            Instant.class,
+            Callable.class,
+            AtomicReference.class,
+            String.class,
+            Runnable.class);
     method.setAccessible(true);
-    return (ExecutionResult) method.invoke(service, JOB_ID, 30, callable, handlesRef, "platform");
+    return (ExecutionResult)
+        method.invoke(
+            service,
+            JOB_ID,
+            new JobAttemptControl(JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW),
+            FIXED_NOW,
+            callable,
+            handlesRef,
+            "platform",
+            (Runnable) () -> {});
   }
 }
