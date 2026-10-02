@@ -241,7 +241,10 @@ class CircuitBreakerTest {
   }
 
   @Test
-  void nonRecordedExceptionReachingMinimumCallsOpensWhenWindowIsAtThreshold() {
+  void unmatchedExceptionDoesNotCountTowardMinimumCallsButAPlainSuccessDoes() throws Exception {
+    // minimumCalls=2, threshold=50%: after one recorded failure, an unmatched exception adds no
+    // call to the window, so the breaker stays CLOSED. A plain success then reaches minimumCalls
+    // with the window exactly 50% failed, which opens (>=).
     CircuitBreakerExceptionFilter filter =
         new CircuitBreakerExceptionFilter(List.of(IllegalStateException.class), List.of(), null);
     breaker =
@@ -265,6 +268,8 @@ class CircuitBreakerTest {
                     () -> {
                       throw notRecorded;
                     })));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    assertEquals("ok", breaker.execute(() -> "ok"));
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
   }
 
@@ -604,21 +609,26 @@ class CircuitBreakerTest {
   }
 
   @Test
-  void nonRecordedExceptionsCountAsSuccessesAndDiluteFailureRate() {
-    CircuitBreakerExceptionFilter filter =
-        new CircuitBreakerExceptionFilter(List.of(IllegalStateException.class), List.of(), null);
+  void unmatchedExceptionsLeaveCountsAndFailureRateUnchanged() {
+    assertUnmatchedExceptionsAreNotCounted(
+        new CircuitBreakerExceptionFilter(List.of(IllegalStateException.class), List.of(), null));
+  }
+
+  @Test
+  void predicateOnlyFilterLeavesNonMatchingExceptionsUncounted() {
+    assertUnmatchedExceptionsAreNotCounted(
+        new CircuitBreakerExceptionFilter(
+            List.of(), List.of(), failure -> failure instanceof IllegalStateException));
+  }
+
+  // minimumCalls=2, window=4, threshold=50%. One recorded failure, then ten unmatched exceptions.
+  // Had they counted as successes, they would have filled the window and pushed the failure out,
+  // so the next failure would leave the window 25% failed. Uncounted, the next failure makes it
+  // 2 of 2 failed and opens the breaker.
+  private void assertUnmatchedExceptionsAreNotCounted(CircuitBreakerExceptionFilter filter) {
     breaker =
         new CircuitBreaker(
             "selective", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2, filter), clock);
-    for (int i = 0; i < 3; i++) {
-      assertThrows(
-          IllegalArgumentException.class,
-          () ->
-              breaker.execute(
-                  () -> {
-                    throw new IllegalArgumentException();
-                  }));
-    }
     assertThrows(
         IllegalStateException.class,
         () ->
@@ -626,7 +636,19 @@ class CircuitBreakerTest {
                 () -> {
                   throw new IllegalStateException();
                 }));
-    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    for (int i = 0; i < 10; i++) {
+      IllegalArgumentException unmatched = new IllegalArgumentException();
+      assertSame(
+          unmatched,
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  breaker.execute(
+                      () -> {
+                        throw unmatched;
+                      })));
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    }
     assertThrows(
         IllegalStateException.class,
         () ->
@@ -743,28 +765,30 @@ class CircuitBreakerTest {
   }
 
   @Test
-  void halfOpenNonRecordedExceptionsCountAsSuccessfulTrials() {
+  void halfOpenUnmatchedExceptionsReleaseTrialPermitsAndSuccessesStillClose() throws Exception {
+    // permittedCallsInHalfOpen=2. Three unmatched exceptions would exhaust the permits if any of
+    // them kept one, and two would close the breaker if they counted as successful trials.
     CircuitBreakerExceptionFilter filter =
         new CircuitBreakerExceptionFilter(List.of(IllegalStateException.class), List.of(), null);
     breaker.transitionToOpen();
     clock.advance(Duration.ofMillis(100));
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            breaker.execute(
-                () -> {
-                  throw new IllegalArgumentException();
-                },
-                filter));
+    IllegalArgumentException unmatched = new IllegalArgumentException();
+    for (int i = 0; i < 3; i++) {
+      assertSame(
+          unmatched,
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  breaker.execute(
+                      () -> {
+                        throw unmatched;
+                      },
+                      filter)));
+      assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    }
+    breaker.execute(() -> "first", filter);
     assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
-    assertThrows(
-        IllegalArgumentException.class,
-        () ->
-            breaker.execute(
-                () -> {
-                  throw new IllegalArgumentException();
-                },
-                filter));
+    breaker.execute(() -> "second", filter);
     assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
   }
 

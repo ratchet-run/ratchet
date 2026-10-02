@@ -197,7 +197,7 @@ Set `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false))` to make b
 
 Use `recordExceptions` to select failures and `ignoreExceptions` to exclude exceptions from breaker accounting. Matching checks the thrown exception and each cause, including subclasses, and stops safely if causes form a cycle. Ignore matches always win over record classes and predicates.
 
-With an empty record list and no predicate, every exception not ignored counts as a failure. With a record list or predicate, exceptions matching neither count as successes and reduce the failure rate. Ignored exceptions count as neither success nor failure and leave the sliding window untouched. In HALF_OPEN, they release their trial permit so later calls can test recovery. Errors such as `AssertionError` are classified the same way. Every exception or error is rethrown unchanged, regardless of how it is counted.
+With an empty record list and no predicate, every exception not ignored counts as a failure. With a record list or predicate, an exception that matches neither is not counted. Ignored exceptions and these unmatched exceptions count as neither success nor failure: they leave the sliding window untouched and do not count toward `minimumCalls`. In HALF_OPEN, they release their trial permit so later calls can test recovery. Only a normal return counts as a success. Errors such as `AssertionError` are classified the same way. Every exception or error is rethrown unchanged, regardless of how it is counted.
 
 ```java
 @CircuitBreakerProtected(
@@ -241,7 +241,7 @@ public class ApplicationCircuitBreakerConfig implements CircuitBreakerConfigProv
 }
 ```
 
-This example records I/O failures anywhere in the cause chain or a top-level `IllegalStateException`, unless an ignored argument exception appears in the chain. Other exceptions count as successes.
+This example records I/O failures anywhere in the cause chain or a top-level `IllegalStateException`, unless an ignored argument exception appears in the chain. Other exceptions are rethrown without being counted.
 
 ## Programmatic Access via CircuitBreakerRegistry
 

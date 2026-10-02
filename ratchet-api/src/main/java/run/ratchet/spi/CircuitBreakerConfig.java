@@ -34,7 +34,8 @@ import run.ratchet.api.Nullable;
  * @param ignoreExceptions classes excluded from success and failure accounting through the cause
  *     chain; ignore matches win over record classes and predicates
  * @param recordPredicate optional predicate on the original throwable, OR'd with record class
- *     matches; non-matching exceptions count as successes and are still rethrown unchanged
+ *     matches; when record classes or a predicate are set, an exception matching neither counts as
+ *     neither success nor failure and is still rethrown unchanged
  */
 @Incubating
 public record CircuitBreakerConfig(

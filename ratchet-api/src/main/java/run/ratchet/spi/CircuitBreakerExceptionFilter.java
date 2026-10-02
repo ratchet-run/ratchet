@@ -30,9 +30,11 @@ import run.ratchet.api.Nullable;
  * walks the cause chain with identity-based cycle detection. Ignore matches always win.
  *
  * <p>With no record classes or predicate, every exception not ignored is recorded as a failure.
- * Otherwise a record class match or a predicate accepting the original throwable records a failure;
- * other exceptions count as successes. Ignored exceptions count as neither success nor failure.
- * Exceptions are rethrown unchanged by the breaker regardless of their classification.
+ * Otherwise a record class match or a predicate accepting the original throwable records a failure,
+ * and an exception that matches neither is not recorded. Ignored and not-recorded exceptions count
+ * as neither success nor failure: they leave the breaker's counts unchanged. Exceptions are
+ * rethrown unchanged by the breaker regardless of their classification. Only a normal return counts
+ * as a success.
  *
  * <p>If the predicate itself throws, the throwable is recorded as a failure and the predicate's
  * exception is added to it as a suppressed exception.
@@ -153,9 +155,12 @@ public record CircuitBreakerExceptionFilter(
   public enum Outcome {
     /** Counts as a failure. */
     RECORDED,
-    /** Counts as a success even though the exception is rethrown. */
+    /**
+     * Matches no configured record class or predicate. Counts as neither success nor failure, the
+     * same way as {@link #IGNORED}.
+     */
     NOT_RECORDED,
-    /** Counts as neither success nor failure. */
+    /** Matches an ignore class. Counts as neither success nor failure. */
     IGNORED
   }
 }

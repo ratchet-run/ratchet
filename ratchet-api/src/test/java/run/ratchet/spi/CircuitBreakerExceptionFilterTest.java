@@ -35,7 +35,7 @@ class CircuitBreakerExceptionFilterTest {
   }
 
   @Test
-  void recordClassesMatchSubclassesAndOtherExceptionsCountAsSuccesses() {
+  void recordClassesMatchSubclassesAndOtherExceptionsAreNotRecorded() {
     CircuitBreakerExceptionFilter filter =
         new CircuitBreakerExceptionFilter(List.of(IllegalArgumentException.class), List.of(), null);
     assertEquals(RECORDED, filter.classify(new IllegalArgumentException()));

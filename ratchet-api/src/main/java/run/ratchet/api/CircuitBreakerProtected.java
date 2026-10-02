@@ -71,8 +71,9 @@ public @interface CircuitBreakerProtected {
   /**
    * Returns failure classes matched through the cause chain, including subclasses. Lists are
    * unioned with profile configuration. With no record classes or predicate, every exception not
-   * ignored is recorded; otherwise non-matching exceptions count as successes. Annotations cannot
-   * hold predicates; use a CircuitBreakerConfigProvider for predicate configuration.
+   * ignored is recorded; otherwise non-matching exceptions count as neither success nor failure.
+   * Annotations cannot hold predicates; use a CircuitBreakerConfigProvider for predicate
+   * configuration.
    *
    * @return classes to record as failures
    */
