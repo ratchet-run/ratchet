@@ -95,8 +95,9 @@ public final class LifecycleCallbackInvoker {
       JobPayload invocationPayload =
           payloadInvoker.materializeArguments(boundPayload, payloadSerializer);
       payloadInvoker.invoke(invocationPayload);
-    } catch (Exception e) {
-      // Log + metric + event; preserve the parent job outcome.
+    } catch (Throwable e) {
+      // Log + metric + event; preserve the parent job outcome. Errors are caught too, so a
+      // callback cannot abort the worker, timeout transition, or poller tick that invoked it.
       log.errorf(
           e,
           "Job %s %s callback failed: %s: %s",
@@ -106,7 +107,7 @@ public final class LifecycleCallbackInvoker {
           e.getMessage());
       try {
         observabilityFacade.recordCallbackFailure(job, e, 1);
-      } catch (Exception metricEx) {
+      } catch (Throwable metricEx) {
         log.warnf("Callback metric error for job %s: %s", job.getId(), metricEx.getMessage());
       }
       try {
@@ -123,7 +124,7 @@ public final class LifecycleCallbackInvoker {
                 e.getMessage(),
                 e.getClass().getName(),
                 1));
-      } catch (Exception eventEx) {
+      } catch (Throwable eventEx) {
         log.warnf("Callback event publish error for job %s: %s", job.getId(), eventEx.getMessage());
       }
     }

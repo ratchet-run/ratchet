@@ -130,9 +130,10 @@ public interface JobBuilder {
    *       callback payloads load as one unit, so the callback payload is unavailable.
    * </ul>
    *
-   * <p>The callback runs at most once per job, after the FAILED transition commits. An exception
-   * thrown by the callback is logged and reported as a JobCallbackFailedEvent without changing the
-   * job outcome.
+   * <p>The callback runs at most once per terminal FAILED transition, after that transition
+   * commits. An admin retry resets the FAILED job to PENDING, so a later failure can run the
+   * callback again. An exception or error thrown by the callback is logged and reported as a
+   * JobCallbackFailedEvent without changing the job outcome.
    *
    * @param handler failure callback; receives the job context and failure
    * @return this builder

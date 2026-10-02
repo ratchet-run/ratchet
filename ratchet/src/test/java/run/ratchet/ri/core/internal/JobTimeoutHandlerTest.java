@@ -343,6 +343,28 @@ class JobTimeoutHandlerTest {
     assertNull(JobContext.currentOrNull());
   }
 
+  @Test
+  void terminalSignalTimeoutCallbackErrorDoesNotEscapeTheTimeoutTransition() throws Exception {
+    JobEntity job = signalCallbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.WAITING), eq(true), any(), any()))
+        .thenReturn(true);
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    LinkageError failure = new LinkageError("callback error");
+    doThrow(failure).when(payloadInvoker).invoke(job.getOnFailurePayload());
+
+    JobTimeoutHandler callbackHandler = callbackHandler();
+    assertDoesNotThrow(() -> callbackHandler.processSignalTimeout(job, Instant.now()));
+
+    verify(observabilityFacade).recordCallbackFailure(job, failure, 1);
+    ArgumentCaptor<JobCallbackFailedEvent> event =
+        ArgumentCaptor.forClass(JobCallbackFailedEvent.class);
+    verify(observabilityFacade).publishEvent(event.capture());
+    assertEquals(LinkageError.class.getName(), event.getValue().getCauseClassName());
+    assertNull(JobContext.currentOrNull());
+  }
+
   private JobEntity signalCallbackJob(int maxRetries) {
     JobEntity job = waitingJobWithMaxRetries(maxRetries);
     job.setCallerPrincipal("callback-owner");

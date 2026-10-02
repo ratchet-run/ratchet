@@ -347,7 +347,7 @@ Does not run when:
 - Orphan recovery returns the job to PENDING; a later run may fail and run the callback.
 - A job row cannot be decrypted when loaded: the encrypted job payload, parameters, and callback payloads load as one unit, so the callback payload is unavailable.
 
-The callback runs at most once per job, after the FAILED transition commits. An exception thrown by the callback is logged and reported as a JobCallbackFailedEvent without changing the job outcome.
+The callback runs at most once per terminal FAILED transition, after that transition commits. An admin retry resets the FAILED job to PENDING, so a later failure can run the callback again. An exception or error thrown by the callback is logged and reported as a JobCallbackFailedEvent without changing the job outcome.
 
 **Parameters:**
 - `f` -- failure callback accepting a `JobContext` and `Throwable`.

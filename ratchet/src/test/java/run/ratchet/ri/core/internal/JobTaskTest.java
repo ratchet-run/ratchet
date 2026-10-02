@@ -1035,20 +1035,22 @@ class JobTaskTest {
   }
 
   @Test
-  void onFailureRunsOnceWhenCallbackErrorEscapesNormalDlqPath() throws Exception {
+  void onFailureCallbackErrorIsContainedOnNormalDlqPath() throws Exception {
     JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
     JobTask task = callbackTask(invoker);
     JobEntity job = jobWithFailureCallback();
     RuntimeException original = new RuntimeException("original");
     stubWorkerFailure(task, job, original);
-    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true, false);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
-    doThrow(new LinkageError("boom")).when(invoker).invoke(any());
+    LinkageError callbackError = new LinkageError("boom");
+    doThrow(callbackError).when(invoker).invoke(any());
 
     Assertions.assertDoesNotThrow(task::call);
 
     verify(invoker).invoke(any());
-    verify(lifecycleFacade, times(2)).completeFailure(job, JobStatus.RUNNING, false);
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(observabilityFacade).recordCallbackFailure(job, callbackError, 1);
   }
 
   @Test
