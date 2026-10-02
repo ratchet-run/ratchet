@@ -93,6 +93,7 @@ public record CircuitBreakerExceptionFilter(
       for (Class<? extends Throwable> record : recordExceptions) {
         if (record.isInstance(cause)) {
           recorded = true;
+          break;
         }
       }
     }
