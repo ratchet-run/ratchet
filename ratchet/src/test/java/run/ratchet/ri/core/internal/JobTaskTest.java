@@ -47,6 +47,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
@@ -123,31 +124,57 @@ class JobTaskTest {
   private static final ThreadLocal<String> OBSERVED_SIGNAL_STRING = new ThreadLocal<>();
   private static final ThreadLocal<CustomArgument> OBSERVED_CUSTOM_ARGUMENT = new ThreadLocal<>();
 
-  private static final ThreadLocal<RuntimeException> COOPERATIVE_FAILURE = new ThreadLocal<>();
+  private static final ThreadLocal<Supplier<RuntimeException>> COOPERATIVE_FAILURE =
+      new ThreadLocal<>();
   private static final ThreadLocal<JobContext> COOPERATIVE_CONTEXT = new ThreadLocal<>();
 
   public static String cooperativePayload() {
     COOPERATIVE_CONTEXT.set(JobContext.current());
-    RuntimeException failure = COOPERATIVE_FAILURE.get();
+    Supplier<RuntimeException> failure = COOPERATIVE_FAILURE.get();
     if (failure != null) {
-      throw failure;
+      throw failure.get();
     }
     return "done";
   }
 
   @Test
   void requestedCancellationUsesTimeoutTransition() throws Exception {
-    runCooperativeScenario(true, false, new CancellationRequestedException("stop"));
+    runCooperativeScenario(true, false, attempt -> new CancellationRequestedException("stop"));
   }
 
   @Test
   void watchdogClaimedCancellationDefersTransition() throws Exception {
-    runCooperativeScenario(true, true, new CancellationRequestedException("stop"));
+    runCooperativeScenario(true, true, attempt -> new CancellationRequestedException("stop"));
   }
 
   @Test
   void unrequestedCancellationIsOrdinaryFailure() throws Exception {
-    runCooperativeScenario(false, false, new CancellationRequestedException("stop"));
+    runCooperativeScenario(false, false, attempt -> new CancellationRequestedException("stop"));
+  }
+
+  @Test
+  void cancellationCreatedBeforeRequestIsOrdinaryFailure() throws Exception {
+    runCooperativeScenario(
+        false,
+        false,
+        attempt -> {
+          CancellationRequestedException early = new CancellationRequestedException("stop");
+          // The watchdog requests cancellation while the exception unwinds.
+          attempt.requestCancellation();
+          return early;
+        });
+  }
+
+  @Test
+  void wrappedCancellationCreatedBeforeRequestIsOrdinaryFailure() throws Exception {
+    runCooperativeScenario(
+        false,
+        false,
+        attempt -> {
+          CancellationRequestedException early = new CancellationRequestedException("stop");
+          attempt.requestCancellation();
+          return new RuntimeException("wrapped after the request", early);
+        });
   }
 
   @Test
@@ -158,7 +185,7 @@ class JobTaskTest {
   @Test
   void wrappedCancellationUsesTimeoutTransition() throws Exception {
     runCooperativeScenario(
-        true, false, new RuntimeException(new CancellationRequestedException("stop")));
+        true, false, attempt -> new RuntimeException(new CancellationRequestedException("stop")));
   }
 
   @Test
@@ -182,7 +209,8 @@ class JobTaskTest {
   }
 
   @SuppressWarnings("unchecked")
-  private void runCooperativeScenario(boolean requested, boolean claimed, RuntimeException failure)
+  private void runCooperativeScenario(
+      boolean requested, boolean claimed, Function<JobAttemptControl, RuntimeException> failure)
       throws Exception {
     runCooperativeScenario(requested, claimed, failure, false, false, false, false);
   }
@@ -192,7 +220,7 @@ class JobTaskTest {
     runCooperativeScenario(
         true,
         false,
-        new CancellationRequestedException("stop"),
+        attempt -> new CancellationRequestedException("stop"),
         true,
         saveFails,
         watchdogPassed,
@@ -203,7 +231,7 @@ class JobTaskTest {
   private void runCooperativeScenario(
       boolean requested,
       boolean claimed,
-      RuntimeException failure,
+      Function<JobAttemptControl, RuntimeException> failure,
       boolean handlingFails,
       boolean saveFails,
       boolean watchdogPassed,
@@ -265,13 +293,14 @@ class JobTaskTest {
             .processCooperativeTimeout(attempt);
       }
     }
-    COOPERATIVE_FAILURE.set(failure);
+    COOPERATIVE_FAILURE.set(failure == null ? null : () -> failure.apply(attempt));
     try {
       Assertions.assertDoesNotThrow(task::call);
       JobContext observed = COOPERATIVE_CONTEXT.get();
       Assertions.assertNotNull(observed);
       Assertions.assertEquals(Optional.of(attempt.deadline()), observed.deadline());
-      Assertions.assertEquals(requested, observed.isCancellationRequested());
+      Assertions.assertEquals(
+          attempt.isCancellationRequested(), observed.isCancellationRequested());
       if (failure != null && requested && !claimed) {
         verify(timeoutHandler, times(saveFails ? 0 : watchdogPassed ? 2 : 1))
             .processCooperativeTimeout(attempt);
