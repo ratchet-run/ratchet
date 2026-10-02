@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -162,8 +163,53 @@ class JobTaskTest {
         true, false, new RuntimeException(new CancellationRequestedException("stop")));
   }
 
+  @Test
+  void cooperativeTransitionFailureHandsTimeoutBack() throws Exception {
+    runCooperativeFailureScenario(false, false, false);
+  }
+
+  @Test
+  void cooperativeExecutionSaveFailureHandsTimeoutBack() throws Exception {
+    runCooperativeFailureScenario(true, false, false);
+  }
+
+  @Test
+  void cooperativeFailureRetriesWhenWatchdogAlreadyPassed() throws Exception {
+    runCooperativeFailureScenario(false, true, false);
+  }
+
+  @Test
+  void repeatedCooperativeFailureAfterWatchdogPassedDoesNotEscape() throws Exception {
+    runCooperativeFailureScenario(false, true, true);
+  }
+
   @SuppressWarnings("unchecked")
   private void runCooperativeScenario(boolean requested, boolean claimed, RuntimeException failure)
+      throws Exception {
+    runCooperativeScenario(requested, claimed, failure, false, false, false, false);
+  }
+
+  private void runCooperativeFailureScenario(
+      boolean saveFails, boolean watchdogPassed, boolean retryFails) throws Exception {
+    runCooperativeScenario(
+        true,
+        false,
+        new CancellationRequestedException("stop"),
+        true,
+        saveFails,
+        watchdogPassed,
+        retryFails);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void runCooperativeScenario(
+      boolean requested,
+      boolean claimed,
+      RuntimeException failure,
+      boolean handlingFails,
+      boolean saveFails,
+      boolean watchdogPassed,
+      boolean retryFails)
       throws Exception {
     JobTimeoutHandler timeoutHandler = mock(JobTimeoutHandler.class);
     JobAttemptControl attempt =
@@ -172,7 +218,7 @@ class JobTaskTest {
       attempt.requestCancellation();
     }
     if (claimed) {
-      Assertions.assertTrue(attempt.claimTimeout());
+      Assertions.assertTrue(attempt.claimTimeoutForWatchdog());
     }
     JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
     JobEntity job = createTestJob();
@@ -197,15 +243,41 @@ class JobTaskTest {
     } else if (!requested) {
       when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
     }
+    if (handlingFails) {
+      if (saveFails) {
+        doThrow(new IllegalStateException("execution store down"))
+            .when(observabilityFacade)
+            .saveExecution(any(JobExecutionEntity.class));
+      } else {
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(
+                invocation -> {
+                  if (calls.incrementAndGet() == 1) {
+                    if (watchdogPassed) {
+                      Assertions.assertFalse(attempt.claimTimeoutForWatchdog());
+                    }
+                    throw new IllegalStateException("timeout store down");
+                  }
+                  if (retryFails) {
+                    throw new IllegalStateException("timeout store still down");
+                  }
+                  return null;
+                })
+            .when(timeoutHandler)
+            .processCooperativeTimeout(attempt);
+      }
+    }
     COOPERATIVE_FAILURE.set(failure);
     try {
-      task.call();
+      Assertions.assertDoesNotThrow(task::call);
       JobContext observed = COOPERATIVE_CONTEXT.get();
       Assertions.assertNotNull(observed);
       Assertions.assertEquals(Optional.of(attempt.deadline()), observed.deadline());
       Assertions.assertEquals(requested, observed.isCancellationRequested());
       if (failure != null && requested && !claimed) {
-        verify(timeoutHandler).processCooperativeTimeout(attempt);
+        verify(timeoutHandler, times(saveFails ? 0 : watchdogPassed ? 2 : 1))
+            .processCooperativeTimeout(attempt);
+        Assertions.assertEquals(handlingFails && !watchdogPassed, attempt.isTimeoutHandedBack());
         ArgumentCaptor<JobExecutionEntity> execution =
             ArgumentCaptor.forClass(JobExecutionEntity.class);
         verify(observabilityFacade).saveExecution(execution.capture());

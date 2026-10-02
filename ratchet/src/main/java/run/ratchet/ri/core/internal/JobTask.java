@@ -784,15 +784,36 @@ public class JobTask implements Callable<Void> {
     }
 
     // The job stopped itself after a cancellation request. Whoever claims the attempt first (this
-    // worker or the hard-timeout watchdog) runs the timeout transition, so it happens once.
+    // worker or the hard-timeout watchdog) runs the transition. On worker failure, hand it back
+    // to the watchdog, or retry here if the watchdog already passed while the worker owned it.
     if (cooperativeStop) {
-      if (attempt.claimTimeout()) {
+      if (attempt.claimTimeoutForWorker()) {
         log.infof("Job %s stopped cooperatively after cancellation was requested", job.getId());
-        if (currentExecution != null) {
-          currentExecution.markFailed(ex);
-          observabilityFacade.saveExecution(currentExecution);
+        try {
+          if (currentExecution != null) {
+            currentExecution.markFailed(ex);
+            observabilityFacade.saveExecution(currentExecution);
+          }
+          timeoutHandler.processCooperativeTimeout(attempt);
+        } catch (RuntimeException failure) {
+          log.warnf(
+              failure,
+              "Job %s cooperative timeout handling failed; handing the timeout back to the"
+                  + " watchdog",
+              job.getId());
+          if (attempt.handBackTimeoutToWatchdog()) {
+            return;
+          }
+          try {
+            timeoutHandler.processCooperativeTimeout(attempt);
+          } catch (RuntimeException retryFailure) {
+            log.errorf(
+                retryFailure,
+                "Job %s cooperative timeout handling failed again; left RUNNING for orphan"
+                    + " recovery",
+                job.getId());
+          }
         }
-        timeoutHandler.processCooperativeTimeout(attempt);
       } else {
         log.infof(
             "Job %s stopped after the hard-timeout watchdog claimed it — deferring to the watchdog",
