@@ -88,6 +88,36 @@ class CircuitBreakerExceptionFilterTest {
   }
 
   @Test
+  void throwingPredicateRecordsAndAttachesItsExceptionAsSuppressed() {
+    IllegalStateException predicateFailure = new IllegalStateException("predicate bug");
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(
+            List.of(),
+            List.of(),
+            t -> {
+              throw predicateFailure;
+            });
+    Exception original = new Exception("task failure");
+    assertEquals(RECORDED, filter.classify(original));
+    assertArrayEquals(new Throwable[] {predicateFailure}, original.getSuppressed());
+    assertNull(original.getCause());
+  }
+
+  @Test
+  void predicateRethrowingTheOriginalRecordsWithoutSelfSuppression() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(
+            List.of(),
+            List.of(),
+            t -> {
+              throw (RuntimeException) t;
+            });
+    RuntimeException original = new RuntimeException("task failure");
+    assertEquals(RECORDED, filter.classify(original));
+    assertEquals(0, original.getSuppressed().length);
+  }
+
+  @Test
   void predicateReceivesOriginalThrowableAndIsOrEdWithRecordClasses() {
     Throwable original = new RuntimeException(new IllegalStateException());
     Predicate<Throwable> predicate = t -> t == original;

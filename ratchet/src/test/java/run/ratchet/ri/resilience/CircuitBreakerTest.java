@@ -756,6 +756,132 @@ class CircuitBreakerTest {
     }
   }
 
+  @Test
+  void throwingPredicateInClosedRecordsFailureAndRethrowsOriginal() {
+    RuntimeException predicateFailure = new RuntimeException("predicate bug");
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(
+            List.of(),
+            List.of(),
+            t -> {
+              throw predicateFailure;
+            });
+    for (int i = 0; i < 2; i++) {
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+      IllegalStateException original = new IllegalStateException("task failure");
+      IllegalStateException thrown =
+          assertThrows(
+              IllegalStateException.class,
+              () ->
+                  breaker.execute(
+                      () -> {
+                        throw original;
+                      },
+                      filter));
+      assertSame(original, thrown);
+      assertArrayEquals(new Throwable[] {predicateFailure}, thrown.getSuppressed());
+    }
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void throwingPredicateInHalfOpenReopensAndSettlesTheTrialPermit() throws Exception {
+    RuntimeException predicateFailure = new RuntimeException("predicate bug");
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(
+            List.of(),
+            List.of(),
+            t -> {
+              throw predicateFailure;
+            });
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    IllegalStateException original = new IllegalStateException("task failure");
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                breaker.execute(
+                    () -> {
+                      throw original;
+                    },
+                    filter));
+    assertSame(original, thrown);
+    assertArrayEquals(new Throwable[] {predicateFailure}, thrown.getSuppressed());
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+
+    clock.advance(Duration.ofMillis(100));
+    breaker.execute(() -> "first", filter);
+    breaker.execute(() -> "second", filter);
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+  }
+
+  @Test
+  void recordedErrorsCountAsFailuresAndAreRethrownUnchanged() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(AssertionError.class), List.of(), null);
+    breaker =
+        new CircuitBreaker(
+            "errors", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2, filter), clock);
+    AssertionError error = new AssertionError("recorded");
+    for (int i = 0; i < 2; i++) {
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+      assertSame(
+          error,
+          assertThrows(
+              AssertionError.class,
+              () ->
+                  breaker.execute(
+                      () -> {
+                        throw error;
+                      })));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void recordedErrorInHalfOpenReopens() {
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    AssertionError error = new AssertionError("recorded");
+    assertSame(
+        error,
+        assertThrows(
+            AssertionError.class,
+            () ->
+                breaker.execute(
+                    () -> {
+                      throw error;
+                    })));
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void ignoredErrorsInHalfOpenReleaseTheirTrialPermits() throws Exception {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(AssertionError.class), null);
+    breaker.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    AssertionError ignored = new AssertionError("ignored");
+    for (int i = 0; i < 3; i++) {
+      assertSame(
+          ignored,
+          assertThrows(
+              AssertionError.class,
+              () ->
+                  breaker.execute(
+                      () -> {
+                        throw ignored;
+                      },
+                      filter)));
+      assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    }
+    breaker.execute(() -> "first", filter);
+    breaker.execute(() -> "second", filter);
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+  }
+
   private String blockingHalfOpenCall(CountDownLatch started, CountDownLatch release)
       throws Exception {
     return breaker.execute(

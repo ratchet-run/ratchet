@@ -197,7 +197,7 @@ Set `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false))` to make b
 
 Use `recordExceptions` to select failures and `ignoreExceptions` to exclude exceptions from breaker accounting. Matching checks the thrown exception and each cause, including subclasses, and stops safely if causes form a cycle. Ignore matches always win over record classes and predicates.
 
-With an empty record list and no predicate, every exception not ignored counts as a failure. With a record list or predicate, exceptions matching neither count as successes and reduce the failure rate. Ignored exceptions count as neither success nor failure and leave the sliding window untouched. In HALF_OPEN, they release their trial permit so later calls can test recovery. Every exception is rethrown unchanged, regardless of how it is counted.
+With an empty record list and no predicate, every exception not ignored counts as a failure. With a record list or predicate, exceptions matching neither count as successes and reduce the failure rate. Ignored exceptions count as neither success nor failure and leave the sliding window untouched. In HALF_OPEN, they release their trial permit so later calls can test recovery. Errors such as `AssertionError` are classified the same way. Every exception or error is rethrown unchanged, regardless of how it is counted.
 
 ```java
 @CircuitBreakerProtected(
@@ -210,7 +210,7 @@ public Inventory fetchInventory(String sku) throws IOException {
 }
 ```
 
-The resolved annotation's record and ignore lists are unioned with the profile configuration's lists. Method annotations take precedence over class annotations. Predicates are OR'd when filters are merged and receive the original top-level throwable. Annotations cannot hold predicates.
+The resolved annotation's record and ignore lists are unioned with the profile configuration's lists. Method annotations take precedence over class annotations. Predicates are OR'd when filters are merged and receive the original top-level throwable. If a predicate throws, the call counts as a failure, the predicate's exception is added to the original as a suppressed exception, and the original is rethrown. Annotations cannot hold predicates.
 
 There is no properties-file binding for exception lists. Use a `CircuitBreakerConfigProvider` for configuration lists or predicates:
 

@@ -223,7 +223,9 @@ public class CircuitBreaker {
       T result = task.call();
       recordSuccess();
       return result;
-    } catch (Exception e) {
+    } catch (Throwable e) {
+      // Errors are classified too; precise rethrow keeps the same instance and the Exception
+      // signature.
       switch (filter.classify(e)) {
         case RECORDED -> recordFailure();
         case NOT_RECORDED -> recordSuccess();
@@ -258,7 +260,8 @@ public class CircuitBreaker {
         publishPendingStateNotifications();
       }
       return result;
-    } catch (Exception e) {
+    } catch (Throwable e) {
+      // Every throwable releases or settles its trial permit before the same instance is rethrown.
       boolean transitioned = false;
       CircuitBreakerExceptionFilter.Outcome outcome = filter.classify(e);
       switch (outcome) {
