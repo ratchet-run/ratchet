@@ -169,7 +169,7 @@ This annotation is marked `@Incubating` and may change in future versions.
 | `recordExceptions` | `Class<? extends Throwable>[]` | `{}` | No | Failure classes matched through the cause chain, including subclasses. |
 | `ignoreExceptions` | `Class<? extends Throwable>[]` | `{}` | No | Classes excluded from success and failure accounting; ignore matches win. |
 
-Exception lists are unioned with profile configuration. With no record classes or predicate, all exceptions not ignored count as failures. Otherwise non-matching exceptions count as successes. All exceptions are rethrown unchanged. Predicates and configuration-level exception lists require a `CircuitBreakerConfigProvider`; annotations cannot hold predicates. See [Choosing Which Exceptions Count](../advanced/circuit-breakers#choosing-which-exceptions-count).
+Exception lists are unioned with profile configuration. With no record classes or predicate, all exceptions not ignored count as failures. Otherwise non-matching exceptions count as neither success nor failure. All exceptions are rethrown unchanged. Predicates and configuration-level exception lists require a `CircuitBreakerConfigProvider`; annotations cannot hold predicates. See [Choosing Which Exceptions Count](../advanced/circuit-breakers#choosing-which-exceptions-count).
 
 ### CircuitBreakerProfile
 

@@ -36,7 +36,7 @@ import run.ratchet.spi.CircuitBreakerExceptionFilter;
  * <pre>
  * CLOSED (default)
  *   → Track success/failure in sliding window (ring buffer of last N calls)
- *   → Non-recorded exceptions count as successes; ignored exceptions leave the window untouched
+ *   → Ignored and non-recorded exceptions leave the window untouched
  *   → When failure rate >= threshold AND calls >= minimumCalls → OPEN
  *
  * OPEN
@@ -47,7 +47,7 @@ import run.ratchet.spi.CircuitBreakerExceptionFilter;
  *   → Allow up to permittedCallsInHalfOpen calls through concurrently
  *   → If all succeed → CLOSED
  *   → If any recorded exception occurs → OPEN
- *   → Non-recorded exceptions count as successes; ignored exceptions release their trial permit
+ *   → Ignored and non-recorded exceptions release their trial permit
  * </pre>
  *
  * <p>Once the breaker is OPEN, normal successes cannot close it because calls are rejected.
@@ -229,8 +229,7 @@ public class CircuitBreaker {
       // signature.
       switch (filter.classify(e)) {
         case RECORDED -> recordOutcome(false);
-        case NOT_RECORDED -> recordOutcome(true);
-        case IGNORED -> {}
+        case NOT_RECORDED, IGNORED -> {}
       }
       throw e;
     }
@@ -264,23 +263,18 @@ public class CircuitBreaker {
     } catch (Throwable e) {
       // Every throwable releases or settles its trial permit before the same instance is rethrown.
       boolean transitioned = false;
-      CircuitBreakerExceptionFilter.Outcome outcome = filter.classify(e);
-      switch (outcome) {
-        case NOT_RECORDED -> transitioned = onHalfOpenSuccess(admittedGeneration);
-        case RECORDED, IGNORED -> {
-          lock.lock();
-          try {
-            if (isCurrentHalfOpenGeneration(admittedGeneration)) {
-              if (outcome == CircuitBreakerExceptionFilter.Outcome.IGNORED) {
-                halfOpenAttempts--;
-              } else {
-                transitioned = transitionToOpenUnderLock();
-              }
-            }
-          } finally {
-            lock.unlock();
+      boolean recorded = filter.classify(e) == CircuitBreakerExceptionFilter.Outcome.RECORDED;
+      lock.lock();
+      try {
+        if (isCurrentHalfOpenGeneration(admittedGeneration)) {
+          if (recorded) {
+            transitioned = transitionToOpenUnderLock();
+          } else {
+            halfOpenAttempts--;
           }
         }
+      } finally {
+        lock.unlock();
       }
       if (transitioned) {
         publishPendingStateNotifications();
