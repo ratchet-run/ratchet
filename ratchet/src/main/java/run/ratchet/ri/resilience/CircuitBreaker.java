@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import org.jboss.logging.Logger;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.spi.CircuitBreakerExceptionFilter;
 
@@ -55,6 +56,7 @@ import run.ratchet.spi.CircuitBreakerExceptionFilter;
  */
 public class CircuitBreaker {
 
+  private static final Logger log = Logger.getLogger(CircuitBreaker.class);
   private static final int UNINITIALIZED = -1;
 
   private final String name;
@@ -219,20 +221,22 @@ public class CircuitBreaker {
 
   private <T> T executeInClosed(Callable<T> task, CircuitBreakerExceptionFilter filter)
       throws Exception {
+    T result;
     try {
-      T result = task.call();
-      recordSuccess();
-      return result;
+      result = task.call();
     } catch (Throwable e) {
       // Errors are classified too; precise rethrow keeps the same instance and the Exception
       // signature.
       switch (filter.classify(e)) {
-        case RECORDED -> recordFailure();
-        case NOT_RECORDED -> recordSuccess();
+        case RECORDED -> recordOutcome(false);
+        case NOT_RECORDED -> recordOutcome(true);
         case IGNORED -> {}
       }
       throw e;
     }
+    // Accounting and listener calls run outside the try so only the task's outcome is classified.
+    recordOutcome(true);
+    return result;
   }
 
   private <T> T executeInHalfOpen(Callable<T> task, CircuitBreakerExceptionFilter filter)
@@ -254,12 +258,9 @@ public class CircuitBreaker {
       lock.unlock();
     }
 
+    T result;
     try {
-      T result = task.call();
-      if (onHalfOpenSuccess(admittedGeneration)) {
-        publishPendingStateNotifications();
-      }
-      return result;
+      result = task.call();
     } catch (Throwable e) {
       // Every throwable releases or settles its trial permit before the same instance is rethrown.
       boolean transitioned = false;
@@ -286,6 +287,11 @@ public class CircuitBreaker {
       }
       throw e;
     }
+    // Accounting and listener calls run outside the try so only the task's outcome is classified.
+    if (onHalfOpenSuccess(admittedGeneration)) {
+      publishPendingStateNotifications();
+    }
+    return result;
   }
 
   private boolean onHalfOpenSuccess(long admittedGeneration) {
@@ -316,20 +322,13 @@ public class CircuitBreaker {
     return state.get() == State.HALF_OPEN && halfOpenGeneration == admittedGeneration;
   }
 
-  private void recordSuccess() {
-    lock.lock();
-    try {
-      recordOutcome(1);
-    } finally {
-      lock.unlock();
-    }
-  }
-
-  private void recordFailure() {
+  // Records one CLOSED-state outcome and evaluates the failure-rate threshold after every outcome,
+  // so the call that reaches minimumCalls can open the breaker whether it succeeded or failed.
+  private void recordOutcome(boolean success) {
     boolean transitioned;
     lock.lock();
     try {
-      recordOutcome(0);
+      recordInWindow(success ? 1 : 0);
       int snapshotTotal = Math.min(totalCalls, window.length);
       int snapshotFailures = failureCount;
       transitioned = evaluateThreshold(snapshotTotal, snapshotFailures);
@@ -342,7 +341,7 @@ public class CircuitBreaker {
   }
 
   // Must be called with lock held.
-  private void recordOutcome(int outcome) {
+  private void recordInWindow(int outcome) {
     int len = window.length;
     int idx = windowIndex;
     windowIndex = (idx + 1) % len;
@@ -423,8 +422,13 @@ public class CircuitBreaker {
   private void notifyState(State newState) {
     try {
       stateListener.accept(newState);
-    } catch (RuntimeException ignored) {
-      // Observability must not change circuit-breaker behavior.
+    } catch (Throwable listenerFailure) {
+      // Observability must not change circuit-breaker behavior, so even an Error is contained.
+      log.warnf(
+          listenerFailure,
+          "Circuit breaker '%s' state listener failed for transition to %s",
+          name,
+          newState);
     }
   }
 

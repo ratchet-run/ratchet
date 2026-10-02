@@ -93,13 +93,13 @@ class DefaultResilienceStrategyTest {
     assertEquals(CircuitBreaker.State.CLOSED, registry.getBreaker("error-service").getState());
     for (int i = 0; i < 5; i++) {
       assertThrows(
-          OutOfMemoryError.class,
+          RecordedError.class,
           () ->
               strategy.execute(
                   "error-service",
                   filter,
                   () -> {
-                    throw new OutOfMemoryError("recorded");
+                    throw new RecordedError();
                   }));
     }
     assertEquals(CircuitBreaker.State.OPEN, registry.getBreaker("error-service").getState());
@@ -253,6 +253,8 @@ class DefaultResilienceStrategyTest {
 
     assertEquals("RatchetOptions were not injected", thrown.getMessage());
   }
+
+  private static final class RecordedError extends Error {}
 
   private static final class TestCircuitBreakerConfigProvider
       implements CircuitBreakerConfigProvider {

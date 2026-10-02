@@ -151,9 +151,10 @@ class CircuitBreakerTest {
     // so the ring buffer wraps in steady state and the failure-evicted-by-success eviction
     // path runs. A broken decrement would leave failureCount stale and spuriously reopen.
 
-    // Phase 1: fill the window just below threshold -> [F,S,S,S] = 25%. The lone failure is
-    // recorded first: at totalCalls=1 the minimumCalls=2 gate skips evaluation, so a window
-    // that is momentarily 100%-of-one cannot open the breaker.
+    // Phase 1: fill the window just below threshold -> [S,S,F,S] = 25%. The failure lands third,
+    // so the window never reaches 50% once minimumCalls=2 is met: S,S = 0%, S,S,F = 33%.
+    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
     assertThrows(
         RuntimeException.class,
         () ->
@@ -161,8 +162,6 @@ class CircuitBreakerTest {
                 () -> {
                   throw new RuntimeException("warmup-failure");
                 }));
-    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
-    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
     assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
     assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
 
@@ -223,6 +222,77 @@ class CircuitBreakerTest {
         CircuitBreaker.State.OPEN,
         breaker.getState(),
         "the breaker must open exactly when the live window reaches the failure threshold");
+  }
+
+  @Test
+  void successReachingMinimumCallsOpensWhenWindowIsAtThreshold() throws Exception {
+    // minimumCalls=2, threshold=50%: the failure alone is below minimumCalls, and the success
+    // that follows leaves the window exactly 50% failed, which opens (>=).
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new RuntimeException("fail");
+                }));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    assertEquals("ok", breaker.execute(() -> "ok"));
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void nonRecordedExceptionReachingMinimumCallsOpensWhenWindowIsAtThreshold() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(IllegalStateException.class), List.of(), null);
+    breaker =
+        new CircuitBreaker(
+            "selective", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2, filter), clock);
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new IllegalStateException("recorded");
+                }));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    IllegalArgumentException notRecorded = new IllegalArgumentException("not recorded");
+    assertSame(
+        notRecorded,
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                breaker.execute(
+                    () -> {
+                      throw notRecorded;
+                    })));
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void listenerErrorsAreContainedAndNeverClassifiedAsTaskFailures() throws Exception {
+    List<CircuitBreaker.State> transitions = new CopyOnWriteArrayList<>();
+    CircuitBreaker observed =
+        new CircuitBreaker(
+            "throwing-listener",
+            new CircuitBreakerConfiguration(50.0f, 4, 100L, 1, 2),
+            clock,
+            newState -> {
+              transitions.add(newState);
+              throw new ListenerError();
+            });
+
+    observed.transitionToOpen();
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, observed.getState());
+
+    // The trial succeeds and closes the breaker; the listener's Error on CLOSED must neither
+    // escape to the caller nor be classified as a failed trial that reopens the breaker.
+    assertEquals("ok", observed.execute(() -> "ok"));
+    assertEquals(CircuitBreaker.State.CLOSED, observed.getState());
+    assertEquals(
+        List.of(
+            CircuitBreaker.State.OPEN, CircuitBreaker.State.HALF_OPEN, CircuitBreaker.State.CLOSED),
+        transitions);
   }
 
   @Test
@@ -891,6 +961,8 @@ class CircuitBreakerTest {
           return "ok";
         });
   }
+
+  private static final class ListenerError extends Error {}
 
   private static final class MutableClock extends Clock {
 
