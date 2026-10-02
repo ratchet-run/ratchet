@@ -766,7 +766,7 @@ public class JobTask implements Callable<Void> {
         attempt != null
             && timeoutHandler != null
             && attempt.isCancellationRequested()
-            && hasCancellationRequestedCause(ex);
+            && hasRequestedCancellationCause(ex);
     if (!cooperativeStop) {
       log.errorf(
           ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
@@ -849,10 +849,16 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private static boolean hasCancellationRequestedCause(Throwable ex) {
+  /**
+   * Classifies by the state each exception recorded when it was created: one created before the
+   * request is an ordinary failure even if the flag was set while it unwound. The live attempt flag
+   * checked by the caller guards against an exception carried over from an earlier attempt.
+   */
+  private static boolean hasRequestedCancellationCause(Throwable ex) {
     Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
     for (int depth = 0; ex != null && depth < 256 && seen.add(ex); depth++, ex = ex.getCause()) {
-      if (ex instanceof CancellationRequestedException) {
+      if (ex instanceof CancellationRequestedException cancellation
+          && cancellation.isCancellationRequested()) {
         return true;
       }
     }

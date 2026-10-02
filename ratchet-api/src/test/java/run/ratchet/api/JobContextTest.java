@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.CancellationRequestedException;
@@ -56,6 +57,50 @@ class JobContextTest {
     watchdog.join();
     assertTrue(context.isCancellationRequested());
     assertThrows(CancellationRequestedException.class, context::throwIfCancellationRequested);
+  }
+
+  @Test
+  void cancellationExceptionRecordsRequestStateWhenCreated() {
+    AtomicBoolean requested = new AtomicBoolean();
+    JobContext context =
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, requested::get);
+    CancellationRequestedException early = new CancellationRequestedException("stop");
+    requested.set(true);
+    CancellationRequestedException late = new CancellationRequestedException("stop");
+    CancellationRequestedException thrown =
+        assertThrows(CancellationRequestedException.class, context::throwIfCancellationRequested);
+
+    assertFalse(early.isCancellationRequested());
+    assertTrue(late.isCancellationRequested());
+    assertTrue(thrown.isCancellationRequested());
+  }
+
+  @Test
+  void cancellationExceptionWithoutContextRecordsNoRequest() {
+    assertFalse(new CancellationRequestedException("stop").isCancellationRequested());
+    assertFalse(
+        new CancellationRequestedException("stop", new IllegalStateException())
+            .isCancellationRequested());
+  }
+
+  @Test
+  void throwIfCancellationRequestedRecordsRequestOffTheJobThread() throws InterruptedException {
+    JobContext context =
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true);
+    AtomicReference<CancellationRequestedException> thrown = new AtomicReference<>();
+    Thread worker =
+        new Thread(
+            () -> {
+              try {
+                context.throwIfCancellationRequested();
+              } catch (CancellationRequestedException e) {
+                thrown.set(e);
+              }
+            });
+    worker.start();
+    worker.join();
+
+    assertTrue(thrown.get().isCancellationRequested());
   }
 
   @Test

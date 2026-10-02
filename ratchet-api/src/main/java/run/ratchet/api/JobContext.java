@@ -37,7 +37,7 @@ import run.ratchet.spi.JobLogger;
  * <h2>Cooperative cancellation</h2>
  *
  * <p>Check {@link #isCancellationRequested()} or {@link #throwIfCancellationRequested()} at safe
- * points between units of work. Throwing {@link CancellationRequestedException} after a request
+ * points between units of work. A {@link CancellationRequestedException} created after a request
  * produces the timeout outcome (the same retries/DLQ and JobExecutionTimedOutEvent) without an
  * interrupt. Returning normally counts as success: Ratchet cannot distinguish early return from
  * finished work. The hard interrupt at the deadline remains the backstop.
@@ -188,10 +188,14 @@ public final class JobContext {
     return cancellationRequested.getAsBoolean();
   }
 
-  /** Throws {@link CancellationRequestedException} if Ratchet has requested cancellation. */
+  /**
+   * Throws {@link CancellationRequestedException} if Ratchet has requested cancellation. The
+   * exception records that the request was already made when it was thrown, so Ratchet treats the
+   * attempt as a timeout. Safe from any thread holding this context.
+   */
   public void throwIfCancellationRequested() {
     if (isCancellationRequested()) {
-      throw new CancellationRequestedException("Cancellation requested for job " + jobId);
+      throw new CancellationRequestedException("Cancellation requested for job " + jobId, this);
     }
   }
 
