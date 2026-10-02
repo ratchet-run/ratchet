@@ -34,6 +34,9 @@ import run.ratchet.api.Nullable;
  * other exceptions count as successes. Ignored exceptions count as neither success nor failure.
  * Exceptions are rethrown unchanged by the breaker regardless of their classification.
  *
+ * <p>If the predicate itself throws, the throwable is recorded as a failure and the predicate's
+ * exception is added to it as a suppressed exception.
+ *
  * <p>Equality compares the predicate with its own {@code equals}, which is identity for lambdas.
  *
  * @param recordExceptions classes to record as failures anywhere in the cause chain
@@ -72,7 +75,8 @@ public record CircuitBreakerExceptionFilter(
   }
 
   /**
-   * Classifies the throwable using ignore precedence, then record classes or the predicate.
+   * Classifies the throwable using ignore precedence, then record classes or the predicate. A
+   * predicate that throws records the throwable as a failure and is attached to it as suppressed.
    *
    * @param t the original throwable
    * @return its accounting outcome
@@ -92,9 +96,24 @@ public record CircuitBreakerExceptionFilter(
         }
       }
     }
-    return isRecordAll() || recorded || (recordPredicate != null && recordPredicate.test(t))
+    return isRecordAll() || recorded || predicateRecords(t)
         ? Outcome.RECORDED
         : Outcome.NOT_RECORDED;
+  }
+
+  private boolean predicateRecords(Throwable t) {
+    if (recordPredicate == null) {
+      return false;
+    }
+    try {
+      return recordPredicate.test(t);
+    } catch (Throwable predicateFailure) {
+      // Fail safe: count the call as a failure and keep the original throwable as the one thrown.
+      if (predicateFailure != t) {
+        t.addSuppressed(predicateFailure);
+      }
+      return true;
+    }
   }
 
   /**

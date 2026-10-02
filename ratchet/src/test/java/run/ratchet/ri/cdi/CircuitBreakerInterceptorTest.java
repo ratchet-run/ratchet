@@ -80,6 +80,21 @@ class CircuitBreakerInterceptorTest {
     assertAnnotationFilters("classCall");
   }
 
+  @Test
+  void recordedErrorsPassThroughUnchangedAndOpenTheBreaker() throws Exception {
+    CircuitBreaker breaker =
+        new CircuitBreaker("filtered", new CircuitBreakerConfiguration(50.0f, 20, 30_000L, 2, 3));
+    when(context.getMethod()).thenReturn(FilteredService.class.getMethod("errorCall"));
+    when(configProvider.isEnabled()).thenReturn(true);
+    when(registry.getBreaker("filtered", CircuitBreakerProfile.DEFAULT)).thenReturn(breaker);
+    AssertionError error = new AssertionError("recorded");
+    doThrow(error).when(context).proceed();
+    for (int i = 0; i < 3; i++) {
+      assertSame(error, assertThrows(AssertionError.class, () -> interceptor.intercept(context)));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
   private void assertAnnotationFilters(String methodName) throws Exception {
     CircuitBreaker breaker =
         new CircuitBreaker("filtered", new CircuitBreakerConfiguration(50.0f, 20, 30_000L, 2, 3));
@@ -121,6 +136,10 @@ class CircuitBreakerInterceptorTest {
         recordExceptions = RuntimeException.class,
         ignoreExceptions = {IllegalArgumentException.class, UnsupportedOperationException.class})
     public void methodCall() {}
+
+    /** Records errors through a method-level filter. */
+    @CircuitBreakerProtected(service = "filtered", recordExceptions = AssertionError.class)
+    public void errorCall() {}
   }
 
   interface CircuitProtectedService {

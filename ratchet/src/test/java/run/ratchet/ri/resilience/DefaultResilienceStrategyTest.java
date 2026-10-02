@@ -73,6 +73,39 @@ class DefaultResilienceStrategyTest {
   }
 
   @Test
+  void errorsAreClassifiedAndRethrownUnchanged() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(AssertionError.class), null);
+    AssertionError ignored = new AssertionError("ignored");
+    for (int i = 0; i < 10; i++) {
+      assertSame(
+          ignored,
+          assertThrows(
+              AssertionError.class,
+              () ->
+                  strategy.execute(
+                      "error-service",
+                      filter,
+                      () -> {
+                        throw ignored;
+                      })));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, registry.getBreaker("error-service").getState());
+    for (int i = 0; i < 5; i++) {
+      assertThrows(
+          OutOfMemoryError.class,
+          () ->
+              strategy.execute(
+                  "error-service",
+                  filter,
+                  () -> {
+                    throw new OutOfMemoryError("recorded");
+                  }));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, registry.getBreaker("error-service").getState());
+  }
+
+  @Test
   void registryCopiesSpiExceptionConfiguration() {
     TestCircuitBreakerConfigProvider provider = new TestCircuitBreakerConfigProvider(true);
     provider.config =
