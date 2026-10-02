@@ -312,7 +312,7 @@ public class JobTimeoutHandler {
     ScheduledFuture<?> hard =
         scheduler.schedule(
             () -> handleHardTimeoutById(attempt, future), timeoutSec, TimeUnit.SECONDS);
-    return new TimeoutHandles(soft, cancellationRequest, hard);
+    return new TimeoutHandles(soft, cancellationRequest, hard, attempt);
   }
 
   void processCooperativeTimeout(JobAttemptControl attempt) {
@@ -749,10 +749,10 @@ public class JobTimeoutHandler {
     UUID jobId = attempt.jobId();
     Instant executionStartTime = attempt.executionStartTime();
     long timeoutSec = attempt.timeoutSeconds();
-    if (future.isDone()) {
+    if (future.isDone() && !attempt.isTimeoutHandedBack()) {
       return;
     }
-    if (!attempt.claimTimeout()) {
+    if (!attempt.claimTimeoutForWatchdog()) {
       log.debugf("Job %s already stopped cooperatively; the worker owns the timeout", jobId);
       return;
     }
@@ -792,12 +792,14 @@ public class JobTimeoutHandler {
   /**
    * Cancellable handle bundle for the soft, cancellation-request, and hard timeout tasks scheduled
    * against a job execution. Callers must invoke {@link #cancel()} on job completion so the tasks
-   * do not linger in the scheduler queue until their original fire time.
+   * do not linger in the scheduler queue until their original fire time. A handed-back timeout
+   * keeps its hard task so the watchdog can finish the failed cooperative transition.
    */
   public record TimeoutHandles(
       @Nullable ScheduledFuture<?> soft,
       @Nullable ScheduledFuture<?> cancellationRequest,
-      ScheduledFuture<?> hard) {
+      ScheduledFuture<?> hard,
+      @Nullable JobAttemptControl attempt) {
     public void cancel() {
       if (soft != null) {
         soft.cancel(false);
@@ -805,7 +807,7 @@ public class JobTimeoutHandler {
       if (cancellationRequest != null) {
         cancellationRequest.cancel(false);
       }
-      if (hard != null) {
+      if (hard != null && (attempt == null || !attempt.isTimeoutHandedBack())) {
         hard.cancel(false);
       }
     }
