@@ -15,7 +15,10 @@
  */
 package run.ratchet.spi;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import run.ratchet.api.Incubating;
 
@@ -27,7 +30,11 @@ import run.ratchet.api.Incubating;
  * @param methodDescriptor JVM method descriptor for overload resolution
  * @param isStatic whether the target method is static
  * @param capturedArgs captured lambda arguments; may be {@code null}. A non-null array is
- *     defensively copied, and an empty array is distinct from {@code null}.
+ *     defensively copied, and an empty array is distinct from {@code null}. Runtime slots hold
+ *     null; consult runtimeArgIndexes to distinguish them from captured nulls.
+ * @param runtimeArgIndexes indexes aligned with capturedArgs: each is the functional-interface
+ *     parameter index supplying that slot, or null for a captured or constant slot. Null or an
+ *     all-null list is normalized to null; other lists are defensively copied and unmodifiable.
  */
 @Incubating
 public record LambdaDescriptor(
@@ -35,9 +42,14 @@ public record LambdaDescriptor(
     String methodName,
     String methodDescriptor,
     boolean isStatic,
-    Object[] capturedArgs) {
+    Object[] capturedArgs,
+    List<Integer> runtimeArgIndexes) {
   public LambdaDescriptor {
     capturedArgs = capturedArgs == null ? null : Arrays.copyOf(capturedArgs, capturedArgs.length);
+    runtimeArgIndexes =
+        runtimeArgIndexes == null || runtimeArgIndexes.stream().allMatch(Objects::isNull)
+            ? null
+            : Collections.unmodifiableList(new ArrayList<>(runtimeArgIndexes));
   }
 
   @Override
@@ -52,7 +64,8 @@ public record LambdaDescriptor(
         && Objects.equals(methodName(), that.methodName())
         && Objects.equals(targetClass(), that.targetClass())
         && Objects.deepEquals(capturedArgs(), that.capturedArgs())
-        && Objects.equals(methodDescriptor(), that.methodDescriptor());
+        && Objects.equals(methodDescriptor(), that.methodDescriptor())
+        && Objects.equals(runtimeArgIndexes(), that.runtimeArgIndexes());
   }
 
   @Override
@@ -62,7 +75,8 @@ public record LambdaDescriptor(
         methodName(),
         methodDescriptor(),
         isStatic(),
-        Arrays.deepHashCode(capturedArgs()));
+        Arrays.deepHashCode(capturedArgs()),
+        runtimeArgIndexes());
   }
 
   @Override
@@ -81,6 +95,8 @@ public record LambdaDescriptor(
         + isStatic
         + ", capturedArgs="
         + Arrays.toString(capturedArgs)
+        + ", runtimeArgIndexes="
+        + runtimeArgIndexes
         + '}';
   }
 }

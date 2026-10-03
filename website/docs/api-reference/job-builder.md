@@ -333,6 +333,22 @@ Registers a callback invoked after terminal failure. It receives the live `JobCo
 
 Use a method reference to a public static or CDI bean method, or make exactly one public method call in the lambda. Pass `ctx` and `error` straight through. Read their values inside that method.
 
+Runs when the job ends FAILED through:
+
+- The final attempt fails, or a non-retryable failure occurs (including an undecryptable signal payload).
+- Failure handling itself fails and the last-resort path commits FAILED; the callback receives the original failure.
+- A hard timeout occurs on the final attempt (TimeoutException), on the watchdog thread.
+- A signal wait times out with no retries left (SignalTimeoutException), on the signal-timeout scanner thread.
+- The node retry buffer exceeds its hard cap and the claimed job is dead-lettered (IllegalStateException), on the polling thread or retry-buffer drainer thread.
+
+Does not run when:
+
+- The job is canceled: it ends CANCELED, not FAILED.
+- Orphan recovery returns the job to PENDING; a later run may fail and run the callback.
+- A job row cannot be decrypted when loaded: the encrypted job payload, parameters, and callback payloads load as one unit, so the callback payload is unavailable.
+
+The callback runs at most once per terminal FAILED transition, after that transition commits. An admin retry resets the FAILED job to PENDING, so a later failure can run the callback again. An exception or error thrown by the callback is logged and reported as a JobCallbackFailedEvent without changing the job outcome.
+
 **Parameters:**
 - `f` -- failure callback accepting a `JobContext` and `Throwable`.
 

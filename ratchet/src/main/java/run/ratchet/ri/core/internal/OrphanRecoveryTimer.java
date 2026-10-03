@@ -38,7 +38,9 @@ import run.ratchet.store.spi.NodeStore;
  * Without periodic recovery, these jobs would remain stuck until a node restart.
  *
  * <p>Each scan resets orphaned RUNNING jobs to PENDING, releases permits held by dead nodes, and
- * deletes stale node registrations.
+ * deletes stale node registrations. The store's resetOrphanJobsBefore/resetOrphanJobsForNode
+ * operations clear claims without changing attempts. Recovery never ends a job FAILED and never
+ * runs onFailure; the callback runs later if a re-run fails terminally.
  *
  * @see BatchRecoveryTimer
  */

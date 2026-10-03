@@ -376,7 +376,8 @@ public class JobTimeoutHandler {
    * transaction before returning; with no managed transaction around it, the store commits {@code
    * commitCompletion} itself. This thread has no outer transaction to defer to. Only the path that
    * won the terminal compare-and-swap in {@code commitCompletion} gets a transition back, so the
-   * callback runs at most once per job. A retried or already-finalised job gets none.
+   * callback runs at most once per terminal transition. A retried or already-finalised job gets
+   * none.
    */
   private void runTimeoutTransition(
       Throwable timeoutEx,

@@ -78,23 +78,26 @@ public final class LifecycleCallbackInvoker {
     String callbackName = displayName(callbackType);
     try {
       validationFacade.validateSecurity(callbackPayload);
-      JobPayload invocationPayload =
-          payloadInvoker.materializeArguments(callbackPayload, payloadSerializer);
-      if (invocationPayload.runtimeArgIndexes() != null
-          && invocationPayload.runtimeArgIndexes().contains(0)
+      if (callbackPayload.runtimeArgIndexes() != null
+          && callbackPayload.runtimeArgIndexes().contains(0)
           && runtimeArgs.get(0) == null) {
         log.warnf(
             "Missing JobContext for job %s %s callback; invoking with null context",
             job.getId(), callbackName);
       }
-      invocationPayload =
+      JobPayload boundPayload =
           RuntimeArguments.bind(
-              invocationPayload,
+              callbackPayload,
               runtimeArgs,
               "Job " + job.getId() + " " + callbackName + " callback");
+      // Bind first so the materializer sees runtime values, never placeholder nulls (including
+      // slots for primitive parameters).
+      JobPayload invocationPayload =
+          payloadInvoker.materializeArguments(boundPayload, payloadSerializer);
       payloadInvoker.invoke(invocationPayload);
-    } catch (Exception e) {
-      // Log + metric + event; preserve the parent job outcome.
+    } catch (Throwable e) {
+      // Log + metric + event; preserve the parent job outcome. Errors are caught too, so a
+      // callback cannot abort the worker, timeout transition, or poller tick that invoked it.
       log.errorf(
           e,
           "Job %s %s callback failed: %s: %s",
@@ -104,7 +107,7 @@ public final class LifecycleCallbackInvoker {
           e.getMessage());
       try {
         observabilityFacade.recordCallbackFailure(job, e, 1);
-      } catch (Exception metricEx) {
+      } catch (Throwable metricEx) {
         log.warnf("Callback metric error for job %s: %s", job.getId(), metricEx.getMessage());
       }
       try {
@@ -121,7 +124,7 @@ public final class LifecycleCallbackInvoker {
                 e.getMessage(),
                 e.getClass().getName(),
                 1));
-      } catch (Exception eventEx) {
+      } catch (Throwable eventEx) {
         log.warnf("Callback event publish error for job %s: %s", job.getId(), eventEx.getMessage());
       }
     }

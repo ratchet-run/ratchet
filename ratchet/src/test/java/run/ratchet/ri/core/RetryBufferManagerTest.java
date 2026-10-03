@@ -25,15 +25,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
+import java.time.Clock;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -47,13 +51,22 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.ri.core.internal.ExecutionObserver;
+import run.ratchet.ri.core.internal.JobPayloadInvoker;
+import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.PreExecutionValidator;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobStore;
 
 @ExtendWith(MockitoExtension.class)
 class RetryBufferManagerTest {
@@ -61,6 +74,12 @@ class RetryBufferManagerTest {
   @Mock private PostExecutionHandler lifecycleFacade;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private NodeIdentityProvider nodeIdentityProvider;
+
+  @Mock private JobStore jobStore;
+  @Mock private PreExecutionValidator validator;
+  @Mock private JobPayloadInvoker payloadInvoker;
+  @Mock private PayloadSerializer serializer;
+  @Mock private ExecutionObserver observer;
 
   private RetryBufferManager manager;
 
@@ -82,7 +101,74 @@ class RetryBufferManagerTest {
   void setUp() {
     JobStateManager jobStateManager =
         new JobStateManager(jobBatchStatusStore, nodeIdentityProvider);
-    manager = new RetryBufferManager(jobStateManager, lifecycleFacade);
+    manager =
+        new RetryBufferManager(
+            jobStateManager,
+            lifecycleFacade,
+            jobStore,
+            new LifecycleCallbackInvoker(
+                validator, payloadInvoker, serializer, observer, Clock.systemUTC()));
+  }
+
+  private void fillToHardCap() {
+    for (int i = 0; i < RetryBufferManager.HARD_CAP_PER_TYPE; i++) {
+      assertTrue(manager.forceOffer(standardJob(i)));
+    }
+  }
+
+  @Test
+  void forceOffer_atHardCap_runsOnFailureWithOverflowAfterDlqTransition() throws Exception {
+    fillToHardCap();
+    JobEntity entity = standardJob(9999);
+    entity.setStatus(JobStatus.FAILED);
+    entity.setOnFailurePayload(
+        new JobPayload(
+            "Target",
+            "onFailure",
+            "(Lrun/ratchet/api/JobContext;Ljava/lang/Throwable;)V",
+            true,
+            Arrays.asList(null, null),
+            List.of(0, 1)));
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any())).thenReturn(true);
+    when(jobStore.findById(entity.getId())).thenReturn(Optional.of(entity));
+    when(payloadInvoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+
+    assertFalse(manager.forceOffer(entity));
+
+    ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
+    var order = inOrder(lifecycleFacade, jobStore, payloadInvoker);
+    order.verify(lifecycleFacade).moveToDlqAndHandlePermanentFailure(any(), any());
+    order.verify(jobStore).findById(entity.getId());
+    order.verify(payloadInvoker).materializeArguments(any(), any());
+    order.verify(payloadInvoker).invoke(invoked.capture());
+    verify(payloadInvoker).invoke(any());
+    assertTrue(invoked.getValue().args().get(0) instanceof JobContext);
+    assertTrue(invoked.getValue().args().get(1) instanceof IllegalStateException);
+    assertTrue(
+        ((Throwable) invoked.getValue().args().get(1))
+            .getMessage()
+            .contains("Retry buffer hard cap exceeded"));
+  }
+
+  @Test
+  void forceOffer_atHardCap_lostDlqRaceSkipsOnFailure() throws Exception {
+    fillToHardCap();
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any())).thenReturn(false);
+
+    assertFalse(manager.forceOffer(standardJob(9999)));
+
+    verify(jobStore, never()).findById(any());
+    verify(payloadInvoker, never()).invoke(any());
+  }
+
+  @Test
+  void forceOffer_atHardCap_callbackFailureDoesNotRebufferClaim() {
+    fillToHardCap();
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any())).thenReturn(true);
+    when(jobStore.findById(any())).thenThrow(new RuntimeException("load failed"));
+
+    assertFalse(manager.forceOffer(standardJob(9999)));
+    assertEquals(RetryBufferManager.HARD_CAP_PER_TYPE, manager.totalSize());
   }
 
   @Test

@@ -16,9 +16,11 @@
 package run.ratchet.ri.core.internal;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
@@ -36,6 +38,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -922,6 +925,203 @@ class JobTaskTest {
 
     verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
     verify(payloadInvoker, never()).invoke(callback);
+  }
+
+  private JobTask callbackTask(JobPayloadInvoker invoker) {
+    // Hydration/signal poison exits before service-name lookup.
+    lenient().when(invoker.serviceName(any())).thenReturn("Target");
+    return new JobTask(
+        jobStore,
+        resourcePermitService,
+        lifecycleFacade,
+        nodeIdProvider,
+        observabilityFacade,
+        validationFacade,
+        invoker,
+        new JobSuccessFinalizer(lifecycleFacade, observabilityFacade),
+        retryPolicy,
+        resilienceStrategy,
+        errorSanitizer,
+        context -> noopLogger(),
+        (jobId, result) -> SerializedJobResult.empty(),
+        null,
+        null,
+        null,
+        FIXED_CLOCK,
+        null);
+  }
+
+  private JobEntity jobWithFailureCallback() {
+    JobEntity job = createTestJob();
+    job.setOnFailurePayload(
+        new JobPayload(
+            "Target",
+            "onFailure",
+            "(Lrun/ratchet/api/JobContext;Ljava/lang/Throwable;)V",
+            true,
+            Arrays.asList(null, null),
+            List.of(0, 1)));
+    return job;
+  }
+
+  @SuppressWarnings("unchecked")
+  private void stubWorkerFailure(JobTask task, JobEntity job, RuntimeException error)
+      throws Exception {
+    initJobTaskWithDefaultStubs(task, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
+    when(validationFacade.shouldNotRetry(error)).thenReturn(true);
+  }
+
+  @Test
+  void lastResortFailureRunsOnFailureWithOriginalException() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    JobEntity job = jobWithFailureCallback();
+    RuntimeException original = new RuntimeException("original");
+    stubWorkerFailure(task, job, original);
+    doThrow(new IllegalStateException("observer failed"))
+        .when(observabilityFacade)
+        .recordJobFailure(job, original, job.getAttempts());
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+
+    task.call();
+
+    ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
+    verify(invoker).invoke(invoked.capture());
+    Assertions.assertSame(original, invoked.getValue().args().get(1));
+    Assertions.assertNotNull(invoked.getValue().args().get(0));
+    Assertions.assertEquals(JobStatus.FAILED, job.getStatus());
+  }
+
+  @Test
+  void lastResortLostTransitionSkipsOnFailure() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    JobEntity job = jobWithFailureCallback();
+    RuntimeException original = new RuntimeException("original");
+    stubWorkerFailure(task, job, original);
+    doThrow(new IllegalStateException("observer failed"))
+        .when(observabilityFacade)
+        .recordJobFailure(job, original, job.getAttempts());
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
+
+    task.call();
+
+    verify(invoker, never()).invoke(any());
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+  }
+
+  @Test
+  void lastResortCallbackErrorDoesNotEscape() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    JobEntity job = jobWithFailureCallback();
+    RuntimeException original = new RuntimeException("original");
+    stubWorkerFailure(task, job, original);
+    doThrow(new IllegalStateException("observer failed"))
+        .when(observabilityFacade)
+        .recordJobFailure(job, original, job.getAttempts());
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+    doThrow(new LinkageError("boom")).when(invoker).invoke(any());
+
+    Assertions.assertDoesNotThrow(task::call);
+
+    verify(invoker).invoke(any());
+    Assertions.assertEquals(JobStatus.FAILED, job.getStatus());
+  }
+
+  @Test
+  void onFailureCallbackErrorIsContainedOnNormalDlqPath() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    JobEntity job = jobWithFailureCallback();
+    RuntimeException original = new RuntimeException("original");
+    stubWorkerFailure(task, job, original);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+    LinkageError callbackError = new LinkageError("boom");
+    doThrow(callbackError).when(invoker).invoke(any());
+
+    Assertions.assertDoesNotThrow(task::call);
+
+    verify(invoker).invoke(any());
+    verify(lifecycleFacade).completeFailure(job, JobStatus.RUNNING, false);
+    verify(observabilityFacade).recordCallbackFailure(job, callbackError, 1);
+  }
+
+  @Test
+  void hydrationPoisonDoesNotRunOnFailure() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    task.initFromClaim(claimForNode("node-1"));
+    when(jobStore.findById(JOB_UUID))
+        .thenThrow(new PayloadDecryptionException("ciphertext failed authentication"));
+    when(lifecycleFacade.moveToDlqAndHandlePermanentFailure(any(), any())).thenReturn(true);
+
+    task.call();
+
+    verify(invoker, never()).invoke(any());
+    verify(jobStore).findById(JOB_UUID);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void cancelDuringExecutionDoesNotRunOnFailure() throws Exception {
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    JobEntity job = jobWithFailureCallback();
+    initJobTaskWithDefaultStubs(task, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+
+    task.call();
+
+    verify(invoker).invoke(job.getPayload());
+    verify(invoker, never()).invoke(argThat(payload -> payload.method().equals("onFailure")));
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
+    verify(observabilityFacade).recordJobCancellation(job);
+  }
+
+  @Test
+  void signalPayloadPoisonRunsOnFailureWithoutBoundContext() throws Exception {
+    EncryptionHolder.install(
+        List.of(new FailingDecryptEngine()),
+        FailingDecryptEngine.ALGORITHM_ID,
+        new EncryptionTestKit.Provider(),
+        true);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    JobTask task = callbackTask(invoker);
+    JobEntity job = jobWithFailureCallback();
+    job.setSignalPayload(
+        PayloadEncryptor.encryptValue(
+            "\"hello\"", true, EncryptionTarget.signal(job.getSignalKey())));
+    task.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    when(validationFacade.shouldNotRetry(any())).thenReturn(true);
+    doThrow(new IllegalStateException("observer failed"))
+        .when(observabilityFacade)
+        .recordJobFailure(eq(job), any(), eq(0));
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+    JobMdcContext.clear();
+
+    task.call();
+
+    ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
+    verify(invoker).invoke(invoked.capture());
+    Assertions.assertTrue(invoked.getValue().args().get(1) instanceof PayloadDecryptionException);
+    Assertions.assertNotNull(invoked.getValue().args().get(0));
+    ArgumentCaptor<Throwable> original = ArgumentCaptor.forClass(Throwable.class);
+    verify(observabilityFacade).recordJobFailure(eq(job), original.capture(), eq(0));
+    Assertions.assertSame(original.getValue(), invoked.getValue().args().get(1));
+    Assertions.assertNull(JobContext.currentOrNull());
   }
 
   @Test

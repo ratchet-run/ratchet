@@ -887,7 +887,8 @@ public record LambdaDescriptor(
     String methodName,
     String methodDescriptor,
     boolean isStatic,
-    Object[] capturedArgs
+    Object[] capturedArgs,
+    List<Integer> runtimeArgIndexes
 )
 ```
 
@@ -897,7 +898,10 @@ public record LambdaDescriptor(
 | `methodName` | Name of the target method |
 | `methodDescriptor` | JVM method descriptor (e.g., `(Ljava/lang/String;)V`) |
 | `isStatic` | Whether the method is static |
-| `capturedArgs` | Arguments captured by the lambda closure |
+| `capturedArgs` | Captured arguments; runtime slots hold null |
+| `runtimeArgIndexes` | Functional-interface parameter indexes aligned with capturedArgs; null entries mark captured or constant slots |
+
+The index list is null when no slots use runtime parameters; otherwise it is an immutable copy that may contain null entries.
 
 ### Example
 
@@ -915,7 +919,8 @@ public class AsmLambdaAnalyzer implements LambdaAnalyzer {
             sl.getImplMethodName(),
             sl.getImplMethodSignature(),
             sl.getImplMethodKind() == MethodHandleInfo.REF_invokeStatic,
-            extractCapturedArgs(sl));
+            extractCapturedArgs(sl),
+            null); // No runtime parameter slots in this example
     }
 }
 ```

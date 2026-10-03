@@ -107,6 +107,34 @@ public interface JobBuilder {
    * with exactly one public method call that passes ctx and error straight through, optionally with
    * captured values. Read ctx or error inside that method, not inside the lambda.
    *
+   * <p>Runs when the job ends FAILED through:
+   *
+   * <ul>
+   *   <li>The final attempt fails, or a non-retryable failure occurs (including an undecryptable
+   *       signal payload).
+   *   <li>Failure handling itself fails and the last-resort path commits FAILED; the callback
+   *       receives the original failure.
+   *   <li>A hard timeout occurs on the final attempt (TimeoutException), on the watchdog thread.
+   *   <li>A signal wait times out with no retries left (SignalTimeoutException), on the
+   *       signal-timeout scanner thread.
+   *   <li>The node retry buffer exceeds its hard cap and the claimed job is dead-lettered
+   *       (IllegalStateException), on the polling thread or retry-buffer drainer thread.
+   * </ul>
+   *
+   * <p>Does not run when:
+   *
+   * <ul>
+   *   <li>The job is canceled: it ends CANCELED, not FAILED.
+   *   <li>Orphan recovery returns the job to PENDING; a later run may fail and run the callback.
+   *   <li>A job row cannot be decrypted when loaded: the encrypted job payload, parameters, and
+   *       callback payloads load as one unit, so the callback payload is unavailable.
+   * </ul>
+   *
+   * <p>The callback runs at most once per terminal FAILED transition, after that transition
+   * commits. An admin retry resets the FAILED job to PENDING, so a later failure can run the
+   * callback again. An exception or error thrown by the callback is logged and reported as a
+   * JobCallbackFailedEvent without changing the job outcome.
+   *
    * @param handler failure callback; receives the job context and failure
    * @return this builder
    */

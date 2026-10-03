@@ -24,6 +24,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -97,6 +98,14 @@ class OrphanRecoveryTimerTest {
     InOrder order = inOrder(resourcePermitService, nodeStore);
     order.verify(resourcePermitService).cleanupOrphanedPermits(List.of("node-1"));
     order.verify(nodeStore).deleteInactiveNodesByIds(List.of("node-1"));
+  }
+
+  @Test
+  void recoveryOnlyResetsOrphansToPending() {
+    timer.recoverNow();
+
+    verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60));
+    verifyNoMoreInteractions(jobBulkStore);
   }
 
   @Test

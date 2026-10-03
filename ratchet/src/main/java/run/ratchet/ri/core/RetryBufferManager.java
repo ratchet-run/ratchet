@@ -17,6 +17,7 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,11 +33,17 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.ri.core.internal.ExecutionObserver;
+import run.ratchet.ri.core.internal.JobPayloadInvoker;
+import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.PreExecutionValidator;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.spi.JobStore;
 
 /**
  * Priority-ordered retry buffers for claimed jobs awaiting executor capacity. Separate bounded
@@ -53,6 +60,8 @@ public class RetryBufferManager {
 
   private final JobStateManager jobStateManager;
   private final PostExecutionHandler lifecycleFacade;
+  private final JobStore jobStore;
+  private final LifecycleCallbackInvoker callbackInvoker;
 
   private final Map<JobExecutionType, Queue<BufferedClaim>> retryBuffers =
       new EnumMap<>(JobExecutionType.class);
@@ -63,12 +72,37 @@ public class RetryBufferManager {
   protected RetryBufferManager() {
     this.jobStateManager = null;
     this.lifecycleFacade = null;
+    this.jobStore = null;
+    this.callbackInvoker = null;
   }
 
   @Inject
-  public RetryBufferManager(JobStateManager jobStateManager, PostExecutionHandler lifecycleFacade) {
+  public RetryBufferManager(
+      JobStateManager jobStateManager,
+      PostExecutionHandler lifecycleFacade,
+      JobStore jobStore,
+      PreExecutionValidator validationFacade,
+      JobPayloadInvoker payloadInvoker,
+      PayloadSerializer payloadSerializer,
+      ExecutionObserver observabilityFacade,
+      Clock clock) {
+    this(
+        jobStateManager,
+        lifecycleFacade,
+        jobStore,
+        new LifecycleCallbackInvoker(
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
+  }
+
+  public RetryBufferManager(
+      JobStateManager jobStateManager,
+      PostExecutionHandler lifecycleFacade,
+      JobStore jobStore,
+      LifecycleCallbackInvoker callbackInvoker) {
     this.jobStateManager = jobStateManager;
     this.lifecycleFacade = lifecycleFacade;
+    this.jobStore = jobStore;
+    this.callbackInvoker = callbackInvoker;
 
     Comparator<BufferedClaim> jobComparator =
         Comparator.comparing(
@@ -100,7 +134,9 @@ public class RetryBufferManager {
 
   /**
    * Buffers a claim, bypassing {@link #MAX_BUFFER_SIZE_PER_TYPE} but still respecting {@link
-   * #HARD_CAP_PER_TYPE}. Claims exceeding the hard cap are moved to the DLQ to avoid silent loss.
+   * #HARD_CAP_PER_TYPE}. Overflow ends the job FAILED, then runs onFailure with the overflow
+   * IllegalStateException after the transition commits, on the thread calling forceOffer (poller or
+   * retry-buffer drainer).
    *
    * @return true if buffered, false if the hard cap was reached
    */
@@ -281,6 +317,10 @@ public class RetryBufferManager {
     return moveHardCapOverflow(claim, buffer, lock);
   }
 
+  /**
+   * Ends the job FAILED, then runs onFailure with the overflow IllegalStateException after the
+   * transition commits, on the thread calling forceOffer (poller or retry-buffer drainer).
+   */
   private boolean moveHardCapOverflow(
       BufferedClaim claim, Queue<BufferedClaim> buffer, ReentrantLock lock) {
     log.errorf(
@@ -288,13 +328,12 @@ public class RetryBufferManager {
             + "Job %s moving to DLQ to prevent loss. "
             + "This indicates sustained system failure - investigate immediately.",
         HARD_CAP_PER_TYPE, claim.jobType(), claim.jobId());
+    IllegalStateException overflow =
+        new IllegalStateException("Retry buffer hard cap exceeded for job type " + claim.jobType());
+    boolean transitioned;
     try {
       JobEntity job = toDlqJob(claim);
-      IllegalStateException overflow =
-          new IllegalStateException(
-              "Retry buffer hard cap exceeded for job type " + claim.jobType());
-      lifecycleFacade.moveToDlqAndHandlePermanentFailure(job, overflow);
-      return false;
+      transitioned = lifecycleFacade.moveToDlqAndHandlePermanentFailure(job, overflow);
     } catch (Exception e) {
       log.errorf(
           e,
@@ -308,6 +347,19 @@ public class RetryBufferManager {
         lock.unlock();
       }
     }
+    if (transitioned) {
+      try {
+        jobStore
+            .findById(claim.jobId())
+            .ifPresent(entity -> callbackInvoker.invokeOnFailureInJobContext(entity, overflow));
+      } catch (Throwable callbackError) {
+        log.errorf(
+            callbackError,
+            "Job %s onFailure callback could not run after retry-buffer overflow",
+            claim.jobId());
+      }
+    }
+    return false;
   }
 
   private boolean offer(BufferedClaim claim) {

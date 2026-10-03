@@ -177,7 +177,7 @@ class JobTimeoutHandlerTest {
 
   private void captureRuntimeCallback(
       JobEntity job, Class<? extends Throwable> errorType, String message) throws Exception {
-    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
         .thenAnswer(invocation -> invocation.getArgument(0));
     doAnswer(
             invocation -> {
@@ -199,7 +199,7 @@ class JobTimeoutHandlerTest {
     when(lifecycleFacade.completeTimeoutFailure(
             any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
-    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
         .thenAnswer(invocation -> invocation.getArgument(0));
     doAnswer(
             invocation -> {
@@ -251,7 +251,7 @@ class JobTimeoutHandlerTest {
     when(lifecycleFacade.completeTimeoutFailure(
             any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
-    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
         .thenAnswer(invocation -> invocation.getArgument(0));
     RuntimeException failure = new RuntimeException("callback failed");
     doThrow(failure).when(payloadInvoker).invoke(job.getOnFailurePayload());
@@ -274,7 +274,7 @@ class JobTimeoutHandlerTest {
     when(lifecycleFacade.completeTimeoutFailure(
             any(), eq(JobStatus.WAITING), eq(true), any(), any()))
         .thenReturn(true);
-    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
         .thenAnswer(invocation -> invocation.getArgument(0));
     doAnswer(
             invocation -> {
@@ -326,7 +326,7 @@ class JobTimeoutHandlerTest {
     when(lifecycleFacade.completeTimeoutFailure(
             any(), eq(JobStatus.WAITING), eq(true), any(), any()))
         .thenReturn(true);
-    when(payloadInvoker.materializeArguments(job.getOnFailurePayload(), payloadSerializer))
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
         .thenAnswer(invocation -> invocation.getArgument(0));
     RuntimeException failure = new RuntimeException("callback failed");
     doThrow(failure).when(payloadInvoker).invoke(job.getOnFailurePayload());
@@ -340,6 +340,28 @@ class JobTimeoutHandlerTest {
     verify(observabilityFacade).publishEvent(event.capture());
     assertEquals(
         JobCallbackFailedEvent.CallbackType.ON_FAILURE, event.getValue().getCallbackType());
+    assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void terminalSignalTimeoutCallbackErrorDoesNotEscapeTheTimeoutTransition() throws Exception {
+    JobEntity job = signalCallbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.WAITING), eq(true), any(), any()))
+        .thenReturn(true);
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    LinkageError failure = new LinkageError("callback error");
+    doThrow(failure).when(payloadInvoker).invoke(job.getOnFailurePayload());
+
+    JobTimeoutHandler callbackHandler = callbackHandler();
+    assertDoesNotThrow(() -> callbackHandler.processSignalTimeout(job, Instant.now()));
+
+    verify(observabilityFacade).recordCallbackFailure(job, failure, 1);
+    ArgumentCaptor<JobCallbackFailedEvent> event =
+        ArgumentCaptor.forClass(JobCallbackFailedEvent.class);
+    verify(observabilityFacade).publishEvent(event.capture());
+    assertEquals(LinkageError.class.getName(), event.getValue().getCauseClassName());
     assertNull(JobContext.currentOrNull());
   }
 

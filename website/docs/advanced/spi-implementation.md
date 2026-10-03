@@ -615,9 +615,12 @@ public record LambdaDescriptor(
     String methodName,       // Method name
     String methodDescriptor, // JVM method descriptor
     boolean isStatic,        // Whether the method is static
-    Object[] capturedArgs    // Arguments captured from the lambda closure
+    Object[] capturedArgs,   // Captured arguments; runtime slots hold null
+    List<Integer> runtimeArgIndexes // Functional-interface indexes aligned with capturedArgs
 ) { }
 ```
+
+`runtimeArgIndexes` identifies runtime slots by functional-interface parameter index; null entries mark captured or constant slots, and a null or all-null list is normalized to null. The list is defensively copied and unmodifiable.
 
 ## Store SPI: Custom Persistence
 

@@ -16,6 +16,7 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -54,13 +55,40 @@ class LifecycleCallbackInvokerTest {
     JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
     PayloadSerializer serializer = mock(PayloadSerializer.class);
     ExecutionObserver observer = mock(ExecutionObserver.class);
-    when(invoker.materializeArguments(callback, serializer)).thenReturn(callback);
+    when(invoker.materializeArguments(any(), eq(serializer))).thenAnswer(inv -> inv.getArgument(0));
     new LifecycleCallbackInvoker(validator, invoker, serializer, observer, Clock.systemUTC())
         .invokeOnSuccess(job);
     ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
     verify(invoker).invoke(invoked.capture());
     assertEquals(Arrays.asList((Object) null), invoked.getValue().args());
     verify(observer, never()).recordCallbackFailure(any(), any(), eq(1));
+  }
+
+  @Test
+  void materializeSeesBoundRuntimeValues() throws Exception {
+    JobEntity job = new JobEntity();
+    job.setId(UUID.randomUUID());
+    job.setOnFailurePayload(
+        new JobPayload(
+            "Target",
+            "failure",
+            "(Ljava/lang/Object;Ljava/lang/Throwable;)V",
+            true,
+            Arrays.asList(null, null),
+            List.of(0, 1)));
+    PreExecutionValidator validator = mock(PreExecutionValidator.class);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    PayloadSerializer serializer = mock(PayloadSerializer.class);
+    ExecutionObserver observer = mock(ExecutionObserver.class);
+    when(invoker.materializeArguments(any(), eq(serializer))).thenAnswer(inv -> inv.getArgument(0));
+    RuntimeException ex = new RuntimeException("original");
+
+    new LifecycleCallbackInvoker(validator, invoker, serializer, observer, Clock.systemUTC())
+        .invokeOnFailure(job, ex);
+
+    ArgumentCaptor<JobPayload> materialized = ArgumentCaptor.forClass(JobPayload.class);
+    verify(invoker).materializeArguments(materialized.capture(), eq(serializer));
+    assertSame(ex, materialized.getValue().args().get(1));
   }
 
   @AfterEach
@@ -85,13 +113,14 @@ class LifecycleCallbackInvokerTest {
     JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
     PayloadSerializer serializer = mock(PayloadSerializer.class);
     ExecutionObserver observer = mock(ExecutionObserver.class);
-    when(invoker.materializeArguments(callback, serializer)).thenReturn(callback);
+    // Binding rejects the unavailable slot before materialization.
 
     new LifecycleCallbackInvoker(validator, invoker, serializer, observer, Clock.systemUTC())
         .invokeOnSuccess(job);
 
     verify(validator).validateSecurity(callback);
     verify(invoker, never()).invoke(any());
+    verify(invoker, never()).materializeArguments(any(), any());
     ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
     verify(observer).recordCallbackFailure(eq(job), failure.capture(), eq(1));
     assertEquals(IllegalStateException.class, failure.getValue().getClass());
