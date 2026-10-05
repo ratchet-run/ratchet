@@ -476,6 +476,131 @@ class CircuitBreakerTest {
   }
 
   @Test
+  void staleClosedSuccessCannotReopenAHalfOpenRound() throws Exception {
+    CountDownLatch staleCallStarted = new CountDownLatch(1);
+    CountDownLatch releaseStaleCall = new CountDownLatch(1);
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      Future<String> staleSuccess =
+          executor.submit(
+              () ->
+                  breaker.execute(
+                      () -> {
+                        staleCallStarted.countDown();
+                        releaseStaleCall.await();
+                        return "closed-result";
+                      }));
+      assertTrue(staleCallStarted.await(1, TimeUnit.SECONDS));
+      openWithTwoFailuresThenWaitForHalfOpen();
+
+      assertEquals("probe-1", breaker.execute(() -> "probe-1"));
+      releaseStaleCall.countDown();
+      assertEquals("closed-result", staleSuccess.get(1, TimeUnit.SECONDS));
+      assertEquals(
+          CircuitBreaker.State.HALF_OPEN,
+          breaker.getState(),
+          "a success admitted while CLOSED must not reopen or close the HALF_OPEN round");
+
+      assertEquals("probe-2", breaker.execute(() -> "probe-2"));
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    } finally {
+      releaseStaleCall.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  void staleClosedFailureCannotReopenAHalfOpenRound() throws Exception {
+    CountDownLatch staleCallStarted = new CountDownLatch(1);
+    CountDownLatch releaseStaleCall = new CountDownLatch(1);
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    RuntimeException staleFailure = new RuntimeException("closed-stale-failure");
+    try {
+      Future<String> staleResult =
+          executor.submit(
+              () ->
+                  breaker.execute(
+                      () -> {
+                        staleCallStarted.countDown();
+                        releaseStaleCall.await();
+                        throw staleFailure;
+                      }));
+      assertTrue(staleCallStarted.await(1, TimeUnit.SECONDS));
+      openWithTwoFailuresThenWaitForHalfOpen();
+
+      assertEquals("probe-1", breaker.execute(() -> "probe-1"));
+      releaseStaleCall.countDown();
+      ExecutionException thrown =
+          assertThrows(ExecutionException.class, () -> staleResult.get(1, TimeUnit.SECONDS));
+      assertSame(staleFailure, thrown.getCause());
+      assertEquals(
+          CircuitBreaker.State.HALF_OPEN,
+          breaker.getState(),
+          "a failure admitted while CLOSED must not reopen the HALF_OPEN round");
+
+      assertEquals("probe-2", breaker.execute(() -> "probe-2"));
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    } finally {
+      releaseStaleCall.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  void staleClosedFailureCannotCountInALaterClosedWindow() throws Exception {
+    CountDownLatch staleCallStarted = new CountDownLatch(1);
+    CountDownLatch releaseStaleCall = new CountDownLatch(1);
+    ExecutorService executor = Executors.newSingleThreadExecutor();
+    RuntimeException staleFailure = new RuntimeException("closed-stale-failure");
+    try {
+      Future<String> staleResult =
+          executor.submit(
+              () ->
+                  breaker.execute(
+                      () -> {
+                        staleCallStarted.countDown();
+                        releaseStaleCall.await();
+                        throw staleFailure;
+                      }));
+      assertTrue(staleCallStarted.await(1, TimeUnit.SECONDS));
+      openWithTwoFailuresThenWaitForHalfOpen();
+      breaker.execute(() -> "probe-1");
+      breaker.execute(() -> "probe-2");
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+
+      releaseStaleCall.countDown();
+      ExecutionException thrown =
+          assertThrows(ExecutionException.class, () -> staleResult.get(1, TimeUnit.SECONDS));
+      assertSame(staleFailure, thrown.getCause());
+
+      // With the stale failure counted, this success would reach minimumCalls at 50% and reopen.
+      assertEquals("fresh", breaker.execute(() -> "fresh"));
+      assertEquals(
+          CircuitBreaker.State.CLOSED,
+          breaker.getState(),
+          "a failure admitted in an earlier CLOSED period must not count in the new window");
+    } finally {
+      releaseStaleCall.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  private void openWithTwoFailuresThenWaitForHalfOpen() {
+    for (int i = 0; i < 2; i++) {
+      assertThrows(
+          RuntimeException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new RuntimeException("opening-failure");
+                  }));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+  }
+
+  @Test
   void halfOpenSuccessTransitionsToClosedAndResetsSlidingWindow() throws Exception {
     breaker.transitionToOpen();
     clock.advance(Duration.ofMillis(100));
