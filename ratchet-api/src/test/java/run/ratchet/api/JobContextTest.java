@@ -84,6 +84,39 @@ class JobContextTest {
   }
 
   @Test
+  void cancellationExceptionWithNullCauseRecordsNoRequestWithoutContext() {
+    CancellationRequestedException exception = new CancellationRequestedException("stop", null);
+
+    assertNull(exception.getCause());
+    assertFalse(exception.isCancellationRequested());
+  }
+
+  @Test
+  void forContextRecordsRequestStateOfGivenContextOffTheJobThread() throws InterruptedException {
+    JobContext context =
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true);
+    JobContext.clear();
+    IllegalStateException cause = new IllegalStateException();
+    AtomicReference<CancellationRequestedException> plain = new AtomicReference<>();
+    AtomicReference<CancellationRequestedException> withCause = new AtomicReference<>();
+    AtomicReference<CancellationRequestedException> noContext = new AtomicReference<>();
+    Thread other =
+        new Thread(
+            () -> {
+              plain.set(CancellationRequestedException.forContext("stop", context));
+              withCause.set(CancellationRequestedException.forContext("stop", cause, context));
+              noContext.set(CancellationRequestedException.forContext("stop", null));
+            });
+    other.start();
+    other.join();
+
+    assertTrue(plain.get().isCancellationRequested());
+    assertTrue(withCause.get().isCancellationRequested());
+    assertSame(cause, withCause.get().getCause());
+    assertFalse(noContext.get().isCancellationRequested());
+  }
+
+  @Test
   void throwIfCancellationRequestedRecordsRequestOffTheJobThread() throws InterruptedException {
     JobContext context =
         JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true);

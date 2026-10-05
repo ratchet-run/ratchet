@@ -29,6 +29,9 @@ import run.ratchet.api.Nullable;
  * retry/DLQ timeout outcome as a hard timeout, without an interrupt. An exception created before
  * the request, or with no {@link JobContext} bound, is an ordinary failure, even if the request
  * arrives while the exception unwinds through {@code finally} blocks or wrappers.
+ *
+ * <p>The constructors read the context bound to the current thread. To create the exception on
+ * another thread, use {@link #forContext(String, JobContext)} and pass the job's context.
  */
 public class CancellationRequestedException extends RuntimeException {
 
@@ -38,31 +41,40 @@ public class CancellationRequestedException extends RuntimeException {
 
   /** Records the request state of the {@link JobContext} bound to the current thread, if any. */
   public CancellationRequestedException(String message) {
-    this(message, JobContext.currentOrNull());
+    this(message, null, requested(JobContext.currentOrNull()));
   }
 
   /** Records the request state of the {@link JobContext} bound to the current thread, if any. */
-  public CancellationRequestedException(String message, Throwable cause) {
-    this(message, cause, JobContext.currentOrNull());
+  public CancellationRequestedException(String message, @Nullable Throwable cause) {
+    this(message, cause, requested(JobContext.currentOrNull()));
   }
 
-  /**
-   * Records the request state of {@code context}. Use this form off the job thread, where no
-   * context is bound; a {@code null} context records no request.
-   */
-  public CancellationRequestedException(String message, @Nullable JobContext context) {
-    super(message);
-    this.cancellationRequested = context != null && context.isCancellationRequested();
-  }
-
-  /**
-   * Records the request state of {@code context}. Use this form off the job thread, where no
-   * context is bound; a {@code null} context records no request.
-   */
-  public CancellationRequestedException(
-      String message, Throwable cause, @Nullable JobContext context) {
+  private CancellationRequestedException(
+      String message, @Nullable Throwable cause, boolean cancellationRequested) {
     super(message, cause);
-    this.cancellationRequested = context != null && context.isCancellationRequested();
+    this.cancellationRequested = cancellationRequested;
+  }
+
+  /**
+   * Creates an exception that records the request state of {@code context}. Use this off the job
+   * thread, where no context is bound; a {@code null} context records no request.
+   */
+  public static CancellationRequestedException forContext(
+      String message, @Nullable JobContext context) {
+    return new CancellationRequestedException(message, null, requested(context));
+  }
+
+  /**
+   * Creates an exception with a cause that records the request state of {@code context}. Use this
+   * off the job thread, where no context is bound; a {@code null} context records no request.
+   */
+  public static CancellationRequestedException forContext(
+      String message, @Nullable Throwable cause, @Nullable JobContext context) {
+    return new CancellationRequestedException(message, cause, requested(context));
+  }
+
+  private static boolean requested(@Nullable JobContext context) {
+    return context != null && context.isCancellationRequested();
   }
 
   /**

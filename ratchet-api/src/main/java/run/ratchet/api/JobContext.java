@@ -195,7 +195,8 @@ public final class JobContext {
    */
   public void throwIfCancellationRequested() {
     if (isCancellationRequested()) {
-      throw new CancellationRequestedException("Cancellation requested for job " + jobId, this);
+      throw CancellationRequestedException.forContext(
+          "Cancellation requested for job " + jobId, this);
     }
   }
 
