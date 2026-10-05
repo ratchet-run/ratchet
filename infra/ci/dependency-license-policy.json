@@ -104,6 +104,18 @@
         "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.22.1/jackson-core-2.22.1.pom"
       ]
     },
+    "com.fasterxml.jackson.core:jackson-core:2.22.3": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "https://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/fasterxml/jackson/core/jackson-core/2.22.3/jackson-core-2.22.3.pom"
+      ]
+    },
     "com.fasterxml:classmate:1.7.0": {
       "licenses": [
         {
