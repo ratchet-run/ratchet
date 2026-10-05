@@ -201,6 +201,58 @@ class JobTaskTest {
   }
 
   @Test
+  void cooperativeExecutionSaveFailureRetriesSaveWhenWatchdogAlreadyPassed() throws Exception {
+    runCooperativeFailureScenario(true, true, false);
+  }
+
+  @Test
+  void repeatedCooperativeExecutionSaveFailureAfterWatchdogPassedDoesNotEscape() throws Exception {
+    runCooperativeFailureScenario(true, true, true);
+  }
+
+  @Test
+  void staleCancellationFromEarlierAttemptIsOrdinaryFailure() throws Exception {
+    CancellationRequestedException stale = cancellationFromPreviousAttempt();
+    runCooperativeScenario(true, false, attempt -> stale, false, false, false, false, false);
+  }
+
+  @Test
+  void wrappedStaleCancellationFromEarlierAttemptIsOrdinaryFailure() throws Exception {
+    CancellationRequestedException stale = cancellationFromPreviousAttempt();
+    runCooperativeScenario(
+        true,
+        false,
+        attempt -> new RuntimeException("wrapped", stale),
+        false,
+        false,
+        false,
+        false,
+        false);
+  }
+
+  private CancellationRequestedException cancellationFromPreviousAttempt() {
+    JobAttemptControl previous =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW);
+    previous.requestCancellation();
+    JobContext.bind(
+        JOB_UUID,
+        null,
+        Map.of(),
+        null,
+        null,
+        previous.deadline(),
+        previous::isCancellationRequested,
+        previous.attemptToken());
+    try {
+      CancellationRequestedException stale = new CancellationRequestedException("stop");
+      Assertions.assertTrue(stale.isCancellationRequested());
+      return stale;
+    } finally {
+      JobContext.clear();
+    }
+  }
+
+  @Test
   void cooperativeFailureRetriesWhenWatchdogAlreadyPassed() throws Exception {
     runCooperativeFailureScenario(false, true, false);
   }
@@ -214,7 +266,7 @@ class JobTaskTest {
   private void runCooperativeScenario(
       boolean requested, boolean claimed, Function<JobAttemptControl, RuntimeException> failure)
       throws Exception {
-    runCooperativeScenario(requested, claimed, failure, false, false, false, false);
+    runCooperativeScenario(requested, claimed, failure, false, false, false, false, requested);
   }
 
   private void runCooperativeFailureScenario(
@@ -226,7 +278,8 @@ class JobTaskTest {
         true,
         saveFails,
         watchdogPassed,
-        retryFails);
+        retryFails,
+        true);
   }
 
   @SuppressWarnings("unchecked")
@@ -237,7 +290,8 @@ class JobTaskTest {
       boolean handlingFails,
       boolean saveFails,
       boolean watchdogPassed,
-      boolean retryFails)
+      boolean retryFails,
+      boolean expectCooperative)
       throws Exception {
     JobTimeoutHandler timeoutHandler = mock(JobTimeoutHandler.class);
     JobAttemptControl attempt =
@@ -268,12 +322,28 @@ class JobTaskTest {
       when(lifecycleFacade.completeSuccess(
               any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
           .thenReturn(true);
-    } else if (!requested) {
+    } else if (!expectCooperative) {
       when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
     }
     if (handlingFails) {
       if (saveFails) {
-        doThrow(new IllegalStateException("execution store down"))
+        AtomicInteger saves = new AtomicInteger();
+        doAnswer(
+                invocation -> {
+                  Assertions.assertEquals(
+                      JobExecutionEntity.ExecutionStatus.FAILED,
+                      invocation.<JobExecutionEntity>getArgument(0).getStatus());
+                  if (saves.incrementAndGet() == 1) {
+                    if (watchdogPassed) {
+                      Assertions.assertFalse(attempt.claimTimeoutForWatchdog());
+                    }
+                    throw new IllegalStateException("execution store down");
+                  }
+                  if (!watchdogPassed || retryFails) {
+                    throw new IllegalStateException("execution store still down");
+                  }
+                  return null;
+                })
             .when(observabilityFacade)
             .saveExecution(any(JobExecutionEntity.class));
       } else {
@@ -303,24 +373,28 @@ class JobTaskTest {
       Assertions.assertEquals(Optional.of(attempt.deadline()), observed.deadline());
       Assertions.assertEquals(
           attempt.isCancellationRequested(), observed.isCancellationRequested());
-      if (failure != null && requested && !claimed) {
-        verify(timeoutHandler, times(saveFails ? 0 : watchdogPassed ? 2 : 1))
+      if (failure != null && expectCooperative && !claimed) {
+        verify(
+                timeoutHandler,
+                times(saveFails ? (watchdogPassed && !retryFails ? 1 : 0) : watchdogPassed ? 2 : 1))
             .processCooperativeTimeout(attempt);
         Assertions.assertEquals(handlingFails && !watchdogPassed, attempt.isTimeoutHandedBack());
         ArgumentCaptor<JobExecutionEntity> execution =
             ArgumentCaptor.forClass(JobExecutionEntity.class);
-        verify(observabilityFacade).saveExecution(execution.capture());
-        Assertions.assertEquals(
-            JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+        verify(observabilityFacade, times(saveFails && watchdogPassed ? 2 : 1))
+            .saveExecution(execution.capture());
+        for (JobExecutionEntity saved : execution.getAllValues()) {
+          Assertions.assertEquals(JobExecutionEntity.ExecutionStatus.FAILED, saved.getStatus());
+        }
       } else {
         verify(timeoutHandler, never()).processCooperativeTimeout(any());
       }
-      if (failure != null && !requested) {
+      if (failure != null && !expectCooperative) {
         verify(jobStore).incrementRetryAttempt(JOB_UUID);
       } else {
         verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
       }
-      if (requested) {
+      if (expectCooperative) {
         verify(lifecycleFacade, never()).completeFailure(any(JobEntity.class), any(), anyBoolean());
         verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
       }

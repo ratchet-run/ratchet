@@ -113,7 +113,7 @@ final class JobMdcContext {
       String jobType,
       Serializable signalPayload) {
     bindJobContext(
-        jobId, logger, params, nodeId, jobCreator, jobType, signalPayload, null, () -> false);
+        jobId, logger, params, nodeId, jobCreator, jobType, signalPayload, null, () -> false, null);
   }
 
   static void bindJobContext(
@@ -125,9 +125,17 @@ final class JobMdcContext {
       String jobType,
       Serializable signalPayload,
       Instant deadline,
-      BooleanSupplier cancellationRequested) {
+      BooleanSupplier cancellationRequested,
+      Object attemptToken) {
     JobContext.bind(
-        jobId, logger, params, jobCreator, signalPayload, deadline, cancellationRequested);
+        jobId,
+        logger,
+        params,
+        jobCreator,
+        signalPayload,
+        deadline,
+        cancellationRequested,
+        attemptToken);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));
     }

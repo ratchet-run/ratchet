@@ -43,6 +43,7 @@ import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
+import run.ratchet.api.internal.AttemptTokens;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.spi.ErrorSanitizer;
@@ -258,7 +259,8 @@ public class JobTask implements Callable<Void> {
         jobType != null ? jobType.name() : null,
         deserializedSignalPayload,
         attempt != null ? attempt.deadline() : null,
-        attempt != null ? attempt::isCancellationRequested : () -> false);
+        attempt != null ? attempt::isCancellationRequested : () -> false,
+        attempt != null ? attempt.attemptToken() : null);
 
     // The JobContext/MDC bound above must be cleared on every exit. Open the clearing try right
     // after the bind so a throw from the startup observability calls (metrics, execution recording)
@@ -766,7 +768,7 @@ public class JobTask implements Callable<Void> {
         attempt != null
             && timeoutHandler != null
             && attempt.isCancellationRequested()
-            && hasRequestedCancellationCause(ex);
+            && hasRequestedCancellationCause(ex, attempt.attemptToken());
     if (!cooperativeStop) {
       log.errorf(
           ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
@@ -789,11 +791,13 @@ public class JobTask implements Callable<Void> {
     if (cooperativeStop) {
       if (attempt.claimTimeoutForWorker()) {
         log.infof("Job %s stopped cooperatively after cancellation was requested", job.getId());
+        boolean executionSaved = false;
         try {
           if (currentExecution != null) {
             currentExecution.markFailed(ex);
             observabilityFacade.saveExecution(currentExecution);
           }
+          executionSaved = true;
           timeoutHandler.processCooperativeTimeout(attempt);
         } catch (RuntimeException failure) {
           log.warnf(
@@ -805,6 +809,12 @@ public class JobTask implements Callable<Void> {
             return;
           }
           try {
+            if (currentExecution != null && !executionSaved) {
+              // Already FAILED; stores save by id (SQL JPA merge, Mongo replaceOne upsert), so
+              // retry rewrites the same row. Skip after a successful save to avoid a duplicate
+              // write.
+              observabilityFacade.saveExecution(currentExecution);
+            }
             timeoutHandler.processCooperativeTimeout(attempt);
           } catch (RuntimeException retryFailure) {
             log.errorf(
@@ -850,15 +860,15 @@ public class JobTask implements Callable<Void> {
   }
 
   /**
-   * Classifies by the state each exception recorded when it was created: one created before the
-   * request is an ordinary failure even if the flag was set while it unwound. The live attempt flag
-   * checked by the caller guards against an exception carried over from an earlier attempt.
+   * Classifies by the state and attempt each exception recorded when it was created. One created
+   * before the request, or kept from an earlier attempt and rethrown in this one, is an ordinary
+   * failure.
    */
-  private static boolean hasRequestedCancellationCause(Throwable ex) {
+  private static boolean hasRequestedCancellationCause(Throwable ex, Object attemptToken) {
     Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
     for (int depth = 0; ex != null && depth < 256 && seen.add(ex); depth++, ex = ex.getCause()) {
       if (ex instanceof CancellationRequestedException cancellation
-          && cancellation.isCancellationRequested()) {
+          && AttemptTokens.isCooperativeStop(cancellation, attemptToken)) {
         return true;
       }
     }

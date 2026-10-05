@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import run.ratchet.api.exception.CancellationRequestedException;
+import run.ratchet.api.internal.AttemptTokens;
 import run.ratchet.spi.JobLogger;
 
 /**
@@ -37,10 +38,12 @@ import run.ratchet.spi.JobLogger;
  * <h2>Cooperative cancellation</h2>
  *
  * <p>Check {@link #isCancellationRequested()} or {@link #throwIfCancellationRequested()} at safe
- * points between units of work. A {@link CancellationRequestedException} created after a request
- * produces the timeout outcome (the same retries/DLQ and JobExecutionTimedOutEvent) without an
- * interrupt. Returning normally counts as success: Ratchet cannot distinguish early return from
- * finished work. The hard interrupt at the deadline remains the backstop.
+ * points between units of work. A {@link CancellationRequestedException} created after a request in
+ * the same attempt produces the timeout outcome (the same retries/DLQ and
+ * JobExecutionTimedOutEvent) without an interrupt. One created before the request or kept from an
+ * earlier attempt is an ordinary failure. Returning normally counts as success: Ratchet cannot
+ * distinguish early return from finished work. The hard interrupt at the deadline remains the
+ * backstop.
  *
  * @since 0.1
  */
@@ -51,6 +54,11 @@ public final class JobContext {
 
   private static final BooleanSupplier NEVER = () -> false;
 
+  static {
+    AttemptTokens.installContextReader(context -> context.attemptToken);
+  }
+
+  private final @Nullable Object attemptToken;
   private final @Nullable Instant deadline;
   private final BooleanSupplier cancellationRequested;
   private final UUID jobId;
@@ -78,7 +86,7 @@ public final class JobContext {
       Map<String, String> params,
       @Nullable Serializable signalPayload,
       @Nullable String callerPrincipal) {
-    this(jobId, logger, params, signalPayload, callerPrincipal, null, NEVER);
+    this(jobId, logger, params, signalPayload, callerPrincipal, null, NEVER, null);
   }
 
   private JobContext(
@@ -88,7 +96,9 @@ public final class JobContext {
       @Nullable Serializable signalPayload,
       @Nullable String callerPrincipal,
       @Nullable Instant deadline,
-      BooleanSupplier cancellationRequested) {
+      BooleanSupplier cancellationRequested,
+      @Nullable Object attemptToken) {
+    this.attemptToken = attemptToken;
     this.deadline = deadline;
     this.cancellationRequested = Objects.requireNonNull(cancellationRequested);
     this.jobId = jobId;
@@ -150,7 +160,9 @@ public final class JobContext {
   /**
    * Binds a context for a watched execution. The deadline is when the watchdog interrupts this
    * attempt; the supplier reads its cancellation flag, which another thread may set. Always pair
-   * with {@link #clear()} in a finally block.
+   * with {@link #clear()} in a finally block. The token is an opaque identity of this attempt
+   * supplied by the runtime. A {@link CancellationRequestedException} records it so one kept from
+   * an earlier attempt is not taken as this attempt's stop. It is null outside watched executions.
    */
   public static JobContext bind(
       UUID jobId,
@@ -159,10 +171,18 @@ public final class JobContext {
       @Nullable String callerPrincipal,
       @Nullable Serializable signalPayload,
       @Nullable Instant deadline,
-      BooleanSupplier cancellationRequested) {
+      BooleanSupplier cancellationRequested,
+      @Nullable Object attemptToken) {
     JobContext ctx =
         new JobContext(
-            jobId, logger, params, signalPayload, callerPrincipal, deadline, cancellationRequested);
+            jobId,
+            logger,
+            params,
+            signalPayload,
+            callerPrincipal,
+            deadline,
+            cancellationRequested,
+            attemptToken);
     TL.set(ctx);
     return ctx;
   }
@@ -190,8 +210,9 @@ public final class JobContext {
 
   /**
    * Throws {@link CancellationRequestedException} if Ratchet has requested cancellation. The
-   * exception records that the request was already made when it was thrown, so Ratchet treats the
-   * attempt as a timeout. Safe from any thread holding this context.
+   * exception counts as a timeout only when created after the request in the same attempt. One
+   * created before the request or kept from an earlier attempt is an ordinary failure. Safe from
+   * any thread holding this context.
    */
   public void throwIfCancellationRequested() {
     if (isCancellationRequested()) {

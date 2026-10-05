@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.CancellationRequestedException;
+import run.ratchet.api.internal.AttemptTokens;
 
 class JobContextTest {
 
@@ -48,7 +49,8 @@ class JobContextTest {
     Instant deadline = Instant.parse("2026-10-01T12:00:00Z");
     AtomicBoolean requested = new AtomicBoolean();
     JobContext context =
-        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, deadline, requested::get);
+        JobContext.bind(
+            UUID.randomUUID(), null, Map.of(), null, null, deadline, requested::get, null);
     assertEquals(Optional.of(deadline), context.deadline());
     assertFalse(context.isCancellationRequested());
     assertDoesNotThrow(context::throwIfCancellationRequested);
@@ -63,7 +65,7 @@ class JobContextTest {
   void cancellationExceptionRecordsRequestStateWhenCreated() {
     AtomicBoolean requested = new AtomicBoolean();
     JobContext context =
-        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, requested::get);
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, requested::get, null);
     CancellationRequestedException early = new CancellationRequestedException("stop");
     requested.set(true);
     CancellationRequestedException late = new CancellationRequestedException("stop");
@@ -94,7 +96,7 @@ class JobContextTest {
   @Test
   void forContextRecordsRequestStateOfGivenContextOffTheJobThread() throws InterruptedException {
     JobContext context =
-        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true);
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true, null);
     JobContext.clear();
     IllegalStateException cause = new IllegalStateException();
     AtomicReference<CancellationRequestedException> plain = new AtomicReference<>();
@@ -119,7 +121,7 @@ class JobContextTest {
   @Test
   void throwIfCancellationRequestedRecordsRequestOffTheJobThread() throws InterruptedException {
     JobContext context =
-        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true);
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true, null);
     AtomicReference<CancellationRequestedException> thrown = new AtomicReference<>();
     Thread worker =
         new Thread(
@@ -140,7 +142,27 @@ class JobContextTest {
   void watchedContextRequiresCancellationSupplier() {
     assertThrows(
         NullPointerException.class,
-        () -> JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, null));
+        () -> JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, null, null));
+  }
+
+  @Test
+  void cancellationExceptionMatchesOnlyItsRequestedAttempt() {
+    Object tokenA = new Object();
+    JobContext contextA =
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> true, tokenA);
+    CancellationRequestedException exception =
+        CancellationRequestedException.forContext("stop", contextA);
+    JobContext.clear();
+
+    assertTrue(AttemptTokens.isCooperativeStop(exception, tokenA));
+    assertFalse(AttemptTokens.isCooperativeStop(exception, new Object()));
+    assertFalse(AttemptTokens.isCooperativeStop(exception, null));
+
+    JobContext unrequested =
+        JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> false, tokenA);
+    assertFalse(
+        AttemptTokens.isCooperativeStop(
+            CancellationRequestedException.forContext("stop", unrequested), tokenA));
   }
 
   @AfterEach

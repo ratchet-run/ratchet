@@ -16,6 +16,9 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -26,6 +29,16 @@ class JobAttemptControlTest {
   private JobAttemptControl newAttempt() {
     return new JobAttemptControl(
         new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH);
+  }
+
+  @Test
+  void attemptTokensAreStableAndDistinct() {
+    JobAttemptControl first = newAttempt();
+    JobAttemptControl second = newAttempt();
+    assertNotNull(first.attemptToken());
+    assertNotNull(second.attemptToken());
+    assertSame(first.attemptToken(), first.attemptToken());
+    assertNotSame(first.attemptToken(), second.attemptToken());
   }
 
   @Test

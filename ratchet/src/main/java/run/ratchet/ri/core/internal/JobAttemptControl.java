@@ -24,9 +24,11 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * State shared by the worker and watchdog for one execution attempt. Retries get a fresh flag.
  * {@link #requestCancellation()} is the entry point for future sources such as a user-cancel poll.
- * A future fencing token (#223) would also belong here.
+ * Its attempt token identifies the attempt in memory; a future fencing token (#223) could build on
+ * it.
  */
 public final class JobAttemptControl {
+  private final Object attemptToken = new Object();
   private final UUID jobId;
   private final Instant deadline;
   private final Instant executionStartTime;
@@ -49,6 +51,14 @@ public final class JobAttemptControl {
     this.deadline = Objects.requireNonNull(deadline);
     this.timeoutSeconds = timeoutSeconds;
     this.executionStartTime = Objects.requireNonNull(executionStartTime);
+  }
+
+  /**
+   * Opaque identity of this attempt, recorded by CancellationRequestedException so an exception
+   * kept from an earlier attempt is not taken as this attempt's cooperative stop.
+   */
+  public Object attemptToken() {
+    return attemptToken;
   }
 
   public UUID jobId() {
