@@ -943,7 +943,11 @@ class JobTaskTest {
 
   private JobTask callbackTask(JobPayloadInvoker invoker) {
     // Hydration/signal poison exits before service-name lookup.
-    lenient().when(invoker.serviceName(any())).thenReturn("Target");
+    lenient()
+        .when(invoker.resilienceTarget(any()))
+        .thenReturn(
+            new JobPayloadInvoker.ResilienceTarget(
+                "Target", CircuitBreakerExceptionFilter.RECORD_ALL));
     return new JobTask(
         jobStore,
         resourcePermitService,
@@ -984,7 +988,7 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(task, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(true);
   }
 
@@ -1091,8 +1095,8 @@ class JobTaskTest {
     initJobTaskWithDefaultStubs(task, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
-        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
 
     task.call();
