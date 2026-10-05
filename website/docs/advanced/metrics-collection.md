@@ -101,8 +101,22 @@ The Micrometer adapter publishes the following meters:
 | `ratchet.store.operation` | Timer | `store`, `operation`, `outcome` | Timed store operations on claim and execution hot paths |
 | `ratchet.poller.breaker.state` | Gauge | `breaker` | Poller claim-breaker state: `0` closed/unknown, `1` half-open, `2` open |
 | `ratchet.circuit.breaker.state` | Gauge | `service`, `profile` | Application circuit-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.queue.jobs` | Gauge | `status` | Current jobs by status: `PENDING`, `RUNNING`, `WAITING`, `PAUSED`, `FAILED`, `SUCCEEDED`, `CANCELED` |
+| `ratchet.queue.ready` | Gauge | — | Pending jobs whose scheduled run time has passed |
+| `ratchet.queue.stuck` | Gauge | — | Running jobs whose pickup timestamp is more than five minutes old |
+| `ratchet.queue.pending.type` | Gauge | `type` | Pending jobs by job type; zero when a type has no pending jobs |
+| `ratchet.queue.pending.priority` | Gauge | `priority` | Pending jobs by priority; zero when a priority has no pending jobs |
+| `ratchet.queue.wait.p95` | Gauge | — | 95th-percentile queue wait time in milliseconds |
+| `ratchet.queue.oldest.pending.age` | Gauge | — | Seconds since the oldest pending job's scheduled run time; zero when none exists or that time is in the future |
 | `ratchet.encryption.integrity.violations` | Counter | `surface` | A row marked as encrypted contained unframed plaintext. The read succeeds, but this signals a downgrade, lagging writer, or bug. |
 | `ratchet.encryption.envelope.version_skew` | Counter | `version_gap` | A job used a newer envelope than this node can read. `next` is one version ahead, `multiple_versions_ahead` is more than one, and `not_newer` flags an unexpected callback. Ratchet releases valid newer jobs for an upgraded peer; a persistent rate identifies a lagging node. |
+
+`MicrometerQueueHealthMetrics` registers queue-health gauges when the scheduler starts and removes them when it stops. Values come from several aggregate store queries through `JobQueryService.getQueueHealth()` and are cached for 15 seconds per node. Values are zero when the store lacks the `JobAnalyticsStore` capability. A failed refresh keeps the previous snapshot and waits 15 seconds before retrying; values are `NaN` until the first successful fetch. The oldest pending age is calculated at each read. To disable these gauges and their queries, add this filter before the scheduler starts:
+
+```java
+registry.config().meterFilter(
+    MeterFilter.deny(id -> id.getName().startsWith("ratchet.queue")));
+```
 
 #### Tag Values
 

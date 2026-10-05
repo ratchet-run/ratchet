@@ -33,6 +33,7 @@ class SpringIntegrationArchitectureTest {
     for (Class<?> type :
         new Class<?>[] {
           RatchetAutoConfiguration.class,
+          RatchetMicrometerAutoConfiguration.class,
           RatchetEngineAutoConfiguration.class,
           SpringAfterCommitRegistrar.class,
           RatchetJpaIsolationAutoConfiguration.class,

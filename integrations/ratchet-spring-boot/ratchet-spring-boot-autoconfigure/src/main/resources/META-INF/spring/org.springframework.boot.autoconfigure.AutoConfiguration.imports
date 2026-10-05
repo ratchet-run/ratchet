@@ -1,3 +1,4 @@
+run.ratchet.spring.boot.autoconfigure.RatchetMicrometerAutoConfiguration
 run.ratchet.spring.boot.autoconfigure.RatchetAutoConfiguration
 run.ratchet.spring.boot.autoconfigure.RatchetEngineAutoConfiguration
 run.ratchet.spring.boot.autoconfigure.RatchetJpaIsolationAutoConfiguration
