@@ -20,7 +20,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "playwright": "^1.63.0",
-    "shiki": "^4.4.3",
+    "shiki": "^4.5.0",
     "vitepress": "^1.6.0"
   },
   "engines": {
