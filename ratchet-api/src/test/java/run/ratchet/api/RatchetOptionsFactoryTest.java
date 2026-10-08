@@ -17,6 +17,7 @@ package run.ratchet.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -36,6 +37,32 @@ import run.ratchet.api.internal.RatchetConfigKeys;
 import run.ratchet.spi.RatchetConfigSource;
 
 class RatchetOptionsFactoryTest {
+
+  @Test
+  void rejectsDefaultSlaAboveIntegerMaximumFromConfig() {
+    String tooLarge = Long.toString(Integer.MAX_VALUE + 1L);
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.timeout.default-sla-seconds", tooLarge), Map.of())));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(), Map.of("RATCHET_WORKER_DEFAULT_SLA", tooLarge))));
+    assertEquals(
+        (long) Integer.MAX_VALUE,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(
+                        "ratchet.timeout.default-sla-seconds", Integer.toString(Integer.MAX_VALUE)),
+                    Map.of()))
+            .timeout()
+            .defaultSlaSeconds());
+  }
 
   @Test
   void readsCancellationGracePropertyAndEnvironmentVariable() {

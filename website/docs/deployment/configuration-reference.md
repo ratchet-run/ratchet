@@ -49,7 +49,7 @@ This build exposes **58 fixed keys**.
 | `ratchet.recurring.convergence-window-seconds` | `RATCHET_RECURRING_CONVERGENCE_WINDOW_SECONDS` | `0` | `RECURRING_CONVERGENCE_WINDOW_SECONDS` |
 | `ratchet.retry-buffer.drain-interval-ms` | `RATCHET_RETRY_BUFFER_DRAIN_INTERVAL_MS` | `1000` | `RETRY_BUFFER_DRAIN_INTERVAL_MS` |
 | `ratchet.timeout.soft-timeout-percent` | `RATCHET_SOFT_TIMEOUT_PERCENT` | `80` | `SOFT_TIMEOUT_PERCENT` |
-| `ratchet.timeout.default-sla-seconds` | `RATCHET_WORKER_DEFAULT_SLA` | `1800` | `WORKER_DEFAULT_SLA` |
+| `ratchet.timeout.default-sla-seconds` | `RATCHET_WORKER_DEFAULT_SLA` | `1800` | `WORKER_DEFAULT_SLA` (maximum: `2147483647` seconds) |
 | `ratchet.timeout.signal-timeout-batch-size` | `RATCHET_SIGNAL_TIMEOUT_BATCH_SIZE` | `500` | `SIGNAL_TIMEOUT_BATCH_SIZE` |
 | `ratchet.timeout.cancellation-grace-seconds` | `RATCHET_CANCELLATION_GRACE_SECONDS` | `0` | `CANCELLATION_GRACE_SECONDS` |
 | `ratchet.dlq.purge-enabled` | `RATCHET_DLQ_PURGE_ENABLED` | `true` | `DLQ_PURGE_ENABLED` |

@@ -220,7 +220,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
   public ExecutionResult execute(JobEntity job, String poolName) {
     Instant executionStartTime = effective().instant();
     JobAttemptControl attempt =
-        timeoutHandler.newAttempt(job.getId(), job.getTimeoutSec(), executionStartTime);
+        timeoutHandler.newAttempt(
+            job.getId(), job.getTimeoutSec(), executionStartTime, job.getAttempts());
     JobExecutionType jobType = job.getJobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     Runnable release = permitRelease(jobType, poolName, handlesRef);
@@ -246,7 +247,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
   public ExecutionResult execute(JobClaimDto claim, String poolName) {
     Instant executionStartTime = effective().instant();
     JobAttemptControl attempt =
-        timeoutHandler.newAttempt(claim.id(), claim.timeoutSec(), executionStartTime);
+        timeoutHandler.newAttempt(
+            claim.id(), claim.timeoutSec(), executionStartTime, claim.attempts());
     JobExecutionType jobType = claim.jobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     Runnable release = permitRelease(jobType, poolName, handlesRef);

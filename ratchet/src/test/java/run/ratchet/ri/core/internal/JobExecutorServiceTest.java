@@ -350,7 +350,7 @@ class JobExecutorServiceTest {
         method.invoke(
             service,
             JOB_ID,
-            new JobAttemptControl(JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW),
+            new JobAttemptControl(JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0),
             FIXED_NOW,
             callable,
             handlesRef,

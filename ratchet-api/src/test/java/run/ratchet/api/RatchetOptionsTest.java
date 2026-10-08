@@ -34,6 +34,31 @@ import run.ratchet.spi.CallerPrincipalResolver;
 class RatchetOptionsTest {
 
   @Test
+  void defaultSlaHasInclusiveIntegerMaximum() {
+    assertEquals(
+        (long) Integer.MAX_VALUE,
+        RatchetOptions.builder()
+            .timeout(t -> t.defaultSlaSeconds(Integer.MAX_VALUE))
+            .build()
+            .timeout()
+            .defaultSlaSeconds());
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                RatchetOptions.builder().timeout(t -> t.defaultSlaSeconds(Integer.MAX_VALUE + 1L)));
+    assertEquals("defaultSlaSeconds must be at most " + Integer.MAX_VALUE, error.getMessage());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new RatchetOptions.TimeoutOptions(80, Integer.MAX_VALUE + 1L, 500, 0));
+    assertThrows(
+        IllegalArgumentException.class, () -> new RatchetOptions.TimeoutOptions(80, 0, 500, 0));
+    assertEquals(
+        (long) Integer.MAX_VALUE,
+        new RatchetOptions.TimeoutOptions(80, Integer.MAX_VALUE, 500, 0).defaultSlaSeconds());
+  }
+
+  @Test
   void publicOptionGroupsMatchRuntimeBackedSurface() {
     Set<String> optionGroups =
         Arrays.stream(RatchetOptions.class.getDeclaredMethods())

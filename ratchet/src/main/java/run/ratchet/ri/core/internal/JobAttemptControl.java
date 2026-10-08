@@ -33,6 +33,7 @@ public final class JobAttemptControl {
   private final Instant deadline;
   private final Instant executionStartTime;
   private final long timeoutSeconds;
+  private final int baselineAttempts;
   private final AtomicBoolean cancellationRequested = new AtomicBoolean();
 
   private enum TimeoutOwner {
@@ -46,10 +47,16 @@ public final class JobAttemptControl {
   private final AtomicReference<TimeoutOwner> timeoutOwner =
       new AtomicReference<>(TimeoutOwner.UNCLAIMED);
 
-  JobAttemptControl(UUID jobId, Instant deadline, long timeoutSeconds, Instant executionStartTime) {
+  JobAttemptControl(
+      UUID jobId,
+      Instant deadline,
+      long timeoutSeconds,
+      Instant executionStartTime,
+      int baselineAttempts) {
     this.jobId = Objects.requireNonNull(jobId);
     this.deadline = Objects.requireNonNull(deadline);
     this.timeoutSeconds = timeoutSeconds;
+    this.baselineAttempts = baselineAttempts;
     this.executionStartTime = Objects.requireNonNull(executionStartTime);
   }
 
@@ -71,6 +78,11 @@ public final class JobAttemptControl {
 
   public long timeoutSeconds() {
     return timeoutSeconds;
+  }
+
+  /** Attempt count persisted when this execution attempt started. */
+  public int baselineAttempts() {
+    return baselineAttempts;
   }
 
   public Instant executionStartTime() {

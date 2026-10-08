@@ -232,7 +232,7 @@ class JobTaskTest {
 
   private CancellationRequestedException cancellationFromPreviousAttempt() {
     JobAttemptControl previous =
-        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW);
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0);
     previous.requestCancellation();
     JobContext.bind(
         JOB_UUID,
@@ -295,7 +295,8 @@ class JobTaskTest {
       throws Exception {
     JobTimeoutHandler timeoutHandler = mock(JobTimeoutHandler.class);
     JobAttemptControl attempt =
-        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW);
+        new JobAttemptControl(
+            JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, expectCooperative ? 2 : 0);
     if (requested) {
       attempt.requestCancellation();
     }
@@ -304,6 +305,9 @@ class JobTaskTest {
     }
     JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
     JobEntity job = createTestJob();
+    if (expectCooperative) {
+      job.setAttempts(2);
+    }
     job.setPayload(
         new JobPayload(
             JobTaskTest.class.getName(),
@@ -350,6 +354,9 @@ class JobTaskTest {
         AtomicInteger calls = new AtomicInteger();
         doAnswer(
                 invocation -> {
+                  Assertions.assertSame(attempt, invocation.getArgument(0));
+                  Assertions.assertEquals(
+                      2, invocation.<JobAttemptControl>getArgument(0).baselineAttempts());
                   if (calls.incrementAndGet() == 1) {
                     if (watchdogPassed) {
                       Assertions.assertFalse(attempt.claimTimeoutForWatchdog());
@@ -378,6 +385,7 @@ class JobTaskTest {
                 timeoutHandler,
                 times(saveFails ? (watchdogPassed && !retryFails ? 1 : 0) : watchdogPassed ? 2 : 1))
             .processCooperativeTimeout(attempt);
+        Assertions.assertEquals(2, attempt.baselineAttempts());
         Assertions.assertEquals(handlingFails && !watchdogPassed, attempt.isTimeoutHandedBack());
         ArgumentCaptor<JobExecutionEntity> execution =
             ArgumentCaptor.forClass(JobExecutionEntity.class);
@@ -888,7 +896,8 @@ class JobTaskTest {
         JobTimeoutHandler.class.getDeclaredMethod(
             "handleHardTimeoutById", JobAttemptControl.class, Future.class);
     handleHard.setAccessible(true);
-    handleHard.invoke(timeoutHandler, timeoutHandler.newAttempt(JOB_UUID, 30, FIXED_NOW), future);
+    handleHard.invoke(
+        timeoutHandler, timeoutHandler.newAttempt(JOB_UUID, 30, FIXED_NOW, 0), future);
 
     Assertions.assertEquals(
         1, attempts.get(), "a single hard timeout must consume exactly one attempt");

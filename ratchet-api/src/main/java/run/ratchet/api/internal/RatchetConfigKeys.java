@@ -162,8 +162,11 @@ public final class RatchetConfigKeys {
             }
             return percent;
           });
+
+  /** Default SLA in seconds; options construction enforces the maximum of Integer.MAX_VALUE. */
   public static final RatchetConfigKey<Long> WORKER_DEFAULT_SLA =
       longKey("ratchet.timeout.default-sla-seconds", "RATCHET_WORKER_DEFAULT_SLA", 1800L, 1L);
+
   public static final RatchetConfigKey<Integer> SIGNAL_TIMEOUT_BATCH_SIZE =
       intKey(
           "ratchet.timeout.signal-timeout-batch-size", "RATCHET_SIGNAL_TIMEOUT_BATCH_SIZE", 500, 1);

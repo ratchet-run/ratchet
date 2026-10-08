@@ -788,6 +788,7 @@ public class JobTask implements Callable<Void> {
     // The job stopped itself after a cancellation request. Whoever claims the attempt first (this
     // worker or the hard-timeout watchdog) runs the transition. On worker failure, hand it back
     // to the watchdog, or retry here if the watchdog already passed while the worker owned it.
+    // Both paths retain the baseline so a committed increment is not repeated on a re-run.
     if (cooperativeStop) {
       if (attempt.claimTimeoutForWorker()) {
         log.infof("Job %s stopped cooperatively after cancellation was requested", job.getId());

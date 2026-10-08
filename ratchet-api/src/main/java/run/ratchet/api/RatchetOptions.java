@@ -336,6 +336,13 @@ public class RatchetOptions {
     return value;
   }
 
+  private static long atMost(String name, long value, long maxInclusive) {
+    if (value > maxInclusive) {
+      throw new IllegalArgumentException(name + " must be at most " + maxInclusive);
+    }
+    return value;
+  }
+
   private static void requireNotGreater(
       String lowerName, long lowerValue, String upperName, long upperValue) {
     if (lowerValue > upperValue) {
@@ -683,7 +690,7 @@ public class RatchetOptions {
    * @param softTimeoutPercent percentage (1..99) of the configured SLA at which a soft-timeout
    *     warning is emitted
    * @param defaultSlaSeconds default execution SLA in seconds applied to jobs that do not declare
-   *     their own
+   *     their own; must be between 1 and {@link Integer#MAX_VALUE} inclusive
    * @param signalTimeoutBatchSize maximum number of WAITING jobs scanned per signal-timeout tick
    * @param cancellationGraceSeconds seconds before the hard timeout at which the watchdog requests
    *     cooperative cancellation; 0 disables the early request
@@ -692,7 +699,15 @@ public class RatchetOptions {
       int softTimeoutPercent,
       long defaultSlaSeconds,
       int signalTimeoutBatchSize,
-      long cancellationGraceSeconds) {}
+      long cancellationGraceSeconds) {
+    public TimeoutOptions {
+      defaultSlaSeconds =
+          atMost(
+              "defaultSlaSeconds",
+              atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L),
+              Integer.MAX_VALUE);
+    }
+  }
 
   /**
    * Background-maintenance schedules: DLQ purge, job archive, log purge.
@@ -1279,8 +1294,13 @@ public class RatchetOptions {
       return this;
     }
 
+    /** Sets the default SLA in seconds, between 1 and {@link Integer#MAX_VALUE} inclusive. */
     public TimeoutBuilder defaultSlaSeconds(long defaultSlaSeconds) {
-      this.defaultSlaSeconds = atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L);
+      this.defaultSlaSeconds =
+          atMost(
+              "defaultSlaSeconds",
+              atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L),
+              Integer.MAX_VALUE);
       return this;
     }
 

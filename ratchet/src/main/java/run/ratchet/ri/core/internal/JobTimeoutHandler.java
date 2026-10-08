@@ -273,10 +273,15 @@ public class JobTimeoutHandler {
     return jobTimeoutSec > 0 ? jobTimeoutSec : defaultTimeoutSeconds;
   }
 
-  public JobAttemptControl newAttempt(UUID jobId, int jobTimeoutSec, Instant executionStartTime) {
+  public JobAttemptControl newAttempt(
+      UUID jobId, int jobTimeoutSec, Instant executionStartTime, int baselineAttempts) {
     long timeoutSec = effectiveTimeoutSeconds(jobTimeoutSec);
     return new JobAttemptControl(
-        jobId, executionStartTime.plusSeconds(timeoutSec), timeoutSec, executionStartTime);
+        jobId,
+        executionStartTime.plusSeconds(timeoutSec),
+        timeoutSec,
+        executionStartTime,
+        baselineAttempts);
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -320,7 +325,8 @@ public class JobTimeoutHandler {
     log.warnf(
         "Job %s stopped cooperatively after a cancellation request; handling as a timeout",
         attempt.jobId());
-    processHardTimeout(attempt.jobId(), attempt.timeoutSeconds(), elapsed);
+    processHardTimeout(
+        attempt.jobId(), attempt.timeoutSeconds(), elapsed, attempt.baselineAttempts());
   }
 
   /**
@@ -370,12 +376,17 @@ public class JobTimeoutHandler {
     }
   }
 
-  /** Applies timeout routing: retry if attempts remain, otherwise fail permanently. */
+  /** Applies timeout routing without an attempt baseline; each RUNNING re-read counts a failure. */
   void processHardTimeout(UUID jobId, long timeoutSec) {
     processHardTimeout(jobId, timeoutSec, Duration.ofSeconds(timeoutSec));
   }
 
   void processHardTimeout(UUID jobId, long timeoutSec, Duration elapsedTime) {
+    processHardTimeout(jobId, timeoutSec, elapsedTime, null);
+  }
+
+  private void processHardTimeout(
+      UUID jobId, long timeoutSec, Duration elapsedTime, Integer baselineAttempts) {
     Duration observedElapsedTime = elapsedTime.isNegative() ? Duration.ZERO : elapsedTime;
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
@@ -384,7 +395,9 @@ public class JobTimeoutHandler {
     runTimeoutTransition(
         timeoutEx,
         false,
-        () -> applyHardTimeoutTransition(jobId, timeoutEx, timeoutSec, observedElapsedTime));
+        () ->
+            applyHardTimeoutTransition(
+                jobId, timeoutEx, timeoutSec, observedElapsedTime, baselineAttempts));
   }
 
   /**
@@ -419,7 +432,11 @@ public class JobTimeoutHandler {
   }
 
   private Optional<TerminalTimeoutTransition> applyHardTimeoutTransition(
-      UUID jobId, TimeoutException timeoutEx, long timeoutSec, Duration observedElapsedTime) {
+      UUID jobId,
+      TimeoutException timeoutEx,
+      long timeoutSec,
+      Duration observedElapsedTime,
+      Integer baselineAttempts) {
     String sanitizedError = sanitizeTimeoutError(timeoutEx);
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -430,9 +447,16 @@ public class JobTimeoutHandler {
     if (job.getStatus() != JobStatus.RUNNING) {
       return Optional.empty();
     }
-    int newAttempts = job.getAttempts() + 1;
-    // Terminal attempts are part of commitCompletion, including for stores without ambient JTA.
-    if (newAttempts <= job.getMaxRetries()) {
+    boolean incrementAlreadyApplied =
+        baselineAttempts != null && job.getAttempts() > baselineAttempts;
+    int newAttempts = incrementAlreadyApplied ? job.getAttempts() : job.getAttempts() + 1;
+    if (incrementAlreadyApplied) {
+      log.infof(
+          "Job %s timeout retry increment was already applied (%s attempts)", jobId, newAttempts);
+    }
+    // An attempt baseline prevents re-runs from repeating a committed retry increment. Terminal
+    // attempts are part of commitCompletion, including for stores without ambient JTA.
+    if (!incrementAlreadyApplied && newAttempts <= job.getMaxRetries()) {
       newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
       if (newAttempts < 0) {
         return Optional.empty();
@@ -771,7 +795,7 @@ public class JobTimeoutHandler {
     future.cancel(true);
 
     try {
-      processHardTimeout(jobId, timeoutSec, elapsed);
+      processHardTimeout(jobId, timeoutSec, elapsed, attempt.baselineAttempts());
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
       throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);

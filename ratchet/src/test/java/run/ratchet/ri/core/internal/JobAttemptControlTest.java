@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 class JobAttemptControlTest {
   private JobAttemptControl newAttempt() {
     return new JobAttemptControl(
-        new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH);
+        new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH, 0);
   }
 
   @Test
