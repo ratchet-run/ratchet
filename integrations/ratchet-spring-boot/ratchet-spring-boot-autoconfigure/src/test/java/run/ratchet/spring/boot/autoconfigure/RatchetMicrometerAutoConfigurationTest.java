@@ -274,6 +274,29 @@ class RatchetMicrometerAutoConfigurationTest {
             });
   }
 
+  @Test
+  void meterRegistryWithoutJobStoreStartsWithoutQueueHealthGauges() {
+    new ApplicationContextRunner()
+        .withConfiguration(
+            AutoConfigurations.of(
+                RatchetAutoConfiguration.class,
+                RatchetEngineAutoConfiguration.class,
+                RatchetMicrometerAutoConfiguration.class))
+        .withPropertyValues("ratchet.allowed-packages=example.jobs")
+        .withBean(MeterRegistry.class, SimpleMeterRegistry::new)
+        .run(
+            context -> {
+              assertThat(context).hasNotFailed();
+              assertThat(context).doesNotHaveBean(JobQueryService.class);
+              assertThat(context.getBean(MetricsCollector.class))
+                  .isInstanceOf(MicrometerMetricsCollector.class);
+
+              context.getBean(MicrometerQueueHealthMetrics.class).afterStart();
+              assertThat(context.getBean(MeterRegistry.class).find("ratchet.queue.jobs").gauge())
+                  .isNull();
+            });
+  }
+
   private ApplicationContextRunner runner() {
     return new ApplicationContextRunner()
         .withConfiguration(

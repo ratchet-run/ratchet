@@ -73,9 +73,10 @@ public class RatchetMicrometerAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     MicrometerQueueHealthMetrics ratchetQueueHealthMetrics(
-        MeterRegistry registry, JobQueryService jobQueryService) {
-      // The engine registers JobQueryService after this configuration; resolve it at bean creation.
-      return new MicrometerQueueHealthMetrics(registry, jobQueryService);
+        MeterRegistry registry, ObjectProvider<JobQueryService> jobQueryService) {
+      // The engine registers JobQueryService after this configuration, and not at all without a
+      // JobStore; the hook registers no gauges when it is absent.
+      return new MicrometerQueueHealthMetrics(registry, jobQueryService.getIfAvailable());
     }
   }
 
