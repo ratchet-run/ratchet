@@ -180,6 +180,24 @@ class CircuitBreakerExceptionFilterTest {
   }
 
   @Test
+  void mergeReturnsTheOtherOperandWhenOneSideHasNoRules() {
+    CircuitBreakerExceptionFilter rules =
+        new CircuitBreakerExceptionFilter(
+            List.of(IllegalStateException.class), List.of(NumberFormatException.class), null);
+    CircuitBreakerExceptionFilter ignoreOnly =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(NumberFormatException.class), null);
+    CircuitBreakerExceptionFilter empty = new CircuitBreakerExceptionFilter(null, null, null);
+
+    assertSame(rules, CircuitBreakerExceptionFilter.RECORD_ALL.merge(rules));
+    assertSame(rules, rules.merge(CircuitBreakerExceptionFilter.RECORD_ALL));
+    assertSame(ignoreOnly, empty.merge(ignoreOnly));
+    assertSame(ignoreOnly, ignoreOnly.merge(empty));
+    assertSame(
+        CircuitBreakerExceptionFilter.RECORD_ALL,
+        CircuitBreakerExceptionFilter.RECORD_ALL.merge(empty));
+  }
+
+  @Test
   void listsAndAnnotationArraysAreCopiedAndNullElementsRejected() {
     List<Class<? extends Throwable>> classes =
         new ArrayList<>(List.of(IllegalArgumentException.class));

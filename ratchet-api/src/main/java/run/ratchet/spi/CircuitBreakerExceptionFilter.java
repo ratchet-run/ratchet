@@ -123,11 +123,15 @@ public record CircuitBreakerExceptionFilter(
    * Unions class lists and ORs predicates, with ignore matches retaining precedence.
    *
    * @param other the per-call filter, or null
-   * @return the merged filter, or this filter when other is null
+   * @return the merged filter, or whichever operand has rules unchanged when the other has none
    */
   public CircuitBreakerExceptionFilter merge(@Nullable CircuitBreakerExceptionFilter other) {
-    if (other == null) {
+    // Runs on every protected call; skip the union when one side contributes nothing.
+    if (other == null || other.hasNoRules()) {
       return this;
+    }
+    if (hasNoRules()) {
+      return other;
     }
     Set<Class<? extends Throwable>> records = new LinkedHashSet<>(recordExceptions);
     records.addAll(other.recordExceptions);
@@ -149,6 +153,10 @@ public record CircuitBreakerExceptionFilter(
    */
   public boolean isRecordAll() {
     return recordExceptions.isEmpty() && recordPredicate == null;
+  }
+
+  private boolean hasNoRules() {
+    return isRecordAll() && ignoreExceptions.isEmpty();
   }
 
   /** Accounting outcome for a thrown exception. */
