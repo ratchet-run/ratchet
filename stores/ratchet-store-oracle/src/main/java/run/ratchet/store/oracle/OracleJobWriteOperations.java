@@ -479,21 +479,29 @@ final class OracleJobWriteOperations {
     if (deleted == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    // Oracle cannot bind a value over 32 KB inside a function; use a plain assignment.
     // language=Oracle
     String updateSql =
-        """
-        UPDATE scheduler_job
-        SET terminal_status = ?,
-            terminal_error = COALESCE(TO_CLOB(?), terminal_error),
-            terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-        WHERE job_id = ? AND terminal_status IS NULL
-        """;
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, incoming.getStatus().name())
-        .setParameter(2, incoming.getLastError())
-        .setParameter(3, UuidRawConverter.toBytes(id))
-        .executeUpdate();
+        incoming.getLastError() == null
+            ? """
+            UPDATE scheduler_job
+            SET terminal_status = ?,
+                terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+            WHERE job_id = ? AND terminal_status IS NULL
+            """
+            : """
+            UPDATE scheduler_job
+            SET terminal_status = ?, terminal_error = ?,
+                terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+            WHERE job_id = ? AND terminal_status IS NULL
+            """;
+    Query query = ctx.em().createNativeQuery(updateSql);
+    query.setParameter(1, incoming.getStatus().name());
+    int parameter = 2;
+    if (incoming.getLastError() != null) {
+      query.setParameter(parameter++, incoming.getLastError());
+    }
+    query.setParameter(parameter, UuidRawConverter.toBytes(id)).executeUpdate();
     reservations.deleteReservationByOwner(id);
     // Mirrors the committed value for normal callers. If the surrounding JTA transaction rolls
     // back, callers must discard or reload this entity instance.
