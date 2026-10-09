@@ -34,6 +34,75 @@ import run.ratchet.spi.CallerPrincipalResolver;
 class RatchetOptionsTest {
 
   @Test
+  void recoveryCadenceDefaultsMinimumsAndCopy() {
+    RatchetOptions defaults = RatchetOptions.builder().build();
+    assertEquals(300L, defaults.node().orphanScanIntervalSeconds());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().node(b -> b.orphanScanIntervalSeconds(0L)));
+    RatchetOptions orphanScanIntervalSecondsOptions =
+        RatchetOptions.builder().node(b -> b.orphanScanIntervalSeconds(1L)).build();
+    assertEquals(
+        1L,
+        orphanScanIntervalSecondsOptions.toBuilder().build().node().orphanScanIntervalSeconds());
+    assertEquals(120L, defaults.node().orphanRecoveryLeaseTtlSeconds());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().node(b -> b.orphanRecoveryLeaseTtlSeconds(0L)));
+    RatchetOptions orphanRecoveryLeaseTtlSecondsOptions =
+        RatchetOptions.builder().node(b -> b.orphanRecoveryLeaseTtlSeconds(1L)).build();
+    assertEquals(
+        1L,
+        orphanRecoveryLeaseTtlSecondsOptions.toBuilder()
+            .build()
+            .node()
+            .orphanRecoveryLeaseTtlSeconds());
+    assertEquals(300L, defaults.recurring().leaseTtlSeconds());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().recurring(b -> b.leaseTtlSeconds(1L)));
+    RatchetOptions leaseTtlSecondsOptions =
+        RatchetOptions.builder().recurring(b -> b.leaseTtlSeconds(2L)).build();
+    assertEquals(2L, leaseTtlSecondsOptions.toBuilder().build().recurring().leaseTtlSeconds());
+    assertEquals(900L, defaults.maintenance().batchRecoveryIntervalSeconds());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().maintenance(b -> b.batchRecoveryIntervalSeconds(0L)));
+    RatchetOptions batchRecoveryIntervalSecondsOptions =
+        RatchetOptions.builder().maintenance(b -> b.batchRecoveryIntervalSeconds(1L)).build();
+    assertEquals(
+        1L,
+        batchRecoveryIntervalSecondsOptions.toBuilder()
+            .build()
+            .maintenance()
+            .batchRecoveryIntervalSeconds());
+    assertEquals(900L, defaults.maintenance().batchRecoveryLeaseTtlSeconds());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().maintenance(b -> b.batchRecoveryLeaseTtlSeconds(0L)));
+    RatchetOptions batchRecoveryLeaseTtlSecondsOptions =
+        RatchetOptions.builder().maintenance(b -> b.batchRecoveryLeaseTtlSeconds(1L)).build();
+    assertEquals(
+        1L,
+        batchRecoveryLeaseTtlSecondsOptions.toBuilder()
+            .build()
+            .maintenance()
+            .batchRecoveryLeaseTtlSeconds());
+    assertEquals(120L, defaults.timeout().signalTimeoutLeaseTtlSeconds());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().timeout(b -> b.signalTimeoutLeaseTtlSeconds(0L)));
+    RatchetOptions signalTimeoutLeaseTtlSecondsOptions =
+        RatchetOptions.builder().timeout(b -> b.signalTimeoutLeaseTtlSeconds(1L)).build();
+    assertEquals(
+        1L,
+        signalTimeoutLeaseTtlSecondsOptions.toBuilder()
+            .build()
+            .timeout()
+            .signalTimeoutLeaseTtlSeconds());
+  }
+
+  @Test
   void publicOptionGroupsMatchRuntimeBackedSurface() {
     Set<String> optionGroups =
         Arrays.stream(RatchetOptions.class.getDeclaredMethods())
@@ -250,7 +319,7 @@ class RatchetOptionsTest {
                     node.nodeId("node-a")
                         .heartbeatIntervalSeconds(11L)
                         .orphanGraceSeconds(61L)
-                        .orphanScanIntervalMinutes(6L)
+                        .orphanScanIntervalSeconds(6L)
                         .dynamicHeartbeatEnabled(false)
                         .requireTags("blue", "primary")
                         .excludeTags("draining"))
@@ -403,7 +472,7 @@ class RatchetOptionsTest {
   void recurringOptionsRejectsPollGreaterThanMaxPoll() {
     assertThrows(
         IllegalArgumentException.class,
-        () -> new RatchetOptions.RecurringOptions(1, 2L, 1L, 0L, 0L));
+        () -> new RatchetOptions.RecurringOptions(1, 2L, 1L, 0L, 0L, 300L));
   }
 
   @Test

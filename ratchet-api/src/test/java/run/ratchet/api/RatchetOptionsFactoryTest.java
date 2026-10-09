@@ -38,6 +38,168 @@ import run.ratchet.spi.RatchetConfigSource;
 class RatchetOptionsFactoryTest {
 
   @Test
+  void mapsOrphanScanIntervalSecondsEnvironment() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(), Map.of("RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS", "7")));
+    assertEquals(7L, options.node().orphanScanIntervalSeconds());
+  }
+
+  @Test
+  void mapsOrphanScanIntervalSecondsSystemProperty() {
+    String key = "ratchet.node.orphan-scan-interval-seconds";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "7");
+      RatchetOptions options =
+          optionsFrom((property, environment) -> Optional.ofNullable(System.getProperty(property)));
+      assertEquals(7L, options.node().orphanScanIntervalSeconds());
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
+  void mapsOrphanRecoveryLeaseTtlSecondsEnvironment() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(), Map.of("RATCHET_NODE_ORPHAN_RECOVERY_LEASE_TTL_SECONDS", "7")));
+    assertEquals(7L, options.node().orphanRecoveryLeaseTtlSeconds());
+  }
+
+  @Test
+  void mapsOrphanRecoveryLeaseTtlSecondsSystemProperty() {
+    String key = "ratchet.node.orphan-recovery-lease-ttl-seconds";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "7");
+      RatchetOptions options =
+          optionsFrom((property, environment) -> Optional.ofNullable(System.getProperty(property)));
+      assertEquals(7L, options.node().orphanRecoveryLeaseTtlSeconds());
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
+  void mapsLeaseTtlSecondsEnvironment() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(), Map.of("RATCHET_RECURRING_LEASE_TTL_SECONDS", "7")));
+    assertEquals(7L, options.recurring().leaseTtlSeconds());
+  }
+
+  @Test
+  void mapsLeaseTtlSecondsSystemProperty() {
+    String key = "ratchet.recurring.lease-ttl-seconds";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "7");
+      RatchetOptions options =
+          optionsFrom((property, environment) -> Optional.ofNullable(System.getProperty(property)));
+      assertEquals(7L, options.recurring().leaseTtlSeconds());
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
+  void mapsBatchRecoveryIntervalSecondsEnvironment() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(), Map.of("RATCHET_BATCH_RECOVERY_INTERVAL_SECONDS", "7")));
+    assertEquals(7L, options.maintenance().batchRecoveryIntervalSeconds());
+  }
+
+  @Test
+  void mapsBatchRecoveryIntervalSecondsSystemProperty() {
+    String key = "ratchet.batch.recovery-interval-seconds";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "7");
+      RatchetOptions options =
+          optionsFrom((property, environment) -> Optional.ofNullable(System.getProperty(property)));
+      assertEquals(7L, options.maintenance().batchRecoveryIntervalSeconds());
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
+  void mapsBatchRecoveryLeaseTtlSecondsEnvironment() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(), Map.of("RATCHET_BATCH_RECOVERY_LEASE_TTL_SECONDS", "7")));
+    assertEquals(7L, options.maintenance().batchRecoveryLeaseTtlSeconds());
+  }
+
+  @Test
+  void mapsBatchRecoveryLeaseTtlSecondsSystemProperty() {
+    String key = "ratchet.batch.recovery-lease-ttl-seconds";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "7");
+      RatchetOptions options =
+          optionsFrom((property, environment) -> Optional.ofNullable(System.getProperty(property)));
+      assertEquals(7L, options.maintenance().batchRecoveryLeaseTtlSeconds());
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
+  void mapsSignalTimeoutLeaseTtlSecondsEnvironment() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(), Map.of("RATCHET_SIGNAL_TIMEOUT_LEASE_TTL_SECONDS", "7")));
+    assertEquals(7L, options.timeout().signalTimeoutLeaseTtlSeconds());
+  }
+
+  @Test
+  void mapsSignalTimeoutLeaseTtlSecondsSystemProperty() {
+    String key = "ratchet.timeout.signal-timeout-lease-ttl-seconds";
+    String previous = System.getProperty(key);
+    try {
+      System.setProperty(key, "7");
+      RatchetOptions options =
+          optionsFrom((property, environment) -> Optional.ofNullable(System.getProperty(property)));
+      assertEquals(7L, options.timeout().signalTimeoutLeaseTtlSeconds());
+    } finally {
+      if (previous == null) {
+        System.clearProperty(key);
+      } else {
+        System.setProperty(key, previous);
+      }
+    }
+  }
+
+  @Test
   void retiredVirtualThreadPropertyAndEnvironmentVariableWarn() {
     var messages = new ArrayList<String>();
     var logger = Logger.getLogger(RatchetOptionsFactory.class.getName());
@@ -124,13 +286,13 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
-  void mapsNodeOrphanScanIntervalEnvironmentVariable() {
+  void mapsNodeOrphanScanIntervalSecondsEnvironmentVariable() {
     RatchetOptions options =
         optionsFrom(
             new MapRatchetConfigSource(
-                Map.of(), Map.of("RATCHET_NODE_ORPHAN_SCAN_INTERVAL_MINUTES", "17")));
+                Map.of(), Map.of("RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS", "17")));
 
-    assertEquals(17L, options.node().orphanScanIntervalMinutes());
+    assertEquals(17L, options.node().orphanScanIntervalSeconds());
   }
 
   @Test
@@ -250,7 +412,7 @@ class RatchetOptionsFactoryTest {
                     Map.entry("ratchet.node.id", "node-a"),
                     Map.entry("ratchet.node.heartbeat-interval-seconds", "12"),
                     Map.entry("ratchet.node.orphan-grace-seconds", "13"),
-                    Map.entry("ratchet.node.orphan-scan-interval-minutes", "14"),
+                    Map.entry("ratchet.node.orphan-scan-interval-seconds", "14"),
                     Map.entry("ratchet.node.dynamic-heartbeat-enabled", "false"),
                     Map.entry("ratchet.recurring.batch-limit", "15"),
                     Map.entry("ratchet.recurring.poll-ms", "16"),
@@ -297,7 +459,7 @@ class RatchetOptionsFactoryTest {
     assertEquals(Optional.of("node-a"), options.node().explicitNodeId());
     assertEquals(12L, options.node().heartbeatIntervalSeconds());
     assertEquals(13L, options.node().orphanGraceSeconds());
-    assertEquals(14L, options.node().orphanScanIntervalMinutes());
+    assertEquals(14L, options.node().orphanScanIntervalSeconds());
     assertFalse(options.node().dynamicHeartbeatEnabled());
     assertEquals(15, options.recurring().batchLimit());
     assertEquals(16L, options.recurring().pollMs());
