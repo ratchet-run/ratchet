@@ -40,7 +40,7 @@ mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
   -pl :mongodb-consumer -am verify
 ```
 
-Repeat the SQL command for `oracle` and `sqlserver`. The tests cover normal submissions, transaction commit and rollback behavior, recurring work, batches, workflows, signals, lifecycle handling, and the applicable API contracts. `verify` also runs the packaged-jar proof in a fresh JVM against the selected real database.
+Repeat the SQL command for `oracle` and `sqlserver`. The tests cover application-bean circuit breakers (method, class, inherited class, default names, ignored exceptions, half-open recovery, reopening, transaction ordering, and MongoDB without a transaction manager), normal submissions, transaction commit and rollback behavior, recurring work, batches, workflows, signals, lifecycle handling, and the applicable API contracts. `verify` also runs the packaged-jar proof in a fresh JVM against the selected real database.
 
 ## Alternative JPA provider
 
@@ -126,8 +126,8 @@ they are compiled into the same executable. Test encryption uses an explicitly n
 Executables exercise method references, capturing and nested/local/anonymous submitters, records,
 POJOs, inherited targets, recurring annotations, lifecycle hooks, lazy/prototype jobs, batch and
 workflow jobs, results, signals, encrypted payloads, policy rejection, and virtual threads. SQL
-also checks transactions, after-commit submission, capability proxies, and host UUID/time/converter
-mappings. Feature assertions retain original job IDs and require durable success, including batch
+also checks an application-bean circuit-breaker proxy and open-circuit rejection, transactions,
+after-commit submission, capability proxies, and host UUID/time/converter mappings. Feature assertions retain original job IDs and require durable success, including batch
 children and recurring executions. Retry tests require persisted failure/success attempt history;
 exhausted retries must retain the terminal failure and error. Policy rejection must have the
 expected security exception and leave no stored job. The JVM harness checks raw ciphertext and
