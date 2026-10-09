@@ -101,6 +101,27 @@ public final class RuntimeProcess implements AutoCloseable {
     }
   }
 
+  /** Returns the child JVM process id. */
+  public long pid() {
+    return process.pid();
+  }
+
+  /** Suspends the child JVM with SIGSTOP. */
+  public void stop() throws Exception {
+    signal("-STOP");
+  }
+
+  /** Resumes the child JVM with SIGCONT. */
+  public void resume() throws Exception {
+    signal("-CONT");
+  }
+
+  private void signal(String signal) throws Exception {
+    Process command = new ProcessBuilder("kill", signal, Long.toString(pid())).start();
+    if (!command.waitFor(5, TimeUnit.SECONDS) || command.exitValue() != 0)
+      throw new IOException("Cannot send " + signal + " to " + pid());
+  }
+
   public void kill() throws Exception {
     process.destroyForcibly();
     if (!process.waitFor(15, TimeUnit.SECONDS)) throw new AssertionError("Worker did not die");
