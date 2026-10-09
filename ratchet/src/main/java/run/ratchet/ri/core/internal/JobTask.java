@@ -21,7 +21,10 @@ import java.io.Serializable;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.TimeoutException;
@@ -29,15 +32,18 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
+import run.ratchet.api.internal.AttemptTokens;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
@@ -98,6 +104,7 @@ public class JobTask implements Callable<Void> {
   private final JobTimeoutHandler timeoutHandler;
   private final Clock clock;
   private final LifecycleCallbackInvoker callbackInvoker;
+  private @Nullable JobAttemptControl attempt;
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
@@ -256,7 +263,10 @@ public class JobTask implements Callable<Void> {
         nodeId,
         jobEntity.getCallerPrincipal(),
         jobType != null ? jobType.name() : null,
-        deserializedSignalPayload);
+        deserializedSignalPayload,
+        attempt != null ? attempt.deadline() : null,
+        attempt != null ? attempt::isCancellationRequested : () -> false,
+        attempt != null ? attempt.attemptToken() : null);
 
     // The JobContext/MDC bound above must be cleared on every exit. Open the clearing try right
     // after the bind so a throw from the startup observability calls (metrics, execution recording)
@@ -374,6 +384,10 @@ public class JobTask implements Callable<Void> {
       JobMdcContext.clear();
     }
     return null;
+  }
+
+  public void attach(@Nullable JobAttemptControl attempt) {
+    this.attempt = attempt;
   }
 
   public void init(JobEntity job) {
@@ -762,8 +776,15 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleFailure(Throwable ex) {
-    log.errorf(
-        ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
+    boolean cooperativeStop =
+        attempt != null
+            && timeoutHandler != null
+            && attempt.isCancellationRequested()
+            && hasRequestedCancellationCause(ex, attempt.attemptToken());
+    if (!cooperativeStop) {
+      log.errorf(
+          ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
+    }
 
     // The hard-timeout watchdog interrupted this worker and already owns the retry/finalize for the
     // timeout (including the attempt increment). Defer to it so a single timeout does not burn two
@@ -777,6 +798,54 @@ public class JobTask implements Callable<Void> {
     }
 
     String sanitized = sanitizeError(ex);
+
+    // The job stopped itself after a cancellation request. Whoever claims the attempt first (this
+    // worker or the hard-timeout watchdog) runs the transition. On worker failure, hand it back
+    // to the watchdog, or retry here if the watchdog already passed while the worker owned it.
+    // Both paths retain the baseline so a committed increment is not repeated on a re-run.
+    if (cooperativeStop) {
+      if (attempt.claimTimeoutForWorker()) {
+        log.infof("Job %s stopped cooperatively after cancellation was requested", job.getId());
+        boolean executionSaved = false;
+        try {
+          if (currentExecution != null) {
+            currentExecution.markFailed(ex.getClass().getName(), sanitized);
+            observabilityFacade.saveExecution(currentExecution);
+          }
+          executionSaved = true;
+          timeoutHandler.processCooperativeTimeout(attempt);
+        } catch (RuntimeException failure) {
+          log.warnf(
+              failure,
+              "Job %s cooperative timeout handling failed; handing the timeout back to the"
+                  + " watchdog",
+              job.getId());
+          if (attempt.handBackTimeoutToWatchdog()) {
+            return;
+          }
+          try {
+            if (currentExecution != null && !executionSaved) {
+              // Already FAILED; stores save by id (SQL JPA merge, Mongo replaceOne upsert), so
+              // retry rewrites the same row. Skip after a successful save to avoid a duplicate
+              // write.
+              observabilityFacade.saveExecution(currentExecution);
+            }
+            timeoutHandler.processCooperativeTimeout(attempt);
+          } catch (RuntimeException retryFailure) {
+            log.errorf(
+                retryFailure,
+                "Job %s cooperative timeout handling failed again; left RUNNING until orphan"
+                    + " recovery, which resets it only after this node stops heartbeating",
+                job.getId());
+          }
+        }
+      } else {
+        log.infof(
+            "Job %s stopped after the hard-timeout watchdog claimed it — deferring to the watchdog",
+            job.getId());
+      }
+      return;
+    }
 
     // Non-retryable: skip retry count increment
     if (validationFacade.shouldNotRetry(ex)) {
@@ -805,6 +874,22 @@ public class JobTask implements Callable<Void> {
     } else {
       moveToDlq(ex, attempt, sanitized);
     }
+  }
+
+  /**
+   * Classifies by the state and attempt each exception recorded when it was created. One created
+   * before the request, or kept from an earlier attempt and rethrown in this one, is an ordinary
+   * failure.
+   */
+  private static boolean hasRequestedCancellationCause(Throwable ex, Object attemptToken) {
+    Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+    for (int depth = 0; ex != null && depth < 256 && seen.add(ex); depth++, ex = ex.getCause()) {
+      if (ex instanceof CancellationRequestedException cancellation
+          && AttemptTokens.isCooperativeStop(cancellation, attemptToken)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void handleNonRetryableFailure(Throwable ex, int attempt, String sanitized) {

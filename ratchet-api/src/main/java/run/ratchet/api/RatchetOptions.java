@@ -206,6 +206,7 @@ public class RatchetOptions {
     builder.retryBuffer.drainIntervalMs = retryBuffer.drainIntervalMs();
 
     builder.timeout.softTimeoutPercent = timeout.softTimeoutPercent();
+    builder.timeout.cancellationGraceSeconds = timeout.cancellationGraceSeconds();
     builder.timeout.defaultSlaSeconds = timeout.defaultSlaSeconds();
     builder.timeout.signalTimeoutBatchSize = timeout.signalTimeoutBatchSize();
     builder.timeout.signalTimeoutLeaseTtlSeconds = timeout.signalTimeoutLeaseTtlSeconds();
@@ -336,6 +337,13 @@ public class RatchetOptions {
   private static long atLeast(String name, long value, long minInclusive) {
     if (value < minInclusive) {
       throw new IllegalArgumentException(name + " must be at least " + minInclusive);
+    }
+    return value;
+  }
+
+  private static long atMost(String name, long value, long maxInclusive) {
+    if (value > maxInclusive) {
+      throw new IllegalArgumentException(name + " must be at most " + maxInclusive);
     }
     return value;
   }
@@ -691,15 +699,27 @@ public class RatchetOptions {
    * @param softTimeoutPercent percentage (1..99) of the configured SLA at which a soft-timeout
    *     warning is emitted
    * @param defaultSlaSeconds default execution SLA in seconds applied to jobs that do not declare
-   *     their own
+   *     their own; must be between 1 and {@link Integer#MAX_VALUE} inclusive
    * @param signalTimeoutBatchSize maximum number of WAITING jobs scanned per signal-timeout tick
+   * @param cancellationGraceSeconds seconds before the hard timeout at which the watchdog requests
+   *     cooperative cancellation; must not be negative, and 0 disables the early request
    * @param signalTimeoutLeaseTtlSeconds signal timeout scan lease lifetime in seconds
    */
   public record TimeoutOptions(
       int softTimeoutPercent,
       long defaultSlaSeconds,
       int signalTimeoutBatchSize,
-      long signalTimeoutLeaseTtlSeconds) {}
+      long cancellationGraceSeconds,
+      long signalTimeoutLeaseTtlSeconds) {
+    public TimeoutOptions {
+      defaultSlaSeconds =
+          atMost(
+              "defaultSlaSeconds",
+              atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L),
+              Integer.MAX_VALUE);
+      cancellationGraceSeconds = atLeast("cancellationGraceSeconds", cancellationGraceSeconds, 0L);
+    }
+  }
 
   /**
    * Background-maintenance schedules: DLQ purge, job archive, log purge.
@@ -1299,6 +1319,7 @@ public class RatchetOptions {
     private int softTimeoutPercent = 80;
     private long defaultSlaSeconds = 1800L;
     private int signalTimeoutBatchSize = 500;
+    private long cancellationGraceSeconds = 0L;
 
     private long signalTimeoutLeaseTtlSeconds = 120L;
 
@@ -1318,8 +1339,13 @@ public class RatchetOptions {
       return this;
     }
 
+    /** Sets the default SLA in seconds, between 1 and {@link Integer#MAX_VALUE} inclusive. */
     public TimeoutBuilder defaultSlaSeconds(long defaultSlaSeconds) {
-      this.defaultSlaSeconds = atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L);
+      this.defaultSlaSeconds =
+          atMost(
+              "defaultSlaSeconds",
+              atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L),
+              Integer.MAX_VALUE);
       return this;
     }
 
@@ -1328,11 +1354,18 @@ public class RatchetOptions {
       return this;
     }
 
+    public TimeoutBuilder cancellationGraceSeconds(long cancellationGraceSeconds) {
+      this.cancellationGraceSeconds =
+          atLeast("cancellationGraceSeconds", cancellationGraceSeconds, 0L);
+      return this;
+    }
+
     private TimeoutOptions build() {
       return new TimeoutOptions(
           softTimeoutPercent,
           defaultSlaSeconds,
           signalTimeoutBatchSize,
+          cancellationGraceSeconds,
           signalTimeoutLeaseTtlSeconds);
     }
   }

@@ -36,6 +36,7 @@ import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.spi.JobExtensionStore.ExtensionState;
 import run.ratchet.store.util.EncryptionEnvelope;
 import run.ratchet.store.util.EncryptionTarget;
+import run.ratchet.store.util.ExtensionValidation;
 import run.ratchet.store.util.PayloadEncryptor;
 import run.ratchet.tck.store.AbstractPayloadEncryptionStoreContract.RecordingEngine;
 import run.ratchet.tck.store.AbstractPayloadEncryptionStoreContract.SingleKeyProvider;
@@ -433,5 +434,99 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
 
     ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
     assertEquals("{\"plain\":true}", state.json());
+  }
+
+  /** A JSON string of exactly {@link ExtensionValidation#MAX_STATE_BYTES} UTF-8 bytes. */
+  private static String stateAtLimit() {
+    return "\"" + "é".repeat((ExtensionValidation.MAX_STATE_BYTES - 2) / 2) + "\"";
+  }
+
+  /** A JSON string one UTF-8 byte over {@link ExtensionValidation#MAX_STATE_BYTES}. */
+  private static String stateOverLimit() {
+    return "\"" + "é".repeat((ExtensionValidation.MAX_STATE_BYTES - 2) / 2) + "x\"";
+  }
+
+  @Test
+  void initState_acceptsStateAtTheSizeLimit() {
+    var job = persist(newPendingJob());
+    String value = stateAtLimit();
+    extensionStore().initState(job.getId(), NAMESPACE, value);
+    assertEquals(
+        new ExtensionState(value, 0),
+        extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
+  }
+
+  @Test
+  void updateState_acceptsStateAtTheSizeLimit() {
+    var job = persist(newPendingJob());
+    extensionStore().initState(job.getId(), NAMESPACE, "{}");
+    String value = stateAtLimit();
+    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, value, 0));
+    assertEquals(
+        new ExtensionState(value, 1),
+        extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
+  }
+
+  @Test
+  void initState_rejectsStateOverTheSizeLimit() {
+    var job = persist(newPendingJob());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> extensionStore().initState(job.getId(), NAMESPACE, stateOverLimit()));
+    assertTrue(extensionStore().getState(job.getId(), NAMESPACE).isEmpty());
+  }
+
+  @Test
+  void updateState_rejectsStateOverTheSizeLimit() {
+    var job = persist(newPendingJob());
+    extensionStore().initState(job.getId(), NAMESPACE, "{}");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> extensionStore().updateState(job.getId(), NAMESPACE, stateOverLimit(), 0));
+    assertEquals(
+        new ExtensionState("{}", 0),
+        extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
+  }
+
+  @Test
+  void state_atTheSizeLimitCrossesEncryptionSeam() {
+    var job = persist(newPendingJob());
+    RecordingEngine engine = new RecordingEngine();
+    EncryptionHolder.install(
+        List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), true);
+    String value = stateAtLimit();
+    extensionStore().initState(job.getId(), NAMESPACE, value);
+    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, value, 0));
+    assertEquals(
+        new ExtensionState(value, 1),
+        extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
+    assertEquals(2, engine.encryptedPlaintexts.stream().filter(value::equals).count());
+    assertTrue(engine.decryptCount.get() > 0, "read path must route through the engine");
+  }
+
+  @Test
+  void archiveJob_copiesStateAtTheSizeLimit() {
+    var job = persist(newPendingJob());
+    String value = stateAtLimit();
+    extensionStore().initState(job.getId(), NAMESPACE, value);
+    store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
+    var completed = store().findById(job.getId()).orElseThrow();
+    archiveStore().archiveJob(completed, "tck", "tck-node");
+    var archived =
+        archiveStore()
+            .findArchivedJobs(completed.getPayload().target(), null, null, null, 10)
+            .stream()
+            .filter(row -> row.getOriginalJobId().equals(job.getId()))
+            .findFirst()
+            .orElseThrow();
+    JsonObject entry =
+        Json.createReader(new StringReader(archived.getExtensionState()))
+            .readArray()
+            .getJsonObject(0);
+    assertEquals(NAMESPACE, entry.getString("namespace"));
+    assertEquals(value, entry.getString("state"));
   }
 }

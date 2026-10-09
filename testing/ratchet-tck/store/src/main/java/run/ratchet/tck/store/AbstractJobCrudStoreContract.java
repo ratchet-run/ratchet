@@ -34,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
@@ -55,6 +56,35 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   @AfterEach
   void cleanupCrudFixture() {
     cleanupStore();
+  }
+
+  @Test
+  void saveAndFindById_roundTripsLargeMultibytePayload() {
+    String value = "é".repeat(128 * 1024);
+    var job = newPendingJob();
+    job.setPayload(
+        new JobPayload(
+            "java.lang.String",
+            "valueOf",
+            "(Ljava/lang/Object;)Ljava/lang/String;",
+            true,
+            List.of(value),
+            null));
+    var saved = store().save(job);
+    assertEquals(job.getPayload(), store().findById(saved.getId()).orElseThrow().getPayload());
+  }
+
+  @Test
+  void save_terminalFailed_roundTripsLargeMultibyteError() {
+    String error = "é".repeat(128 * 1024);
+    var saved = persist(newPendingJob());
+    saved = store().findById(saved.getId()).orElseThrow();
+    saved.setStatus(JobStatus.FAILED);
+    saved.setLastError(error);
+    store().save(saved);
+    var found = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.FAILED, found.getStatus());
+    assertEquals(error, found.getLastError());
   }
 
   @Test

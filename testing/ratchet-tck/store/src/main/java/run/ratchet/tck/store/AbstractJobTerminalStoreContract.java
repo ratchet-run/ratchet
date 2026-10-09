@@ -56,6 +56,20 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
   }
 
   @Test
+  void markJobSucceeded_roundTripsLargeMultibyteResult() {
+    String resultJson = "\"" + "é".repeat(128 * 1024) + "\"";
+    var saved = persist(newPendingJob());
+    assertTrue(
+        store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    Instant now = Instant.now();
+    assertTrue(
+        store().markJobSucceeded(saved.getId(), resultJson, "java.lang.String", now, now, 0L, 0L));
+    var found = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.SUCCEEDED, found.getStatus());
+    assertEquals(resultJson, found.getJobResult());
+  }
+
+  @Test
   void competingCompletionsApplyBatchAndDependencyEffectsOnce() throws Exception {
     var batch = persist(newBatchParentJob());
     persistBatch(batch.getId(), 1);

@@ -12,6 +12,15 @@ column. Ratchet never wrote to it, so no data is lost. Apply it through the conf
 mechanism, or use the updated canonical schema for new installations. MongoDB needs no change;
 existing node documents may still carry an empty `node_info` field, which Ratchet ignores.
 
+MySQL also gains `V010__widen_text_columns.sql`, which changes ten `TEXT` columns to `MEDIUMTEXT`.
+Values over 64 KB, such as large signal payloads, extension state, encrypted values and long error
+messages, then fit on MySQL as they already do on the other stores. To change a column type, MySQL
+copies the whole table, and writes to that table wait until the copy finishes. On a large
+installation, run this migration in a quiet window.
+
+Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
+larger state with `IllegalArgumentException`.
+
 ## Upgrade from 0.4.0 to 0.5.0
 
 0.5.0 adds no schema migrations. SQL stores stay at `V008`, and MongoDB needs no new
