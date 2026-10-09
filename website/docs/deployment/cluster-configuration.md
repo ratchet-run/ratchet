@@ -164,6 +164,26 @@ CREATE TABLE IF NOT EXISTS scheduler_lock (
 
 Locks are acquired with an expiration time. If a node crashes, its locks expire and another node can acquire them. This prevents deadlocks from node failures.
 
+### Singleton lease lifetimes
+
+Each scan closes its lease when it finishes. The TTL limits how long a crashed holder blocks another node.
+
+| Singleton lease | TTL property | Default |
+|---|---|---|
+| `orphanRecovery` | `ratchet.node.orphan-recovery-lease-ttl-seconds` | 120 seconds |
+| `recurringScheduler` | `ratchet.recurring.lease-ttl-seconds` | 300 seconds |
+| `batchRecovery` | `ratchet.batch.recovery-lease-ttl-seconds` | 900 seconds |
+| `signalTimeoutScan` | `ratchet.timeout.signal-timeout-lease-ttl-seconds` | 120 seconds |
+| `dlqPurger` | Fixed TTL | 600 seconds |
+| `jobArchiver` | Fixed TTL | 7200 seconds |
+| `logPurger` | Fixed TTL | 600 seconds |
+
+Orphan scans run every `ratchet.node.orphan-scan-interval-seconds` (default 300).
+Batch recovery runs every `ratchet.batch.recovery-interval-seconds` (default 900).
+Its first scan waits at most 60 seconds, or one interval if shorter.
+For a test cluster, lower the scan intervals, lease TTLs, and orphan grace together.
+Recurring leases require at least 2 seconds. The other configurable TTLs and scan intervals require at least 1 second.
+
 ### How recurring job deduplication works
 
 Ratchet uses a cluster-wide singleton lease named `recurringScheduler` to ensure exactly one node runs the recurring scheduler at a time:
@@ -171,7 +191,7 @@ Ratchet uses a cluster-wide singleton lease named `recurringScheduler` to ensure
 1. On each poll cycle, each node tries to acquire the `recurringScheduler` singleton lease from `scheduler_lock`
 2. Only the node that holds the lease scans `scheduler_recurring_job` for due `next_fire` rows and spawns child jobs
 3. Nodes that fail to acquire the lease skip the cycle and retry on the next poll interval
-4. The lease renews every two minutes while held; if the lease-holding node crashes, the lease expires and another node acquires it on its next cycle
+4. The lease renews every `max(1, leaseTtlSeconds * 2 / 5)` seconds while held (120 seconds by default); if the lease-holding node crashes, the lease expires and another node acquires it on its next cycle
 
 ## Node heartbeats
 
