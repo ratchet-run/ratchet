@@ -997,6 +997,38 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void searchByMultiplePropertyKeys_combinesStatusAndPagination() {
+    List<UUID> matching = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      var job = persist(newPendingJob());
+      extensionStore().putProperty(job.getId(), "ratchet-tck.block_name", "invoice.send");
+      extensionStore().putProperty(job.getId(), "ratchet-tck.block_version", "2");
+      matching.add(job.getId());
+    }
+    var wrongStatus = persist(newPendingJob());
+    extensionStore().putProperty(wrongStatus.getId(), "ratchet-tck.block_name", "invoice.send");
+    extensionStore().putProperty(wrongStatus.getId(), "ratchet-tck.block_version", "2");
+    store().compareAndSwapStatus(wrongStatus.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    var wrongVersion = persist(newPendingJob());
+    extensionStore().putProperty(wrongVersion.getId(), "ratchet-tck.block_name", "invoice.send");
+    extensionStore().putProperty(wrongVersion.getId(), "ratchet-tck.block_version", "1");
+    var missingName = persist(newPendingJob());
+    extensionStore().putProperty(missingName.getId(), "ratchet-tck.block_version", "2");
+
+    JobFilter filter =
+        JobFilter.builder()
+            .statuses(Set.of(JobStatus.PENDING))
+            .propertyEquals("ratchet-tck.block_name", "invoice.send")
+            .propertyEquals("ratchet-tck.block_version", "2")
+            .build();
+    List<JobEntity> page = queryStore().searchJobs(filter, 2, 0);
+
+    assertEquals(2, page.size());
+    assertTrue(page.stream().allMatch(job -> matching.contains(job.getId())));
+    assertEquals(3, queryStore().countJobs(filter));
+  }
+
+  @Test
   void countJobs_appliesPropertyFilters() {
     var tagged = persist(newPendingJob());
     persist(newPendingJob());
