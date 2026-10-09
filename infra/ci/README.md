@@ -103,3 +103,18 @@ runs. This workflow is separate from `CI required`, so an external service outag
 does not block unrelated PRs. A release review should include the latest completed
 audit and any unresolved findings; this PR does not add a release-time service
 dependency or authorize publication.
+
+## Pull request lane selection
+
+`affected_lanes.py` reads the reactor POMs and selects lanes whose module
+closures contain changed modules. Pull requests use a reduced matrix that
+covers every selected dimension value. Every other event selects the full
+matrix and the full unit suite; the merge queue still skips heavy lanes.
+
+Run locally from the repository root with a newline-separated list of changed
+repository-relative paths, or select the full matrix:
+
+```sh
+python3 infra/ci/affected_lanes.py --changed-files changed-files.txt
+python3 infra/ci/affected_lanes.py --full
+```

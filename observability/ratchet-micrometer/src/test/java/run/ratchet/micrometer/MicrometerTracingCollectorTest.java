@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.micrometer.tracing.Span;
@@ -64,6 +65,56 @@ class MicrometerTracingCollectorTest {
     when(tracerInstance.isResolvable()).thenReturn(false);
     when(propagatorInstance.isResolvable()).thenReturn(false);
     return new MicrometerTracingCollector(tracerInstance, propagatorInstance);
+  }
+
+  @Test
+  void directConstructor_nullPropagator_returnsNoOp() {
+    MicrometerTracingCollector collector = new MicrometerTracingCollector(tracer, null);
+
+    assertTrue(collector.captureCurrentContext().isEmpty());
+    ExecutionScope scope =
+        collector.jobExecutionStarted(
+            UUID.randomUUID(),
+            JobType.SINGLE,
+            JobPriority.NORMAL,
+            Map.of("traceparent", "00-parent-01"));
+    assertNotNull(scope);
+    assertDoesNotThrow(() -> scope.success(100));
+    assertDoesNotThrow(() -> scope.failure(new RuntimeException(), 1));
+    assertDoesNotThrow(scope::close);
+    verifyNoInteractions(tracer);
+  }
+
+  @Test
+  void directConstructor_withPropagator_capturesContextAndExtractsParent() {
+    TraceContext traceCtx = mock(TraceContext.class);
+    when(tracer.currentSpan()).thenReturn(span);
+    when(span.context()).thenReturn(traceCtx);
+    doAnswer(
+            inv -> {
+              Map<String, String> carrier = inv.getArgument(1);
+              carrier.put("traceparent", "00-parent-01");
+              return null;
+            })
+        .when(propagator)
+        .inject(eq(traceCtx), any(Map.class), any());
+    Map<String, String> parentCtx = Map.of("traceparent", "00-parent-01");
+    when(propagator.extract(eq(parentCtx), any())).thenReturn(spanBuilder);
+    when(spanBuilder.start()).thenReturn(span);
+    when(span.name(any())).thenReturn(span);
+    when(span.tag(any(), any())).thenReturn(span);
+    when(tracer.withSpan(span)).thenReturn(spanInScope);
+    MicrometerTracingCollector collector = new MicrometerTracingCollector(tracer, propagator);
+
+    assertEquals(parentCtx, collector.captureCurrentContext());
+    collector
+        .jobExecutionStarted(UUID.randomUUID(), JobType.SINGLE, JobPriority.NORMAL, parentCtx)
+        .success(100);
+
+    verify(propagator).extract(eq(parentCtx), any());
+    verify(span).tag("ratchet.outcome", "success");
+    verify(span).end();
+    verify(spanInScope).close();
   }
 
   // ── captureCurrentContext ─────────────────────────────────────────────────
