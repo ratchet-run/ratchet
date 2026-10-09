@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.cdi.internal;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -40,7 +41,6 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.PayloadTooLargeException;
-import run.ratchet.ri.security.Utf8Length;
 
 class JsonbPayloadSerializerTest {
 
@@ -102,7 +102,7 @@ class JsonbPayloadSerializerTest {
     JsonbPayloadSerializer serializer = new JsonbPayloadSerializer();
     try {
       String json = serializer.serialize("é😀");
-      long bytes = Utf8Length.utf8Length(json);
+      long bytes = json.getBytes(UTF_8).length;
       assertEquals(json, serializer.serialize("é😀", bytes));
       PayloadTooLargeException failure =
           assertThrows(
@@ -167,12 +167,12 @@ class JsonbPayloadSerializerTest {
   }
 
   @Test
-  void boundedWriterCountsSplitPairsAndUnpairedSurrogatesLikeUtf8Length() throws Exception {
+  void boundedWriterCountsSplitPairsAndUnpairedSurrogatesLikeTheUtf8Encoder() throws Exception {
     for (String value : List.of("aé\uD83D\uDE00z", "a\uD83Dz\uDC00", "x\uD83D")) {
       Class<?> type = Class.forName(JsonbPayloadSerializer.class.getName() + "$BoundedWriter");
       Constructor<?> constructor = type.getDeclaredConstructor(long.class);
       constructor.setAccessible(true);
-      long bytes = Utf8Length.utf8Length(value);
+      long bytes = value.getBytes(UTF_8).length;
       Writer writer = (Writer) constructor.newInstance(bytes);
       // One-char calls ensure the high/low halves straddle distinct writes.
       for (int i = 0; i < value.length(); i++) {

@@ -51,12 +51,10 @@ import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
-import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
-import run.ratchet.ri.security.Utf8Length;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -1095,11 +1093,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       return null;
     }
     if (payloadSerializer != null) {
-      String serialized = payloadSerializer.serialize(payload);
-      long actualBytes = Utf8Length.utf8Length(serialized);
-      if (actualBytes > maxSignalPayloadBytes) {
-        throw new PayloadTooLargeException(actualBytes, maxSignalPayloadBytes);
-      }
+      String serialized = payloadSerializer.serialize(payload, maxSignalPayloadBytes);
       // signal_payload is a TEXT column, so the engine output is stored as a bare token (no JSON
       // envelope needed). Bound to the signal key, not a job id: a broadcast writes one ciphertext
       // to every waiting row matching the key. No-op when inactive.

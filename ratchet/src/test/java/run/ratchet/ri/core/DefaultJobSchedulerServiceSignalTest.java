@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -93,7 +94,11 @@ class DefaultJobSchedulerServiceSignalTest {
   @Mock private DefaultJobCreationService jobCreationService;
   @Mock private JobAuthorizationPolicy authorizationPolicy;
   @Mock private SignalStore signalStore;
-  @Mock private PayloadSerializer payloadSerializer;
+
+  // Real default methods let the bounded serialize(payload, maxBytes) delegate to the stubs below.
+  @Mock(answer = Answers.CALLS_REAL_METHODS, strictness = Mock.Strictness.LENIENT)
+  private PayloadSerializer payloadSerializer;
+
   @Mock private MetricsCollector metricsCollector;
 
   private DefaultJobSchedulerService service;
