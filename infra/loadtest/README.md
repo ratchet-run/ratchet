@@ -161,7 +161,7 @@ Useful request fields:
 | `sleepSpikeRate` | `0.0` | Fraction of jobs that get an additional long-tail sleep spike |
 | `sleepSpikeMs` | `0` | Additional sleep added when a spike is selected |
 | `failureRate` | `0.0` | Value from `0.0` to `1.0` |
-| `payloadBytes` | `0` | Bytes added to each job payload argument; at most 102400 (set `-Dratchet.loadtest.max-payload-bytes` to change) |
+| `payloadBytes` | `0` | Bytes added to each job payload argument; at most 102400 (set `-Dratchet.loadtest.max-payload-bytes` to change). Ratchet's payload limit (100 KiB by default) covers the whole serialized job, so values close to 102400 are rejected when the job is submitted. |
 | `maxRetries` | `0` | Ratchet retry count for injected failures |
 | `priority` | `NORMAL` | Ratchet job priority |
 | `timeoutSeconds` | `60` | Per-job timeout |

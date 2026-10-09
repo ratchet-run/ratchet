@@ -42,7 +42,8 @@ public class LoadTestRunner {
       Integer.getInteger("ratchet.loadtest.max-jobs-per-request", 1_000_000);
 
   // Defaults to Ratchet's own maxPayloadKb (100 KiB). Checked before the payload string is built,
-  // so an oversized request is rejected without allocating it.
+  // so an oversized request is rejected without allocating it. This only bounds memory: Ratchet's
+  // limit covers the whole serialized job, so values near this cap still fail at submission.
   private static final int MAX_PAYLOAD_BYTES =
       Integer.getInteger("ratchet.loadtest.max-payload-bytes", 100 * 1024);
 
