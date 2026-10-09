@@ -495,6 +495,7 @@ final class OracleJobWriteOperations {
     if (deleted == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    // Oracle cannot bind a value over 32 KB inside a function; use a plain assignment.
     // language=Oracle
     String updateSql =
         """

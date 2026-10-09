@@ -223,4 +223,16 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
     assertEquals(JobStatus.RUNNING, store().findById(saved.getId()).orElseThrow().getStatus());
     assertTrue(store().resetRunningJob(saved.getId(), "node-1", current.claimSeq()));
   }
+
+  private static String largeErrorText() {
+    return "é".repeat(256 * 1024 / 2);
+  }
+
+  @Test
+  void updateJobStatus_preservesLargeMultibyteQueueError() {
+    var job = persist(newPendingJob());
+    String error = largeErrorText();
+    store().updateJobStatus(job.getId(), JobStatus.PAUSED, error);
+    assertEquals(error, store().findById(job.getId()).orElseThrow().getLastError());
+  }
 }

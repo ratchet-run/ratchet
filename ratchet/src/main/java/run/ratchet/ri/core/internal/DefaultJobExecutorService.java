@@ -218,22 +218,31 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
   @Override
   public ExecutionResult execute(JobEntity job, String poolName) {
+    Instant executionStartTime = effective().instant();
     JobExecutionType jobType = job.getJobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     Runnable release = permitRelease(jobType, poolName, handlesRef);
     try {
+      JobAttemptControl attempt =
+          timeoutHandler.newAttempt(
+              job.getId(),
+              job.getTimeoutSec(),
+              executionStartTime,
+              job.getAttempts(),
+              Objects.requireNonNull(
+                  job.getClaimSeq(), "job " + job.getId() + " has no claim sequence"),
+              job.getPickedBy());
       Callable<Void> callable =
-          createPermitAwareRunner(jobType, poolName, handlesRef, task -> task.init(job));
+          createPermitAwareRunner(
+              jobType,
+              poolName,
+              handlesRef,
+              task -> {
+                task.init(job);
+                task.attach(attempt);
+              });
       return execute(
-          job.getId(),
-          job.getTimeoutSec(),
-          callable,
-          handlesRef,
-          poolName,
-          release,
-          Objects.requireNonNull(
-              job.getClaimSeq(), "job " + job.getId() + " has no claim sequence"),
-          job.getPickedBy());
+          job.getId(), attempt, executionStartTime, callable, handlesRef, poolName, release);
     } catch (RuntimeException | Error failure) {
       release.run();
       throw failure;
@@ -242,21 +251,30 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
   @Override
   public ExecutionResult execute(JobClaimDto claim, String poolName) {
+    Instant executionStartTime = effective().instant();
     JobExecutionType jobType = claim.jobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     Runnable release = permitRelease(jobType, poolName, handlesRef);
     try {
+      JobAttemptControl attempt =
+          timeoutHandler.newAttempt(
+              claim.id(),
+              claim.timeoutSec(),
+              executionStartTime,
+              claim.attempts(),
+              claim.claimSeq(),
+              claim.pickedBy());
       Callable<Void> callable =
-          createPermitAwareRunner(jobType, poolName, handlesRef, task -> task.initFromClaim(claim));
+          createPermitAwareRunner(
+              jobType,
+              poolName,
+              handlesRef,
+              task -> {
+                task.initFromClaim(claim);
+                task.attach(attempt);
+              });
       return execute(
-          claim.id(),
-          claim.timeoutSec(),
-          callable,
-          handlesRef,
-          poolName,
-          release,
-          claim.claimSeq(),
-          claim.pickedBy());
+          claim.id(), attempt, executionStartTime, callable, handlesRef, poolName, release);
     } catch (RuntimeException | Error failure) {
       release.run();
       throw failure;
@@ -284,25 +302,12 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
   private ExecutionResult execute(
       UUID jobId,
-      int timeoutSec,
+      JobAttemptControl attempt,
+      Instant executionStartTime,
       Callable<Void> callable,
       AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef,
       String poolName,
-      long claimSeq,
-      String nodeId) {
-    return execute(jobId, timeoutSec, callable, handlesRef, poolName, () -> {}, claimSeq, nodeId);
-  }
-
-  private ExecutionResult execute(
-      UUID jobId,
-      int timeoutSec,
-      Callable<Void> callable,
-      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef,
-      String poolName,
-      Runnable release,
-      long claimSeq,
-      String nodeId) {
-    Instant executionStartTime = effective().instant();
+      Runnable release) {
     TrackingFutureTask task;
     try {
       task = prepareTask(callable, release);
@@ -313,7 +318,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
     try {
       JobTimeoutHandler.TimeoutHandles handles =
-          scheduleWatchdog(jobId, timeoutSec, task, executionStartTime, claimSeq, nodeId);
+          scheduleWatchdog(jobId, attempt, task, executionStartTime);
       handlesRef.set(handles);
       submitToExecutor(task, poolName);
       if (task.isDone()) {
@@ -441,21 +446,10 @@ public class DefaultJobExecutorService implements JobExecutorService {
   }
 
   private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(
-      UUID jobId,
-      int timeoutSec,
-      Future<?> fut,
-      Instant executionStartTime,
-      long claimSeq,
-      String nodeId) {
+      UUID jobId, JobAttemptControl attempt, Future<?> fut, Instant executionStartTime) {
     try {
       return timeoutHandler.scheduleTimeoutMonitoring(
-          jobId,
-          timeoutSec,
-          fut,
-          executorProvider.getScheduledExecutor(),
-          executionStartTime,
-          claimSeq,
-          nodeId);
+          attempt, fut, executorProvider.getScheduledExecutor(), executionStartTime);
     } catch (Exception e) {
       log.warnf(e, "Watchdog scheduling error for job %s; rejecting execution", jobId);
       throw new RejectedExecutionException("Timeout monitoring could not be scheduled", e);

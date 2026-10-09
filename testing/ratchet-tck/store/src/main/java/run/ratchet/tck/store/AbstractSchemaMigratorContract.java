@@ -124,7 +124,13 @@ public abstract class AbstractSchemaMigratorContract {
   @Test
   void claimSequenceMigrationIsIdempotentOnRepeat() throws Exception {
     resetDatabase();
-    newMigrator().migrate();
+    // Stores number their migrations independently, so find this one by name.
+    String version =
+        newMigrator().migrate().applied().stream()
+            .filter(script -> script.resourceName().endsWith("__claim_seq.sql"))
+            .map(SchemaMigrator.MigrationScript::version)
+            .findFirst()
+            .orElseThrow();
     try (Connection connection = newJdbcConnection()) {
       var metadata = connection.getMetaData();
       boolean upper = metadata.storesUpperCaseIdentifiers();
@@ -139,13 +145,15 @@ public abstract class AbstractSchemaMigratorContract {
           assertEquals(0, columns.getInt("NULLABLE"), "claim_seq must be NOT NULL");
         }
       }
-      try (var statement = connection.createStatement()) {
-        statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '010'");
+      try (var statement =
+          connection.prepareStatement("DELETE FROM ratchet_schema_version WHERE version = ?")) {
+        statement.setString(1, version);
+        statement.executeUpdate();
       }
     }
     var repeated = newMigrator().migrate();
     assertEquals(
-        List.of("010"),
+        List.of(version),
         repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
   }
 

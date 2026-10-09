@@ -16,6 +16,7 @@
 package run.ratchet.store.oracle;
 
 import jakarta.persistence.NoResultException;
+import jakarta.persistence.Query;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -48,39 +49,45 @@ final class OracleBatchOperations implements BatchStore {
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
     try {
-      // language=Oracle
-      String sql =
-          """
-          MERGE INTO scheduler_batch d
-          USING (SELECT ? AS batch_id, ? AS total_items, ? AS completed_items, ? AS failed_items,
-                        ? AS completion_processed, ? AS progress_hook FROM dual) s
-          ON (d.batch_id = s.batch_id)
-          WHEN MATCHED THEN UPDATE SET
-            d.total_items = s.total_items,
-            d.completed_items = s.completed_items,
-            d.failed_items = s.failed_items,
-            d.completion_processed = s.completion_processed,
-            d.progress_hook = s.progress_hook,
-            d.version = d.version + 1
-          WHEN NOT MATCHED THEN INSERT
-            (batch_id, total_items, completed_items, failed_items, completion_processed, progress_hook)
-            VALUES (s.batch_id, s.total_items, s.completed_items, s.failed_items,
-                    s.completion_processed, s.progress_hook)
-          """;
-      ctx.em()
-          .createNativeQuery(sql)
-          .setParameter(1, UuidRawConverter.toBytes(batch.getId()))
-          .setParameter(2, batch.getTotalItems())
-          .setParameter(3, batch.getCompletedItems())
-          .setParameter(4, batch.getFailedItems())
-          .setParameter(5, Boolean.TRUE.equals(batch.getCompletionProcessed()))
-          .setParameter(6, progressHookJson(batch.getProgressHook()))
-          .executeUpdate();
+      // Oracle cannot bind a value over 32 KB inside a MERGE, so use update-then-insert.
+      if (updateBatch(batch) == 0) {
+        // language=Oracle
+        String insertSql =
+            """
+            INSERT INTO scheduler_batch
+              (total_items, completed_items, failed_items, completion_processed, progress_hook, batch_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """;
+        bindBatch(insertSql, batch).executeUpdate();
+      }
       ctx.em().flush();
       return findBatchById(batch.getId()).orElse(batch);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("save batch", e);
     }
+  }
+
+  private int updateBatch(BatchEntity batch) {
+    // language=Oracle
+    String sql =
+        """
+        UPDATE scheduler_batch
+        SET total_items = ?, completed_items = ?, failed_items = ?, completion_processed = ?,
+            progress_hook = ?, version = version + 1
+        WHERE batch_id = ?
+        """;
+    return bindBatch(sql, batch).executeUpdate();
+  }
+
+  private Query bindBatch(String sql, BatchEntity batch) {
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, batch.getTotalItems())
+        .setParameter(2, batch.getCompletedItems())
+        .setParameter(3, batch.getFailedItems())
+        .setParameter(4, Boolean.TRUE.equals(batch.getCompletionProcessed()))
+        .setParameter(5, progressHookJson(batch.getProgressHook()))
+        .setParameter(6, UuidRawConverter.toBytes(batch.getId()));
   }
 
   @Override
