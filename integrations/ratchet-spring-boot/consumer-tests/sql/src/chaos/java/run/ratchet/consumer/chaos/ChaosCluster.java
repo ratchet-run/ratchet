@@ -203,14 +203,14 @@ public final class ChaosCluster implements AutoCloseable {
     throw new AssertionError("Process state not confirmed for " + nodeId(i));
   }
 
-  public void resume(int i) throws Exception {
+  public synchronized void resume(int i) throws Exception {
     node(i).resume();
     awaitState(i, false);
     stopped.remove(i);
     timeline.end(incarnations.get(i), clock.now());
   }
 
-  public void restart(int i) throws Exception {
+  public synchronized void restart(int i) throws Exception {
     if (node(i).process.isAlive())
       throw new IllegalStateException("Kill or terminate before restarting " + nodeId(i));
     String old = incarnations.get(i);
