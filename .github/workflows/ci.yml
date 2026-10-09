@@ -51,47 +51,53 @@ jobs:
       - name: Test signed commit request generation
         run: scripts/test-gh-signed-commit.sh
 
-  # Detects whether a pull request touches anything other than documentation, so
-  # the heavy integration matrix, the EE 11 lane, and CodeQL can be skipped on
-  # docs-only PRs. Only pull_request events are eligible for that docs skip;
-  # pushes to main and release builds (workflow_call) always run the full
-  # pipeline. The merge queue (merge_group) runs a reduced pipeline — build,
-  # unit-tests, spotbugs, and the local license gate — because the heavy lanes ran on the
-  # PR and run again on the post-merge push to main (see the integration-test /
-  # ee11-verify guards). The leading '**' is the base set; the '!' rules subtract docs from
-  # it, so code == 'true' only when a non-doc file changed. On non-PR events the
-  # filter step is skipped and the output is empty, which the downstream
-  # `!= 'false'` guards read as "run".
+  # PRs select affected modules and reduce matrices via infra/ci/affected_lanes.py.
+  # Every other event gets the full matrix. The merge queue still skips the
+  # heavy lanes that run on PRs and on the post-merge push to main. On a PR,
+  # HEAD is GitHub's merge commit, so HEAD^1 is the base tip and the diff is
+  # exactly what the PR adds; if that check or the diff fails, the step falls
+  # back to the full matrix.
   changes:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
     outputs:
-      code: ${{ steps.filter.outputs.code }}
-      web: ${{ steps.filter.outputs.web }}
+      mode: ${{ steps.select.outputs.mode }}
+      code: ${{ steps.select.outputs.code }}
+      web: ${{ steps.select.outputs.web }}
+      unit_scope: ${{ steps.select.outputs.unit_scope }}
+      unit_modules: ${{ steps.select.outputs.unit_modules }}
+      ee11_scope: ${{ steps.select.outputs.ee11_scope }}
+      ee11_modules: ${{ steps.select.outputs.ee11_modules }}
+      integration: ${{ steps.select.outputs.integration }}
+      has_integration: ${{ steps.select.outputs.has_integration }}
+      quarkus_jvm: ${{ steps.select.outputs.quarkus_jvm }}
+      has_quarkus_jvm: ${{ steps.select.outputs.has_quarkus_jvm }}
+      quarkus_native: ${{ steps.select.outputs.quarkus_native }}
+      has_quarkus_native: ${{ steps.select.outputs.has_quarkus_native }}
+      spring_consumer: ${{ steps.select.outputs.spring_consumer }}
+      has_spring_consumer: ${{ steps.select.outputs.has_spring_consumer }}
+      spring_native: ${{ steps.select.outputs.spring_native }}
+      has_spring_native: ${{ steps.select.outputs.has_spring_native }}
+      spring_runtime: ${{ steps.select.outputs.spring_runtime }}
+      has_spring_runtime: ${{ steps.select.outputs.has_spring_runtime }}
+      has_showcase: ${{ steps.select.outputs.has_showcase }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
-        id: filter
-        if: github.event_name == 'pull_request'
         with:
-          # 'every' makes a file count as code only when it matches ALL rules
-          # (not md, not adoc, not under website, not LICENSE). The default
-          # 'some' quantifier lets the base '**' match every file, so the '!'
-          # rules never subtract and docs-only PRs run the full matrix. The same
-          # 'every' quantifier is harmless for the single-pattern web filter: a
-          # changed file counts as web only when it lives under website/.
-          predicate-quantifier: 'every'
-          filters: |
-            code:
-              - '**'
-              - '!**/*.md'
-              - '!**/*.adoc'
-              - '!website/**'
-              - '!LICENSE'
-            web:
-              - 'website/**'
+          fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+      - name: Select affected lanes
+        id: select
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] \
+            && [ "$(git rev-list --parents -n1 HEAD | wc -w)" -eq 3 ] \
+            && git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-files.txt"; then
+            python3 infra/ci/affected_lanes.py --changed-files "$RUNNER_TEMP/changed-files.txt"
+          else
+            python3 infra/ci/affected_lanes.py --full
+          fi
 
   # Gate the integration matrix on compilation, aggregate Javadoc, formatting, and a focused
   # publishing-profile install. Tests run in the unit-tests job below, in
@@ -124,11 +130,10 @@ jobs:
           -pl :ratchet-quarkus-observability-integration-tests -am
           -DskipTests -Dspotbugs.skip=true
 
-  # Runs the unit suite exactly once per pipeline. Deliberately NOT gated on
-  # changes or merge_group: with build covering compile, Javadoc, and format, this job is
-  # the queue's sole Java test signal. Gating it there would let queue merges land
-  # with zero tests executed.
+  # Never skipped: PRs test affected modules; the merge queue, main and release
+  # runs execute the whole suite, keeping the queue's full Java test signal.
   unit-tests:
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -142,7 +147,22 @@ jobs:
           key: m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: m2-
       - name: Unit tests
-        run: mvn clean test -B
+        env:
+          SCOPE: ${{ needs.changes.outputs.unit_scope }}
+          MODULES: ${{ needs.changes.outputs.unit_modules }}
+        run: |
+          case "$SCOPE" in
+            all)
+              mvn clean test -B
+              ;;
+            modules)
+              mvn -B -ntp clean install -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true -Dmaven.javadoc.skip=true -Djacoco.skip=true -Dcyclonedx.skip=true -pl "$MODULES" -am
+              mvn -B -ntp test -pl "$MODULES"
+              ;;
+            none)
+              echo "No affected modules to test."
+              ;;
+          esac
       - name: Upload unit test coverage
         uses: actions/upload-artifact@v7
         with:
@@ -154,6 +174,10 @@ jobs:
         with:
           name: tck-conformance-reports
           path: stores/ratchet-store-*/target/tck-conformance-report.md
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Locally installed snapshots must not reach the cache post-step.
+        if: always()
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
 
   spotbugs:
     runs-on: ubuntu-latest
@@ -195,7 +219,22 @@ jobs:
             m2-ee11-
             m2-
       - name: Compile + unit tests under Jakarta EE 11 profile
-        run: mvn -P jakarta-ee11-verify clean test -B
+        env:
+          SCOPE: ${{ needs.changes.outputs.ee11_scope }}
+          MODULES: ${{ needs.changes.outputs.ee11_modules }}
+        run: |
+          case "$SCOPE" in
+            all)
+              mvn -P jakarta-ee11-verify clean test -B
+              ;;
+            modules)
+              mvn -B -ntp -P jakarta-ee11-verify clean install -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true -Dmaven.javadoc.skip=true -Djacoco.skip=true -Dcyclonedx.skip=true -pl "$MODULES" -am
+              mvn -B -ntp -P jakarta-ee11-verify test -pl "$MODULES"
+              ;;
+            none)
+              echo "No affected modules to test."
+              ;;
+          esac
       - name: Retain Jakarta EE 11 test reports
         if: always()
         uses: actions/upload-artifact@v7
@@ -205,13 +244,17 @@ jobs:
             **/target/surefire-reports/
             **/target/failsafe-reports/
             **/target/*.log
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Locally installed snapshots must not reach the cache post-step.
+        if: always()
+        run: rm -rf "$HOME/.m2/repository/run/ratchet"
 
   integration-test:
     needs: [build, changes]
     # Skipped in the merge queue (merge_group) — see ee11-verify above. The PR
-    # run and the post-merge push to main both run the full matrix, so the queue
-    # stays fast without leaving main unvalidated.
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    # run selects affected rows; the post-merge push to main runs the full matrix,
+    # so the queue stays fast without leaving main unvalidated.
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_integration == 'true' }}
     runs-on: ubuntu-latest
     # The slowest healthy cell finishes well under 30 minutes; a wedged
     # container deploy otherwise burns the full 6-hour default before the
@@ -220,21 +263,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        server: [wildfly-managed, wildfly-ee11-managed, payara-managed, payara-ee11-managed, openliberty-managed, openliberty-ee11-managed]
-        # Oracle runs the full server matrix like the other stores; the ojdbc
-        # driver stays test-scoped and the gvenzl container supplies the database.
-        database: [mysql, postgresql, mongodb, oracle, sqlserver]
-        include:
-          - server: glassfish-managed
-            database: mysql
-          - server: glassfish-managed
-            database: postgresql
-          - server: glassfish-managed
-            database: mongodb
-          - server: glassfish-managed
-            database: oracle
-          - server: glassfish-managed
-            database: sqlserver
+        # Matrix rows are defined in infra/ci/affected_lanes.py.
+        # Oracle covers the server matrix; ojdbc stays test-scoped and the
+        # gvenzl container supplies the database.
+        include: ${{ fromJSON(needs.changes.outputs.integration) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -258,8 +290,8 @@ jobs:
         # -Dtest=ZZZ_NoMatch skips surefire across the -am dependency closure:
         # the server/database profiles only affect the testsuite ITs, so
         # re-running every upstream module's unit tests (Testcontainers suites
-        # included) in all 25 cells is pure redundancy — the unit-tests job
-        # already runs them once. The pom ignores -Dsurefire.skip, hence the
+        # included) in every cell is pure redundancy — the unit-tests job
+        # already covers them. The pom ignores -Dsurefire.skip, hence the
         # no-match pattern; failsafe filters on -Dit.test, so the ITs still run.
         run: timeout --kill-after=60 45m mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -Dspotbugs.skip=true -Dtest=ZZZ_NoMatch -Dsurefire.failIfNoSpecifiedTests=false -pl :ratchet-testsuite,:ratchet-coverage -am
       - name: Thread-dump surviving JVMs
@@ -295,7 +327,7 @@ jobs:
 
   showcase-smoke:
     needs: [build, changes]
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_showcase == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -371,27 +403,18 @@ jobs:
   # integration-tests pom), and the RatchetDatabaseTestResource spins up a
   # matching Testcontainers database keyed on quarkus.datasource.db-kind. fail-fast
   # is off so one store's failure never masks another's verdict. Oracle and SQL
-  # Server pull ~2GB images, which is why this stays gated on the code filter
+  # Server pull ~2GB images, which is why this stays gated on lane selection
   # rather than running on every PR.
   quarkus-extension-verify:
     needs: changes
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_quarkus_jvm == 'true' }}
     runs-on: ubuntu-latest
     name: quarkus-extension-verify (${{ matrix.db }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - db: postgres
-            profile: db-postgres
-          - db: mysql
-            profile: db-mysql
-          - db: oracle
-            profile: db-oracle
-          - db: sqlserver
-            profile: db-sqlserver
-          - db: mongodb
-            profile: db-mongo
+        # Matrix rows are defined in infra/ci/affected_lanes.py.
+        include: ${{ fromJSON(needs.changes.outputs.quarkus_jvm) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -428,19 +451,14 @@ jobs:
   # most users run.
   quarkus-extension-native:
     needs: changes
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_quarkus_native == 'true' }}
     runs-on: ubuntu-latest
     name: quarkus-extension-native (${{ matrix.db }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - db: mongodb
-            cache: mongo
-            profile: db-mongo,native-mongo
-          - db: sql
-            cache: sql
-            profile: db-postgres,native-sql
+        # Matrix rows are defined in infra/ci/affected_lanes.py.
+        include: ${{ fromJSON(needs.changes.outputs.quarkus_native) }}
     steps:
       - uses: actions/checkout@v7
       - uses: graalvm/setup-graalvm@v1
@@ -513,22 +531,15 @@ jobs:
   # coupling while exercising the complete SQL/MongoDB database matrix with ordinary Maven commands.
   spring-boot-consumer:
     needs: changes
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_spring_consumer == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     name: spring-boot-consumer (Java ${{ matrix.java }}, Boot ${{ matrix.boot }}, ${{ matrix.store }}, ${{ matrix.provider }})
     strategy:
       fail-fast: false
       matrix:
-        java: [17, 21]
-        boot: [3.5.16, 4.1.1]
-        store: [postgresql, mysql, oracle, sqlserver, mongodb]
-        provider: [default]
-        include:
-          - { java: 17, boot: 3.5.16, store: postgresql, provider: eclipselink }
-          - { java: 21, boot: 3.5.16, store: postgresql, provider: eclipselink }
-          - { java: 17, boot: 4.1.1, store: postgresql, provider: eclipselink }
-          - { java: 21, boot: 4.1.1, store: postgresql, provider: eclipselink }
+        # Matrix rows are defined in infra/ci/affected_lanes.py.
+        include: ${{ fromJSON(needs.changes.outputs.spring_consumer) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -588,15 +599,15 @@ jobs:
 
   spring-boot-runtime:
     needs: changes
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_spring_runtime == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     name: spring-boot-runtime (Java ${{ matrix.java }}, Boot ${{ matrix.boot }})
     strategy:
       fail-fast: false
       matrix:
-        java: [17, 21]
-        boot: [3.5.16, 4.1.1]
+        # Matrix rows are defined in infra/ci/affected_lanes.py.
+        include: ${{ fromJSON(needs.changes.outputs.spring_runtime) }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -658,19 +669,19 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/ratchet-runtime-repository/run/ratchet"
 
-  # Native executables are launched by a JVM Testcontainers harness. Keep every Boot/store cell
-  # required, even though the regular Java 17/21 matrix above remains the compatibility gate.
+  # Native executables are launched by a JVM Testcontainers harness. Keep every
+  # selected cell required; the Java 17/21 matrix above remains the compatibility gate.
   spring-boot-native:
     needs: changes
-    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_spring_native == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     name: spring-boot-native (Boot ${{ matrix.boot }}, ${{ matrix.store }})
     strategy:
       fail-fast: false
       matrix:
-        boot: [3.5.16, 4.1.1]
-        store: [postgresql, mysql, oracle, sqlserver, mongodb]
+        # Matrix rows are defined in infra/ci/affected_lanes.py.
+        include: ${{ fromJSON(needs.changes.outputs.spring_native) }}
     steps:
       - uses: actions/checkout@v7
       - uses: graalvm/setup-graalvm@v1

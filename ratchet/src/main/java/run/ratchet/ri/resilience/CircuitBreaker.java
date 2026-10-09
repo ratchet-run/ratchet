@@ -23,7 +23,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import org.jboss.logging.Logger;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 
 /**
  * Lightweight circuit breaker state machine.
@@ -34,6 +36,7 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
  * <pre>
  * CLOSED (default)
  *   → Track success/failure in sliding window (ring buffer of last N calls)
+ *   → Ignored and non-recorded exceptions leave the window untouched
  *   → When failure rate >= threshold AND calls >= minimumCalls → OPEN
  *
  * OPEN
@@ -43,16 +46,22 @@ import run.ratchet.api.exception.CircuitBreakerOpenException;
  * HALF_OPEN
  *   → Allow up to permittedCallsInHalfOpen calls through concurrently
  *   → If all succeed → CLOSED
- *   → If any fail → OPEN
+ *   → If any recorded exception occurs → OPEN
+ *   → Ignored and non-recorded exceptions release their trial permit
  * </pre>
  *
  * <p>Once the breaker is OPEN, normal successes cannot close it because calls are rejected.
  * Recovery happens only after the wait duration permits HALF_OPEN probes, or through an explicit
  * {@link #reset()}.
+ *
+ * <p>Every state change starts a new period. A call records its outcome only if the breaker is
+ * still in the period that admitted it, so a late completion from an earlier period is dropped.
  */
 public class CircuitBreaker {
 
+  private static final Logger log = Logger.getLogger(CircuitBreaker.class);
   private static final int UNINITIALIZED = -1;
+  private static final long NOT_ADMITTED = -1L;
 
   private final String name;
   private final CircuitBreakerConfiguration config;
@@ -71,8 +80,9 @@ public class CircuitBreaker {
   // HALF_OPEN state tracking
   private int halfOpenSuccesses;
   private int halfOpenAttempts;
-  // Identifies the probe round so late completions cannot update a newer round.
-  private long halfOpenGeneration;
+  // Identifies the current state period. It changes on every transition (and on reset), so a late
+  // completion from an earlier CLOSED period or HALF_OPEN round cannot update a newer one.
+  private long periodGeneration;
   // OPEN state timing
   private volatile long openedAtMs;
 
@@ -110,7 +120,7 @@ public class CircuitBreaker {
       lock.lock();
       try {
         if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
-          halfOpenGeneration++;
+          periodGeneration++;
           halfOpenSuccesses = 0;
           halfOpenAttempts = 0;
           queueStateNotification(State.HALF_OPEN);
@@ -134,6 +144,22 @@ public class CircuitBreaker {
    * @throws Exception if the task throws
    */
   public <T> T execute(Callable<T> task) throws Exception {
+    return execute(task, null);
+  }
+
+  /**
+   * Executes a task with the union of configuration and per-call exception filters.
+   *
+   * @param task the task to execute
+   * @param callFilter the per-call filter, or null
+   * @param <T> the result type
+   * @return the task result
+   * @throws CircuitBreakerOpenException if the call is rejected
+   * @throws Exception the unchanged task exception
+   */
+  public <T> T execute(Callable<T> task, CircuitBreakerExceptionFilter callFilter)
+      throws Exception {
+    CircuitBreakerExceptionFilter filter = config.exceptionFilter().merge(callFilter);
     State current = getState();
 
     if (current == State.OPEN) {
@@ -142,11 +168,15 @@ public class CircuitBreaker {
     }
 
     if (current == State.HALF_OPEN) {
-      return executeInHalfOpen(task);
+      return executeInHalfOpen(task, filter);
     }
 
-    // CLOSED
-    return executeInClosed(task);
+    long admittedGeneration = admitClosedCall();
+    if (admittedGeneration == NOT_ADMITTED) {
+      // The breaker left CLOSED after the state read; dispatch again against the new state.
+      return execute(task, callFilter);
+    }
+    return executeInClosed(task, filter, admittedGeneration);
   }
 
   public void transitionToOpen() {
@@ -172,7 +202,7 @@ public class CircuitBreaker {
       windowIndex = 0;
       halfOpenSuccesses = 0;
       halfOpenAttempts = 0;
-      halfOpenGeneration++;
+      periodGeneration++;
       Arrays.fill(window, UNINITIALIZED);
       State previous = state.getAndSet(State.CLOSED);
       if (previous != State.CLOSED) {
@@ -198,18 +228,38 @@ public class CircuitBreaker {
     return Math.max(0L, openedAtMs + config.waitDurationMs() - clock.millis());
   }
 
-  private <T> T executeInClosed(Callable<T> task) throws Exception {
+  // Captures the CLOSED period under the lock so the state check and the capture are atomic.
+  private long admitClosedCall() {
+    lock.lock();
     try {
-      T result = task.call();
-      recordSuccess();
-      return result;
-    } catch (Exception e) {
-      recordFailure();
-      throw e;
+      return state.get() == State.CLOSED ? periodGeneration : NOT_ADMITTED;
+    } finally {
+      lock.unlock();
     }
   }
 
-  private <T> T executeInHalfOpen(Callable<T> task) throws Exception {
+  private <T> T executeInClosed(
+      Callable<T> task, CircuitBreakerExceptionFilter filter, long admittedGeneration)
+      throws Exception {
+    T result;
+    try {
+      result = task.call();
+    } catch (Throwable e) {
+      // Errors are classified too; precise rethrow keeps the same instance and the Exception
+      // signature.
+      switch (filter.classify(e)) {
+        case RECORDED -> recordOutcome(false, admittedGeneration);
+        case NOT_RECORDED, IGNORED -> {}
+      }
+      throw e;
+    }
+    // Accounting and listener calls run outside the try so only the task's outcome is classified.
+    recordOutcome(true, admittedGeneration);
+    return result;
+  }
+
+  private <T> T executeInHalfOpen(Callable<T> task, CircuitBreakerExceptionFilter filter)
+      throws Exception {
     long admittedGeneration;
     lock.lock();
     try {
@@ -217,32 +267,30 @@ public class CircuitBreaker {
         throw new CircuitBreakerOpenException(
             "Circuit breaker '" + name + "' is no longer accepting this HALF_OPEN trial call");
       }
-      int attempt = ++halfOpenAttempts;
-      if (attempt > config.permittedCallsInHalfOpen()) {
+      if (halfOpenAttempts >= config.permittedCallsInHalfOpen()) {
         throw new CircuitBreakerOpenException(
             "Circuit breaker '" + name + "' is HALF_OPEN — trial calls exhausted");
       }
-      admittedGeneration = halfOpenGeneration;
+      halfOpenAttempts++;
+      admittedGeneration = periodGeneration;
     } finally {
       lock.unlock();
     }
 
+    T result;
     try {
-      T result = task.call();
+      result = task.call();
+    } catch (Throwable e) {
+      // Every throwable releases or settles its trial permit before the same instance is rethrown.
       boolean transitioned = false;
+      boolean recorded = filter.classify(e) == CircuitBreakerExceptionFilter.Outcome.RECORDED;
       lock.lock();
       try {
-        if (isCurrentHalfOpenGeneration(admittedGeneration)) {
-          int successes = ++halfOpenSuccesses;
-          if (successes >= config.permittedCallsInHalfOpen()) {
-            if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
-              totalCalls = 0;
-              failureCount = 0;
-              windowIndex = 0;
-              Arrays.fill(window, UNINITIALIZED);
-              queueStateNotification(State.CLOSED);
-              transitioned = true;
-            }
+        if (isCurrentPeriod(State.HALF_OPEN, admittedGeneration)) {
+          if (recorded) {
+            transitioned = transitionToOpenUnderLock();
+          } else {
+            halfOpenAttempts--;
           }
         }
       } finally {
@@ -251,43 +299,55 @@ public class CircuitBreaker {
       if (transitioned) {
         publishPendingStateNotifications();
       }
-      return result;
-    } catch (Exception e) {
-      boolean transitioned = false;
-      lock.lock();
-      try {
-        if (isCurrentHalfOpenGeneration(admittedGeneration)) {
-          transitioned = transitionToOpenUnderLock();
-        }
-      } finally {
-        lock.unlock();
-      }
-      if (transitioned) {
-        publishPendingStateNotifications();
-      }
       throw e;
     }
+    // Accounting and listener calls run outside the try so only the task's outcome is classified.
+    if (onHalfOpenSuccess(admittedGeneration)) {
+      publishPendingStateNotifications();
+    }
+    return result;
   }
 
-  // Must be called with lock held.
-  private boolean isCurrentHalfOpenGeneration(long admittedGeneration) {
-    return state.get() == State.HALF_OPEN && halfOpenGeneration == admittedGeneration;
-  }
-
-  private void recordSuccess() {
+  private boolean onHalfOpenSuccess(long admittedGeneration) {
+    boolean transitioned = false;
     lock.lock();
     try {
-      recordOutcome(1);
+      if (isCurrentPeriod(State.HALF_OPEN, admittedGeneration)) {
+        int successes = ++halfOpenSuccesses;
+        if (successes >= config.permittedCallsInHalfOpen()) {
+          if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
+            periodGeneration++;
+            totalCalls = 0;
+            failureCount = 0;
+            windowIndex = 0;
+            Arrays.fill(window, UNINITIALIZED);
+            queueStateNotification(State.CLOSED);
+            transitioned = true;
+          }
+        }
+      }
     } finally {
       lock.unlock();
     }
+    return transitioned;
   }
 
-  private void recordFailure() {
+  // Must be called with lock held.
+  private boolean isCurrentPeriod(State expected, long admittedGeneration) {
+    return state.get() == expected && periodGeneration == admittedGeneration;
+  }
+
+  // Records one CLOSED-state outcome and evaluates the failure-rate threshold after every outcome,
+  // so the call that reaches minimumCalls can open the breaker whether it succeeded or failed.
+  // An outcome from a call admitted in an earlier period is dropped without touching the window.
+  private void recordOutcome(boolean success, long admittedGeneration) {
     boolean transitioned;
     lock.lock();
     try {
-      recordOutcome(0);
+      if (!isCurrentPeriod(State.CLOSED, admittedGeneration)) {
+        return;
+      }
+      recordInWindow(success ? 1 : 0);
       int snapshotTotal = Math.min(totalCalls, window.length);
       int snapshotFailures = failureCount;
       transitioned = evaluateThreshold(snapshotTotal, snapshotFailures);
@@ -300,7 +360,7 @@ public class CircuitBreaker {
   }
 
   // Must be called with lock held.
-  private void recordOutcome(int outcome) {
+  private void recordInWindow(int outcome) {
     int len = window.length;
     int idx = windowIndex;
     windowIndex = (idx + 1) % len;
@@ -346,6 +406,7 @@ public class CircuitBreaker {
     // openedAtMs between the write and the CAS.
     openedAtMs = clock.millis();
     if (state.compareAndSet(current, State.OPEN)) {
+      periodGeneration++;
       queueStateNotification(State.OPEN);
       return true;
     }
@@ -381,8 +442,13 @@ public class CircuitBreaker {
   private void notifyState(State newState) {
     try {
       stateListener.accept(newState);
-    } catch (RuntimeException ignored) {
-      // Observability must not change circuit-breaker behavior.
+    } catch (Throwable listenerFailure) {
+      // Observability must not change circuit-breaker behavior, so even an Error is contained.
+      log.warnf(
+          listenerFailure,
+          "Circuit breaker '%s' state listener failed for transition to %s",
+          name,
+          newState);
     }
   }
 

@@ -46,6 +46,7 @@ import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
 import run.ratchet.api.internal.AttemptTokens;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocation;
@@ -315,7 +316,8 @@ public class JobTask implements Callable<Void> {
 
       Object jobResult;
       permitAcquired = false;
-      String resilienceServiceName = payloadInvoker.serviceName(jobEntity.getPayload());
+      ResilienceTarget target = payloadInvoker.resilienceTarget(jobEntity.getPayload());
+      String resilienceServiceName = target.serviceName();
       try {
         currentScope = observabilityFacade.startExecutionScope(jobEntity);
         if (wasJobCanceledDuringExecution()) {
@@ -350,7 +352,10 @@ public class JobTask implements Callable<Void> {
 
         JobPayload invocationPayload = dispatchPayload;
         jobResult =
-            resilienceStrategy.execute(resilienceServiceName, () -> runPayload(invocationPayload));
+            resilienceStrategy.execute(
+                target.serviceName(),
+                target.exceptionFilter(),
+                () -> runPayload(invocationPayload));
 
         if (wasJobCanceledAfterExecution()) handleCanceledDuringExecution(start);
         else handleSuccess(start, jobResult);
