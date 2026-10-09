@@ -23,14 +23,15 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.SingletonLease;
 
 /**
  * Timer that delegates periodic batch recovery to {@link BatchService}.
  *
- * <p>Recovers stuck batches every 15 minutes — batches where all children have completed but the
- * completion flag was never set (due to crash, network partition, or transaction rollback).
+ * <p>Recovers stuck batches on the configured cadence — batches where all children have completed
+ * but the completion flag was never set (due to crash, network partition, or transaction rollback).
  *
  * @see BatchService#recoverStuckBatches()
  */
@@ -39,9 +40,8 @@ public class BatchRecoveryTimer {
 
   private static final Logger log = Logger.getLogger(BatchRecoveryTimer.class);
   private static final String LEASE_NAME = "batchRecovery";
-  private static final Duration LEASE_TTL = Duration.ofMinutes(15);
-  private static final long INITIAL_DELAY_MINUTES = 1;
-  private static final long PERIOD_MINUTES = 15;
+  private final Duration leaseTtl;
+  private final long intervalSeconds;
 
   private final BatchService batchService;
   private final SingletonLeaseService singletonLeaseService;
@@ -51,24 +51,40 @@ public class BatchRecoveryTimer {
   protected BatchRecoveryTimer() {
     this.batchService = null;
     this.singletonLeaseService = null;
-  }
-
-  public BatchRecoveryTimer(BatchService batchService) {
-    this(batchService, null);
+    this.leaseTtl = null;
+    this.intervalSeconds = 0;
   }
 
   @Inject
   public BatchRecoveryTimer(
-      BatchService batchService, SingletonLeaseService singletonLeaseService) {
+      BatchService batchService,
+      SingletonLeaseService singletonLeaseService,
+      RatchetOptions options) {
+    this(
+        batchService,
+        singletonLeaseService,
+        options.maintenance().batchRecoveryIntervalSeconds(),
+        options.maintenance().batchRecoveryLeaseTtlSeconds());
+  }
+
+  public BatchRecoveryTimer(
+      BatchService batchService,
+      SingletonLeaseService singletonLeaseService,
+      long intervalSeconds,
+      long leaseTtlSeconds) {
     this.batchService = batchService;
     this.singletonLeaseService = singletonLeaseService;
+    this.intervalSeconds = intervalSeconds;
+    this.leaseTtl = Duration.ofSeconds(leaseTtlSeconds);
   }
 
   public void start(ScheduledExecutorService executor) {
     handle =
         executor.scheduleAtFixedRate(
-            this::recoverBatches, INITIAL_DELAY_MINUTES, PERIOD_MINUTES, TimeUnit.MINUTES);
-    log.info("Initialized batch recovery timer; first scan in 1min, then every 15min");
+            this::recoverBatches, Math.min(60, intervalSeconds), intervalSeconds, TimeUnit.SECONDS);
+    log.infof(
+        "Initialized batch recovery timer; first scan in %ss, then every %ss",
+        Math.min(60, intervalSeconds), intervalSeconds);
   }
 
   public void stop() {
@@ -81,7 +97,7 @@ public class BatchRecoveryTimer {
   void recoverBatches() {
     try {
       if (singletonLeaseService != null) {
-        Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
+        Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
         if (lease.isEmpty()) {
           log.debug("Batch recovery skipped - singleton lease held by another node");
           return;
