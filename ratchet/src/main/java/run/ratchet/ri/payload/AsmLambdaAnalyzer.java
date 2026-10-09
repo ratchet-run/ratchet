@@ -20,11 +20,15 @@ import java.io.InputStream;
 import java.io.Serial;
 import java.io.Serializable;
 import java.lang.invoke.SerializedLambda;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,12 +40,14 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.LambdaAnalyzer;
 import run.ratchet.spi.LambdaDescriptor;
 
@@ -186,6 +192,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     }
 
     Deque<Value> operandStack = new ArrayDeque<>();
+    Map<Integer, Value> storedLocals = new HashMap<>();
     List<InvocationStep> invocationList = new ArrayList<>();
 
     for (AbstractInsnNode node : lambdaMethod.instructions) {
@@ -217,7 +224,9 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         case Opcodes.ALOAD, Opcodes.ILOAD, Opcodes.LLOAD, Opcodes.FLOAD, Opcodes.DLOAD -> {
           int varIndex = ((VarInsnNode) node).var;
           Integer capturedIndex = capturesBySlot.get(varIndex);
-          if (capturedIndex != null) {
+          if (storedLocals.containsKey(varIndex)) {
+            operandStack.push(storedLocals.get(varIndex));
+          } else if (capturedIndex != null) {
             operandStack.push(new CapturedValue(capturedIndex));
           } else if (runtimeParamsBySlot.containsKey(varIndex)) {
             operandStack.push(new RuntimeParamValue(runtimeParamsBySlot.get(varIndex)));
@@ -225,6 +234,10 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
             operandStack.push(UnknownValue.INSTANCE);
           }
         }
+
+        case Opcodes.ASTORE, Opcodes.ISTORE, Opcodes.LSTORE, Opcodes.FSTORE, Opcodes.DSTORE ->
+            storedLocals.put(
+                ((VarInsnNode) node).var, popOperand(operandStack, "storing local value"));
 
         case Opcodes.IADD -> binaryOpInt(operandStack, Integer::sum);
         case Opcodes.ISUB -> binaryOpInt(operandStack, (a, b) -> a - b);
@@ -243,7 +256,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
           popOperand(operandStack, "reading field receiver");
           operandStack.push(UnknownValue.INSTANCE);
         }
-        case Opcodes.GETSTATIC -> operandStack.push(UnknownValue.INSTANCE);
+        case Opcodes.GETSTATIC -> operandStack.push(enumConstant((FieldInsnNode) node));
 
         case Opcodes.NEW -> {
           TypeInsnNode typeNode = (TypeInsnNode) node;
@@ -252,7 +265,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         case Opcodes.INVOKESPECIAL -> {
           MethodInsnNode methodInsn = (MethodInsnNode) node;
           if ("<init>".equals(methodInsn.name)) {
-            popInvocationOperands(operandStack, methodInsn);
+            recordConstruction(operandStack, methodInsn, capturedValues);
           } else {
             handleGenericInvoke(
                 operandStack, invocationList, methodInsn, opcodeValue, capturedValues);
@@ -359,12 +372,152 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     return Collections.unmodifiableList(copy);
   }
 
-  private static void popInvocationOperands(Deque<Value> operandStack, MethodInsnNode methodInsn) {
-    Type[] argumentTypes = Type.getArgumentTypes(methodInsn.desc);
-    for (int i = argumentTypes.length - 1; i >= 0; i--) {
-      popOperand(operandStack, "reading constructor argument");
+  private static void recordConstruction(
+      Deque<Value> stack, MethodInsnNode method, Object[] captures) {
+    Type[] types = Type.getArgumentTypes(method.desc);
+    Object[] args = new Object[types.length];
+    for (int i = types.length - 1; i >= 0; i--) {
+      args[i] = resolveValue(popOperand(stack, "reading constructor argument"), captures);
     }
-    popOperand(operandStack, "reading constructor receiver");
+    Value receiver = popOperand(stack, "reading constructor receiver");
+    if (receiver instanceof NewInstanceMarker marker && marker.desc.equals(method.owner)) {
+      marker.constructorDescriptor = method.desc;
+      marker.arguments = immutableListAllowingNulls(args);
+    }
+  }
+
+  // Inspect metadata only. In particular, never read arbitrary static fields or initialize owners.
+  private static Value enumConstant(FieldInsnNode field) {
+    try {
+      Class<?> owner = Class.forName(field.owner.replace('/', '.'), false, analysisLoader());
+      if (owner.isEnum() && owner.getDeclaredField(field.name).isEnumConstant()) {
+        return new ConstantValue(new EnumConstant(owner, field.name));
+      }
+    } catch (ReflectiveOperationException | LinkageError | SecurityException ignored) {
+      // Missing native reflection metadata and inaccessible fields remain explicitly unresolved.
+    } catch (Error failure) {
+      if (!missingReflectionRegistration(failure)) throw failure;
+    }
+    return UnknownValue.INSTANCE;
+  }
+
+  private static boolean missingReflectionRegistration(Error failure) {
+    // The core has no GraalVM dependency, so recognize its optional metadata error by name.
+    return failure
+        .getClass()
+        .getName()
+        .equals("org.graalvm.nativeimage.MissingReflectionRegistrationError");
+  }
+
+  private static ClassLoader analysisLoader() {
+    ClassLoader loader = Thread.currentThread().getContextClassLoader();
+    return loader != null ? loader : AsmLambdaAnalyzer.class.getClassLoader();
+  }
+
+  static void requireResolved(InvocationStep step) {
+    Type[] types = Type.getArgumentTypes(step.methodDescriptor());
+    for (int i = 0; i < step.arguments().size(); i++) {
+      if (unresolved(step.arguments().get(i))) {
+        throw new IllegalArgumentException(
+            "The value of argument "
+                + (i + 1)
+                + " ("
+                + types[i].getClassName()
+                + ") of "
+                + step.ownerInternalName().replace('/', '.')
+                + "."
+                + step.methodName()
+                + " cannot be determined when the job is submitted. Compute the value before the"
+                + " lambda and capture it in a local variable, or pass it as a method reference"
+                + " argument. Copy static field values into a local variable first.");
+      }
+    }
+  }
+
+  private static boolean unresolved(Object value) {
+    if (value == UnknownValue.INSTANCE) return true;
+    if (value instanceof NewInstanceMarker marker) {
+      return marker.arguments == null
+          || marker.arguments.stream()
+              .anyMatch(arg -> arg instanceof RuntimeParameter || unresolved(arg));
+    }
+    return false;
+  }
+
+  static boolean hasDeferredArguments(List<Object> arguments) {
+    return arguments != null
+        && arguments.stream()
+            .anyMatch(value -> value instanceof NewInstanceMarker || value instanceof EnumConstant);
+  }
+
+  static List<Object> evaluateArguments(List<Object> arguments, String descriptor) {
+    Type[] types = Type.getArgumentTypes(descriptor);
+    Map<NewInstanceMarker, Object> instances = new IdentityHashMap<>();
+    List<Object> evaluated = new ArrayList<>(arguments.size());
+    for (int i = 0; i < arguments.size(); i++) {
+      Object value = arguments.get(i);
+      // The existing JSON payload stores enum names; the exact parameter descriptor carries type.
+      if (value instanceof EnumConstant constant
+          && types[i].getClassName().equals(constant.type().getName())) {
+        evaluated.add(constant.name());
+      } else {
+        evaluated.add(evaluate(value, instances));
+      }
+    }
+    return Collections.unmodifiableList(evaluated);
+  }
+
+  private static Object evaluate(Object value, Map<NewInstanceMarker, Object> instances) {
+    if (value instanceof EnumConstant constant) return constant.value();
+    if (!(value instanceof NewInstanceMarker marker)) return value;
+    if (instances.containsKey(marker)) return instances.get(marker);
+    String name = marker.desc.replace('/', '.');
+    try {
+      Class<?> type = Class.forName(name, false, marker.loader);
+      Constructor<?> constructor =
+          Arrays.stream(type.getDeclaredConstructors())
+              .filter(
+                  candidate ->
+                      Type.getConstructorDescriptor(candidate).equals(marker.constructorDescriptor))
+              .findFirst()
+              .orElseThrow(() -> new NoSuchMethodException(marker.constructorDescriptor));
+      if (!constructor.canAccess(null) && !constructor.trySetAccessible()) {
+        throw new IllegalAccessException("Constructor is inaccessible");
+      }
+      Object[] args = marker.arguments.stream().map(arg -> evaluate(arg, instances)).toArray();
+      Class<?>[] parameterTypes = constructor.getParameterTypes();
+      args = ArgumentCoercion.coerce(parameterTypes, args);
+      for (int i = 0; i < args.length; i++) {
+        // JVM boolean/char constants use integer stack values, unlike captured boxed values.
+        if (args[i] instanceof Integer number) {
+          if (parameterTypes[i] == boolean.class) args[i] = number != 0;
+          else if (parameterTypes[i] == char.class) args[i] = (char) number.intValue();
+        }
+      }
+      Object instance = constructor.newInstance(args);
+      instances.put(marker, instance);
+      return instance;
+    } catch (InvocationTargetException failure) {
+      throw new IllegalArgumentException(
+          "Constructor for " + name + " failed during job submission", failure.getCause());
+    } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+      throw new IllegalArgumentException(
+          "Cannot construct " + name + " during job submission", failure);
+    } catch (Error failure) {
+      if (!missingReflectionRegistration(failure)) throw failure;
+      throw new IllegalArgumentException(
+          "Cannot construct "
+              + name
+              + " during job submission: register its constructor for native reflection",
+          failure);
+    }
+  }
+
+  private record EnumConstant(Class<?> type, String name) {
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    Object value() {
+      return Enum.valueOf((Class) type, name);
+    }
   }
 
   private static Value popOperand(Deque<Value> operandStack, String operation) {
@@ -438,30 +591,20 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     } else if (abstractValue instanceof RuntimeParamValue param) {
       return new RuntimeParameter(param.index());
     }
-    return null;
-  }
-
-  private static SerializedLambda toSerializedLambda(Serializable lambda) {
-    return LambdaSerialization.toSerializedLambda(lambda, "Lambda is not Serializable");
+    return abstractValue;
   }
 
   @Override
   public LambdaDescriptor analyze(Serializable lambda) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
-    SerializedLambda sl = toSerializedLambda(lambda);
-    InspectionResult inspection = inspect(sl);
-    InvocationStep step = inspection.last();
+    JobInvocation invocation = JobPayloadFactory.toInvocation(lambda);
     return new LambdaDescriptor(
-        step.ownerInternalName().replace('/', '.'),
-        step.methodName(),
-        step.methodDescriptor(),
-        step.isStatic(),
-        step.arguments().stream()
-            .map(value -> value instanceof RuntimeParameter ? null : value)
-            .toArray(),
-        step.arguments().stream()
-            .map(value -> value instanceof RuntimeParameter rp ? rp.index() : null)
-            .toList());
+        invocation.targetClass(),
+        invocation.methodName(),
+        invocation.methodDescriptor(),
+        invocation.staticMethod(),
+        invocation.arguments().toArray(),
+        invocation.runtimeArgIndexes());
   }
 
   private enum UnknownValue implements Value {
@@ -497,7 +640,18 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
 
   private record CapturedValue(int index) implements Value {}
 
-  private record NewInstanceMarker(String desc) implements Value {}
+  // Identity is essential: NEW and its DUP aliases must refer to the same construction plan.
+  private static final class NewInstanceMarker implements Value {
+    private final String desc;
+    private final ClassLoader loader;
+    private String constructorDescriptor;
+    private List<Object> arguments;
+
+    private NewInstanceMarker(String desc) {
+      this.desc = desc;
+      this.loader = analysisLoader();
+    }
+  }
 
   /**
    * Thrown when the analyzer encounters a JVM opcode it does not model. Callers that need to accept

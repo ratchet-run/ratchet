@@ -101,22 +101,22 @@ public final class JobPayloadFactory {
   public static JobInvocation toInvocation(Serializable lambda, List<Object> runtimeArgs) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
     Objects.requireNonNull(runtimeArgs, "Runtime args must not be null");
-    return toInvocationInternal(lambda, runtimeArgs, false);
+    return toInvocationInternal(lambda, runtimeArgs, false, true);
   }
 
   public static JobInvocation toInvocation(Serializable lambda) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
-    return toInvocationInternal(lambda, List.of(), false);
+    return toInvocationInternal(lambda, List.of(), false, true);
   }
 
   /** Creates a workflow condition whose SAM parameter may be a no-argument receiver. */
   public static JobPayload fromConditionLambda(Serializable lambda) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
-    return fromInvocation(toInvocationInternal(lambda, List.of(), true));
+    return fromInvocation(toInvocationInternal(lambda, List.of(), true, true));
   }
 
   private static JobInvocation toInvocationInternal(
-      Serializable lambda, List<Object> runtimeArgs, boolean condition) {
+      Serializable lambda, List<Object> runtimeArgs, boolean condition, boolean evaluate) {
     SerializedLambda sl = toSerializedLambda(lambda);
     InspectionResult inspection = AsmLambdaAnalyzer.inspect(sl);
 
@@ -145,7 +145,20 @@ public final class JobPayloadFactory {
       throw new IllegalArgumentException(receiverError(runtimeArgs, condition));
     }
     rejectNonPublicMethod(step);
-    List<Object> args = new ArrayList<>(mergeInvocationArguments(step, runtimeArgs));
+    step =
+        new InvocationStep(
+            step.ownerInternalName(),
+            step.methodName(),
+            step.methodDescriptor(),
+            step.isStatic(),
+            mergeInvocationArguments(step, runtimeArgs),
+            step.receiver());
+    AsmLambdaAnalyzer.requireResolved(step);
+    List<Object> args =
+        new ArrayList<>(
+            evaluate
+                ? AsmLambdaAnalyzer.evaluateArguments(step.arguments(), step.methodDescriptor())
+                : step.arguments());
     List<Integer> indexes = new ArrayList<>(args.size());
     for (int i = 0; i < args.size(); i++) {
       if (args.get(i) instanceof RuntimeParameter param) {
@@ -163,6 +176,32 @@ public final class JobPayloadFactory {
         step.isStatic(),
         args,
         indexes);
+  }
+
+  /** Internal submission path: creation checks target policy before running constructors. */
+  static JobInvocation deferredInvocation(Serializable lambda, List<Object> runtimeArgs) {
+    Objects.requireNonNull(lambda, "Lambda must not be null");
+    Objects.requireNonNull(runtimeArgs, "Runtime args must not be null");
+    return toInvocationInternal(lambda, runtimeArgs, false, false);
+  }
+
+  /** Internal condition path with the same deferred-construction boundary as job tasks. */
+  public static JobPayload deferredConditionPayload(Serializable lambda) {
+    return fromInvocation(toInvocationInternal(lambda, List.of(), true, false));
+  }
+
+  /** Resolves construction plans after target policy validation, before argument validation. */
+  public static JobPayload evaluateArguments(JobPayload payload) {
+    if (payload == null || !AsmLambdaAnalyzer.hasDeferredArguments(payload.args())) return payload;
+    List<Object> args =
+        AsmLambdaAnalyzer.evaluateArguments(payload.args(), payload.methodDescriptor());
+    return new JobPayload(
+        payload.target(),
+        payload.method(),
+        payload.methodDescriptor(),
+        payload.isStatic(),
+        args,
+        payload.runtimeArgIndexes());
   }
 
   public static JobPayload fromInvocation(JobInvocation invocation) {
@@ -344,7 +383,13 @@ public final class JobPayloadFactory {
 
     InspectionResult nestedInvocation = AsmLambdaAnalyzer.inspect(nestedSerializedLambda);
     if (nestedInvocation.steps().size() != 1) {
-      return null;
+      throw new IllegalArgumentException(
+          singleInvocationError(
+              receiverLambda,
+              nestedInvocation.steps().size(),
+              nestedSerializedLambda,
+              step.arguments(),
+              false));
     }
 
     InvocationStep nestedStep = nestedInvocation.last();
@@ -363,9 +408,7 @@ public final class JobPayloadFactory {
       InvocationStep nestedStep, List<Object> wrapperArgs) {
     /*
      * Runtime parameter markers bind by functional parameter index first, including markers passed
-     * through another adapter. Only remaining, originally plain null slots use positional fallback.
-     * When no markers were substituted and the wrapper supplies the complete target argument list,
-     * the arity fallback keeps those wrapper values instead of dropping them as leftovers.
+     * through another adapter. Literal nulls and unresolved values are never substitution slots.
      */
     int nestedParamCount = Type.getArgumentTypes(nestedStep.methodDescriptor()).length;
 
@@ -385,38 +428,14 @@ public final class JobPayloadFactory {
     }
 
     List<Object> merged = new ArrayList<>(nestedArgs);
-    boolean[] consumed = new boolean[wrapperArgs.size()];
-    boolean substituted = false;
     for (int i = 0; i < merged.size(); i++) {
       if (merged.get(i) instanceof RuntimeParameter param
           && param.index() >= 0
           && param.index() < wrapperArgs.size()) {
         merged.set(i, wrapperArgs.get(param.index()));
-        consumed[param.index()] = true;
-        substituted = true;
       }
     }
 
-    int wrapperIndex = 0;
-    for (int i = 0; i < merged.size(); i++) {
-      while (wrapperIndex < consumed.length && consumed[wrapperIndex]) {
-        wrapperIndex++;
-      }
-      // Only original plain nulls are fallback slots. A substituted null is a real value.
-      if (nestedArgs.get(i) == null && wrapperIndex < wrapperArgs.size()) {
-        merged.set(i, wrapperArgs.get(wrapperIndex));
-        consumed[wrapperIndex++] = true;
-      }
-    }
-    while (wrapperIndex < consumed.length && consumed[wrapperIndex]) {
-      wrapperIndex++;
-    }
-    if (wrapperIndex == wrapperArgs.size()) {
-      return merged;
-    }
-    if (!substituted && wrapperArgs.size() == nestedParamCount) {
-      return new ArrayList<>(wrapperArgs);
-    }
     return merged;
   }
 

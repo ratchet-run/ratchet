@@ -23,6 +23,8 @@ The lambda `() -> orderService.process(orderId)` must be serializable so Ratchet
 :::warning Method Reference Constraint
 Job tasks and workflow condition predicates must contain **exactly one method invocation** (a single method reference or method call). Multi-statement lambdas and inline boolean logic fail at submission time with `IllegalArgumentException`. This constraint applies to task-defining interfaces and to condition interfaces used by `when()`, `whenResult()`, and `thenWhenBatch()`.
 
+Objects built inside a submission lambda are constructed by Ratchet on the submitting thread during `submit()`, before their values are stored as job arguments. Compute other values first and capture them in a local variable, or pass them as method reference arguments. If a constructor has side effects or depends on its caller (for example through `StackWalker`), call it before the lambda and capture the result.
+
 For complex logic, create a dedicated method in a CDI bean and reference it.
 :::
 
