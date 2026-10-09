@@ -140,7 +140,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     store().save(job);
 
     // Grace = 30s → picked 10s ago is NOT orphaned → should be preserved
-    store().resetOrphanJobs(Duration.ofSeconds(30), 3, 100).reset();
+    store().resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
 
     var reloaded = store().findById(job.getId()).orElseThrow();
     assertEquals(
@@ -379,7 +379,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     store().compareAndSwapStatus(canceled.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store().compareAndSwapStatus(canceled.getId(), JobStatus.RUNNING, JobStatus.CANCELED, null);
 
-    store().resetOrphanJobs(Duration.ofSeconds(1), 3, 100).reset();
+    store().resetOrphanJobs(Duration.ofSeconds(1), 3, 100);
 
     assertEquals(
         JobStatus.PENDING,

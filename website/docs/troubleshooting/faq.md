@@ -85,6 +85,7 @@ Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrai
 | `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` | How often nodes write their heartbeat |
 | `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | Time before a silent node's jobs are recovered |
 | `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS` | `300` | Seconds between orphan scans |
+| `RATCHET_NODE_MAX_CRASH_REDELIVERIES` | `3` | Crash redeliveries before a job fails to the DLQ |
 
 ## What happens if the server crashes mid-job?
 
