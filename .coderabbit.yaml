@@ -1,0 +1,166 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Reference: https://docs.coderabbit.ai/reference/configuration
+# Keys that would only restate CodeRabbit's defaults are left out.
+language: en-US
+
+reviews:
+  profile: chill
+  # Approve the PR once CodeRabbit's comments are resolved. main requires no approving
+  # reviews, so a "changes requested" review from CodeRabbit never blocks the merge queue.
+  request_changes_workflow: true
+
+  auto_review:
+    # Re-review on every push, and never pause after a number of reviewed commits (default: 5).
+    auto_pause_after_reviewed_commits: 0
+    # Dependency bumps are covered by CI, the license gate, and dependency review.
+    ignore_usernames:
+      - "dependabot[bot]"
+
+  auto_apply_labels: true
+  labeling_instructions:
+    - label: bug
+      instructions: Fixes incorrect behavior or a regression.
+    - label: enhancement
+      instructions: >-
+        Adds a feature, or changes public behavior, configuration, or an API or SPI on purpose.
+    - label: documentation
+      instructions: >-
+        Changes documentation (website/docs, README files, or other Markdown) without changing
+        runtime code.
+    - label: dependencies
+      instructions: Changes dependency or plugin versions in a pom.xml or website/package.json.
+    - label: java
+      instructions: Changes Java source code.
+    - label: javascript
+      instructions: Changes JavaScript or TypeScript, such as the docs site theme or its scripts.
+    - label: github_actions
+      instructions: Changes files under .github/workflows.
+
+  path_filters:
+    # Qodana output. It is listed in .gitignore but is tracked anyway.
+    - "!qodana.sarif.json"
+    - "!website/package-lock.json"
+    # Wycheproof test vectors, copied from upstream.
+    - "!ratchet-encryption/src/test/resources/wycheproof/**"
+
+  path_instructions:
+    - path: "**/*.java"
+      instructions: |
+        - Java 17. Spotless enforces Google Java Format, so do not comment on formatting,
+          whitespace, import order, or line wrapping.
+        - Use imports, not fully qualified class names, wherever an import works.
+        - Use text blocks (`"""`) for multi-line strings such as SQL and JSON.
+        - Lombok is not used. Hand-written getters, setters, and constructors are intentional.
+        - The package root is `run.ratchet`. Flag any reference to `com.noverant`.
+        - The project is pre-release, so backward compatibility is not a goal. Flag new
+          `@Deprecated` code, compatibility shims, and old code paths kept "for now". The old
+          path should be removed in the same change.
+        - Types marked `@Incubating` may change at any time. Do not ask for compatibility
+          handling for them.
+    - path: "**/src/test/**"
+      instructions: |
+        Focus on whether the assertions prove the behavior under test and whether edge cases
+        are covered. Be lenient on style in test code. `*IT` and contract tests run against
+        real databases and servers through Testcontainers or Arquillian. Do not suggest
+        replacing them with mocks.
+    - path: "ratchet-api/**"
+      instructions: |
+        Public API and SPI (`run.ratchet.api`, `run.ratchet.spi`). This module has no runtime
+        dependencies: the CDI and interceptor APIs are `provided`. Flag any new compile or
+        runtime dependency. New public types and methods need Javadoc. A change to public
+        behavior needs a matching docs update under website/docs in the same pull request.
+    - path: "**/src/main/java/**"
+      instructions: |
+        Optional store capabilities (`RecurringJobStore`, `BatchStore`, `SignalStore`,
+        `LockStore`, `JobQueryStore`, and the rest) are obtained in one of two ways, and both
+        are correct: as `Instance<Capability>` resolved with `isResolvable() ? get() : null`,
+        or through `jobStore.capability(Capability.class)`. Flag a plain `@Inject` of a
+        capability interface: it makes the capability mandatory, and a store that implements
+        only `JobStore` then fails to deploy.
+    - path: "ratchet/src/main/java/**"
+      instructions: |
+        - When a capability is absent, reads, observers, and background work do nothing.
+          Submission paths that would create a job that can never run (recurring, batch,
+          signal-waiting) throw `UnsupportedOperationException`.
+        - Crash recovery (`OrphanRecoveryTimer`) must keep working when no `LockStore` exists.
+        - Use only the Jakarta Persistence API. Flag imports from Hibernate or EclipseLink.
+    - path: "stores/**/src/main/java/**"
+      instructions: |
+        - `JobStore` is the mandatory core contract. Every other store capability is an
+          optional interface that a store opts into.
+        - Each store's composite interface (`MysqlJobStore`, `PostgresqlJobStore`,
+          `OracleJobStore`, `SqlserverJobStore`, `MongoJobStore`) must name every capability it
+          supports in its `extends` clause. `JobStore` does not extend the capabilities, so a
+          capability missing from that list drops out of the CDI bean's types and
+          `Instance<Capability>` stays unsatisfied.
+        - Use only the Jakarta Persistence API. Flag imports from Hibernate or EclipseLink.
+        - Persisted fields are read and written with native SQL through the row mappers
+          (`AbstractJobRowMapper`, `RowValues`, and each store's `*JobRowMapper`), and through
+          `DocumentMapper` for MongoDB. When a persisted field is added or changed, check that
+          every store reads and writes it.
+        - A behavior fix in one SQL store (MySQL, PostgreSQL, Oracle, SQL Server) usually
+          applies to the other three. Flag a fix that lands in only one store without a reason.
+    - path: "stores/*/src/main/resources/ddl/**"
+      instructions: |
+        - Released migrations are immutable. Flag any edit to an existing
+          `migrations/V###__*.sql` file.
+        - A schema change adds a new `V###__description.sql`, with the same number and name, to
+          all four SQL stores (MySQL, PostgreSQL, Oracle, SQL Server). Each store also lists it
+          in `migrations/index.txt` and makes the same change to its consolidated
+          `<dialect>-schema.sql`. The store contract tests load the consolidated file, so a
+          missing change there fails at test time, not at compile time.
+        - Check whether `RatchetSchemaCatalog` in ratchet-store-core needs the change too, and
+          if so whether `CURRENT_VERSION` is bumped. That version tracks the conformance
+          contract, not the migration number.
+        - Check whether the MongoDB store (`mongodb-init.js`, `DocumentMapper`) needs the
+          equivalent change.
+        - Each script must be valid SQL for its own dialect.
+    - path: "testing/ratchet-tck/**"
+      instructions: |
+        The TCK is the conformance contract every store must pass, so a change here affects all
+        stores. Contracts must stay store-neutral: no store-specific SQL, types, or behavior.
+        Reach optional capabilities through the fixture accessors (`batchStore()`,
+        `signalStore()`, and so on), which skip the test when a store lacks the capability.
+        Flag any weakened assertion and ask why it was weakened.
+    - path: "website/docs/**"
+      instructions: |
+        VitePress documentation site. Check that examples, configuration keys, and defaults
+        match the code. The root README, module READMEs, and the site must agree with each
+        other.
+    - path: ".github/workflows/**"
+      instructions: |
+        Branch protection requires only the `CI required` and `Analyze (Java)` checks.
+        `CI required` in ci.yml aggregates the other jobs, so a new job that must gate merges
+        has to be added to its `needs`.
+    - path: "infra/ci/**"
+      instructions: |
+        Python checkers used by CI. Each checker has tests in `infra/ci/test_*.py`. A change to
+        a checker needs a matching test change.
+
+  pre_merge_checks:
+    # Javadoc is not required on every member, so a coverage percentage is noise here.
+    docstrings:
+      mode: "off"
+    title:
+      requirements: >-
+        An imperative sentence in sentence case that says what the change does, for example
+        "Run only affected CI lanes on pull requests". No Conventional Commits prefix such as
+        "feat:" or "fix:", and no trailing period.
+
+  tools:
+    # The DDL covers four SQL dialects and there is no .sqlfluff config, so SQLFluff's
+    # defaults would flag valid SQL.
+    sqlfluff:
+      enabled: false
+    # SpotBugs, Qodana, and CodeQL already run static analysis on the Java code.
+    pmd:
+      enabled: false
+
+knowledge_base:
+  # Contributor guides that state project rules CodeRabbit should follow.
+  code_guidelines:
+    filePatterns:
+      - ".github/CONTRIBUTING.md"
+      - ".github/DEPENDENCY-SECURITY.md"
+      - "stores/CLAIM-INDEXES.md"
+      - "infra/ci/README.md"
