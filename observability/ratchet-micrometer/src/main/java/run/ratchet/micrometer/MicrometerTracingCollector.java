@@ -29,6 +29,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.api.Nullable;
 import run.ratchet.spi.TracingCollector;
 
 /**
@@ -72,8 +73,15 @@ public class MicrometerTracingCollector implements TracingCollector {
   @Inject
   public MicrometerTracingCollector(
       Instance<Tracer> tracerInstance, Instance<Propagator> propagatorInstance) {
-    this.tracer = tracerInstance.isResolvable() ? tracerInstance.get() : null;
-    this.propagator = propagatorInstance.isResolvable() ? propagatorInstance.get() : null;
+    this(
+        tracerInstance.isResolvable() ? tracerInstance.get() : null,
+        propagatorInstance.isResolvable() ? propagatorInstance.get() : null);
+  }
+
+  /** Creates a collector that uses no-op behavior when the tracer or propagator is absent. */
+  public MicrometerTracingCollector(Tracer tracer, @Nullable Propagator propagator) {
+    this.tracer = tracer;
+    this.propagator = propagator;
   }
 
   @Override

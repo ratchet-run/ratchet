@@ -272,6 +272,30 @@ named-index shape. Enabled startup can warn and continue when it cannot create a
 performance index, but that warning does not make an incompatible same-name index valid; repair or
 drop the conflicting index before using validation-only startup.
 
+## Metrics and tracing
+
+Add `ratchet-micrometer` and Spring Boot Actuator alongside your Ratchet starter:
+
+```xml
+<dependency>
+  <groupId>run.ratchet</groupId>
+  <artifactId>ratchet-micrometer</artifactId>
+</dependency>
+<dependency>
+  <groupId>org.springframework.boot</groupId>
+  <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+Ratchet publishes its meters to Spring Boot's `MeterRegistry`. Queue-health gauges are registered
+when the scheduler starts and removed when it stops. See [Monitoring](/deployment/monitoring) for
+the metric list. A custom `MetricsCollector` bean takes precedence over the Micrometer collector.
+
+With a Micrometer Tracing bridge, such as `micrometer-tracing-bridge-otel` or
+`micrometer-tracing-bridge-brave`, on the classpath, Ratchet uses Spring Boot's `Tracer` and
+`Propagator` beans to create job spans. Tracing does not require a `MeterRegistry`. A custom
+`TracingCollector` bean takes precedence. Without a `Tracer` bean, tracing stays no-op.
+
 ## Configuration and overrides
 
 The Spring-specific properties are:
