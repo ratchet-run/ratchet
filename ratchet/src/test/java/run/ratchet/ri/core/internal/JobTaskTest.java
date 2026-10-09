@@ -1007,7 +1007,7 @@ class JobTaskTest {
     stubWorkerFailure(task, job, original);
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts());
+        .recordJobFailure(job, original, job.getAttempts() + 1);
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -1029,7 +1029,7 @@ class JobTaskTest {
     stubWorkerFailure(task, job, original);
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts());
+        .recordJobFailure(job, original, job.getAttempts() + 1);
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
 
     task.call();
@@ -1047,7 +1047,7 @@ class JobTaskTest {
     stubWorkerFailure(task, job, original);
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts());
+        .recordJobFailure(job, original, job.getAttempts() + 1);
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     doThrow(new LinkageError("boom")).when(invoker).invoke(any());
