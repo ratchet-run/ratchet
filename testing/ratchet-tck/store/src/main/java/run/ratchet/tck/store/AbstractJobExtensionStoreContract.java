@@ -381,8 +381,14 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     assertEquals("{\"plain\":true}", state.json());
   }
 
+  /** A JSON string of exactly {@link ExtensionValidation#MAX_STATE_BYTES} UTF-8 bytes. */
   private static String stateAtLimit() {
-    return "é".repeat(ExtensionValidation.MAX_STATE_BYTES / 2);
+    return "\"" + "é".repeat((ExtensionValidation.MAX_STATE_BYTES - 2) / 2) + "\"";
+  }
+
+  /** A JSON string one UTF-8 byte over {@link ExtensionValidation#MAX_STATE_BYTES}. */
+  private static String stateOverLimit() {
+    return "\"" + "é".repeat((ExtensionValidation.MAX_STATE_BYTES - 2) / 2) + "x\"";
   }
 
   @Test
@@ -411,7 +417,7 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     var job = persist(newPendingJob());
     assertThrows(
         IllegalArgumentException.class,
-        () -> extensionStore().initState(job.getId(), NAMESPACE, stateAtLimit() + "x"));
+        () -> extensionStore().initState(job.getId(), NAMESPACE, stateOverLimit()));
     assertTrue(extensionStore().getState(job.getId(), NAMESPACE).isEmpty());
   }
 
@@ -421,7 +427,7 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     extensionStore().initState(job.getId(), NAMESPACE, "{}");
     assertThrows(
         IllegalArgumentException.class,
-        () -> extensionStore().updateState(job.getId(), NAMESPACE, stateAtLimit() + "x", 0));
+        () -> extensionStore().updateState(job.getId(), NAMESPACE, stateOverLimit(), 0));
     assertEquals(
         new ExtensionState("{}", 0),
         extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
