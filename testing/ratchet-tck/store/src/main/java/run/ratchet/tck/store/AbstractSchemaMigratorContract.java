@@ -128,14 +128,16 @@ public abstract class AbstractSchemaMigratorContract {
     try (Connection connection = newJdbcConnection()) {
       var metadata = connection.getMetaData();
       boolean upper = metadata.storesUpperCaseIdentifiers();
-      try (ResultSet columns =
-          metadata.getColumns(
-              connection.getCatalog(),
-              connection.getSchema(),
-              upper ? "SCHEDULER_JOB_QUEUE" : "scheduler_job_queue",
-              upper ? "CLAIM_SEQ" : "claim_seq")) {
-        assertTrue(columns.next(), "claim_seq must exist after migration");
-        assertEquals(0, columns.getInt("NULLABLE"), "claim_seq must be NOT NULL");
+      for (String table : List.of("scheduler_job", "scheduler_job_queue")) {
+        try (ResultSet columns =
+            metadata.getColumns(
+                connection.getCatalog(),
+                connection.getSchema(),
+                upper ? table.toUpperCase(Locale.ROOT) : table,
+                upper ? "CLAIM_SEQ" : "claim_seq")) {
+          assertTrue(columns.next(), table + ".claim_seq must exist after migration");
+          assertEquals(0, columns.getInt("NULLABLE"), "claim_seq must be NOT NULL");
+        }
       }
       try (var statement = connection.createStatement()) {
         statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '010'");

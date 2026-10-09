@@ -389,7 +389,7 @@ final class MysqlJobTerminalOperations {
     String selectSql =
         """
         SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries,
-               execution_target
+               execution_target, claim_seq
         FROM scheduler_job
         WHERE job_id = ?
         FOR UPDATE
@@ -414,6 +414,7 @@ final class MysqlJobTerminalOperations {
     int timeoutSec = ((Number) row[4]).intValue();
     int maxRetries = ((Number) row[5]).intValue();
     String executionTarget = (String) row[6];
+    long claimSeq = ((Number) row[7]).longValue();
 
     // language=MySQL
     String clearTerminalSql =
@@ -436,8 +437,8 @@ final class MysqlJobTerminalOperations {
         """
         INSERT INTO scheduler_job_queue
           (job_id, status, job_type, priority, scheduled_time, business_key,
-           timeout_sec, max_retries, attempts, version, updated_at, execution_target)
-        VALUES (?, 'PENDING', ?, ?, NOW(3), ?, ?, ?, 0, 0, NOW(3), ?)
+           timeout_sec, max_retries, attempts, version, updated_at, execution_target, claim_seq)
+        VALUES (?, 'PENDING', ?, ?, NOW(3), ?, ?, ?, 0, 0, NOW(3), ?, ?)
         """;
     ctx.em()
         .createNativeQuery(insertHotSql)
@@ -448,6 +449,7 @@ final class MysqlJobTerminalOperations {
         .setParameter(5, timeoutSec)
         .setParameter(6, maxRetries)
         .setParameter(7, executionTarget)
+        .setParameter(8, claimSeq)
         .executeUpdate();
 
     if (businessKey != null) {
@@ -491,9 +493,9 @@ final class MysqlJobTerminalOperations {
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
-             timeout_sec, max_retries, attempts, version, updated_at, execution_target)
+             timeout_sec, max_retries, attempts, version, updated_at, execution_target, claim_seq)
           SELECT job_id, 'PENDING', job_type, priority, NOW(3), business_key,
-                 timeout_sec, max_retries, 0, 0, NOW(3), execution_target
+                 timeout_sec, max_retries, 0, 0, NOW(3), execution_target, claim_seq
           FROM scheduler_job
           WHERE job_id IN (%s)
           """
@@ -556,6 +558,7 @@ final class MysqlJobTerminalOperations {
         UPDATE scheduler_job c
         JOIN scheduler_job_queue q ON q.job_id = c.job_id
         SET c.terminal_status = 'FAILED',
+            c.claim_seq = q.claim_seq,
             c.terminal_error = ?,
             c.total_attempts = %s,
             c.terminated_at = NOW(3),
