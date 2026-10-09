@@ -13,13 +13,16 @@ class SuppressionTest(unittest.TestCase):
         ns = {"s": "https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.4.xsd"}
         rules = ET.parse(root / "owasp-suppressions.xml").getroot()
         cases = json.loads(Path(__file__).with_name("owasp-suppression-controls.json").read_text())["cases"]
-        self.assertEqual(len(cases), 30)
+        self.assertEqual(len(cases), 38)
         self.assertEqual(len({(p, c) for p, c, _ in cases}), len(cases))
         # This fast CI guard intentionally rejects selector forms it cannot
         # model. Extending the policy then requires controls for that form,
         # rather than silently treating an unknown suppression as harmless.
         for rule in rules:
-            self.assertFalse(rule.attrib, "Review conditional/base suppression semantics")
+            # An expiry date is the only modeled attribute: it narrows a rule in time.
+            self.assertTrue(set(rule.attrib) <= {"until"}, "Review conditional/base suppression semantics")
+            if "until" in rule.attrib:
+                self.assertRegex(rule.attrib["until"], r"^\d{4}-\d{2}-\d{2}Z$")
             self.assertEqual(len(rule.findall("s:packageUrl", ns)) + len(rule.findall("s:filePath", ns)),
                              1, "Each suppression must have exactly one reviewed package or file selector")
             self.assertTrue({item.tag.split("}")[-1] for item in rule} <= {

@@ -272,6 +272,18 @@
         "https://repo.maven.apache.org/maven2/com/hazelcast/hazelcast/5.5.0/hazelcast-5.5.0.pom"
       ]
     },
+    "com.hazelcast:hazelcast:5.7.0": {
+      "licenses": [
+        {
+          "name": "The Apache Software License, Version 2.0",
+          "url": "http://www.apache.org/licenses/LICENSE-2.0.txt"
+        }
+      ],
+      "expression": "Apache-2.0",
+      "evidence": [
+        "https://repo.maven.apache.org/maven2/com/hazelcast/hazelcast/5.7.0/hazelcast-5.7.0.pom"
+      ]
+    },
     "com.mysql:mysql-connector-j:8.4.0": {
       "licenses": [
         {

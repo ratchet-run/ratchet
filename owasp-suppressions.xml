@@ -142,4 +142,26 @@
         <cve>CVE-2026-54399</cve>
         <cve>CVE-2026-54428</cve>
     </suppress>
+
+    <suppress until="2027-01-09Z">
+        <notes><![CDATA[
+        ACCEPTED-RISK exception, not a false positive: hazelcast-5.7.0.jar bundles
+        jackson-databind 2.21.2 and tools.jackson 3.1.2. Hazelcast controls those
+        versions; Ratchet cannot override them. CVE-2026-54512 and CVE-2026-54513
+        bypass a PolymorphicTypeValidator allowlist (generic type parameters and
+        array element types). Both are fixed in 2.21.4 and 3.1.4.
+        Hazelcast 5.7.0 is the first release that fixes GHSA-6v25-8wq6-xq4j
+        (critical) and GHSA-w294-6q5q-53p8 (high) in Hazelcast itself, which
+        5.5.0 ships with. No Hazelcast release newer than 5.7.0 exists as of
+        2026-10-09. The selector also matches a direct dependency on these exact
+        versions, so do not add one. Remove this rule when Hazelcast ships a
+        release that bundles jackson-databind 2.21.4 or 3.1.4 or later. The
+        rule expires on its own date so the findings come back for review.
+        https://nvd.nist.gov/vuln/detail/CVE-2026-54512
+        https://nvd.nist.gov/vuln/detail/CVE-2026-54513
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/(com\.fasterxml\.jackson\.core/jackson-databind@2\.21\.2|tools\.jackson\.core/jackson-databind@3\.1\.2)$</packageUrl>
+        <cve>CVE-2026-54512</cve>
+        <cve>CVE-2026-54513</cve>
+    </suppress>
 </suppressions>
