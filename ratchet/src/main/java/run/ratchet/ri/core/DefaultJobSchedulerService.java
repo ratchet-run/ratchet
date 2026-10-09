@@ -51,10 +51,12 @@ import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
+import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.CallerPrincipalResolution;
+import run.ratchet.ri.security.Utf8Length;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -112,6 +114,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
   private final PayloadSerializer payloadSerializer;
   private final MetricsCollector metricsCollector;
   private final Clock clock;
+  private final long maxSignalPayloadBytes;
 
   private final AfterCommitRegistrar afterCommitRegistrar;
 
@@ -137,6 +140,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.payloadSerializer = null;
     this.metricsCollector = null;
     this.clock = null;
+    this.maxSignalPayloadBytes = 0;
     this.afterCommitRegistrar = null;
   }
 
@@ -185,14 +189,14 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
         payloadSerializer,
         metricsCollector,
         clock,
-        options != null ? options.callerPrincipalResolver() : null,
+        options,
         afterCommitRegistrar);
   }
 
   /**
    * Constructs the scheduling boundary from container-managed collaborators. The registrar owns
-   * transaction lookup and callbacks; a null caller resolver leaves principal lookup to the
-   * provider and the current job context.
+   * transaction lookup and callbacks; options supply the signal payload budget and caller resolver.
+   * Null options use defaults, leaving principal lookup to the provider and current job context.
    */
   public DefaultJobSchedulerService(
       InternalEventPublisher eventPublisher,
@@ -215,7 +219,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       PayloadSerializer payloadSerializer,
       MetricsCollector metricsCollector,
       Clock clock,
-      CallerPrincipalResolver callerPrincipalResolver,
+      RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -232,7 +236,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     this.jobInvocationResolver = jobInvocationResolver;
     this.jobCreationService = jobCreationService;
     this.callerPrincipalProvider = callerPrincipalProvider;
-    this.callerPrincipalResolver = callerPrincipalResolver;
+    RatchetOptions effectiveOptions = options != null ? options : RatchetOptions.defaults();
+    this.callerPrincipalResolver = effectiveOptions.callerPrincipalResolver();
+    this.maxSignalPayloadBytes =
+        Math.multiplyExact((long) effectiveOptions.payload().maxPayloadKb(), 1024L);
     this.authorizationPolicy = authorizationPolicy;
     this.signalStore = signalStore;
     this.payloadSerializer = payloadSerializer;
@@ -1088,11 +1095,15 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       return null;
     }
     if (payloadSerializer != null) {
+      String serialized = payloadSerializer.serialize(payload);
+      long actualBytes = Utf8Length.utf8Length(serialized);
+      if (actualBytes > maxSignalPayloadBytes) {
+        throw new PayloadTooLargeException(actualBytes, maxSignalPayloadBytes);
+      }
       // signal_payload is a TEXT column, so the engine output is stored as a bare token (no JSON
       // envelope needed). Bound to the signal key, not a job id: a broadcast writes one ciphertext
       // to every waiting row matching the key. No-op when inactive.
-      return PayloadEncryptor.encryptValue(
-          payloadSerializer.serialize(payload), active, EncryptionTarget.signal(signalKey));
+      return PayloadEncryptor.encryptValue(serialized, active, EncryptionTarget.signal(signalKey));
     }
     throw new IllegalStateException(
         "Cannot deliver a non-null signal payload without a PayloadSerializer");

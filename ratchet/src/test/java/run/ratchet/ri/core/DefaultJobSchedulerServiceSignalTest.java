@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.Serial;
@@ -43,11 +44,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -94,6 +97,76 @@ class DefaultJobSchedulerServiceSignalTest {
   @Mock private MetricsCollector metricsCollector;
 
   private DefaultJobSchedulerService service;
+
+  @Test
+  void oversizedSignalPayloadIsRejectedByEveryRouteBeforeStoreAccess() {
+    // 511 two-byte characters, two JSON quotes, and one ASCII character: 1025 bytes.
+    String serialized = "\"" + "é".repeat(511) + "x\"";
+    when(payloadSerializer.serialize("payload")).thenReturn(serialized);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job(JOB_ID, "key")));
+    SignalDecision decision = SignalDecision.approved("payload");
+    PayloadTooLargeException error =
+        assertThrows(
+            PayloadTooLargeException.class, () -> service.deliverSignal(JOB_ID, "payload"));
+    assertEquals(1025, error.actualBytes());
+    assertEquals(1024, error.maxBytes());
+    assertThrows(PayloadTooLargeException.class, () -> service.deliverSignal(JOB_ID, decision));
+    assertThrows(PayloadTooLargeException.class, () -> service.deliverSignal("key", "payload"));
+    assertThrows(PayloadTooLargeException.class, () -> service.deliverSignal("key", decision));
+    verifyNoInteractions(signalStore);
+  }
+
+  @Test
+  void signalPayloadAtBudgetIsAcceptedByEveryRoute() {
+    String serialized = "\"" + "é".repeat(511) + "\"";
+    when(payloadSerializer.serialize("payload")).thenReturn(serialized);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job(JOB_ID, "key")));
+    SignalDecision decision = SignalDecision.approved("payload");
+    service.deliverSignal(JOB_ID, "payload");
+    service.deliverSignal(JOB_ID, decision);
+    service.deliverSignal("key", "payload");
+    service.deliverSignal("key", decision);
+    verify(signalStore)
+        .deliverSignalById(
+            eq(JOB_ID),
+            eq(serialized),
+            eq("RAW"),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString());
+    verify(signalStore)
+        .deliverSignalById(
+            eq(JOB_ID),
+            eq(serialized),
+            eq("DECISION"),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString());
+    verify(signalStore)
+        .deliverSignalByKey(
+            eq("key"),
+            eq(serialized),
+            eq("RAW"),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString());
+    verify(signalStore)
+        .deliverSignalByKey(
+            eq("key"),
+            eq(serialized),
+            eq("DECISION"),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString());
+  }
 
   private record RawSignalPayload(String status, int score) implements Serializable {
     @Serial private static final long serialVersionUID = 1L;
@@ -504,7 +577,7 @@ class DefaultJobSchedulerServiceSignalTest {
         serializer,
         signalMetricsCollector,
         FIXED_CLOCK,
-        null,
+        RatchetOptions.builder().payload(payload -> payload.maxPayloadKb(1)).build(),
         new JakartaAfterCommitRegistrar());
   }
 }

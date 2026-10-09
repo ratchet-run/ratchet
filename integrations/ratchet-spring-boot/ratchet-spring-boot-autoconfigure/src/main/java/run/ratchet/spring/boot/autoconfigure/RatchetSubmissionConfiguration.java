@@ -243,7 +243,7 @@ class RatchetSubmissionConfiguration {
         serializer,
         metrics,
         clock,
-        options.callerPrincipalResolver(),
+        options,
         registrar);
   }
 }
