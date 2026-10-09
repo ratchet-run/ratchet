@@ -354,7 +354,7 @@ MongoDB does not ship SQL DDL. The `ratchet-store-mongodb` module creates the re
 
 ## Optimistic Locking
 
-SQL stores use JPA `@Version` on the `version` column, while MongoDB uses atomic filter-and-update operations. Both paths prevent lost updates when two nodes attempt to modify the same job concurrently. The engine uses compare-and-swap patterns for critical transitions:
+SQL stores use native queue updates and MongoDB uses atomic filter-and-update operations. The `version` column guards optimistic state transitions. A separate monotonic `claim_seq` advances on every claim and fences owner writes: a stalled worker cannot overwrite a newer claim's outcome or retry count. Execution remains at least once, so external side effects need idempotency. The engine uses compare-and-swap patterns for critical transitions:
 
 ```java
 // Atomic status transition — fails if another thread changed the status

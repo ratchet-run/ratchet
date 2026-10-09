@@ -18,6 +18,7 @@ package run.ratchet.store.mongodb;
 import static com.mongodb.client.model.Filters.*;
 import static com.mongodb.client.model.Updates.*;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
+import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
 
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -55,7 +56,12 @@ final class MongoCompletionOperations {
         ctx.jobs()
             .updateOne(
                 session,
-                and(eq(ID, plan.jobId()), eq(STATUS, plan.expectedStatus().name())),
+                plan.expectedClaimSeq() == null
+                    ? and(eq(ID, plan.jobId()), eq(STATUS, plan.expectedStatus().name()))
+                    : and(
+                        eq(ID, plan.jobId()),
+                        eq(STATUS, plan.expectedStatus().name()),
+                        eq(CLAIM_SEQ, plan.expectedClaimSeq())),
                 combine(
                     set(STATUS, plan.terminalStatus().name()),
                     set(JOB_RESULT, plan.resultJson()),

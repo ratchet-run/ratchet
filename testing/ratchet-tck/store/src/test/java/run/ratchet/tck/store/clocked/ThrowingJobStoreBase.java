@@ -27,6 +27,7 @@ import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -282,7 +283,8 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+  public boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq) {
     return fail("markJobFailedTerminal");
   }
 
@@ -294,12 +296,17 @@ public abstract class ThrowingJobStoreBase
   // ----- JobRetryStore -----
 
   @Override
-  public int incrementRetryAttempt(UUID id) {
+  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
     return fail("incrementRetryAttempt");
   }
 
   @Override
-  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
+  public boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq) {
     return fail("scheduleJobRetry");
   }
 
@@ -349,7 +356,7 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public boolean resetRunningJob(UUID id, String nodeId) {
+  public boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
     return fail("resetRunningJob");
   }
 

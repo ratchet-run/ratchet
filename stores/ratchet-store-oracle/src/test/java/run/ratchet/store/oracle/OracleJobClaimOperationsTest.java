@@ -63,7 +63,8 @@ class OracleJobClaimOperationsTest {
             "attempts",
             "max_retries",
             "execution_target",
-            "depends_on"),
+            "depends_on",
+            "claim_seq"),
         columns);
     assertEquals(
         Map.ofEntries(
@@ -80,7 +81,8 @@ class OracleJobClaimOperationsTest {
             Map.entry("attempts", 10),
             Map.entry("max_retries", 11),
             Map.entry("execution_target", 12),
-            Map.entry("depends_on", 13)),
+            Map.entry("depends_on", 13),
+            Map.entry("claim_seq", 14)),
         OracleJobClaimOperations.claimSelectColumnIndexes());
   }
 
@@ -123,7 +125,8 @@ class OracleJobClaimOperationsTest {
       0,
       3,
       "worker",
-      null
+      null,
+      6L
     };
     Object[] current = before.clone();
     current[5] = 4;
@@ -142,6 +145,7 @@ class OracleJobClaimOperationsTest {
     assertEquals(1, claims.size());
     assertEquals(4, claims.get(0).version());
     assertEquals(2, claims.get(0).attempts());
+    assertEquals(7L, claims.get(0).claimSeq());
     String guard = sqls.get(1);
     assertTrue(guard.contains("scheduled_time <="));
     assertTrue(guard.contains("job_type = ?"));
@@ -163,6 +167,6 @@ class OracleJobClaimOperationsTest {
     return "job_id, status, job_type, priority, scheduled_time, version, timeout_sec, picked_by,"
         + " picked_at, business_key, attempts, max_retries, execution_target,"
         + " (SELECT cold_job.depends_on FROM scheduler_job cold_job"
-        + " WHERE cold_job.job_id = scheduler_job_queue.job_id) AS depends_on";
+        + " WHERE cold_job.job_id = scheduler_job_queue.job_id) AS depends_on, claim_seq";
   }
 }

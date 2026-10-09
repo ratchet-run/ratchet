@@ -129,7 +129,7 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     Instant firstPickedAt = store().findById(id).orElseThrow().getPickedAt();
     assertNotNull(firstPickedAt);
 
-    assertTrue(store().scheduleJobRetry(id, "transient", Instant.now().minusSeconds(1), 1));
+    assertTrue(store().scheduleJobRetry(id, "transient", Instant.now().minusSeconds(1), 1, null));
     assertEquals(1, store().claimNextBatch(10, "node-1").size());
 
     JobEntity reloaded = store().findById(id).orElseThrow();
@@ -522,5 +522,22 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     assertNull(
         claims.get(0).executionTarget(),
         "a job with no execution target should claim back as null (inherit)");
+  }
+
+  @Test
+  void claimSequenceAdvancesOnRecoveryIncludingSameNode() {
+    var pending = persist(newPendingJob());
+    Long stored = store().findById(pending.getId()).orElseThrow().getClaimSeq();
+    var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertEquals((stored == null ? 0L : stored) + 1, first.claimSeq());
+    assertEquals(
+        first.claimSeq(),
+        store().findById(pending.getId()).orElseThrow().getClaimSeq().longValue());
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    var sameNode = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertTrue(sameNode.claimSeq() > first.claimSeq());
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    var otherNode = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-2").get(0);
+    assertTrue(otherNode.claimSeq() > sameNode.claimSeq());
   }
 }

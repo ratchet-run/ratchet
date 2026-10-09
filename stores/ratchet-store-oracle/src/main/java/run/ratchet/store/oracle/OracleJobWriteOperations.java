@@ -470,6 +470,22 @@ final class OracleJobWriteOperations {
 
   private void terminalizeViaSave(JobEntity incoming, int expectedVersion) {
     UUID id = incoming.getId();
+    // Read the authoritative sequence while the queue row is locked, before deleting it.
+    List<?> sequences =
+        ctx.em()
+            .createNativeQuery(
+                """
+                SELECT claim_seq FROM scheduler_job_queue
+                WHERE job_id = ? AND version = ?
+                FOR UPDATE
+                """)
+            .setParameter(1, UuidRawConverter.toBytes(id))
+            .setParameter(2, expectedVersion)
+            .getResultList();
+    if (sequences.isEmpty()) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
+    long claimSeq = ((Number) sequences.get(0)).longValue();
     int deleted =
         ctx.em()
             .createNativeQuery("DELETE FROM scheduler_job_queue WHERE job_id = ? AND version = ?")
@@ -482,26 +498,21 @@ final class OracleJobWriteOperations {
     // Oracle cannot bind a value over 32 KB inside a function; use a plain assignment.
     // language=Oracle
     String updateSql =
-        incoming.getLastError() == null
-            ? """
-            UPDATE scheduler_job
-            SET terminal_status = ?,
-                terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-            WHERE job_id = ? AND terminal_status IS NULL
-            """
-            : """
-            UPDATE scheduler_job
-            SET terminal_status = ?, terminal_error = ?,
-                terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-            WHERE job_id = ? AND terminal_status IS NULL
-            """;
-    Query query = ctx.em().createNativeQuery(updateSql);
-    query.setParameter(1, incoming.getStatus().name());
-    int parameter = 2;
-    if (incoming.getLastError() != null) {
-      query.setParameter(parameter++, incoming.getLastError());
-    }
-    query.setParameter(parameter, UuidRawConverter.toBytes(id)).executeUpdate();
+        """
+        UPDATE scheduler_job
+        SET terminal_status = ?,
+            claim_seq = ?,
+            terminal_error = ?,
+            terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        WHERE job_id = ? AND terminal_status IS NULL
+        """;
+    ctx.em()
+        .createNativeQuery(updateSql)
+        .setParameter(1, incoming.getStatus().name())
+        .setParameter(2, claimSeq)
+        .setParameter(3, incoming.getLastError())
+        .setParameter(4, UuidRawConverter.toBytes(id))
+        .executeUpdate();
     reservations.deleteReservationByOwner(id);
     // Mirrors the committed value for normal callers. If the surrounding JTA transaction rolls
     // back, callers must discard or reload this entity instance.

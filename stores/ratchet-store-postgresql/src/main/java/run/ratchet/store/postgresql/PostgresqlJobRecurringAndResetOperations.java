@@ -32,14 +32,14 @@ final class PostgresqlJobRecurringAndResetOperations {
     this.ctx = ctx;
   }
 
-  boolean resetRunningJob(UUID id, String nodeId) {
+  boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
     // language=PostgreSQL
     String sql =
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
             updated_at = statement_timestamp()
-        WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ?
+        WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ? AND claim_seq = ?
         """;
     return ctx.timedStoreOperation(
             "reset_running_job",
@@ -48,6 +48,7 @@ final class PostgresqlJobRecurringAndResetOperations {
                     .createNativeQuery(sql)
                     .setParameter(1, id)
                     .setParameter(2, nodeId)
+                    .setParameter(3, expectedClaimSeq)
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;

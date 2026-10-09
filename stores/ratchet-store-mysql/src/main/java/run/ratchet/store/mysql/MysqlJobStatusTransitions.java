@@ -36,7 +36,7 @@ final class MysqlJobStatusTransitions {
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET status = 'RUNNING', picked_by = ?, picked_at = NOW(3), updated_at = NOW(3)
+        SET status = 'RUNNING', claim_seq = claim_seq + 1, picked_by = ?, picked_at = NOW(3), updated_at = NOW(3)
         WHERE job_id = ? AND status = 'PENDING'
         """;
     return ctx.timedStoreOperation(
@@ -68,7 +68,8 @@ final class MysqlJobStatusTransitions {
       }
       if (!MysqlJobRowMapper.isLiveStatus(expected)) {
         log.debugf(
-            "transitionToPaused(%s, %s) is a no-op post hot/cold-split — terminal jobs cannot be paused",
+            "transitionToPaused(%s, %s) is a no-op post hot/cold-split — terminal jobs cannot be"
+                + " paused",
             id, expected);
         return false;
       }

@@ -66,7 +66,7 @@ LIMIT :batchSize;
 - **`FOR UPDATE`** locks the selected rows
 - **`SKIP LOCKED`** skips rows already locked by another node's in-flight claim
 
-This means each node gets a disjoint set of jobs with no duplicate execution and no distributed lock manager needed. The database handles it.
+Each polling cycle assigns disjoint claims through the database. Every claim advances a sequence that fences completion and retry writes from older executions. Recovery can overlap job bodies, so delivery remains at least once and external side effects need idempotency.
 
 ### Optimized Claiming
 
@@ -195,3 +195,5 @@ The key tradeoff: shorter poll intervals mean lower latency but more database lo
 - [Cluster Configuration](./cluster-configuration.md) -- Tuning poll intervals, thread pools, and batch sizes
 - [Performance Tuning](./performance-tuning.md) -- Database indexing and query optimization
 - [Concepts: Clustering](../concepts/clustering.md) -- Architectural deep-dive into the clustering model
+
+Each claim receives a monotonically increasing claim sequence. Completion, retry, and per-claim reset writes must match that sequence. After orphan recovery and a new claim, an older worker cannot change the recorded outcome or retry count, even when the same node reclaims the job. Execution remains at least once: an older job body may still run, so make external side effects idempotent.

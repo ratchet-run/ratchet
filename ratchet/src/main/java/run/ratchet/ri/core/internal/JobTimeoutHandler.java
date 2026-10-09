@@ -217,14 +217,21 @@ public class JobTimeoutHandler {
   }
 
   public JobAttemptControl newAttempt(
-      UUID jobId, int jobTimeoutSec, Instant executionStartTime, int baselineAttempts) {
+      UUID jobId,
+      int jobTimeoutSec,
+      Instant executionStartTime,
+      int baselineAttempts,
+      long claimSeq,
+      @Nullable String nodeId) {
     long timeoutSec = effectiveTimeoutSeconds(jobTimeoutSec);
     return new JobAttemptControl(
         jobId,
         executionStartTime.plusSeconds(timeoutSec),
         timeoutSec,
         executionStartTime,
-        baselineAttempts);
+        baselineAttempts,
+        claimSeq,
+        nodeId);
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -269,7 +276,13 @@ public class JobTimeoutHandler {
         "Job %s stopped cooperatively after a cancellation request; handling as a timeout",
         attempt.jobId());
     processHardTimeout(
-        attempt.jobId(), attempt.timeoutSeconds(), elapsed, attempt.baselineAttempts(), true);
+        attempt.jobId(),
+        attempt.timeoutSeconds(),
+        elapsed,
+        attempt.baselineAttempts(),
+        true,
+        attempt.claimSeq(),
+        attempt.nodeId());
   }
 
   /**
@@ -320,20 +333,28 @@ public class JobTimeoutHandler {
   }
 
   /** Applies timeout routing without an attempt baseline; each RUNNING re-read counts a failure. */
-  void processHardTimeout(UUID jobId, long timeoutSec) {
-    processHardTimeout(jobId, timeoutSec, Duration.ofSeconds(timeoutSec));
+  void processHardTimeout(
+      UUID jobId, long timeoutSec, long expectedClaimSeq, @Nullable String nodeId) {
+    processHardTimeout(jobId, timeoutSec, Duration.ofSeconds(timeoutSec), expectedClaimSeq, nodeId);
   }
 
-  void processHardTimeout(UUID jobId, long timeoutSec, Duration elapsedTime) {
-    processHardTimeout(jobId, timeoutSec, elapsedTime, null, false);
+  void processHardTimeout(
+      UUID jobId,
+      long timeoutSec,
+      Duration elapsedTime,
+      long expectedClaimSeq,
+      @Nullable String nodeId) {
+    processHardTimeout(jobId, timeoutSec, elapsedTime, null, false, expectedClaimSeq, nodeId);
   }
 
   private void processHardTimeout(
       UUID jobId,
       long timeoutSec,
       Duration elapsedTime,
-      Integer baselineAttempts,
-      boolean workerContextBound) {
+      @Nullable Integer baselineAttempts,
+      boolean workerContextBound,
+      long expectedClaimSeq,
+      @Nullable String nodeId) {
     Duration observedElapsedTime = elapsedTime.isNegative() ? Duration.ZERO : elapsedTime;
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
@@ -345,7 +366,13 @@ public class JobTimeoutHandler {
         workerContextBound,
         () ->
             applyHardTimeoutTransition(
-                jobId, timeoutEx, timeoutSec, observedElapsedTime, baselineAttempts));
+                jobId,
+                timeoutEx,
+                timeoutSec,
+                observedElapsedTime,
+                baselineAttempts,
+                expectedClaimSeq,
+                nodeId));
   }
 
   /**
@@ -390,7 +417,9 @@ public class JobTimeoutHandler {
       TimeoutException timeoutEx,
       long timeoutSec,
       Duration observedElapsedTime,
-      Integer baselineAttempts) {
+      @Nullable Integer baselineAttempts,
+      long expectedClaimSeq,
+      @Nullable String nodeId) {
     String sanitizedError = sanitizeTimeoutError(timeoutEx);
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -401,6 +430,8 @@ public class JobTimeoutHandler {
     if (job.getStatus() != JobStatus.RUNNING) {
       return Optional.empty();
     }
+    job.setClaimSeq(expectedClaimSeq);
+    job.setPickedBy(nodeId);
     boolean incrementAlreadyApplied =
         baselineAttempts != null && job.getAttempts() > baselineAttempts;
     int newAttempts = incrementAlreadyApplied ? job.getAttempts() : job.getAttempts() + 1;
@@ -411,15 +442,17 @@ public class JobTimeoutHandler {
     // An attempt baseline prevents re-runs from repeating a committed retry increment. Terminal
     // attempts are part of commitCompletion, including for stores without ambient JTA.
     if (!incrementAlreadyApplied && newAttempts <= job.getMaxRetries()) {
-      newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
+      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, expectedClaimSeq);
       if (newAttempts < 0) {
+        warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId);
         return Optional.empty();
       }
     }
     if (newAttempts <= job.getMaxRetries()) {
       Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
       boolean rescheduled =
-          jobRetryStore.scheduleJobRetry(jobId, sanitizedError, retryTime, newAttempts);
+          jobRetryStore.scheduleJobRetry(
+              jobId, sanitizedError, retryTime, newAttempts, expectedClaimSeq);
       if (rescheduled) {
         publishHardTimeoutRetryEvents(
             job, sanitizedError, newAttempts, retryTime, timeoutSec, observedElapsedTime);
@@ -431,9 +464,7 @@ public class JobTimeoutHandler {
       // scheduleJobRetry returned false — a competing path finalized the job between the
       // increment and the reschedule. Do NOT escalate to DLQ; the job already has a terminal
       // state set by the competing path.
-      log.infof(
-          "Job %s timed out but was already finalized by a competing path — no DLQ escalation",
-          jobId);
+      warnRejectedOwnerWrite(jobId, expectedClaimSeq, nodeId);
       return Optional.empty();
     }
 
@@ -447,7 +478,6 @@ public class JobTimeoutHandler {
         lifecycleFacade.completeTimeoutFailure(
             job, JobStatus.RUNNING, false, timeoutEx, outcome.eventsBeforeDlq());
     if (!marked) {
-      log.infof("Job %s already in terminal state when timeout handler ran", jobId);
       return Optional.empty();
     }
     log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
@@ -455,6 +485,11 @@ public class JobTimeoutHandler {
     job.setStatus(JobStatus.FAILED);
     job.setLastError(sanitizedError);
     return Optional.of(outcome);
+  }
+
+  private void warnRejectedOwnerWrite(UUID jobId, long claimSeq, String nodeId) {
+    log.warnf(
+        "Rejected owner write for job %s, stale claimSeq %s, node %s", jobId, claimSeq, nodeId);
   }
 
   private String sanitizeTimeoutError(TimeoutException timeout) {
@@ -493,7 +528,7 @@ public class JobTimeoutHandler {
     }
     int newAttempts = job.getAttempts() + 1;
     if (newAttempts <= job.getMaxRetries()) {
-      newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
+      newAttempts = jobRetryStore.incrementRetryAttempt(jobId, null);
       if (newAttempts < 0) {
         return Optional.empty();
       }
@@ -505,7 +540,8 @@ public class JobTimeoutHandler {
                   job.getBackoffPolicy(), job.getBackoffParamMs(), newAttempts)
               : 0L;
       Instant retryTime = now.plusMillis(backoffMs);
-      boolean rescheduled = jobRetryStore.scheduleJobRetry(jobId, message, retryTime, newAttempts);
+      boolean rescheduled =
+          jobRetryStore.scheduleJobRetry(jobId, message, retryTime, newAttempts, null);
       if (rescheduled) {
         job.setAttempts(newAttempts);
         job.setLastError(message);
@@ -749,7 +785,14 @@ public class JobTimeoutHandler {
     future.cancel(true);
 
     try {
-      processHardTimeout(jobId, timeoutSec, elapsed, attempt.baselineAttempts(), false);
+      processHardTimeout(
+          jobId,
+          timeoutSec,
+          elapsed,
+          attempt.baselineAttempts(),
+          false,
+          attempt.claimSeq(),
+          attempt.nodeId());
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
       throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);

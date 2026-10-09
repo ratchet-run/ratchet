@@ -15,9 +15,11 @@
  */
 package run.ratchet.ri.core.internal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,7 +30,20 @@ import org.junit.jupiter.api.Test;
 class JobAttemptControlTest {
   private JobAttemptControl newAttempt() {
     return new JobAttemptControl(
-        new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH, 0);
+        new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH, 0, 0L, "node-1");
+  }
+
+  @Test
+  void retainsClaimFenceAndNullableNode() {
+    JobAttemptControl attempt =
+        new JobAttemptControl(
+            new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH, 0, 7L, "node-1");
+    assertEquals(7L, attempt.claimSeq());
+    assertEquals("node-1", attempt.nodeId());
+    JobAttemptControl withoutNode =
+        new JobAttemptControl(
+            new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH, 0, 7L, null);
+    assertNull(withoutNode.nodeId());
   }
 
   @Test

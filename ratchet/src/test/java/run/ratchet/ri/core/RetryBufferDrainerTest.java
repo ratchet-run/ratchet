@@ -315,7 +315,8 @@ class RetryBufferDrainerTest {
         0,
         3,
         executionTarget,
-        null);
+        null,
+        0L);
   }
 
   private static Map<String, Integer> platformCapacity(int platformCapacity) {

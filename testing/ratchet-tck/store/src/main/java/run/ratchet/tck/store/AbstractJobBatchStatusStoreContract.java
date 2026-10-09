@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
@@ -29,6 +30,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobBatchStatusStore}. */
@@ -174,8 +176,9 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
     var matching = runningJob("node-1");
     var wrongNode = runningJob("node-2");
 
-    boolean reset = store().resetRunningJob(matching.getId(), "node-1");
-    boolean wrongNodeReset = store().resetRunningJob(wrongNode.getId(), "node-1");
+    boolean reset = store().resetRunningJob(matching.getId(), "node-1", matching.getClaimSeq());
+    boolean wrongNodeReset =
+        store().resetRunningJob(wrongNode.getId(), "node-1", wrongNode.getClaimSeq());
 
     assertTrue(reset, "Matching RUNNING row should be reset");
     assertFalse(wrongNodeReset, "RUNNING row owned by another node should not be reset");
@@ -208,6 +211,17 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
     var job = persist(newPendingJob());
     assertTrue(store().tryPickUpJob(job.getId(), nodeId));
     return store().findById(job.getId()).orElseThrow();
+  }
+
+  @Test
+  void resetRunningJobRejectsEarlierClaimOnSameNode() {
+    var saved = persist(newPendingJob());
+    var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    var current = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertFalse(store().resetRunningJob(saved.getId(), "node-1", first.claimSeq()));
+    assertEquals(JobStatus.RUNNING, store().findById(saved.getId()).orElseThrow().getStatus());
+    assertTrue(store().resetRunningJob(saved.getId(), "node-1", current.claimSeq()));
   }
 
   private static String largeErrorText() {

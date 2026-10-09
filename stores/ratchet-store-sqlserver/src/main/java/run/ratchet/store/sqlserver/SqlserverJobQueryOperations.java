@@ -132,7 +132,8 @@ final class SqlserverJobQueryOperations {
       NULL,
       NULL,
       NULL,
-      NULL\
+      NULL,
+      0\
       """;
 
   private static final int MAX_RESULT_LIMIT = 1000;
@@ -146,9 +147,9 @@ final class SqlserverJobQueryOperations {
   private static final int POS_JOB_ID = 1;
   private static final int POS_PRIORITY = 3;
   private static final int POS_CREATED_AT = 21;
-  private static final int POS_TERMINAL_STATUS = 54;
-  private static final int POS_Q_SCHEDULED_TIME = 55;
-  private static final int POS_Q_UPDATED_AT = 56;
+  private static final int POS_TERMINAL_STATUS = 55;
+  private static final int POS_Q_SCHEDULED_TIME = 56;
+  private static final int POS_Q_UPDATED_AT = 57;
 
   private final SqlserverStoreContext ctx;
   private final SqlserverTagOperations tags;

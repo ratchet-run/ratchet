@@ -22,7 +22,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.util.ClaimFence;
 
 /*
  * Keep terminal transitions dialect-local until a shared helper can preserve each backend's
@@ -67,7 +69,7 @@ final class PostgresqlJobTerminalOperations {
             return cancelJob(id) ? 1 : 0;
           }
           if (status == JobStatus.FAILED) {
-            return markJobFailedTerminal(id, errorMessage, 0) ? 1 : 0;
+            return markJobFailedTerminal(id, errorMessage, 0, null) ? 1 : 0;
           }
           if (status == JobStatus.SUCCEEDED) {
             return markJobSucceededMinimal(id, null, null, null, null) ? 1 : 0;
@@ -109,27 +111,31 @@ final class PostgresqlJobTerminalOperations {
             if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
               return false;
             }
-            return markJobFailedTerminalFromStatus(id, error, null, expected);
+            return markJobFailedTerminalFromStatus(id, error, null, expected, null);
           }
           throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
         },
         updated -> updated ? "updated" : "miss");
   }
 
-  int incrementRetryAttempt(UUID id) {
+  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
     // language=PostgreSQL
     String sql =
         """
         UPDATE scheduler_job_queue
         SET attempts = attempts + 1, updated_at = statement_timestamp()
-        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
         RETURNING attempts
-        """;
+        """
+            .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     return ctx.timedStoreOperation(
         "increment_retry_attempt",
         () -> {
           try {
-            Object result = ctx.em().createNativeQuery(sql).setParameter(1, id).getSingleResult();
+            Object result =
+                ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 2)
+                    .setParameter(1, id)
+                    .getSingleResult();
             return ((Number) result).intValue();
           } catch (NoResultException e) {
             return -1;
@@ -184,20 +190,25 @@ final class PostgresqlJobTerminalOperations {
     return succeeded;
   }
 
-  boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
+  boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq) {
     // language=PostgreSQL
     String sql =
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
             picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp()
-        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
-        """;
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+        """
+            .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     return ctx.timedStoreOperation(
             "schedule_retry",
             () ->
-                ctx.em()
-                    .createNativeQuery(sql)
+                ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 5)
                     .setParameter(1, error)
                     .setParameter(2, Timestamp.from(newScheduledTime))
                     .setParameter(3, attempts)
@@ -207,10 +218,14 @@ final class PostgresqlJobTerminalOperations {
         > 0;
   }
 
-  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+  boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq) {
+
     return ctx.timedStoreOperation(
         "mark_failed_terminal",
-        () -> markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING),
+        () ->
+            markJobFailedTerminalFromStatus(
+                id, terminalError, totalAttempts, JobStatus.RUNNING, expectedClaimSeq),
         updated -> updated ? "updated" : "miss");
   }
 
@@ -310,6 +325,17 @@ final class PostgresqlJobTerminalOperations {
         throw new IllegalStateException(
             "cancel updated cold row but did not remove hot row for job " + id);
       }
+
+      var batchRows =
+          ctx.em()
+              .createNativeQuery(
+                  "SELECT depends_on FROM scheduler_job WHERE job_id = ? AND job_type ="
+                      + " 'BATCH_CHILD'")
+              .setParameter(1, id)
+              .getResultList();
+      if (!batchRows.isEmpty() && batchRows.get(0) != null) {
+        batches.incrementFailedAtomic(PostgresqlJobRowMapper.uuidOrNull(batchRows.get(0)));
+      }
       reservations.deleteReservationByOwner(id);
       return coldUpdated > 0;
     } catch (RuntimeException e) {
@@ -323,7 +349,7 @@ final class PostgresqlJobTerminalOperations {
       String selectSql =
           """
           SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries,
-                 execution_target
+                 execution_target, claim_seq
           FROM scheduler_job
           WHERE job_id = ?
           FOR UPDATE
@@ -345,6 +371,7 @@ final class PostgresqlJobTerminalOperations {
       int timeoutSec = ((Number) row[4]).intValue();
       int maxRetries = ((Number) row[5]).intValue();
       String executionTarget = (String) row[6];
+      long claimSeq = ((Number) row[7]).longValue();
 
       // language=PostgreSQL
       String clearTerminalSql =
@@ -364,9 +391,9 @@ final class PostgresqlJobTerminalOperations {
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
-             timeout_sec, max_retries, attempts, version, updated_at, execution_target)
+             timeout_sec, max_retries, attempts, version, updated_at, execution_target, claim_seq)
           VALUES (?, 'PENDING', ?, ?, statement_timestamp(), ?, ?, ?, 0, 0,
-                  statement_timestamp(), ?)
+                  statement_timestamp(), ?, ?)
           """;
       ctx.em()
           .createNativeQuery(insertHotSql)
@@ -377,6 +404,7 @@ final class PostgresqlJobTerminalOperations {
           .setParameter(5, timeoutSec)
           .setParameter(6, maxRetries)
           .setParameter(7, executionTarget)
+          .setParameter(8, claimSeq)
           .executeUpdate();
 
       if (businessKey != null) {
@@ -423,9 +451,9 @@ final class PostgresqlJobTerminalOperations {
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
-             timeout_sec, max_retries, attempts, version, updated_at, execution_target)
+             timeout_sec, max_retries, attempts, version, updated_at, execution_target, claim_seq)
           SELECT job_id, 'PENDING', job_type, priority, statement_timestamp(), business_key,
-                 timeout_sec, max_retries, 0, 0, statement_timestamp(), execution_target
+                 timeout_sec, max_retries, 0, 0, statement_timestamp(), execution_target, claim_seq
           FROM scheduler_job
           WHERE job_id IN (%s)
           """
@@ -476,13 +504,18 @@ final class PostgresqlJobTerminalOperations {
   }
 
   private boolean markJobFailedTerminalFromStatus(
-      UUID id, String terminalError, Integer totalAttempts, JobStatus expectedStatus) {
+      UUID id,
+      String terminalError,
+      Integer totalAttempts,
+      JobStatus expectedStatus,
+      @Nullable Long expectedClaimSeq) {
     String attemptsExpression = totalAttempts == null ? "q.attempts" : "?";
     // language=PostgreSQL
     String updateColdSql =
         """
         UPDATE scheduler_job c
         SET terminal_status = 'FAILED',
+            claim_seq = q.claim_seq,
             terminal_error = ?,
             total_attempts = %s,
             terminated_at = statement_timestamp(),
@@ -511,8 +544,14 @@ final class PostgresqlJobTerminalOperations {
         WHERE c.job_id = ? AND q.job_id = c.job_id
           AND c.terminal_status IS NULL AND q.status = ?
         """
-            .formatted(attemptsExpression);
-    var query = ctx.em().createNativeQuery(updateColdSql).setParameter(1, terminalError);
+                .formatted(attemptsExpression)
+            + (expectedClaimSeq == null ? "" : " AND q.claim_seq = ?");
+    var query =
+        ClaimFence.bind(
+                ctx.em().createNativeQuery(updateColdSql),
+                expectedClaimSeq,
+                totalAttempts == null ? 4 : 5)
+            .setParameter(1, terminalError);
     int parameter = 2;
     if (totalAttempts != null) {
       query.setParameter(parameter++, totalAttempts);
@@ -526,10 +565,11 @@ final class PostgresqlJobTerminalOperations {
       return false;
     }
     // language=PostgreSQL
-    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
+    String deleteHotSql =
+        "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?"
+            + (expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     int hotDeleted =
-        ctx.em()
-            .createNativeQuery(deleteHotSql)
+        ClaimFence.bind(ctx.em().createNativeQuery(deleteHotSql), expectedClaimSeq, 3)
             .setParameter(1, id)
             .setParameter(2, expectedStatus.name())
             .executeUpdate();

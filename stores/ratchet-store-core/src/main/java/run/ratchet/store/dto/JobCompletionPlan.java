@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.store.entity.JobExecutionType;
 
 /** Immutable scheduler mutations that must commit with a job's terminal transition. */
@@ -37,7 +38,8 @@ public record JobCompletionPlan(
     Long queueWaitMs,
     UUID batchId,
     BatchCompletion completedBatch,
-    List<DependencyTransition> dependencies) {
+    List<DependencyTransition> dependencies,
+    @Nullable Long expectedClaimSeq) {
 
   public JobCompletionPlan {
     Objects.requireNonNull(jobId);

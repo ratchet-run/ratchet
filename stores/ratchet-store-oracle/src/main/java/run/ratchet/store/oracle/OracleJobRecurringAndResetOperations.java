@@ -29,13 +29,13 @@ final class OracleJobRecurringAndResetOperations {
     this.ctx = ctx;
   }
 
-  boolean resetRunningJob(UUID id, String nodeId) {
+  boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
     // language=Oracle
     String sql =
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-        WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ?
+        WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ? AND claim_seq = ?
         """;
     return ctx.timedStoreOperation(
             "reset_running_job",
@@ -44,6 +44,7 @@ final class OracleJobRecurringAndResetOperations {
                     .createNativeQuery(sql)
                     .setParameter(1, UuidRawConverter.toBytes(id))
                     .setParameter(2, nodeId)
+                    .setParameter(3, expectedClaimSeq)
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
@@ -67,12 +68,11 @@ final class OracleJobRecurringAndResetOperations {
     // Oracle has no UPDATE..JOIN; the tag and live-status joins become EXISTS predicates.
     // language=Oracle
     String coldSql =
-        "UPDATE scheduler_job j SET j.terminal_status = 'CANCELED',"
-            + " j.terminated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)"
-            + " WHERE j.job_type <> 'RECURRING' AND j.terminal_status IS NULL"
-            + " AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = j.job_id AND t.tag = ?)"
-            + " AND EXISTS (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = j.job_id"
-            + " AND q.status IN ('PENDING','PAUSED','WAITING'))";
+        "UPDATE scheduler_job j SET j.terminal_status = 'CANCELED', j.terminated_at ="
+            + " CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) WHERE j.job_type <> 'RECURRING'"
+            + " AND j.terminal_status IS NULL AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE"
+            + " t.job_id = j.job_id AND t.tag = ?) AND EXISTS (SELECT 1 FROM scheduler_job_queue q"
+            + " WHERE q.job_id = j.job_id AND q.status IN ('PENDING','PAUSED','WAITING'))";
     int cancelled =
         ctx.timedStoreOperation(
             "cancel_jobs_by_tag",

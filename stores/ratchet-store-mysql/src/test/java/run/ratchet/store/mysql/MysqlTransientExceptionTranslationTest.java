@@ -114,7 +114,7 @@ class MysqlTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> terminals.markJobFailedTerminal(JOB_ID, "boom", 1));
+        () -> terminals.markJobFailedTerminal(JOB_ID, "boom", 1, null));
   }
 
   @Test

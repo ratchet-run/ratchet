@@ -109,7 +109,8 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
 
     assertTrue(
         result.isPresent(),
-        "WAITING job should remain visible to findActiveByBusinessKey — WAITING is an active status");
+        "WAITING job should remain visible to findActiveByBusinessKey — WAITING is an active"
+            + " status");
     assertEquals(saved.getId(), result.get().getId());
   }
 
@@ -120,7 +121,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     UUID id = saved.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     assertTrue(
-        store().markJobFailedTerminal(id, "permanent error", 3),
+        store().markJobFailedTerminal(id, "permanent error", 3, null),
         "markJobFailedTerminal precondition");
 
     var result = store().findActiveByBusinessKey(bk);
@@ -293,7 +294,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     JobEntity first = persist(jobWithBusinessKey(bk));
     UUID firstId = first.getId();
     store().compareAndSwapStatus(firstId, JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(firstId, "permanent", 3);
+    store().markJobFailedTerminal(firstId, "permanent", 3, null);
 
     JobEntity replacement = persist(jobWithBusinessKey(bk));
 
@@ -334,7 +335,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     JobEntity job = persist(jobWithBusinessKey(bk));
     UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(id, "transient", 1);
+    store().markJobFailedTerminal(id, "transient", 1, null);
     assertTrue(store().resetFailedToPending(id), "resetFailedToPending precondition");
     assertTrue(
         store().findActiveByBusinessKey(bk).isPresent(),
@@ -366,7 +367,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     JobEntity job = persist(jobWithBusinessKey(bk));
     UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(id, "transient", 1);
+    store().markJobFailedTerminal(id, "transient", 1, null);
 
     AtomicBoolean resetWon = new AtomicBoolean();
     AtomicBoolean cancelWon = new AtomicBoolean();

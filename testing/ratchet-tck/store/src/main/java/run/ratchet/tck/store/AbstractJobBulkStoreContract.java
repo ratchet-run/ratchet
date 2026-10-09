@@ -272,13 +272,13 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     exhausted.setMaxRetries(1);
     exhausted = persist(exhausted);
     store().compareAndSwapStatus(exhausted.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(exhausted.getId(), "boom", 1);
+    store().markJobFailedTerminal(exhausted.getId(), "boom", 1, null);
 
     JobEntity retryable = newPendingJob();
     retryable.setMaxRetries(3);
     retryable = persist(retryable);
     store().compareAndSwapStatus(retryable.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(retryable.getId(), "retry later", 1);
+    store().markJobFailedTerminal(retryable.getId(), "retry later", 1, null);
 
     var pending = persist(newPendingJob());
 

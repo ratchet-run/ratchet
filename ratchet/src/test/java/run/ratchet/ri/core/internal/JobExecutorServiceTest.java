@@ -102,13 +102,39 @@ class JobExecutorServiceTest {
   }
 
   @Test
+  void executionRejectsMissingClaimSequence() {
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setClaimSeq(null);
+    var failure =
+        Assertions.assertThrows(NullPointerException.class, () -> service.execute(job, "platform"));
+    Assertions.assertEquals("job " + JOB_ID + " has no claim sequence", failure.getMessage());
+    verify(jobExecutor, never()).execute(any(Runnable.class));
+    verify(timeoutHandler, never())
+        .scheduleTimeoutMonitoring(any(JobAttemptControl.class), any(), any(), any());
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
+  }
+
+  @Test
   void acceptedQueuedCancellationReleasesPermitExactlyOnce() throws Exception {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     JobEntity job = new JobEntity();
     job.setJobType(JobExecutionType.SINGLE);
+    job.setId(JOB_ID);
+    job.setClaimSeq(7L);
+    job.setPickedBy("node-1");
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    when(timeoutHandler.newAttempt(JOB_ID, job.getTimeoutSec(), FIXED_NOW, 0, 7L, "node-1"))
+        .thenReturn(attempt);
     ExecutionResult result = service.execute(job, "platform");
+    verify(timeoutHandler)
+        .scheduleTimeoutMonitoring(
+            eq(attempt), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
     assertFalse(result.isRejected());
     ArgumentCaptor<Runnable> queued = ArgumentCaptor.forClass(Runnable.class);
     verify(jobExecutor).execute(queued.capture());
@@ -127,6 +153,9 @@ class JobExecutorServiceTest {
     Mockito.doThrow(new RejectedExecutionException("full")).when(jobExecutor).execute(any());
     JobEntity job = new JobEntity();
     job.setJobType(JobExecutionType.SINGLE);
+    job.setId(JOB_ID);
+    job.setClaimSeq(0L);
+    job.setPickedBy("node-1");
     assertTrue(service.execute(job, "platform").isRejected());
     verify(pool).releasePermit(JobExecutionType.SINGLE);
   }
@@ -350,7 +379,8 @@ class JobExecutorServiceTest {
         method.invoke(
             service,
             JOB_ID,
-            new JobAttemptControl(JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0),
+            new JobAttemptControl(
+                JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1"),
             FIXED_NOW,
             callable,
             handlesRef,

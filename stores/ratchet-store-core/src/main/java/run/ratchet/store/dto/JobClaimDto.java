@@ -35,6 +35,7 @@ import run.ratchet.store.entity.JobExecutionType;
  * @param jobType internal execution type; never {@code null}
  * @param priority job priority; never {@code null}
  * @param scheduledTime time at which the job becomes eligible for pickup
+ * @param claimSeq monotonically increasing claim fence
  * @param version optimistic lock version
  * @param timeoutSec timeout for execution, in seconds
  * @param pickedBy node id that currently owns the claim, or {@code null} when the job has not been
@@ -60,7 +61,8 @@ public record JobClaimDto(
     int attempts,
     int maxRetries,
     String executionTarget,
-    @Nullable UUID dependsOn)
+    @Nullable UUID dependsOn,
+    long claimSeq)
     implements Serializable {
 
   /** Returns true if id, status, and jobType are all non-null. */

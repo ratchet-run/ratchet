@@ -20,6 +20,7 @@ import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobFilter;
+import run.ratchet.api.Nullable;
 
 /** Retry and backoff-scheduling operations for jobs. */
 @Incubating
@@ -29,10 +30,11 @@ public interface JobRetryStore {
    * Increments the retry attempt count.
    *
    * @param id job id whose attempt counter should be incremented; never {@code null}
+   * @param expectedClaimSeq claim sequence received by the owner; null for a non-owner mutation
    * @return the new attempt count, or {@code -1} when no retryable job row matched the id
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
-  int incrementRetryAttempt(UUID id);
+  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq);
 
   /**
    * Schedules the next retry attempt for a RUNNING or WAITING job. Implementations return {@code
@@ -44,11 +46,17 @@ public interface JobRetryStore {
    * @param newScheduledTime instant at which the job becomes eligible for re-pickup; never {@code
    *     null}
    * @param attempts attempt counter to persist on the row (typically the post-increment value
-   *     returned by {@link #incrementRetryAttempt(UUID)})
+   *     returned by {@link #incrementRetryAttempt(UUID, Long)})
+   * @param expectedClaimSeq claim sequence received by the owner; null for a non-owner mutation
    * @return {@code true} when the row was RUNNING or WAITING and was rescheduled, {@code false}
    *     otherwise
    */
-  boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts);
+  boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq);
 
   /**
    * Atomically resets a FAILED job to PENDING in one operation to avoid TOCTOU gaps. The reset

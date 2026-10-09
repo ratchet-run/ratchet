@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -155,7 +156,7 @@ class JobTimeoutHandlerTest {
 
   @Test
   void handedBackTimeoutKeepsHardTaskWhenHandlesAreCancelled() {
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
     assertTrue(attempt.claimTimeoutForWorker());
     assertTrue(attempt.handBackTimeoutToWatchdog());
     ScheduledFuture<?> soft = mock(ScheduledFuture.class);
@@ -171,7 +172,7 @@ class JobTimeoutHandlerTest {
 
   @Test
   void workerOwnedTimeoutCancelsAllHandles() {
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
     assertTrue(attempt.claimTimeoutForWorker());
     ScheduledFuture<?> soft = mock(ScheduledFuture.class);
     ScheduledFuture<?> request = mock(ScheduledFuture.class);
@@ -188,10 +189,10 @@ class JobTimeoutHandlerTest {
   void handedBackTimeoutTransitionsEvenWhenWorkerFutureIsDone() throws Exception {
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
         .thenReturn(true);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
     assertTrue(attempt.claimTimeoutForWorker());
     assertTrue(attempt.handBackTimeoutToWatchdog());
     Future<?> future = mock(Future.class);
@@ -201,8 +202,9 @@ class JobTimeoutHandlerTest {
 
     verify(future).cancel(true);
     verify(jobCrudStore).findById(JOB_ID);
-    verify(jobRetryStore).incrementRetryAttempt(JOB_ID);
-    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
+    verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L));
     verify(lifecycleFacade)
         .handleTimeoutTransition(any(TimeoutException.class), eq(false), any(Supplier.class));
     verify(lifecycleFacade, never())
@@ -212,7 +214,7 @@ class JobTimeoutHandlerTest {
 
   @Test
   void completedWorkerOwnedTimeoutDoesNotTransition() throws Exception {
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
     assertTrue(attempt.claimTimeoutForWorker());
     Future<?> future = mock(Future.class);
     when(future.isDone()).thenReturn(true);
@@ -226,7 +228,7 @@ class JobTimeoutHandlerTest {
 
   @Test
   void runningWorkerOwnedTimeoutRecordsThatWatchdogPassed() throws Exception {
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 0L, "node-1");
     assertTrue(attempt.claimTimeoutForWorker());
     Future<?> future = mock(Future.class);
 
@@ -248,7 +250,7 @@ class JobTimeoutHandlerTest {
   @Test
   void graceSchedulesRequestBeforeHardTimeoutWithoutInterrupting() {
     handler = handlerWithGrace(3L);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0, 0L, "node-1");
     Future<?> future = mock(Future.class);
     ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
     handler.scheduleTimeoutMonitoring(attempt, future, scheduler, attempt.executionStartTime());
@@ -266,7 +268,7 @@ class JobTimeoutHandlerTest {
   @Test
   void zeroGraceSetsFlagBeforeInterruptAndSchedulesNoEarlyRequest() {
     handler = handlerWithGrace(0L);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0, 0L, "node-1");
     Future<?> future = mock(Future.class);
     AtomicBoolean flagAtInterrupt = new AtomicBoolean();
     when(future.cancel(true))
@@ -290,7 +292,7 @@ class JobTimeoutHandlerTest {
   void graceAtOrAboveTimeoutDoesNotScheduleEarlyRequest() {
     for (long grace : List.of(10L, 11L)) {
       handler = handlerWithGrace(grace);
-      JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0);
+      JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0, 0L, "node-1");
       ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
       assertNull(
           handler
@@ -304,19 +306,21 @@ class JobTimeoutHandlerTest {
   @Test
   void attemptsHaveIndependentFlagsAndEffectiveDeadlines() {
     Instant start = Instant.parse("2026-10-01T12:00:00Z");
-    JobAttemptControl first = handler.newAttempt(JOB_ID, 10, start, 0);
-    JobAttemptControl retry = handler.newAttempt(JOB_ID, 10, start, 0);
+    JobAttemptControl first = handler.newAttempt(JOB_ID, 10, start, 0, 0L, "node-1");
+    JobAttemptControl retry = handler.newAttempt(JOB_ID, 10, start, 0, 0L, "node-1");
     first.requestCancellation();
     assertTrue(first.isCancellationRequested());
     assertFalse(retry.isCancellationRequested());
     assertEquals(start.plusSeconds(10), first.deadline());
-    assertEquals(start.plusSeconds(60), handler.newAttempt(JOB_ID, 0, start, 0).deadline());
-    assertEquals(start.plusSeconds(60), handler.newAttempt(JOB_ID, -1, start, 0).deadline());
+    assertEquals(
+        start.plusSeconds(60), handler.newAttempt(JOB_ID, 0, start, 0, 0L, "node-1").deadline());
+    assertEquals(
+        start.plusSeconds(60), handler.newAttempt(JOB_ID, -1, start, 0, 0L, "node-1").deadline());
   }
 
   @Test
   void workerClaimPreventsHardInterruptAndTransition() {
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 10, Instant.now(), 0, 0L, "node-1");
     assertTrue(attempt.claimTimeoutForWorker());
     Future<?> future = mock(Future.class);
     ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
@@ -326,7 +330,7 @@ class JobTimeoutHandlerTest {
     tasks.getAllValues().get(1).run();
     verify(future, never()).cancel(anyBoolean());
     verify(jobCrudStore, never()).findById(any(UUID.class));
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
   }
 
   @Test
@@ -334,16 +338,37 @@ class JobTimeoutHandlerTest {
     handler = handlerWithGrace(3L);
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(7L)))
         .thenReturn(true);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
     attempt.requestCancellation();
     assertTrue(attempt.claimTimeoutForWorker());
     handler.processCooperativeTimeout(attempt);
-    verify(jobRetryStore).incrementRetryAttempt(JOB_ID);
-    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 7L);
+    verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(7L));
     verify(eventPublisher).publish(any(JobExecutionTimedOutEvent.class));
+  }
+
+  @Test
+  void cooperativeTimeoutRejectedIncrementDoesNotScheduleOrPublish() {
+    JobEntity job = jobWithMaxRetries(3);
+    job.setClaimSeq(8L);
+    job.setPickedBy("node-2");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L)).thenReturn(-1);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 0, 7L, "node-1");
+    attempt.requestCancellation();
+    assertTrue(attempt.claimTimeoutForWorker());
+
+    handler.processCooperativeTimeout(attempt);
+
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 7L);
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+    verify(eventPublisher, never()).publish(any());
   }
 
   @Test
@@ -351,23 +376,23 @@ class JobTimeoutHandlerTest {
     JobEntity job = jobWithMaxRetries(3);
     job.setAttempts(2);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L))
         .thenAnswer(
             invocation -> {
               job.setAttempts(3);
               return 3;
             });
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3)))
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3), eq(0L)))
         .thenThrow(new IllegalStateException("retry store down"))
         .thenReturn(true);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2, 0L, "node-1");
 
     assertThrows(IllegalStateException.class, () -> handler.processCooperativeTimeout(attempt));
     handler.processCooperativeTimeout(attempt);
 
-    verify(jobRetryStore).incrementRetryAttempt(JOB_ID);
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
     verify(jobRetryStore, times(2))
-        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3));
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3), eq(0L));
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
   }
@@ -377,16 +402,16 @@ class JobTimeoutHandlerTest {
     JobEntity job = jobWithMaxRetries(3);
     job.setAttempts(2);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L))
         .thenAnswer(
             invocation -> {
               job.setAttempts(3);
               return 3;
             });
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3)))
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3), eq(0L)))
         .thenThrow(new IllegalStateException("retry store down"))
         .thenReturn(true);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2, 0L, "node-1");
     assertTrue(attempt.claimTimeoutForWorker());
     assertThrows(IllegalStateException.class, () -> handler.processCooperativeTimeout(attempt));
     assertTrue(attempt.handBackTimeoutToWatchdog());
@@ -395,9 +420,9 @@ class JobTimeoutHandlerTest {
 
     invokeHardTimeout(attempt, future);
 
-    verify(jobRetryStore).incrementRetryAttempt(JOB_ID);
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 0L);
     verify(jobRetryStore, times(2))
-        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3));
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3), eq(0L));
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
   }
@@ -411,14 +436,14 @@ class JobTimeoutHandlerTest {
             any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenThrow(new IllegalStateException("completion store down"))
         .thenReturn(true);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 2, 0L, "node-1");
 
     assertThrows(IllegalStateException.class, () -> handler.processCooperativeTimeout(attempt));
     handler.processCooperativeTimeout(attempt);
 
     assertEquals(4, job.getAttempts());
-    verify(jobRetryStore, never()).incrementRetryAttempt(any());
-    verify(jobRetryStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), eq(0L));
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), eq(0L));
     verify(lifecycleFacade, times(2))
         .completeTimeoutFailure(eq(job), eq(JobStatus.RUNNING), eq(false), any(), any());
   }
@@ -434,14 +459,14 @@ class JobTimeoutHandlerTest {
             any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenThrow(new IllegalStateException("completion store down"))
         .thenReturn(true);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 3);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 30, Instant.now(), 3, 0L, "node-1");
 
     assertThrows(IllegalStateException.class, () -> handler.processCooperativeTimeout(attempt));
     handler.processCooperativeTimeout(attempt);
 
     assertEquals(4, firstRead.getAttempts());
     assertEquals(4, secondRead.getAttempts());
-    verify(jobRetryStore, never()).incrementRetryAttempt(any());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), eq(0L));
     verify(lifecycleFacade, times(2))
         .completeTimeoutFailure(any(), eq(JobStatus.RUNNING), eq(false), any(), any());
   }
@@ -451,25 +476,27 @@ class JobTimeoutHandlerTest {
     JobEntity job = jobWithMaxRetries(3);
     job.setAttempts(1);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L))
         .thenAnswer(
             invocation -> {
               job.setAttempts(job.getAttempts() + 1);
               return job.getAttempts();
             });
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(2)))
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(2), eq(0L)))
         .thenThrow(new IllegalStateException("retry store down"));
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3)))
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3), eq(0L)))
         .thenReturn(true);
 
     assertThrows(
         IllegalStateException.class,
-        () -> handler.processHardTimeout(JOB_ID, 30, Duration.ofSeconds(31)));
-    handler.processHardTimeout(JOB_ID, 30);
+        () -> handler.processHardTimeout(JOB_ID, 30, Duration.ofSeconds(31), 0L, "node-1"));
+    handler.processHardTimeout(JOB_ID, 30, 0L, "node-1");
 
-    verify(jobRetryStore, times(2)).incrementRetryAttempt(JOB_ID);
-    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(2));
-    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3));
+    verify(jobRetryStore, times(2)).incrementRetryAttempt(JOB_ID, 0L);
+    verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(2), eq(0L));
+    verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(3), eq(0L));
   }
 
   @Test
@@ -487,7 +514,7 @@ class JobTimeoutHandlerTest {
             signalStore,
             metricsCollector,
             500);
-    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 0, Instant.EPOCH, 2);
+    JobAttemptControl attempt = handler.newAttempt(JOB_ID, 0, Instant.EPOCH, 2, 0L, "node-1");
     assertEquals(Instant.EPOCH.plusSeconds(Integer.MAX_VALUE), attempt.deadline());
     assertEquals(2, attempt.baselineAttempts());
     ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
@@ -528,7 +555,7 @@ class JobTimeoutHandlerTest {
     captureRuntimeCallback(
         job, TimeoutException.class, "Hard timeout exceeded (" + TIMEOUT_SEC + "s)");
 
-    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
     verify(payloadInvoker).invoke(invoked.capture());
@@ -601,7 +628,7 @@ class JobTimeoutHandlerTest {
         .when(payloadInvoker)
         .invoke(job.getOnFailurePayload());
 
-    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     verify(validationFacade).validateSecurity(job.getOnFailurePayload());
     verify(payloadInvoker, times(1)).invoke(job.getOnFailurePayload());
@@ -618,7 +645,7 @@ class JobTimeoutHandlerTest {
         .thenAnswer(invocation -> invocation.getArgument(0));
     JobTimeoutHandler callbackHandler = callbackHandler();
     JobAttemptControl attempt =
-        callbackHandler.newAttempt(JOB_ID, (int) TIMEOUT_SEC, Instant.now(), 0);
+        callbackHandler.newAttempt(JOB_ID, (int) TIMEOUT_SEC, Instant.now(), 0, 0L, "node-1");
     try {
       JobMdcContext.bindJobContext(JOB_ID, Map.of());
       JobContext workerContext = JobContext.currentOrNull();
@@ -648,10 +675,11 @@ class JobTimeoutHandlerTest {
   @Test
   void hardTimeoutWithRetriesRemainingDoesNotInvokeCallback() throws Exception {
     callbackJob(1);
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1))).thenReturn(true);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), eq(0L)))
+        .thenReturn(true);
 
-    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     verify(payloadInvoker, never()).invoke(any());
     assertNull(JobContext.currentOrNull());
@@ -664,7 +692,7 @@ class JobTimeoutHandlerTest {
             any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(false);
 
-    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    callbackHandler().processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     verify(payloadInvoker, never()).invoke(any());
     assertNull(JobContext.currentOrNull());
@@ -682,7 +710,7 @@ class JobTimeoutHandlerTest {
     doThrow(failure).when(payloadInvoker).invoke(job.getOnFailurePayload());
 
     JobTimeoutHandler callbackHandler = callbackHandler();
-    assertDoesNotThrow(() -> callbackHandler.processHardTimeout(JOB_ID, TIMEOUT_SEC));
+    assertDoesNotThrow(() -> callbackHandler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1"));
 
     verify(observabilityFacade).recordCallbackFailure(job, failure, 1);
     ArgumentCaptor<JobCallbackFailedEvent> event =
@@ -723,8 +751,9 @@ class JobTimeoutHandlerTest {
   @Test
   void signalTimeoutWithRetriesRemainingDoesNotInvokeCallback() throws Exception {
     JobEntity job = signalCallbackJob(1);
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1))).thenReturn(true);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(), eq(1), isNull()))
+        .thenReturn(true);
 
     callbackHandler().processSignalTimeout(job, Instant.now());
 
@@ -858,7 +887,8 @@ class JobTimeoutHandlerTest {
             InvocationTargetException.class,
             () ->
                 invokeHardTimeout(
-                    handler.newAttempt(JOB_ID, (int) TIMEOUT_SEC, Instant.EPOCH, 0), future));
+                    handler.newAttempt(JOB_ID, (int) TIMEOUT_SEC, Instant.EPOCH, 0, 0L, "node-1"),
+                    future));
 
     assertInstanceOf(IllegalStateException.class, thrown.getCause());
     assertTrue(future.isCancelled());
@@ -868,12 +898,12 @@ class JobTimeoutHandlerTest {
   void concurrentHardTimeoutIncrementCannotExceedRetryBudget() {
     JobEntity job = jobWithMaxRetries(1);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(2);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(2);
     when(lifecycleFacade.completeTimeoutFailure(
             any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
-    verify(jobRetryStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt());
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), eq(0L));
     assertEquals(2, job.getAttempts());
     assertEquals(JobStatus.FAILED, job.getStatus());
   }
@@ -881,12 +911,12 @@ class JobTimeoutHandlerTest {
   @Test
   void concurrentSignalTimeoutIncrementCannotExceedRetryBudget() {
     JobEntity job = waitingJobWithMaxRetries(1);
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(2);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(2);
     when(lifecycleFacade.completeTimeoutFailure(
             any(), eq(JobStatus.WAITING), eq(true), any(), any()))
         .thenReturn(true);
     handler.processSignalTimeout(job, Instant.now());
-    verify(jobRetryStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), anyString(), any(), anyInt(), isNull());
     assertEquals(2, job.getAttempts());
     assertEquals(JobStatus.FAILED, job.getStatus());
   }
@@ -906,17 +936,17 @@ class JobTimeoutHandlerTest {
     job.setBusinessKey("timeout-key");
     job.setPickedBy("node-a");
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
         .thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronizationCaptor =
         ArgumentCaptor.forClass(Synchronization.class);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, Duration.ofSeconds(31));
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, Duration.ofSeconds(31), 0L, "node-a");
 
     verify(jobRetryStore, times(1))
-        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
@@ -968,15 +998,16 @@ class JobTimeoutHandlerTest {
             120);
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
         .thenReturn(true);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     ArgumentCaptor<Runnable> callback = ArgumentCaptor.forClass(Runnable.class);
     verify(registrar).registerAfterCommit(callback.capture());
-    verify(jobRetryStore).scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
+    verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L));
     verify(eventPublisher, never()).publish(any());
 
     callback.getValue().run();
@@ -1003,15 +1034,15 @@ class JobTimeoutHandlerTest {
             Clock.fixed(now, ZoneOffset.UTC));
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
         .thenReturn(true);
     ArgumentCaptor<Instant> retryTimeCaptor = ArgumentCaptor.forClass(Instant.class);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     verify(jobRetryStore)
-        .scheduleJobRetry(eq(JOB_ID), anyString(), retryTimeCaptor.capture(), eq(1));
+        .scheduleJobRetry(eq(JOB_ID), anyString(), retryTimeCaptor.capture(), eq(1), eq(0L));
     Instant baseRetryTime = now.plusSeconds(TIMEOUT_SEC);
     Instant maxRetryTime = baseRetryTime.plusMillis((TIMEOUT_SEC * 1000L) / 4);
     assertTrue(retryTimeCaptor.getValue().isAfter(baseRetryTime));
@@ -1026,10 +1057,11 @@ class JobTimeoutHandlerTest {
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
-    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
+    verify(jobRetryStore, never())
+        .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     verify(lifecycleFacade, times(1))
         .completeTimeoutFailure(
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any());
@@ -1055,9 +1087,9 @@ class JobTimeoutHandlerTest {
     when(lifecycleFacade.completeTimeoutFailure(
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, Duration.ofSeconds(31));
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, Duration.ofSeconds(31), 0L, "node-1");
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(eventPublisher, never()).publish(any());
     assertEquals(job, terminalTimeoutTransition.job());
     assertEquals(2, terminalTimeoutTransition.eventsBeforeDlq().size());
@@ -1093,9 +1125,9 @@ class JobTimeoutHandlerTest {
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(lifecycleFacade)
         .completeTimeoutFailure(
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any());
@@ -1122,17 +1154,17 @@ class JobTimeoutHandlerTest {
     JobEntity job = jobWithMaxRetries(3);
     when(errorSanitizer.sanitize(any(TimeoutException.class))).thenReturn("safe timeout");
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), eq("safe timeout"), any(), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), eq("safe timeout"), any(), eq(1), eq(0L)))
         .thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronization =
         ArgumentCaptor.forClass(Synchronization.class);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     verify(jobRetryStore)
-        .scheduleJobRetry(eq(JOB_ID), eq("safe timeout"), any(Instant.class), eq(1));
+        .scheduleJobRetry(eq(JOB_ID), eq("safe timeout"), any(Instant.class), eq(1), eq(0L));
     verify(errorSanitizer, times(1)).sanitize(any(TimeoutException.class));
     verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
     verify(eventPublisher, never()).publish(any());
@@ -1164,10 +1196,10 @@ class JobTimeoutHandlerTest {
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     assertEquals(TimeoutException.class.getName(), job.getLastError());
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(errorSanitizer, times(1)).sanitize(any(TimeoutException.class));
   }
 
@@ -1190,10 +1222,10 @@ class JobTimeoutHandlerTest {
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(true);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     assertEquals(TimeoutException.class.getName(), job.getLastError());
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(errorSanitizer, times(1)).sanitize(any(TimeoutException.class));
   }
 
@@ -1208,11 +1240,11 @@ class JobTimeoutHandlerTest {
             eventPublisher);
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
         .thenReturn(false);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(lifecycleFacade, never())
@@ -1235,9 +1267,9 @@ class JobTimeoutHandlerTest {
             any(JobEntity.class), eq(JobStatus.RUNNING), eq(false), any(), any()))
         .thenReturn(false);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(eventPublisher, never()).publish(any());
   }
@@ -1246,11 +1278,12 @@ class JobTimeoutHandlerTest {
   void incrementRetryReturnsMinusOneExitsCleanly() {
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(-1);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(-1);
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
-    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobRetryStore, never())
+        .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
@@ -1260,10 +1293,11 @@ class JobTimeoutHandlerTest {
   void missingJobExitsCleanly() {
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.empty());
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
-    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
+    verify(jobRetryStore, never())
+        .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
@@ -1282,13 +1316,14 @@ class JobTimeoutHandlerTest {
         .when(lifecycleFacade)
         .handleTimeoutTransition(any(TimeoutException.class), eq(false), any(Supplier.class));
 
-    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1");
 
     verify(lifecycleFacade)
         .handleTimeoutTransition(any(TimeoutException.class), eq(false), any(Supplier.class));
     verify(jobCrudStore, never()).findById(any(UUID.class));
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
-    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
+    verify(jobRetryStore, never())
+        .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(errorSanitizer, never()).sanitize(any());
@@ -1300,15 +1335,16 @@ class JobTimeoutHandlerTest {
     job.setBackoffPolicy(BackoffPolicy.FIXED);
     job.setBackoffParamMs(2_500);
     Instant now = Instant.parse("2026-05-09T12:00:00Z");
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(
+            eq(JOB_ID), anyString(), any(Instant.class), eq(1), isNull()))
         .thenReturn(true);
     ArgumentCaptor<Instant> retryTimeCaptor = ArgumentCaptor.forClass(Instant.class);
 
     handler.processSignalTimeout(job, now);
 
     verify(jobRetryStore, times(1))
-        .scheduleJobRetry(eq(JOB_ID), anyString(), retryTimeCaptor.capture(), eq(1));
+        .scheduleJobRetry(eq(JOB_ID), anyString(), retryTimeCaptor.capture(), eq(1), isNull());
     assertEquals(now.plusMillis(2_500), retryTimeCaptor.getValue());
     assertEquals(JobStatus.PENDING, job.getStatus());
     assertEquals(1, job.getAttempts());
@@ -1330,8 +1366,9 @@ class JobTimeoutHandlerTest {
             eventPublisher,
             txRegistry);
     JobEntity job = waitingJobWithMaxRetries(3);
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(
+            eq(JOB_ID), anyString(), any(Instant.class), eq(1), isNull()))
         .thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronizationCaptor =
@@ -1390,8 +1427,9 @@ class JobTimeoutHandlerTest {
 
     handler.processSignalTimeout(job, now);
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
-    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), isNull());
+    verify(jobRetryStore, never())
+        .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), isNull());
     verify(lifecycleFacade, times(1))
         .completeTimeoutFailure(
             any(JobEntity.class), eq(JobStatus.WAITING), eq(true), any(), any());
@@ -1413,7 +1451,7 @@ class JobTimeoutHandlerTest {
     handler.processSignalTimeout(job, now);
 
     ArgumentCaptor<Throwable> throwableCaptor = ArgumentCaptor.forClass(Throwable.class);
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), isNull());
     verify(lifecycleFacade)
         .handleTimeoutTransition(throwableCaptor.capture(), eq(true), any(Supplier.class));
     assertInstanceOf(SignalTimeoutException.class, throwableCaptor.getValue());
@@ -1458,7 +1496,7 @@ class JobTimeoutHandlerTest {
     verify(signalStore, never())
         .findTimedOutSignalJobs(
             any(Instant.class), eq(JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE));
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), isNull());
   }
 
   @Test
@@ -1545,7 +1583,7 @@ class JobTimeoutHandlerTest {
 
     metricsHandler.processSignalTimeout(job, Instant.now());
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), isNull());
     verify(metricsCollector).signalTimedOut(JOB_ID, job.getPublicJobType(), "approval");
   }
 
@@ -1570,7 +1608,7 @@ class JobTimeoutHandlerTest {
     Instant scanTime = createdAt.plusSeconds(31);
     txHandler.processSignalTimeout(job, scanTime);
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class), isNull());
     verify(eventPublisher, never()).publish(any());
     assertEquals(job, terminalTimeoutTransition.job());
     assertEquals(2, terminalTimeoutTransition.eventsBeforeDlq().size());
@@ -1597,8 +1635,9 @@ class JobTimeoutHandlerTest {
             eventPublisher);
     JobEntity job = waitingJobWithMaxRetries(3);
     Instant now = Instant.now();
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(
+            eq(JOB_ID), anyString(), any(Instant.class), eq(1), isNull()))
         .thenReturn(false);
 
     handler.processSignalTimeout(job, now);
@@ -1612,11 +1651,12 @@ class JobTimeoutHandlerTest {
   @Test
   void signalTimeoutIncrementRetryReturnsMinusOneExitsCleanly() {
     JobEntity job = waitingJobWithMaxRetries(3);
-    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(-1);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, null)).thenReturn(-1);
 
     handler.processSignalTimeout(job, Instant.now());
 
-    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobRetryStore, never())
+        .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), isNull());
     verify(lifecycleFacade, never())
         .completeTimeoutFailure(any(JobEntity.class), any(), eq(false), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
@@ -1744,5 +1784,66 @@ class JobTimeoutHandlerTest {
         null,
         null,
         1);
+  }
+
+  @Test
+  void scheduledHardTimeoutUsesCapturedClaimInsteadOfFreshClaim() {
+    JobEntity claimed = new JobEntity();
+    claimed.setId(JOB_ID);
+    claimed.setTimeoutSec(30);
+    claimed.setClaimSeq(7L);
+    claimed.setPickedBy("node-1");
+    JobEntity reclaimed = new JobEntity();
+    reclaimed.setId(JOB_ID);
+    reclaimed.setStatus(JobStatus.RUNNING);
+    reclaimed.setClaimSeq(8L);
+    reclaimed.setAttempts(0);
+    reclaimed.setMaxRetries(3);
+    var scheduler = mock(ScheduledExecutorService.class);
+    var future = mock(Future.class);
+    var hard = ArgumentCaptor.forClass(Runnable.class);
+    Instant start = Instant.now();
+    JobAttemptControl attempt =
+        handler.newAttempt(
+            claimed.getId(),
+            claimed.getTimeoutSec(),
+            start,
+            claimed.getAttempts(),
+            claimed.getClaimSeq(),
+            claimed.getPickedBy());
+    handler.scheduleTimeoutMonitoring(attempt, future, scheduler, start);
+    verify(scheduler, times(2)).schedule(hard.capture(), anyLong(), eq(TimeUnit.SECONDS));
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(reclaimed));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L)).thenReturn(-1);
+
+    hard.getAllValues().get(1).run();
+
+    verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 7L);
+    verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
+    verify(lifecycleFacade, never())
+        .completeTimeoutFailure(any(), any(), anyBoolean(), any(), any());
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void exhaustedHardTimeoutUsesCapturedFenceForCompletion() {
+    JobEntity fresh = new JobEntity();
+    fresh.setId(JOB_ID);
+    fresh.setJobType(JobExecutionType.SINGLE);
+    fresh.setStatus(JobStatus.RUNNING);
+    fresh.setClaimSeq(8L);
+    fresh.setMaxRetries(0);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(fresh));
+    when(lifecycleFacade.completeTimeoutFailure(any(), any(), anyBoolean(), any(), any()))
+        .thenReturn(false);
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 7L, "original-node");
+    var completed = ArgumentCaptor.forClass(JobEntity.class);
+    verify(lifecycleFacade)
+        .completeTimeoutFailure(
+            completed.capture(), eq(JobStatus.RUNNING), eq(false), any(), any());
+    assertEquals(7L, completed.getValue().getClaimSeq().longValue());
+    assertEquals("original-node", completed.getValue().getPickedBy());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(), any());
+    verify(eventPublisher, never()).publish(any());
   }
 }
