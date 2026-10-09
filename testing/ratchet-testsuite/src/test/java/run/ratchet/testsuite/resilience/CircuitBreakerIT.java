@@ -46,6 +46,7 @@ import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NoOpMetricsCollector;
 import run.ratchet.testsuite.app.CircuitBreakerTestService;
@@ -87,6 +88,8 @@ public class CircuitBreakerIT {
             CircuitBreakerTestService.class,
             CircuitBreakerTestService.TestCircuitBreakerConfigProvider.class,
             CircuitBreakerConfig.class,
+            CircuitBreakerExceptionFilter.class,
+            CircuitBreakerExceptionFilter.Outcome.class,
             CircuitBreakerConfigProvider.class,
             CircuitBreakerInterceptor.class,
             CircuitBreaker.class,
@@ -112,6 +115,18 @@ public class CircuitBreakerIT {
     registry.registerConfig("fast", TEST_FAST_CONFIG);
     // Reset the circuit breaker for our test service (must match interceptor key)
     registry.resetBreaker(TEST_SERVICE, CircuitBreakerProfile.FAST);
+    registry.resetBreaker("ignore-test-service", CircuitBreakerProfile.FAST);
+  }
+
+  @Test
+  void circuitBreaker_ignoredExceptionsDoNotOpen() {
+    CircuitBreakerTestService.setShouldFail(true);
+    CircuitBreaker breaker = registry.getBreaker("ignore-test-service", CircuitBreakerProfile.FAST);
+    for (int i = 0; i < 10; i++) {
+      assertThrows(IllegalArgumentException.class, () -> service.callServiceWithIgnoredFailure());
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    }
+    assertEquals(10, CircuitBreakerTestService.getCallCount());
   }
 
   @Test

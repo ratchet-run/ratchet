@@ -129,7 +129,7 @@ class JobTaskAuthorizationTest {
 
     InOrder order = inOrder(authorizationPolicy, resilienceStrategy);
     order.verify(authorizationPolicy).checkExecute(eq(JOB_UUID), eq(OWNER_PRINCIPAL));
-    order.verify(resilienceStrategy).execute(anyString(), any(Callable.class));
+    order.verify(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
   }
 
   @Test
@@ -167,7 +167,7 @@ class JobTaskAuthorizationTest {
 
     jobTask.call();
 
-    verify(resilienceStrategy, never()).execute(anyString(), any());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any());
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
   }
 
@@ -187,7 +187,7 @@ class JobTaskAuthorizationTest {
 
     jobTask.call();
 
-    verify(resilienceStrategy, never()).execute(anyString(), any());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any());
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(lifecycleFacade, never()).scheduleNext(any());
     verify(lifecycleFacade, never()).markBatchChildFailed(any());
@@ -213,7 +213,7 @@ class JobTaskAuthorizationTest {
 
     jobTask.call();
 
-    verify(resilienceStrategy, never()).execute(anyString(), any());
+    verify(resilienceStrategy, never()).execute(anyString(), any(), any());
     verify(jobStore).incrementRetryAttempt(JOB_UUID);
     verify(retryPolicy).shouldRetry(1, failure);
     verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1));
@@ -269,15 +269,15 @@ class JobTaskAuthorizationTest {
         .thenReturn(TracingCollector.NoOpExecutionScope.INSTANCE);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
-        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
     // Default DefaultResultPersistenceStrategy is a real object that handles exceptions
     when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     nullPolicyTask.call();
 
-    verify(resilienceStrategy).execute(anyString(), any(Callable.class));
+    verify(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
   }
 
   // ---- helpers ----
@@ -322,11 +322,11 @@ class JobTaskAuthorizationTest {
   private void stubSuccessPath() throws Exception {
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
         .thenAnswer(
             inv -> {
               try {
-                return ((Callable<?>) inv.getArgument(1)).call();
+                return ((Callable<?>) inv.getArgument(2)).call();
               } catch (Exception e) {
                 throw new RuntimeException(e);
               }

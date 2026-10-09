@@ -29,7 +29,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 import run.ratchet.store.entity.JobPayload;
 
 class JobPayloadInvokerTest {
@@ -130,13 +132,74 @@ class JobPayloadInvokerTest {
 
     assertEquals(
         "payments",
-        invoker.serviceName(
-            payload(InvocationTarget.class, "protectedValue", "()V", true, List.of())));
+        invoker
+            .resilienceTarget(
+                payload(InvocationTarget.class, "protectedValue", "()V", true, List.of()))
+            .serviceName());
     assertEquals(
         "InvocationTarget.staticValue",
-        invoker.serviceName(
-            payload(
-                InvocationTarget.class, "staticValue", "()Ljava/lang/String;", true, List.of())));
+        invoker
+            .resilienceTarget(
+                payload(
+                    InvocationTarget.class, "staticValue", "()Ljava/lang/String;", true, List.of()))
+            .serviceName());
+  }
+
+  @Test
+  void resilienceTargetUsesMethodFilterBeforeClassFilterAndCachesIt() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> true);
+    JobPayload payload = payload(FilteredTarget.class, "methodCall", "()V", true, List.of());
+    ResilienceTarget target = invoker.resilienceTarget(payload);
+    assertEquals("method-filter", target.serviceName());
+    assertEquals(List.of(IllegalStateException.class), target.exceptionFilter().recordExceptions());
+    assertEquals(
+        List.of(IllegalArgumentException.class), target.exceptionFilter().ignoreExceptions());
+    assertSame(target, invoker.resilienceTarget(payload));
+  }
+
+  @Test
+  void resilienceTargetFallsBackToClassFilter() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> true);
+    ResilienceTarget target =
+        invoker.resilienceTarget(
+            payload(FilteredTarget.class, "classCall", "()V", true, List.of()));
+    assertEquals("class-filter", target.serviceName());
+    assertEquals(List.of(RuntimeException.class), target.exceptionFilter().recordExceptions());
+    assertEquals(
+        List.of(UnsupportedOperationException.class), target.exceptionFilter().ignoreExceptions());
+  }
+
+  @Test
+  void resilienceTargetWithoutAnnotationOrOnResolutionFailureRecordsAll() {
+    JobPayloadInvoker invoker = new JobPayloadInvoker(unusedBeanResolver(), name -> true);
+    assertEquals(
+        CircuitBreakerExceptionFilter.RECORD_ALL,
+        invoker
+            .resilienceTarget(
+                payload(
+                    InvocationTarget.class, "staticValue", "()Ljava/lang/String;", true, List.of()))
+            .exceptionFilter());
+    ResilienceTarget fallback =
+        invoker.resilienceTarget(payload(FilteredTarget.class, "missing", "()V", true, List.of()));
+    assertEquals("JobPayloadInvokerTest$FilteredTarget.missing", fallback.serviceName());
+    assertSame(CircuitBreakerExceptionFilter.RECORD_ALL, fallback.exceptionFilter());
+  }
+
+  /** Fixture for method and class annotation resolution. */
+  @CircuitBreakerProtected(
+      service = "class-filter",
+      recordExceptions = RuntimeException.class,
+      ignoreExceptions = UnsupportedOperationException.class)
+  public static class FilteredTarget {
+    /** Uses class metadata. */
+    public static void classCall() {}
+
+    /** Overrides class metadata. */
+    @CircuitBreakerProtected(
+        service = "method-filter",
+        recordExceptions = IllegalStateException.class,
+        ignoreExceptions = IllegalArgumentException.class)
+    public static void methodCall() {}
   }
 
   private static JobPayload payload(

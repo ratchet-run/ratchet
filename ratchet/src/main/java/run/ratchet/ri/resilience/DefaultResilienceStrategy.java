@@ -21,6 +21,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 import run.ratchet.spi.ResilienceStrategy;
 
 /**
@@ -46,12 +47,20 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
 
   @Override
   public <T> T execute(String serviceName, Callable<T> task) throws Exception {
+    return execute(serviceName, null, task);
+  }
+
+  /** Executes with configuration and per-call exception accounting rules. */
+  @Override
+  public <T> T execute(
+      String serviceName, CircuitBreakerExceptionFilter exceptionFilter, Callable<T> task)
+      throws Exception {
     if (!configProvider.isEnabled()) {
       return task.call();
     }
     CircuitBreaker breaker = registry.getBreaker(serviceName);
     try {
-      return breaker.execute(task);
+      return breaker.execute(task, exceptionFilter);
     } catch (CircuitBreakerOpenException e) {
       log.warnv("Circuit breaker OPEN for service: {0}", serviceName);
       throw e;
