@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate resolved Maven license metadata against versioned, reviewed evidence."""
+"""Evaluate resolved Maven license metadata against license aliases and artifact-level reviewed evidence."""
 
 import argparse
 import json
@@ -137,14 +137,24 @@ def normalized_licenses(licenses):
     return sorted(result)
 
 
+def canonical_licenses(licenses, aliases):
+    """Compare aliased names by SPDX term, and other metadata exactly."""
+    return sorted(
+        ("alias", aliases[name.strip()])
+        if name.strip() in aliases else ("raw", name, url)
+        for name, url in licenses
+    )
+
+
 def check(inventory, policy, reactor):
-    if policy["schemaVersion"] != 1:
+    if policy["schemaVersion"] != 2:
         raise PolicyError("Unsupported policy schema")
     dependencies = inventory["dependencies"]
     if not isinstance(dependencies, list) or not dependencies:
         raise PolicyError("Empty dependency inventory")
     allowed = set(policy["allowedLicenses"])
-    reviewed = policy["dependencies"]
+    reviewed = policy["artifacts"]
+    aliases = policy["licenseAliases"]
     reactor_licenses = normalized_licenses(policy["reactorLicenses"])
     failures = []
     seen = set()
@@ -161,10 +171,22 @@ def check(inventory, policy, reactor):
                 if licenses != reactor_licenses:
                     raise PolicyError("Reactor license metadata changed")
                 continue
-            if coordinate not in reviewed:
-                raise PolicyError("Unreviewed dependency/version; add license evidence")
-            review = reviewed[coordinate]
-            if licenses != normalized_licenses(review["licenses"]):
+            unreviewed = [
+                name.strip() for name, _ in licenses
+                if aliases.get(name.strip()) not in allowed
+            ]
+            if not unreviewed:
+                continue
+            artifact = coordinate.rsplit(":", 1)[0]
+            if artifact not in reviewed:
+                raise PolicyError(
+                    f"Unreviewed license(s) {', '.join(unreviewed)}; "
+                    "add an alias or an artifact entry"
+                )
+            review = reviewed[artifact]
+            if canonical_licenses(licenses, aliases) != canonical_licenses(
+                normalized_licenses(review["licenses"]), aliases
+            ):
                 raise PolicyError("License metadata changed; review the evidence")
             if not review["evidence"] or not all(
                 isinstance(url, str) and url.startswith("https://")

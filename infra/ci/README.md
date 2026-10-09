@@ -33,42 +33,32 @@ and malformed reports. Logs and inventory are uploaded even when CI fails.
 
 ### Reviewing dependency changes
 
-Every external `groupId:artifactId:version` must have an entry in
-`dependency-license-policy.json`. Each entry records the exact declared license
-names and URLs, the reviewed SPDX expression, and evidence URLs. Effective POM
-licenses may be inherited from a parent POM. The original names and URLs are
-preserved so changes require review. Evidence links are for reviewers; CI does
-not fetch them.
+Dependencies pass when every declared license name maps through `licenseAliases`
+to an allowed SPDX term. Version bumps and new artifacts using these names need
+no policy entry. Effective POM licenses may be inherited from a parent POM.
 
-For an added or upgraded dependency:
+When the gate fails:
 
-1. Run the gate and inspect
-   `target/generated-sources/license/dependency-licenses.json` and the Maven log.
-2. Read the version's POM (including inherited license declarations). For
-   ambiguous or multiple licenses, inspect the artifact's LICENSE and NOTICE
-   files or versioned upstream source. Record the evidence URL and, when relevant,
-   the path inside the artifact in a `note`.
-3. Add the exact version and metadata to the policy, in coordinate order. State
-   the SPDX expression explicitly: `OR` permits a choice; `AND` requires both;
-   `WITH` applies a specific exception. A list of POM licenses does not by itself
-   establish an `OR` relationship. Remove obsolete versions once no checked
-   configuration uses them.
-4. Run the gate and its tests. Include the policy change with the dependency PR.
+1. Inspect `target/generated-sources/license/dependency-licenses.json` and the
+   Maven log. Read the POM and relevant upstream LICENSE and NOTICE files.
+2. Add a new name to `licenseAliases` only when its meaning is unambiguous.
+   Keep generic names such as `Public Domain` unaliased.
+3. For copyleft, dual-license choices, or exceptions, add an `artifacts` entry
+   keyed by `groupId:artifactId`. Record declared names and URLs, an SPDX
+   expression, HTTPS evidence, and any exception justification or useful note.
+   `OR` permits a choice; `AND` requires both; `WITH` applies an exception.
+   Multiple POM declarations do not establish an `OR` relationship by themselves.
+4. Keep alias and artifact keys sorted. Run the gate and its tests, and include
+   policy changes with the dependency PR.
 
-The allowlist contains the permissive and weak-copyleft license terms used by
-the current graph. Unknown terms and GPL/LGPL/AGPL/SSPL fail unless the exact
-dependency entry contains a documented `exception`. Existing Hibernate and
-Connector/J exceptions are retained at their current versions. AOP Alliance's
-public-domain declaration has a separate documented exception. An absent POM
-license URL can be reviewed using other evidence; an absent license name cannot.
-Do not add blanket group-ID exceptions or infer an exemption from the word
-"Apache" appearing alongside another license.
-
-Policy edits are review decisions, not automatically generated approvals. The
-initial inventory records effective POM declarations for ordinary single-license
-artifacts. JNA, HdrHistogram, Jakarta API, Parsson, and Yasson choices were checked
-against the packaged license/notice files. Vert.x entries conservatively require
-both declared licenses, since both already satisfy policy.
+Artifact reviews apply across versions with matching canonical license metadata:
+aliased names compare by SPDX term, while unaliased names and URLs compare
+exactly. Changed metadata requires a fresh evidence review. A later version
+whose declared licenses are all allowed passes without the artifact review.
+Evidence links are for reviewers; CI does not fetch them. Disallowed expressions
+require a documented `exception`. A missing license URL can be reviewed using
+other evidence; a missing license name cannot. Policy edits are human review
+decisions. Do not add blanket group-ID exceptions.
 
 Ratchet's own modules are identified by exact coordinates from this checkout's
 POM tree and must retain the recorded Apache declaration. Their versions follow
