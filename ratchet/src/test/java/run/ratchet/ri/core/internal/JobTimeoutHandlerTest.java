@@ -76,6 +76,7 @@ import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.MetricsCollector;
@@ -400,7 +401,12 @@ class JobTimeoutHandlerTest {
         null,
         null,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock),
+            validationFacade,
+            payloadInvoker,
+            payloadSerializer,
+            observabilityFacade,
+            clock,
+            new DefaultErrorSanitizer()),
         120);
   }
 

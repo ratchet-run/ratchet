@@ -83,6 +83,7 @@ import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
@@ -1866,4 +1867,54 @@ class JobTaskTest {
   }
 
   public record CustomArgument(String reference, int attempt) implements Serializable {}
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void executionHistoryAndTracingUseSanitizedFailure() throws Exception {
+    assertSanitizedFailure(false);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void failureSinksFallBackToClassNameWhenSanitizerThrows() throws Exception {
+    assertSanitizedFailure(true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertSanitizedFailure(boolean sanitizerThrows) throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    RuntimeException failure =
+        new IllegalStateException("jdbc:mysql://user:hunter2@localhost/db person@example.com");
+    doThrow(failure).when(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
+    when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    String expected;
+    if (sanitizerThrows) {
+      when(errorSanitizer.sanitize(failure)).thenThrow(new AssertionError("sanitizer failed"));
+      expected = failure.getClass().getName();
+    } else {
+      expected = new DefaultErrorSanitizer().sanitize(failure);
+      when(errorSanitizer.sanitize(failure)).thenReturn(expected);
+    }
+
+    jobTask.call();
+
+    ArgumentCaptor<JobExecutionEntity> history = ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(history.capture());
+    Assertions.assertEquals(failure.getClass().getName(), history.getValue().getErrorClass());
+    Assertions.assertEquals(expected, history.getValue().getErrorMessage());
+    Assertions.assertEquals(expected, job.getLastError());
+    verify(scope).failure(failure.getClass().getName(), expected, job.getAttempts());
+    verify(errorSanitizer, times(1)).sanitize(failure);
+    if (!sanitizerThrows) {
+      Assertions.assertTrue(expected.contains("***REDACTED***"));
+    }
+    Assertions.assertFalse(history.getValue().getErrorMessage().contains("hunter2"));
+    Assertions.assertFalse(history.getValue().getErrorMessage().contains("person@example.com"));
+  }
 }

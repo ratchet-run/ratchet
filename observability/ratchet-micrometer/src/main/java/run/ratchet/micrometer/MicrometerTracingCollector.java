@@ -158,11 +158,12 @@ public class MicrometerTracingCollector implements TracingCollector {
     }
 
     @Override
-    public void failure(Throwable cause, int attempt) {
+    public void failure(String errorClass, String sanitizedMessage, int attempt) {
       if (closed.compareAndSet(false, true)) {
         span.tag("ratchet.outcome", "failure")
             .tag("ratchet.attempt", String.valueOf(attempt))
-            .error(cause);
+            .tag("error", errorClass)
+            .tag("exception.message", sanitizedMessage);
         end();
       }
     }

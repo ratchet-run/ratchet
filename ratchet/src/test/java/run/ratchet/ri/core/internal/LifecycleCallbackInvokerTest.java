@@ -16,9 +16,12 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,11 +35,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import run.ratchet.api.event.JobCallbackFailedEvent;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 
 class LifecycleCallbackInvokerTest {
+
   @Test
   void missingContextStillInvokesCallbackWithNull() throws Exception {
     JobMdcContext.clear();
@@ -56,7 +62,13 @@ class LifecycleCallbackInvokerTest {
     PayloadSerializer serializer = mock(PayloadSerializer.class);
     ExecutionObserver observer = mock(ExecutionObserver.class);
     when(invoker.materializeArguments(any(), eq(serializer))).thenAnswer(inv -> inv.getArgument(0));
-    new LifecycleCallbackInvoker(validator, invoker, serializer, observer, Clock.systemUTC())
+    new LifecycleCallbackInvoker(
+            validator,
+            invoker,
+            serializer,
+            observer,
+            Clock.systemUTC(),
+            new DefaultErrorSanitizer())
         .invokeOnSuccess(job);
     ArgumentCaptor<JobPayload> invoked = ArgumentCaptor.forClass(JobPayload.class);
     verify(invoker).invoke(invoked.capture());
@@ -83,7 +95,13 @@ class LifecycleCallbackInvokerTest {
     when(invoker.materializeArguments(any(), eq(serializer))).thenAnswer(inv -> inv.getArgument(0));
     RuntimeException ex = new RuntimeException("original");
 
-    new LifecycleCallbackInvoker(validator, invoker, serializer, observer, Clock.systemUTC())
+    new LifecycleCallbackInvoker(
+            validator,
+            invoker,
+            serializer,
+            observer,
+            Clock.systemUTC(),
+            new DefaultErrorSanitizer())
         .invokeOnFailure(job, ex);
 
     ArgumentCaptor<JobPayload> materialized = ArgumentCaptor.forClass(JobPayload.class);
@@ -115,7 +133,13 @@ class LifecycleCallbackInvokerTest {
     ExecutionObserver observer = mock(ExecutionObserver.class);
     // Binding rejects the unavailable slot before materialization.
 
-    new LifecycleCallbackInvoker(validator, invoker, serializer, observer, Clock.systemUTC())
+    new LifecycleCallbackInvoker(
+            validator,
+            invoker,
+            serializer,
+            observer,
+            Clock.systemUTC(),
+            new DefaultErrorSanitizer())
         .invokeOnSuccess(job);
 
     verify(validator).validateSecurity(callback);
@@ -134,5 +158,44 @@ class LifecycleCallbackInvokerTest {
     verify(observer).publishEvent(event.capture());
     assertEquals(
         JobCallbackFailedEvent.CallbackType.ON_SUCCESS, event.getValue().getCallbackType());
+  }
+
+  @Test
+  void callbackEventRedactsJdbcCredentialsAndEmail() throws Exception {
+    String message = callbackFailureMessage(new DefaultErrorSanitizer());
+    assertTrue(message.contains("***REDACTED***"));
+    assertFalse(message.contains("hunter2"));
+    assertFalse(message.contains("person@example.com"));
+  }
+
+  @Test
+  void callbackEventFallsBackToClassNameWhenSanitizerThrows() throws Exception {
+    assertEquals(
+        IllegalStateException.class.getName(),
+        callbackFailureMessage(
+            failure -> {
+              throw new AssertionError("sanitizer failed");
+            }));
+  }
+
+  private String callbackFailureMessage(ErrorSanitizer sanitizer) throws Exception {
+    JobEntity job = new JobEntity();
+    job.setId(UUID.randomUUID());
+    job.setOnSuccessPayload(new JobPayload("Target", "success", "()V", true, List.of(), null));
+    PreExecutionValidator validator = mock(PreExecutionValidator.class);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    PayloadSerializer serializer = mock(PayloadSerializer.class);
+    ExecutionObserver observer = mock(ExecutionObserver.class);
+    when(invoker.materializeArguments(any(), eq(serializer))).thenAnswer(inv -> inv.getArgument(0));
+    doThrow(new IllegalStateException("jdbc:mysql://user:hunter2@localhost/db person@example.com"))
+        .when(invoker)
+        .invoke(any());
+    new LifecycleCallbackInvoker(
+            validator, invoker, serializer, observer, Clock.systemUTC(), sanitizer)
+        .invokeOnSuccess(job);
+    ArgumentCaptor<JobCallbackFailedEvent> event =
+        ArgumentCaptor.forClass(JobCallbackFailedEvent.class);
+    verify(observer).publishEvent(event.capture());
+    return event.getValue().getErrorMessage();
   }
 }

@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -80,7 +81,7 @@ class MicrometerTracingCollectorTest {
             Map.of("traceparent", "00-parent-01"));
     assertNotNull(scope);
     assertDoesNotThrow(() -> scope.success(100));
-    assertDoesNotThrow(() -> scope.failure(new RuntimeException(), 1));
+    assertDoesNotThrow(() -> scope.failure(RuntimeException.class.getName(), "[REDACTED]", 1));
     assertDoesNotThrow(scope::close);
     verifyNoInteractions(tracer);
   }
@@ -171,7 +172,7 @@ class MicrometerTracingCollectorTest {
 
     assertNotNull(scope);
     assertDoesNotThrow(() -> scope.success(100));
-    assertDoesNotThrow(() -> scope.failure(new RuntimeException(), 1));
+    assertDoesNotThrow(() -> scope.failure(RuntimeException.class.getName(), "[REDACTED]", 1));
     assertDoesNotThrow(scope::close);
   }
 
@@ -251,11 +252,14 @@ class MicrometerTracingCollectorTest {
   void executionScope_failure_tagsOutcomeAttemptAndError() {
     RuntimeException cause = new RuntimeException("boom");
 
-    startedScope().failure(cause, 2);
+    startedScope().failure(cause.getClass().getName(), "[REDACTED]", 2);
 
     verify(span).tag("ratchet.outcome", "failure");
     verify(span).tag("ratchet.attempt", "2");
-    verify(span).error(cause);
+    verify(span).tag("error", cause.getClass().getName());
+    verify(span).tag("exception.message", "[REDACTED]");
+    verify(span, never()).error(any());
+    verify(span, never()).tag(eq("exception.stacktrace"), any());
     verify(span).end();
   }
 

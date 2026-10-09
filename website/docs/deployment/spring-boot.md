@@ -296,6 +296,12 @@ With a Micrometer Tracing bridge, such as `micrometer-tracing-bridge-otel` or
 `Propagator` beans to create job spans. Tracing does not require a `MeterRegistry`. A custom
 `TracingCollector` bean takes precedence. Without a `Tracer` bean, tracing stays no-op.
 
+`TracingCollector.ExecutionScope.failure(String errorClass, String sanitizedMessage, int attempt)`
+receives a message that has already passed through the configured `ErrorSanitizer`. Failure spans
+include the exception class and sanitized message; no throwable, cause chain, or stack trace is
+exported by design. OpenTelemetry emits an `exception` event with `exception.type` and
+`exception.message`; Micrometer uses the `error` and `exception.message` tags.
+
 ## Configuration and overrides
 
 The Spring-specific properties are:

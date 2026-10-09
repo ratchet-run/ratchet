@@ -463,7 +463,12 @@ class RatchetExecutionConfiguration {
         leases,
         sanitizer,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock),
+            validationFacade,
+            payloadInvoker,
+            payloadSerializer,
+            observabilityFacade,
+            clock,
+            sanitizer),
         options.timeout().signalTimeoutLeaseTtlSeconds());
   }
 }
