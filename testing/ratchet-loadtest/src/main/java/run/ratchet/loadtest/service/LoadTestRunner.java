@@ -41,6 +41,11 @@ public class LoadTestRunner {
   private static final int MAX_JOBS_PER_REQUEST =
       Integer.getInteger("ratchet.loadtest.max-jobs-per-request", 1_000_000);
 
+  // Defaults to Ratchet's own maxPayloadKb (100 KiB). Checked before the payload string is built,
+  // so an oversized request is rejected without allocating it.
+  private static final int MAX_PAYLOAD_BYTES =
+      Integer.getInteger("ratchet.loadtest.max-payload-bytes", 100 * 1024);
+
   @Inject JobSchedulerService scheduler;
   @Inject LoadTestWorkloadExecutor workloadExecutor;
   @Inject MeterRegistry registry;
@@ -69,9 +74,13 @@ public class LoadTestRunner {
     return JobPriority.valueOf(raw.trim().replace('-', '_').toUpperCase(Locale.ROOT));
   }
 
-  private static String payload(int bytes) {
+  static String payload(int bytes) {
     if (bytes <= 0) {
       return "";
+    }
+    if (bytes > MAX_PAYLOAD_BYTES) {
+      throw new IllegalArgumentException(
+          "payloadBytes exceeds max allowed value " + MAX_PAYLOAD_BYTES);
     }
     return "x".repeat(bytes);
   }
