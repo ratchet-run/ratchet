@@ -72,6 +72,7 @@ public final class RatchetOptionsFactory {
               node.heartbeatIntervalSeconds(
                       config.get(RatchetConfigKeys.NODE_HEARTBEAT_INTERVAL_SECONDS))
                   .orphanGraceSeconds(config.get(RatchetConfigKeys.NODE_ORPHAN_GRACE_SECONDS))
+                  .maxCrashRedeliveries(config.get(RatchetConfigKeys.NODE_MAX_CRASH_REDELIVERIES))
                   .orphanScanIntervalSeconds(
                       config.get(RatchetConfigKeys.ORPHAN_SCAN_INTERVAL_SECONDS))
                   .orphanRecoveryLeaseTtlSeconds(

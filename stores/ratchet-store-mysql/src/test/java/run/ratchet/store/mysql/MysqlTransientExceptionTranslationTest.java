@@ -83,7 +83,7 @@ class MysqlTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobs(Duration.ofSeconds(30)));
+        () -> deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 100).reset());
   }
 
   @Test

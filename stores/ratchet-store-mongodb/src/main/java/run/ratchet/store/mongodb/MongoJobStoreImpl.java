@@ -59,6 +59,7 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7EntityListener;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RecurringClaim;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -496,18 +497,26 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public int resetOrphanJobs(Duration grace) {
-    return crud.resetOrphanJobs(grace);
+  public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
+    return crud.findOrphanCompletionSnapshot(jobId);
   }
 
   @Override
-  public int resetOrphanJobsBefore(Instant cutoff) {
-    return crud.resetOrphanJobsBefore(cutoff);
+  public OrphanRecovery resetOrphanJobs(
+      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
+    return crud.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
   }
 
   @Override
-  public int resetOrphanJobsForNode(String nodeId) {
-    return crud.resetOrphanJobsForNode(nodeId);
+  public OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
+    return crud.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  }
+
+  @Override
+  public OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
+    return crud.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
   }
 
   @Override

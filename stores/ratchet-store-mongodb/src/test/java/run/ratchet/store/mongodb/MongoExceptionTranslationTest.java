@@ -354,7 +354,7 @@ class MongoExceptionTranslationTest {
     MongoJobCrudOperations crud =
         new MongoJobCrudOperations(contextWithCollections(jobs, nodes, session));
 
-    assertTrue(crud.resetOrphanJobs(Duration.ofMinutes(5)) >= 0);
+    assertTrue(crud.resetOrphanJobs(Duration.ofMinutes(5), 3, 0).reset() >= 0);
     assertTrue(usedTransaction.get());
   }
 

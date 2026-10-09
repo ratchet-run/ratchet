@@ -211,14 +211,12 @@ Nodes register themselves in the `scheduler_node` table on startup and update th
 
 ## Orphan Recovery
 
-If a node crashes without gracefully shutting down, its jobs remain in RUNNING status with `picked_by` set to the dead node. The `OrphanRecoveryTimer` detects these orphaned jobs:
+If a node crashes, orphan recovery finds its old RUNNING claims after the heartbeat grace period. It also finds claims with no owner.
 
-1. Scans for RUNNING jobs whose `picked_by` node hasn't heartbeated recently
-2. Resets orphaned jobs to PENDING status
-3. Clears the `picked_by` and `picked_at` fields
-4. The jobs become eligible for polling by any healthy node
+Each recovery returns a job to PENDING and adds one to its crash count. The limit is `ratchet.node.max-crash-redeliveries`, which defaults to 3. Once the count reaches the limit, the next crash fails the job through the normal completion path. The job enters the DLQ and runs `onFailure` if its payload can be loaded. Application retry counts are unchanged.
 
-Orphaned jobs are recovered rather than lost when a node fails. The recovery interval and stale threshold are configurable.
+On restart, a node recovers its own claims immediately. Exhausted claims stay RUNNING with their owner cleared. The next orphan scan can fail them after the claim grace period. Other nodes continue to use the heartbeat and claim-age checks.
+
 
 ## Distributed Locking
 
@@ -275,14 +273,18 @@ int canceled = scheduler.cancelRecurringJobByBusinessKey("hourly-report");
 Ratchet's CDI lifecycle performs an orderly, bounded shutdown:
 
 1. **Stop new claims:** An internal drain flag makes subsequent poll cycles skip claiming jobs
-2. **Stop background work:** The node heartbeat, Poller, recurring scheduler, and maintenance timers stop
-3. **Cancel active executions:** The execution coordinator requests cancellation and briefly waits for workers to exit
-4. **Recover durable state:** If workers exit, remaining RUNNING rows owned by the node return to PENDING; otherwise orphan recovery handles them after the node disappears
-5. **Release resources:** Runtime caches and coordinator resources are cleared
+2. **Stop background work:** The Poller, recurring scheduler, and maintenance timers stop. The heartbeat keeps running, so other nodes do not treat the draining node as dead
+3. **Drain active executions:** The execution coordinator waits for accepted work within the shutdown timeout
+4. **Release durable claims:** Remaining RUNNING rows owned by the node return to PENDING without a crash charge, even when workers are still active
+5. **Cancel active executions:** Workers still running are interrupted. Their claims are already released, so the interrupt does not use up a retry attempt
+6. **Stop the heartbeat**
+7. **Release resources:** Runtime caches and coordinator resources are cleared
 
 This prevents new claims once shutdown starts, but it does not promise that every in-flight job
 finishes. Jobs should remain interruptible and idempotent because Ratchet provides at-least-once
 execution and may recover an interrupted RUNNING row on another node.
+
+A drain timeout does not consume the crash budget. SIGKILL and node crashes do. An old worker cannot record an outcome after its claim is released. The heartbeat runs until the claims are released, so orphan recovery on another node does not take them first unless the heartbeat itself fails.
 
 `DrainController` is an internal implementation detail, not a public health-check API. Application
 readiness controls incoming request traffic; it does not control Ratchet's polling loop. For a

@@ -22,8 +22,15 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.spi.ExhaustedOrphan;
+import run.ratchet.store.spi.OrphanRecovery;
+import run.ratchet.store.util.RowValues;
 
 final class OracleJobDeleteOperations {
 
@@ -93,7 +100,7 @@ final class OracleJobDeleteOperations {
       String selectSql =
           """
           SELECT job_id FROM scheduler_job
-          WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries
+          WHERE terminal_status = 'FAILED'
             AND terminated_at < ?
           """;
       @SuppressWarnings("unchecked")
@@ -128,41 +135,47 @@ final class OracleJobDeleteOperations {
     }
   }
 
-  int resetOrphanJobs(Duration grace) {
-    try {
-      long graceSec = grace.toSeconds();
-      // language=Oracle
-      String sql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-          WHERE status = 'RUNNING'
-            AND (
-              picked_by IS NULL OR picked_by NOT IN (
-                SELECT node_id FROM scheduler_node
-                WHERE heartbeat_ts >= CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) - NUMTODSINTERVAL(?, 'SECOND')
-              )
-            )
-            AND picked_at <= CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP) - NUMTODSINTERVAL(?, 'SECOND')
-          """;
-      return ctx.em()
-          .createNativeQuery(sql)
-          .setParameter(1, graceSec)
-          .setParameter(2, graceSec)
-          .executeUpdate();
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("reset orphan jobs", e);
+  Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
+    String sql =
+        """
+        SELECT j.job_type, j.depends_on, q.claim_seq, q.picked_by, q.attempts, j.max_retries,
+               j.priority, j.business_key, j.recurring_master_id
+        FROM scheduler_job j JOIN scheduler_job_queue q ON q.job_id = j.job_id
+        WHERE j.job_id = ?
+        """;
+    List<?> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidRawConverter.toBytes(jobId))
+            .getResultList();
+    if (rows.isEmpty()) {
+      return Optional.empty();
     }
+    Object[] row = (Object[]) rows.get(0);
+    JobEntity snapshot = new JobEntity();
+    snapshot.setId(jobId);
+    snapshot.setStatus(JobStatus.RUNNING);
+    snapshot.setJobType(JobExecutionType.valueOf(row[0].toString()));
+    snapshot.setDependsOn(OracleJobRowMapper.uuidOrNull(row[1]));
+    snapshot.setClaimSeq(((Number) row[2]).longValue());
+    snapshot.setPickedBy(row[3] == null ? null : row[3].toString());
+    snapshot.setAttempts(((Number) row[4]).intValue());
+    snapshot.setMaxRetries(((Number) row[5]).intValue());
+    snapshot.setPriority(RowValues.safeJobPriority(((Number) row[6]).intValue()));
+    snapshot.setBusinessKey(RowValues.stringOrNull(row[7]));
+    snapshot.setRecurringMasterId(OracleJobRowMapper.uuidOrNull(row[8]));
+    return Optional.of(snapshot);
   }
 
-  int resetOrphanJobsBefore(Instant cutoff) {
-    try {
-      // language=Oracle
-      String sql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-          WHERE status = 'RUNNING'
+  OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
+    return resetOrphanJobsBefore(Instant.now().minus(grace), maxCrashRedeliveries, exhaustedLimit);
+  }
+
+  OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
+    String predicate =
+        """
+        WHERE status = 'RUNNING'
             AND (
               picked_by IS NULL OR picked_by NOT IN (
                 SELECT node_id FROM scheduler_node
@@ -170,30 +183,87 @@ final class OracleJobDeleteOperations {
               )
             )
             AND picked_at < ?
-          """;
-      Timestamp cutoffTimestamp = OracleTimestamps.microTimestamp(cutoff);
-      return ctx.em()
-          .createNativeQuery(sql)
-          .setParameter(1, cutoffTimestamp)
-          .setParameter(2, cutoffTimestamp)
-          .executeUpdate();
+        """;
+    Timestamp cutoffTimestamp = OracleTimestamps.microTimestamp(cutoff);
+    return recoverOrphans(
+        predicate,
+        List.of(cutoffTimestamp, cutoffTimestamp),
+        maxCrashRedeliveries,
+        exhaustedLimit,
+        false);
+  }
+
+  OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
+    return recoverOrphans(
+        "WHERE status = 'RUNNING' AND picked_by = ?",
+        List.of(nodeId),
+        maxCrashRedeliveries,
+        exhaustedLimit,
+        true);
+  }
+
+  private OrphanRecovery recoverOrphans(
+      String predicate,
+      List<?> parameters,
+      int maxCrashRedeliveries,
+      int exhaustedLimit,
+      boolean releaseOwner) {
+    try {
+      String resetSql =
+          """
+          UPDATE scheduler_job_queue
+          SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
+              crash_count = crash_count + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+          """
+              + predicate
+              + " AND crash_count < ?";
+      Query reset = ctx.em().createNativeQuery(resetSql);
+      bindRecovery(reset, parameters, maxCrashRedeliveries);
+      int count = reset.executeUpdate();
+      List<ExhaustedOrphan> exhausted = new ArrayList<>();
+      if (exhaustedLimit > 0) {
+        String selectSql =
+            """
+            SELECT job_id, claim_seq, crash_count, picked_by FROM scheduler_job_queue
+            """
+                + predicate
+                + " AND crash_count >= ? ORDER BY job_id";
+        Query select = ctx.em().createNativeQuery(selectSql);
+        bindRecovery(select, parameters, maxCrashRedeliveries);
+        select.setMaxResults(exhaustedLimit);
+        for (Object result : select.getResultList()) {
+          Object[] row = (Object[]) result;
+          exhausted.add(
+              new ExhaustedOrphan(
+                  OracleJobRowMapper.uuidOrNull(row[0]),
+                  ((Number) row[1]).longValue(),
+                  ((Number) row[2]).intValue(),
+                  row[3] == null ? null : row[3].toString()));
+        }
+      }
+      if (releaseOwner) {
+        Query release =
+            ctx.em()
+                .createNativeQuery(
+                    "UPDATE scheduler_job_queue SET picked_by = NULL "
+                        + predicate
+                        + " AND crash_count >= ?");
+        bindRecovery(release, parameters, maxCrashRedeliveries);
+        release.executeUpdate();
+      }
+      ctx.em().clear();
+      return new OrphanRecovery(count, List.copyOf(exhausted));
     } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("reset orphan jobs before cutoff", e);
+      throw ctx.translateTransientStoreException("recover orphan jobs", e);
     }
   }
 
-  int resetOrphanJobsForNode(String nodeId) {
-    try {
-      // language=Oracle
-      String sql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-          WHERE status = 'RUNNING' AND picked_by = ?
-          """;
-      return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("reset orphan jobs for node", e);
+  private static void bindRecovery(Query query, List<?> parameters, int maxCrashRedeliveries) {
+    int index = 1;
+    for (Object parameter : parameters) {
+      query.setParameter(index++, parameter);
     }
+    query.setParameter(index, maxCrashRedeliveries);
   }
 }

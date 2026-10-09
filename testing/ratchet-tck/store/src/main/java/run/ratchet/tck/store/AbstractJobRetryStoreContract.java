@@ -265,7 +265,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   void staleClaimCannotMutateRetryOrTerminalState() {
     var saved = persist(newPendingJob());
     var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
-    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
     var current = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
     assertEquals(-1, store().incrementRetryAttempt(saved.getId(), first.claimSeq()));
     assertFalse(
@@ -279,6 +279,34 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertEquals(1, store().incrementRetryAttempt(saved.getId(), current.claimSeq()));
     assertTrue(
         store().scheduleJobRetry(saved.getId(), "current", Instant.now(), 1, current.claimSeq()));
+  }
+
+  @Test
+  void manualDlqRetryStartsWithFreshCrashBudget() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    assertEquals(1, store().resetOrphanJobsForNode("dead", 1, 100).reset());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    long seq = store().findById(job.getId()).orElseThrow().getClaimSeq();
+    assertTrue(store().markJobFailedTerminal(job.getId(), "crash limit", 0, seq));
+    assertTrue(store().resetFailedToPending(job.getId()));
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 100);
+    assertEquals(0, recovery.exhausted().get(0).crashCount());
+  }
+
+  @Test
+  void bulkManualDlqRetryStartsWithFreshCrashBudget() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    assertEquals(1, store().resetOrphanJobsForNode("dead", 1, 100).reset());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    long seq = store().findById(job.getId()).orElseThrow().getClaimSeq();
+    assertTrue(store().markJobFailedTerminal(job.getId(), "crash limit", 0, seq));
+    assertEquals(1, store().resetFailedToPending(JobFilter.builder().build(), 100));
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 100);
+    assertEquals(0, recovery.exhausted().get(0).crashCount());
   }
 
   @Test

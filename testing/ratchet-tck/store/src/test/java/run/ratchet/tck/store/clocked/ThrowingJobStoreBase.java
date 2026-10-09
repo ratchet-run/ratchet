@@ -50,6 +50,7 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -388,17 +389,25 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public int resetOrphanJobs(Duration grace) {
+  public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
+    return fail("findOrphanCompletionSnapshot");
+  }
+
+  @Override
+  public OrphanRecovery resetOrphanJobs(
+      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
     return fail("resetOrphanJobs");
   }
 
   @Override
-  public int resetOrphanJobsBefore(Instant cutoff) {
+  public OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
     return fail("resetOrphanJobsBefore");
   }
 
   @Override
-  public int resetOrphanJobsForNode(String nodeId) {
+  public OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
     return fail("resetOrphanJobsForNode");
   }
 

@@ -145,7 +145,7 @@ class RatchetRuntimeTest {
   }
 
   @Test
-  void shutdownDrainsAcceptedWorkBeforeCancellationAndReset() throws Exception {
+  void shutdownDrainsAcceptedWorkBeforeResetAndCancellation() throws Exception {
     JobExecutorService executor = mock(JobExecutorService.class);
     RetryBufferDrainer retryBuffer = mock(RetryBufferDrainer.class);
     JobStateManager state = mock(JobStateManager.class);
@@ -157,7 +157,7 @@ class RatchetRuntimeTest {
     var order = inOrder(retryBuffer, executor, state);
     order.verify(retryBuffer).shutdown();
     order.verify(executor).awaitIdle(timeout);
-    order.verify(executor).shutdownActiveExecutions();
     order.verify(state).resetRunningJobsForNode();
+    order.verify(executor).shutdownActiveExecutions();
   }
 }

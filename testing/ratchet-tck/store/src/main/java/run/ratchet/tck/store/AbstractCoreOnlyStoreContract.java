@@ -103,7 +103,7 @@ public abstract class AbstractCoreOnlyStoreContract {
     job.setPickedAt(Instant.now().minusSeconds(45));
     fixture.store().save(job);
 
-    int reset = fixture.store().resetOrphanJobs(Duration.ofSeconds(15));
+    int reset = fixture.store().resetOrphanJobs(Duration.ofSeconds(15), 3, 100).reset();
 
     assertTrue(reset >= 1, "a job picked 45s ago with a 15s grace should be reclaimed");
     assertEquals(
