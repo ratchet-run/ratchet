@@ -503,7 +503,7 @@ public class JobTask implements Callable<Void> {
     // contract this method documents.
     int attempts = claim != null ? claim.attempts() : (job != null ? job.getAttempts() : 0);
     try {
-      jobStore.scheduleJobRetry(jobId, ex.getMessage(), newScheduledTime, attempts);
+      jobStore.scheduleJobRetry(jobId, sanitizeError(ex), newScheduledTime, attempts);
     } catch (Throwable t) {
       log.errorf(
           t,
@@ -1042,7 +1042,8 @@ public class JobTask implements Callable<Void> {
 
   private String sanitizeError(Throwable failure) {
     try {
-      return errorSanitizer.sanitize(failure);
+      String sanitized = errorSanitizer.sanitize(failure);
+      return sanitized != null ? sanitized : failure.getClass().getName();
     } catch (Throwable sanitizerError) {
       return failure.getClass().getName();
     }

@@ -136,7 +136,8 @@ public final class LifecycleCallbackInvoker {
 
   private String sanitizeError(Throwable failure) {
     try {
-      return errorSanitizer.sanitize(failure);
+      String sanitized = errorSanitizer.sanitize(failure);
+      return sanitized != null ? sanitized : failure.getClass().getName();
     } catch (Throwable sanitizerError) {
       return failure.getClass().getName();
     }

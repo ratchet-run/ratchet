@@ -178,6 +178,11 @@ class LifecycleCallbackInvokerTest {
             }));
   }
 
+  @Test
+  void callbackEventFallsBackToClassNameWhenSanitizerReturnsNull() throws Exception {
+    assertEquals(IllegalStateException.class.getName(), callbackFailureMessage(failure -> null));
+  }
+
   private String callbackFailureMessage(ErrorSanitizer sanitizer) throws Exception {
     JobEntity job = new JobEntity();
     job.setId(UUID.randomUUID());

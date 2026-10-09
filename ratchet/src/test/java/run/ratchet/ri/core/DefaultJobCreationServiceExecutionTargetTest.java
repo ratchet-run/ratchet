@@ -50,6 +50,7 @@ import run.ratchet.api.JobResult;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.spi.ClassPolicy;
@@ -127,7 +128,8 @@ class DefaultJobCreationServiceExecutionTargetTest {
             true,
             true,
             null,
-            new JakartaAfterCommitRegistrar());
+            new JakartaAfterCommitRegistrar(),
+            new DefaultErrorSanitizer());
 
     lenient()
         .when(jobCrudStore.create(any(JobEntity.class)))
@@ -190,7 +192,8 @@ class DefaultJobCreationServiceExecutionTargetTest {
             true,
             true,
             null,
-            new JakartaAfterCommitRegistrar());
+            new JakartaAfterCommitRegistrar(),
+            new DefaultErrorSanitizer());
 
     DefaultBatchBuilder builder = new DefaultBatchBuilder("batch", gated);
     builder.forEach(

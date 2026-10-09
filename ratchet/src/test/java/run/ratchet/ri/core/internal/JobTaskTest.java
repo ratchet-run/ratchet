@@ -787,13 +787,16 @@ class JobTaskTest {
     // backoff for an already-upgraded peer — never dead-lettered, never left stuck RUNNING.
     JobClaimDto claim = claimForNode("node-1");
     jobTask.initFromClaim(claim);
-    when(jobStore.findById(JOB_UUID)).thenThrow(new UnsupportedEnvelopeVersionException(2, 1));
+    UnsupportedEnvelopeVersionException skew = new UnsupportedEnvelopeVersionException(2, 1);
+    when(jobStore.findById(JOB_UUID)).thenThrow(skew);
+    when(errorSanitizer.sanitize(skew)).thenReturn("sanitized skew");
     when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt())).thenReturn(true);
 
     jobTask.call();
 
     // Released for an upgraded peer (attempt count preserved), with a skew metric.
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(claim.attempts()));
+    verify(jobStore)
+        .scheduleJobRetry(eq(JOB_UUID), eq("sanitized skew"), any(), eq(claim.attempts()));
     verify(observabilityFacade).recordEnvelopeVersionSkew(JOB_UUID, 2, 1);
     // Not poison: never dead-lettered.
     verify(lifecycleFacade, never())
