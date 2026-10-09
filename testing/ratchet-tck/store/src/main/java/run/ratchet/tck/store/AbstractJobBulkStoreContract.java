@@ -31,6 +31,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
 
 /** Base contract tests for {@code JobBulkStore}. */
@@ -40,6 +41,28 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   @AfterEach
   void cleanupBulkFixture() {
     cleanupStore();
+  }
+
+  @Test
+  void bulkInsert_roundTripsLargeMultibytePayloads() {
+    String value = "é".repeat(128 * 1024);
+    var first = newPendingJob();
+    first.setId(UuidV7Factory.create());
+    first.setPayload(
+        new JobPayload(
+            "java.lang.String",
+            "valueOf",
+            "(Ljava/lang/Object;)Ljava/lang/String;",
+            true,
+            List.of(value),
+            null));
+    var second = newPendingJob();
+    second.setId(UuidV7Factory.create());
+    second.setPayload(first.getPayload());
+    store().bulkInsert(List.of(first, second));
+    for (var job : List.of(first, second)) {
+      assertEquals(job.getPayload(), store().findById(job.getId()).orElseThrow().getPayload());
+    }
   }
 
   @Test

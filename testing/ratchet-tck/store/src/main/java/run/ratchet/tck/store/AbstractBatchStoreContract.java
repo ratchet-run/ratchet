@@ -30,7 +30,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code BatchStore}, including batch metrics. */
@@ -40,6 +42,35 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
   @AfterEach
   void cleanupBatchFixture() {
     cleanupStore();
+  }
+
+  @Test
+  void saveBatch_roundTripsLargeMultibyteProgressHook() {
+    String value = "é".repeat(128 * 1024);
+    var parent = persist(newBatchParentJob());
+    var batch = new BatchEntity();
+    batch.setId(parent.getId());
+    batch.setTotalItems(3);
+    batch.setCompletedItems(0);
+    batch.setFailedItems(0);
+    batch.setCompletionProcessed(false);
+    JobPayload hook =
+        new JobPayload(
+            "java.lang.String",
+            "valueOf",
+            "(Ljava/lang/Object;)Ljava/lang/String;",
+            true,
+            List.of(value),
+            null);
+    batch.setProgressHook(hook);
+    batchStore().saveBatch(batch);
+    assertEquals(hook, batchStore().findBatchById(parent.getId()).orElseThrow().getProgressHook());
+    batch.setProgressHook(hook);
+    batchStore().saveBatch(batch);
+    assertEquals(hook, batchStore().findBatchById(parent.getId()).orElseThrow().getProgressHook());
+    batch.setProgressHook(null);
+    batchStore().saveBatch(batch);
+    assertEquals(null, batchStore().findBatchById(parent.getId()).orElseThrow().getProgressHook());
   }
 
   @Test
