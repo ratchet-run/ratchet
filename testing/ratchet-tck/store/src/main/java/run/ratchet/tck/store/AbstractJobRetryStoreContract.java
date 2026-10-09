@@ -308,4 +308,64 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 100);
     assertEquals(0, recovery.exhausted().get(0).crashCount());
   }
+
+  @Test
+  void resetAfterTerminalFailure_keepsClaimSeqAboveStaleOwner() {
+    assertResetKeepsClaimSequence(false, false, false);
+  }
+
+  @Test
+  void resetAfterSavedTerminalFailure_keepsClaimSeqAboveStaleOwner() {
+    assertResetKeepsClaimSequence(true, false, false);
+  }
+
+  @Test
+  void bulkResetAfterTerminalFailure_keepsClaimSeqAboveStaleOwner() {
+    assertResetKeepsClaimSequence(false, true, false);
+  }
+
+  @Test
+  void bulkResetAfterSavedTerminalFailure_keepsClaimSeqAboveStaleOwner() {
+    assertResetKeepsClaimSequence(true, true, false);
+  }
+
+  @Test
+  void resetAfterTerminalFailureCas_keepsClaimSeqAboveStaleOwner() {
+    assertResetKeepsClaimSequence(false, false, true);
+  }
+
+  private void assertResetKeepsClaimSequence(boolean viaSave, boolean bulk, boolean viaCas) {
+    var saved = persist(newPendingJob());
+    var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertEquals(saved.getId(), first.id());
+    long staleClaimSeq = first.claimSeq();
+    String error = "terminal failure " + "x".repeat(40_000);
+    if (viaSave) {
+      var failed = store().findById(saved.getId()).orElseThrow();
+      failed.setStatus(JobStatus.FAILED);
+      failed.setLastError(error);
+      store().save(failed);
+    } else if (viaCas) {
+      assertTrue(
+          store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, error));
+    } else {
+      assertTrue(store().markJobFailedTerminal(saved.getId(), error, 1, staleClaimSeq));
+    }
+    var failed = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.FAILED, failed.getStatus());
+    assertEquals(error, failed.getLastError());
+    if (bulk) {
+      assertEquals(1, store().resetFailedToPending(JobFilter.builder().build(), 10));
+    } else {
+      assertTrue(store().resetFailedToPending(saved.getId()));
+    }
+    var current = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertEquals(saved.getId(), current.id());
+    assertTrue(current.claimSeq() > staleClaimSeq, "Reset must preserve the owner fence");
+    assertFalse(store().markJobFailedTerminal(saved.getId(), "stale owner", 99, staleClaimSeq));
+    var untouched = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, untouched.getStatus());
+    assertEquals(current.claimSeq(), untouched.getClaimSeq().longValue());
+    assertNull(untouched.getLastError());
+  }
 }

@@ -57,6 +57,20 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
   }
 
   @Test
+  void markJobSucceeded_roundTripsLargeMultibyteResult() {
+    String resultJson = "\"" + "é".repeat(128 * 1024) + "\"";
+    var saved = persist(newPendingJob());
+    assertTrue(
+        store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
+    Instant now = Instant.now();
+    assertTrue(
+        store().markJobSucceeded(saved.getId(), resultJson, "java.lang.String", now, now, 0L, 0L));
+    var found = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.SUCCEEDED, found.getStatus());
+    assertEquals(resultJson, found.getJobResult());
+  }
+
+  @Test
   void competingCompletionsApplyBatchAndDependencyEffectsOnce() throws Exception {
     var batch = persist(newBatchParentJob());
     persistBatch(batch.getId(), 1);
@@ -275,6 +289,48 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             null);
     Assertions.assertThrows(RuntimeException.class, () -> store().commitCompletion(plan));
     assertEquals(JobStatus.RUNNING, store().findById(parent.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void canceledCompletionReturnsBatchProgressAndCountsChildExactlyOnce() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    var child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child = persist(child);
+    assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
+    var claimed = store().findById(child.getId()).orElseThrow();
+    Instant now = Instant.now();
+    var plan =
+        new JobCompletionPlan(
+            child.getId(),
+            JobStatus.RUNNING,
+            JobStatus.CANCELED,
+            null,
+            null,
+            null,
+            claimed.getAttempts(),
+            now,
+            now,
+            0L,
+            0L,
+            parent.getId(),
+            null,
+            List.of(),
+            claimed.getClaimSeq());
+    var completed = store().commitCompletion(plan);
+    assertTrue(completed.committed());
+    assertNotNull(completed.batchProgress());
+    assertEquals(parent.getId(), completed.batchProgress().batchId());
+    assertEquals(1, completed.batchProgress().totalItems());
+    assertEquals(0, completed.batchProgress().completedItems());
+    assertEquals(1, completed.batchProgress().failedItems());
+    assertEquals(JobStatus.CANCELED, store().findById(child.getId()).orElseThrow().getStatus());
+    assertFalse(store().commitCompletion(plan).committed());
+    var batch = batchStore().findBatchById(parent.getId()).orElseThrow();
+    assertEquals(0, batch.getCompletedItems());
+    assertEquals(1, batch.getFailedItems());
   }
 
   @Test

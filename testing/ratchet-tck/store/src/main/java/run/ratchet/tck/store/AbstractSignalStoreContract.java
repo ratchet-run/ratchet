@@ -385,4 +385,35 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
             deliveredAt,
             UUID.randomUUID().toString());
   }
+
+  private static String largeSignalText() {
+    return "é".repeat(256 * 1024 / 2);
+  }
+
+  @Test
+  void deliverSignalById_roundTripsLargeMultibytePayload() {
+    var job = persist(newWaitingJob("large-payload", Instant.now().plusSeconds(600)));
+    String payload = largeSignalText();
+    assertEquals(1, deliverSignalById(job.getId(), payload, "admin", Instant.now()));
+    assertEquals(payload, store().findById(job.getId()).orElseThrow().getSignalPayload());
+  }
+
+  @Test
+  void deliverSignalById_roundTripsLargeMultibyteRejectionReason() {
+    var job = persist(newWaitingJob("large-rejection", Instant.now().plusSeconds(600)));
+    String reason = largeSignalText();
+    assertEquals(
+        1,
+        signalStore()
+            .deliverSignalById(
+                job.getId(),
+                "{}",
+                "DECISION",
+                "REJECTED",
+                reason,
+                "admin",
+                Instant.now(),
+                "large-rejection-id"));
+    assertEquals(reason, store().findById(job.getId()).orElseThrow().getSignalRejectionReason());
+  }
 }

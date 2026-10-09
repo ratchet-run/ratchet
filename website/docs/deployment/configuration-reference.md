@@ -54,6 +54,7 @@ This build exposes **63 fixed keys**.
 | `ratchet.timeout.soft-timeout-percent` | `RATCHET_SOFT_TIMEOUT_PERCENT` | `80` | `SOFT_TIMEOUT_PERCENT` |
 | `ratchet.timeout.default-sla-seconds` | `RATCHET_WORKER_DEFAULT_SLA` | `1800` | `WORKER_DEFAULT_SLA` |
 | `ratchet.timeout.signal-timeout-batch-size` | `RATCHET_SIGNAL_TIMEOUT_BATCH_SIZE` | `500` | `SIGNAL_TIMEOUT_BATCH_SIZE` |
+| `ratchet.timeout.cancellation-grace-seconds` | `RATCHET_CANCELLATION_GRACE_SECONDS` | `0` | `CANCELLATION_GRACE_SECONDS` |
 | `ratchet.timeout.signal-timeout-lease-ttl-seconds` | `RATCHET_SIGNAL_TIMEOUT_LEASE_TTL_SECONDS` | `120` | `SIGNAL_TIMEOUT_LEASE_TTL_SECONDS` |
 | `ratchet.batch.recovery-interval-seconds` | `RATCHET_BATCH_RECOVERY_INTERVAL_SECONDS` | `900` | `BATCH_RECOVERY_INTERVAL_SECONDS` |
 | `ratchet.batch.recovery-lease-ttl-seconds` | `RATCHET_BATCH_RECOVERY_LEASE_TTL_SECONDS` | `900` | `BATCH_RECOVERY_LEASE_TTL_SECONDS` |

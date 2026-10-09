@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -103,13 +102,39 @@ class JobExecutorServiceTest {
   }
 
   @Test
+  void executionRejectsMissingClaimSequence() {
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setClaimSeq(null);
+    var failure =
+        Assertions.assertThrows(NullPointerException.class, () -> service.execute(job, "platform"));
+    Assertions.assertEquals("job " + JOB_ID + " has no claim sequence", failure.getMessage());
+    verify(jobExecutor, never()).execute(any(Runnable.class));
+    verify(timeoutHandler, never())
+        .scheduleTimeoutMonitoring(any(JobAttemptControl.class), any(), any(), any());
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
+  }
+
+  @Test
   void acceptedQueuedCancellationReleasesPermitExactlyOnce() throws Exception {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     JobEntity job = new JobEntity();
     job.setJobType(JobExecutionType.SINGLE);
+    job.setId(JOB_ID);
+    job.setClaimSeq(7L);
+    job.setPickedBy("node-1");
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    when(timeoutHandler.newAttempt(JOB_ID, job.getTimeoutSec(), FIXED_NOW, 0, 7L, "node-1"))
+        .thenReturn(attempt);
     ExecutionResult result = service.execute(job, "platform");
+    verify(timeoutHandler)
+        .scheduleTimeoutMonitoring(
+            eq(attempt), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
     assertFalse(result.isRejected());
     ArgumentCaptor<Runnable> queued = ArgumentCaptor.forClass(Runnable.class);
     verify(jobExecutor).execute(queued.capture());
@@ -128,6 +153,9 @@ class JobExecutorServiceTest {
     Mockito.doThrow(new RejectedExecutionException("full")).when(jobExecutor).execute(any());
     JobEntity job = new JobEntity();
     job.setJobType(JobExecutionType.SINGLE);
+    job.setId(JOB_ID);
+    job.setClaimSeq(0L);
+    job.setPickedBy("node-1");
     assertTrue(service.execute(job, "platform").isRejected());
     verify(pool).releasePermit(JobExecutionType.SINGLE);
   }
@@ -170,14 +198,11 @@ class JobExecutorServiceTest {
         .when(jobExecutor)
         .execute(any(Runnable.class));
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID),
-            anyInt(),
+            any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class),
-            eq(0L),
-            eq("node-1")))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+            any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
 
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     ExecutionResult result = invokeExecute(() -> null, handlesRef);
@@ -188,13 +213,7 @@ class JobExecutorServiceTest {
     verify(hardTimeout).cancel(false);
     verify(timeoutHandler)
         .scheduleTimeoutMonitoring(
-            eq(JOB_ID),
-            anyInt(),
-            any(Future.class),
-            eq(scheduledExecutor),
-            eq(FIXED_NOW),
-            eq(0L),
-            eq("node-1"));
+            any(JobAttemptControl.class), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
   }
 
   @Test
@@ -210,13 +229,10 @@ class JobExecutorServiceTest {
   void watchdogSchedulingFailureRejectsWithoutSubmittingTask() throws Exception {
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID),
-            anyInt(),
+            any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class),
-            eq(0L),
-            eq("node-1")))
+            any(Instant.class)))
         .thenThrow(new RejectedExecutionException("scheduler stopped"));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
@@ -233,14 +249,11 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenThrow(lookupFailure);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID),
-            anyInt(),
+            any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class),
-            eq(0L),
-            eq("node-1")))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+            any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
 
@@ -261,14 +274,11 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID),
-            anyInt(),
+            any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class),
-            eq(0L),
-            eq("node-1")))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+            any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
     doAnswer(
             invocation -> {
               enteredExecute.countDown();
@@ -307,14 +317,11 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID),
-            anyInt(),
+            any(JobAttemptControl.class),
             any(Future.class),
             eq(scheduledExecutor),
-            any(Instant.class),
-            eq(0L),
-            eq("node-1")))
-        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+            any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, null, hardTimeout, null));
     AtomicReference<Thread> runner = new AtomicReference<>();
     doAnswer(
             invocation -> {
@@ -361,14 +368,23 @@ class JobExecutorServiceTest {
         DefaultJobExecutorService.class.getDeclaredMethod(
             "execute",
             UUID.class,
-            int.class,
+            JobAttemptControl.class,
+            Instant.class,
             Callable.class,
             AtomicReference.class,
             String.class,
-            long.class,
-            String.class);
+            Runnable.class);
     method.setAccessible(true);
     return (ExecutionResult)
-        method.invoke(service, JOB_ID, 30, callable, handlesRef, "platform", 0L, "node-1");
+        method.invoke(
+            service,
+            JOB_ID,
+            new JobAttemptControl(
+                JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1"),
+            FIXED_NOW,
+            callable,
+            handlesRef,
+            "platform",
+            (Runnable) () -> {});
   }
 }

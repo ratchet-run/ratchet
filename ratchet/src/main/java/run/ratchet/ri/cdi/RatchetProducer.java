@@ -189,6 +189,7 @@ public class RatchetProducer {
         signalStore.isResolvable() ? signalStore.get() : null,
         metricsCollector,
         signalTimeoutBatchSize,
+        options.timeout().cancellationGraceSeconds(),
         singletonLeaseService,
         errorSanitizer,
         new LifecycleCallbackInvoker(

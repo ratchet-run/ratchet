@@ -349,7 +349,7 @@ final class PostgresqlJobTerminalOperations {
       String selectSql =
           """
           SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries,
-                 execution_target
+                 execution_target, claim_seq
           FROM scheduler_job
           WHERE job_id = ?
           FOR UPDATE
@@ -371,6 +371,7 @@ final class PostgresqlJobTerminalOperations {
       int timeoutSec = ((Number) row[4]).intValue();
       int maxRetries = ((Number) row[5]).intValue();
       String executionTarget = (String) row[6];
+      long claimSeq = ((Number) row[7]).longValue();
 
       // language=PostgreSQL
       String clearTerminalSql =
@@ -390,9 +391,9 @@ final class PostgresqlJobTerminalOperations {
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
-             timeout_sec, max_retries, attempts, version, updated_at, execution_target)
+             timeout_sec, max_retries, attempts, version, updated_at, execution_target, claim_seq)
           VALUES (?, 'PENDING', ?, ?, statement_timestamp(), ?, ?, ?, 0, 0,
-                  statement_timestamp(), ?)
+                  statement_timestamp(), ?, ?)
           """;
       ctx.em()
           .createNativeQuery(insertHotSql)
@@ -403,6 +404,7 @@ final class PostgresqlJobTerminalOperations {
           .setParameter(5, timeoutSec)
           .setParameter(6, maxRetries)
           .setParameter(7, executionTarget)
+          .setParameter(8, claimSeq)
           .executeUpdate();
 
       if (businessKey != null) {
@@ -449,9 +451,9 @@ final class PostgresqlJobTerminalOperations {
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
-             timeout_sec, max_retries, attempts, version, updated_at, execution_target)
+             timeout_sec, max_retries, attempts, version, updated_at, execution_target, claim_seq)
           SELECT job_id, 'PENDING', job_type, priority, statement_timestamp(), business_key,
-                 timeout_sec, max_retries, 0, 0, statement_timestamp(), execution_target
+                 timeout_sec, max_retries, 0, 0, statement_timestamp(), execution_target, claim_seq
           FROM scheduler_job
           WHERE job_id IN (%s)
           """
@@ -513,6 +515,7 @@ final class PostgresqlJobTerminalOperations {
         """
         UPDATE scheduler_job c
         SET terminal_status = 'FAILED',
+            claim_seq = q.claim_seq,
             terminal_error = ?,
             total_attempts = %s,
             terminated_at = statement_timestamp(),

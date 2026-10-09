@@ -68,6 +68,55 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
+  void rejectsDefaultSlaAboveIntegerMaximumFromConfig() {
+    String tooLarge = Long.toString(Integer.MAX_VALUE + 1L);
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.timeout.default-sla-seconds", tooLarge), Map.of())));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(), Map.of("RATCHET_WORKER_DEFAULT_SLA", tooLarge))));
+    assertEquals(
+        (long) Integer.MAX_VALUE,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(
+                        "ratchet.timeout.default-sla-seconds", Integer.toString(Integer.MAX_VALUE)),
+                    Map.of()))
+            .timeout()
+            .defaultSlaSeconds());
+  }
+
+  @Test
+  void readsCancellationGracePropertyAndEnvironmentVariable() {
+    assertEquals(
+        0L,
+        optionsFrom(new MapRatchetConfigSource(Map.of(), Map.of()))
+            .timeout()
+            .cancellationGraceSeconds());
+    assertEquals(
+        3L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.timeout.cancellation-grace-seconds", "3"), Map.of()))
+            .timeout()
+            .cancellationGraceSeconds());
+    assertEquals(
+        4L,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(), Map.of("RATCHET_CANCELLATION_GRACE_SECONDS", "4")))
+            .timeout()
+            .cancellationGraceSeconds());
+  }
+
+  @Test
   void mapsOrphanScanIntervalSecondsEnvironment() {
     RatchetOptions options =
         optionsFrom(

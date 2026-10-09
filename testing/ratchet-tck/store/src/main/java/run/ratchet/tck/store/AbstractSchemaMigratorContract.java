@@ -124,33 +124,37 @@ public abstract class AbstractSchemaMigratorContract {
   @Test
   void claimSequenceMigrationIsIdempotentOnRepeat() throws Exception {
     resetDatabase();
-    newMigrator().migrate();
+    String version = appliedVersion(newMigrator().migrate(), "claim_seq");
     try (Connection connection = newJdbcConnection()) {
       var metadata = connection.getMetaData();
       boolean upper = metadata.storesUpperCaseIdentifiers();
-      try (ResultSet columns =
-          metadata.getColumns(
-              connection.getCatalog(),
-              connection.getSchema(),
-              upper ? "SCHEDULER_JOB_QUEUE" : "scheduler_job_queue",
-              upper ? "CLAIM_SEQ" : "claim_seq")) {
-        assertTrue(columns.next(), "claim_seq must exist after migration");
-        assertEquals(0, columns.getInt("NULLABLE"), "claim_seq must be NOT NULL");
+      for (String table : List.of("scheduler_job", "scheduler_job_queue")) {
+        try (ResultSet columns =
+            metadata.getColumns(
+                connection.getCatalog(),
+                connection.getSchema(),
+                upper ? table.toUpperCase(Locale.ROOT) : table,
+                upper ? "CLAIM_SEQ" : "claim_seq")) {
+          assertTrue(columns.next(), table + ".claim_seq must exist after migration");
+          assertEquals(0, columns.getInt("NULLABLE"), "claim_seq must be NOT NULL");
+        }
       }
-      try (var statement = connection.createStatement()) {
-        statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '010'");
+      try (var statement =
+          connection.prepareStatement("DELETE FROM ratchet_schema_version WHERE version = ?")) {
+        statement.setString(1, version);
+        statement.executeUpdate();
       }
     }
     var repeated = newMigrator().migrate();
     assertEquals(
-        List.of("010"),
+        List.of(version),
         repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
   }
 
   @Test
   void crashCountMigrationIsIdempotentOnRepeat() throws Exception {
     resetDatabase();
-    newMigrator().migrate();
+    String version = appliedVersion(newMigrator().migrate(), "crash_count");
     try (Connection connection = newJdbcConnection()) {
       var metadata = connection.getMetaData();
       boolean upper = metadata.storesUpperCaseIdentifiers();
@@ -163,14 +167,25 @@ public abstract class AbstractSchemaMigratorContract {
         assertTrue(columns.next(), "crash_count must exist after migration");
         assertEquals(0, columns.getInt("NULLABLE"), "crash_count must be NOT NULL");
       }
-      try (var statement = connection.createStatement()) {
-        statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '011'");
+      try (var statement =
+          connection.prepareStatement("DELETE FROM ratchet_schema_version WHERE version = ?")) {
+        statement.setString(1, version);
+        statement.executeUpdate();
       }
     }
     var repeated = newMigrator().migrate();
     assertEquals(
-        List.of("011"),
+        List.of(version),
         repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+  }
+
+  /** Stores number their migrations independently, so tests find a script by its name. */
+  private static String appliedVersion(SchemaMigrator.MigrationResult result, String name) {
+    return result.applied().stream()
+        .filter(script -> script.resourceName().endsWith("__" + name + ".sql"))
+        .map(SchemaMigrator.MigrationScript::version)
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("no applied migration named " + name));
   }
 
   private boolean nodeInfoColumnExists() throws SQLException {

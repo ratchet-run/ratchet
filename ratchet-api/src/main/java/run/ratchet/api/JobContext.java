@@ -16,9 +16,15 @@
 package run.ratchet.api;
 
 import java.io.Serializable;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
+import run.ratchet.api.exception.CancellationRequestedException;
+import run.ratchet.api.internal.AttemptTokens;
 import run.ratchet.spi.JobLogger;
 
 /**
@@ -29,6 +35,16 @@ import run.ratchet.spi.JobLogger;
  * that should inherit the executing job's caller principal must be made on the job execution thread
  * while the context is bound.
  *
+ * <h2>Cooperative cancellation</h2>
+ *
+ * <p>Check {@link #isCancellationRequested()} or {@link #throwIfCancellationRequested()} at safe
+ * points between units of work. A {@link CancellationRequestedException} created after a request in
+ * the same attempt produces the timeout outcome (the same retries/DLQ and
+ * JobExecutionTimedOutEvent) without an interrupt. One created before the request or kept from an
+ * earlier attempt is an ordinary failure. Returning normally counts as success: Ratchet cannot
+ * distinguish early return from finished work. The hard interrupt at the deadline remains the
+ * backstop.
+ *
  * @since 0.1
  */
 @Incubating
@@ -36,6 +52,15 @@ public final class JobContext {
 
   private static final ThreadLocal<JobContext> TL = new ThreadLocal<>();
 
+  private static final BooleanSupplier NEVER = () -> false;
+
+  static {
+    AttemptTokens.installContextReader(context -> context.attemptToken);
+  }
+
+  private final @Nullable Object attemptToken;
+  private final @Nullable Instant deadline;
+  private final BooleanSupplier cancellationRequested;
   private final UUID jobId;
   private final JobLogger logger;
   private final Map<String, String> params;
@@ -61,6 +86,21 @@ public final class JobContext {
       Map<String, String> params,
       @Nullable Serializable signalPayload,
       @Nullable String callerPrincipal) {
+    this(jobId, logger, params, signalPayload, callerPrincipal, null, NEVER, null);
+  }
+
+  private JobContext(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      @Nullable Serializable signalPayload,
+      @Nullable String callerPrincipal,
+      @Nullable Instant deadline,
+      BooleanSupplier cancellationRequested,
+      @Nullable Object attemptToken) {
+    this.attemptToken = attemptToken;
+    this.deadline = deadline;
+    this.cancellationRequested = Objects.requireNonNull(cancellationRequested);
     this.jobId = jobId;
     this.logger = logger;
     this.params = params != null ? Collections.unmodifiableMap(params) : Collections.emptyMap();
@@ -115,6 +155,70 @@ public final class JobContext {
     JobContext ctx = new JobContext(jobId, logger, params, signalPayload, callerPrincipal);
     TL.set(ctx);
     return ctx;
+  }
+
+  /**
+   * Binds a context for a watched execution. The deadline is when the watchdog interrupts this
+   * attempt; the supplier reads its cancellation flag, which another thread may set. Always pair
+   * with {@link #clear()} in a finally block. The token is an opaque identity of this attempt
+   * supplied by the runtime. A {@link CancellationRequestedException} records it so one kept from
+   * an earlier attempt is not taken as this attempt's stop. It is null outside watched executions.
+   */
+  public static JobContext bind(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      @Nullable String callerPrincipal,
+      @Nullable Serializable signalPayload,
+      @Nullable Instant deadline,
+      BooleanSupplier cancellationRequested,
+      @Nullable Object attemptToken) {
+    JobContext ctx =
+        new JobContext(
+            jobId,
+            logger,
+            params,
+            signalPayload,
+            callerPrincipal,
+            deadline,
+            cancellationRequested,
+            attemptToken);
+    TL.set(ctx);
+    return ctx;
+  }
+
+  /**
+   * Returns when Ratchet's watchdog interrupts this attempt: its start time plus the job timeout,
+   * or {@code ratchet.timeout.default-sla-seconds} when none is configured. Empty for contexts
+   * outside watched executions, such as onFailure callbacks or tests. Use {@code
+   * Duration.between(Instant.now(), deadline)} to compute time remaining.
+   */
+  public Optional<Instant> deadline() {
+    return Optional.ofNullable(deadline);
+  }
+
+  /**
+   * Returns true once Ratchet asks this attempt to stop. Today the execution watchdog sets the flag
+   * {@code ratchet.timeout.cancellation-grace-seconds} before the deadline, or immediately before
+   * interrupting when grace is zero or not shorter than the timeout. Safe from any thread and cheap
+   * (no I/O); every attempt, including retries, starts cleared. Check at safe points and stop via
+   * {@link #throwIfCancellationRequested()}: returning normally counts as success.
+   */
+  public boolean isCancellationRequested() {
+    return cancellationRequested.getAsBoolean();
+  }
+
+  /**
+   * Throws {@link CancellationRequestedException} if Ratchet has requested cancellation. The
+   * exception counts as a timeout only when created after the request in the same attempt. One
+   * created before the request or kept from an earlier attempt is an ordinary failure. Safe from
+   * any thread holding this context.
+   */
+  public void throwIfCancellationRequested() {
+    if (isCancellationRequested()) {
+      throw CancellationRequestedException.forContext(
+          "Cancellation requested for job " + jobId, this);
+    }
   }
 
   /** Removes the context bound to the current thread. */

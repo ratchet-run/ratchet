@@ -236,13 +236,53 @@ Instead, each database operation (status update, retry scheduling, success marki
 
 ## Timeout Handling
 
-If a job exceeds its configured timeout, the `JobTimeoutHandler` interrupts the executing thread. The resulting `InterruptedException` flows through the normal failure path. The task logs a specific warning when it detects a timeout-caused interruption.
+Each execution attempt has a deadline: the time the attempt started plus the job's timeout. A job without its own timeout uses `ratchet.timeout.default-sla-seconds` (30 minutes by default). A watchdog on the executing node does up to three things for each attempt. When the grace is longer than the soft-warning margin, step 2 happens before step 1.
+
+1. At `ratchet.timeout.soft-timeout-percent` of the timeout (80% by default), it logs a warning.
+2. At the deadline minus `ratchet.timeout.cancellation-grace-seconds`, it sets the attempt's cancellation request. This step is skipped when the grace is `0` (the default) or not shorter than the timeout.
+3. At the deadline, if the attempt is still running, it sets the cancellation request (if it is not set yet) and interrupts the worker thread with `Future.cancel(true)`. The attempt then counts as a timeout: it is retried if it has retries left, otherwise it fails and goes to the DLQ. An attempt that already stopped after the request is not interrupted (see [Stopping at a safe point](#stopping-at-a-safe-point)).
 
 ```java
 scheduler.enqueue(() -> longRunningTask())
     .withTimeout(Duration.ofMinutes(5))
     .submit();
 ```
+
+### Stopping at a safe point
+
+An interrupt lands wherever the worker happens to be blocked: waiting for a pooled bean, a JDBC connection, or a cache lock. The code it interrupts may report the timeout as an unrelated error and leave container state half-changed. A job that works in units, such as pages of a table, can stop between units instead. `JobContext` tells it when to stop:
+
+| Method | Returns |
+|---|---|
+| `deadline()` | `Optional<Instant>`: when the watchdog will interrupt this attempt. Empty when the context was not bound for a watched execution, for example inside an `onFailure` callback that the watchdog runs after it interrupts a job. |
+| `isCancellationRequested()` | `true` once Ratchet has asked this attempt to stop. Cheap to call; it does no I/O. |
+| `throwIfCancellationRequested()` | Throws `CancellationRequestedException` if a stop was requested. |
+
+```java
+public void migrate() {
+  JobContext ctx = JobContext.current();
+  while (hasMorePages()) {
+    ctx.throwIfCancellationRequested(); // stop between pages, not in the middle of one
+    copyNextPage();
+  }
+}
+```
+
+Set a grace period that is longer than one unit of work, so the job sees the request and finishes its current unit before the deadline:
+
+```properties
+ratchet.timeout.cancellation-grace-seconds=60
+```
+
+What happens next depends on how the job ends:
+
+- **It throws `CancellationRequestedException`** (directly, or as the cause of another exception) and the exception was created after the request: the attempt is a timeout, exactly as if the watchdog had interrupted it. The attempt count, retry backoff, `JobExecutionTimedOutEvent`, DLQ routing and `onFailure` callback are the same. The worker thread is not interrupted. The exception records the request state when it is created, so one created before the request stays an ordinary failure, even if the request arrives while it unwinds through a `finally` block or a wrapper. The exception also records the attempt it was created in, so one kept from an earlier attempt and rethrown by a retry is an ordinary failure. `throwIfCancellationRequested()` only throws after a request, so its exception counts for that attempt. If you create the exception yourself on another thread, build it with `CancellationRequestedException.forContext(message, context)` and pass the job's `JobContext`, because the context is only bound on the job thread.
+- **It returns normally**: the attempt succeeds. Ratchet cannot tell a job that stopped early from one that finished just before its deadline, so a job that stops before its work is done must throw.
+- **It keeps running**: the watchdog interrupts it at the deadline, as before.
+
+Each attempt has its own request flag, so a retry starts with the flag cleared. The flag is held in memory on the node running the attempt, where the watchdog also runs.
+
+Cancelling a running job with `JobSchedulerService.cancelJob` does not set the request yet. The job's status changes to `CANCELED` in the store, and the worker discards the result when the job returns.
 
 ## Performance Characteristics
 

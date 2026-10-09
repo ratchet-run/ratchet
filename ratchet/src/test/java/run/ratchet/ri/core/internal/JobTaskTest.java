@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -48,6 +49,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
@@ -73,6 +75,7 @@ import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.KeyProviderUnavailableException;
 import run.ratchet.api.exception.PayloadDecryptionException;
@@ -124,6 +127,305 @@ class JobTaskTest {
   private static final ThreadLocal<SignalDecision> OBSERVED_SIGNAL_DECISION = new ThreadLocal<>();
   private static final ThreadLocal<String> OBSERVED_SIGNAL_STRING = new ThreadLocal<>();
   private static final ThreadLocal<CustomArgument> OBSERVED_CUSTOM_ARGUMENT = new ThreadLocal<>();
+
+  private static final ThreadLocal<Supplier<RuntimeException>> COOPERATIVE_FAILURE =
+      new ThreadLocal<>();
+  private static final ThreadLocal<JobContext> COOPERATIVE_CONTEXT = new ThreadLocal<>();
+
+  public static String cooperativePayload() {
+    COOPERATIVE_CONTEXT.set(JobContext.current());
+    Supplier<RuntimeException> failure = COOPERATIVE_FAILURE.get();
+    if (failure != null) {
+      throw failure.get();
+    }
+    return "done";
+  }
+
+  @Test
+  void requestedCancellationUsesTimeoutTransition() throws Exception {
+    runCooperativeScenario(true, false, attempt -> new CancellationRequestedException("stop"));
+  }
+
+  @Test
+  void watchdogClaimedCancellationDefersTransition() throws Exception {
+    runCooperativeScenario(true, true, attempt -> new CancellationRequestedException("stop"));
+  }
+
+  @Test
+  void unrequestedCancellationIsOrdinaryFailure() throws Exception {
+    runCooperativeScenario(false, false, attempt -> new CancellationRequestedException("stop"));
+  }
+
+  @Test
+  void cancellationCreatedBeforeRequestIsOrdinaryFailure() throws Exception {
+    runCooperativeScenario(
+        false,
+        false,
+        attempt -> {
+          CancellationRequestedException early = new CancellationRequestedException("stop");
+          // The watchdog requests cancellation while the exception unwinds.
+          attempt.requestCancellation();
+          return early;
+        });
+  }
+
+  @Test
+  void wrappedCancellationCreatedBeforeRequestIsOrdinaryFailure() throws Exception {
+    runCooperativeScenario(
+        false,
+        false,
+        attempt -> {
+          CancellationRequestedException early = new CancellationRequestedException("stop");
+          attempt.requestCancellation();
+          return new RuntimeException("wrapped after the request", early);
+        });
+  }
+
+  @Test
+  void normalReturnAfterRequestStillSucceedsAndContextExposesAttempt() throws Exception {
+    runCooperativeScenario(true, false, null);
+  }
+
+  @Test
+  void wrappedCancellationUsesTimeoutTransition() throws Exception {
+    runCooperativeScenario(
+        true, false, attempt -> new RuntimeException(new CancellationRequestedException("stop")));
+  }
+
+  @Test
+  void cooperativeTransitionFailureHandsTimeoutBack() throws Exception {
+    runCooperativeFailureScenario(false, false, false);
+  }
+
+  @Test
+  void cooperativeExecutionSaveFailureHandsTimeoutBack() throws Exception {
+    runCooperativeFailureScenario(true, false, false);
+  }
+
+  @Test
+  void cooperativeExecutionSaveFailureRetriesSaveWhenWatchdogAlreadyPassed() throws Exception {
+    runCooperativeFailureScenario(true, true, false);
+  }
+
+  @Test
+  void repeatedCooperativeExecutionSaveFailureAfterWatchdogPassedDoesNotEscape() throws Exception {
+    runCooperativeFailureScenario(true, true, true);
+  }
+
+  @Test
+  void staleCancellationFromEarlierAttemptIsOrdinaryFailure() throws Exception {
+    CancellationRequestedException stale = cancellationFromPreviousAttempt();
+    runCooperativeScenario(true, false, attempt -> stale, false, false, false, false, false);
+  }
+
+  @Test
+  void wrappedStaleCancellationFromEarlierAttemptIsOrdinaryFailure() throws Exception {
+    CancellationRequestedException stale = cancellationFromPreviousAttempt();
+    runCooperativeScenario(
+        true,
+        false,
+        attempt -> new RuntimeException("wrapped", stale),
+        false,
+        false,
+        false,
+        false,
+        false);
+  }
+
+  private CancellationRequestedException cancellationFromPreviousAttempt() {
+    JobAttemptControl previous =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1");
+    previous.requestCancellation();
+    JobContext.bind(
+        JOB_UUID,
+        null,
+        Map.of(),
+        null,
+        null,
+        previous.deadline(),
+        previous::isCancellationRequested,
+        previous.attemptToken());
+    try {
+      CancellationRequestedException stale = new CancellationRequestedException("stop");
+      Assertions.assertTrue(stale.isCancellationRequested());
+      return stale;
+    } finally {
+      JobContext.clear();
+    }
+  }
+
+  @Test
+  void cooperativeFailureRetriesWhenWatchdogAlreadyPassed() throws Exception {
+    runCooperativeFailureScenario(false, true, false);
+  }
+
+  @Test
+  void repeatedCooperativeFailureAfterWatchdogPassedDoesNotEscape() throws Exception {
+    runCooperativeFailureScenario(false, true, true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void runCooperativeScenario(
+      boolean requested, boolean claimed, Function<JobAttemptControl, RuntimeException> failure)
+      throws Exception {
+    runCooperativeScenario(requested, claimed, failure, false, false, false, false, requested);
+  }
+
+  private void runCooperativeFailureScenario(
+      boolean saveFails, boolean watchdogPassed, boolean retryFails) throws Exception {
+    runCooperativeScenario(
+        true,
+        false,
+        attempt -> new CancellationRequestedException("stop"),
+        true,
+        saveFails,
+        watchdogPassed,
+        retryFails,
+        true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void runCooperativeScenario(
+      boolean requested,
+      boolean claimed,
+      Function<JobAttemptControl, RuntimeException> failure,
+      boolean handlingFails,
+      boolean saveFails,
+      boolean watchdogPassed,
+      boolean retryFails,
+      boolean expectCooperative)
+      throws Exception {
+    JobTimeoutHandler timeoutHandler = mock(JobTimeoutHandler.class);
+    JobAttemptControl attempt =
+        new JobAttemptControl(
+            JOB_UUID,
+            FIXED_NOW.plusSeconds(30),
+            30,
+            FIXED_NOW,
+            expectCooperative ? 2 : 0,
+            0L,
+            "node-1");
+    if (requested) {
+      attempt.requestCancellation();
+    }
+    if (claimed) {
+      Assertions.assertTrue(attempt.claimTimeoutForWatchdog());
+    }
+    JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
+    JobEntity job = createTestJob();
+    if (expectCooperative) {
+      job.setAttempts(2);
+    }
+    job.setPayload(
+        new JobPayload(
+            JobTaskTest.class.getName(),
+            "cooperativePayload",
+            "()Ljava/lang/String;",
+            true,
+            List.of(),
+            null));
+    initJobTaskWithDefaultStubs(task, job);
+    task.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(invocation -> invocation.<Callable<?>>getArgument(2).call());
+    if (failure == null) {
+      when(lifecycleFacade.completeSuccess(
+              any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+          .thenReturn(true);
+    } else if (!expectCooperative) {
+      when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
+    }
+    if (handlingFails) {
+      if (saveFails) {
+        AtomicInteger saves = new AtomicInteger();
+        doAnswer(
+                invocation -> {
+                  Assertions.assertEquals(
+                      JobExecutionEntity.ExecutionStatus.FAILED,
+                      invocation.<JobExecutionEntity>getArgument(0).getStatus());
+                  if (saves.incrementAndGet() == 1) {
+                    if (watchdogPassed) {
+                      Assertions.assertFalse(attempt.claimTimeoutForWatchdog());
+                    }
+                    throw new IllegalStateException("execution store down");
+                  }
+                  if (!watchdogPassed || retryFails) {
+                    throw new IllegalStateException("execution store still down");
+                  }
+                  return null;
+                })
+            .when(observabilityFacade)
+            .saveExecution(any(JobExecutionEntity.class));
+      } else {
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(
+                invocation -> {
+                  Assertions.assertSame(attempt, invocation.getArgument(0));
+                  Assertions.assertEquals(
+                      2, invocation.<JobAttemptControl>getArgument(0).baselineAttempts());
+                  if (calls.incrementAndGet() == 1) {
+                    if (watchdogPassed) {
+                      Assertions.assertFalse(attempt.claimTimeoutForWatchdog());
+                    }
+                    throw new IllegalStateException("timeout store down");
+                  }
+                  if (retryFails) {
+                    throw new IllegalStateException("timeout store still down");
+                  }
+                  return null;
+                })
+            .when(timeoutHandler)
+            .processCooperativeTimeout(attempt);
+      }
+    }
+    COOPERATIVE_FAILURE.set(failure == null ? null : () -> failure.apply(attempt));
+    try {
+      Assertions.assertDoesNotThrow(task::call);
+      JobContext observed = COOPERATIVE_CONTEXT.get();
+      Assertions.assertNotNull(observed);
+      Assertions.assertEquals(Optional.of(attempt.deadline()), observed.deadline());
+      Assertions.assertEquals(
+          attempt.isCancellationRequested(), observed.isCancellationRequested());
+      if (failure != null && expectCooperative && !claimed) {
+        verify(
+                timeoutHandler,
+                times(saveFails ? (watchdogPassed && !retryFails ? 1 : 0) : watchdogPassed ? 2 : 1))
+            .processCooperativeTimeout(attempt);
+        Assertions.assertEquals(2, attempt.baselineAttempts());
+        Assertions.assertEquals(handlingFails && !watchdogPassed, attempt.isTimeoutHandedBack());
+        ArgumentCaptor<JobExecutionEntity> execution =
+            ArgumentCaptor.forClass(JobExecutionEntity.class);
+        verify(observabilityFacade, times(saveFails && watchdogPassed ? 2 : 1))
+            .saveExecution(execution.capture());
+        for (JobExecutionEntity saved : execution.getAllValues()) {
+          Assertions.assertEquals(JobExecutionEntity.ExecutionStatus.FAILED, saved.getStatus());
+        }
+      } else {
+        verify(timeoutHandler, never()).processCooperativeTimeout(any());
+      }
+      if (failure != null && !expectCooperative) {
+        verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
+      } else {
+        verify(jobStore, never()).incrementRetryAttempt(any(UUID.class), eq(0L));
+      }
+      if (expectCooperative) {
+        verify(lifecycleFacade, never()).completeFailure(any(JobEntity.class), any(), anyBoolean());
+        verify(observabilityFacade, never()).publishEvent(any(JobDlqEvent.class));
+      }
+      if (failure == null) {
+        verify(lifecycleFacade)
+            .completeSuccess(eq(job), any(), any(), any(), any(), anyLong(), anyLong());
+      }
+      attempt.requestCancellation();
+      Assertions.assertTrue(observed.isCancellationRequested());
+      Assertions.assertNull(JobContext.currentOrNull());
+    } finally {
+      COOPERATIVE_FAILURE.remove();
+      COOPERATIVE_CONTEXT.remove();
+    }
+  }
 
   private final ClassPolicy classPolicy = className -> true;
   @Mock private JobStore jobStore;
@@ -614,15 +916,12 @@ class JobTaskTest {
     FutureTask<Void> future = new FutureTask<>(() -> null);
     Method handleHard =
         JobTimeoutHandler.class.getDeclaredMethod(
-            "handleHardTimeoutById",
-            UUID.class,
-            Future.class,
-            Instant.class,
-            long.class,
-            long.class,
-            String.class);
+            "handleHardTimeoutById", JobAttemptControl.class, Future.class);
     handleHard.setAccessible(true);
-    handleHard.invoke(timeoutHandler, JOB_UUID, future, FIXED_NOW, 30L, 0L, null);
+    handleHard.invoke(
+        timeoutHandler,
+        timeoutHandler.newAttempt(JOB_UUID, 30, FIXED_NOW, 0, 0L, "node-1"),
+        future);
 
     Assertions.assertEquals(
         1, attempts.get(), "a single hard timeout must consume exactly one attempt");

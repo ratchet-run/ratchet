@@ -34,6 +34,32 @@ import run.ratchet.spi.CallerPrincipalResolver;
 class RatchetOptionsTest {
 
   @Test
+  void defaultSlaHasInclusiveIntegerMaximum() {
+    assertEquals(
+        (long) Integer.MAX_VALUE,
+        RatchetOptions.builder()
+            .timeout(t -> t.defaultSlaSeconds(Integer.MAX_VALUE))
+            .build()
+            .timeout()
+            .defaultSlaSeconds());
+    IllegalArgumentException error =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                RatchetOptions.builder().timeout(t -> t.defaultSlaSeconds(Integer.MAX_VALUE + 1L)));
+    assertEquals("defaultSlaSeconds must be at most " + Integer.MAX_VALUE, error.getMessage());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new RatchetOptions.TimeoutOptions(80, Integer.MAX_VALUE + 1L, 500, 0, 120));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new RatchetOptions.TimeoutOptions(80, 0, 500, 0, 120));
+    assertEquals(
+        (long) Integer.MAX_VALUE,
+        new RatchetOptions.TimeoutOptions(80, Integer.MAX_VALUE, 500, 0, 120).defaultSlaSeconds());
+  }
+
+  @Test
   void recoveryCadenceDefaultsMinimumsAndCopy() {
     RatchetOptions defaults = RatchetOptions.builder().build();
     assertEquals(300L, defaults.node().orphanScanIntervalSeconds());
@@ -149,6 +175,7 @@ class RatchetOptionsTest {
         options.execution().coordinatorThreadFactoryJndi());
     assertEquals(60L, options.recurring().startupGraceSeconds());
     assertEquals(500, options.timeout().signalTimeoutBatchSize());
+    assertEquals(0L, options.timeout().cancellationGraceSeconds());
     assertEquals(RatchetOptions.IsolationCheckMode.FAIL, options.store().isolationCheckMode());
     assertTrue(options.security().redactEmails());
   }
@@ -168,7 +195,7 @@ class RatchetOptionsTest {
                         .virtualThreadLimit("workflow-join", 19)
                         .rateLimitPerMinute("single", 50))
             .recurring(recurring -> recurring.batchLimit(40))
-            .timeout(timeout -> timeout.signalTimeoutBatchSize(25))
+            .timeout(timeout -> timeout.signalTimeoutBatchSize(25).cancellationGraceSeconds(3L))
             .security(security -> security.allowEmptyClassPolicy(true).redactEmails(false))
             .store(
                 store ->
@@ -188,6 +215,7 @@ class RatchetOptionsTest {
     assertEquals(50, options.execution().rateLimitPerMinute("SINGLE"));
     assertEquals(40, options.recurring().batchLimit());
     assertEquals(25, options.timeout().signalTimeoutBatchSize());
+    assertEquals(3L, options.timeout().cancellationGraceSeconds());
     assertTrue(options.security().allowEmptyClassPolicy());
     assertFalse(options.security().redactEmails());
     assertEquals(RatchetOptions.IsolationCheckMode.WARN, options.store().isolationCheckMode());
@@ -196,6 +224,14 @@ class RatchetOptionsTest {
 
   @Test
   void builderRejectsInvalidValues() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().timeout(timeout -> timeout.cancellationGraceSeconds(-1L)));
+    IllegalArgumentException graceError =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new RatchetOptions.TimeoutOptions(80, 1800, 500, -1, 120));
+    assertEquals("cancellationGraceSeconds must be at least 0", graceError.getMessage());
     assertThrows(
         IllegalArgumentException.class,
         () -> RatchetOptions.builder().polling(polling -> polling.batchSize(0)));
@@ -337,7 +373,8 @@ class RatchetOptionsTest {
                     timeout
                         .softTimeoutPercent(81)
                         .defaultSlaSeconds(1801L)
-                        .signalTimeoutBatchSize(501))
+                        .signalTimeoutBatchSize(501)
+                        .cancellationGraceSeconds(4L))
             .maintenance(
                 maintenance ->
                     maintenance

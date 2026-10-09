@@ -7,5 +7,6 @@ V006__drop_recurring_master_fk.sql
 V007__permanent_idempotency_keys.sql
 V008__priority_ordered_claim_index.sql
 V009__drop_node_info.sql
-V010__claim_seq.sql
-V011__crash_count.sql
+V010__widen_text_columns.sql
+V011__claim_seq.sql
+V012__crash_count.sql

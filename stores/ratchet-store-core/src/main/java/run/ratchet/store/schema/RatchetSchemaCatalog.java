@@ -118,6 +118,7 @@ public final class RatchetSchemaCatalog {
         .column(nullable("recurring_master_id", UUID))
         .column(nullable("trace_context", JSON))
         // V005 cold survivors / additions.
+        .column(required("claim_seq", INT64))
         .column(nullable("terminal_status", TEXT))
         .column(nullable("terminal_error", TEXT))
         .column(nullable("total_attempts", INT32))

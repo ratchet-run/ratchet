@@ -418,7 +418,7 @@ final class OracleJobTerminalOperations {
     String selectSql =
         """
         SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries,
-               execution_target
+               execution_target, claim_seq
         FROM scheduler_job
         WHERE job_id = ?
         FOR UPDATE
@@ -443,6 +443,7 @@ final class OracleJobTerminalOperations {
     int timeoutSec = ((Number) row[4]).intValue();
     int maxRetries = ((Number) row[5]).intValue();
     String executionTarget = (String) row[6];
+    long claimSeq = ((Number) row[7]).longValue();
 
     // language=Oracle
     String clearTerminalSql =
@@ -465,8 +466,8 @@ final class OracleJobTerminalOperations {
         """
         INSERT INTO scheduler_job_queue
           (job_id, status, job_type, priority, scheduled_time, business_key,
-           timeout_sec, max_retries, attempts, version, updated_at, execution_target)
-        VALUES (?, 'PENDING', ?, ?, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), ?, ?, ?, 0, 0, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), ?)
+           timeout_sec, max_retries, attempts, version, updated_at, execution_target, claim_seq)
+        VALUES (?, 'PENDING', ?, ?, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), ?, ?, ?, 0, 0, CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), ?, ?)
         """;
     ctx.em()
         .createNativeQuery(insertHotSql)
@@ -477,6 +478,7 @@ final class OracleJobTerminalOperations {
         .setParameter(5, timeoutSec)
         .setParameter(6, maxRetries)
         .setParameter(7, executionTarget)
+        .setParameter(8, claimSeq)
         .executeUpdate();
 
     if (businessKey != null) {
@@ -520,11 +522,11 @@ final class OracleJobTerminalOperations {
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
-             timeout_sec, max_retries, attempts, version, updated_at, execution_target)
+             timeout_sec, max_retries, attempts, version, updated_at, execution_target, claim_seq)
           SELECT job_id, 'PENDING', job_type, priority,
                  CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), business_key,
                  timeout_sec, max_retries, 0, 0,
-                 CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), execution_target
+                 CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), execution_target, claim_seq
           FROM scheduler_job
           WHERE job_id IN (%s)
           """
@@ -591,6 +593,7 @@ final class OracleJobTerminalOperations {
         """
         UPDATE scheduler_job c
         SET c.terminal_status = 'FAILED', c.terminal_error = ?,
+            c.claim_seq = (SELECT q.claim_seq FROM scheduler_job_queue q WHERE q.job_id = c.job_id),
             c.total_attempts = %s, c.terminated_at = %s, %s
         WHERE c.job_id = ? AND c.terminal_status IS NULL
           AND EXISTS (SELECT 1 FROM scheduler_job_queue q

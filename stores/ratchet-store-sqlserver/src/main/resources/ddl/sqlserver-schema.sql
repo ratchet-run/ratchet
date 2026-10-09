@@ -166,6 +166,7 @@ CREATE TABLE scheduler_job
     superseded_by         BINARY(16),
     created_at            DATETIME2(6)     NOT NULL DEFAULT SYSUTCDATETIME(),
     caller_principal      VARCHAR(255),
+    claim_seq BIGINT NOT NULL CONSTRAINT df_scheduler_job_claim_seq DEFAULT 0,
     terminal_status       VARCHAR(16),
     terminal_error        NVARCHAR(MAX),
     total_attempts        INT,
