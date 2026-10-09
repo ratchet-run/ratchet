@@ -411,4 +411,21 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     condition.setDefinitionOrder(definitionOrder);
     return condition;
   }
+
+  private static String largeConditionExpression() {
+    return "é".repeat(256 * 1024 / 2);
+  }
+
+  @Test
+  void saveAndFindCondition_roundTripsLargeMultibyteExpression() {
+    var parent = persist(newPendingJob());
+    var child = persist(newPendingJob());
+    var condition = newCondition(parent.getId(), child.getId());
+    String expression = largeConditionExpression();
+    condition.setConditionExpression(expression);
+    var saved = workflowConditionStore().saveCondition(condition);
+    assertEquals(
+        expression,
+        workflowConditionStore().findConditionById(saved.getId()).getConditionExpression());
+  }
 }
