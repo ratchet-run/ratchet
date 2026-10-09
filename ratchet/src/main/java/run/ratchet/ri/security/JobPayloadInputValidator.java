@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.JobPayload;
@@ -93,41 +92,12 @@ public class JobPayloadInputValidator {
     // Revalidation replaces, rather than layers over, a prior attempt. Clear first so a serializer
     // failure or a newly-oversized representation cannot leave older accepted JSON staged.
     JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(payload);
-    String serialized = PayloadSerializerHolder.get().serialize(payload);
+    String serialized = PayloadSerializerHolder.get().serialize(payload, maxPayloadBytes);
     if (serialized == null) {
       throw new IllegalArgumentException(
           "PayloadSerializer returned null for a non-null JobPayload");
     }
-    long actualBytes = utf8Length(serialized);
-    if (actualBytes > maxPayloadBytes) {
-      throw new PayloadTooLargeException(actualBytes, maxPayloadBytes);
-    }
     JOB_PAYLOAD_CONVERTER.prepareForPersistence(payload, serialized);
-  }
-
-  /** Returns the byte length produced by Java's UTF-8 encoder without allocating a byte array. */
-  private static long utf8Length(String value) {
-    long bytes = 0;
-    for (int i = 0; i < value.length(); i++) {
-      char current = value.charAt(i);
-      if (current <= 0x7f) {
-        bytes++;
-      } else if (current <= 0x7ff) {
-        bytes += 2;
-      } else if (Character.isHighSurrogate(current)
-          && i + 1 < value.length()
-          && Character.isLowSurrogate(value.charAt(i + 1))) {
-        bytes += 4;
-        i++;
-      } else if (Character.isSurrogate(current)) {
-        // String#getBytes(UTF_8) replaces an unpaired UTF-16 surrogate with the one-byte '?'
-        // replacement used by the JDK encoder.
-        bytes++;
-      } else {
-        bytes += 3;
-      }
-    }
-    return bytes;
   }
 
   private boolean isNullOrEmpty(String value) {

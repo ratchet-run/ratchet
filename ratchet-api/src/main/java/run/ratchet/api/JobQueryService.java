@@ -47,12 +47,19 @@ public interface JobQueryService {
   /**
    * Returns a paginated list of jobs matching the given filter.
    *
+   * <p>Caller filters may contain at most 1000 tags, at most 32 property keys with at most 1000
+   * values each, and a cursor of at most 512 characters. Authorization-policy constraints are
+   * trusted.
+   *
    * @param filter filter criteria; use {@link JobFilter#builder()} to construct
-   * @param limit maximum number of results to return
+   * @param limit maximum number of results to return, from 1 to 1000
    * @param offset zero-based index of the first result; deep offsets can degrade on some stores, so
    *     production callers should prefer {@link JobFilter.Builder#cursor(String)} for deep
    *     pagination
+   * @throws IllegalArgumentException if the caller filter exceeds the tag, property-value, or
+   *     cursor limits
    * @return a page of matching job summaries
+   * @throws IllegalArgumentException if limit is outside 1 to 1000 or offset is negative
    */
   JobPage<JobSummary> findJobs(JobFilter filter, int limit, int offset);
 
@@ -80,9 +87,10 @@ public interface JobQueryService {
    * ascending.
    *
    * @param jobId the job id
-   * @param limit maximum number of results to return
+   * @param limit maximum number of results to return, from 1 to 1000
    * @param offset zero-based index of the first result
    * @return execution history page; empty if the job has never been executed or does not exist
+   * @throws IllegalArgumentException if limit is outside 1 to 1000 or offset is negative
    */
   JobPage<ExecutionHistorySummary> getExecutionHistory(UUID jobId, int limit, int offset);
 
@@ -111,9 +119,10 @@ public interface JobQueryService {
    * Returns a page of jobs whose {@code dependsOn} field points at the given parent.
    *
    * @param jobId the parent job id
-   * @param limit maximum number of results to return
+   * @param limit maximum number of results to return, from 1 to 1000
    * @param offset zero-based index of the first result
    * @return direct dependants page; empty list if none
+   * @throws IllegalArgumentException if limit is outside 1 to 1000 or offset is negative
    */
   JobPage<JobSummary> getDependants(UUID jobId, int limit, int offset);
 
@@ -134,9 +143,10 @@ public interface JobQueryService {
    * Returns a page of child jobs for the given batch parent.
    *
    * @param batchParentId the batch parent job id
-   * @param limit maximum number of results to return
+   * @param limit maximum number of results to return, from 1 to 1000
    * @param offset zero-based index of the first result
    * @return batch children page; empty if none or if the job is not a batch parent
+   * @throws IllegalArgumentException if limit is outside 1 to 1000 or offset is negative
    */
   JobPage<JobSummary> getBatchChildren(UUID batchParentId, int limit, int offset);
 
@@ -152,9 +162,10 @@ public interface JobQueryService {
   /**
    * Returns a page of active recurring job master records.
    *
-   * @param limit maximum number of results to return
+   * @param limit maximum number of results to return, from 1 to 1000
    * @param offset zero-based index of the first result
    * @return recurring masters page; empty if none are scheduled
+   * @throws IllegalArgumentException if limit is outside 1 to 1000 or offset is negative
    */
   JobPage<JobSummary> getRecurringMasters(int limit, int offset);
 }

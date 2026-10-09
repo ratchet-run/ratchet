@@ -63,6 +63,14 @@ import run.ratchet.store.util.PayloadEncryptor;
 @ApplicationScoped
 public class DefaultJobQueryService implements JobQueryService {
 
+  /** Maximum number of results requested by a public paginated query. */
+  public static final int MAX_PAGE_SIZE = 1000;
+
+  private static final int MAX_CURSOR_LENGTH = 512;
+
+  // Each property key costs the store one correlated subquery (SQL EXISTS, MongoDB $lookup).
+  private static final int MAX_PROPERTY_KEYS = 32;
+
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;
   private final JobAnalyticsStore analyticsStore;
@@ -242,6 +250,7 @@ public class DefaultJobQueryService implements JobQueryService {
   public JobPage<JobSummary> findJobs(JobFilter filter, int limit, int offset) {
     validatePageRequest(limit, offset);
 
+    validateFilter(filter);
     JobFilter scoped = scopeFilter(filter);
 
     // A filter that targets ONLY recurring masters has to hit RecurringJobStore — the executable
@@ -505,8 +514,33 @@ public class DefaultJobQueryService implements JobQueryService {
     if (limit < 1) {
       throw new IllegalArgumentException("limit must be at least 1");
     }
+    if (limit > MAX_PAGE_SIZE) {
+      throw new IllegalArgumentException("limit must be at most 1000");
+    }
     if (offset < 0) {
       throw new IllegalArgumentException("offset must be non-negative");
+    }
+  }
+
+  private static void validateFilter(JobFilter callerFilter) {
+    if (callerFilter == null) {
+      return;
+    }
+    if (callerFilter.tags() != null && callerFilter.tags().size() > MAX_PAGE_SIZE) {
+      throw new IllegalArgumentException("filter must have at most 1000 tags");
+    }
+    if (callerFilter.propertyFilters() != null) {
+      if (callerFilter.propertyFilters().size() > MAX_PROPERTY_KEYS) {
+        throw new IllegalArgumentException("filter must have at most 32 property keys");
+      }
+      for (var values : callerFilter.propertyFilters().values()) {
+        if (values != null && values.size() > MAX_PAGE_SIZE) {
+          throw new IllegalArgumentException("each property key must have at most 1000 values");
+        }
+      }
+    }
+    if (callerFilter.cursor() != null && callerFilter.cursor().length() > MAX_CURSOR_LENGTH) {
+      throw new IllegalArgumentException("cursor must be at most 512 characters");
     }
   }
 
@@ -516,7 +550,14 @@ public class DefaultJobQueryService implements JobQueryService {
       return original;
     }
     JobFilter scoped = authPolicy.filterForPrincipal(original, currentPrincipal());
-    return scoped != null ? scoped : original;
+    if (scoped == null) {
+      throw new IllegalStateException(
+          "JobAuthorizationPolicy "
+              + authPolicy.getClass().getName()
+              + ".filterForPrincipal returned null; it must return a filter"
+              + " (return the input unchanged for permit-all)");
+    }
+    return scoped;
   }
 
   private String currentPrincipal() {

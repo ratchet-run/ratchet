@@ -32,7 +32,7 @@ services:
     depends_on:
       - ratchet-node
     ports:
-      - "${RATCHET_GATEWAY_PORT:-8080}:8080"
+      - "${LOADTEST_BIND_ADDRESS:-127.0.0.1}:${RATCHET_GATEWAY_PORT:-8080}:8080"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
 
@@ -40,7 +40,7 @@ services:
     image: prom/prometheus:v2.55.1
     user: root
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "${LOADTEST_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -48,7 +48,7 @@ services:
   grafana:
     image: grafana/grafana:11.3.0
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "${LOADTEST_BIND_ADDRESS:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: "${GRAFANA_ADMIN_USER:-admin}"
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-ratchet}"

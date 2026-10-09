@@ -47,6 +47,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.query.ArchiveSearch;
 import run.ratchet.store.query.JobQueryCursor;
 
 /**
@@ -57,13 +58,13 @@ import run.ratchet.store.query.JobQueryCursor;
  * built here. Tag filtering uses an embedded array field; ANY-of semantics are native to {@code
  * $in}.
  *
- * <p>When {@link JobFilter#includeArchived()} is true and no principal filter is active, the
- * archive collection is queried separately and results are merged in memory before applying the
- * limit. Archive documents are mapped to {@link JobEntity} using archive-specific field names; tags
- * and trace-context filtering are not applied to archived rows (those fields are absent from the
- * archive document schema). The caller-principal check is intentionally skipped for archived rows.
- * Offset pagination on this path reads {@code limit + offset} rows from each collection, capped by
- * the module limit, so deep archive browsing should use cursors.
+ * <p>When {@link JobFilter#includeArchived()} is true and no filter on fields absent from archives
+ * is active, the archive collection is queried separately and results are merged in memory before
+ * applying the limit. Archive documents are mapped to {@link JobEntity} using archive-specific
+ * field names. Filters on fields absent from archives exclude the archive branch; see {@link
+ * ArchiveSearch#includesArchive(JobFilter)}. Offset pagination on this path reads {@code limit +
+ * offset} rows from each collection, capped by the module limit, so deep archive browsing should
+ * use cursors.
  */
 final class MongoJobQueryOperations {
 
@@ -144,28 +145,36 @@ final class MongoJobQueryOperations {
     conditions.add(eq(MongoFieldNames.DEPENDS_ON, parentJobId));
   }
 
-  /**
-   * Compiles property filters against the separate {@code scheduler_job_properties} collection: one
-   * pre-query per key resolving the matching job ids, then an {@code _id IN} condition per key, so
-   * multiple keys intersect (AND semantics) on the main query.
-   */
-  private void appendPropertyConditions(JobFilter filter, List<Bson> conditions) {
-    Map<String, Set<String>> propertyFilters = filter.propertyFilters();
-    if (propertyFilters == null || propertyFilters.isEmpty()) {
-      return;
+  private static boolean hasPropertyFilters(JobFilter filter) {
+    return filter != null
+        && filter.propertyFilters() != null
+        && !filter.propertyFilters().isEmpty();
+  }
+
+  private List<Bson> propertyPipeline(JobFilter filter) {
+    List<Bson> pipeline = new ArrayList<>();
+    pipeline.add(new Document("$match", buildFilter(filter)));
+    for (Map.Entry<String, Set<String>> entry : filter.propertyFilters().entrySet()) {
+      Document propertyMatch =
+          new Document(
+                  "$expr", new Document("$eq", List.of("$" + MongoFieldNames.JOB_ID, "$$owner")))
+              .append(MongoFieldNames.PROPERTY_KEY, entry.getKey())
+              .append(
+                  MongoFieldNames.VALUE, new Document("$in", new ArrayList<>(entry.getValue())));
+      pipeline.add(
+          new Document(
+              "$lookup",
+              new Document("from", ctx.jobProperties().getNamespace().getCollectionName())
+                  .append("let", new Document("owner", "$" + MongoFieldNames.ID))
+                  .append(
+                      "pipeline",
+                      List.of(new Document("$match", propertyMatch), new Document("$limit", 1)))
+                  .append("as", "query_property")));
+      pipeline.add(
+          new Document("$match", new Document("query_property.0", new Document("$exists", true))));
     }
-    for (Map.Entry<String, Set<String>> entry : propertyFilters.entrySet()) {
-      List<UUID> matching =
-          ctx.jobProperties()
-              .distinct(
-                  MongoFieldNames.JOB_ID,
-                  and(
-                      eq(MongoFieldNames.PROPERTY_KEY, entry.getKey()),
-                      in(MongoFieldNames.VALUE, entry.getValue())),
-                  UUID.class)
-              .into(new ArrayList<>());
-      conditions.add(in(MongoFieldNames.ID, matching));
-    }
+    pipeline.add(new Document("$unset", "query_property"));
+    return pipeline;
   }
 
   private static void appendTagCondition(JobFilter filter, List<Bson> conditions) {
@@ -226,7 +235,8 @@ final class MongoJobQueryOperations {
       // Malformed cursors are treated as absent so callers fall back to offset-based pagination.
       log.warnf(
           e,
-          "Ignoring malformed MongoDB job query cursor; falling back to offset-based pagination (%s)",
+          "Ignoring malformed MongoDB job query cursor; falling back to offset-based pagination"
+              + " (%s)",
           e.getClass().getSimpleName());
     }
   }
@@ -324,9 +334,7 @@ final class MongoJobQueryOperations {
   }
 
   private static boolean useArchive(JobFilter filter) {
-    return filter != null
-        && filter.includeArchived()
-        && (filter.callerPrincipal() == null || filter.callerPrincipal().isEmpty());
+    return ArchiveSearch.includesArchive(filter);
   }
 
   // ── Sort builders ────────────────────────────────────────────────────────
@@ -373,7 +381,15 @@ final class MongoJobQueryOperations {
   }
 
   long countJobs(JobFilter filter) {
-    long liveCount = ctx.jobs().countDocuments(buildFilter(filter));
+    long liveCount;
+    if (hasPropertyFilters(filter)) {
+      List<Bson> pipeline = propertyPipeline(filter);
+      pipeline.add(new Document("$count", "count"));
+      Document count = ctx.jobs().aggregate(pipeline).first();
+      liveCount = count == null ? 0 : ((Number) count.get("count")).longValue();
+    } else {
+      liveCount = ctx.jobs().countDocuments(buildFilter(filter));
+    }
     if (!useArchive(filter)) {
       return liveCount;
     }
@@ -389,10 +405,26 @@ final class MongoJobQueryOperations {
     Bson query = buildFilter(filter);
     Bson sort = buildSort(filter);
     List<JobEntity> result = new ArrayList<>(limit);
-    Iterable<Document> documents =
-        session == null
-            ? ctx.jobs().find(query).sort(sort).skip(offset).limit(limit)
-            : ctx.jobs().find(session, query).sort(sort).skip(offset).limit(limit);
+    Iterable<Document> documents;
+    if (hasPropertyFilters(filter)) {
+      List<Bson> pipeline = propertyPipeline(filter);
+      pipeline.add(new Document("$sort", sort));
+      if (offset > 0) {
+        pipeline.add(new Document("$skip", offset));
+      }
+      if (limit > 0) {
+        pipeline.add(new Document("$limit", limit));
+      }
+      documents =
+          session == null
+              ? ctx.jobs().aggregate(pipeline)
+              : ctx.jobs().aggregate(session, pipeline);
+    } else {
+      documents =
+          session == null
+              ? ctx.jobs().find(query).sort(sort).skip(offset).limit(limit)
+              : ctx.jobs().find(session, query).sort(sort).skip(offset).limit(limit);
+    }
     for (Document doc : documents) {
       JobEntity job = DocumentMapper.toJobEntity(doc);
       result.add(job);
@@ -440,7 +472,6 @@ final class MongoJobQueryOperations {
         MongoFieldNames.TRACE_CONTEXT + ".traceparent", filter.traceCorrelationId(), conditions);
     appendParentJobId(filter, conditions);
     appendTagCondition(filter, conditions);
-    appendPropertyConditions(filter, conditions);
     appendInstantGte(MongoFieldNames.CREATED_AT, filter.createdAfter(), conditions);
     appendInstantLt(MongoFieldNames.CREATED_AT, filter.createdBefore(), conditions);
     appendInstantGte(MongoFieldNames.SCHEDULED_TIME, filter.scheduledAfter(), conditions);

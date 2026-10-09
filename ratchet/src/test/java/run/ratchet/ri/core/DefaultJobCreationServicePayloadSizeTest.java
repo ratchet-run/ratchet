@@ -43,6 +43,7 @@ import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.PayloadSerializer;
@@ -228,7 +229,8 @@ class DefaultJobCreationServicePayloadSizeTest {
         true,
         true,
         null,
-        new JakartaAfterCommitRegistrar());
+        new JakartaAfterCommitRegistrar(),
+        new DefaultErrorSanitizer());
   }
 
   private static JobEntity saved(JobEntity job) {

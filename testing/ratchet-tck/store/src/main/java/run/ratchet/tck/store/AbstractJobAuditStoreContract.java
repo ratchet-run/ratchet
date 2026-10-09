@@ -276,7 +276,7 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
     var job = persist(newPendingJob());
     String error = "€".repeat(65535);
     var execution = JobExecutionEntity.start(job.getId(), 1, "node-1");
-    execution.markFailed(new IllegalStateException(error));
+    execution.markFailed(IllegalStateException.class.getName(), error);
     auditStore().saveExecution(execution);
     assertEquals(
         error, auditStore().findLatestExecution(job.getId()).orElseThrow().getErrorMessage());

@@ -32,6 +32,9 @@ import java.io.Serializable;
 public record SignalDecision(Outcome outcome, Serializable payload, String rejectionReason)
     implements Serializable {
 
+  /** Maximum number of characters in a trimmed rejection reason. */
+  public static final int MAX_REJECTION_REASON_LENGTH = 4000;
+
   @Serial private static final long serialVersionUID = 8364271059123847041L;
 
   public SignalDecision {
@@ -40,6 +43,9 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
     }
     rejectionReason =
         rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
+    if (rejectionReason != null && rejectionReason.length() > MAX_REJECTION_REASON_LENGTH) {
+      throw new IllegalArgumentException("rejectionReason must be at most 4000 characters");
+    }
     if (outcome == Outcome.APPROVED && rejectionReason != null) {
       throw new IllegalArgumentException("approved decisions cannot include a rejection reason");
     }
@@ -63,9 +69,10 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
    *
    * @param payload optional serializable payload
    * @param rejectionReason non-blank human-readable rejection reason; leading and trailing
-   *     whitespace is ignored
+   *     whitespace is ignored; at most 4000 characters after trimming
    * @return a rejected signal decision
-   * @throws IllegalArgumentException if {@code rejectionReason} is null or blank
+   * @throws IllegalArgumentException if {@code rejectionReason} is null, blank, or longer than 4000
+   *     characters after trimming
    */
   public static SignalDecision rejected(@Nullable Serializable payload, String rejectionReason) {
     return new SignalDecision(Outcome.REJECTED, payload, rejectionReason);

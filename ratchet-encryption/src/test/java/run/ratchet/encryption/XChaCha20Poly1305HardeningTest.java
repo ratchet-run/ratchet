@@ -17,6 +17,7 @@ package run.ratchet.encryption;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.security.SecureRandom;
@@ -123,6 +124,34 @@ class XChaCha20Poly1305HardeningTest {
     byte[] tampered = body.clone();
     tampered[tampered.length - 1] ^= 0x01;
     assertThrows(PayloadDecryptionException.class, () -> engine.decrypt(tampered, ctx(AAD)));
+  }
+
+  @Test
+  void clonedRngStateStillYieldsDistinctNoncesWhenTheClockIsFolded() throws Exception {
+    // Two processes restored from one snapshot share a deterministic RNG state. Without the clock
+    // fold they would emit the same nonce under the same key.
+    byte[] plaintext = "same".getBytes(UTF_8);
+    byte[] unfoldedA = nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), null), plaintext);
+    byte[] unfoldedB = nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), null), plaintext);
+    assertArrayEquals(unfoldedA, unfoldedB, "precondition: the cloned RNGs agree");
+
+    // Fixed, distinct clock readings keep the test independent of System.nanoTime() resolution.
+    byte[] foldedA =
+        nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), () -> 1L), plaintext);
+    byte[] foldedB =
+        nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), () -> 2L), plaintext);
+    assertFalse(Arrays.equals(foldedA, foldedB));
+  }
+
+  private byte[] nonce(XChaCha20Poly1305PayloadEncryption clone, byte[] plaintext) {
+    return Arrays.copyOf(clone.encrypt(plaintext, ctx(AAD)), 24);
+  }
+
+  private static SecureRandom clonedRng() throws Exception {
+    // SHA1PRNG seeded before first use is fully deterministic, like a DRBG copied by a snapshot.
+    SecureRandom random = SecureRandom.getInstance("SHA1PRNG");
+    random.setSeed(42L);
+    return random;
   }
 
   private EncryptionContext ctx(byte[] aad) {

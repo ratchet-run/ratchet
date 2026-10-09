@@ -59,6 +59,7 @@ import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.PreExecutionValidator;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobEntity;
@@ -107,7 +108,12 @@ class RetryBufferManagerTest {
             lifecycleFacade,
             jobStore,
             new LifecycleCallbackInvoker(
-                validator, payloadInvoker, serializer, observer, Clock.systemUTC()));
+                validator,
+                payloadInvoker,
+                serializer,
+                observer,
+                Clock.systemUTC(),
+                new DefaultErrorSanitizer()));
   }
 
   private void fillToHardCap() {

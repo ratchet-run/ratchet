@@ -18,6 +18,7 @@ package run.ratchet.encryption;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.function.LongSupplier;
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -36,9 +37,17 @@ import run.ratchet.spi.PayloadEncryption;
  * safe with no per-key write ceiling. There is no epoch, no counter, no overflow redraw, and no
  * synchronization — the AES-256-GCM engine needs all of that to keep its 96-bit nonce unique, and
  * dropping it is the entire point of this engine. The only mutable state is a thread-safe {@link
- * SecureRandom}, so the engine is thread-safe by construction and carries no clone/CRaC nonce-epoch
- * hazard (the residual assumption is simply a correctly seeded RNG, shared by all randomized
- * cryptography).
+ * SecureRandom}, so the engine is thread-safe by construction.
+ *
+ * <p><b>Snapshot/restore.</b> That {@link SecureRandom} is still mutable state. Whether a live
+ * checkpoint/restore (CRaC, VM clone) copies it depends on the provider: Linux's default NativePRNG
+ * mixes fresh OS entropy into every call, while a DRBG continues deterministically from its copied
+ * state, so two clones could draw the same nonce sequence under the same key. The production
+ * constructor therefore XORs {@link System#nanoTime()} into the last eight nonce bytes of every
+ * write, the component a restore cannot reproduce (the same mitigation the AES-256-GCM engine
+ * applies to its epoch). XOR with a value independent of the RNG keeps the nonce uniformly random,
+ * so the birthday bound above is unchanged. This is a mitigation, not a guarantee: prefer not to
+ * snapshot a process that has already encrypted.
  *
  * <p><b>Pure-Java, AES-NI-independent.</b> The JDK exposes IETF ChaCha20-Poly1305 (RFC 8439, 96-bit
  * nonce) but not XChaCha20 (192-bit). The engine bridges the two with the one primitive the JDK
@@ -67,20 +76,30 @@ public final class XChaCha20Poly1305PayloadEncryption implements PayloadEncrypti
   private static final int KEY_LENGTH = 32; // 256-bit key
 
   private final SecureRandom random;
+  private final LongSupplier clock;
 
-  /** Creates an engine with a fresh {@link SecureRandom} nonce source. */
+  /**
+   * Creates an engine with a fresh {@link SecureRandom} nonce source and folds {@link
+   * System#nanoTime()} into every nonce (see the class documentation on snapshot/restore).
+   */
   public XChaCha20Poly1305PayloadEncryption() {
-    this(new SecureRandom());
+    this(new SecureRandom(), System::nanoTime);
   }
 
   /**
-   * Creates an engine with a caller-supplied nonce source. Production uses the no-arg constructor;
-   * this exists for deterministic known-answer testing against a fixed nonce.
+   * Creates an engine with a caller-supplied nonce source, used verbatim. Production uses the
+   * no-arg constructor; this exists for deterministic known-answer testing against a fixed nonce.
    *
    * @param random the source of the 24-byte nonce; must not be {@code null}
    */
   public XChaCha20Poly1305PayloadEncryption(SecureRandom random) {
+    this(random, null);
+  }
+
+  /** {@code clock} is folded into every nonce; {@code null} keeps the drawn nonce unchanged. */
+  XChaCha20Poly1305PayloadEncryption(SecureRandom random, LongSupplier clock) {
     this.random = random;
+    this.clock = clock;
   }
 
   @Override
@@ -92,6 +111,12 @@ public final class XChaCha20Poly1305PayloadEncryption implements PayloadEncrypti
   public byte[] encrypt(byte[] plaintext, EncryptionContext ctx) {
     byte[] nonce = new byte[NONCE_LENGTH];
     random.nextBytes(nonce);
+    if (clock != null) {
+      long now = clock.getAsLong();
+      for (int i = 0; i < Long.BYTES; i++) {
+        nonce[NONCE_LENGTH - 1 - i] ^= (byte) (now >>> (8 * i));
+      }
+    }
     try {
       Cipher cipher = innerCipher(Cipher.ENCRYPT_MODE, ctx, nonce);
       cipher.updateAAD(ctx.additionalAuthenticatedData());

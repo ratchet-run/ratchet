@@ -44,6 +44,7 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
@@ -240,7 +241,8 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
         true,
         true,
         null,
-        new JakartaAfterCommitRegistrar());
+        new JakartaAfterCommitRegistrar(),
+        new DefaultErrorSanitizer());
   }
 
   private static RecurringJobDefinition existingDefinition(

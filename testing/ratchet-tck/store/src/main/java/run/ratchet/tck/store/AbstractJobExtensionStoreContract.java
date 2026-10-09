@@ -287,6 +287,61 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     assertTrue(engine.decryptCount.get() > 0, "read path must route through the engine");
   }
 
+  @Test
+  void state_isEncryptedForOptedInJobWhenGlobalSwitchOff() {
+    RecordingEngine engine = new RecordingEngine();
+    EncryptionHolder.install(
+        List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), false);
+    var job = newPendingJob();
+    job.setEncryptedPayload(true);
+    job = persist(job);
+
+    extensionStore().initState(job.getId(), NAMESPACE, "{\"secret\":\"initial\"}");
+    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, "{\"secret\":\"updated\"}", 0));
+
+    int decryptCallsBeforeRead = engine.decryptCount.get();
+    ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
+    assertEquals("{\"secret\":\"updated\"}", state.json());
+    assertEquals(1, state.version());
+    assertTrue(engine.encryptedPlaintexts.contains("{\"secret\":\"initial\"}"));
+    assertTrue(engine.encryptedPlaintexts.contains("{\"secret\":\"updated\"}"));
+    // No raw-state fixture hook exists; decryption proves stored bytes crossed the engine.
+    assertTrue(
+        engine.decryptCount.get() > decryptCallsBeforeRead,
+        "read path must decrypt the stored state");
+  }
+
+  @Test
+  void state_isPlaintextForNonOptedJobWhenGlobalSwitchOff() {
+    RecordingEngine engine = new RecordingEngine();
+    EncryptionHolder.install(
+        List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), false);
+    var job = newPendingJob();
+    job.setEncryptedPayload(false);
+    job = persist(job);
+
+    extensionStore().initState(job.getId(), NAMESPACE, "{\"plain\":0}");
+    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, "{\"plain\":1}", 0));
+
+    assertEquals(
+        "{\"plain\":1}", extensionStore().getState(job.getId(), NAMESPACE).orElseThrow().json());
+    assertTrue(engine.encryptedPlaintexts.isEmpty(), "non-opted job state must remain plaintext");
+    assertEquals(0, engine.decryptCount.get());
+  }
+
+  @Test
+  void initState_failsWhenJobDoesNotExist() {
+    UUID jobId = UUID.randomUUID();
+
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class, () -> extensionStore().initState(jobId, NAMESPACE, "{}"));
+
+    assertEquals("no job " + jobId + " for extension state", failure.getMessage());
+    assertTrue(extensionStore().getState(jobId, NAMESPACE).isEmpty());
+    assertFalse(extensionStore().updateState(jobId, NAMESPACE, "{}", 0));
+  }
+
   // ---- Archive retention ----
 
   @Test
