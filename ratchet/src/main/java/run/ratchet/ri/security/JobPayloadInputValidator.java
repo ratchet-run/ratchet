@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.JobPayload;
@@ -93,14 +92,10 @@ public class JobPayloadInputValidator {
     // Revalidation replaces, rather than layers over, a prior attempt. Clear first so a serializer
     // failure or a newly-oversized representation cannot leave older accepted JSON staged.
     JOB_PAYLOAD_CONVERTER.discardPreparedSerialization(payload);
-    String serialized = PayloadSerializerHolder.get().serialize(payload);
+    String serialized = PayloadSerializerHolder.get().serialize(payload, maxPayloadBytes);
     if (serialized == null) {
       throw new IllegalArgumentException(
           "PayloadSerializer returned null for a non-null JobPayload");
-    }
-    long actualBytes = Utf8Length.utf8Length(serialized);
-    if (actualBytes > maxPayloadBytes) {
-      throw new PayloadTooLargeException(actualBytes, maxPayloadBytes);
     }
     JOB_PAYLOAD_CONVERTER.prepareForPersistence(payload, serialized);
   }

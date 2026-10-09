@@ -26,6 +26,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.cdi.internal.JsonbPayloadSerializer;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.PayloadSerializer;
@@ -162,5 +163,22 @@ class DefaultResultPersistenceStrategyTest {
     public <T> T deserialize(String json, Class<T> type) {
       throw new UnsupportedOperationException("not used");
     }
+  }
+
+  @Test
+  void earlyStoppedResultStoresTruncationMarkerWithLowerBound() {
+    JsonbPayloadSerializer serializer = new JsonbPayloadSerializer();
+    DefaultResultPersistenceStrategy strategy =
+        new DefaultResultPersistenceStrategy(
+            RatchetOptions.builder().payload(payload -> payload.maxResultBytes(64)).build(),
+            serializer,
+            null);
+    SerializedJobResult result = strategy.serialize(new UUID(0, 101), "x".repeat(1_000_000));
+    assertEquals(SerializedJobResult.TRUNCATED_RESULT_TYPE, result.type());
+    assertTrue(result.json().contains("\"_truncated\":true"));
+    assertTrue(result.json().contains("\"_originalSize\":65"));
+    assertTrue(result.json().contains("\"_originalSizeIsLowerBound\":true"));
+    assertTrue(result.json().contains("\"_maxAllowed\":64"));
+    assertFalse(result.json().contains("xxxxx"));
   }
 }

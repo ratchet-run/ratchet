@@ -15,7 +15,9 @@
  */
 package run.ratchet.spi;
 
+import java.nio.charset.StandardCharsets;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.exception.PayloadTooLargeException;
 
 /**
  * SPI governing JSON persistence of job payloads and results.
@@ -66,6 +68,33 @@ public interface PayloadSerializer {
    * @throws IllegalArgumentException if the object cannot be serialized
    */
   String serialize(Object payload);
+
+  /**
+   * Serializes within a UTF-8 byte budget, returning null for null input.
+   *
+   * <p>Implementations should override this method to stop serializing as soon as the budget is
+   * exceeded, so oversized values never fully materialize. The default implementation only bounds
+   * what is persisted, and materializes the complete JSON and its UTF-8 byte array.
+   *
+   * @param payload object to serialize
+   * @param maxUtf8Bytes maximum permitted UTF-8 byte length, including JSON framing
+   * @return JSON within the budget, or null for null input
+   * @throws PayloadTooLargeException if the budget is exceeded
+   * @throws IllegalArgumentException if serialization fails or the budget is negative
+   */
+  default String serialize(Object payload, long maxUtf8Bytes) {
+    if (maxUtf8Bytes < 0) {
+      throw new IllegalArgumentException("maxUtf8Bytes must be non-negative");
+    }
+    String serialized = serialize(payload);
+    if (serialized != null) {
+      long actualBytes = serialized.getBytes(StandardCharsets.UTF_8).length;
+      if (actualBytes > maxUtf8Bytes) {
+        throw new PayloadTooLargeException(actualBytes, maxUtf8Bytes);
+      }
+    }
+    return serialized;
+  }
 
   /**
    * Deserializes the given JSON string to an instance of the requested type.
