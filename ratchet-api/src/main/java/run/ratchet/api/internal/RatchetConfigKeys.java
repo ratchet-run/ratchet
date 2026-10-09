@@ -116,11 +116,17 @@ public final class RatchetConfigKeys {
           1L);
   public static final RatchetConfigKey<Long> NODE_ORPHAN_GRACE_SECONDS =
       longKey("ratchet.node.orphan-grace-seconds", "RATCHET_NODE_ORPHAN_GRACE_SECONDS", 60L, 0L);
-  public static final RatchetConfigKey<Long> ORPHAN_SCAN_INTERVAL_MINUTES =
+  public static final RatchetConfigKey<Long> ORPHAN_SCAN_INTERVAL_SECONDS =
       longKey(
-          "ratchet.node.orphan-scan-interval-minutes",
-          "RATCHET_NODE_ORPHAN_SCAN_INTERVAL_MINUTES",
-          5L,
+          "ratchet.node.orphan-scan-interval-seconds",
+          "RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS",
+          300L,
+          1L);
+  public static final RatchetConfigKey<Long> ORPHAN_RECOVERY_LEASE_TTL_SECONDS =
+      longKey(
+          "ratchet.node.orphan-recovery-lease-ttl-seconds",
+          "RATCHET_NODE_ORPHAN_RECOVERY_LEASE_TTL_SECONDS",
+          120L,
           1L);
   public static final RatchetConfigKey<Boolean> DYNAMIC_HEARTBEAT_ENABLED =
       boolKey("ratchet.node.dynamic-heartbeat-enabled", "RATCHET_DYNAMIC_HEARTBEAT_ENABLED", true);
@@ -144,6 +150,9 @@ public final class RatchetConfigKeys {
           0L,
           0L);
 
+  public static final RatchetConfigKey<Long> RECURRING_LEASE_TTL_SECONDS =
+      longKey(
+          "ratchet.recurring.lease-ttl-seconds", "RATCHET_RECURRING_LEASE_TTL_SECONDS", 300L, 2L);
   public static final RatchetConfigKey<Long> RETRY_BUFFER_DRAIN_INTERVAL_MS =
       longKey(
           "ratchet.retry-buffer.drain-interval-ms",
@@ -176,6 +185,25 @@ public final class RatchetConfigKeys {
           "RATCHET_CANCELLATION_GRACE_SECONDS",
           0L,
           0L);
+
+  public static final RatchetConfigKey<Long> SIGNAL_TIMEOUT_LEASE_TTL_SECONDS =
+      longKey(
+          "ratchet.timeout.signal-timeout-lease-ttl-seconds",
+          "RATCHET_SIGNAL_TIMEOUT_LEASE_TTL_SECONDS",
+          120L,
+          1L);
+  public static final RatchetConfigKey<Long> BATCH_RECOVERY_INTERVAL_SECONDS =
+      longKey(
+          "ratchet.batch.recovery-interval-seconds",
+          "RATCHET_BATCH_RECOVERY_INTERVAL_SECONDS",
+          900L,
+          1L);
+  public static final RatchetConfigKey<Long> BATCH_RECOVERY_LEASE_TTL_SECONDS =
+      longKey(
+          "ratchet.batch.recovery-lease-ttl-seconds",
+          "RATCHET_BATCH_RECOVERY_LEASE_TTL_SECONDS",
+          900L,
+          1L);
 
   public static final RatchetConfigKey<Boolean> DLQ_PURGE_ENABLED =
       boolKey("ratchet.dlq.purge-enabled", "RATCHET_DLQ_PURGE_ENABLED", true);

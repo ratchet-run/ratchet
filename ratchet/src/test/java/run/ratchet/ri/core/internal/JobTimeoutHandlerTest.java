@@ -135,7 +135,8 @@ class JobTimeoutHandlerTest {
         grace,
         null,
         null,
-        null);
+        null,
+        120);
   }
 
   @Test
@@ -786,7 +787,8 @@ class JobTimeoutHandlerTest {
         null,
         null,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock),
+        120);
   }
 
   @Test
@@ -923,7 +925,8 @@ class JobTimeoutHandlerTest {
             0L,
             null,
             null,
-            null);
+            null,
+            120);
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
@@ -1439,7 +1442,7 @@ class JobTimeoutHandlerTest {
 
     var order = Mockito.inOrder(signalStore, leaseService, lockStore);
     order.verify(signalStore, times(2)).findTimedOutSignalJobs(any(Instant.class), eq(1));
-    order.verify(leaseService).tryAcquire(anyString(), any(Duration.class));
+    order.verify(leaseService).tryAcquire("signalTimeoutScan", Duration.ofSeconds(1));
     order
         .verify(signalStore)
         .findTimedOutSignalJobs(
@@ -1685,6 +1688,7 @@ class JobTimeoutHandlerTest {
 
   private JobTimeoutHandler newLeasedHandler(SingletonLeaseService singletonLeaseService) {
     return new JobTimeoutHandler(
+        new JakartaAfterCommitRegistrar(null),
         jobCrudStore,
         jobRetryStore,
         jobBatchStatusStore,
@@ -1696,7 +1700,10 @@ class JobTimeoutHandlerTest {
         signalStore,
         metricsCollector,
         JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+        0L,
+        singletonLeaseService,
         null,
-        singletonLeaseService);
+        null,
+        1);
   }
 }

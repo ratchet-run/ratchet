@@ -193,7 +193,8 @@ public class RatchetProducer {
         singletonLeaseService,
         errorSanitizer,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock),
+        options.timeout().signalTimeoutLeaseTtlSeconds());
   }
 
   @Produces
@@ -275,7 +276,13 @@ public class RatchetProducer {
       SingletonLeaseService singletonLeaseService) {
     long orphanGraceSeconds = options.node().orphanGraceSeconds();
     return new OrphanRecoveryTimer(
-        jobBulkStore, nodeStore, resourcePermitService, singletonLeaseService, orphanGraceSeconds);
+        jobBulkStore,
+        nodeStore,
+        resourcePermitService,
+        singletonLeaseService,
+        orphanGraceSeconds,
+        options.node().orphanRecoveryLeaseTtlSeconds(),
+        Clock.systemUTC());
   }
 
   /**

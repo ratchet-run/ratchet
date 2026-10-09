@@ -140,6 +140,7 @@ class RatchetExecutionConfiguration {
   @Bean(destroyMethod = "")
   @ConditionalOnMissingBean(RecurringScheduler.class)
   DefaultRecurringScheduler defaultRecurringScheduler(
+      RatchetOptions options,
       JobStore store,
       ExecutorProvider executorProvider,
       SingletonLeaseService singletonLeaseService,
@@ -154,7 +155,8 @@ class RatchetExecutionConfiguration {
         nodeIdentityProvider,
         recurringJobExecutor,
         pollerScheduler,
-        clock);
+        clock,
+        options.recurring().leaseTtlSeconds());
   }
 
   @Bean(destroyMethod = "")
@@ -462,6 +464,7 @@ class RatchetExecutionConfiguration {
         leases,
         sanitizer,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock),
+        options.timeout().signalTimeoutLeaseTtlSeconds());
   }
 }

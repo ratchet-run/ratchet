@@ -72,8 +72,10 @@ public final class RatchetOptionsFactory {
               node.heartbeatIntervalSeconds(
                       config.get(RatchetConfigKeys.NODE_HEARTBEAT_INTERVAL_SECONDS))
                   .orphanGraceSeconds(config.get(RatchetConfigKeys.NODE_ORPHAN_GRACE_SECONDS))
-                  .orphanScanIntervalMinutes(
-                      config.get(RatchetConfigKeys.ORPHAN_SCAN_INTERVAL_MINUTES))
+                  .orphanScanIntervalSeconds(
+                      config.get(RatchetConfigKeys.ORPHAN_SCAN_INTERVAL_SECONDS))
+                  .orphanRecoveryLeaseTtlSeconds(
+                      config.get(RatchetConfigKeys.ORPHAN_RECOVERY_LEASE_TTL_SECONDS))
                   .dynamicHeartbeatEnabled(config.get(RatchetConfigKeys.DYNAMIC_HEARTBEAT_ENABLED));
             })
         .recurring(
@@ -85,7 +87,8 @@ public final class RatchetOptionsFactory {
                     .startupGraceSeconds(
                         config.get(RatchetConfigKeys.RECURRING_STARTUP_GRACE_SECONDS))
                     .convergenceWindowSeconds(
-                        config.get(RatchetConfigKeys.RECURRING_CONVERGENCE_WINDOW_SECONDS)))
+                        config.get(RatchetConfigKeys.RECURRING_CONVERGENCE_WINDOW_SECONDS))
+                    .leaseTtlSeconds(config.get(RatchetConfigKeys.RECURRING_LEASE_TTL_SECONDS)))
         .retryBuffer(
             retryBuffer ->
                 retryBuffer.drainIntervalMs(
@@ -97,7 +100,9 @@ public final class RatchetOptionsFactory {
                     .defaultSlaSeconds(config.get(RatchetConfigKeys.WORKER_DEFAULT_SLA))
                     .signalTimeoutBatchSize(config.get(RatchetConfigKeys.SIGNAL_TIMEOUT_BATCH_SIZE))
                     .cancellationGraceSeconds(
-                        config.get(RatchetConfigKeys.CANCELLATION_GRACE_SECONDS)))
+                        config.get(RatchetConfigKeys.CANCELLATION_GRACE_SECONDS))
+                    .signalTimeoutLeaseTtlSeconds(
+                        config.get(RatchetConfigKeys.SIGNAL_TIMEOUT_LEASE_TTL_SECONDS)))
         .maintenance(
             maintenance ->
                 maintenance
@@ -110,7 +115,11 @@ public final class RatchetOptionsFactory {
                     .jobArchiveBatchSize(config.get(RatchetConfigKeys.JOB_ARCHIVE_BATCH_SIZE))
                     .logPurgeEnabled(config.get(RatchetConfigKeys.LOG_PURGE_ENABLED))
                     .logPurgeCron(config.get(RatchetConfigKeys.LOG_PURGE_CRON))
-                    .logRetentionDays(config.get(RatchetConfigKeys.LOG_RETENTION_DAYS)))
+                    .logRetentionDays(config.get(RatchetConfigKeys.LOG_RETENTION_DAYS))
+                    .batchRecoveryLeaseTtlSeconds(
+                        config.get(RatchetConfigKeys.BATCH_RECOVERY_LEASE_TTL_SECONDS))
+                    .batchRecoveryIntervalSeconds(
+                        config.get(RatchetConfigKeys.BATCH_RECOVERY_INTERVAL_SECONDS)))
         .schema(
             schema ->
                 schema

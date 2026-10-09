@@ -61,7 +61,7 @@ public class JobTimeoutHandler {
 
   static final int DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE = 500;
   private static final String SIGNAL_TIMEOUT_LEASE_NAME = "signalTimeoutScan";
-  private static final Duration SIGNAL_TIMEOUT_LEASE_TTL = Duration.ofMinutes(2);
+  private final Duration signalTimeoutLeaseTtl;
   private static final Logger log = Logger.getLogger(JobTimeoutHandler.class);
   private final JobCrudStore jobCrudStore;
   private final JobRetryStore jobRetryStore;
@@ -108,6 +108,7 @@ public class JobTimeoutHandler {
     this.singletonLeaseService = null;
     this.errorSanitizer = null;
     this.callbackInvoker = null;
+    this.signalTimeoutLeaseTtl = null;
   }
 
   public JobTimeoutHandler(
@@ -151,67 +152,6 @@ public class JobTimeoutHandler {
       SignalStore signalStore,
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
-      TransactionSynchronizationRegistry txRegistry) {
-    this(
-        jobCrudStore,
-        jobRetryStore,
-        jobBatchStatusStore,
-        lifecycleFacade,
-        softTimeoutPercent,
-        defaultTimeoutSeconds,
-        clock,
-        eventPublisher,
-        signalStore,
-        metricsCollector,
-        signalTimeoutBatchSize,
-        txRegistry,
-        null,
-        null);
-  }
-
-  public JobTimeoutHandler(
-      JobCrudStore jobCrudStore,
-      JobRetryStore jobRetryStore,
-      JobBatchStatusStore jobBatchStatusStore,
-      PostExecutionHandler lifecycleFacade,
-      int softTimeoutPercent,
-      long defaultTimeoutSeconds,
-      Clock clock,
-      InternalEventPublisher eventPublisher,
-      SignalStore signalStore,
-      MetricsCollector metricsCollector,
-      int signalTimeoutBatchSize,
-      TransactionSynchronizationRegistry txRegistry,
-      SingletonLeaseService singletonLeaseService) {
-    this(
-        jobCrudStore,
-        jobRetryStore,
-        jobBatchStatusStore,
-        lifecycleFacade,
-        softTimeoutPercent,
-        defaultTimeoutSeconds,
-        clock,
-        eventPublisher,
-        signalStore,
-        metricsCollector,
-        signalTimeoutBatchSize,
-        txRegistry,
-        singletonLeaseService,
-        null);
-  }
-
-  public JobTimeoutHandler(
-      JobCrudStore jobCrudStore,
-      JobRetryStore jobRetryStore,
-      JobBatchStatusStore jobBatchStatusStore,
-      PostExecutionHandler lifecycleFacade,
-      int softTimeoutPercent,
-      long defaultTimeoutSeconds,
-      Clock clock,
-      InternalEventPublisher eventPublisher,
-      SignalStore signalStore,
-      MetricsCollector metricsCollector,
-      int signalTimeoutBatchSize,
       TransactionSynchronizationRegistry txRegistry,
       SingletonLeaseService singletonLeaseService,
       ErrorSanitizer errorSanitizer) {
@@ -231,7 +171,8 @@ public class JobTimeoutHandler {
         0L,
         singletonLeaseService,
         errorSanitizer,
-        null);
+        null,
+        120);
   }
 
   public JobTimeoutHandler(
@@ -250,7 +191,8 @@ public class JobTimeoutHandler {
       long cancellationGraceSeconds,
       SingletonLeaseService singletonLeaseService,
       ErrorSanitizer errorSanitizer,
-      LifecycleCallbackInvoker callbackInvoker) {
+      LifecycleCallbackInvoker callbackInvoker,
+      long signalTimeoutLeaseTtlSeconds) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -267,6 +209,7 @@ public class JobTimeoutHandler {
     this.singletonLeaseService = singletonLeaseService;
     this.errorSanitizer = errorSanitizer;
     this.callbackInvoker = callbackInvoker;
+    this.signalTimeoutLeaseTtl = Duration.ofSeconds(signalTimeoutLeaseTtlSeconds);
   }
 
   private long effectiveTimeoutSeconds(int jobTimeoutSec) {
@@ -354,7 +297,7 @@ public class JobTimeoutHandler {
       return;
     }
     Optional<SingletonLease> lease =
-        singletonLeaseService.tryAcquire(SIGNAL_TIMEOUT_LEASE_NAME, SIGNAL_TIMEOUT_LEASE_TTL);
+        singletonLeaseService.tryAcquire(SIGNAL_TIMEOUT_LEASE_NAME, signalTimeoutLeaseTtl);
     if (lease.isEmpty()) {
       log.debug("Signal timeout scan skipped - singleton lease held by another node");
       return;

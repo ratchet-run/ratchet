@@ -193,7 +193,7 @@ Diagnostic-related settings:
 | `polling.maxDelayMs(...)` | `10000` | Maximum time between poll cycles (idle) |
 | `polling.batchSize(...)` | `50` | Jobs claimed per poll cycle |
 | `node.orphanGraceSeconds(...)` | `60` | Time before a stale node's jobs are recovered |
-| `node.orphanScanIntervalMinutes(...)` | `5` | How often to scan for orphaned jobs |
+| `node.orphanScanIntervalSeconds(...)` | `300` | Seconds between orphan scans |
 | `timeout.softTimeoutPercent(...)` | `80` | Percentage of timeout at which warning fires |
 | `timeout.defaultSlaSeconds(...)` | `1800` | Default job timeout in seconds (30 min), maximum 2147483647 |
 | `timeout.cancellationGraceSeconds(...)` | `0` | Seconds before the timeout at which a cooperative job is asked to stop |

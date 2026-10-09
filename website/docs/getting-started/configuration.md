@@ -244,7 +244,8 @@ DDL, not a datasource.
 | `nodeId(String)` | generated | Stable logical node id |
 | `heartbeatIntervalSeconds(long)` | `10` | Heartbeat interval |
 | `orphanGraceSeconds(long)` | `60` | Grace window before orphan recovery |
-| `orphanScanIntervalMinutes(long)` | `5` | Orphan recovery scan cadence |
+| `orphanScanIntervalSeconds(long)` | `300` | Orphan recovery scan cadence in seconds |
+| `orphanRecoveryLeaseTtlSeconds(long)` | `120` | Orphan scan lease lifetime in seconds |
 | `dynamicHeartbeatEnabled(boolean)` | `true` | Adjust heartbeat cadence by load |
 | `store.isolationCheckMode(FAIL)` | `FAIL` | SQL isolation validation behavior |
 | `store.priorityBoostIntervalMinutes(15)` | `15` | Age-based priority boost interval; `0` disables boosting |

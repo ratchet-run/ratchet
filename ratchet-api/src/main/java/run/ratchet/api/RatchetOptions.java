@@ -190,7 +190,8 @@ public class RatchetOptions {
     builder.node.nodeId = node.nodeId();
     builder.node.heartbeatIntervalSeconds = node.heartbeatIntervalSeconds();
     builder.node.orphanGraceSeconds = node.orphanGraceSeconds();
-    builder.node.orphanScanIntervalMinutes = node.orphanScanIntervalMinutes();
+    builder.node.orphanScanIntervalSeconds = node.orphanScanIntervalSeconds();
+    builder.node.orphanRecoveryLeaseTtlSeconds = node.orphanRecoveryLeaseTtlSeconds();
     builder.node.dynamicHeartbeatEnabled = node.dynamicHeartbeatEnabled();
     builder.node.requireTags = List.copyOf(node.requireTags());
     builder.node.excludeTags = List.copyOf(node.excludeTags());
@@ -200,6 +201,7 @@ public class RatchetOptions {
     builder.recurring.maxPollMs = recurring.maxPollMs();
     builder.recurring.startupGraceSeconds = recurring.startupGraceSeconds();
     builder.recurring.convergenceWindowSeconds = recurring.convergenceWindowSeconds();
+    builder.recurring.leaseTtlSeconds = recurring.leaseTtlSeconds();
 
     builder.retryBuffer.drainIntervalMs = retryBuffer.drainIntervalMs();
 
@@ -207,6 +209,7 @@ public class RatchetOptions {
     builder.timeout.cancellationGraceSeconds = timeout.cancellationGraceSeconds();
     builder.timeout.defaultSlaSeconds = timeout.defaultSlaSeconds();
     builder.timeout.signalTimeoutBatchSize = timeout.signalTimeoutBatchSize();
+    builder.timeout.signalTimeoutLeaseTtlSeconds = timeout.signalTimeoutLeaseTtlSeconds();
 
     builder.maintenance.dlqPurgeEnabled = maintenance.dlqPurgeEnabled();
     builder.maintenance.dlqPurgeCron = maintenance.dlqPurgeCron();
@@ -218,6 +221,8 @@ public class RatchetOptions {
     builder.maintenance.logPurgeEnabled = maintenance.logPurgeEnabled();
     builder.maintenance.logPurgeCron = maintenance.logPurgeCron();
     builder.maintenance.logRetentionDays = maintenance.logRetentionDays();
+    builder.maintenance.batchRecoveryLeaseTtlSeconds = maintenance.batchRecoveryLeaseTtlSeconds();
+    builder.maintenance.batchRecoveryIntervalSeconds = maintenance.batchRecoveryIntervalSeconds();
 
     builder.schema.autoMigrate = schema.autoMigrate();
     builder.schema.migrationDialect = schema.migrationDialect();
@@ -623,21 +628,23 @@ public class RatchetOptions {
    * @param heartbeatIntervalSeconds interval at which the node reports liveness to the store
    * @param orphanGraceSeconds grace period in seconds before a missed-heartbeat node is considered
    *     dead and its in-flight jobs become eligible for reclaim
-   * @param orphanScanIntervalMinutes interval in minutes between orphan-reclaim scans
+   * @param orphanScanIntervalSeconds interval in seconds between orphan-reclaim scans
    * @param dynamicHeartbeatEnabled {@code true} to allow the heartbeat interval to adapt to
    *     observed cluster activity
    * @param requireTags job tags that must be present on the node for a job to be claimed here;
    *     empty list disables the require-list constraint
    * @param excludeTags job tags that, when present on a job, exclude that job from this node
+   * @param orphanRecoveryLeaseTtlSeconds orphan scan lease lifetime in seconds
    */
   public record NodeOptions(
       String nodeId,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
-      long orphanScanIntervalMinutes,
+      long orphanScanIntervalSeconds,
       boolean dynamicHeartbeatEnabled,
       List<String> requireTags,
-      List<String> excludeTags) {
+      List<String> excludeTags,
+      long orphanRecoveryLeaseTtlSeconds) {
 
     public NodeOptions {
       requireTags = List.copyOf(requireTags == null ? List.of() : requireTags);
@@ -664,13 +671,15 @@ public class RatchetOptions {
    *     startup, giving the cluster time to converge on recurring registrations
    * @param convergenceWindowSeconds rolling window in seconds during which competing recurring
    *     registrations are reconciled; {@code 0} disables convergence reconciliation
+   * @param leaseTtlSeconds recurring scheduler lease lifetime in seconds
    */
   public record RecurringOptions(
       int batchLimit,
       long pollMs,
       long maxPollMs,
       long startupGraceSeconds,
-      long convergenceWindowSeconds) {
+      long convergenceWindowSeconds,
+      long leaseTtlSeconds) {
 
     public RecurringOptions {
       requireNotGreater("pollMs", pollMs, "maxPollMs", maxPollMs);
@@ -694,12 +703,14 @@ public class RatchetOptions {
    * @param signalTimeoutBatchSize maximum number of WAITING jobs scanned per signal-timeout tick
    * @param cancellationGraceSeconds seconds before the hard timeout at which the watchdog requests
    *     cooperative cancellation; 0 disables the early request
+   * @param signalTimeoutLeaseTtlSeconds signal timeout scan lease lifetime in seconds
    */
   public record TimeoutOptions(
       int softTimeoutPercent,
       long defaultSlaSeconds,
       int signalTimeoutBatchSize,
-      long cancellationGraceSeconds) {
+      long cancellationGraceSeconds,
+      long signalTimeoutLeaseTtlSeconds) {
     public TimeoutOptions {
       defaultSlaSeconds =
           atMost(
@@ -722,6 +733,8 @@ public class RatchetOptions {
    * @param logPurgeEnabled {@code true} to run the execution-log purge job
    * @param logPurgeCron cron expression controlling the log-purge cadence
    * @param logRetentionDays age in days at which execution-log rows become eligible for purge
+   * @param batchRecoveryIntervalSeconds interval in seconds between batch recovery scans
+   * @param batchRecoveryLeaseTtlSeconds batch recovery lease lifetime in seconds
    */
   public record MaintenanceOptions(
       boolean dlqPurgeEnabled,
@@ -733,7 +746,9 @@ public class RatchetOptions {
       int jobArchiveBatchSize,
       boolean logPurgeEnabled,
       String logPurgeCron,
-      long logRetentionDays) {}
+      long logRetentionDays,
+      long batchRecoveryIntervalSeconds,
+      long batchRecoveryLeaseTtlSeconds) {}
 
   /**
    * Schema-migration configuration for SQL stores. See {@code SchemaMigrator} for behavior; this
@@ -1160,12 +1175,20 @@ public class RatchetOptions {
     private String nodeId;
     private long heartbeatIntervalSeconds = 10L;
     private long orphanGraceSeconds = 60L;
-    private long orphanScanIntervalMinutes = 5L;
+    private long orphanScanIntervalSeconds = 300L;
     private boolean dynamicHeartbeatEnabled = true;
     private List<String> requireTags = List.of();
     private List<String> excludeTags = List.of();
 
+    private long orphanRecoveryLeaseTtlSeconds = 120L;
+
     private NodeBuilder() {}
+
+    public NodeBuilder orphanRecoveryLeaseTtlSeconds(long orphanRecoveryLeaseTtlSeconds) {
+      this.orphanRecoveryLeaseTtlSeconds =
+          atLeast("orphanRecoveryLeaseTtlSeconds", orphanRecoveryLeaseTtlSeconds, 1L);
+      return this;
+    }
 
     public NodeBuilder nodeId(String nodeId) {
       this.nodeId = requireText("nodeId", nodeId);
@@ -1188,9 +1211,9 @@ public class RatchetOptions {
       return this;
     }
 
-    public NodeBuilder orphanScanIntervalMinutes(long orphanScanIntervalMinutes) {
-      this.orphanScanIntervalMinutes =
-          atLeast("orphanScanIntervalMinutes", orphanScanIntervalMinutes, 1L);
+    public NodeBuilder orphanScanIntervalSeconds(long orphanScanIntervalSeconds) {
+      this.orphanScanIntervalSeconds =
+          atLeast("orphanScanIntervalSeconds", orphanScanIntervalSeconds, 1L);
       return this;
     }
 
@@ -1214,10 +1237,11 @@ public class RatchetOptions {
           nodeId,
           heartbeatIntervalSeconds,
           orphanGraceSeconds,
-          orphanScanIntervalMinutes,
+          orphanScanIntervalSeconds,
           dynamicHeartbeatEnabled,
           requireTags,
-          excludeTags);
+          excludeTags,
+          orphanRecoveryLeaseTtlSeconds);
     }
   }
 
@@ -1228,7 +1252,14 @@ public class RatchetOptions {
     private long startupGraceSeconds = 60L;
     private long convergenceWindowSeconds = 0L;
 
+    private long leaseTtlSeconds = 300L;
+
     private RecurringBuilder() {}
+
+    public RecurringBuilder leaseTtlSeconds(long leaseTtlSeconds) {
+      this.leaseTtlSeconds = atLeast("leaseTtlSeconds", leaseTtlSeconds, 2L);
+      return this;
+    }
 
     public RecurringBuilder batchLimit(int batchLimit) {
       this.batchLimit = atLeast("batchLimit", batchLimit, 1);
@@ -1259,7 +1290,12 @@ public class RatchetOptions {
     private RecurringOptions build() {
       requireNotGreater("pollMs", pollMs, "maxPollMs", maxPollMs);
       return new RecurringOptions(
-          batchLimit, pollMs, maxPollMs, startupGraceSeconds, convergenceWindowSeconds);
+          batchLimit,
+          pollMs,
+          maxPollMs,
+          startupGraceSeconds,
+          convergenceWindowSeconds,
+          leaseTtlSeconds);
     }
   }
 
@@ -1284,7 +1320,15 @@ public class RatchetOptions {
     private int signalTimeoutBatchSize = 500;
     private long cancellationGraceSeconds = 0L;
 
+    private long signalTimeoutLeaseTtlSeconds = 120L;
+
     private TimeoutBuilder() {}
+
+    public TimeoutBuilder signalTimeoutLeaseTtlSeconds(long signalTimeoutLeaseTtlSeconds) {
+      this.signalTimeoutLeaseTtlSeconds =
+          atLeast("signalTimeoutLeaseTtlSeconds", signalTimeoutLeaseTtlSeconds, 1L);
+      return this;
+    }
 
     public TimeoutBuilder softTimeoutPercent(int softTimeoutPercent) {
       if (softTimeoutPercent <= 0 || softTimeoutPercent >= 100) {
@@ -1317,7 +1361,11 @@ public class RatchetOptions {
 
     private TimeoutOptions build() {
       return new TimeoutOptions(
-          softTimeoutPercent, defaultSlaSeconds, signalTimeoutBatchSize, cancellationGraceSeconds);
+          softTimeoutPercent,
+          defaultSlaSeconds,
+          signalTimeoutBatchSize,
+          cancellationGraceSeconds,
+          signalTimeoutLeaseTtlSeconds);
     }
   }
 
@@ -1333,7 +1381,23 @@ public class RatchetOptions {
     private String logPurgeCron = "0 30 2 * * ?";
     private long logRetentionDays = 30L;
 
+    private long batchRecoveryIntervalSeconds = 900L;
+
+    private long batchRecoveryLeaseTtlSeconds = 900L;
+
     private MaintenanceBuilder() {}
+
+    public MaintenanceBuilder batchRecoveryLeaseTtlSeconds(long batchRecoveryLeaseTtlSeconds) {
+      this.batchRecoveryLeaseTtlSeconds =
+          atLeast("batchRecoveryLeaseTtlSeconds", batchRecoveryLeaseTtlSeconds, 1L);
+      return this;
+    }
+
+    public MaintenanceBuilder batchRecoveryIntervalSeconds(long batchRecoveryIntervalSeconds) {
+      this.batchRecoveryIntervalSeconds =
+          atLeast("batchRecoveryIntervalSeconds", batchRecoveryIntervalSeconds, 1L);
+      return this;
+    }
 
     public MaintenanceBuilder dlqPurgeEnabled(boolean dlqPurgeEnabled) {
       this.dlqPurgeEnabled = dlqPurgeEnabled;
@@ -1396,7 +1460,9 @@ public class RatchetOptions {
           jobArchiveBatchSize,
           logPurgeEnabled,
           logPurgeCron,
-          logRetentionDays);
+          logRetentionDays,
+          batchRecoveryIntervalSeconds,
+          batchRecoveryLeaseTtlSeconds);
     }
   }
 
