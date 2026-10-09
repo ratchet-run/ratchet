@@ -16,7 +16,9 @@
 package run.ratchet.testsuite.tck;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.inject.Inject;
@@ -86,5 +88,13 @@ class RiMicrometerAlternativeIT {
             .tag("priority", "NORMAL")
             .counter()
             .count());
+  }
+
+  @Test
+  void queueHealthGaugesRegisteredAfterStartup() {
+    double pending = registry.get("ratchet.queue.jobs").tag("status", "PENDING").gauge().value();
+
+    assertFalse(Double.isNaN(pending), "queue-health snapshot must be readable in the container");
+    assertTrue(pending >= 0.0);
   }
 }
