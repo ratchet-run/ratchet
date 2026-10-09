@@ -223,7 +223,8 @@ public interface JobAuthorizationPolicy {
    *
    * @param filter the original filter supplied by the caller; never {@code null}
    * @param callerPrincipal the current principal; {@code null} if no security context is active
-   * @return the filter to use for the store query; must not be {@code null}
+   * @return the filter to use for the store query; must not be {@code null}; a null return is
+   *     rejected with {@link IllegalStateException}
    */
   default JobFilter filterForPrincipal(JobFilter filter, String callerPrincipal) {
     return filter;

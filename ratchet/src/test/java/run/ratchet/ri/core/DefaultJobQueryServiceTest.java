@@ -37,7 +37,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -98,6 +101,85 @@ class DefaultJobQueryServiceTest {
   @Mock private CallerPrincipalProvider principalProvider;
 
   private DefaultJobQueryService service;
+
+  @Test
+  void nullAuthorizationScopeFailsClosed() {
+    when(authPolicy.filterForPrincipal(any(), any())).thenReturn(null);
+    IllegalStateException error =
+        assertThrows(IllegalStateException.class, () -> service.findJobs(null, 10, 0));
+    assertTrue(error.getMessage().contains(authPolicy.getClass().getName()));
+    assertTrue(error.getMessage().contains("filterForPrincipal returned null"));
+    assertThrows(IllegalStateException.class, () -> service.getRecurringMasters(10, 0));
+    Mockito.verifyNoInteractions(queryStore, recurringJobStore);
+  }
+
+  @Test
+  void pageLimitBoundaryIsAcceptedForAllListings() {
+    service.findJobs(null, 1000, 0);
+    service.getExecutionHistory(UUID.randomUUID(), 1000, 0);
+    service.getRecurringMasters(1000, 0);
+    verify(queryStore).searchJobs(any(), eq(1000), eq(0));
+    verify(executionStore).findExecutionsByJobId(any(), eq(1000), eq(0));
+    verify(recurringJobStore).searchRecurring(any(), eq(1000), eq(0));
+  }
+
+  @Test
+  void excessivePageLimitsFailBeforeStoresAreCalled() {
+    for (int limit : new int[] {1001, Integer.MAX_VALUE}) {
+      assertThrows(IllegalArgumentException.class, () -> service.findJobs(null, limit, 0));
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> service.getExecutionHistory(UUID.randomUUID(), limit, 0));
+      assertThrows(IllegalArgumentException.class, () -> service.getRecurringMasters(limit, 0));
+      assertThrows(
+          IllegalArgumentException.class, () -> service.getDependants(UUID.randomUUID(), limit, 0));
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> service.getBatchChildren(UUID.randomUUID(), limit, 0));
+    }
+    Mockito.verifyNoInteractions(queryStore, executionStore, recurringJobStore, authPolicy);
+  }
+
+  @Test
+  void excessiveCallerFiltersFailBeforeAuthorizationAndStoreAccess() {
+    Set<String> values = filterValues(1001);
+    for (JobFilter filter :
+        List.of(
+            JobFilter.builder().tags(values).build(),
+            JobFilter.builder().propertyIn("tenant", values).build(),
+            JobFilter.builder().cursor("x".repeat(513)).build())) {
+      assertThrows(IllegalArgumentException.class, () -> service.findJobs(filter, 10, 0));
+    }
+    Mockito.verifyNoInteractions(authPolicy, queryStore, recurringJobStore);
+  }
+
+  @Test
+  void callerFilterBoundariesAreAccepted() {
+    JobFilter filter =
+        JobFilter.builder()
+            .tags(filterValues(1000))
+            .propertyIn("tenant", filterValues(1000))
+            .cursor("x".repeat(512))
+            .build();
+    service.findJobs(filter, 1000, 0);
+    verify(queryStore).searchJobs(eq(filter), eq(1001), eq(0));
+  }
+
+  @Test
+  void authorizationAddedConstraintsAreTrusted() {
+    JobFilter scoped =
+        JobFilter.builder()
+            .tags(filterValues(1001))
+            .propertyIn("tenant", filterValues(1001))
+            .build();
+    when(authPolicy.filterForPrincipal(any(), any())).thenReturn(scoped);
+    service.findJobs(null, 10, 0);
+    verify(queryStore).searchJobs(eq(scoped), eq(10), eq(0));
+  }
+
+  private static Set<String> filterValues(int count) {
+    return IntStream.range(0, count).mapToObj(Integer::toString).collect(Collectors.toSet());
+  }
 
   private static boolean hasType(JobFilter filter, JobType type) {
     return filter != null && filter.types() != null && filter.types().contains(type);
