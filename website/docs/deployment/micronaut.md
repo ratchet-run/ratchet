@@ -126,7 +126,7 @@ Ratchet's engine declares its transaction rules with `jakarta.transaction.Transa
 
 After-commit work, such as waking the poller, runs only after the surrounding transaction commits.
 
-Schema setup is off by default. Set `RATCHET_SCHEMA_AUTO_MIGRATE=true` to let Ratchet create or migrate its tables before Hibernate starts. Otherwise Ratchet validates the schema and fails fast if it is missing or old. See [Database setup](/deployment/database-setup).
+Ratchet creates or migrates its tables by default, before Hibernate starts. To manage the schema with your own migration tool, apply Ratchet's supplied migrations and set `ratchet.schema.auto-migrate=false`. Ratchet then only validates the schema, and fails fast if it is missing or out of date. See [Database setup](/deployment/database-setup).
 
 ## MongoDB
 
@@ -177,12 +177,138 @@ Set `ratchet.enabled=false` to switch the integration off.
 
 The shared settings, such as poll intervals and retry defaults, are listed in the [configuration reference](/deployment/configuration-reference).
 
+## Circuit breakers on application beans
+
+To use `@CircuitBreakerProtected` on Micronaut application beans, add
+`ratchet-micronaut-processor` to your application's annotation processor path after the Micronaut
+processors. It supplies the compile-time AOP binding for method and class annotations. The same
+processor artifact supports Micronaut 4.10 and 5.x.
+
+```xml
+<plugin>
+  <groupId>org.apache.maven.plugins</groupId>
+  <artifactId>maven-compiler-plugin</artifactId>
+  <configuration>
+    <annotationProcessorPaths>
+      <!-- Keep your Micronaut inject and data processor entries here. -->
+      <path>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-micronaut-processor</artifactId>
+        <version>${ratchet.version}</version>
+      </path>
+    </annotationProcessorPaths>
+  </configuration>
+</plugin>
+```
+
+An open circuit rejects the call before transaction advice runs. Protection passes through when
+circuit breakers are disabled or Ratchet's breaker policy beans are absent. Breakers configured on
+job methods work through the scheduler's resilience strategy without this processor. When a job
+method also has application bean advice, both wrappers apply, matching CDI behavior.
+
+Micronaut does not pass class-level advice from a superclass to its subclasses. Under CDI, a
+subclass of an annotated class is protected too. On Micronaut, repeat the annotation on the
+subclass.
+
 ## Things that differ from other runtimes
 
 - **Converters and mapping files.** Micronaut's entity scan only registers `@Entity` classes. An application `@Converter(autoApply = true)` is never found: name it on the attribute with `@Convert(converter = ...)`. Micronaut also never loads `META-INF/orm.xml`. List your mapping files under `jpa.<name>.mapping-resources`. Ratchet's own entities and mappings need neither.
 - **Failed startup in tests.** If an `ApplicationContext` fails to start, Micronaut does not destroy the beans it created. Ratchet detects this and lets the next context on the same thread start normally.
-- **Native image.** Not supported yet.
-- **`@CircuitBreakerProtected` on application beans.** Not supported, as on Spring Boot. Breakers configured on jobs work as usual.
+## Native image
+
+Ratchet's jars activate their native Features automatically. At build time, the Features register
+the engine, the selected store, and your application's job submitters and targets. Job code needs
+no extra annotations for this discovery.
+
+Build with GraalVM 25. Configure the application plugin with the reachability metadata repository.
+It supplies native registrations for third-party libraries.
+
+```xml
+<plugin>
+  <groupId>org.graalvm.buildtools</groupId>
+  <artifactId>native-maven-plugin</artifactId>
+  <version>1.1.8</version>
+  <configuration>
+    <mainClass>example.Application</mainClass>
+    <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+    <metadataRepository><enabled>true</enabled></metadataRepository>
+    <buildArgs>
+      <buildArg>--no-fallback</buildArg>
+      <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+      <!-- SQL applications only -->
+      <buildArg>-H:+UnlockExperimentalVMOptions</buildArg>
+      <buildArg>-H:ServiceLoaderFeatureExcludeServices=org.hibernate.bytecode.spi.BytecodeProvider</buildArg>
+      <!-- SQL Server applications also need -H:+AddAllCharsets. -->
+    </buildArgs>
+  </configuration>
+  <executions>
+    <execution>
+      <id>add-reachability-metadata</id>
+      <phase>process-classes</phase>
+      <goals><goal>add-reachability-metadata</goal></goals>
+    </execution>
+    <execution>
+      <id>native-package</id>
+      <phase>package</phase>
+      <goals><goal>compile-no-fork</goal></goals>
+    </execution>
+  </executions>
+</plugin>
+```
+
+`--no-fallback` requires a real native executable. The stack-trace option helps diagnose build
+failures. SQL applications exclude Hibernate's bytecode provider service. Hibernate 6.6 and 7
+otherwise select Byte Buddy, which cannot generate classes inside a native executable. With the
+service excluded, Hibernate uses its no-op provider. The unlock option enables this experimental
+GraalVM option. SQL Server also needs `-H:+AddAllCharsets` for its JDBC driver's character sets.
+
+Your application owns reflection metadata for its entities, embeddables, converters, and value
+types. This includes types listed in mapping XML. Put metadata under
+`src/main/resources/META-INF/native-image/<group>/<artifact>/reachability-metadata.json`:
+
+```json
+{
+  "reflection": [
+    {
+      "type": "example.ApplicationEntity",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "example.ApplicationConverter",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    }
+  ],
+  "resources": [
+    {"glob": "application*.yml"},
+    {"glob": "META-INF/application-orm.xml"}
+  ]
+}
+```
+
+The `application*.yml` entry matters if you build without the Micronaut Maven plugin. Without it,
+the native executable has no configuration file and starts with defaults.
+
+Repeat the reflection entry for each application type that persistence needs. Include your mapping
+resources and list them in `jpa.<name>.mapping-resources`. Ratchet registers its own persistence
+types and mappings. Mongo applications may need metadata for their own serialized job arguments.
+
+Ratchet builds objects created inside the submitting lambda, such as
+`() -> jobs.order(new Order(customerId))`, when you call `submit()`. In a native executable, each
+such type needs a reachable constructor. Ratchet's Feature registers the constructors it finds in
+your lambdas, but a JDK or library type may need its own reachability metadata.
+A command-line app without an HTTP server also needs a non-daemon thread to keep it alive while
+jobs run. Ratchet's worker threads are daemons. Micronaut registers a shutdown hook only when an
+embedded server runs, so such an app must also close the context on SIGTERM. Otherwise Ratchet
+never drains in-flight jobs:
+
+```java
+ApplicationContext context = Micronaut.run(Application.class, args);
+Runtime.getRuntime().addShutdownHook(new Thread(context::close));
+```
 
 ## Compatibility and verification
 
@@ -192,3 +318,11 @@ Each release is tested in two lanes against the same Ratchet jars:
 - Micronaut 5 on Java 25 with Hibernate 7. The test application is compiled with Micronaut 5's annotation processors, so it also proves that 4.10-built Ratchet beans work inside a Micronaut 5 application, including bean replacement and qualifiers.
 
 Both lanes run the store and API conformance suites against PostgreSQL, MySQL, Oracle, SQL Server, and MongoDB in containers.
+
+The independent consumer reactor also defines a native CI matrix for both lanes and all five stores
+on GraalVM 25. Its process ITs run against either application classes with runtime dependencies or
+the native executable. They check job discovery, captured arguments, recurring work, SQL transaction
+and circuit advice, SIGTERM drain, crash recovery, and SQL migration from an empty database. See the
+consumer harness README at `integrations/ratchet-micronaut/consumer-tests/README.md`
+for commands. Native source changes require successful CI or local builds before runtime support is
+considered verified.

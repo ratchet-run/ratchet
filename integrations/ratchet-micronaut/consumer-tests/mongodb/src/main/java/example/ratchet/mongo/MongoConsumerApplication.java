@@ -15,10 +15,14 @@
  */
 package example.ratchet.mongo;
 
+import io.micronaut.context.ApplicationContext;
 import io.micronaut.runtime.Micronaut;
 
 public class MongoConsumerApplication {
   public static void main(String[] args) {
-    Micronaut.run(MongoConsumerApplication.class, args);
+    ApplicationContext context = Micronaut.run(MongoConsumerApplication.class, args);
+    // Micronaut registers a shutdown hook only for an embedded server. This app has none, so
+    // without the hook SIGTERM would stop the JVM before Ratchet drains running jobs.
+    Runtime.getRuntime().addShutdownHook(new Thread(context::close, "consumer-shutdown"));
   }
 }

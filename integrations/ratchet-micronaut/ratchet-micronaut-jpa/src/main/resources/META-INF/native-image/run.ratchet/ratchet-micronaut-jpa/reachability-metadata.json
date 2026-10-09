@@ -1,0 +1,3508 @@
+{
+  "reflection": [
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "com.sun.xml.internal.stream.XMLInputFactoryImpl",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "com.sun.xml.internal.stream.events.XMLEventFactoryImpl",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.AttributeConverter"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Basic"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.CollectionTable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Column"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Convert"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Converts"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.ElementCollection"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Entity"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.EntityListeners"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.EntityManager",
+      "methods": [
+        {
+          "name": "contains",
+          "parameterTypes": [
+            "java.lang.Object"
+          ]
+        },
+        {
+          "name": "createNativeQuery",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "name": "createQuery",
+          "parameterTypes": [
+            "java.lang.String",
+            "java.lang.Class"
+          ]
+        },
+        {
+          "name": "flush",
+          "parameterTypes": []
+        },
+        {
+          "name": "merge",
+          "parameterTypes": [
+            "java.lang.Object"
+          ]
+        },
+        {
+          "name": "persist",
+          "parameterTypes": [
+            "java.lang.Object"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.EntityManagerFactory"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Enumerated"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Id"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Table"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Transient"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.persistence.Version"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlAccessorType",
+      "methods": [
+        {
+          "name": "value",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlElement",
+      "methods": [
+        {
+          "name": "type",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlElementDecl",
+      "methods": [
+        {
+          "name": "scope",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlElementRef",
+      "methods": [
+        {
+          "name": "type",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlEnum",
+      "methods": [
+        {
+          "name": "value",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlEnumValue",
+      "methods": [
+        {
+          "name": "value",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlMixed"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlSeeAlso",
+      "methods": [
+        {
+          "name": "value",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.XmlType",
+      "methods": [
+        {
+          "name": "factoryClass",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.adapters.CollapsedStringAdapter",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter",
+      "methods": [
+        {
+          "name": "type",
+          "parameterTypes": []
+        },
+        {
+          "name": "value",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.beans.ConstructorProperties"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.beans.Introspector"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.io.Closeable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.io.Serializable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.AutoCloseable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Boolean",
+      "jniAccessible": true,
+      "methods": [
+        {
+          "name": "getBoolean",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Class",
+      "methods": [
+        {
+          "name": "getModule",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.ClassLoader",
+      "fields": [
+        {
+          "name": "classLoaderValueMap"
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Integer"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Long"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Module",
+      "methods": [
+        {
+          "name": "isExported",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Number"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Object"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Object[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Record"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Runtime",
+      "methods": [
+        {
+          "name": "version",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Runtime$Version",
+      "methods": [
+        {
+          "name": "feature",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.SecurityManager",
+      "methods": [
+        {
+          "name": "checkPermission",
+          "parameterTypes": [
+            "java.security.Permission"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.String"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.String[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.System",
+      "methods": [
+        {
+          "name": "getSecurityManager",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Thread",
+      "methods": [
+        {
+          "name": "isVirtual",
+          "parameterTypes": []
+        },
+        {
+          "name": "ofVirtual",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Thread$Builder",
+      "methods": [
+        {
+          "name": "factory",
+          "parameterTypes": []
+        },
+        {
+          "name": "name",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        },
+        {
+          "name": "name",
+          "parameterTypes": [
+            "java.lang.String",
+            "long"
+          ]
+        },
+        {
+          "name": "unstarted",
+          "parameterTypes": [
+            "java.lang.Runnable"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.Thread$Builder$OfVirtual"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.VirtualThread"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.annotation.Annotation",
+      "methods": [
+        {
+          "name": "annotationType",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.annotation.Retention"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.annotation.Target"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.invoke.MethodHandles"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.invoke.MethodHandles$Lookup",
+      "methods": [
+        {
+          "name": "defineClass",
+          "parameterTypes": [
+            "byte[]"
+          ]
+        },
+        {
+          "name": "lookupClass",
+          "parameterTypes": []
+        },
+        {
+          "name": "lookupModes",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.reflect.AnnotatedArrayType"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.reflect.AnnotatedParameterizedType"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.reflect.AnnotatedType"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.reflect.Executable",
+      "methods": [
+        {
+          "name": "getAnnotatedReceiverType",
+          "parameterTypes": []
+        },
+        {
+          "name": "getParameterCount",
+          "parameterTypes": []
+        },
+        {
+          "name": "getParameters",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.reflect.Method"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.reflect.Parameter",
+      "methods": [
+        {
+          "name": "getModifiers",
+          "parameterTypes": []
+        },
+        {
+          "name": "getName",
+          "parameterTypes": []
+        },
+        {
+          "name": "isNamePresent",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.lang.reflect.RecordComponent"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.security.AccessController",
+      "methods": [
+        {
+          "name": "doPrivileged",
+          "parameterTypes": [
+            "java.security.PrivilegedExceptionAction"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.sql.Date"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.sql.SQLException"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.sql.Statement[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.sql.Timestamp"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.sql.Types",
+      "fields": [
+        {
+          "name": "ARRAY"
+        },
+        {
+          "name": "BIGINT"
+        },
+        {
+          "name": "BINARY"
+        },
+        {
+          "name": "BIT"
+        },
+        {
+          "name": "BLOB"
+        },
+        {
+          "name": "BOOLEAN"
+        },
+        {
+          "name": "CHAR"
+        },
+        {
+          "name": "CLOB"
+        },
+        {
+          "name": "DATALINK"
+        },
+        {
+          "name": "DATE"
+        },
+        {
+          "name": "DECIMAL"
+        },
+        {
+          "name": "DISTINCT"
+        },
+        {
+          "name": "DOUBLE"
+        },
+        {
+          "name": "FLOAT"
+        },
+        {
+          "name": "INTEGER"
+        },
+        {
+          "name": "JAVA_OBJECT"
+        },
+        {
+          "name": "LONGNVARCHAR"
+        },
+        {
+          "name": "LONGVARBINARY"
+        },
+        {
+          "name": "LONGVARCHAR"
+        },
+        {
+          "name": "NCHAR"
+        },
+        {
+          "name": "NCLOB"
+        },
+        {
+          "name": "NULL"
+        },
+        {
+          "name": "NUMERIC"
+        },
+        {
+          "name": "NVARCHAR"
+        },
+        {
+          "name": "OTHER"
+        },
+        {
+          "name": "REAL"
+        },
+        {
+          "name": "REF"
+        },
+        {
+          "name": "REF_CURSOR"
+        },
+        {
+          "name": "ROWID"
+        },
+        {
+          "name": "SMALLINT"
+        },
+        {
+          "name": "SQLXML"
+        },
+        {
+          "name": "STRUCT"
+        },
+        {
+          "name": "TIME"
+        },
+        {
+          "name": "TIMESTAMP"
+        },
+        {
+          "name": "TIMESTAMP_WITH_TIMEZONE"
+        },
+        {
+          "name": "TIME_WITH_TIMEZONE"
+        },
+        {
+          "name": "TINYINT"
+        },
+        {
+          "name": "VARBINARY"
+        },
+        {
+          "name": "VARCHAR"
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.sql.Wrapper"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.time.Clock"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.time.Instant"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.time.InstantSource"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.AbstractMap"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.ArrayList",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.EventListener"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.HashMap"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.List"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.List[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.UUID"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.UUID[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.concurrent.Executor"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.concurrent.ExecutorService"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.concurrent.Executors",
+      "methods": [
+        {
+          "name": "newThreadPerTaskExecutor",
+          "parameterTypes": [
+            "java.util.concurrent.ThreadFactory"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.concurrent.ThreadFactory"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.function.Function[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "java.util.function.Supplier[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.core.v2.model.nav.ReflectionNavigator",
+      "methods": [
+        {
+          "name": "getInstance",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.runtime.v2.JAXBContextFactory"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.runtime.v2.runtime.property.ArrayElementLeafProperty",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.glassfish.jaxb.runtime.v2.runtime.JAXBContextImpl",
+            "org.glassfish.jaxb.runtime.v2.model.runtime.RuntimeElementPropertyInfo"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.runtime.v2.runtime.property.ArrayElementNodeProperty",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.glassfish.jaxb.runtime.v2.runtime.JAXBContextImpl",
+            "org.glassfish.jaxb.runtime.v2.model.runtime.RuntimeElementPropertyInfo"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.runtime.v2.runtime.property.ArrayReferenceNodeProperty",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.glassfish.jaxb.runtime.v2.runtime.JAXBContextImpl",
+            "org.glassfish.jaxb.runtime.v2.model.runtime.RuntimeReferencePropertyInfo"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.runtime.v2.runtime.property.SingleElementLeafProperty",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.glassfish.jaxb.runtime.v2.runtime.JAXBContextImpl",
+            "org.glassfish.jaxb.runtime.v2.model.runtime.RuntimeElementPropertyInfo"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.runtime.v2.runtime.property.SingleElementNodeProperty",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.glassfish.jaxb.runtime.v2.runtime.JAXBContextImpl",
+            "org.glassfish.jaxb.runtime.v2.model.runtime.RuntimeElementPropertyInfo"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.runtime.v2.runtime.property.SingleMapNodeProperty"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.glassfish.jaxb.runtime.v2.runtime.property.SingleReferenceNodeProperty"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.SessionFactory"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.annotations.Columns"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.Metadata"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.MetadataSources"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.SessionFactoryBuilder"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.beanvalidation.TypeSafeActivator",
+      "methods": [
+        {
+          "name": "activate",
+          "parameterTypes": [
+            "org.hibernate.boot.beanvalidation.ActivationContext"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.cfgxml.internal.CfgXmlAccessServiceImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.internal.DefaultSessionFactoryBuilderService"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.JaxbLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.JaxbLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.JaxbLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbAssociationOverride"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbAttributeOverride"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbAttributes",
+      "fields": [
+        {
+          "name": "basicAttributes"
+        }
+      ],
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbBasic",
+      "fields": [
+        {
+          "name": "column"
+        },
+        {
+          "name": "name"
+        }
+      ],
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbCacheInclusionType",
+      "fields": [
+        {
+          "name": "ALL"
+        },
+        {
+          "name": "NON_LAZY"
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbCaching"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbCascadeType"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbCollectionTable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbCollectionUserTypeRegistration"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbColumn",
+      "fields": [
+        {
+          "name": "columnDefinition"
+        },
+        {
+          "name": "name"
+        },
+        {
+          "name": "nullable"
+        }
+      ],
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbColumnResult"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbColumnType"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbCompositeUserTypeRegistration"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbConfigurationParameter"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbConstructorResult"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbConvert",
+      "fields": [
+        {
+          "name": "attributeName"
+        },
+        {
+          "name": "converter"
+        }
+      ],
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbConverter"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbConverterRegistration"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbCustomLoader"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbCustomSql"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbDatabaseObject"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbDatabaseObject$JaxbDefinition"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbDatabaseObjectScope"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbDiscriminatorColumn"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbElementCollection"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEmbeddable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEmbeddableAttributes"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEmbeddableInstantiatorRegistration"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEmbedded"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEmbeddedId"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEmptyType"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEntity",
+      "fields": [
+        {
+          "name": "attributes"
+        },
+        {
+          "name": "clazz"
+        },
+        {
+          "name": "convert"
+        },
+        {
+          "name": "table"
+        }
+      ],
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEntityListener"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEntityListeners"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEntityMappings",
+      "fields": [
+        {
+          "name": "entities"
+        },
+        {
+          "name": "version"
+        }
+      ],
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbEntityResult"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbFetchProfile"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbFetchProfile$JaxbFetch"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbFieldResult"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbFilterDef"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbFilterDef$JaxbFilterParam"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbForeignKey"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbGeneratedValue"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbGenericIdGenerator"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbHbmAnyDiscriminator"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbHbmAnyDiscriminatorValueMapping"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbHbmAnyKey"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbHbmAnyMapping"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbHbmFilter"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbHbmFilter$JaxbAliases"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbHbmManyToAny"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbHqlImport"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbId"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbIdClass"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbIndex"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbInheritance"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbJavaTypeRegistration"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbJdbcTypeRegistration"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbJoinColumn"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbJoinTable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbLob"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbManyToMany"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbManyToOne"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbMapKey"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbMapKeyClass"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbMapKeyColumn"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbMapKeyJoinColumn"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbMappedSuperclass"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbMultiTenancy"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbNamedAttributeNode"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbNamedEntityGraph"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbNamedNativeQuery"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbNamedQuery"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbNamedStoredProcedureQuery"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbNamedSubgraph"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbNationalized"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbNaturalId"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbOneToMany"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbOneToOne"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbOrderColumn"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPersistenceUnitDefaults"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPersistenceUnitMetadata"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPluralFetchMode",
+      "fields": [
+        {
+          "name": "JOIN"
+        },
+        {
+          "name": "SELECT"
+        },
+        {
+          "name": "SUBSELECT"
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPostLoad"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPostPersist"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPostRemove"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPostUpdate"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPrePersist"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPreRemove"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPreUpdate"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbPrimaryKeyJoinColumn"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbQueryHint"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbQueryParamType"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbSecondaryTable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbSequenceGenerator"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbSingularFetchMode",
+      "fields": [
+        {
+          "name": "JOIN"
+        },
+        {
+          "name": "SELECT"
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbSqlResultSetMapping"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbStoredProcedureParameter"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbSynchronizedTable"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbTable",
+      "fields": [
+        {
+          "name": "name"
+        }
+      ],
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbTableGenerator"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbTenantId"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbTransient"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbUniqueConstraint"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbUserTypeRegistration"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbUuidGenerator"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.JaxbVersion"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.jaxb.mapping.ObjectFactory"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.model.naming.ImplicitNamingStrategyJpaCompliantImpl",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.boot.model.relational.ColumnOrderingStrategyStandard",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$AreFieldsDirty"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$AreFieldsDirtyWithoutCollections"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$ClearDirtyAttributes"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$ClearDirtyAttributesWithoutCollections"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$ClearOwner"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$GetCollectionTrackerWithoutCollections"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$GetDirtyAttributes"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$GetDirtyAttributesWithoutCollections"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$InitializeLazyAttributeLoadingInterceptor"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$SetOwner"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$SuspendDirtyTracking"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.enhance.internal.bytebuddy.CodeTemplates$TrackChange"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.internal.bytebuddy.BytecodeProviderImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.bytecode.spi.ReflectionOptimizer$InstantiationOptimizer"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.cache.internal.DisabledCaching"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.cache.internal.NoCachingRegionFactory"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.dialect.DialectLogging_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.dialect.DialectLogging_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.dialect.DialectLogging_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.dialect.PostgreSQLInetJdbcType",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.dialect.PostgreSQLIntervalSecondJdbcType",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.dialect.PostgreSQLJsonPGObjectJsonbType",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.dialect.PostgreSQLStructPGObjectJdbcType",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.config.internal.ConfigurationServiceImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.batch.JdbcBatchLogging_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.batch.JdbcBatchLogging_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.batch.JdbcBatchLogging_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.batch.internal.BatchBuilderImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.connections.internal.DatasourceConnectionProviderImpl",
+      "methods": [
+        {
+          "name": "setJndiService",
+          "parameterTypes": [
+            "org.hibernate.engine.jndi.spi.JndiService"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.dialect.internal.DialectFactoryImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.dialect.internal.DialectResolverSet"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.env.internal.JdbcEnvironmentImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.env.internal.LobCreationLogging_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.env.internal.LobCreationLogging_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.env.internal.LobCreationLogging_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.internal.JdbcServicesImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.mutation.internal.StandardMutationExecutorService"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jdbc.spi.SqlStatementLogger"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.jndi.internal.JndiServiceImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.query.internal.NativeQueryInterpreterStandardImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.spi.Mapping"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.engine.spi.PrimeAmongSecondarySupertypes"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.AutoFlushEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.DeleteEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.DirtyCheckEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.EventType",
+      "fields": [
+        {
+          "name": "AUTO_FLUSH"
+        },
+        {
+          "name": "CLEAR"
+        },
+        {
+          "name": "DELETE"
+        },
+        {
+          "name": "DIRTY_CHECK"
+        },
+        {
+          "name": "EVICT"
+        },
+        {
+          "name": "FLUSH"
+        },
+        {
+          "name": "FLUSH_ENTITY"
+        },
+        {
+          "name": "INIT_COLLECTION"
+        },
+        {
+          "name": "LOAD"
+        },
+        {
+          "name": "LOCK"
+        },
+        {
+          "name": "MERGE"
+        },
+        {
+          "name": "PERSIST"
+        },
+        {
+          "name": "PERSIST_ONFLUSH"
+        },
+        {
+          "name": "POST_COLLECTION_RECREATE"
+        },
+        {
+          "name": "POST_COLLECTION_REMOVE"
+        },
+        {
+          "name": "POST_COLLECTION_UPDATE"
+        },
+        {
+          "name": "POST_COMMIT_DELETE"
+        },
+        {
+          "name": "POST_COMMIT_INSERT"
+        },
+        {
+          "name": "POST_COMMIT_UPDATE"
+        },
+        {
+          "name": "POST_DELETE"
+        },
+        {
+          "name": "POST_INSERT"
+        },
+        {
+          "name": "POST_LOAD"
+        },
+        {
+          "name": "POST_UPDATE"
+        },
+        {
+          "name": "POST_UPSERT"
+        },
+        {
+          "name": "PRE_COLLECTION_RECREATE"
+        },
+        {
+          "name": "PRE_COLLECTION_REMOVE"
+        },
+        {
+          "name": "PRE_COLLECTION_UPDATE"
+        },
+        {
+          "name": "PRE_DELETE"
+        },
+        {
+          "name": "PRE_INSERT"
+        },
+        {
+          "name": "PRE_LOAD"
+        },
+        {
+          "name": "PRE_UPDATE"
+        },
+        {
+          "name": "PRE_UPSERT"
+        },
+        {
+          "name": "REFRESH"
+        },
+        {
+          "name": "REPLICATE"
+        },
+        {
+          "name": "RESOLVE_NATURAL_ID"
+        },
+        {
+          "name": "SAVE"
+        },
+        {
+          "name": "SAVE_UPDATE"
+        },
+        {
+          "name": "UPDATE"
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.EvictEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.FlushEntityEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.FlushEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.InitializeCollectionEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.LoadEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.LockEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.MergeEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PersistEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PostDeleteEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PostInsertEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PostLoadEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PostUpdateEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PostUpsertEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PreCollectionUpdateEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PreDeleteEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PreInsertEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PreLoadEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PreUpdateEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.PreUpsertEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.RefreshEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.ReplicateEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.ResolveNaturalIdEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.event.spi.SaveOrUpdateEventListener[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.id.Assigned",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.id.factory.internal.StandardIdentifierGeneratorFactory"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.CoreMessageLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.CoreMessageLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.CoreMessageLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.EntityManagerMessageLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.EntityManagerMessageLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.EntityManagerMessageLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.log.ConnectionInfoLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.log.ConnectionInfoLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.log.ConnectionInfoLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.log.DeprecationLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.log.DeprecationLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.internal.log.DeprecationLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.jpa.event.spi.Callback[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.metamodel.mapping.MappingModelCreationLogging_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.metamodel.mapping.MappingModelCreationLogging_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.metamodel.mapping.MappingModelCreationLogging_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.persister.collection.BasicCollectionPersister",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.hibernate.mapping.Collection",
+            "org.hibernate.cache.spi.access.CollectionDataAccess",
+            "org.hibernate.metamodel.spi.RuntimeModelCreationContext"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.persister.entity.SingleTableEntityPersister",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.hibernate.mapping.PersistentClass",
+            "org.hibernate.cache.spi.access.EntityDataAccess",
+            "org.hibernate.cache.spi.access.NaturalIdDataAccess",
+            "org.hibernate.metamodel.spi.RuntimeModelCreationContext"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.persister.internal.PersisterFactoryImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.persister.internal.StandardPersisterClassResolver"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.property.access.internal.PropertyAccessStrategyResolverStandardImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.proxy.HibernateProxy"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.proxy.ProxyConfiguration"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.proxy.ProxyConfiguration$InterceptorDispatcher"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.QueryLogging_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.QueryLogging_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.QueryLogging_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.hql.HqlLogging_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.hql.HqlLogging_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.hql.HqlLogging_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.hql.spi.DotIdentifierConsumer[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.hql.spi.SqmCreationProcessingState[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.sqm.spi.ParameterDeclarationContext[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.sqm.sql.FromClauseIndex[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.query.sqm.tree.select.SqmQueryPart[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.reactive.provider.ReactiveServiceRegistryBuilder"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.resource.beans.internal.ManagedBeanRegistryImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.resource.transaction.backend.jdbc.internal.JdbcResourceLocalTransactionCoordinatorBuilderImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.service.ServiceRegistry"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.service.internal.SessionFactoryServiceRegistryFactoryImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.ast.Clause[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.ast.internal.ParameterMarkerStrategyStandard"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.ast.spi.SqlAstProcessingState[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.ast.tree.SqlAstTreeLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.ast.tree.SqlAstTreeLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.ast.tree.SqlAstTreeLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.ast.tree.Statement[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.ast.tree.select.QueryPart[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.exec.SqlExecLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.exec.SqlExecLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.exec.SqlExecLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.results.LoadingLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.results.LoadingLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.results.LoadingLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.results.ResultsLogger_$logger",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "org.jboss.logging.Logger"
+          ]
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.results.ResultsLogger_$logger_en"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.results.ResultsLogger_$logger_en_US"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.results.jdbc.internal.JdbcValuesMappingProducerProviderStandard"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.sql.results.jdbc.spi.JdbcValuesSourceProcessingState[]"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.stat.internal.StatisticsImpl"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.tool.schema.internal.HibernateSchemaManagementTool"
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": "org.hibernate.type.SqlTypes",
+      "fields": [
+        {
+          "name": "ARRAY"
+        },
+        {
+          "name": "BIGINT"
+        },
+        {
+          "name": "BINARY"
+        },
+        {
+          "name": "BIT"
+        },
+        {
+          "name": "BLOB"
+        },
+        {
+          "name": "BOOLEAN"
+        },
+        {
+          "name": "CHAR"
+        },
+        {
+          "name": "CLOB"
+        },
+        {
+          "name": "DATALINK"
+        },
+        {
+          "name": "DATE"
+        },
+        {
+          "name": "DECIMAL"
+        },
+        {
+          "name": "DISTINCT"
+        },
+        {
+          "name": "DOUBLE"
+        },
+        {
+          "name": "DURATION"
+        },
+        {
+          "name": "ENUM"
+        },
+        {
+          "name": "FLOAT"
+        },
+        {
+          "name": "GEOGRAPHY"
+        },
+        {
+          "name": "GEOMETRY"
+        },
+        {
+          "name": "INET"
+        },
+        {
+          "name": "INSTANT"
+        },
+        {
+          "name": "INTEGER"
+        },
+        {
+          "name": "INTERVAL_SECOND"
+        },
+        {
+          "name": "JAVA_OBJECT"
+        },
+        {
+          "name": "JSON"
+        },
+        {
+          "name": "JSON_ARRAY"
+        },
+        {
+          "name": "LOCAL_DATE"
+        },
+        {
+          "name": "LOCAL_DATE_TIME"
+        },
+        {
+          "name": "LOCAL_TIME"
+        },
+        {
+          "name": "LONG32NVARCHAR"
+        },
+        {
+          "name": "LONG32VARBINARY"
+        },
+        {
+          "name": "LONG32VARCHAR"
+        },
+        {
+          "name": "LONGNVARCHAR"
+        },
+        {
+          "name": "LONGVARBINARY"
+        },
+        {
+          "name": "LONGVARCHAR"
+        },
+        {
+          "name": "MATERIALIZED_BLOB"
+        },
+        {
+          "name": "MATERIALIZED_CLOB"
+        },
+        {
+          "name": "MATERIALIZED_NCLOB"
+        },
+        {
+          "name": "NAMED_ENUM"
+        },
+        {
+          "name": "NAMED_ORDINAL_ENUM"
+        },
+        {
+          "name": "NCHAR"
+        },
+        {
+          "name": "NCLOB"
+        },
+        {
+          "name": "NULL"
+        },
+        {
+          "name": "NUMERIC"
+        },
+        {
+          "name": "NVARCHAR"
+        },
+        {
+          "name": "OFFSET_DATE_TIME"
+        },
+        {
+          "name": "OFFSET_TIME"
+        },
+        {
+          "name": "ORDINAL_ENUM"
+        },
+        {
+          "name": "OTHER"
+        },
+        {
+          "name": "POINT"
+        },
+        {
+          "name": "REAL"
+        },
+        {
+          "name": "REF"
+        },
+        {
+          "name": "REF_CURSOR"
+        },
+        {
+          "name": "ROWID"
+        },
+        {
+          "name": "SMALLINT"
+        },
+        {
+          "name": "SQLXML"
+        },
+        {
+          "name": "STRUCT"
+        },
+        {
+          "name": "STRUCT_ARRAY"
+        },
+        {
+          "name": "STRUCT_TABLE"
+        },
+        {
+          "name": "TABLE"
+        },
+        {
+          "name": "TIME"
+        },
+        {
+          "name": "TIMESTAMP"
+        },
+        {
+          "name": "TIMESTAMP_UTC"
+        },
+        {
+          "name": "TIMESTAMP_WITH_TIMEZONE"
+        },
+        {
+          "name": "TIME_UTC"
+        },
+        {
+          "name": "TIME_WITH_TIMEZONE"
+        },
+        {
+          "name": "TINYINT"
+        },
+        {
+          "name": "UUID"
+        },
+        {
+          "name": "VARBINARY"
+        },
+        {
+          "name": "VARCHAR"
+        },
+        {
+          "name": "VECTOR"
+        },
+        {
+          "name": "VECTOR_FLOAT32"
+        },
+        {
+          "name": "VECTOR_FLOAT64"
+        },
+        {
+          "name": "VECTOR_INT8"
+        },
+        {
+          "name": "XML_ARRAY"
+        },
+        {
+          "name": "ZONED_DATE_TIME"
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.persistence.Basic"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.persistence.Column"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.persistence.Convert"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.persistence.Converts"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.persistence.Entity"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.persistence.EntityManager"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.persistence.Table"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.xml.bind.annotation.XmlAccessorType",
+          "org.glassfish.jaxb.core.v2.model.annotation.Locatable"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.xml.bind.annotation.XmlEnumValue",
+          "org.glassfish.jaxb.core.v2.model.annotation.Locatable"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.xml.bind.annotation.XmlMixed",
+          "org.glassfish.jaxb.core.v2.model.annotation.Locatable"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.xml.bind.annotation.XmlSeeAlso",
+          "org.glassfish.jaxb.core.v2.model.annotation.Locatable"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "jakarta.xml.bind.annotation.adapters.XmlJavaTypeAdapter",
+          "org.glassfish.jaxb.core.v2.model.annotation.Locatable"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "java.sql.Connection"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "proxy": [
+          "org.hibernate.annotations.Columns"
+        ]
+      }
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "lambda": {
+          "declaringClass": "example.ratchet.ConsumerRequiresNewSubmission",
+          "interfaces": [
+            "run.ratchet.api.SerializableCheckedRunnable"
+          ]
+        }
+      },
+      "methods": [
+        {
+          "name": "writeReplace",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "lambda": {
+          "declaringClass": "example.ratchet.verification.NativeVerification",
+          "interfaces": [
+            "run.ratchet.api.SerializableCheckedRunnable"
+          ]
+        }
+      },
+      "methods": [
+        {
+          "name": "writeReplace",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "lambda": {
+          "declaringClass": "example.ratchet.verification.NativeVerification$1",
+          "interfaces": [
+            "run.ratchet.api.SerializableCheckedRunnable"
+          ]
+        }
+      },
+      "methods": [
+        {
+          "name": "writeReplace",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "lambda": {
+          "declaringClass": "example.ratchet.verification.NativeVerification$1Local",
+          "interfaces": [
+            "run.ratchet.api.SerializableCheckedRunnable"
+          ]
+        }
+      },
+      "methods": [
+        {
+          "name": "writeReplace",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "lambda": {
+          "declaringClass": "example.ratchet.verification.NativeVerification$Nested",
+          "interfaces": [
+            "run.ratchet.api.SerializableCheckedRunnable"
+          ]
+        }
+      },
+      "methods": [
+        {
+          "name": "writeReplace",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "lambda": {
+          "declaringClass": "example.ratchet.verification.NativeVerification$Parent",
+          "interfaces": [
+            "run.ratchet.api.SerializableCheckedRunnable"
+          ]
+        }
+      },
+      "methods": [
+        {
+          "name": "writeReplace",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "condition": {
+        "typeReached": "org.hibernate.boot.internal.ClassmateContext"
+      },
+      "type": {
+        "lambda": {
+          "declaringClass": "org.hibernate.event.internal.EntityCopyNotAllowedObserver",
+          "interfaces": [
+            "org.hibernate.event.spi.EntityCopyObserverFactory"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -34,6 +34,7 @@ import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.micronaut.internal.CircuitBreakerProtectedInterceptor;
 import run.ratchet.micronaut.internal.NoTransactionOperations;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
@@ -176,6 +177,7 @@ class RatchetEngineWiringTest {
       context.start();
       assertFalse(context.containsBean(JobSchedulerService.class));
       assertFalse(context.containsBean(RatchetOptions.class));
+      assertNotNull(context.getBean(CircuitBreakerProtectedInterceptor.class));
     }
   }
 
@@ -185,6 +187,7 @@ class RatchetEngineWiringTest {
       context.start();
       assertNotNull(context.getBean(RatchetOptions.class));
       assertFalse(context.containsBean(JobSchedulerService.class));
+      assertNotNull(context.getBean(CircuitBreakerProtectedInterceptor.class));
     }
   }
 

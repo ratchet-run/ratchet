@@ -19,6 +19,7 @@
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <store>postgresql</store>
+    <consumer.native>false</consumer.native>
     <google-java-format.version>1.24.0</google-java-format.version>
   </properties>
   <modules>
@@ -187,9 +188,34 @@
         </plugins>
       </build>
     </profile>
+    <profile>
+      <id>native</id>
+      <properties>
+        <consumer.native>true</consumer.native>
+      </properties>
+    </profile>
   </profiles>
   <build>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>3.5.5</version>
+        <configuration>
+          <systemPropertyVariables>
+            <store>${store}</store>
+            <consumer.native>${consumer.native}</consumer.native>
+          </systemPropertyVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
@@ -207,6 +233,11 @@
               <groupId>io.micronaut.data</groupId>
               <artifactId>micronaut-data-processor</artifactId>
               <version>${micronaut.data.version}</version>
+            </path>
+            <path>
+              <groupId>run.ratchet</groupId>
+              <artifactId>ratchet-micronaut-processor</artifactId>
+              <version>${ratchet.version}</version>
             </path>
           </annotationProcessorPaths>
           <compilerArgs>

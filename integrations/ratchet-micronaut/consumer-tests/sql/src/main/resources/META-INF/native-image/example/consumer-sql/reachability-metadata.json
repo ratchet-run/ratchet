@@ -1,0 +1,48 @@
+{
+  "reflection": [
+    {
+      "type": "example.ratchet.verification.VerificationJobs$RecordArgument",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "example.ratchet.verification.VerificationJobs$PojoArgument",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "example.ratchet.ConsumerRecord",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "example.ratchet.ConsumerUuidRecord",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "example.ratchet.ConsumerLabelConverter",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "example.ratchet.ConsumerLabel",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    }
+  ],
+  "resources": [
+    {
+      "glob": "application*.yml"
+    },
+    {
+      "glob": "META-INF/consumer-orm.xml"
+    }
+  ]
+}

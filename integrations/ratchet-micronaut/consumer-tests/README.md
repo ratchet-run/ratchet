@@ -36,7 +36,7 @@ The additional store selections make all four SQL cells available in the isolate
 ```bash
 staged_repo="$(mktemp -d)"
 mvn -B -ntp -Dmaven.repo.local="$staged_repo" \
-  -pl :ratchet-micronaut,:ratchet-micronaut-jpa,:ratchet-micronaut-mongodb,:ratchet-tck-api,:ratchet-tck-store,:ratchet-store-postgresql,:ratchet-store-mysql,:ratchet-store-oracle,:ratchet-store-sqlserver,:ratchet-store-mongodb \
+  -pl :ratchet-micronaut-processor,:ratchet-micronaut,:ratchet-micronaut-jpa,:ratchet-micronaut-mongodb,:ratchet-tck-api,:ratchet-tck-store,:ratchet-store-postgresql,:ratchet-store-mysql,:ratchet-store-oracle,:ratchet-store-sqlserver,:ratchet-store-mongodb \
   -am install -Pgithub -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
 ```
 
@@ -135,10 +135,71 @@ construct Ratchet engine/store implementations.
 
 ## Intentionally not ported yet
 
-Native/AOT compilation and native lifecycle/migration tests, EclipseLink/provider portability,
+EclipseLink/provider portability,
 `src/runtime` multi-process/web/fault-injection/encryption/multiple-persistence-unit scenarios,
-packaged-JAR/recovery ITs, and their process/TCP proxy harnesses are outside this pass. Spring-only
+the broad runtime TCP proxy harness is outside this pass. Spring-only
 SQL initialization/deferred-data ordering and direct concurrent `SchemaMigrator` tests are also
 not reproduced: this consumer owns host-table provisioning and checks migration through startup.
 The broad Spring lifecycle suite's prototype/JDK-proxy-specific and runtime-fencing edge cases
-remain separate follow-up work. This reactor provides JVM consumer and TCK evidence only.
+remain separate follow-up work. Process verification is described below; native execution needs a successful native build.
+
+The SQL suite also compiles application beans using `ratchet-micronaut-processor` in both lanes.
+`CircuitBreakerBeanTest` covers generated proxies, method and class bindings, inherited class
+bindings, default service names, ignored failures, open-circuit rejection, half-open recovery and
+reopening, and rejection before transaction advice. The transaction probe includes a positive
+control that observes a real transaction on admitted calls. No Mongo circuit-breaker smoke test is
+required.
+
+## JVM and native process ITs
+
+The launcher lives in `contracts`. It uses `target/classes` and the runtime dependency classpath
+written at `package`. Test classes and test dependencies are excluded. With `-Pnative`, it launches
+`target/sql-consumer` or `target/mongodb-consumer` instead. Failsafe runs the same ITs in both modes.
+The application's main-source verification beans activate only for `consumer.native-check=true`.
+They hold a non-daemon thread, print `RATCHET_CHECK <name>` per check, and exit with a failure reason
+on an exception or timeout. Existing unit tests leave this property unset.
+
+After staging as above, run all process ITs with these exact commands. JVM MN4 needs JDK 17+;
+JVM MN5 needs JDK 25. Both native lanes need GraalVM 25. The formatter override lets MN4 run on 25.
+`-Dtest=NoJvmTests` skips unit tests without skipping Failsafe.
+
+```bash
+# MN4 JVM SQL and Mongo
+mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" -Pmn4 -Dstore=postgresql -pl :sql-consumer -am clean verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" -Pmn4 -pl :mongodb-consumer -am clean verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+# MN5 JVM SQL and Mongo
+mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" -Pmn5 -Dstore=postgresql -pl :sql-consumer -am clean verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" -Pmn5 -pl :mongodb-consumer -am clean verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+# MN4 native SQL and Mongo
+mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" -Pmn4,native -Dgoogle-java-format.version=1.35.0 -Dstore=postgresql -pl :sql-consumer -am clean verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" -Pmn4,native -Dgoogle-java-format.version=1.35.0 -pl :mongodb-consumer -am clean verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+# MN5 native SQL and Mongo
+mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" -Pmn5,native -Dstore=postgresql -pl :sql-consumer -am clean verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" -Pmn5,native -pl :mongodb-consumer -am clean verify -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+Replace `-Dstore=postgresql` with `mysql`, `oracle`, or `sqlserver` for the other SQL stores.
+On JDK 25, append `-Dgoogle-java-format.version=1.35.0` to MN4 JVM commands too.
+To run a single IT, append the following selector to the relevant command above:
+
+| IT | Selector | Checks |
+| --- | --- | --- |
+| SQL native consumer | `-Dit.test=SqlNativeConsumerIT -Dfailsafe.failIfNoSpecifiedTests=false` | Every discovery marker, captured record/POJO, recurring twice, REQUIRES_NEW, circuit advice. |
+| SQL lifecycle | `-Dit.test=SqlNativeLifecycleIT -Dfailsafe.failIfNoSpecifiedTests=false` | Actual SIGTERM during work; empty allowed-packages fails startup. |
+| SQL recovery | `-Dit.test=SqlRecoveryIT -Dfailsafe.failIfNoSpecifiedTests=false` | Kill worker; second node executes the original persisted job ID. |
+| SQL migration | `-Dit.test=SqlNativeMigrationIT -Dfailsafe.failIfNoSpecifiedTests=false` | Empty DB, no init script, migration ledger and successful job. |
+| Mongo native consumer | `-Dit.test=MongoNativeConsumerIT -Dfailsafe.failIfNoSpecifiedTests=false` | Every discovery and argument marker, recurring twice. |
+| Mongo lifecycle | `-Dit.test=MongoNativeLifecycleIT -Dfailsafe.failIfNoSpecifiedTests=false` | Actual SIGTERM during work; empty allowed-packages fails startup. |
+| Mongo recovery | `-Dit.test=MongoRecoveryIT -Dfailsafe.failIfNoSpecifiedTests=false` | Kill worker; original document identity reaches success after restart. |
+
+Native applications enable third-party reachability metadata and disable fallback images. SQL excludes
+Hibernate's BytecodeProvider service so Hibernate 6.6 and 7 use their no-op provider instead of Byte
+Buddy. SQL Server includes all charsets. App metadata covers both SQL entities, the converter and its
+value record, the captured record and POJO, and `META-INF/consumer-orm.xml`. Mongo only needs the
+captured argument metadata. The Feature registrations are automatic and are not changed by this
+harness. Construct arguments before submitting lambdas.
+
+Recovery uses a one-second heartbeat, two-second orphan grace, and the minimum supported one-minute
+orphan scan. The second process gets 100 seconds to observe success. Drain uses a five-second job and
+a 20-second shutdown timeout. Process logs and Failsafe reports are retained under each module's
+`target`. Runtime and native-image results must be reviewed separately from source checks.

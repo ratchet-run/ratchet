@@ -143,6 +143,13 @@
       <artifactId>reactive-streams</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- Compile-only: the GraalVM Feature API is supplied by native-image at build time. -->
+    <dependency>
+      <groupId>org.graalvm.sdk</groupId>
+      <artifactId>nativeimage</artifactId>
+      <version>23.1.2</version>
+      <scope>provided</scope>
+    </dependency>
     <dependency>
       <groupId>org.eclipse.parsson</groupId>
       <artifactId>parsson</artifactId>

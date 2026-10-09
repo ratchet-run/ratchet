@@ -7,7 +7,17 @@
     <version>1.0-SNAPSHOT</version>
   </parent>
   <artifactId>mongodb-consumer</artifactId>
+  <properties>
+    <consumer.main-class>example.ratchet.mongo.MongoConsumerApplication</consumer.main-class>
+  </properties>
   <dependencies>
+    <!-- Lets the packaged and native apps print Micronaut startup failures. -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.17</version>
+      <scope>runtime</scope>
+    </dependency>
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-micronaut</artifactId>
@@ -41,7 +51,6 @@
       <groupId>run.ratchet.consumer</groupId>
       <artifactId>verification-fixtures</artifactId>
       <version>1.0-SNAPSHOT</version>
-      <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -64,4 +73,63 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+  <build><plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>3.8.1</version>
+        <executions>
+          <execution>
+            <id>runtime-classpath</id>
+            <phase>package</phase>
+            <goals>
+              <goal>build-classpath</goal>
+            </goals>
+            <configuration>
+              <includeScope>runtime</includeScope>
+              <outputFile>${project.build.directory}/runtime-classpath.txt</outputFile>
+            </configuration>
+          </execution></executions>
+      </plugin>
+    </plugins></build>
+  <profiles>
+    <profile>
+      <id>native</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.graalvm.buildtools</groupId>
+            <artifactId>native-maven-plugin</artifactId>
+            <version>1.1.8</version>
+            <configuration>
+              <imageName>${project.artifactId}</imageName>
+              <mainClass>${consumer.main-class}</mainClass>
+              <classesDirectory>${project.build.outputDirectory}</classesDirectory>
+              <metadataRepository>
+                <enabled>true</enabled>
+              </metadataRepository>
+              <buildArgs>
+                <buildArg>--no-fallback</buildArg>
+                <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+              </buildArgs>
+            </configuration>
+            <executions>
+              <execution>
+                <id>add-reachability-metadata</id>
+                <phase>process-classes</phase>
+                <goals>
+                  <goal>add-reachability-metadata</goal>
+                </goals>
+              </execution>
+              <execution>
+                <id>native-package</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>compile-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins></build></profile>
+  </profiles>
 </project>
