@@ -163,7 +163,20 @@ public final class SqlJobCompletion {
       }
     }
     BatchProgress progress = null;
-    if (plan.batchId() != null && plan.terminalStatus() != JobStatus.CANCELED) {
+    if (plan.batchId() != null && plan.terminalStatus() == JobStatus.CANCELED) {
+      // cancelJob already counted the child as failed; report the counters it left behind.
+      var batch =
+          batches
+              .findBatchById(plan.batchId())
+              .orElseThrow(() -> stale("Batch missing", plan.batchId()));
+      progress =
+          new BatchProgress(
+              plan.batchId(),
+              batch.getTotalItems(),
+              batch.getCompletedItems(),
+              batch.getFailedItems(),
+              batch.getProgressHook());
+    } else if (plan.batchId() != null) {
       progress =
           plan.terminalStatus() == JobStatus.SUCCEEDED
               ? batches.incrementCompletedAtomic(plan.batchId())
