@@ -18,6 +18,7 @@ package run.ratchet.ri.resilience;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.Duration;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.CircuitBreakerProfile;
@@ -25,6 +26,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.CircuitBreakerExceptionFilter;
 
 class DefaultResilienceStrategyTest {
 
@@ -35,6 +37,93 @@ class DefaultResilienceStrategyTest {
   void setUp() {
     registry = defaultRegistry();
     strategy = new DefaultResilienceStrategy(registry);
+  }
+
+  @Test
+  void threeArgumentExecutePassesFilterToBreaker() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(IllegalArgumentException.class), null);
+    IllegalArgumentException failure = new IllegalArgumentException();
+    for (int i = 0; i < 10; i++) {
+      assertSame(
+          failure,
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  strategy.execute(
+                      "ignored-service",
+                      filter,
+                      () -> {
+                        throw failure;
+                      })));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, registry.getBreaker("ignored-service").getState());
+    for (int i = 0; i < 5; i++) {
+      assertThrows(
+          IllegalStateException.class,
+          () ->
+              strategy.execute(
+                  "ignored-service",
+                  filter,
+                  () -> {
+                    throw new IllegalStateException();
+                  }));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, registry.getBreaker("ignored-service").getState());
+  }
+
+  @Test
+  void errorsAreClassifiedAndRethrownUnchanged() {
+    CircuitBreakerExceptionFilter filter =
+        new CircuitBreakerExceptionFilter(List.of(), List.of(AssertionError.class), null);
+    AssertionError ignored = new AssertionError("ignored");
+    for (int i = 0; i < 10; i++) {
+      assertSame(
+          ignored,
+          assertThrows(
+              AssertionError.class,
+              () ->
+                  strategy.execute(
+                      "error-service",
+                      filter,
+                      () -> {
+                        throw ignored;
+                      })));
+    }
+    assertEquals(CircuitBreaker.State.CLOSED, registry.getBreaker("error-service").getState());
+    for (int i = 0; i < 5; i++) {
+      assertThrows(
+          RecordedError.class,
+          () ->
+              strategy.execute(
+                  "error-service",
+                  filter,
+                  () -> {
+                    throw new RecordedError();
+                  }));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, registry.getBreaker("error-service").getState());
+  }
+
+  @Test
+  void registryCopiesSpiExceptionConfiguration() {
+    TestCircuitBreakerConfigProvider provider = new TestCircuitBreakerConfigProvider(true);
+    provider.config =
+        new CircuitBreakerConfig(
+            50.0f, 4, 100L, 2, 2, List.of(), List.of(IllegalArgumentException.class), null);
+    DefaultResilienceStrategy configured =
+        new DefaultResilienceStrategy(new CircuitBreakerRegistry(provider), provider);
+    for (int i = 0; i < 10; i++) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () ->
+              configured.execute(
+                  "configured",
+                  () -> {
+                    throw new IllegalArgumentException();
+                  }));
+    }
+    assertTrue(configured.isServiceAvailable("configured"));
   }
 
   @Test
@@ -164,6 +253,8 @@ class DefaultResilienceStrategyTest {
 
     assertEquals("RatchetOptions were not injected", thrown.getMessage());
   }
+
+  private static final class RecordedError extends Error {}
 
   private static final class TestCircuitBreakerConfigProvider
       implements CircuitBreakerConfigProvider {

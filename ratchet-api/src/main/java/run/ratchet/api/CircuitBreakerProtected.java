@@ -67,4 +67,26 @@ public @interface CircuitBreakerProtected {
    */
   @Nonbinding
   CircuitBreakerProfile profile() default CircuitBreakerProfile.DEFAULT;
+
+  /**
+   * Returns failure classes matched through the cause chain, including subclasses. Lists are
+   * unioned with profile configuration. With no record classes or predicate, every exception not
+   * ignored is recorded; otherwise non-matching exceptions count as neither success nor failure.
+   * Annotations cannot hold predicates; use a CircuitBreakerConfigProvider for predicate
+   * configuration.
+   *
+   * @return classes to record as failures
+   */
+  @Nonbinding
+  Class<? extends Throwable>[] recordExceptions() default {};
+
+  /**
+   * Returns classes ignored through the cause chain, including subclasses. Ignore matches win over
+   * record matches and count as neither success nor failure. The list is unioned with profile
+   * configuration. Exceptions are always rethrown unchanged.
+   *
+   * @return classes to exclude from breaker accounting
+   */
+  @Nonbinding
+  Class<? extends Throwable>[] ignoreExceptions() default {};
 }

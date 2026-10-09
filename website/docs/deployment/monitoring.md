@@ -67,8 +67,22 @@ Micrometer tracing bridge. A custom tracing collector with a priority above 1100
 | `ratchet.store.operation` | Timer | `store`, `operation`, `outcome` | Timed store operations on claim and execution hot paths |
 | `ratchet.poller.breaker.state` | Gauge | `breaker` | Poller claim-breaker state: `0` closed/unknown, `1` half-open, `2` open |
 | `ratchet.circuit.breaker.state` | Gauge | `service`, `profile` | Application circuit-breaker state: `0` closed/unknown, `1` half-open, `2` open |
+| `ratchet.queue.jobs` | Gauge | `status` | Current jobs by status: `PENDING`, `RUNNING`, `WAITING`, `PAUSED`, `FAILED`, `SUCCEEDED`, `CANCELED` |
+| `ratchet.queue.ready` | Gauge | — | Pending jobs whose scheduled run time has passed |
+| `ratchet.queue.stuck` | Gauge | — | Running jobs whose pickup timestamp is more than five minutes old |
+| `ratchet.queue.pending.type` | Gauge | `type` | Pending jobs by job type; zero when a type has no pending jobs |
+| `ratchet.queue.pending.priority` | Gauge | `priority` | Pending jobs by priority; zero when a priority has no pending jobs |
+| `ratchet.queue.wait.p95` | Gauge | — | 95th-percentile queue wait time in milliseconds |
+| `ratchet.queue.oldest.pending.age` | Gauge | — | Seconds since the oldest pending job's scheduled run time; zero when none exists or that time is in the future |
 | `ratchet.encryption.integrity.violations` | Counter | `surface` | A row marked as encrypted contained plaintext. The read succeeds, but the writer or rollout needs investigation. |
 | `ratchet.encryption.envelope.version_skew` | Counter | `version_gap` | A newer envelope reached this node. `next`, `multiple_versions_ahead`, and `not_newer` keep the diagnostic bounded; Ratchet releases valid newer jobs for an upgraded peer. |
+
+Queue-health gauges read `JobQueryService.getQueueHealth()`, which runs several aggregate store queries. The snapshot is cached for 15 seconds per node, and values are zero when the store lacks the `JobAnalyticsStore` capability. A failed refresh keeps the previous snapshot and waits 15 seconds before retrying; values are `NaN` until the first successful fetch. The oldest pending age is calculated at each read. To disable these gauges and their queries, add this filter before the scheduler starts:
+
+```java
+registry.config().meterFilter(
+    MeterFilter.deny(id -> id.getName().startsWith("ratchet.queue")));
+```
 
 The `type` tag corresponds to `JobType` (`SINGLE`, `RECURRING`, `BATCH`, `CHAIN`, `WORKFLOW`, `SYSTEM`). The `priority` tag corresponds to `JobPriority` (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`). The `family` tag corresponds to `ExceptionFamily`, a coarse classification of the failure cause rather than the raw exception class name.
 
@@ -258,6 +272,8 @@ after its live `scheduler_job_queue` row is removed.
 | Node heartbeat stale > 2min | **Critical** | Node may be down; check process health |
 | Pending CRITICAL jobs > 30s | **Critical** | Cluster may be overloaded |
 | Pending queue depth growing | **Warning** | Scale up nodes or increase thread pool |
+| `ratchet.queue.stuck` > 0 | **Warning** | Check long-running jobs and worker health |
+| `ratchet.queue.oldest.pending.age` keeps rising | **Warning** | Check poller health, available workers, and queue capacity |
 | `ratchet.store.finalization.stuck` > 0 | **Critical** | Check store health; successful work is waiting for recovery |
 | `ratchet.poller.breaker.state` remains `2` | **Critical** | Investigate claim-path store failures |
 | `ratchet.encryption.integrity.violations` > 0 | **Critical** | Investigate a downgrade, lagging writer, or encryption bug |
