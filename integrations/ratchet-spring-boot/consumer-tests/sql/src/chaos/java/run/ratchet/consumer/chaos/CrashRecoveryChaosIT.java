@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test;
 class CrashRecoveryChaosIT {
   @Test
   void recoversKilledOwner() throws Exception {
-    long seed = 1101L;
+    long seed = Long.getLong("chaos.seed", System.nanoTime());
     System.out.println("CrashRecoveryChaosIT seed=" + seed);
     var random = new Random(seed);
     try (var cluster = new ChaosCluster()) {

@@ -212,3 +212,39 @@ mvn -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
 Use `-Dstore=mysql` to run against MySQL.
 Failure reports go to `sql/target/chaos-reports/`.
 Node logs go to `sql/target/runtime-*.log`.
+
+### Fault points and retry accounting
+
+A scenario can pause a job at one of three points: `body` (inside the job), `after-claim`
+(after a node claims it, before the body starts), and `before-commit` (after the body, before
+the terminal write). The pause is stored in the database, so it survives node restarts.
+These points let the tests kill a node at an exact moment, for example between claim and start
+(`ClaimedNotStartedChaosIT`) or between body and commit (`CommitWindowChaosIT`).
+
+`RetryAccountingChaosIT` submits 40 jobs that fail a set number of times and kills a node
+while they run. `chaos.seed` fixes the random choices; each seeded scenario prints its seed.
+Chaos nodes run with the circuit breaker off, because these jobs fail on purpose.
+
+The oracle adds two checks:
+
+- I8: only the most recently started attempt may commit a job, and only once.
+- I10: `scheduler_job.total_attempts` matches the application failures recorded in the ledger.
+  A crash in the gap between a failure and its retry commit may leave one failure uncounted.
+  Jobs that saw no fault must succeed when `failTimes <= maxRetries` and fail otherwise.
+
+Overlaps caused by a paused node (`I4-stale`) are reported but do not fail the run.
+
+### Known defects
+
+`StaleOwnerChaosIT` and `CrashCountsAgainstRetriesChaosIT` carry the JUnit tag `known-defect`.
+They assert the correct behavior and fail today. They are excluded by default, including in CI.
+To run them, add `-Dchaos.excludedGroups=none` to the command above. To run only these two, also
+add `'-Dit.test=StaleOwnerChaosIT,CrashCountsAgainstRetriesChaosIT'`.
+
+- `StaleOwnerChaosIT` pauses the node running a job until another node recovers it, then lets
+  the first node finish. The first node's commit still succeeds, so I8 fails. The fix is to
+  fence terminal writes by the current claim.
+- `CrashCountsAgainstRetriesChaosIT` crashes the owner of a `maxRetries=1` job twice. The job
+  should end `FAILED`; today it succeeds. The fix is to count crashes against the retry budget.
+
+Remove the tag when the fix lands.
