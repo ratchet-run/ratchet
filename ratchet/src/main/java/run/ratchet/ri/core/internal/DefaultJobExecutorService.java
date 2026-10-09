@@ -231,7 +231,8 @@ public class DefaultJobExecutorService implements JobExecutorService {
           handlesRef,
           poolName,
           release,
-          job.getClaimSeq() == null ? 0L : job.getClaimSeq(),
+          Objects.requireNonNull(
+              job.getClaimSeq(), "job " + job.getId() + " has no claim sequence"),
           job.getPickedBy());
     } catch (RuntimeException | Error failure) {
       release.run();

@@ -103,6 +103,21 @@ class JobExecutorServiceTest {
   }
 
   @Test
+  void executionRejectsMissingClaimSequence() {
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setClaimSeq(null);
+    var failure =
+        Assertions.assertThrows(NullPointerException.class, () -> service.execute(job, "platform"));
+    Assertions.assertEquals("job " + JOB_ID + " has no claim sequence", failure.getMessage());
+    verify(jobExecutor, never()).execute(any(Runnable.class));
+    verify(timeoutHandler, never())
+        .scheduleTimeoutMonitoring(any(), anyInt(), any(), any(), any(), Mockito.anyLong(), any());
+  }
+
+  @Test
   void acceptedQueuedCancellationReleasesPermitExactlyOnce() throws Exception {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
