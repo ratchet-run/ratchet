@@ -23,7 +23,7 @@ services:
       POSTGRES_USER: ratchet
       POSTGRES_PASSWORD: ratchet
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${LOADTEST_BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ../../stores/ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
