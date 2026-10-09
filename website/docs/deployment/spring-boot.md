@@ -272,6 +272,21 @@ named-index shape. Enabled startup can warn and continue when it cannot create a
 performance index, but that warning does not make an incompatible same-name index valid; repair or
 drop the conflicting index before using validation-only startup.
 
+## Circuit breakers on application beans
+
+Add `@CircuitBreakerProtected` to a public method or class on a Spring bean. The starter
+applies protection with no extra AOP setup, including in MongoDB applications and when
+`spring.aop.auto=false`. Calls must go through the Spring proxy; calls within the same
+bean bypass the advice. Classes and methods must allow proxying.
+
+Method annotations take precedence over class annotations. Inherited class annotations
+are honoured. An open circuit rejects the call before Spring's default transaction advice
+starts a transaction or takes a connection. If you set a custom transaction advisor order,
+keep it after the circuit-breaker advisor (`Ordered.HIGHEST_PRECEDENCE + 100`).
+Protection passes calls through when Ratchet is disabled or its policy beans are absent.
+See [Circuit breakers](../advanced/circuit-breakers.md) for profiles and exception filters.
+
+
 ## Metrics and tracing
 
 Add `ratchet-micrometer` and Spring Boot Actuator alongside your Ratchet starter:

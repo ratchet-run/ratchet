@@ -18,9 +18,11 @@ package example.ratchet;
 import static example.ratchet.verification.NativeVerification.await;
 import static example.ratchet.verification.NativeVerification.check;
 
+import example.ratchet.CircuitBreakerBeanConfiguration.ProtectedService;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import run.ratchet.api.JobQueryService;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.SignalStore;
@@ -44,6 +47,7 @@ public class SqlNativeVerification {
   ApplicationRunner verifySqlNative(
       Environment environment,
       ConsumerTransactionScenarios scenarios,
+      ProtectedService protectedService,
       ConsumerService service,
       ConsumerHostDataService host,
       JdbcTemplate jdbc,
@@ -53,6 +57,21 @@ public class SqlNativeVerification {
       JobQueryService queries) {
     return args -> {
       if (!environment.getProperty("consumer.full-verify", Boolean.class, false)) return;
+      check(AopUtils.isAopProxy(protectedService), "circuit-breaker bean has no native proxy");
+      for (int i = 0; i < 3; i++) {
+        try {
+          protectedService.call(true);
+          throw new AssertionError("protected call did not fail");
+        } catch (IllegalStateException expected) {
+          // Recorded failures must open the same application-bean breaker in native code.
+        }
+      }
+      try {
+        protectedService.call(false);
+        throw new AssertionError("open native circuit admitted call");
+      } catch (CircuitBreakerOpenException expected) {
+        check(protectedService.calls() == 3, "open native circuit reached target");
+      }
       check(
           store.capability(SignalStore.class).orElseThrow() == store,
           "capability lookup dropped the transaction proxy");
