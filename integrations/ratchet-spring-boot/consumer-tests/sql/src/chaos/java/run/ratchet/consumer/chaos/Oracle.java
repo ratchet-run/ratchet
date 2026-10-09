@@ -49,7 +49,8 @@ public final class Oracle {
         violations.add(new Violation("I8", job, "multiple commits: " + commits));
       for (var commit : commits) {
         if (attempts.isEmpty()
-            || !commit.incarnation().equals(attempts.get(attempts.size() - 1).incarnation()))
+            || !commit.incarnation().equals(attempts.get(attempts.size() - 1).incarnation())
+                && !crashFailure(commit, attempts, timeline))
           violations.add(
               new Violation("I8", job, "committer differs from latest-started attempt: " + commit));
       }
@@ -195,5 +196,20 @@ public final class Oracle {
                     && f.incarnation().equals(a.incarnation())
                     && f.beforeUs() < end(a, timeline)
                     && (f.endedUs() == null || f.endedUs() > a.startedUs()));
+  }
+
+  // Orphan recovery fails a job whose crash budget is spent. That commit comes from a node that
+  // never ran the job, after the incarnation that last ran it was killed.
+  private static boolean crashFailure(
+      Ledger.Commit commit, List<Ledger.Attempt> attempts, FaultTimeline timeline) {
+    String last = attempts.get(attempts.size() - 1).incarnation();
+    return "FAILED".equals(commit.terminalStatus())
+        && attempts.stream().noneMatch(a -> a.incarnation().equals(commit.incarnation()))
+        && timeline.entries().stream()
+            .anyMatch(
+                f ->
+                    f.incarnation().equals(last)
+                        && "kill".equals(f.fault())
+                        && f.beforeUs() <= commit.committedUs());
   }
 }

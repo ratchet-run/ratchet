@@ -102,6 +102,7 @@ public final class ChaosCluster implements AutoCloseable {
     properties.put("ratchet.shutdown-timeout", "5s");
     // Scenarios fail jobs on purpose; an open breaker would hold their retries past settlement.
     properties.put("ratchet.circuit-breaker.enabled", false);
+    properties.put("ratchet.node.max-crash-redeliveries", 1);
     properties.put("spring.flyway.enabled", false);
     properties.put("spring.liquibase.enabled", false);
     properties.put("spring.main.web-application-type", "servlet");

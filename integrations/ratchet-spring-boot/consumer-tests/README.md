@@ -227,7 +227,8 @@ Chaos nodes run with the circuit breaker off, because these jobs fail on purpose
 
 The oracle adds two checks:
 
-- I8: only the most recently started attempt may commit a job, and only once.
+- I8: only the most recently started attempt may commit a job, and only once. The exception is
+  orphan recovery failing a job whose crash budget is spent after the node running it was killed.
 - I10: `scheduler_job.total_attempts` matches the application failures recorded in the ledger.
   A crash in the gap between a failure and its retry commit may leave one failure uncounted.
   Jobs that saw no fault must succeed when `failTimes <= maxRetries` and fail otherwise.
@@ -236,15 +237,21 @@ Overlaps caused by a paused node (`I4-stale`) are reported but do not fail the r
 
 ### Known defects
 
-`StaleOwnerChaosIT` and `CrashCountsAgainstRetriesChaosIT` carry the JUnit tag `known-defect`.
+`StaleOwnerChaosIT`, `CrashBudgetChaosIT` and `DrainTimeoutChaosIT` carry the JUnit tag
+`known-defect`.
 They assert the correct behavior and fail today. They are excluded by default, including in CI.
-To run them, add `-Dchaos.excludedGroups=none` to the command above. To run only these two, also
-add `'-Dit.test=StaleOwnerChaosIT,CrashCountsAgainstRetriesChaosIT'`.
+To run them, add `-Dchaos.excludedGroups=none` to the command above. To run only these three, also
+add `'-Dit.test=StaleOwnerChaosIT,CrashBudgetChaosIT,DrainTimeoutChaosIT'`.
 
 - `StaleOwnerChaosIT` pauses the node running a job until another node recovers it, then lets
   the first node finish. The first node's commit still succeeds, so I8 fails. The fix is to
   fence terminal writes by the current claim.
-- `CrashCountsAgainstRetriesChaosIT` crashes the owner of a `maxRetries=1` job twice. The job
-  should end `FAILED`; today it succeeds. The fix is to count crashes against the retry budget.
+- `CrashBudgetChaosIT` crashes the owner of a job twice. Chaos nodes set
+  `ratchet.node.max-crash-redeliveries=1`, so the job should end `FAILED`; today it is
+  redelivered and succeeds. The fix is a crash redelivery budget.
+- `DrainTimeoutChaosIT` holds a `maxRetries=0` job past the 5 second drain, so shutdown
+  interrupts it, then SIGKILLs the node that runs the redelivery. The job should still succeed,
+  because a drain timeout charges neither an attempt nor a crash. Today the interrupt counts as
+  an application failure and the job ends `FAILED`.
 
 Remove the tag when the fix lands.

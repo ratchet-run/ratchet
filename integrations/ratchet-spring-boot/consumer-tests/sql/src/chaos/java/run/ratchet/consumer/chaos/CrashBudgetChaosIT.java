@@ -21,11 +21,11 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 @Tag("known-defect")
-class CrashCountsAgainstRetriesChaosIT {
+class CrashBudgetChaosIT {
   @Test
-  void twoCrashesExhaustOneRetry() throws Exception {
+  void twoCrashesExhaustCrashBudget() throws Exception {
     try (var cluster = new ChaosCluster()) {
-      String job = cluster.submitGated("crash-budget", 0, 1, "body", 2);
+      String job = cluster.submitGated("crash-budget", 0, 0, "body", 2);
       String previous = "";
       for (int crash = 0; crash < 2; crash++) {
         String old = previous;
@@ -37,8 +37,8 @@ class CrashCountsAgainstRetriesChaosIT {
         cluster.restart(owner);
         previous = hit.incarnation();
       }
-      // This regression specifies future crash accounting, rather than today's application-only
-      // I10 rule. Retain delivery/fencing/cleanup checks while asserting the crash budget below.
+      // Chaos nodes allow one crash redelivery, so the second crash must dead-letter the job.
+      // Crashes do not touch total_attempts, so I10 does not apply to this job.
       var violations =
           new ArrayList<>(
               cluster.settle(Duration.ofSeconds(90)).stream()
@@ -50,7 +50,7 @@ class CrashCountsAgainstRetriesChaosIT {
             new Oracle.Violation(
                 "crash-retry-budget",
                 job,
-                "Two crashes with maxRetries=1 must dead-letter; observed " + status));
+                "Two crashes with max-crash-redeliveries=1 must dead-letter; observed " + status));
       RunReport.assertClean(
           "crash-retry-budget", cluster.store(), cluster.timeline, cluster.ledger(), violations);
     }
