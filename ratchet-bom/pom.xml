@@ -128,6 +128,21 @@
                 <artifactId>ratchet-spring-boot-starter-mongodb</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-micronaut</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-micronaut-jpa</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-micronaut-mongodb</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <!-- Quarkus extension runtime and deployment artifacts. -->
             <dependency>
                 <groupId>run.ratchet</groupId>
