@@ -18,6 +18,7 @@ package run.ratchet.store.spi;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.store.entity.JobEntity;
@@ -40,52 +41,20 @@ public interface JobBulkStore {
   /** Deletes old DLQ rows. Transaction attribute: {@code REQUIRED}. */
   int deleteDlqOlderThan(Instant cutoff);
 
-  /**
-   * Resets orphaned RUNNING jobs to PENDING in one bulk update, or inside one transaction when the
-   * backend has no native bulk form. Transaction attribute: {@code REQUIRED}.
-   */
-  int resetOrphanJobs(Duration grace);
+  /** Reads completion metadata without decoding payloads. Transaction attribute: REQUIRED. */
+  Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId);
+
+  /** Resets orphans with budget and returns exhausted claims in one REQUIRED transaction. */
+  OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit);
+
+  /** Uses the same exact cutoff for the reset and exhausted selection. */
+  OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit);
 
   /**
-   * Resets orphaned RUNNING jobs using a caller-supplied cutoff. Implementations should compare
-   * node heartbeat and job claim timestamps to this exact instant. Transaction attribute: {@code
-   * REQUIRED}.
-   *
-   * <p>If {@code cutoff} is in the future (e.g. due to clock skew between nodes), the computed
-   * grace duration is negative. In that case this method returns {@code 0} immediately — a future
-   * cutoff means no jobs are old enough to be orphaned yet.
-   *
-   * <p><b>Clock source.</b> The default implementation derives the grace duration from {@link
-   * Instant#now()} on the caller's JVM, NOT the database server clock that {@link
-   * run.ratchet.store.spi.LockStore} mandates for lease-correctness. Orphan detection is inherently
-   * approximate (heartbeats are coalesced, recovery rounds are spaced, late lease-expiry produces
-   * the same outcome as early reset), so client-side clock use is intentional here. Implementations
-   * that need stricter server-clock semantics should override this default and re-derive the cutoff
-   * from {@link NodeStore#getDatabaseTime()}.
-   *
-   * @param cutoff orphan-detection cutoff; jobs whose claim timestamp is strictly before this
-   *     instant are eligible for reset. Never {@code null}.
-   * @return number of rows reset to PENDING
+   * Recovers this node's previous claims at startup. Exhausted claims retain RUNNING, picked_at and
+   * claim_seq; their owner is cleared so a later orphan scan can fail them.
    */
-  default int resetOrphanJobsBefore(Instant cutoff) {
-    Duration grace = Duration.between(cutoff, Instant.now());
-    if (grace.isNegative()) {
-      return 0;
-    }
-    return resetOrphanJobs(grace);
-  }
-
-  /**
-   * Reclaims all RUNNING jobs currently owned by {@code nodeId}, unconditionally of heartbeat age,
-   * by resetting them to PENDING and clearing {@code picked_by}/{@code picked_at}. Intended for
-   * startup self-recovery: a crashing node that restarts within the normal grace window ({@link
-   * #resetOrphanJobs(Duration)}) would otherwise leave its own prior RUNNING rows in place until
-   * their heartbeat aged out.
-   *
-   * @param nodeId the node identity whose own prior claims should be released
-   * @return number of rows reset to PENDING
-   *     <p>Transaction attribute: {@code REQUIRED}. The reset must be one bulk update, or the
-   *     backend's closest single-transaction equivalent.
-   */
-  int resetOrphanJobsForNode(String nodeId);
+  OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit);
 }

@@ -217,10 +217,29 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
   void resetRunningJobRejectsEarlierClaimOnSameNode() {
     var saved = persist(newPendingJob());
     var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
-    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
     var current = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
     assertFalse(store().resetRunningJob(saved.getId(), "node-1", first.claimSeq()));
     assertEquals(JobStatus.RUNNING, store().findById(saved.getId()).orElseThrow().getStatus());
     assertTrue(store().resetRunningJob(saved.getId(), "node-1", current.claimSeq()));
+  }
+
+  @Test
+  void cleanAndPerClaimResetsPreserveCrashCount() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "self"));
+    assertEquals(1, store().resetOrphanJobsForNode("self", 3, 100).reset());
+    assertTrue(store().tryPickUpJob(job.getId(), "self"));
+    long seq = store().findById(job.getId()).orElseThrow().getClaimSeq();
+    assertTrue(store().resetRunningJob(job.getId(), "self", seq));
+    assertTrue(store().tryPickUpJob(job.getId(), "self"));
+    var afterSingleReset = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 1, 100);
+    assertEquals(0, afterSingleReset.reset());
+    assertEquals(1, afterSingleReset.exhausted().get(0).crashCount());
+    assertEquals(1, store().resetRunningJobs("self"));
+    assertTrue(store().tryPickUpJob(job.getId(), "self"));
+    var recovery = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 1, 100);
+    assertEquals(0, recovery.reset());
+    assertEquals(1, recovery.exhausted().get(0).crashCount());
   }
 }

@@ -147,6 +147,32 @@ public abstract class AbstractSchemaMigratorContract {
         repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
   }
 
+  @Test
+  void crashCountMigrationIsIdempotentOnRepeat() throws Exception {
+    resetDatabase();
+    newMigrator().migrate();
+    try (Connection connection = newJdbcConnection()) {
+      var metadata = connection.getMetaData();
+      boolean upper = metadata.storesUpperCaseIdentifiers();
+      try (ResultSet columns =
+          metadata.getColumns(
+              connection.getCatalog(),
+              connection.getSchema(),
+              upper ? "SCHEDULER_JOB_QUEUE" : "scheduler_job_queue",
+              upper ? "CRASH_COUNT" : "crash_count")) {
+        assertTrue(columns.next(), "crash_count must exist after migration");
+        assertEquals(0, columns.getInt("NULLABLE"), "crash_count must be NOT NULL");
+      }
+      try (var statement = connection.createStatement()) {
+        statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '011'");
+      }
+    }
+    var repeated = newMigrator().migrate();
+    assertEquals(
+        List.of("011"),
+        repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+  }
+
   private boolean nodeInfoColumnExists() throws SQLException {
     try (Connection connection = newJdbcConnection()) {
       var metadata = connection.getMetaData();

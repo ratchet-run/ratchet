@@ -16,6 +16,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,6 +33,8 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.ExhaustedOrphan;
+import run.ratchet.store.spi.OrphanRecovery;
 
 /** Base contract tests for {@code JobBulkStore}. */
 public abstract class AbstractJobBulkStoreContract implements JobStoreContractFixture {
@@ -118,7 +121,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     store().save(job);
 
     // Grace = 15s → picked 45s ago IS orphaned → should be reset
-    int reset = store().resetOrphanJobs(Duration.ofSeconds(15));
+    int reset = store().resetOrphanJobs(Duration.ofSeconds(15), 3, 100).reset();
     assertTrue(reset >= 1, "Job picked 45s ago with 15s grace should be reset");
 
     var reloaded = store().findById(job.getId()).orElseThrow();
@@ -137,7 +140,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     store().save(job);
 
     // Grace = 30s → picked 10s ago is NOT orphaned → should be preserved
-    store().resetOrphanJobs(Duration.ofSeconds(30));
+    store().resetOrphanJobs(Duration.ofSeconds(30), 3, 100).reset();
 
     var reloaded = store().findById(job.getId()).orElseThrow();
     assertEquals(
@@ -158,7 +161,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     recent.setPickedAt(Instant.now().minusSeconds(10));
     store().save(recent);
 
-    int reset = store().resetOrphanJobsBefore(Instant.now().minusSeconds(30));
+    int reset = store().resetOrphanJobsBefore(Instant.now().minusSeconds(30), 3, 100).reset();
 
     assertEquals(1, reset, "Only rows picked before the cutoff should be reset");
     assertEquals(JobStatus.PENDING, store().findById(old.getId()).orElseThrow().getStatus());
@@ -189,7 +192,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     // live-node has a fresh heartbeat; dead-node is never registered in scheduler_node.
     store().upsertHeartbeat("live-node", now);
 
-    int reset = store().resetOrphanJobsBefore(now.minusSeconds(30));
+    int reset = store().resetOrphanJobsBefore(now.minusSeconds(30), 3, 100).reset();
 
     assertEquals(1, reset, "Only the dead-node's slow job should be reclaimed");
     assertEquals(
@@ -244,7 +247,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
-  void deleteDlqOlderThan_removesOnlyExhaustedTerminalFailures() {
+  void deleteDlqOlderThan_removesAllTerminalFailures() {
     JobEntity exhausted = newPendingJob();
     exhausted.setMaxRetries(1);
     exhausted = persist(exhausted);
@@ -261,9 +264,10 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
 
     int deleted = store().deleteDlqOlderThan(Instant.now().plusSeconds(1));
 
-    assertEquals(1, deleted, "Only exhausted terminal failures should be purged");
+    assertEquals(2, deleted, "All aged terminal failures are DLQ entries");
     assertTrue(store().findById(exhausted.getId()).isEmpty(), "Exhausted failure is deleted");
-    assertTrue(store().findById(retryable.getId()).isPresent(), "Retryable failure remains");
+    assertTrue(
+        store().findById(retryable.getId()).isEmpty(), "Failure below retry limit is deleted");
     assertTrue(store().findById(pending.getId()).isPresent(), "Pending job remains");
   }
 
@@ -294,7 +298,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     other.setPickedAt(Instant.now());
     store().save(other);
 
-    int reset = store().resetOrphanJobsForNode("node-self");
+    int reset = store().resetOrphanJobsForNode("node-self", 3, 100).reset();
     assertEquals(2, reset, "resetOrphanJobsForNode should reclaim both self-owned RUNNING rows");
 
     assertEquals(JobStatus.PENDING, store().findById(a.getId()).orElseThrow().getStatus());
@@ -309,7 +313,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   void resetOrphanJobsForNode_ignoresNonRunningRows() {
     var pending = persist(newPendingJob());
 
-    int reset = store().resetOrphanJobsForNode("node-self");
+    int reset = store().resetOrphanJobsForNode("node-self", 3, 100).reset();
     assertEquals(0, reset);
     assertEquals(JobStatus.PENDING, store().findById(pending.getId()).orElseThrow().getStatus());
   }
@@ -375,7 +379,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     store().compareAndSwapStatus(canceled.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store().compareAndSwapStatus(canceled.getId(), JobStatus.RUNNING, JobStatus.CANCELED, null);
 
-    store().resetOrphanJobs(Duration.ofSeconds(1));
+    store().resetOrphanJobs(Duration.ofSeconds(1), 3, 100).reset();
 
     assertEquals(
         JobStatus.PENDING,
@@ -385,5 +389,148 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
         JobStatus.CANCELED,
         store().findById(canceled.getId()).orElseThrow().getStatus(),
         "CANCELED job should remain CANCELED");
+  }
+
+  @Test
+  void orphanBudgetCountsRedeliveriesAndReturnsFencedExhaustedClaims() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    OrphanRecovery first = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 1, 100);
+    assertEquals(1, first.reset());
+    assertTrue(first.exhausted().isEmpty());
+    assertEquals(JobStatus.PENDING, store().getJobStatus(job.getId()));
+    assertEquals(0, store().findById(job.getId()).orElseThrow().getAttempts());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    long claimSeq = store().findById(job.getId()).orElseThrow().getClaimSeq();
+
+    OrphanRecovery second = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 1, 100);
+
+    assertEquals(0, second.reset());
+    assertEquals(
+        List.of(new ExhaustedOrphan(job.getId(), claimSeq, 1, "dead")), second.exhausted());
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(job.getId()));
+    assertEquals(second, store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 1, 100));
+  }
+
+  @Test
+  void graceRecoveryChargesBudgetAndStopsAtLimit() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    ageClaim(job.getId());
+    assertEquals(1, store().resetOrphanJobs(Duration.ofSeconds(30), 1, 100).reset());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    ageClaim(job.getId());
+    OrphanRecovery exhausted = store().resetOrphanJobs(Duration.ofSeconds(30), 1, 100);
+    assertEquals(0, exhausted.reset());
+    assertEquals(1, exhausted.exhausted().size());
+    assertEquals(1, exhausted.exhausted().get(0).crashCount());
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(job.getId()));
+  }
+
+  @Test
+  void startupRecoveryChargesBudgetAndReleasesAllExhaustedOwners() {
+    JobEntity first = persist(newPendingJob());
+    JobEntity second = persist(newPendingJob());
+    for (JobEntity job : List.of(first, second)) {
+      assertTrue(store().tryPickUpJob(job.getId(), "self"));
+    }
+    assertEquals(2, store().resetOrphanJobsForNode("self", 1, 100).reset());
+    for (JobEntity job : List.of(first, second)) {
+      assertTrue(store().tryPickUpJob(job.getId(), "self"));
+    }
+    JobEntity before = store().findById(first.getId()).orElseThrow();
+    OrphanRecovery startup = store().resetOrphanJobsForNode("self", 1, 1);
+    assertEquals(0, startup.reset());
+    assertEquals(1, startup.exhausted().size());
+    assertEquals("self", startup.exhausted().get(0).pickedBy());
+    assertEquals(1, startup.exhausted().get(0).crashCount());
+    for (JobEntity job : List.of(first, second)) {
+      JobEntity after = store().findById(job.getId()).orElseThrow();
+      assertEquals(JobStatus.RUNNING, after.getStatus());
+      assertNull(after.getPickedBy());
+    }
+    JobEntity after = store().findById(first.getId()).orElseThrow();
+    assertEquals(before.getPickedAt(), after.getPickedAt());
+    assertEquals(before.getClaimSeq(), after.getClaimSeq());
+    store().upsertHeartbeat("self", Instant.now().plusSeconds(120));
+    assertEquals(0, store().resetRunningJobs("self"));
+    OrphanRecovery next = store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 1, 100);
+    assertEquals(
+        2, next.exhausted().size(), "NULL owners remain detectable after restart heartbeat");
+  }
+
+  @Test
+  void exhaustedLimitBoundsSelectionAndAliveOwnersAreExcluded() {
+    JobEntity live = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(live.getId(), "live"));
+    for (int i = 0; i < 3; i++) {
+      JobEntity dead = persist(newPendingJob());
+      assertTrue(store().tryPickUpJob(dead.getId(), "dead"));
+    }
+    Instant cutoff = Instant.now().plusSeconds(1);
+    store().upsertHeartbeat("live", cutoff.plusSeconds(60));
+    OrphanRecovery result = store().resetOrphanJobsBefore(cutoff, 0, 2);
+    assertEquals(0, result.reset());
+    assertEquals(2, result.exhausted().size());
+    assertTrue(result.exhausted().stream().noneMatch(row -> row.jobId().equals(live.getId())));
+    assertTrue(result.exhausted().stream().allMatch(row -> row.crashCount() == 0));
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(live.getId()));
+  }
+
+  @Test
+  void crashFailedJobIsPurgedBelowRetryLimit() {
+    JobEntity job = newPendingJob();
+    job.setMaxRetries(10);
+    job = persist(job);
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    ExhaustedOrphan orphan =
+        store().resetOrphanJobsBefore(Instant.now().plusSeconds(1), 0, 100).exhausted().get(0);
+    assertTrue(
+        store()
+            .markJobFailedTerminal(
+                job.getId(), "crash redelivery limit reached", 0, orphan.claimSeq()));
+    assertEquals(1, store().deleteDlqOlderThan(Instant.now().plusSeconds(1)));
+    assertTrue(store().findById(job.getId()).isEmpty());
+  }
+
+  @Test
+  void orphanCompletionSnapshotHasTypeDependencyAndFenceWithoutPayload() {
+    JobEntity job = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(job.getId(), "dead"));
+    JobEntity full = store().findById(job.getId()).orElseThrow();
+    JobEntity snapshot = store().findOrphanCompletionSnapshot(job.getId()).orElseThrow();
+    assertEquals(full.getId(), snapshot.getId());
+    assertEquals(full.getJobType(), snapshot.getJobType());
+    assertEquals(full.getDependsOn(), snapshot.getDependsOn());
+    assertEquals(full.getClaimSeq(), snapshot.getClaimSeq());
+    assertEquals(full.getAttempts(), snapshot.getAttempts());
+    assertEquals(full.getMaxRetries(), snapshot.getMaxRetries());
+    assertNull(snapshot.getPayload());
+  }
+
+  @Test
+  void graceRecoveryBoundsExhaustedListAndSparesAliveOwners() {
+    JobEntity live = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(live.getId(), "live"));
+    ageClaim(live.getId());
+    for (int i = 0; i < 3; i++) {
+      JobEntity dead = persist(newPendingJob());
+      assertTrue(store().tryPickUpJob(dead.getId(), "dead"));
+      ageClaim(dead.getId());
+    }
+    store().upsertHeartbeat("live", Instant.now());
+
+    OrphanRecovery result = store().resetOrphanJobs(Duration.ofSeconds(30), 0, 2);
+
+    assertEquals(0, result.reset());
+    assertEquals(2, result.exhausted().size());
+    assertTrue(result.exhausted().stream().noneMatch(row -> row.jobId().equals(live.getId())));
+    assertEquals(JobStatus.RUNNING, store().getJobStatus(live.getId()));
+  }
+
+  private void ageClaim(UUID jobId) {
+    JobEntity job = store().findById(jobId).orElseThrow();
+    job.setPickedAt(Instant.now().minusSeconds(120));
+    store().save(job);
   }
 }

@@ -39,6 +39,7 @@ This build exposes **62 fixed keys**.
 | `ratchet.thread-pool.size.workflow-join` | `RATCHET_THREAD_POOL_SIZE_WORKFLOW_JOIN` | `10` | `THREAD_POOL_SIZE_WORKFLOW_JOIN` |
 | `ratchet.node.id` | `RATCHET_NODE_ID` | `(empty string)` | `NODE_ID` |
 | `ratchet.node.heartbeat-interval-seconds` | `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` | `NODE_HEARTBEAT_INTERVAL_SECONDS` |
+| `ratchet.node.max-crash-redeliveries` | `RATCHET_NODE_MAX_CRASH_REDELIVERIES` | `3` | `NODE_MAX_CRASH_REDELIVERIES` |
 | `ratchet.node.orphan-grace-seconds` | `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | `NODE_ORPHAN_GRACE_SECONDS` |
 | `ratchet.node.orphan-scan-interval-seconds` | `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS` | `300` | `ORPHAN_SCAN_INTERVAL_SECONDS` |
 | `ratchet.node.orphan-recovery-lease-ttl-seconds` | `RATCHET_NODE_ORPHAN_RECOVERY_LEASE_TTL_SECONDS` | `120` | `ORPHAN_RECOVERY_LEASE_TTL_SECONDS` |
@@ -77,6 +78,9 @@ This build exposes **62 fixed keys**.
 | `ratchet.isolation-check` | `RATCHET_ISOLATION_CHECK_MODE` | `FAIL` | `ISOLATION_CHECK_MODE` |
 | `ratchet.priority-boost-interval-minutes` | `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES` | `15` | `PRIORITY_BOOST_INTERVAL_MINUTES` |
 | `ratchet.circuit-breaker.enabled` | `RATCHET_CIRCUIT_BREAKER_ENABLED` | `true` | `CIRCUIT_BREAKER_ENABLED` |
+
+The crash redelivery limit has a minimum of 0. Zero fails a job after its first node crash.
+Graceful shutdown releases do not consume this budget.
 
 <!-- CONFIG_REFERENCE_END -->
 

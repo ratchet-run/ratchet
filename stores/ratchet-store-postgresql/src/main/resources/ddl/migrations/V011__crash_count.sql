@@ -1,0 +1,1 @@
+ALTER TABLE scheduler_job_queue ADD COLUMN IF NOT EXISTS crash_count INT NOT NULL DEFAULT 0;

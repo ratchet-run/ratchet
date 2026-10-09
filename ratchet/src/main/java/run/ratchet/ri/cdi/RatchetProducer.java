@@ -218,6 +218,7 @@ public class RatchetProducer {
         executorProvider,
         options.node().heartbeatIntervalSeconds(),
         options.node().orphanGraceSeconds(),
+        options.node().maxCrashRedeliveries(),
         options.node().dynamicHeartbeatEnabled(),
         options.node().explicitNodeId().orElse(null),
         clock);
@@ -272,16 +273,29 @@ public class RatchetProducer {
   public OrphanRecoveryTimer orphanRecoveryTimer(
       JobBulkStore jobBulkStore,
       ResourcePermitService resourcePermitService,
-      SingletonLeaseService singletonLeaseService) {
-    long orphanGraceSeconds = options.node().orphanGraceSeconds();
+      SingletonLeaseService singletonLeaseService,
+      PostExecutionHandler postExecutionHandler,
+      PreExecutionValidator validationFacade,
+      JobPayloadInvoker payloadInvoker,
+      PayloadSerializer payloadSerializer,
+      ExecutionObserver observabilityFacade,
+      ErrorSanitizer errorSanitizer,
+      Clock clock) {
     return new OrphanRecoveryTimer(
         jobBulkStore,
+        jobCrudStore,
         nodeStore,
         resourcePermitService,
         singletonLeaseService,
-        orphanGraceSeconds,
+        postExecutionHandler,
+        new LifecycleCallbackInvoker(
+                validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock)
+            ::invokeOnFailureInJobContext,
+        errorSanitizer,
+        options.node().maxCrashRedeliveries(),
+        options.node().orphanGraceSeconds(),
         options.node().orphanRecoveryLeaseTtlSeconds(),
-        Clock.systemUTC());
+        clock);
   }
 
   /**

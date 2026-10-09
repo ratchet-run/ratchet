@@ -372,8 +372,12 @@ spec:
 The file flag does not switch Ratchet's internal drain mode. It only stops new request traffic.
 After preStop returns, Kubernetes sends the container its termination signal. The Jakarta runtime
 then destroys the application, and Ratchet's lifecycle stops new claims, stops its background
-services, and requests cancellation of active executions. Any job left RUNNING is recovered through
-the normal node-orphan path, so job code must remain safe for at-least-once execution.
+services, and waits for accepted work within the shutdown timeout.
+It then releases all remaining claims to PENDING without a crash charge and interrupts any worker
+that is still active. The claim fence prevents that worker from recording a stale outcome, so the
+interrupt does not use up a retry attempt. Job code must remain safe for
+at-least-once execution. A SIGKILL before teardown completes uses orphan recovery and consumes the
+crash budget. `ratchet.node.max-crash-redeliveries` defaults to 3; the next crash sends the job to the DLQ.
 
 The termination grace period includes the preStop hook. Set it long enough for the routing delay and
 normal application-server teardown, but do not use it as a promise that arbitrary job runtimes will
