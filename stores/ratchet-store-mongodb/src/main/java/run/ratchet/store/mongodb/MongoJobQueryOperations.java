@@ -47,6 +47,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.query.ArchiveSearch;
 import run.ratchet.store.query.JobQueryCursor;
 
 /**
@@ -57,13 +58,13 @@ import run.ratchet.store.query.JobQueryCursor;
  * built here. Tag filtering uses an embedded array field; ANY-of semantics are native to {@code
  * $in}.
  *
- * <p>When {@link JobFilter#includeArchived()} is true and no principal filter is active, the
- * archive collection is queried separately and results are merged in memory before applying the
- * limit. Archive documents are mapped to {@link JobEntity} using archive-specific field names; tags
- * and trace-context filtering are not applied to archived rows (those fields are absent from the
- * archive document schema). The caller-principal check is intentionally skipped for archived rows.
- * Offset pagination on this path reads {@code limit + offset} rows from each collection, capped by
- * the module limit, so deep archive browsing should use cursors.
+ * <p>When {@link JobFilter#includeArchived()} is true and no filter on fields absent from archives
+ * is active, the archive collection is queried separately and results are merged in memory before
+ * applying the limit. Archive documents are mapped to {@link JobEntity} using archive-specific
+ * field names. Filters on fields absent from archives exclude the archive branch; see {@link
+ * ArchiveSearch#includesArchive(JobFilter)}. Offset pagination on this path reads {@code limit +
+ * offset} rows from each collection, capped by the module limit, so deep archive browsing should
+ * use cursors.
  */
 final class MongoJobQueryOperations {
 
@@ -333,9 +334,7 @@ final class MongoJobQueryOperations {
   }
 
   private static boolean useArchive(JobFilter filter) {
-    return filter != null
-        && filter.includeArchived()
-        && (filter.callerPrincipal() == null || filter.callerPrincipal().isEmpty());
+    return ArchiveSearch.includesArchive(filter);
   }
 
   // ── Sort builders ────────────────────────────────────────────────────────

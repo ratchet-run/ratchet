@@ -201,7 +201,9 @@ public interface JobAuthorizationPolicy {
    * Rewrites a {@link JobFilter} to enforce list-level visibility for the given principal.
    *
    * <p>Called by {@link run.ratchet.api.JobQueryService#findJobs} before passing the filter to the
-   * store, so that the store query itself is scoped to what the principal may see.
+   * store, so that the store query itself is scoped to what the principal may see. A scope added
+   * through callerPrincipal, tags, propertyFilters, idempotencyKey, pickedBy, resourceName or
+   * traceCorrelationId also excludes archived jobs.
    *
    * <p>Owner-only policies should inject the principal into the filter's {@code callerPrincipal}
    * field so the store only returns that principal's jobs. Use {@link JobFilter#toBuilder()} to

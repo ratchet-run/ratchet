@@ -552,6 +552,56 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   // ── Archive-inclusive search (UNION over live + archive tables) ─────────
 
   @Test
+  void searchIncludeArchived_skipsArchiveWhenTagsConstrain() {
+    JobEntity live = persist(newPendingJob("t1"));
+    UUID archivedId = archiveOnly(newPendingJob("t1"));
+
+    List<JobEntity> results =
+        queryStore()
+            .searchJobs(JobFilter.builder().tags("t1").includeArchived(true).build(), 100, 0);
+
+    List<UUID> ids = results.stream().map(JobEntity::getId).toList();
+    assertTrue(ids.contains(live.getId()), "Tag filter must still return the live tagged job");
+    assertFalse(ids.contains(archivedId), "Tag constraints must exclude archived jobs");
+    assertEquals(1, results.size());
+  }
+
+  @Test
+  void searchIncludeArchived_skipsArchiveWhenPropertyFilterConstrains() {
+    var extensions = extensionStore();
+    JobEntity live = persist(newPendingJob());
+    extensions.putProperty(live.getId(), "ratchet-tck.block_name", "invoice.send");
+    UUID archivedId = archiveOnly(newPendingJob());
+
+    List<JobEntity> results =
+        queryStore()
+            .searchJobs(
+                JobFilter.builder()
+                    .propertyEquals("ratchet-tck.block_name", "invoice.send")
+                    .includeArchived(true)
+                    .build(),
+                100,
+                0);
+
+    List<UUID> ids = results.stream().map(JobEntity::getId).toList();
+    assertTrue(ids.contains(live.getId()), "Property filter must still return the live match");
+    assertFalse(ids.contains(archivedId), "Property constraints must exclude archived jobs");
+    assertEquals(1, results.size());
+  }
+
+  @Test
+  void countJobsIncludeArchived_skipsArchiveWhenTagsConstrain() {
+    persist(newPendingJob("t1"));
+    persist(newPendingJob("other"));
+    archiveOnly(newPendingJob("t1"));
+
+    long count =
+        queryStore().countJobs(JobFilter.builder().tags("t1").includeArchived(true).build());
+
+    assertEquals(1L, count, "Tag constraints must count only the live match");
+  }
+
+  @Test
   void searchIncludeArchived_returnsLiveAndArchivedRowsOnce() {
     JobEntity live = persist(newPendingJob());
     UUID archivedId = archiveOnly(newPendingJob());
