@@ -321,8 +321,8 @@ class JobTaskTest {
     task.attach(attempt);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
-        .thenAnswer(invocation -> invocation.<Callable<?>>getArgument(1).call());
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(invocation -> invocation.<Callable<?>>getArgument(2).call());
     if (failure == null) {
       when(lifecycleFacade.completeSuccess(
               any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
