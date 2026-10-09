@@ -45,7 +45,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.bson.Document;
-import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.JobEncryption;
@@ -60,9 +59,9 @@ import run.ratchet.store.util.PayloadEncryptor;
  * data on every job update. Separate collections also mirror the SQL table shape one-to-one.
  *
  * <p>Property values are plaintext by design (indexed for the query layer). Extension-state blobs
- * follow the deployment-wide payload-encryption switch: when it is on, the {@code state} field
- * holds a ciphertext frame bound to {@code (job_id, namespace)}; otherwise plaintext with {@code
- * encrypted_state = false}.
+ * follow the owning job's encryption opt-in or the deployment-wide switch: when active, the {@code
+ * state} field holds a ciphertext frame bound to {@code (job_id, namespace)}; otherwise plaintext
+ * with {@code encrypted_state = false}.
  */
 final class MongoExtensionOperations implements JobExtensionStore {
 
@@ -130,7 +129,11 @@ final class MongoExtensionOperations implements JobExtensionStore {
   public void initState(UUID jobId, String namespace, String initialState) {
     requireNamespace(namespace);
     requireState(initialState);
-    boolean active = EncryptionHolder.encryptionActiveFor(false);
+    boolean encryptedPayload =
+        encryptedPayload(jobId)
+            .orElseThrow(
+                () -> new IllegalStateException("no job " + jobId + " for extension state"));
+    boolean active = JobEncryption.activeFor(encryptedPayload);
     String stored =
         PayloadEncryptor.encryptValue(
             initialState, active, EncryptionTarget.extensionState(jobId, namespace));
@@ -161,7 +164,11 @@ final class MongoExtensionOperations implements JobExtensionStore {
       throw new IllegalArgumentException(
           "expectedVersion must be non-negative: " + expectedVersion);
     }
-    boolean active = EncryptionHolder.encryptionActiveFor(false);
+    Optional<Boolean> encryptedPayload = encryptedPayload(jobId);
+    if (encryptedPayload.isEmpty()) {
+      return false;
+    }
+    boolean active = JobEncryption.activeFor(encryptedPayload.get());
     String stored =
         PayloadEncryptor.encryptValue(
             newState, active, EncryptionTarget.extensionState(jobId, namespace));
@@ -176,5 +183,14 @@ final class MongoExtensionOperations implements JobExtensionStore {
                     inc(VERSION, 1),
                     set(UPDATED_AT, DocumentMapper.toDate(Instant.now()))));
     return result.getModifiedCount() > 0;
+  }
+
+  private Optional<Boolean> encryptedPayload(UUID jobId) {
+    Document job =
+        ctx.jobs()
+            .find(eq(MongoFieldNames.ID, jobId))
+            .projection(new Document("encrypted_payload", 1))
+            .first();
+    return job == null ? Optional.empty() : Optional.of(job.getBoolean("encrypted_payload", false));
   }
 }

@@ -28,7 +28,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import run.ratchet.store.converter.EncryptionHolder;
 import run.ratchet.store.spi.JobExtensionStore;
 import run.ratchet.store.sqlserver.converter.UuidByteArrayConverter;
 import run.ratchet.store.util.EncryptionTarget;
@@ -40,9 +39,9 @@ import run.ratchet.store.util.RowValues;
  * SQL Server implementation of {@link JobExtensionStore}.
  *
  * <p>Property values are plaintext by design (indexed for the query layer). Extension-state blobs
- * follow the deployment-wide payload-encryption switch: when it is on, the {@code state} column
- * holds a ciphertext frame bound to {@code (job_id, namespace)}; otherwise plaintext with {@code
- * encrypted_state = 0}.
+ * follow the owning job's encryption opt-in or the deployment-wide switch: when active, the {@code
+ * state} column holds a ciphertext frame bound to {@code (job_id, namespace)}; otherwise plaintext
+ * with {@code encrypted_state = 0}.
  */
 final class SqlserverExtensionOperations implements JobExtensionStore {
 
@@ -158,7 +157,11 @@ final class SqlserverExtensionOperations implements JobExtensionStore {
   public void initState(UUID jobId, String namespace, String initialState) {
     requireNamespace(namespace);
     requireState(initialState);
-    boolean active = EncryptionHolder.encryptionActiveFor(false);
+    boolean encryptedPayload =
+        encryptedPayload(jobId)
+            .orElseThrow(
+                () -> new IllegalStateException("no job " + jobId + " for extension state"));
+    boolean active = JobEncryption.activeFor(encryptedPayload);
     String stored =
         PayloadEncryptor.encryptValue(
             initialState, active, EncryptionTarget.extensionState(jobId, namespace));
@@ -196,7 +199,11 @@ final class SqlserverExtensionOperations implements JobExtensionStore {
       throw new IllegalArgumentException(
           "expectedVersion must be non-negative: " + expectedVersion);
     }
-    boolean active = EncryptionHolder.encryptionActiveFor(false);
+    Optional<Boolean> encryptedPayload = encryptedPayload(jobId);
+    if (encryptedPayload.isEmpty()) {
+      return false;
+    }
+    boolean active = JobEncryption.activeFor(encryptedPayload.get());
     String stored =
         PayloadEncryptor.encryptValue(
             newState, active, EncryptionTarget.extensionState(jobId, namespace));
@@ -220,5 +227,21 @@ final class SqlserverExtensionOperations implements JobExtensionStore {
             .setParameter(7, expectedVersion)
             .executeUpdate();
     return updated > 0;
+  }
+
+  private Optional<Boolean> encryptedPayload(UUID jobId) {
+    String sql =
+        """
+        SELECT encrypted_payload
+        FROM scheduler_job
+        WHERE job_id = ?
+        """;
+    @SuppressWarnings("unchecked")
+    List<Object> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+            .getResultList();
+    return rows.isEmpty() ? Optional.empty() : Optional.of(RowValues.booleanOrFalse(rows.get(0)));
   }
 }
