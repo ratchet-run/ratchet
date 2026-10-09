@@ -125,6 +125,7 @@ export default defineConfig({
         items: [
           { text: 'Spring Boot', link: '/deployment/spring-boot' },
           { text: 'Quarkus', link: '/deployment/quarkus' },
+          { text: 'Micronaut', link: '/deployment/micronaut' },
           { text: 'Jakarta EE and deployment', link: '/deployment/overview' },
         ],
       },
@@ -223,6 +224,7 @@ export default defineConfig({
             { text: 'Configuration reference', link: '/deployment/configuration-reference' },
             { text: 'Spring Boot', link: '/deployment/spring-boot' },
             { text: 'Quarkus', link: '/deployment/quarkus' },
+            { text: 'Micronaut', link: '/deployment/micronaut' },
             { text: 'Database Setup', link: '/deployment/database-setup' },
             { text: 'Upgrading', link: '/deployment/rolling-upgrades' },
             { text: 'MySQL', link: '/deployment/mysql' },
