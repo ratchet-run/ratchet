@@ -39,6 +39,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringJobExecutor;
 import run.ratchet.ri.core.SingletonLease;
@@ -90,8 +92,9 @@ class DefaultRecurringSchedulerTest {
     assertInstanceOf(IllegalStateException.class, thrown.getCause());
   }
 
-  @Test
-  void run_failedLeaseRenewalReleasesLeaseButKeepsPolling() {
+  @ParameterizedTest
+  @CsvSource({"2, 1", "10, 4", "300, 120"})
+  void run_failedLeaseRenewalReleasesLeaseButKeepsPolling(long ttlSeconds, long renewalSeconds) {
     var executorProvider = mock(ExecutorProvider.class);
     var executor = mock(ScheduledExecutorService.class);
     var scheduledScan = mock(ScheduledFuture.class);
@@ -100,7 +103,8 @@ class DefaultRecurringSchedulerTest {
     when(executor.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
         .thenReturn(scheduledScan);
     AtomicReference<Runnable> renewal = new AtomicReference<>();
-    when(executor.scheduleWithFixedDelay(any(Runnable.class), eq(2L), eq(2L), eq(TimeUnit.MINUTES)))
+    when(executor.scheduleWithFixedDelay(
+            any(Runnable.class), eq(renewalSeconds), eq(renewalSeconds), eq(TimeUnit.SECONDS)))
         .thenAnswer(
             invocation -> {
               renewal.set(invocation.getArgument(0));
@@ -110,11 +114,11 @@ class DefaultRecurringSchedulerTest {
     var lockStore = mock(LockStore.class);
     var lease = new SingletonLease(lockStore, "recurringScheduler", "node-1");
     // A transient lock-store blip on the renewal — the next cycle would re-acquire cleanly.
-    when(lockStore.renewLock("recurringScheduler", Duration.ofMinutes(5), "node-1"))
+    when(lockStore.renewLock("recurringScheduler", Duration.ofSeconds(ttlSeconds), "node-1"))
         .thenThrow(new RuntimeException("transient lock-store blip"))
         .thenReturn(true);
     var singletonLeaseService = mock(SingletonLeaseService.class);
-    when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofMinutes(5)))
+    when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofSeconds(ttlSeconds)))
         .thenReturn(Optional.of(lease));
     var nodeIdentityProvider = mock(NodeIdentityProvider.class);
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
@@ -135,7 +139,8 @@ class DefaultRecurringSchedulerTest {
             nodeIdentityProvider,
             recurringJobExecutor,
             pollerScheduler,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            ttlSeconds);
     scheduler.init();
     clearInvocations(executor);
 
@@ -174,7 +179,8 @@ class DefaultRecurringSchedulerTest {
             nodeIdentityProvider,
             recurringJobExecutor,
             pollerScheduler,
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            300);
 
     // A kick arriving while a cycle is in flight must coalesce, not spawn a second poll chain.
     when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofMinutes(5)))
@@ -203,7 +209,8 @@ class DefaultRecurringSchedulerTest {
             mock(NodeIdentityProvider.class),
             mock(RecurringJobExecutor.class),
             mock(PollerScheduler.class),
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            Clock.fixed(NOW, ZoneOffset.UTC),
+            300);
     scheduler.configure(1000L, 60000L, 20);
     return scheduler;
   }

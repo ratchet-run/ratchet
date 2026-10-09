@@ -28,9 +28,11 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -41,8 +43,10 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.NodeStore;
 
 @ExtendWith(MockitoExtension.class)
@@ -61,7 +65,25 @@ class OrphanRecoveryTimerTest {
   void setUp() {
     timer =
         new OrphanRecoveryTimer(
-            jobBulkStore, nodeStore, resourcePermitService, null, 60, FIXED_CLOCK);
+            jobBulkStore, nodeStore, resourcePermitService, null, 60, 120, FIXED_CLOCK);
+  }
+
+  @Test
+  void configuredLeaseTtlHasNoFloorAndIsIndependentOfScanInterval() {
+    SingletonLeaseService leases = mock(SingletonLeaseService.class);
+    LockStore locks = mock(LockStore.class);
+    when(leases.tryAcquire("orphanRecovery", Duration.ofSeconds(1)))
+        .thenReturn(Optional.of(new SingletonLease(locks, "orphanRecovery", "node-1")));
+    OrphanRecoveryTimer configured =
+        new OrphanRecoveryTimer(
+            jobBulkStore, nodeStore, resourcePermitService, leases, 60, 1, FIXED_CLOCK);
+    ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
+    configured.start(executor, 300);
+    configured.recoverNow();
+    verify(executor)
+        .scheduleAtFixedRate(any(Runnable.class), eq(300L), eq(300L), eq(TimeUnit.SECONDS));
+    verify(leases).tryAcquire("orphanRecovery", Duration.ofSeconds(1));
+    verify(locks).unlock("orphanRecovery", "node-1");
   }
 
   @Test
@@ -115,7 +137,7 @@ class OrphanRecoveryTimerTest {
     ScheduledFuture<?> second = mock(ScheduledFuture.class);
     doReturn(first, second)
         .when(executor)
-        .scheduleAtFixedRate(any(Runnable.class), eq(1L), eq(1L), eq(TimeUnit.MINUTES));
+        .scheduleAtFixedRate(any(Runnable.class), eq(1L), eq(1L), eq(TimeUnit.SECONDS));
 
     timer.start(executor, 1);
     timer.start(executor, 1);
@@ -130,7 +152,7 @@ class OrphanRecoveryTimerTest {
     ScheduledFuture<?> handle = mock(ScheduledFuture.class);
     doReturn(handle)
         .when(executor)
-        .scheduleAtFixedRate(any(Runnable.class), eq(1L), eq(1L), eq(TimeUnit.MINUTES));
+        .scheduleAtFixedRate(any(Runnable.class), eq(1L), eq(1L), eq(TimeUnit.SECONDS));
 
     timer.start(executor, 1);
     timer.stop();
