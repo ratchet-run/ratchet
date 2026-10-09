@@ -597,6 +597,61 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
 
+  chaos:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.code != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    name: chaos (Java 21, Boot 3.5.16, ${{ matrix.store }})
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [postgresql, mysql]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ratchet-chaos-repository
+          key: m2-chaos-${{ runner.os }}-${{ matrix.store }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-chaos-${{ runner.os }}-${{ matrix.store }}-
+            m2-chaos-${{ runner.os }}-
+      - name: Remove cached Ratchet artifacts
+        run: rm -rf "$RUNNER_TEMP/ratchet-chaos-repository/run/ratchet"
+      - name: Stage current Spring artifacts
+        run: >-
+          mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-chaos-repository"
+          -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
+          -pl :ratchet-spring-boot-starter,:ratchet-store-${{ matrix.store }}
+          -Pgithub -am install
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+      - name: Verify chaos scenarios
+        run: >-
+          mvn -B -ntp -f integrations/ratchet-spring-boot/consumer-tests/pom.xml
+          -Dmaven.repo.local="$RUNNER_TEMP/ratchet-chaos-repository"
+          -Pchaos -Dstore=${{ matrix.store }} -Dspring-boot.version=3.5.16
+          '-Dit.test=*ChaosIT' -Dfailsafe.failIfNoSpecifiedTests=false
+          -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false
+          -pl :sql-consumer -am verify
+      - name: Retain chaos evidence
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: chaos-${{ matrix.store }}
+          path: |
+            integrations/ratchet-spring-boot/consumer-tests/**/target/runtime-*.log
+            integrations/ratchet-spring-boot/consumer-tests/**/target/chaos-reports/
+      - name: Keep Ratchet artifacts out of the saved cache
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ratchet-chaos-repository/run/ratchet"
+
   spring-boot-runtime:
     needs: changes
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_spring_runtime == 'true' }}
