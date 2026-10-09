@@ -164,7 +164,7 @@ class DefaultRecurringSchedulerTest {
         .thenReturn(scheduledScan);
 
     var singletonLeaseService = mock(SingletonLeaseService.class);
-    when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofMinutes(5)))
+    when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofSeconds(300)))
         .thenReturn(Optional.empty());
     var nodeIdentityProvider = mock(NodeIdentityProvider.class);
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
@@ -183,7 +183,7 @@ class DefaultRecurringSchedulerTest {
             300);
 
     // A kick arriving while a cycle is in flight must coalesce, not spawn a second poll chain.
-    when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofMinutes(5)))
+    when(singletonLeaseService.tryAcquire("recurringScheduler", Duration.ofSeconds(300)))
         .thenAnswer(
             invocation -> {
               scheduler.kick();

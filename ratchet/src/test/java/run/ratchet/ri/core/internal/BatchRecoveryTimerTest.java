@@ -52,7 +52,7 @@ class BatchRecoveryTimerTest {
   }
 
   @Test
-  void startRunsFirstRecoverySoonAndThenEveryFifteenMinutes() {
+  void startRunsFirstRecoveryAfterSixtySecondsThenAtConfiguredInterval() {
     BatchService batchService = mock(BatchService.class);
     SingletonLeaseService singletonLeaseService = mock(SingletonLeaseService.class);
     ScheduledExecutorService executor = mock(ScheduledExecutorService.class);
