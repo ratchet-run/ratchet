@@ -16,8 +16,10 @@
 package run.ratchet.ri.core.internal;
 
 import java.io.Serializable;
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
 import org.jboss.logging.MDC;
 import run.ratchet.api.JobContext;
 import run.ratchet.spi.JobLogger;
@@ -110,7 +112,30 @@ final class JobMdcContext {
       String jobCreator,
       String jobType,
       Serializable signalPayload) {
-    JobContext.bind(jobId, logger, params, jobCreator, signalPayload);
+    bindJobContext(
+        jobId, logger, params, nodeId, jobCreator, jobType, signalPayload, null, () -> false, null);
+  }
+
+  static void bindJobContext(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      String nodeId,
+      String jobCreator,
+      String jobType,
+      Serializable signalPayload,
+      Instant deadline,
+      BooleanSupplier cancellationRequested,
+      Object attemptToken) {
+    JobContext.bind(
+        jobId,
+        logger,
+        params,
+        jobCreator,
+        signalPayload,
+        deadline,
+        cancellationRequested,
+        attemptToken);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));
     }
