@@ -103,9 +103,10 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        14,
+        15,
         RatchetSchemaCatalog.CURRENT_VERSION,
-        "catalog version should track the combined workflow, recurring, DLQ, and node schema revision");
+        "catalog version should track the combined workflow, recurring, DLQ, and node schema"
+            + " revision");
   }
 
   @Test

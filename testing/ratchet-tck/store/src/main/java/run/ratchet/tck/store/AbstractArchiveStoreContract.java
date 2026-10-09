@@ -230,7 +230,7 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
 
   private JobEntity failJob(JobEntity job) {
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(job.getId(), "boom", 1);
+    store().markJobFailedTerminal(job.getId(), "boom", 1, null);
     return store().findById(job.getId()).orElseThrow();
   }
 }

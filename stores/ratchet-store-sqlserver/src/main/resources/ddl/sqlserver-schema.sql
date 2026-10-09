@@ -192,6 +192,7 @@ CREATE TABLE scheduler_job
 -- 4a. Hot authoritative queue state for executable jobs.
 CREATE TABLE scheduler_job_queue
 (
+    claim_seq BIGINT NOT NULL CONSTRAINT df_scheduler_job_queue_claim_seq DEFAULT 0,
     job_id                  BINARY(16) NOT NULL,
     status                  VARCHAR(16)      NOT NULL DEFAULT 'PENDING',
     job_type                VARCHAR(20)      NOT NULL,

@@ -57,6 +57,7 @@ class PostgresqlJobRowMapperTest {
 
   private static Object[] liveRow() {
     Object[] row = new Object[PostgresqlJobRowMapper.HYDRATION_COL_COUNT];
+    row[53] = 0L;
     Instant now = Instant.parse("2026-05-12T14:30:00Z");
     row[0] = JOB_ID;
     row[1] = JobExecutionType.SINGLE.name();

@@ -81,11 +81,14 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
     job = store().save(job);
 
     store().claimNextBatch(1, "node-1");
-    int attempts = store().incrementRetryAttempt(job.getId());
-    // Reschedule via scheduleJobRetry (RUNNING -> PENDING) to retry while preserving the attempt
+    int attempts = store().incrementRetryAttempt(job.getId(), null);
+    // Reschedule via scheduleJobRetry (RUNNING -> PENDING, null) to retry while preserving the
+    // attempt
     // count. compareAndSwapStatus rejects a terminal expected on every store, and
     // resetFailedToPending would zero attempts, so neither fits this flow.
-    store().scheduleJobRetry(job.getId(), "first attempt", Instant.now().minusSeconds(1), attempts);
+    store()
+        .scheduleJobRetry(
+            job.getId(), "first attempt", Instant.now().minusSeconds(1), attempts, null);
 
     List<JobEntity> reclaimed = store().claimNextBatch(1, "node-1");
     assertEquals(1, reclaimed.size());
@@ -162,7 +165,7 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
     store().claimNextBatch(1, "node-1");
 
     assertTrue(
-        store().markJobFailedTerminal(job.getId(), "retries exhausted", job.getMaxRetries()));
+        store().markJobFailedTerminal(job.getId(), "retries exhausted", job.getMaxRetries(), null));
 
     Optional<JobEntity> terminal = store().findById(job.getId());
     assertTrue(terminal.isPresent());

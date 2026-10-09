@@ -75,15 +75,15 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       String timeColumn,
       int boostInterval) {
     return """
-        SELECT %s
-        FROM scheduler_job_queue
-        WHERE status = 'PENDING'
-          AND %s <= statement_timestamp()
-          AND %s%s%s
-        ORDER BY %s
-        LIMIT ?
-        FOR UPDATE SKIP LOCKED
-        """
+    SELECT %s
+    FROM scheduler_job_queue
+    WHERE status = 'PENDING'
+      AND %s <= statement_timestamp()
+      AND %s%s%s
+    ORDER BY %s
+    LIMIT ?
+    FOR UPDATE SKIP LOCKED
+    """
         .formatted(
             selectColumns,
             timeColumn,
@@ -102,16 +102,16 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       String timeColumn,
       int boostInterval) {
     return """
-        SELECT %s
-        FROM scheduler_job c
-        JOIN scheduler_job_queue q ON q.job_id = c.job_id
-        WHERE q.status = 'PENDING'
-          AND %s <= statement_timestamp()
-          AND %s%s
-        ORDER BY %s
-        LIMIT ?
-        FOR UPDATE SKIP LOCKED
-        """
+    SELECT %s
+    FROM scheduler_job c
+    JOIN scheduler_job_queue q ON q.job_id = c.job_id
+    WHERE q.status = 'PENDING'
+      AND %s <= statement_timestamp()
+      AND %s%s
+    ORDER BY %s
+    LIMIT ?
+    FOR UPDATE SKIP LOCKED
+    """
         .formatted(
             selectColumns,
             timeColumn,
@@ -164,6 +164,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       Instant now = Instant.now();
       markPendingClaimsRunning(ids, nodeId, now);
       for (JobEntity job : ordered) {
+        job.setClaimSeq(job.getClaimSeq() + 1);
         job.setStatus(JobStatus.RUNNING);
         job.setPickedBy(nodeId);
         job.setPickedAt(now);
@@ -255,7 +256,8 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
                     row.attempts(),
                     row.maxRetries(),
                     row.executionTarget(),
-                    row.dependsOn()));
+                    row.dependsOn(),
+                    row.claimSeq() + 1));
           }
           return claims;
         },
@@ -276,6 +278,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
             picked_by = ?,
             picked_at = ?,
             updated_at = ?,
+            claim_seq = claim_seq + 1,
             version = version + 1
         WHERE job_id IN (%s) AND status = 'PENDING'
         """
@@ -306,7 +309,8 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     ATTEMPTS("attempts"),
     MAX_RETRIES("max_retries"),
     EXECUTION_TARGET("execution_target"),
-    DEPENDS_ON("depends_on");
+    DEPENDS_ON("depends_on"),
+    CLAIM_SEQ("claim_seq");
 
     private final String sqlName;
 
@@ -354,6 +358,10 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
 
     Instant scheduledTime() {
       return RowValues.instantOrNull(value(ClaimColumn.SCHEDULED_TIME));
+    }
+
+    long claimSeq() {
+      return number(ClaimColumn.CLAIM_SEQ).longValue();
     }
 
     int version() {

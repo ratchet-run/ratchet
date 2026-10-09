@@ -486,13 +486,13 @@ class RetryBufferManagerTest {
     manager.offer(standardJob(2L));
 
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 1L), "node-1")).thenReturn(true);
-    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 2L), "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 1L), "node-1", 0L)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 2L), "node-1", 0L)).thenReturn(true);
 
     manager.flushOnShutdown();
 
-    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
-    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 2L), "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1", 0L);
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 2L), "node-1", 0L);
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
 
@@ -500,12 +500,12 @@ class RetryBufferManagerTest {
   void flushOnShutdown_doesNotOverwriteTerminalJobs() {
     manager.offer(standardJob(1L));
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 1L), "node-1")).thenReturn(false);
+    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 1L), "node-1", 0L)).thenReturn(false);
 
     manager.flushOnShutdown();
 
-    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
-    verify(jobBatchStatusStore, never()).resetRunningJob(new UUID(0L, 1L), "other-node");
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1", 0L);
+    verify(jobBatchStatusStore, never()).resetRunningJob(new UUID(0L, 1L), "other-node", 0L);
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
 
@@ -516,15 +516,15 @@ class RetryBufferManagerTest {
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
     doThrow(new RuntimeException("store unavailable"))
         .when(jobBatchStatusStore)
-        .resetRunningJob(new UUID(0L, 1L), "node-1");
-    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 2L), "node-1")).thenReturn(true);
+        .resetRunningJob(new UUID(0L, 1L), "node-1", 0L);
+    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 2L), "node-1", 0L)).thenReturn(true);
 
     // A single per-claim failure must not throw; throwing after a partial flush would discard
     // the claims already reset back to PENDING.
     assertDoesNotThrow(manager::flushOnShutdown);
 
-    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
-    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 2L), "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1", 0L);
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 2L), "node-1", 0L);
 
     // Only the failed claim is requeued; the successful reset stays flushed.
     assertEquals(1, manager.totalSize());
@@ -534,5 +534,21 @@ class RetryBufferManagerTest {
     assertFalse(
         manager.getBuffer(JobExecutionType.SINGLE).stream()
             .anyMatch(claim -> new UUID(0L, 2L).equals(claim.jobId())));
+  }
+
+  @Test
+  void bufferedClaimsKeepTheirOwnerSequence() {
+    JobEntity job = new JobEntity();
+    job.setId(new UUID(0L, 901L));
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
+    job.setScheduledTime(Instant.now());
+    job.setClaimSeq(37L);
+    var fromEntity = RetryBufferManager.BufferedClaim.from(job);
+    assertEquals(37L, fromEntity.toClaimDto().claimSeq());
+    var fromDto = RetryBufferManager.BufferedClaim.from(fromEntity.toClaimDto());
+    assertEquals(37L, fromDto.toClaimDto().claimSeq());
+    assertTrue(manager.offer(fromDto.toClaimDto()));
+    assertEquals(37L, manager.pollFromBuffer(JobExecutionType.SINGLE).toClaimDto().claimSeq());
   }
 }

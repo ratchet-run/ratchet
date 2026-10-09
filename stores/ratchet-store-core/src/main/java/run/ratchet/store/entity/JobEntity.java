@@ -225,6 +225,8 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   @Transient private Integer version;
 
+  @Transient private Long claimSeq = 0L;
+
   @Transient private String signalKey;
 
   @Transient private Instant signalTimeout;
@@ -627,6 +629,14 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public Integer getVersion() {
     return version;
+  }
+
+  public Long getClaimSeq() {
+    return claimSeq;
+  }
+
+  public void setClaimSeq(Long claimSeq) {
+    this.claimSeq = claimSeq;
   }
 
   public void setVersion(Integer version) {

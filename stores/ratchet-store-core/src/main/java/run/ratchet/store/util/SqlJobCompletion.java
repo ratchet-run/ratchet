@@ -59,7 +59,7 @@ public final class SqlJobCompletion {
                           lockSql(
                               "scheduler_job_queue",
                               "job_id",
-                              "status, version, scheduled_time, attempts",
+                              "status, version, scheduled_time, attempts, claim_seq",
                               sqlServer))
                       .setParameter(1, uuid.apply(id))
                       .getResultList();
@@ -67,6 +67,9 @@ public final class SqlJobCompletion {
             });
     Object[] primary = locked.get(plan.jobId());
     if (primary == null || !plan.expectedStatus().name().equals(primary[0]))
+      return JobCompletionResult.notCommitted();
+    if (plan.expectedClaimSeq() != null
+        && ((Number) primary[4]).longValue() != plan.expectedClaimSeq())
       return JobCompletionResult.notCommitted();
     for (var dependency : plan.dependencies()) {
       Object[] row = locked.get(dependency.jobId());
@@ -128,7 +131,8 @@ public final class SqlJobCompletion {
               plan.expectedStatus() == JobStatus.WAITING
                   ? store.compareAndSwapStatus(
                       plan.jobId(), JobStatus.WAITING, JobStatus.FAILED, plan.errorMessage())
-                  : store.markJobFailedTerminal(plan.jobId(), plan.errorMessage(), plan.attempts());
+                  : store.markJobFailedTerminal(
+                      plan.jobId(), plan.errorMessage(), plan.attempts(), plan.expectedClaimSeq());
           case CANCELED -> store.cancelJob(plan.jobId());
           default -> throw new IllegalArgumentException("Not a terminal status");
         };
@@ -140,8 +144,8 @@ public final class SqlJobCompletion {
       } else {
         int changed =
             em.createNativeQuery(
-                    "UPDATE scheduler_job_queue SET status = ?, scheduled_time = ?,"
-                        + " job_type = ?, version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?")
+                    "UPDATE scheduler_job_queue SET status = ?, scheduled_time = ?, job_type = ?,"
+                        + " version = version + 1, updated_at = CURRENT_TIMESTAMP WHERE job_id = ?")
                 .setParameter(1, dependency.status().name())
                 .setParameter(
                     2,
@@ -159,7 +163,7 @@ public final class SqlJobCompletion {
       }
     }
     BatchProgress progress = null;
-    if (plan.batchId() != null) {
+    if (plan.batchId() != null && plan.terminalStatus() != JobStatus.CANCELED) {
       progress =
           plan.terminalStatus() == JobStatus.SUCCEEDED
               ? batches.incrementCompletedAtomic(plan.batchId())

@@ -21,8 +21,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.util.ClaimFence;
 
 /*
  * Keep terminal transitions dialect-local until a shared helper can preserve each backend's
@@ -72,7 +74,7 @@ final class OracleJobTerminalOperations {
               return cancelJob(id) ? 1 : 0;
             }
             if (status == JobStatus.FAILED) {
-              return markJobFailedTerminal(id, errorMessage, 0) ? 1 : 0;
+              return markJobFailedTerminal(id, errorMessage, 0, null) ? 1 : 0;
             }
             if (status == JobStatus.SUCCEEDED) {
               return markJobSucceededMinimal(id, null, null, null, null) ? 1 : 0;
@@ -118,7 +120,7 @@ final class OracleJobTerminalOperations {
               if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
                 return false;
               }
-              return markJobFailedTerminalFromStatus(id, error, null, expected);
+              return markJobFailedTerminalFromStatus(id, error, null, expected, null);
             }
             throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
           } catch (RuntimeException e) {
@@ -128,22 +130,22 @@ final class OracleJobTerminalOperations {
         updated -> updated ? "updated" : "miss");
   }
 
-  int incrementRetryAttempt(UUID id) {
+  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
     try {
       // language=Oracle
       String updateSql =
           """
           UPDATE scheduler_job_queue
           SET attempts = attempts + 1, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
-          """;
+          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+          """
+              .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
       int updated =
           ctx.timedStoreOperation(
               "increment_retry_attempt",
               () -> {
                 try {
-                  return ctx.em()
-                      .createNativeQuery(updateSql)
+                  return ClaimFence.bind(ctx.em().createNativeQuery(updateSql), expectedClaimSeq, 2)
                       .setParameter(1, UuidRawConverter.toBytes(id))
                       .executeUpdate();
                 } catch (RuntimeException e) {
@@ -225,21 +227,26 @@ final class OracleJobTerminalOperations {
     }
   }
 
-  boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
+  boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq) {
     // language=Oracle
     String sql =
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
             picked_by = NULL, picked_at = NULL, updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
-        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
-        """;
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+        """
+            .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     return ctx.timedStoreOperation(
             "schedule_retry",
             () -> {
               try {
-                return ctx.em()
-                    .createNativeQuery(sql)
+                return ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 5)
                     .setParameter(1, error)
                     .setParameter(2, Timestamp.from(newScheduledTime))
                     .setParameter(3, attempts)
@@ -253,13 +260,15 @@ final class OracleJobTerminalOperations {
         > 0;
   }
 
-  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+  boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq) {
+
     return ctx.timedStoreOperation(
         "mark_failed_terminal",
         () -> {
           try {
             return markJobFailedTerminalFromStatus(
-                id, terminalError, totalAttempts, JobStatus.RUNNING);
+                id, terminalError, totalAttempts, JobStatus.RUNNING, expectedClaimSeq);
           } catch (RuntimeException e) {
             throw ctx.translateTransientStoreException("mark job failed terminal", e);
           }
@@ -373,6 +382,17 @@ final class OracleJobTerminalOperations {
       if (hotDeleted == 0) {
         throw new IllegalStateException(
             "cancel updated cold row but did not remove hot row for job " + id);
+      }
+
+      var batchRows =
+          ctx.em()
+              .createNativeQuery(
+                  "SELECT depends_on FROM scheduler_job WHERE job_id = ? AND job_type ="
+                      + " 'BATCH_CHILD'")
+              .setParameter(1, UuidRawConverter.toBytes(id))
+              .getResultList();
+      if (!batchRows.isEmpty() && batchRows.get(0) != null) {
+        batches.incrementFailedAtomic(OracleJobRowMapper.uuidOrNull(batchRows.get(0)));
       }
       reservations.deleteReservationByOwner(id);
       return true;
@@ -556,7 +576,11 @@ final class OracleJobTerminalOperations {
   }
 
   private boolean markJobFailedTerminalFromStatus(
-      UUID id, String terminalError, Integer totalAttempts, JobStatus expectedStatus) {
+      UUID id,
+      String terminalError,
+      Integer totalAttempts,
+      JobStatus expectedStatus,
+      @Nullable Long expectedClaimSeq) {
     // total_attempts: either a caller-supplied count (bind) or the queue row's attempts (subquery).
     String attemptsExpression =
         totalAttempts == null
@@ -564,17 +588,25 @@ final class OracleJobTerminalOperations {
             : "?";
     // language=Oracle
     String updateColdSql =
-        "UPDATE scheduler_job c SET c.terminal_status = 'FAILED', c.terminal_error = ?,"
-            + " c.total_attempts = "
-            + attemptsExpression
-            + ", c.terminated_at = "
-            + NOW_UTC
-            + ", "
-            + runningTimingTuple()
-            + " WHERE c.job_id = ? AND c.terminal_status IS NULL"
-            + " AND EXISTS (SELECT 1 FROM scheduler_job_queue q WHERE q.job_id = c.job_id"
-            + " AND q.status = ?)";
-    var query = ctx.em().createNativeQuery(updateColdSql).setParameter(1, terminalError);
+        """
+        UPDATE scheduler_job c
+        SET c.terminal_status = 'FAILED', c.terminal_error = ?,
+            c.total_attempts = %s, c.terminated_at = %s, %s
+        WHERE c.job_id = ? AND c.terminal_status IS NULL
+          AND EXISTS (SELECT 1 FROM scheduler_job_queue q
+                      WHERE q.job_id = c.job_id AND q.status = ?%s)
+        """
+            .formatted(
+                attemptsExpression,
+                NOW_UTC,
+                runningTimingTuple(),
+                expectedClaimSeq == null ? "" : " AND q.claim_seq = ?");
+    var query =
+        ClaimFence.bind(
+                ctx.em().createNativeQuery(updateColdSql),
+                expectedClaimSeq,
+                totalAttempts == null ? 4 : 5)
+            .setParameter(1, terminalError);
     int parameter = 2;
     if (totalAttempts != null) {
       query.setParameter(parameter++, totalAttempts);
@@ -588,10 +620,11 @@ final class OracleJobTerminalOperations {
       return false;
     }
     // language=Oracle
-    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
+    String deleteHotSql =
+        "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?"
+            + (expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     int hotDeleted =
-        ctx.em()
-            .createNativeQuery(deleteHotSql)
+        ClaimFence.bind(ctx.em().createNativeQuery(deleteHotSql), expectedClaimSeq, 3)
             .setParameter(1, UuidRawConverter.toBytes(id))
             .setParameter(2, expectedStatus.name())
             .executeUpdate();

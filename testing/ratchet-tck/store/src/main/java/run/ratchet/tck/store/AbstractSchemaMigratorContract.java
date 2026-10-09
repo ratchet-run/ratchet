@@ -121,6 +121,32 @@ public abstract class AbstractSchemaMigratorContract {
     assertFalse(nodeInfoColumnExists(), "scheduler_node.node_info should stay absent");
   }
 
+  @Test
+  void claimSequenceMigrationIsIdempotentOnRepeat() throws Exception {
+    resetDatabase();
+    newMigrator().migrate();
+    try (Connection connection = newJdbcConnection()) {
+      var metadata = connection.getMetaData();
+      boolean upper = metadata.storesUpperCaseIdentifiers();
+      try (ResultSet columns =
+          metadata.getColumns(
+              connection.getCatalog(),
+              connection.getSchema(),
+              upper ? "SCHEDULER_JOB_QUEUE" : "scheduler_job_queue",
+              upper ? "CLAIM_SEQ" : "claim_seq")) {
+        assertTrue(columns.next(), "claim_seq must exist after migration");
+        assertEquals(0, columns.getInt("NULLABLE"), "claim_seq must be NOT NULL");
+      }
+      try (var statement = connection.createStatement()) {
+        statement.executeUpdate("DELETE FROM ratchet_schema_version WHERE version = '010'");
+      }
+    }
+    var repeated = newMigrator().migrate();
+    assertEquals(
+        List.of("010"),
+        repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+  }
+
   private boolean nodeInfoColumnExists() throws SQLException {
     try (Connection connection = newJdbcConnection()) {
       var metadata = connection.getMetaData();
@@ -225,7 +251,8 @@ public abstract class AbstractSchemaMigratorContract {
     try (Connection c = newJdbcConnection();
         PreparedStatement s =
             c.prepareStatement(
-                "SELECT version, description, checksum FROM ratchet_schema_version ORDER BY version");
+                "SELECT version, description, checksum FROM ratchet_schema_version ORDER BY"
+                    + " version");
         ResultSet rs = s.executeQuery()) {
       List<SchemaVersionRow> rows = new ArrayList<>();
       while (rs.next()) {

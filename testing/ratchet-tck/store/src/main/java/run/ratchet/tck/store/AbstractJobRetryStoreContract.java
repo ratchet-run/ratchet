@@ -31,6 +31,7 @@ import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 /** Base contract tests for {@code JobRetryStore}. */
 public abstract class AbstractJobRetryStoreContract implements JobStoreContractFixture {
@@ -47,11 +48,11 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
 
     assertEquals(
         -1,
-        store().incrementRetryAttempt(saved.getId()),
+        store().incrementRetryAttempt(saved.getId(), null),
         "Retry attempts should not increment for non-retryable jobs");
 
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    assertEquals(1, store().incrementRetryAttempt(saved.getId()));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null));
   }
 
   @Test
@@ -60,7 +61,8 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
 
     Instant retryTime = Instant.now().plusSeconds(300);
-    boolean retried = store().scheduleJobRetry(saved.getId(), "transient error", retryTime, 1);
+    boolean retried =
+        store().scheduleJobRetry(saved.getId(), "transient error", retryTime, 1, null);
 
     assertTrue(retried, "scheduleJobRetry should succeed for a running job");
     var reloaded = store().findById(saved.getId()).orElseThrow();
@@ -75,10 +77,10 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     waiting.setSignalTimeout(Instant.now().minusSeconds(1));
     var saved = persist(waiting);
 
-    assertEquals(1, store().incrementRetryAttempt(saved.getId()));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null));
 
     Instant retryTime = Instant.now().plusSeconds(300);
-    boolean retried = store().scheduleJobRetry(saved.getId(), "signal timeout", retryTime, 1);
+    boolean retried = store().scheduleJobRetry(saved.getId(), "signal timeout", retryTime, 1, null);
 
     assertTrue(retried, "scheduleJobRetry should succeed for a WAITING timeout");
     var reloaded = store().findById(saved.getId()).orElseThrow();
@@ -93,7 +95,8 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
 
     boolean retried =
         store()
-            .scheduleJobRetry(saved.getId(), "already terminal", Instant.now().plusSeconds(300), 1);
+            .scheduleJobRetry(
+                saved.getId(), "already terminal", Instant.now().plusSeconds(300), 1, null);
 
     assertFalse(retried, "FAILED terminal jobs should not be rescheduled through retry");
     assertEquals(JobStatus.FAILED, store().getJobStatus(saved.getId()));
@@ -109,7 +112,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     // Accumulate retry metadata so the reset has something to actually clear; otherwise
     // asserting attempts==0 is vacuous (the row started at 0).
-    store().incrementRetryAttempt(saved.getId());
+    store().incrementRetryAttempt(saved.getId(), null);
     store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "error");
 
     boolean reset = store().resetFailedToPending(saved.getId());
@@ -130,7 +133,7 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
 
   @Test
   void incrementRetryAttempt_unknownJob_returnsMinusOne() {
-    assertEquals(-1, store().incrementRetryAttempt(new UUID(0L, Long.MAX_VALUE)));
+    assertEquals(-1, store().incrementRetryAttempt(new UUID(0L, Long.MAX_VALUE), null));
   }
 
   @Test
@@ -139,10 +142,10 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     Instant retryTime = Instant.now().plusSeconds(300);
 
     assertFalse(
-        store().scheduleJobRetry(pending.getId(), "not running", retryTime, 1),
+        store().scheduleJobRetry(pending.getId(), "not running", retryTime, 1, null),
         "PENDING jobs should not be rescheduled through retry");
     assertFalse(
-        store().scheduleJobRetry(new UUID(0L, Long.MAX_VALUE), "missing", retryTime, 1),
+        store().scheduleJobRetry(new UUID(0L, Long.MAX_VALUE), "missing", retryTime, 1, null),
         "missing jobs should not be rescheduled through retry");
   }
 
@@ -250,11 +253,31 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     JobEntity saved = persist(newPendingJob(tag));
     assertTrue(
         store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null));
-    assertEquals(1, store().incrementRetryAttempt(saved.getId()));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null));
     assertTrue(
         store()
             .compareAndSwapStatus(
                 saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "bulk retry fixture"));
     return saved;
+  }
+
+  @Test
+  void staleClaimCannotMutateRetryOrTerminalState() {
+    var saved = persist(newPendingJob());
+    var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    var current = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    assertEquals(-1, store().incrementRetryAttempt(saved.getId(), first.claimSeq()));
+    assertFalse(
+        store().scheduleJobRetry(saved.getId(), "stale", Instant.now(), 99, first.claimSeq()));
+    assertFalse(store().markJobFailedTerminal(saved.getId(), "stale", 99, first.claimSeq()));
+    var untouched = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, untouched.getStatus());
+    assertEquals(0, untouched.getAttempts());
+    assertNull(untouched.getLastError());
+    assertEquals(current.claimSeq(), untouched.getClaimSeq().longValue());
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), current.claimSeq()));
+    assertTrue(
+        store().scheduleJobRetry(saved.getId(), "current", Instant.now(), 1, current.claimSeq()));
   }
 }

@@ -225,6 +225,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 -- enqueue and never mutated.
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
+    claim_seq BIGINT NOT NULL DEFAULT 0,
     job_id             BINARY(16)      NOT NULL,
     status             ENUM ('PENDING','RUNNING','PAUSED','WAITING')                                                                      NOT NULL DEFAULT 'PENDING',
     job_type           ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,

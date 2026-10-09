@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
@@ -56,8 +57,8 @@ final class MysqlJobLifecycleOperations
   }
 
   @Override
-  public int incrementRetryAttempt(UUID id) {
-    return terminals.incrementRetryAttempt(id);
+  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+    return terminals.incrementRetryAttempt(id, expectedClaimSeq);
   }
 
   @Override
@@ -96,12 +97,18 @@ final class MysqlJobLifecycleOperations
   }
 
   @Override
-  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
-    return terminals.scheduleJobRetry(id, error, newScheduledTime, attempts);
+  public boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq) {
+    return terminals.scheduleJobRetry(id, error, newScheduledTime, attempts, expectedClaimSeq);
   }
 
-  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
-    return terminals.markJobFailedTerminal(id, terminalError, totalAttempts);
+  public boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq) {
+    return terminals.markJobFailedTerminal(id, terminalError, totalAttempts, expectedClaimSeq);
   }
 
   public boolean cancelJob(UUID id) {
@@ -109,8 +116,8 @@ final class MysqlJobLifecycleOperations
   }
 
   @Override
-  public boolean resetRunningJob(UUID id, String nodeId) {
-    return recurring.resetRunningJob(id, nodeId);
+  public boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
+    return recurring.resetRunningJob(id, nodeId, expectedClaimSeq);
   }
 
   @Override

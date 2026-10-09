@@ -201,6 +201,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 -- population — they are set at enqueue and never mutated.
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
+    claim_seq BIGINT NOT NULL DEFAULT 0,
     job_id             uuid         NOT NULL,
     status             TEXT         NOT NULL DEFAULT 'PENDING',
     job_type           TEXT         NOT NULL,

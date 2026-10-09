@@ -21,8 +21,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.util.ClaimFence;
 
 /*
  * Keep terminal transitions dialect-local until a shared helper can preserve each backend's
@@ -72,7 +74,7 @@ final class MysqlJobTerminalOperations {
               return cancelJob(id) ? 1 : 0;
             }
             if (status == JobStatus.FAILED) {
-              return markJobFailedTerminal(id, errorMessage, 0) ? 1 : 0;
+              return markJobFailedTerminal(id, errorMessage, 0, null) ? 1 : 0;
             }
             if (status == JobStatus.SUCCEEDED) {
               return markJobSucceededMinimal(id, null, null, null, null) ? 1 : 0;
@@ -118,7 +120,7 @@ final class MysqlJobTerminalOperations {
               if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
                 return false;
               }
-              return markJobFailedTerminalFromStatus(id, error, null, expected);
+              return markJobFailedTerminalFromStatus(id, error, null, expected, null);
             }
             throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
           } catch (RuntimeException e) {
@@ -128,22 +130,22 @@ final class MysqlJobTerminalOperations {
         updated -> updated ? "updated" : "miss");
   }
 
-  int incrementRetryAttempt(UUID id) {
+  int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
     try {
       // language=MySQL
       String updateSql =
           """
           UPDATE scheduler_job_queue
           SET attempts = LAST_INSERT_ID(attempts + 1), updated_at = NOW(3)
-          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
-          """;
+          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+          """
+              .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
       int updated =
           ctx.timedStoreOperation(
               "increment_retry_attempt",
               () -> {
                 try {
-                  return ctx.em()
-                      .createNativeQuery(updateSql)
+                  return ClaimFence.bind(ctx.em().createNativeQuery(updateSql), expectedClaimSeq, 2)
                       .setParameter(1, UuidByteArrayConverter.toBytes(id))
                       .executeUpdate();
                 } catch (RuntimeException e) {
@@ -221,21 +223,26 @@ final class MysqlJobTerminalOperations {
     }
   }
 
-  boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
+  boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq) {
     // language=MySQL
     String sql =
         """
         UPDATE scheduler_job_queue
         SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
             picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
-        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
-        """;
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')%s
+        """
+            .formatted(expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     return ctx.timedStoreOperation(
             "schedule_retry",
             () -> {
               try {
-                return ctx.em()
-                    .createNativeQuery(sql)
+                return ClaimFence.bind(ctx.em().createNativeQuery(sql), expectedClaimSeq, 5)
                     .setParameter(1, error)
                     .setParameter(2, Timestamp.from(newScheduledTime))
                     .setParameter(3, attempts)
@@ -249,13 +256,15 @@ final class MysqlJobTerminalOperations {
         > 0;
   }
 
-  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+  boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq) {
+
     return ctx.timedStoreOperation(
         "mark_failed_terminal",
         () -> {
           try {
             return markJobFailedTerminalFromStatus(
-                id, terminalError, totalAttempts, JobStatus.RUNNING);
+                id, terminalError, totalAttempts, JobStatus.RUNNING, expectedClaimSeq);
           } catch (RuntimeException e) {
             throw ctx.translateTransientStoreException("mark job failed terminal", e);
           }
@@ -344,6 +353,17 @@ final class MysqlJobTerminalOperations {
       if (hotDeleted == 0) {
         throw new IllegalStateException(
             "cancel updated cold row but did not remove hot row for job " + id);
+      }
+
+      var batchRows =
+          ctx.em()
+              .createNativeQuery(
+                  "SELECT depends_on FROM scheduler_job WHERE job_id = ? AND job_type ="
+                      + " 'BATCH_CHILD'")
+              .setParameter(1, UuidByteArrayConverter.toBytes(id))
+              .getResultList();
+      if (!batchRows.isEmpty() && batchRows.get(0) != null) {
+        batches.incrementFailedAtomic(MysqlJobRowMapper.uuidOrNull(batchRows.get(0)));
       }
       reservations.deleteReservationByOwner(id);
       return true;
@@ -524,7 +544,11 @@ final class MysqlJobTerminalOperations {
   }
 
   private boolean markJobFailedTerminalFromStatus(
-      UUID id, String terminalError, Integer totalAttempts, JobStatus expectedStatus) {
+      UUID id,
+      String terminalError,
+      Integer totalAttempts,
+      JobStatus expectedStatus,
+      @Nullable Long expectedClaimSeq) {
     String attemptsExpression = totalAttempts == null ? "q.attempts" : "?";
     // language=MySQL
     String updateColdSql =
@@ -552,8 +576,14 @@ final class MysqlJobTerminalOperations {
                      ELSE c.execution_duration_ms END
         WHERE c.job_id = ? AND c.terminal_status IS NULL AND q.status = ?
         """
-            .formatted(attemptsExpression);
-    var query = ctx.em().createNativeQuery(updateColdSql).setParameter(1, terminalError);
+                .formatted(attemptsExpression)
+            + (expectedClaimSeq == null ? "" : " AND q.claim_seq = ?");
+    var query =
+        ClaimFence.bind(
+                ctx.em().createNativeQuery(updateColdSql),
+                expectedClaimSeq,
+                totalAttempts == null ? 4 : 5)
+            .setParameter(1, terminalError);
     int parameter = 2;
     if (totalAttempts != null) {
       query.setParameter(parameter++, totalAttempts);
@@ -567,10 +597,11 @@ final class MysqlJobTerminalOperations {
       return false;
     }
     // language=MySQL
-    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
+    String deleteHotSql =
+        "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?"
+            + (expectedClaimSeq == null ? "" : " AND claim_seq = ?");
     int hotDeleted =
-        ctx.em()
-            .createNativeQuery(deleteHotSql)
+        ClaimFence.bind(ctx.em().createNativeQuery(deleteHotSql), expectedClaimSeq, 3)
             .setParameter(1, UuidByteArrayConverter.toBytes(id))
             .setParameter(2, expectedStatus.name())
             .executeUpdate();

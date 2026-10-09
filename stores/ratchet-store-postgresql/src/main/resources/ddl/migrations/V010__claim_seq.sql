@@ -1,0 +1,1 @@
+ALTER TABLE scheduler_job_queue ADD COLUMN IF NOT EXISTS claim_seq BIGINT NOT NULL DEFAULT 0;

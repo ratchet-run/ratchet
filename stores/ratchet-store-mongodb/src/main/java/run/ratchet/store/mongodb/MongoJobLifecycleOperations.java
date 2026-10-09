@@ -24,6 +24,7 @@ import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.unset;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
+import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_END_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
@@ -61,6 +62,7 @@ import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -123,7 +125,7 @@ final class MongoJobLifecycleOperations
     if (!StatusClassifier.isLiveStatus(status)) {
       switch (status) {
         case CANCELED -> cancelJob(id);
-        case FAILED -> markJobFailedTerminal(id, errorMessage, 0);
+        case FAILED -> markJobFailedTerminal(id, errorMessage, 0, null);
         case SUCCEEDED -> markJobSucceededMinimal(id, null, null, null, null);
         default -> throw new IllegalArgumentException("Unsupported status target: " + status);
       }
@@ -199,14 +201,16 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
-  public int incrementRetryAttempt(UUID id) {
+  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
     return intMutation(
         "increment_retry_attempt",
         () -> {
           Document doc =
               ctx.jobs()
                   .findOneAndUpdate(
-                      and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
+                      fenced(
+                          and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
+                          expectedClaimSeq),
                       combine(
                           inc(ATTEMPTS, 1),
                           set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
@@ -236,6 +240,7 @@ final class MongoJobLifecycleOperations
                           set(PICKED_BY, nodeId),
                           set(PICKED_AT, DocumentMapper.toDate(now)),
                           set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          inc(CLAIM_SEQ, 1L),
                           inc(VERSION, 1)));
           return result.getModifiedCount() > 0;
         });
@@ -359,14 +364,21 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
-  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
+  public boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq) {
     return booleanMutation(
         "schedule_retry",
         () -> {
           UpdateResult result =
               ctx.jobs()
                   .updateOne(
-                      and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
+                      fenced(
+                          and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
+                          expectedClaimSeq),
                       combine(
                           set(STATUS, "PENDING"),
                           set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)),
@@ -382,7 +394,8 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
-  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+  public boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq) {
     return booleanMutation(
         "mark_failed_terminal",
         () -> {
@@ -394,7 +407,7 @@ final class MongoJobLifecycleOperations
                   ctx.jobs()
                       .updateOne(
                           session,
-                          and(eq(ID, id), eq(STATUS, "RUNNING")),
+                          fenced(and(eq(ID, id), eq(STATUS, "RUNNING")), expectedClaimSeq),
                           combine(
                               set(STATUS, "FAILED"),
                               set(LAST_ERROR, terminalError),
@@ -454,14 +467,18 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
-  public boolean resetRunningJob(UUID id, String nodeId) {
+  public boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
     return booleanMutation(
         "reset_running_job",
         () -> {
           UpdateResult result =
               ctx.jobs()
                   .updateOne(
-                      and(eq(ID, id), eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
+                      and(
+                          eq(ID, id),
+                          eq(STATUS, "RUNNING"),
+                          eq(PICKED_BY, nodeId),
+                          eq(CLAIM_SEQ, expectedClaimSeq)),
                       combine(
                           set(STATUS, "PENDING"),
                           set(PICKED_BY, null),
@@ -706,6 +723,10 @@ final class MongoJobLifecycleOperations
         });
   }
 
+  private static Bson fenced(Bson filter, Long expectedClaimSeq) {
+    return expectedClaimSeq == null ? filter : and(filter, eq(CLAIM_SEQ, expectedClaimSeq));
+  }
+
   private void runMutation(String operation, Runnable mutation) {
     ctx.timedStoreOperation(
         operation,
@@ -724,6 +745,19 @@ final class MongoJobLifecycleOperations
             UpdateResult result = mutation.apply(session);
             if (result.getModifiedCount() == 0) {
               return false;
+            }
+            if (status == JobStatus.CANCELED) {
+              Document canceled = ctx.jobs().find(session, eq(ID, id)).first();
+              if (canceled != null && "BATCH_CHILD".equals(canceled.getString("job_type"))) {
+                UUID batchId = canceled.get("depends_on", UUID.class);
+                if (batchId != null) {
+                  long counted =
+                      ctx.batches()
+                          .updateOne(session, eq(ID, batchId), inc("failed_items", 1))
+                          .getMatchedCount();
+                  if (counted != 1) throw new IllegalStateException("Batch not found: " + batchId);
+                }
+              }
             }
             reservations.syncForStoredJob(session, id, status);
             return true;

@@ -72,7 +72,7 @@ This sets the job status to PENDING, clears the error, resets attempts to 0, and
 
 Yes. Ratchet supports multi-node deployment. Each node runs its own poller that atomically claims jobs from the shared database using optimistic locking (`claimNextBatchOptimized`). This ensures:
 
-- **No duplicate execution:** A job is claimed by exactly one node via an atomic compare-and-swap on the `status` and `picked_by` columns.
+- **Claim ownership:** Atomic claiming grants one current owner. Every claim advances a sequence, and owner writes must match it. Recovery can overlap job bodies, so execution remains at least once and external side effects need idempotency.
 - **Automatic failover:** If a node crashes, the `OrphanRecoveryTimer` on surviving nodes detects stale heartbeats and resets orphaned RUNNING jobs to PENDING.
 - **Node identity:** Each node registers in `scheduler_node` with a unique ID and periodic heartbeat (default every 10 seconds).
 

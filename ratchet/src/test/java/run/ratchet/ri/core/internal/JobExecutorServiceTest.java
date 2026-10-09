@@ -170,7 +170,13 @@ class JobExecutorServiceTest {
         .when(jobExecutor)
         .execute(any(Runnable.class));
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+            eq(JOB_ID),
+            anyInt(),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class),
+            eq(0L),
+            eq("node-1")))
         .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
 
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
@@ -182,7 +188,13 @@ class JobExecutorServiceTest {
     verify(hardTimeout).cancel(false);
     verify(timeoutHandler)
         .scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
+            eq(JOB_ID),
+            anyInt(),
+            any(Future.class),
+            eq(scheduledExecutor),
+            eq(FIXED_NOW),
+            eq(0L),
+            eq("node-1"));
   }
 
   @Test
@@ -198,7 +210,13 @@ class JobExecutorServiceTest {
   void watchdogSchedulingFailureRejectsWithoutSubmittingTask() throws Exception {
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+            eq(JOB_ID),
+            anyInt(),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class),
+            eq(0L),
+            eq("node-1")))
         .thenThrow(new RejectedExecutionException("scheduler stopped"));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
@@ -215,7 +233,13 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenThrow(lookupFailure);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+            eq(JOB_ID),
+            anyInt(),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class),
+            eq(0L),
+            eq("node-1")))
         .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
 
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
@@ -237,7 +261,13 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+            eq(JOB_ID),
+            anyInt(),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class),
+            eq(0L),
+            eq("node-1")))
         .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
     doAnswer(
             invocation -> {
@@ -277,7 +307,13 @@ class JobExecutorServiceTest {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
-            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+            eq(JOB_ID),
+            anyInt(),
+            any(Future.class),
+            eq(scheduledExecutor),
+            any(Instant.class),
+            eq(0L),
+            eq("node-1")))
         .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
     AtomicReference<Thread> runner = new AtomicReference<>();
     doAnswer(
@@ -323,8 +359,16 @@ class JobExecutorServiceTest {
       throws Exception {
     Method method =
         DefaultJobExecutorService.class.getDeclaredMethod(
-            "execute", UUID.class, int.class, Callable.class, AtomicReference.class, String.class);
+            "execute",
+            UUID.class,
+            int.class,
+            Callable.class,
+            AtomicReference.class,
+            String.class,
+            long.class,
+            String.class);
     method.setAccessible(true);
-    return (ExecutionResult) method.invoke(service, JOB_ID, 30, callable, handlesRef, "platform");
+    return (ExecutionResult)
+        method.invoke(service, JOB_ID, 30, callable, handlesRef, "platform", 0L, "node-1");
   }
 }

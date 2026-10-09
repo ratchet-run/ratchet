@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 -- Row exists iff the job is live (PENDING / RUNNING / PAUSED / WAITING). DELETED at terminal.
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
+    claim_seq NUMBER(19) DEFAULT 0 NOT NULL,
     job_id                  RAW(16)      NOT NULL,
     status                  VARCHAR2(16) DEFAULT 'PENDING' NOT NULL,
     job_type                VARCHAR2(16) NOT NULL,

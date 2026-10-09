@@ -71,7 +71,8 @@ public abstract class CompletionFaultDecorator implements JobTerminalStore {
               plan.queueWaitMs(),
               UUID.randomUUID(),
               null,
-              plan.dependencies());
+              plan.dependencies(),
+              plan.expectedClaimSeq());
       try {
         delegate.commitCompletion(invalid);
         throw new AssertionError("Missing batch must reject completion");
