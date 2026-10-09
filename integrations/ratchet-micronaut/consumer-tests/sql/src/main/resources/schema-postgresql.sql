@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS consumer_record (id VARCHAR(80) PRIMARY KEY, state VARCHAR(40));
+CREATE TABLE IF NOT EXISTS consumer_uuid_record (
+  id UUID PRIMARY KEY,
+  label VARCHAR(80) NOT NULL,
+  occurred_at TIMESTAMP(6) WITH TIME ZONE NOT NULL
+);
