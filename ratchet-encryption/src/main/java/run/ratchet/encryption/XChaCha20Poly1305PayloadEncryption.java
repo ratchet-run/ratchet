@@ -18,6 +18,7 @@ package run.ratchet.encryption;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.function.LongSupplier;
 import javax.crypto.Cipher;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
@@ -75,14 +76,14 @@ public final class XChaCha20Poly1305PayloadEncryption implements PayloadEncrypti
   private static final int KEY_LENGTH = 32; // 256-bit key
 
   private final SecureRandom random;
-  private final boolean foldClock;
+  private final LongSupplier clock;
 
   /**
    * Creates an engine with a fresh {@link SecureRandom} nonce source and folds {@link
    * System#nanoTime()} into every nonce (see the class documentation on snapshot/restore).
    */
   public XChaCha20Poly1305PayloadEncryption() {
-    this(new SecureRandom(), true);
+    this(new SecureRandom(), System::nanoTime);
   }
 
   /**
@@ -92,12 +93,13 @@ public final class XChaCha20Poly1305PayloadEncryption implements PayloadEncrypti
    * @param random the source of the 24-byte nonce; must not be {@code null}
    */
   public XChaCha20Poly1305PayloadEncryption(SecureRandom random) {
-    this(random, false);
+    this(random, null);
   }
 
-  XChaCha20Poly1305PayloadEncryption(SecureRandom random, boolean foldClock) {
+  /** {@code clock} is folded into every nonce; {@code null} keeps the drawn nonce unchanged. */
+  XChaCha20Poly1305PayloadEncryption(SecureRandom random, LongSupplier clock) {
     this.random = random;
-    this.foldClock = foldClock;
+    this.clock = clock;
   }
 
   @Override
@@ -109,10 +111,10 @@ public final class XChaCha20Poly1305PayloadEncryption implements PayloadEncrypti
   public byte[] encrypt(byte[] plaintext, EncryptionContext ctx) {
     byte[] nonce = new byte[NONCE_LENGTH];
     random.nextBytes(nonce);
-    if (foldClock) {
-      long clock = System.nanoTime();
+    if (clock != null) {
+      long now = clock.getAsLong();
       for (int i = 0; i < Long.BYTES; i++) {
-        nonce[NONCE_LENGTH - 1 - i] ^= (byte) (clock >>> (8 * i));
+        nonce[NONCE_LENGTH - 1 - i] ^= (byte) (now >>> (8 * i));
       }
     }
     try {

@@ -131,12 +131,15 @@ class XChaCha20Poly1305HardeningTest {
     // Two processes restored from one snapshot share a deterministic RNG state. Without the clock
     // fold they would emit the same nonce under the same key.
     byte[] plaintext = "same".getBytes(UTF_8);
-    byte[] unfoldedA = nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), false), plaintext);
-    byte[] unfoldedB = nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), false), plaintext);
+    byte[] unfoldedA = nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), null), plaintext);
+    byte[] unfoldedB = nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), null), plaintext);
     assertArrayEquals(unfoldedA, unfoldedB, "precondition: the cloned RNGs agree");
 
-    byte[] foldedA = nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), true), plaintext);
-    byte[] foldedB = nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), true), plaintext);
+    // Fixed, distinct clock readings keep the test independent of System.nanoTime() resolution.
+    byte[] foldedA =
+        nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), () -> 1L), plaintext);
+    byte[] foldedB =
+        nonce(new XChaCha20Poly1305PayloadEncryption(clonedRng(), () -> 2L), plaintext);
     assertFalse(Arrays.equals(foldedA, foldedB));
   }
 
