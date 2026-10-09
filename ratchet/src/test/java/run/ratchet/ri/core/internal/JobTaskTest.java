@@ -892,7 +892,9 @@ class JobTaskTest {
     verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(retryPolicy, never()).shouldRetry(anyInt(), any());
     verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
-    verify(observabilityFacade).recordJobFailure(job, error, 2);
+    // The stored count stays at 2; observers see the third attempt, the one that failed.
+    verify(observabilityFacade).recordJobFailure(job, error, 3);
+    Assertions.assertEquals(2, job.getAttempts());
     verify(errorSanitizer, times(1)).sanitize(error);
     Assertions.assertEquals("safe do not retry", job.getLastError());
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
@@ -1129,7 +1131,7 @@ class JobTaskTest {
     when(validationFacade.shouldNotRetry(any())).thenReturn(true);
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
-        .recordJobFailure(eq(job), any(), eq(0));
+        .recordJobFailure(eq(job), any(), eq(1));
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     JobMdcContext.clear();
@@ -1141,7 +1143,7 @@ class JobTaskTest {
     Assertions.assertTrue(invoked.getValue().args().get(1) instanceof PayloadDecryptionException);
     Assertions.assertNotNull(invoked.getValue().args().get(0));
     ArgumentCaptor<Throwable> original = ArgumentCaptor.forClass(Throwable.class);
-    verify(observabilityFacade).recordJobFailure(eq(job), original.capture(), eq(0));
+    verify(observabilityFacade).recordJobFailure(eq(job), original.capture(), eq(1));
     Assertions.assertSame(original.getValue(), invoked.getValue().args().get(1));
     Assertions.assertNull(JobContext.currentOrNull());
   }
@@ -1568,7 +1570,7 @@ class JobTaskTest {
     jobTask.call();
 
     ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
-    verify(observabilityFacade).recordJobFailure(eq(job), failure.capture(), eq(0));
+    verify(observabilityFacade).recordJobFailure(eq(job), failure.capture(), eq(1));
     SignalOutcomeHydrationException exception =
         Assertions.assertInstanceOf(SignalOutcomeHydrationException.class, failure.getValue());
     Assertions.assertEquals(
@@ -1661,7 +1663,7 @@ class JobTaskTest {
     verify(lifecycleFacade).completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
     // Poison surfaces with its true type now (no IllegalArgumentException wrap); it is still DLQ'd.
     verify(observabilityFacade)
-        .recordJobFailure(eq(job), any(PayloadDecryptionException.class), eq(0));
+        .recordJobFailure(eq(job), any(PayloadDecryptionException.class), eq(1));
     verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
@@ -1912,7 +1914,7 @@ class JobTaskTest {
     Assertions.assertEquals(failure.getClass().getName(), history.getValue().getErrorClass());
     Assertions.assertEquals(expected, history.getValue().getErrorMessage());
     Assertions.assertEquals(expected, job.getLastError());
-    verify(scope).failure(failure.getClass().getName(), expected, job.getAttempts());
+    verify(scope).failure(failure.getClass().getName(), expected, job.getAttempts() + 1);
     verify(errorSanitizer, times(1)).sanitize(failure);
     if (!sanitizerThrows) {
       Assertions.assertTrue(expected.contains("***REDACTED***"));
