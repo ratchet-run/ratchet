@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **62 fixed keys**.
+This build exposes **63 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -79,10 +79,10 @@ This build exposes **62 fixed keys**.
 | `ratchet.priority-boost-interval-minutes` | `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES` | `15` | `PRIORITY_BOOST_INTERVAL_MINUTES` |
 | `ratchet.circuit-breaker.enabled` | `RATCHET_CIRCUIT_BREAKER_ENABLED` | `true` | `CIRCUIT_BREAKER_ENABLED` |
 
+<!-- CONFIG_REFERENCE_END -->
+
 The crash redelivery limit has a minimum of 0. Zero fails a job after its first node crash.
 Graceful shutdown releases do not consume this budget.
-
-<!-- CONFIG_REFERENCE_END -->
 
 ## Dynamic key families
 
