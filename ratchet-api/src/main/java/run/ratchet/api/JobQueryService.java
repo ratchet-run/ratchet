@@ -47,8 +47,9 @@ public interface JobQueryService {
   /**
    * Returns a paginated list of jobs matching the given filter.
    *
-   * <p>Caller filters may contain at most 1000 tags, at most 1000 values per property key, and a
-   * cursor of at most 512 characters. Authorization-policy constraints are trusted.
+   * <p>Caller filters may contain at most 1000 tags, at most 32 property keys with at most 1000
+   * values each, and a cursor of at most 512 characters. Authorization-policy constraints are
+   * trusted.
    *
    * @param filter filter criteria; use {@link JobFilter#builder()} to construct
    * @param limit maximum number of results to return, from 1 to 1000

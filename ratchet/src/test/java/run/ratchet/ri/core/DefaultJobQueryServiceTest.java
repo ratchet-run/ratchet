@@ -147,10 +147,18 @@ class DefaultJobQueryServiceTest {
         List.of(
             JobFilter.builder().tags(values).build(),
             JobFilter.builder().propertyIn("tenant", values).build(),
+            propertyKeys(33),
             JobFilter.builder().cursor("x".repeat(513)).build())) {
       assertThrows(IllegalArgumentException.class, () -> service.findJobs(filter, 10, 0));
     }
     Mockito.verifyNoInteractions(authPolicy, queryStore, recurringJobStore);
+  }
+
+  @Test
+  void thirtyTwoPropertyKeysAreAccepted() {
+    JobFilter filter = propertyKeys(32);
+    service.findJobs(filter, 10, 0);
+    verify(queryStore).searchJobs(eq(filter), eq(10), eq(0));
   }
 
   @Test
@@ -175,6 +183,14 @@ class DefaultJobQueryServiceTest {
     when(authPolicy.filterForPrincipal(any(), any())).thenReturn(scoped);
     service.findJobs(null, 10, 0);
     verify(queryStore).searchJobs(eq(scoped), eq(10), eq(0));
+  }
+
+  private static JobFilter propertyKeys(int count) {
+    JobFilter.Builder builder = JobFilter.builder();
+    for (int i = 0; i < count; i++) {
+      builder.propertyEquals("key" + i, "value");
+    }
+    return builder.build();
   }
 
   private static Set<String> filterValues(int count) {

@@ -68,6 +68,9 @@ public class DefaultJobQueryService implements JobQueryService {
 
   private static final int MAX_CURSOR_LENGTH = 512;
 
+  // Each property key costs the store one correlated subquery (SQL EXISTS, MongoDB $lookup).
+  private static final int MAX_PROPERTY_KEYS = 32;
+
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;
   private final JobAnalyticsStore analyticsStore;
@@ -527,6 +530,9 @@ public class DefaultJobQueryService implements JobQueryService {
       throw new IllegalArgumentException("filter must have at most 1000 tags");
     }
     if (callerFilter.propertyFilters() != null) {
+      if (callerFilter.propertyFilters().size() > MAX_PROPERTY_KEYS) {
+        throw new IllegalArgumentException("filter must have at most 32 property keys");
+      }
       for (var values : callerFilter.propertyFilters().values()) {
         if (values != null && values.size() > MAX_PAGE_SIZE) {
           throw new IllegalArgumentException("each property key must have at most 1000 values");
