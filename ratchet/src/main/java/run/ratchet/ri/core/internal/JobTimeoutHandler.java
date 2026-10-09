@@ -269,7 +269,7 @@ public class JobTimeoutHandler {
         "Job %s stopped cooperatively after a cancellation request; handling as a timeout",
         attempt.jobId());
     processHardTimeout(
-        attempt.jobId(), attempt.timeoutSeconds(), elapsed, attempt.baselineAttempts());
+        attempt.jobId(), attempt.timeoutSeconds(), elapsed, attempt.baselineAttempts(), true);
   }
 
   /**
@@ -325,11 +325,15 @@ public class JobTimeoutHandler {
   }
 
   void processHardTimeout(UUID jobId, long timeoutSec, Duration elapsedTime) {
-    processHardTimeout(jobId, timeoutSec, elapsedTime, null);
+    processHardTimeout(jobId, timeoutSec, elapsedTime, null, false);
   }
 
   private void processHardTimeout(
-      UUID jobId, long timeoutSec, Duration elapsedTime, Integer baselineAttempts) {
+      UUID jobId,
+      long timeoutSec,
+      Duration elapsedTime,
+      Integer baselineAttempts,
+      boolean workerContextBound) {
     Duration observedElapsedTime = elapsedTime.isNegative() ? Duration.ZERO : elapsedTime;
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
@@ -338,6 +342,7 @@ public class JobTimeoutHandler {
     runTimeoutTransition(
         timeoutEx,
         false,
+        workerContextBound,
         () ->
             applyHardTimeoutTransition(
                 jobId, timeoutEx, timeoutSec, observedElapsedTime, baselineAttempts));
@@ -352,11 +357,13 @@ public class JobTimeoutHandler {
    * commitCompletion} itself. This thread has no outer transaction to defer to. Only the path that
    * won the terminal compare-and-swap in {@code commitCompletion} gets a transition back, so the
    * callback runs at most once per terminal transition. A retried or already-finalised job gets
-   * none.
+   * none. A cooperative stop reuses the worker's bound context; the other paths bind a context for
+   * the callback.
    */
   private void runTimeoutTransition(
       Throwable timeoutEx,
       boolean cancelChainOnFailure,
+      boolean workerContextBound,
       Supplier<Optional<TerminalTimeoutTransition>> transition) {
     AtomicReference<JobEntity> terminalJob = new AtomicReference<>();
     boolean committed =
@@ -370,7 +377,11 @@ public class JobTimeoutHandler {
             });
     JobEntity job = terminalJob.get();
     if (committed && callbackInvoker != null && job != null) {
-      callbackInvoker.invokeOnFailureInJobContext(job, timeoutEx);
+      if (workerContextBound) {
+        callbackInvoker.invokeOnFailure(job, timeoutEx);
+      } else {
+        callbackInvoker.invokeOnFailureInJobContext(job, timeoutEx);
+      }
     }
   }
 
@@ -467,7 +478,7 @@ public class JobTimeoutHandler {
     SignalTimeoutException timeoutEx = new SignalTimeoutException(message);
 
     runTimeoutTransition(
-        timeoutEx, true, () -> applySignalTimeoutTransition(job.getId(), now, message));
+        timeoutEx, true, false, () -> applySignalTimeoutTransition(job.getId(), now, message));
   }
 
   private Optional<TerminalTimeoutTransition> applySignalTimeoutTransition(
@@ -738,7 +749,7 @@ public class JobTimeoutHandler {
     future.cancel(true);
 
     try {
-      processHardTimeout(jobId, timeoutSec, elapsed, attempt.baselineAttempts());
+      processHardTimeout(jobId, timeoutSec, elapsed, attempt.baselineAttempts(), false);
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
       throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);

@@ -240,7 +240,7 @@ Each execution attempt has a deadline: the time the attempt started plus the job
 
 1. At `ratchet.timeout.soft-timeout-percent` of the timeout (80% by default), it logs a warning.
 2. At the deadline minus `ratchet.timeout.cancellation-grace-seconds`, it sets the attempt's cancellation request. This step is skipped when the grace is `0` (the default) or not shorter than the timeout.
-3. At the deadline, it sets the cancellation request (if it is not set yet) and interrupts the worker thread with `Future.cancel(true)`. The attempt then counts as a timeout: it is retried if it has retries left, otherwise it fails and goes to the DLQ.
+3. At the deadline, if the attempt is still running, it sets the cancellation request (if it is not set yet) and interrupts the worker thread with `Future.cancel(true)`. The attempt then counts as a timeout: it is retried if it has retries left, otherwise it fails and goes to the DLQ. An attempt that already stopped after the request is not interrupted (see [Stopping at a safe point](#stopping-at-a-safe-point)).
 
 ```java
 scheduler.enqueue(() -> longRunningTask())
@@ -254,7 +254,7 @@ An interrupt lands wherever the worker happens to be blocked: waiting for a pool
 
 | Method | Returns |
 |---|---|
-| `deadline()` | `Optional<Instant>`: when the watchdog will interrupt this attempt. Empty when the context was not bound for a watched execution, for example inside an `onFailure` callback. |
+| `deadline()` | `Optional<Instant>`: when the watchdog will interrupt this attempt. Empty when the context was not bound for a watched execution, for example inside an `onFailure` callback that the watchdog runs after it interrupts a job. |
 | `isCancellationRequested()` | `true` once Ratchet has asked this attempt to stop. Cheap to call; it does no I/O. |
 | `throwIfCancellationRequested()` | Throws `CancellationRequestedException` if a stop was requested. |
 

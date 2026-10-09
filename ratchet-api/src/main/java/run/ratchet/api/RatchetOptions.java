@@ -702,7 +702,7 @@ public class RatchetOptions {
    *     their own; must be between 1 and {@link Integer#MAX_VALUE} inclusive
    * @param signalTimeoutBatchSize maximum number of WAITING jobs scanned per signal-timeout tick
    * @param cancellationGraceSeconds seconds before the hard timeout at which the watchdog requests
-   *     cooperative cancellation; 0 disables the early request
+   *     cooperative cancellation; must not be negative, and 0 disables the early request
    * @param signalTimeoutLeaseTtlSeconds signal timeout scan lease lifetime in seconds
    */
   public record TimeoutOptions(
@@ -717,6 +717,7 @@ public class RatchetOptions {
               "defaultSlaSeconds",
               atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L),
               Integer.MAX_VALUE);
+      cancellationGraceSeconds = atLeast("cancellationGraceSeconds", cancellationGraceSeconds, 0L);
     }
   }
 

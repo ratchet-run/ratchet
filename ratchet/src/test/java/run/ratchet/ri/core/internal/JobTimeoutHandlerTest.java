@@ -50,6 +50,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Future;
@@ -60,6 +61,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
+import org.jboss.logging.MDC;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -604,6 +606,43 @@ class JobTimeoutHandlerTest {
     verify(validationFacade).validateSecurity(job.getOnFailurePayload());
     verify(payloadInvoker, times(1)).invoke(job.getOnFailurePayload());
     assertNull(JobContext.currentOrNull());
+  }
+
+  @Test
+  void terminalCooperativeTimeoutRunsCallbackInWorkerContext() throws Exception {
+    JobEntity job = callbackJob(0);
+    when(lifecycleFacade.completeTimeoutFailure(
+            any(), eq(JobStatus.RUNNING), eq(false), any(), any()))
+        .thenReturn(true);
+    when(payloadInvoker.materializeArguments(any(JobPayload.class), eq(payloadSerializer)))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+    JobTimeoutHandler callbackHandler = callbackHandler();
+    JobAttemptControl attempt =
+        callbackHandler.newAttempt(JOB_ID, (int) TIMEOUT_SEC, Instant.now(), 0);
+    try {
+      JobMdcContext.bindJobContext(JOB_ID, Map.of());
+      JobContext workerContext = JobContext.currentOrNull();
+      assertNotNull(workerContext);
+      doAnswer(
+              invocation -> {
+                assertNotNull(terminalTimeoutTransition);
+                assertSame(workerContext, JobContext.currentOrNull());
+                return null;
+              })
+          .when(payloadInvoker)
+          .invoke(job.getOnFailurePayload());
+      attempt.requestCancellation();
+      assertTrue(attempt.claimTimeoutForWorker());
+
+      callbackHandler.processCooperativeTimeout(attempt);
+
+      verify(validationFacade).validateSecurity(job.getOnFailurePayload());
+      verify(payloadInvoker, times(1)).invoke(job.getOnFailurePayload());
+      assertSame(workerContext, JobContext.currentOrNull());
+      assertEquals(JOB_ID.toString(), MDC.get(JobMdcContext.MDC_JOB_ID));
+    } finally {
+      JobMdcContext.clear();
+    }
   }
 
   @Test

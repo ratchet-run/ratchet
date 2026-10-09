@@ -227,6 +227,11 @@ class RatchetOptionsTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> RatchetOptions.builder().timeout(timeout -> timeout.cancellationGraceSeconds(-1L)));
+    IllegalArgumentException graceError =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> new RatchetOptions.TimeoutOptions(80, 1800, 500, -1, 120));
+    assertEquals("cancellationGraceSeconds must be at least 0", graceError.getMessage());
     assertThrows(
         IllegalArgumentException.class,
         () -> RatchetOptions.builder().polling(polling -> polling.batchSize(0)));

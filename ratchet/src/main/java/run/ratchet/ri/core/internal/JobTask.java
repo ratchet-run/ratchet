@@ -825,8 +825,8 @@ public class JobTask implements Callable<Void> {
           } catch (RuntimeException retryFailure) {
             log.errorf(
                 retryFailure,
-                "Job %s cooperative timeout handling failed again; left RUNNING for orphan"
-                    + " recovery",
+                "Job %s cooperative timeout handling failed again; left RUNNING until orphan"
+                    + " recovery, which resets it only after this node stops heartbeating",
                 job.getId());
           }
         }
