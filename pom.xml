@@ -177,7 +177,7 @@
     <commons-configuration2.version>2.15.0</commons-configuration2.version>
     <jackson-core.version>2.22.3</jackson-core.version>
     <infinispan.version>15.1.7.Final</infinispan.version>
-    <hazelcast.version>5.5.0</hazelcast.version>
+    <hazelcast.version>5.7.0</hazelcast.version>
     <mongodb-driver.version>5.11.1</mongodb-driver.version>
     <hibernate.version>6.6.50.Final</hibernate.version>
     <jboss-logging.version>3.6.3.Final</jboss-logging.version>
