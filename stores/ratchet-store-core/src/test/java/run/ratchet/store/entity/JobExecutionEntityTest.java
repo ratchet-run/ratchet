@@ -39,7 +39,9 @@ class JobExecutionEntityTest {
     JobExecutionEntity execution = executionStartedAt("2026-05-09T12:00:00Z");
 
     execution.markFailed(
-        new IllegalArgumentException("bad input"), Instant.parse("2026-05-09T12:00:02Z"));
+        IllegalArgumentException.class.getName(),
+        "bad input",
+        Instant.parse("2026-05-09T12:00:02Z"));
 
     assertEquals(JobExecutionEntity.ExecutionStatus.FAILED, execution.getStatus());
     assertEquals(2000L, execution.getDurationMs());
@@ -52,7 +54,9 @@ class JobExecutionEntityTest {
     JobExecutionEntity execution = executionStartedAt("2026-05-09T12:00:00Z");
 
     execution.markFailed(
-        new IllegalArgumentException("x".repeat(70000)), Instant.parse("2026-05-09T12:00:02Z"));
+        IllegalArgumentException.class.getName(),
+        "x".repeat(70000),
+        Instant.parse("2026-05-09T12:00:02Z"));
 
     assertEquals(65535, execution.getErrorMessage().length());
     assertTrue(execution.getErrorMessage().endsWith("..."));
@@ -77,7 +81,9 @@ class JobExecutionEntityTest {
             IllegalStateException.class,
             () ->
                 execution.markFailed(
-                    new RuntimeException("boom"), Instant.parse("2026-05-09T12:00:01Z")));
+                    RuntimeException.class.getName(),
+                    "boom",
+                    Instant.parse("2026-05-09T12:00:01Z")));
 
     assertEquals("Execution start time is not set", thrown.getMessage());
   }

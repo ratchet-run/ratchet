@@ -17,6 +17,8 @@ package run.ratchet.otel;
 
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.common.AttributeKey;
+import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.context.Context;
@@ -200,10 +202,14 @@ public class OtelTracingCollector implements TracingCollector {
     }
 
     @Override
-    public void failure(Throwable cause, int attempt) {
+    public void failure(String errorClass, String sanitizedMessage, int attempt) {
       if (closed.compareAndSet(false, true)) {
-        span.setStatus(StatusCode.ERROR)
-            .recordException(cause)
+        span.setStatus(StatusCode.ERROR, sanitizedMessage)
+            .addEvent(
+                "exception",
+                Attributes.of(
+                    AttributeKey.stringKey("exception.type"), errorClass,
+                    AttributeKey.stringKey("exception.message"), sanitizedMessage))
             .setAttribute("ratchet.outcome", "failure")
             .setAttribute("ratchet.attempt", attempt);
         end();

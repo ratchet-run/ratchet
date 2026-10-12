@@ -27,6 +27,18 @@ import org.junit.jupiter.api.Test;
 class SignalDecisionTest {
 
   @Test
+  void rejectionReasonLimitIsMeasuredAfterTrimming() {
+    String reason = "x".repeat(4000);
+    assertEquals(reason, SignalDecision.rejected(null, reason).rejectionReason());
+    assertEquals(reason, SignalDecision.rejected(null, "  " + reason + "  ").rejectionReason());
+    assertThrows(
+        IllegalArgumentException.class, () -> SignalDecision.rejected(null, "x".repeat(4001)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> SignalDecision.rejected(null, "  " + "x".repeat(4001) + "  "));
+  }
+
+  @Test
   void approvedDecisionExposesOutcomeHelpersAndPayload() {
     SignalDecision decision = SignalDecision.approved("payload");
 

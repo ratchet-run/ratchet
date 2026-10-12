@@ -471,7 +471,7 @@ const statusClass = (status) => {
   return "";
 };
 
-const pill = (text) => `<span class="pill ${statusClass(text)}">${text}</span>`;
+const pill = (text) => `<span class="pill ${statusClass(text)}">${escapeHtml(text)}</span>`;
 
 const updateRuntime = async () => {
   state.runtime = await api("api/runtime");
@@ -482,7 +482,7 @@ const updateRuntime = async () => {
     state.preview ? "preview data" : null,
   ]
     .filter(Boolean)
-    .map((item) => `<span>${item}</span>`)
+    .map((item) => `<span>${escapeHtml(item)}</span>`)
     .join("");
 };
 
@@ -516,7 +516,7 @@ const render = () => {
     ["Failed", q.failed],
     ["Retry Rate", `${Math.round((q.retryRate || 0) * 100)}%`],
   ]
-    .map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value ?? 0}</strong></div>`)
+    .map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? 0)}</strong></div>`)
     .join("");
 
   $("activity").innerHTML = renderActivity(data);
@@ -525,7 +525,7 @@ const render = () => {
   $("jobs").innerHTML = (data.recentJobs || []).map(renderJob).join("");
 };
 
-const kpi = (label, value, tone) => `<div class="kpi ${tone}"><span>${label}</span><strong>${value}</strong></div>`;
+const kpi = (label, value, tone) => `<div class="kpi ${tone}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 
 const sumCounts = (counts) => Object.values(counts).reduce((sum, value) => sum + Number(value || 0), 0);
 
@@ -571,9 +571,9 @@ const renderActivity = (data) => {
 
 const activityItem = (label, value, detail) => `
   <div class="activityItem">
-    <span>${label}</span>
-    <strong>${value}</strong>
-    <small>${detail}</small>
+    <span>${escapeHtml(label)}</span>
+    <strong>${escapeHtml(value)}</strong>
+    <small>${escapeHtml(detail)}</small>
   </div>
 `;
 
@@ -591,13 +591,13 @@ const renderReviews = (reviews) => {
       (review) => `
     <div class="review">
       <div class="reviewTop">
-        <strong>${review.orderId}</strong>
+        <strong>${escapeHtml(review.orderId)}</strong>
         ${pill(`score ${review.fraudScore}`)}
       </div>
-      <div class="muted">${review.customer}${review.vip ? " - VIP" : ""}</div>
+      <div class="muted">${escapeHtml(review.customer)}${review.vip ? " - VIP" : ""}</div>
       <div class="reviewActions">
-        <button data-review="${review.id}" data-decision="approve">Approve</button>
-        <button data-review="${review.id}" data-decision="reject" class="danger">Reject</button>
+        <button data-review="${escapeHtml(review.id)}" data-decision="approve">Approve</button>
+        <button data-review="${escapeHtml(review.id)}" data-decision="reject" class="danger">Reject</button>
       </div>
     </div>
   `
@@ -607,12 +607,12 @@ const renderReviews = (reviews) => {
 
 const renderOrder = (order) => `
   <tr>
-    <td><strong>${order.orderId}</strong></td>
-    <td>${order.customer}</td>
-    <td>${order.sku}<br><span class="muted">${order.warehouse} - ${order.carrier}</span></td>
+    <td><strong>${escapeHtml(order.orderId)}</strong></td>
+    <td>${escapeHtml(order.customer)}</td>
+    <td>${escapeHtml(order.sku)}<br><span class="muted">${escapeHtml(order.warehouse)} - ${escapeHtml(order.carrier)}</span></td>
     <td>${order.vip ? pill("VIP") : "Standard"}</td>
     <td>${pill(order.status)}</td>
-    <td>${order.message || ""}</td>
+    <td>${escapeHtml(order.message)}</td>
   </tr>
 `;
 
@@ -620,16 +620,16 @@ const renderJob = (job) => {
   const status = jobDisplayStatus(job);
   return `
     <tr>
-      <td><span title="${job.id}">${job.id.slice(0, 8)}</span></td>
-      <td><span title="${job.status}">${pill(status)}</span></td>
-      <td>${job.type}</td>
-      <td>${job.priority}</td>
-      <td>${job.method || ""}<br><span class="muted">${job.resource || ""}</span></td>
-      <td>${job.attempts}</td>
+      <td><span title="${escapeHtml(job.id)}">${escapeHtml(job.id.slice(0, 8))}</span></td>
+      <td><span title="${escapeHtml(job.status)}">${pill(status)}</span></td>
+      <td>${escapeHtml(job.type)}</td>
+      <td>${escapeHtml(job.priority)}</td>
+      <td>${escapeHtml(job.method)}<br><span class="muted">${escapeHtml(job.resource)}</span></td>
+      <td>${escapeHtml(job.attempts)}</td>
       <td>
         <div class="jobActions">
-          <button data-detail-job="${job.id}">Details</button>
-          ${job.status === "FAILED" ? `<button data-job="${job.id}">Retry</button>` : ""}
+          <button data-detail-job="${escapeHtml(job.id)}">Details</button>
+          ${job.status === "FAILED" ? `<button data-job="${escapeHtml(job.id)}">Retry</button>` : ""}
         </div>
       </td>
     </tr>
@@ -747,8 +747,8 @@ const renderMetricsSummary = (metrics) =>
     .map(
       ([label, value]) => `
         <div>
-          <span>${label}</span>
-          <strong>${formatMetricNumber(value)}</strong>
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(formatMetricNumber(value))}</strong>
         </div>
       `
     )

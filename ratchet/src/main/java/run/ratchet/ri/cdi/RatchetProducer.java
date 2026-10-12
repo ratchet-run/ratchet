@@ -193,7 +193,12 @@ public class RatchetProducer {
         singletonLeaseService,
         errorSanitizer,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock),
+            validationFacade,
+            payloadInvoker,
+            payloadSerializer,
+            observabilityFacade,
+            clock,
+            errorSanitizer),
         options.timeout().signalTimeoutLeaseTtlSeconds());
   }
 
@@ -290,7 +295,12 @@ public class RatchetProducer {
         singletonLeaseService,
         postExecutionHandler,
         new LifecycleCallbackInvoker(
-                validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock)
+                validationFacade,
+                payloadInvoker,
+                payloadSerializer,
+                observabilityFacade,
+                clock,
+                errorSanitizer)
             ::invokeOnFailureInJobContext,
         errorSanitizer,
         options.node().maxCrashRedeliveries(),
