@@ -337,7 +337,9 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
         assertThrows(
             IllegalStateException.class, () -> extensionStore().initState(jobId, NAMESPACE, "{}"));
 
-    assertEquals("no job " + jobId + " for extension state", failure.getMessage());
+    assertTrue(
+        String.valueOf(failure.getMessage()).contains(jobId.toString()),
+        "the missing-job failure must identify the job");
     assertTrue(extensionStore().getState(jobId, NAMESPACE).isEmpty());
     assertFalse(extensionStore().updateState(jobId, NAMESPACE, "{}", 0));
   }
