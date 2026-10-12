@@ -175,7 +175,7 @@ class TransactionCarrierContractTest {
       JobStore store = context.getBean(JobStore.class);
       String node = context.getBean(NodeIdentityProvider.class).getNodeId();
       UUID job = UUID.randomUUID();
-      when(store.resetRunningJob(job, node))
+      when(store.resetRunningJob(job, node, 0L))
           .thenAnswer(
               invocation -> {
                 assertTrue(MicronautTransactions.hasActiveTransaction(operations));
@@ -191,7 +191,7 @@ class TransactionCarrierContractTest {
           .thenAnswer(
               invocation -> {
                 assertFalse(MicronautTransactions.hasActiveTransaction(operations));
-                assertTrue(inner.resetJobToPending(job));
+                assertTrue(inner.resetJobToPending(job, 0L));
                 return 1L;
               });
       operations.execute(
@@ -218,7 +218,7 @@ class TransactionCarrierContractTest {
             }
             return null;
           });
-      verify(store).resetRunningJob(job, node);
+      verify(store).resetRunningJob(job, node, 0L);
     }
   }
 
