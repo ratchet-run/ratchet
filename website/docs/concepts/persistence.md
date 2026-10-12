@@ -292,6 +292,8 @@ public interface JobStore
 | `JobAuditStore` | Execution history recording and structured job log storage |
 | `JobExtensionStore` | Indexed job properties (`scheduler_job_properties`) and mutable per-namespace extension state with optimistic CAS (`scheduler_job_extension_state`), used by framework extensions; archiving copies both onto the archive row as denormalized JSON |
 
+Extension state is limited to 1 MiB (1,048,576 UTF-8 bytes) of plaintext per namespace, before encryption.
+
 ### Why a Core-Plus-Capabilities Split?
 
 The decomposition serves multiple purposes:
@@ -352,7 +354,7 @@ MongoDB does not ship SQL DDL. The `ratchet-store-mongodb` module creates the re
 
 ## Optimistic Locking
 
-SQL stores use JPA `@Version` on the `version` column, while MongoDB uses atomic filter-and-update operations. Both paths prevent lost updates when two nodes attempt to modify the same job concurrently. The engine uses compare-and-swap patterns for critical transitions:
+SQL stores use native queue updates and MongoDB uses atomic filter-and-update operations. The `version` column guards optimistic state transitions. A separate monotonic `claim_seq` advances on every claim and fences owner writes: a stalled worker cannot overwrite a newer claim's outcome or retry count. Execution remains at least once, so external side effects need idempotency. The engine uses compare-and-swap patterns for critical transitions:
 
 ```java
 // Atomic status transition — fails if another thread changed the status

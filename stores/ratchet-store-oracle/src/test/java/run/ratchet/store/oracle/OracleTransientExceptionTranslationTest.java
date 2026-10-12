@@ -83,7 +83,7 @@ class OracleTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> deletes.resetOrphanJobs(Duration.ofSeconds(30)));
+        () -> deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 100).reset());
   }
 
   @Test
@@ -115,7 +115,7 @@ class OracleTransientExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> terminals.markJobFailedTerminal(JOB_ID, "boom", 1));
+        () -> terminals.markJobFailedTerminal(JOB_ID, "boom", 1, null));
   }
 
   @Test

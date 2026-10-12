@@ -63,21 +63,21 @@ final class PostgresqlJobRowMapper extends AbstractJobRowMapper {
   static String hydrationSelect() {
     // language=PostgreSQL
     return """
-        c.job_id, c.job_type, c.priority, c.max_retries, c.backoff_policy,
-        c.backoff_param_ms, c.timeout_sec, c.cron_expr, c.zone_id,
-        c.payload::text, c.params::text, c.target_class, c.method_name, c.idempotency_key,
-        c.business_key, c.resource_name, c.on_success_payload::text,
-        c.on_failure_payload::text, c.depends_on, c.superseded_by, c.created_at,
-        c.caller_principal, c.terminal_status, c.terminal_error,
-        c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time,
-        c.execution_duration_ms, c.queue_wait_ms, c.job_result::text, c.result_type,
-        c.trace_context::text, c.recurring_master_id,
-        q.status, q.scheduled_time, q.attempts,
-        q.picked_by, q.picked_at, q.paused_from_status, q.last_error, q.version, q.updated_at,
-        q.signal_key, q.signal_timeout, q.signal_payload, q.signal_payload_type,
-        q.signal_outcome, q.signal_rejection_reason, q.signal_delivered_at,
-        q.signal_delivered_by, q.signal_delivery_id, c.encrypted_payload\
-        """;
+    c.job_id, c.job_type, c.priority, c.max_retries, c.backoff_policy,
+    c.backoff_param_ms, c.timeout_sec, c.cron_expr, c.zone_id,
+    c.payload::text, c.params::text, c.target_class, c.method_name, c.idempotency_key,
+    c.business_key, c.resource_name, c.on_success_payload::text,
+    c.on_failure_payload::text, c.depends_on, c.superseded_by, c.created_at,
+    c.caller_principal, c.terminal_status, c.terminal_error,
+    c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time,
+    c.execution_duration_ms, c.queue_wait_ms, c.job_result::text, c.result_type,
+    c.trace_context::text, c.recurring_master_id,
+    q.status, q.scheduled_time, q.attempts,
+    q.picked_by, q.picked_at, q.paused_from_status, q.last_error, q.version, q.updated_at,
+    q.signal_key, q.signal_timeout, q.signal_payload, q.signal_payload_type,
+    q.signal_outcome, q.signal_rejection_reason, q.signal_delivered_at,
+    q.signal_delivered_by, q.signal_delivery_id, c.encrypted_payload, q.claim_seq\
+    """;
   }
 
   static JobEntity hydrate(Object[] row) {

@@ -190,6 +190,7 @@ public class RatchetOptions {
     builder.node.nodeId = node.nodeId();
     builder.node.heartbeatIntervalSeconds = node.heartbeatIntervalSeconds();
     builder.node.orphanGraceSeconds = node.orphanGraceSeconds();
+    builder.node.maxCrashRedeliveries = node.maxCrashRedeliveries();
     builder.node.orphanScanIntervalSeconds = node.orphanScanIntervalSeconds();
     builder.node.orphanRecoveryLeaseTtlSeconds = node.orphanRecoveryLeaseTtlSeconds();
     builder.node.dynamicHeartbeatEnabled = node.dynamicHeartbeatEnabled();
@@ -206,6 +207,7 @@ public class RatchetOptions {
     builder.retryBuffer.drainIntervalMs = retryBuffer.drainIntervalMs();
 
     builder.timeout.softTimeoutPercent = timeout.softTimeoutPercent();
+    builder.timeout.cancellationGraceSeconds = timeout.cancellationGraceSeconds();
     builder.timeout.defaultSlaSeconds = timeout.defaultSlaSeconds();
     builder.timeout.signalTimeoutBatchSize = timeout.signalTimeoutBatchSize();
     builder.timeout.signalTimeoutLeaseTtlSeconds = timeout.signalTimeoutLeaseTtlSeconds();
@@ -336,6 +338,13 @@ public class RatchetOptions {
   private static long atLeast(String name, long value, long minInclusive) {
     if (value < minInclusive) {
       throw new IllegalArgumentException(name + " must be at least " + minInclusive);
+    }
+    return value;
+  }
+
+  private static long atMost(String name, long value, long maxInclusive) {
+    if (value > maxInclusive) {
+      throw new IllegalArgumentException(name + " must be at most " + maxInclusive);
     }
     return value;
   }
@@ -626,6 +635,7 @@ public class RatchetOptions {
    * @param requireTags job tags that must be present on the node for a job to be claimed here;
    *     empty list disables the require-list constraint
    * @param excludeTags job tags that, when present on a job, exclude that job from this node
+   * @param maxCrashRedeliveries maximum charged redeliveries after node crashes
    * @param orphanRecoveryLeaseTtlSeconds orphan scan lease lifetime in seconds
    */
   public record NodeOptions(
@@ -636,9 +646,11 @@ public class RatchetOptions {
       boolean dynamicHeartbeatEnabled,
       List<String> requireTags,
       List<String> excludeTags,
-      long orphanRecoveryLeaseTtlSeconds) {
+      long orphanRecoveryLeaseTtlSeconds,
+      int maxCrashRedeliveries) {
 
     public NodeOptions {
+      atLeast("maxCrashRedeliveries", maxCrashRedeliveries, 0);
       requireTags = List.copyOf(requireTags == null ? List.of() : requireTags);
       excludeTags = List.copyOf(excludeTags == null ? List.of() : excludeTags);
     }
@@ -691,15 +703,27 @@ public class RatchetOptions {
    * @param softTimeoutPercent percentage (1..99) of the configured SLA at which a soft-timeout
    *     warning is emitted
    * @param defaultSlaSeconds default execution SLA in seconds applied to jobs that do not declare
-   *     their own
+   *     their own; must be between 1 and {@link Integer#MAX_VALUE} inclusive
    * @param signalTimeoutBatchSize maximum number of WAITING jobs scanned per signal-timeout tick
+   * @param cancellationGraceSeconds seconds before the hard timeout at which the watchdog requests
+   *     cooperative cancellation; must not be negative, and 0 disables the early request
    * @param signalTimeoutLeaseTtlSeconds signal timeout scan lease lifetime in seconds
    */
   public record TimeoutOptions(
       int softTimeoutPercent,
       long defaultSlaSeconds,
       int signalTimeoutBatchSize,
-      long signalTimeoutLeaseTtlSeconds) {}
+      long cancellationGraceSeconds,
+      long signalTimeoutLeaseTtlSeconds) {
+    public TimeoutOptions {
+      defaultSlaSeconds =
+          atMost(
+              "defaultSlaSeconds",
+              atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L),
+              Integer.MAX_VALUE);
+      cancellationGraceSeconds = atLeast("cancellationGraceSeconds", cancellationGraceSeconds, 0L);
+    }
+  }
 
   /**
    * Background-maintenance schedules: DLQ purge, job archive, log purge.
@@ -1162,6 +1186,12 @@ public class RatchetOptions {
     private List<String> excludeTags = List.of();
 
     private long orphanRecoveryLeaseTtlSeconds = 120L;
+    private int maxCrashRedeliveries = 3;
+
+    public NodeBuilder maxCrashRedeliveries(int maxCrashRedeliveries) {
+      this.maxCrashRedeliveries = atLeast("maxCrashRedeliveries", maxCrashRedeliveries, 0);
+      return this;
+    }
 
     private NodeBuilder() {}
 
@@ -1222,7 +1252,8 @@ public class RatchetOptions {
           dynamicHeartbeatEnabled,
           requireTags,
           excludeTags,
-          orphanRecoveryLeaseTtlSeconds);
+          orphanRecoveryLeaseTtlSeconds,
+          maxCrashRedeliveries);
     }
   }
 
@@ -1299,6 +1330,7 @@ public class RatchetOptions {
     private int softTimeoutPercent = 80;
     private long defaultSlaSeconds = 1800L;
     private int signalTimeoutBatchSize = 500;
+    private long cancellationGraceSeconds = 0L;
 
     private long signalTimeoutLeaseTtlSeconds = 120L;
 
@@ -1318,8 +1350,13 @@ public class RatchetOptions {
       return this;
     }
 
+    /** Sets the default SLA in seconds, between 1 and {@link Integer#MAX_VALUE} inclusive. */
     public TimeoutBuilder defaultSlaSeconds(long defaultSlaSeconds) {
-      this.defaultSlaSeconds = atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L);
+      this.defaultSlaSeconds =
+          atMost(
+              "defaultSlaSeconds",
+              atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L),
+              Integer.MAX_VALUE);
       return this;
     }
 
@@ -1328,11 +1365,18 @@ public class RatchetOptions {
       return this;
     }
 
+    public TimeoutBuilder cancellationGraceSeconds(long cancellationGraceSeconds) {
+      this.cancellationGraceSeconds =
+          atLeast("cancellationGraceSeconds", cancellationGraceSeconds, 0L);
+      return this;
+    }
+
     private TimeoutOptions build() {
       return new TimeoutOptions(
           softTimeoutPercent,
           defaultSlaSeconds,
           signalTimeoutBatchSize,
+          cancellationGraceSeconds,
           signalTimeoutLeaseTtlSeconds);
     }
   }

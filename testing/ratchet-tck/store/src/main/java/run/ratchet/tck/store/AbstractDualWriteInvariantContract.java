@@ -81,7 +81,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     store().compareAndSwapStatus(first.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
 
     assertTrue(
-        store().markJobFailedTerminal(first.getId(), "permanent error", 3),
+        store().markJobFailedTerminal(first.getId(), "permanent error", 3, null),
         "markJobFailedTerminal should succeed for a RUNNING job");
 
     assertEquals(JobStatus.FAILED, store().getJobStatus(first.getId()));
@@ -117,7 +117,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     JobEntity job = persist(jobWithBusinessKey(bk));
     UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(id, "transient", 1);
+    store().markJobFailedTerminal(id, "transient", 1, null);
 
     assertTrue(store().resetFailedToPending(id), "resetFailedToPending should succeed");
 
@@ -159,7 +159,8 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     assertEquals(
         pendingBefore,
         store().countPendingJobs(),
-        "after a terminal SUCCEEDED the live-queue count returns to baseline — no hot row survives");
+        "after a terminal SUCCEEDED the live-queue count returns to baseline — no hot row"
+            + " survives");
   }
 
   @Test
@@ -213,7 +214,8 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     assertTrue(
-        store().markJobFailedTerminal(id, "permanent", 1), "markJobFailedTerminal precondition");
+        store().markJobFailedTerminal(id, "permanent", 1, null),
+        "markJobFailedTerminal precondition");
 
     var claimed = store().claimNextBatch(50, "node-poller");
     for (JobEntity c : claimed) {

@@ -57,7 +57,7 @@ class MongoArchiveTerminalGuardIT extends BaseDocumentStoreIT {
 
   private JobEntity fail(JobEntity job) {
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(job.getId(), "boom", 1);
+    store().markJobFailedTerminal(job.getId(), "boom", 1, null);
     return store().findById(job.getId()).orElseThrow();
   }
 }

@@ -230,7 +230,28 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
 
   private JobEntity failJob(JobEntity job) {
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobFailedTerminal(job.getId(), "boom", 1);
+    store().markJobFailedTerminal(job.getId(), "boom", 1, null);
     return store().findById(job.getId()).orElseThrow();
+  }
+
+  private static String largeFailureText() {
+    return "é".repeat(256 * 1024 / 2);
+  }
+
+  @Test
+  void archiveJob_preservesLargeMultibyteFinalError() {
+    var job = persist(newPendingJob());
+    String error = largeFailureText();
+    store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    assertTrue(store().markJobFailedTerminal(job.getId(), error, 1, null));
+    var failed = store().findById(job.getId()).orElseThrow();
+    assertEquals(error, failed.getLastError());
+    archiveStore().archiveJob(failed, "test", "tck");
+    var archived =
+        archiveStore().findArchivedJobs(failed.getPayload().target(), null, null, null, 10).stream()
+            .filter(row -> row.getOriginalJobId().equals(job.getId()))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(error, archived.getFinalError());
   }
 }

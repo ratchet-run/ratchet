@@ -68,7 +68,8 @@ class SqlJobCompletionTest {
             0L,
             null,
             null,
-            List.of());
+            List.of(),
+            null);
 
     assertTrue(
         SqlJobCompletion.commit(em, store, mock(BatchStore.class), plan, false, uuid -> uuid)

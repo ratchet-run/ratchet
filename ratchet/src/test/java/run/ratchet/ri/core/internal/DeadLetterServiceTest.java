@@ -115,12 +115,12 @@ class DeadLetterServiceTest {
     JobEntity job = jobWithAttempts(2);
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2, 0L)).thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
 
-    assertTrue(service.moveToDlq(job, cause));
+    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
 
-    verify(jobTerminalStore).markJobFailedTerminal(job.getId(), "safe error", 2);
+    verify(jobTerminalStore).markJobFailedTerminal(job.getId(), "safe error", 2, 0L);
     assertEquals(JobStatus.FAILED, job.getStatus());
     assertEquals("safe error", job.getLastError());
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
@@ -151,7 +151,7 @@ class DeadLetterServiceTest {
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
 
-    assertFalse(service.moveToDlq(job, cause));
+    assertFalse(service.moveToDlq(job, cause, job.getClaimSeq()));
 
     verify(eventPublisher, never()).publish(any());
   }
@@ -161,10 +161,11 @@ class DeadLetterServiceTest {
     JobEntity job = jobWithAttempts(0);
     RuntimeException cause = new RuntimeException("retry buffer hard cap");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe overflow");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe overflow", 0)).thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe overflow", 0, 0L))
+        .thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
 
-    assertTrue(service.moveToDlq(job, cause));
+    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
 
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher, times(2)).publish(events.capture());
@@ -183,7 +184,8 @@ class DeadLetterServiceTest {
 
     service.recordDlqTransition(job, cause);
 
-    verify(jobTerminalStore, never()).markJobFailedTerminal(eq(job.getId()), any(), anyInt());
+    verify(jobTerminalStore, never())
+        .markJobFailedTerminal(eq(job.getId()), any(), anyInt(), eq(0L));
     verify(eventPublisher).publish(any(JobDlqEvent.class));
     verify(eventPublisher, never()).publish(any(JobFailedEvent.class));
   }
@@ -209,10 +211,10 @@ class DeadLetterServiceTest {
     RuntimeException cause = new RuntimeException("raw secret");
     String fallback = RuntimeException.class.getName();
     when(errorSanitizer.sanitize(cause)).thenThrow(new AssertionError("broken sanitizer"));
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), fallback, 2)).thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), fallback, 2, 0L)).thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_NO_TRANSACTION);
 
-    assertTrue(service.moveToDlq(job, cause));
+    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
 
     assertEquals(fallback, job.getLastError());
     ArgumentCaptor<Object> events = ArgumentCaptor.forClass(Object.class);
@@ -405,12 +407,12 @@ class DeadLetterServiceTest {
     JobEntity job = jobWithAttempts(2);
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2, 0L)).thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronization =
         ArgumentCaptor.forClass(Synchronization.class);
 
-    assertTrue(service.moveToDlq(job, cause));
+    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
 
     verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
     verify(eventPublisher, never()).publish(any());
@@ -428,12 +430,12 @@ class DeadLetterServiceTest {
     JobEntity job = jobWithAttempts(2);
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2, 0L)).thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronization =
         ArgumentCaptor.forClass(Synchronization.class);
 
-    assertTrue(service.moveToDlq(job, cause));
+    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
     verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
 
     synchronization.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
@@ -446,13 +448,13 @@ class DeadLetterServiceTest {
     JobEntity job = jobWithAttempts(2);
     RuntimeException cause = new RuntimeException("boom");
     when(errorSanitizer.sanitize(cause)).thenReturn("safe error");
-    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2)).thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(job.getId(), "safe error", 2, 0L)).thenReturn(true);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     doThrow(new IllegalStateException("registration failed"))
         .when(txRegistry)
         .registerInterposedSynchronization(any(Synchronization.class));
 
-    assertTrue(service.moveToDlq(job, cause));
+    assertTrue(service.moveToDlq(job, cause, job.getClaimSeq()));
 
     verify(eventPublisher, never()).publish(any());
   }

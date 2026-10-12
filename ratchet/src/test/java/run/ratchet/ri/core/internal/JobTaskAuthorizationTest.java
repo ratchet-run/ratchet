@@ -205,18 +205,19 @@ class JobTaskAuthorizationTest {
     RuntimeException failure = new RuntimeException("authorization backend unavailable");
     doThrow(failure).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
     when(validationFacade.shouldNotRetry(failure)).thenReturn(false);
-    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
+    when(jobStore.incrementRetryAttempt(JOB_UUID, 0L)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, failure)).thenReturn(true);
     when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
     when(errorSanitizer.sanitize(failure)).thenReturn("authorization backend unavailable");
-    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1))).thenReturn(true);
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(0L)))
+        .thenReturn(true);
 
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any(), any());
-    verify(jobStore).incrementRetryAttempt(JOB_UUID);
+    verify(jobStore).incrementRetryAttempt(JOB_UUID, 0L);
     verify(retryPolicy).shouldRetry(1, failure);
-    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1));
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1), eq(0L));
     verify(lifecycleFacade, never()).completeFailure(any(JobEntity.class), any(), eq(false));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
   }
@@ -292,6 +293,7 @@ class JobTaskAuthorizationTest {
   /** Minimal job entity — callerPrincipal is null (set explicitly by tests that need it). */
   private JobEntity createBaseJob() {
     JobEntity job = new JobEntity();
+    job.setClaimSeq(0L);
     job.setId(JOB_UUID);
     job.setJobType(JobExecutionType.SINGLE);
     job.setPriority(JobPriority.NORMAL);

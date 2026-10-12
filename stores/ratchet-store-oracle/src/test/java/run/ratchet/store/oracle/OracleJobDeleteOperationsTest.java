@@ -34,7 +34,7 @@ class OracleJobDeleteOperationsTest {
     OracleJobDeleteOperations deletes =
         new OracleJobDeleteOperations(ctx, new OracleBusinessKeyReservations(ctx));
 
-    assertEquals(3, deletes.resetOrphanJobs(Duration.ofSeconds(30)));
+    assertEquals(3, deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 0).reset());
     assertTrue(sql.get().contains("picked_by IS NULL OR picked_by NOT IN"));
   }
 
@@ -47,6 +47,9 @@ class OracleJobDeleteOperationsTest {
               if ("createNativeQuery".equals(method.getName())) {
                 sql.set(((String) args[0]).replaceAll("\\s+", " "));
                 return queryReturningUpdateCount();
+              }
+              if ("clear".equals(method.getName())) {
+                return null;
               }
               throw new UnsupportedOperationException(method.getName());
             });

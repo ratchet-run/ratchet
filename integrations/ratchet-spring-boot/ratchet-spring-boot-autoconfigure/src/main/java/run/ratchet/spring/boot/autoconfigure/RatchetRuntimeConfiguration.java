@@ -63,6 +63,7 @@ import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.InvocationSubmissionService;
@@ -234,6 +235,7 @@ class RatchetRuntimeConfiguration {
         executor,
         options.node().heartbeatIntervalSeconds(),
         options.node().orphanGraceSeconds(),
+        options.node().maxCrashRedeliveries(),
         options.node().dynamicHeartbeatEnabled(),
         options.node().explicitNodeId().orElse(null),
         clock);
@@ -246,12 +248,25 @@ class RatchetRuntimeConfiguration {
       ResourcePermitService permits,
       SingletonLeaseService leases,
       RatchetOptions options,
+      PostExecutionHandler postExecutionHandler,
+      PreExecutionValidator validationFacade,
+      JobPayloadInvoker payloadInvoker,
+      PayloadSerializer payloadSerializer,
+      ExecutionObserver observabilityFacade,
+      ErrorSanitizer errorSanitizer,
       Clock clock) {
     return new OrphanRecoveryTimer(
         store,
         store,
+        store,
         permits,
         leases,
+        postExecutionHandler,
+        new LifecycleCallbackInvoker(
+                validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock)
+            ::invokeOnFailureInJobContext,
+        errorSanitizer,
+        options.node().maxCrashRedeliveries(),
         options.node().orphanGraceSeconds(),
         options.node().orphanRecoveryLeaseTtlSeconds(),
         clock);

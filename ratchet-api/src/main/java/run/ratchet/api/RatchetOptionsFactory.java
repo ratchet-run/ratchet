@@ -72,6 +72,7 @@ public final class RatchetOptionsFactory {
               node.heartbeatIntervalSeconds(
                       config.get(RatchetConfigKeys.NODE_HEARTBEAT_INTERVAL_SECONDS))
                   .orphanGraceSeconds(config.get(RatchetConfigKeys.NODE_ORPHAN_GRACE_SECONDS))
+                  .maxCrashRedeliveries(config.get(RatchetConfigKeys.NODE_MAX_CRASH_REDELIVERIES))
                   .orphanScanIntervalSeconds(
                       config.get(RatchetConfigKeys.ORPHAN_SCAN_INTERVAL_SECONDS))
                   .orphanRecoveryLeaseTtlSeconds(
@@ -99,6 +100,8 @@ public final class RatchetOptionsFactory {
                     .softTimeoutPercent(config.get(RatchetConfigKeys.SOFT_TIMEOUT_PERCENT))
                     .defaultSlaSeconds(config.get(RatchetConfigKeys.WORKER_DEFAULT_SLA))
                     .signalTimeoutBatchSize(config.get(RatchetConfigKeys.SIGNAL_TIMEOUT_BATCH_SIZE))
+                    .cancellationGraceSeconds(
+                        config.get(RatchetConfigKeys.CANCELLATION_GRACE_SECONDS))
                     .signalTimeoutLeaseTtlSeconds(
                         config.get(RatchetConfigKeys.SIGNAL_TIMEOUT_LEASE_TTL_SECONDS)))
         .maintenance(

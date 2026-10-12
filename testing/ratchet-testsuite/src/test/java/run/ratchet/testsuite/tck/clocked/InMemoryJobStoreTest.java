@@ -91,7 +91,8 @@ class InMemoryJobStoreTest {
             0L,
             null,
             null,
-            List.of(dependency));
+            List.of(dependency),
+            null);
 
     assertThrows(RatchetTransientStoreException.class, () -> store.commitCompletion(plan));
     assertEquals(JobStatus.RUNNING, store.findById(parent.getId()).orElseThrow().getStatus());
@@ -119,7 +120,8 @@ class InMemoryJobStoreTest {
             0L,
             null,
             null,
-            List.of());
+            List.of(),
+            null);
 
     Assertions.assertTrue(store.commitCompletion(plan).committed());
     Assertions.assertFalse(store.commitCompletion(plan).committed());

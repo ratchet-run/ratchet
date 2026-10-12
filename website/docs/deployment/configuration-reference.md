@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **62 fixed keys**.
+This build exposes **64 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -39,6 +39,7 @@ This build exposes **62 fixed keys**.
 | `ratchet.thread-pool.size.workflow-join` | `RATCHET_THREAD_POOL_SIZE_WORKFLOW_JOIN` | `10` | `THREAD_POOL_SIZE_WORKFLOW_JOIN` |
 | `ratchet.node.id` | `RATCHET_NODE_ID` | `(empty string)` | `NODE_ID` |
 | `ratchet.node.heartbeat-interval-seconds` | `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` | `NODE_HEARTBEAT_INTERVAL_SECONDS` |
+| `ratchet.node.max-crash-redeliveries` | `RATCHET_NODE_MAX_CRASH_REDELIVERIES` | `3` | `NODE_MAX_CRASH_REDELIVERIES` |
 | `ratchet.node.orphan-grace-seconds` | `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | `NODE_ORPHAN_GRACE_SECONDS` |
 | `ratchet.node.orphan-scan-interval-seconds` | `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS` | `300` | `ORPHAN_SCAN_INTERVAL_SECONDS` |
 | `ratchet.node.orphan-recovery-lease-ttl-seconds` | `RATCHET_NODE_ORPHAN_RECOVERY_LEASE_TTL_SECONDS` | `120` | `ORPHAN_RECOVERY_LEASE_TTL_SECONDS` |
@@ -53,6 +54,7 @@ This build exposes **62 fixed keys**.
 | `ratchet.timeout.soft-timeout-percent` | `RATCHET_SOFT_TIMEOUT_PERCENT` | `80` | `SOFT_TIMEOUT_PERCENT` |
 | `ratchet.timeout.default-sla-seconds` | `RATCHET_WORKER_DEFAULT_SLA` | `1800` | `WORKER_DEFAULT_SLA` |
 | `ratchet.timeout.signal-timeout-batch-size` | `RATCHET_SIGNAL_TIMEOUT_BATCH_SIZE` | `500` | `SIGNAL_TIMEOUT_BATCH_SIZE` |
+| `ratchet.timeout.cancellation-grace-seconds` | `RATCHET_CANCELLATION_GRACE_SECONDS` | `0` | `CANCELLATION_GRACE_SECONDS` |
 | `ratchet.timeout.signal-timeout-lease-ttl-seconds` | `RATCHET_SIGNAL_TIMEOUT_LEASE_TTL_SECONDS` | `120` | `SIGNAL_TIMEOUT_LEASE_TTL_SECONDS` |
 | `ratchet.batch.recovery-interval-seconds` | `RATCHET_BATCH_RECOVERY_INTERVAL_SECONDS` | `900` | `BATCH_RECOVERY_INTERVAL_SECONDS` |
 | `ratchet.batch.recovery-lease-ttl-seconds` | `RATCHET_BATCH_RECOVERY_LEASE_TTL_SECONDS` | `900` | `BATCH_RECOVERY_LEASE_TTL_SECONDS` |
@@ -79,6 +81,9 @@ This build exposes **62 fixed keys**.
 | `ratchet.circuit-breaker.enabled` | `RATCHET_CIRCUIT_BREAKER_ENABLED` | `true` | `CIRCUIT_BREAKER_ENABLED` |
 
 <!-- CONFIG_REFERENCE_END -->
+
+The crash redelivery limit has a minimum of 0. Zero fails a job after its first node crash.
+Graceful shutdown releases do not consume this budget.
 
 ## Dynamic key families
 

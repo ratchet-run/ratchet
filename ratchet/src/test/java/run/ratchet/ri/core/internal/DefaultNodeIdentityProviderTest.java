@@ -20,16 +20,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -53,8 +56,10 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.NodeStore;
+import run.ratchet.store.spi.OrphanRecovery;
 
 @ExtendWith(MockitoExtension.class)
 class DefaultNodeIdentityProviderTest {
@@ -101,6 +106,12 @@ class DefaultNodeIdentityProviderTest {
 
     when(nodeStore.getDatabaseTime()).thenReturn(clock.instant());
 
+    lenient()
+        .when(jobBulkStore.resetOrphanJobsForNode(anyString(), eq(3), eq(100)))
+        .thenReturn(new OrphanRecovery(0, List.of()));
+    lenient()
+        .when(jobBulkStore.resetOrphanJobs(any(Duration.class), eq(3), eq(100)))
+        .thenReturn(new OrphanRecovery(0, List.of()));
     provider = newProvider(false, "test-node", LongUnaryOperator.identity());
   }
 
@@ -113,6 +124,7 @@ class DefaultNodeIdentityProviderTest {
         executorProvider,
         5,
         30,
+        3,
         dynamicHeartbeatEnabled,
         explicitNodeId,
         clock,
@@ -127,7 +139,7 @@ class DefaultNodeIdentityProviderTest {
     provider.init();
 
     verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
-    verify(jobBulkStore).resetOrphanJobsForNode("test-node");
+    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
   }
 
@@ -350,5 +362,19 @@ class DefaultNodeIdentityProviderTest {
       logger.setLevel(originalLevel);
       logger.setUseParentHandlers(originalUseParentHandlers);
     }
+  }
+
+  @Test
+  void startupPassesCrashBudgetAndLeavesExhaustedFailuresForTimer() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, 100))
+        .thenReturn(
+            new OrphanRecovery(
+                1, List.of(new ExhaustedOrphan(UUID.randomUUID(), 7, 3, "test-node"))));
+
+    provider.init();
+
+    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
+    verify(jobBulkStore).resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
+    verify(jobBulkStore, never()).findOrphanCompletionSnapshot(any(UUID.class));
   }
 }

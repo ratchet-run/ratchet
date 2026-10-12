@@ -32,6 +32,7 @@ import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
@@ -50,6 +51,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -291,18 +293,26 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public int resetOrphanJobs(Duration grace) {
-    return jobs.resetOrphanJobs(grace);
+  public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
+    return jobs.findOrphanCompletionSnapshot(jobId);
   }
 
   @Override
-  public int resetOrphanJobsBefore(Instant cutoff) {
-    return jobs.resetOrphanJobsBefore(cutoff);
+  public OrphanRecovery resetOrphanJobs(
+      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
+    return jobs.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
   }
 
   @Override
-  public int resetOrphanJobsForNode(String nodeId) {
-    return jobs.resetOrphanJobsForNode(nodeId);
+  public OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
+    return jobs.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  }
+
+  @Override
+  public OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
+    return jobs.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
   }
 
   @Override
@@ -332,8 +342,8 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public int incrementRetryAttempt(UUID id) {
-    return lifecycle.incrementRetryAttempt(id);
+  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
+    return lifecycle.incrementRetryAttempt(id, expectedClaimSeq);
   }
 
   @Override
@@ -380,8 +390,9 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
-    return lifecycle.markJobFailedTerminal(id, terminalError, totalAttempts);
+  public boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq) {
+    return lifecycle.markJobFailedTerminal(id, terminalError, totalAttempts, expectedClaimSeq);
   }
 
   @Override
@@ -390,8 +401,13 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
-    return lifecycle.scheduleJobRetry(id, error, newScheduledTime, attempts);
+  public boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq) {
+    return lifecycle.scheduleJobRetry(id, error, newScheduledTime, attempts, expectedClaimSeq);
   }
 
   @Override
@@ -405,8 +421,8 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
   }
 
   @Override
-  public boolean resetRunningJob(UUID id, String nodeId) {
-    return lifecycle.resetRunningJob(id, nodeId);
+  public boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
+    return lifecycle.resetRunningJob(id, nodeId, expectedClaimSeq);
   }
 
   @Override

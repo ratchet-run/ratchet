@@ -30,15 +30,15 @@ public final class FaultTimeline {
 
   private final List<Entry> entries = new ArrayList<>();
 
-  public List<Entry> entries() {
+  public synchronized List<Entry> entries() {
     return List.copyOf(entries);
   }
 
-  void add(Entry entry) {
+  synchronized void add(Entry entry) {
     entries.add(entry);
   }
 
-  void end(String incarnation, long time) {
+  synchronized void end(String incarnation, long time) {
     for (int i = 0; i < entries.size(); i++) {
       Entry e = entries.get(i);
       if (e.incarnation().equals(incarnation) && e.endedUs() == null)

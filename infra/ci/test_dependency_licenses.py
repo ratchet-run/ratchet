@@ -33,40 +33,88 @@ class PolicyTest(unittest.TestCase):
             ]
         }
         self.policy = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "allowedLicenses": ["Apache-2.0", "MIT"],
             "reactorLicenses": copy.deepcopy(APACHE),
-            "dependencies": {
-                COORDINATE: {
-                    "licenses": copy.deepcopy(APACHE),
-                    "expression": "Apache-2.0",
-                    "evidence": ["https://example.org/library/1.0/LICENSE"],
-                }
-            },
+            "licenseAliases": {APACHE[0]["name"]: "Apache-2.0", "MIT": "MIT"},
+            "artifacts": {},
         }
 
     def evaluate(self):
         return check(self.inventory, self.policy, set())
 
-    def test_reviewed_dependency_passes(self):
+    def add_review(self):
+        licenses = [{"name": "GPL", "url": "https://example.org/GPL"}]
+        self.inventory["dependencies"][0]["licenses"] = licenses
+        review = {
+            "licenses": copy.deepcopy(licenses),
+            "expression": "MIT OR GPL-2.0-only",
+            "evidence": ["https://example.org/LICENSE"],
+        }
+        self.policy["artifacts"]["example:library"] = review
+        return review
+
+    def test_single_allowed_alias_passes_without_entry(self):
         self.assertEqual(1, self.evaluate())
 
-    def test_new_version_requires_review(self):
-        self.inventory["dependencies"][0]["coordinate"] = "example:library:1.1"
-        with self.assertRaisesRegex(PolicyError, "Unreviewed"):
-            self.evaluate()
+    def test_new_version_passes_without_entry(self):
+        self.inventory["dependencies"][0]["coordinate"] = "example:library:99.0"
+        self.assertEqual(1, self.evaluate())
 
-    def test_changed_metadata_requires_review(self):
-        self.inventory["dependencies"][0]["licenses"][0]["url"] += "-changed"
+    def test_multiple_allowed_licenses_pass_regardless_of_expression(self):
+        self.inventory["dependencies"][0]["licenses"].append(
+            {"name": "MIT", "url": ""}
+        )
+        for operator in ("AND", "OR"):
+            with self.subTest(operator=operator):
+                self.policy["artifacts"]["example:library"] = {
+                    "expression": f"Apache-2.0 {operator} MIT"
+                }
+                self.assertEqual(1, self.evaluate())
+
+    def test_unaliased_and_disallowed_names_require_review(self):
+        self.policy["licenseAliases"]["GPL"] = "GPL-2.0-only"
+        for name in ("Unfamiliar License", "GPL"):
+            with self.subTest(name=name):
+                self.inventory["dependencies"][0]["licenses"][0]["name"] = name
+                with self.assertRaisesRegex(
+                    PolicyError, rf"Unreviewed license\(s\) {name}; add an alias or an artifact entry"
+                ):
+                    self.evaluate()
+
+    def test_matching_artifact_review_passes_across_versions(self):
+        self.add_review()
+        self.inventory["dependencies"][0]["coordinate"] = "example:library:99.0"
+        self.assertEqual(1, self.evaluate())
+
+    def test_changed_unaliased_metadata_requires_review(self):
+        self.add_review()
+        for field in ("name", "url"):
+            with self.subTest(field=field):
+                original = self.inventory["dependencies"][0]["licenses"][0][field]
+                self.inventory["dependencies"][0]["licenses"][0][field] += "-changed"
+                with self.assertRaisesRegex(PolicyError, "License metadata changed; review the evidence"):
+                    self.evaluate()
+                self.inventory["dependencies"][0]["licenses"][0][field] = original
+
+    def test_alias_canonicalization_ignores_url_and_order(self):
+        review = self.add_review()
+        self.policy["licenseAliases"].update({"GPL": "GPL-2.0-only", "GNU GPL": "GPL-2.0-only"})
+        review["licenses"].extend(copy.deepcopy(APACHE))
+        self.inventory["dependencies"][0]["licenses"] = [
+            {"name": " Apache License, Version 2.0 ", "url": ""},
+            {"name": "GNU GPL", "url": "https://example.org/changed"},
+        ]
+        self.assertEqual(1, self.evaluate())
+        self.inventory["dependencies"][0]["licenses"].append(copy.deepcopy(APACHE[0]))
         with self.assertRaisesRegex(PolicyError, "metadata changed"):
             self.evaluate()
 
     def test_missing_and_unknown_metadata_fail(self):
         for licenses in (
-            [],
-            [{"name": "", "url": ""}],
-            [{"name": "UNKNOWN", "url": ""}],
-            None,
+            [], [{"name": "", "url": ""}], [{"name": "   ", "url": ""}],
+            [{"url": ""}], [{"name": "UNKNOWN", "url": ""}],
+            [{"name": "NOASSERTION", "url": ""}], [{"name": "NONE", "url": ""}], None,
         ):
             with self.subTest(licenses=licenses):
                 self.inventory["dependencies"][0]["licenses"] = licenses
@@ -74,53 +122,49 @@ class PolicyTest(unittest.TestCase):
                     self.evaluate()
 
     def test_missing_url_requires_matching_review_and_evidence(self):
+        review = self.add_review()
         self.inventory["dependencies"][0]["licenses"][0]["url"] = ""
         with self.assertRaisesRegex(PolicyError, "metadata changed"):
             self.evaluate()
-        self.policy["dependencies"][COORDINATE]["licenses"][0]["url"] = ""
+        review["licenses"][0]["url"] = ""
         self.assertEqual(1, self.evaluate())
-        self.policy["dependencies"][COORDINATE]["evidence"] = []
-        with self.assertRaisesRegex(PolicyError, "Missing review evidence"):
-            self.evaluate()
-
-    def test_prohibited_license_fails(self):
-        for expression in (
-            "GPL-3.0-only",
-            "LGPL-2.1-or-later",
-            "AGPL-3.0-only",
-            "SSPL-1.0",
-            "LicenseRef-Unknown",
-        ):
-            with self.subTest(expression=expression):
-                self.policy["dependencies"][COORDINATE]["expression"] = expression
-                with self.assertRaisesRegex(PolicyError, "License policy rejects"):
+        for evidence in ([], ["http://example.org/LICENSE"], [None]):
+            with self.subTest(evidence=evidence):
+                review["evidence"] = evidence
+                with self.assertRaisesRegex(PolicyError, "Missing review evidence"):
                     self.evaluate()
 
-    def test_apache_does_not_clear_a_conjunctive_gpl_requirement(self):
-        self.policy["dependencies"][COORDINATE][
-            "expression"
-        ] = "Apache-2.0 AND GPL-2.0-only"
-        with self.assertRaisesRegex(PolicyError, "License policy rejects"):
-            self.evaluate()
+    def test_prohibited_expression_requires_exception(self):
+        review = self.add_review()
+        for expression in (
+            "GPL-3.0-only", "LGPL-2.1-or-later", "AGPL-3.0-only", "SSPL-1.0",
+            "LicenseRef-Unknown", "Apache-2.0 AND GPL-2.0-only",
+        ):
+            with self.subTest(expression=expression):
+                review["expression"] = expression
+                for exception in (None, "", "   "):
+                    review["exception"] = exception
+                    with self.assertRaisesRegex(PolicyError, "License policy rejects"):
+                        self.evaluate()
+                review["exception"] = "Reviewed separate-library integration, with evidence."
+                self.assertEqual(1, self.evaluate())
 
-    def test_explicit_dual_license_choice_passes(self):
-        self.policy["dependencies"][COORDINATE][
-            "expression"
-        ] = "Apache-2.0 OR GPL-2.0-only"
-        self.assertEqual(1, self.evaluate())
-
-    def test_exception_applies_only_to_reviewed_version_and_metadata(self):
-        review = self.policy["dependencies"][COORDINATE]
+    def test_artifact_review_does_not_block_allowed_later_version(self):
+        review = self.add_review()
         review["expression"] = "LGPL-2.1-or-later"
-        review["exception"] = "Reviewed separate-library integration, with evidence."
+        self.inventory["dependencies"][0] = {
+            "coordinate": "example:library:7.0", "licenses": copy.deepcopy(APACHE)
+        }
         self.assertEqual(1, self.evaluate())
-        self.inventory["dependencies"][0]["coordinate"] = "example:library:1.1"
-        with self.assertRaisesRegex(PolicyError, "Unreviewed"):
-            self.evaluate()
-        self.inventory["dependencies"][0]["coordinate"] = COORDINATE
-        self.inventory["dependencies"][0]["licenses"][0]["name"] = "GPL-3.0-only"
-        with self.assertRaisesRegex(PolicyError, "metadata changed"):
-            self.evaluate()
+
+    def test_public_domain_is_not_aliased(self):
+        policy = read_json(DIRECTORY / "dependency-license-policy.json")
+        self.assertNotIn("Public Domain", policy["licenseAliases"])
+        for artifact in ("aopalliance:aopalliance", "org.jboss:jboss-transaction-spi"):
+            self.assertIn(artifact, policy["artifacts"])
+        self.inventory["dependencies"][0]["licenses"][0]["name"] = "Public Domain"
+        with self.assertRaisesRegex(PolicyError, "Unreviewed license"):
+            check(self.inventory, policy, set())
 
     def test_empty_inventory_and_duplicate_entries_fail(self):
         self.inventory["dependencies"] *= 2
@@ -130,15 +174,29 @@ class PolicyTest(unittest.TestCase):
         with self.assertRaisesRegex(PolicyError, "Empty dependency"):
             self.evaluate()
 
+    def test_invalid_coordinates_fail(self):
+        for coordinate in ("example:library", "example:library:1:extra", "example:library: "):
+            with self.subTest(coordinate=coordinate):
+                self.inventory["dependencies"][0]["coordinate"] = coordinate
+                with self.assertRaisesRegex(PolicyError, "Invalid Maven coordinate"):
+                    self.evaluate()
+
+    def test_unsupported_schema_fails(self):
+        for version in (1, 3):
+            with self.subTest(version=version):
+                self.policy["schemaVersion"] = version
+                with self.assertRaisesRegex(PolicyError, "Unsupported policy schema"):
+                    self.evaluate()
+
     def test_only_exact_reactor_coordinates_are_exempt(self):
+        self.policy["licenseAliases"] = {}
         self.assertEqual(1, check(self.inventory, self.policy, {COORDINATE}))
-        self.policy["dependencies"] = {}
         self.inventory["dependencies"][0]["coordinate"] = "example:library:2.0"
         with self.assertRaisesRegex(PolicyError, "Unreviewed"):
             check(self.inventory, self.policy, {COORDINATE})
 
     def test_reactor_license_change_fails(self):
-        self.inventory["dependencies"][0]["licenses"][0]["name"] = "GPL-2.0-only"
+        self.inventory["dependencies"][0]["licenses"][0]["name"] = "MIT"
         with self.assertRaisesRegex(PolicyError, "Reactor license metadata changed"):
             check(self.inventory, self.policy, {COORDINATE})
 
@@ -181,11 +239,11 @@ class PolicyTest(unittest.TestCase):
         policy = read_json(DIRECTORY / "dependency-license-policy.json")
         inventory = {
             "dependencies": [
-                dict(coordinate=key, licenses=value["licenses"])
-                for key, value in policy["dependencies"].items()
+                dict(coordinate=key + ":99.0", licenses=value["licenses"])
+                for key, value in policy["artifacts"].items()
             ]
         }
-        self.assertEqual(len(policy["dependencies"]), check(inventory, policy, set()))
+        self.assertEqual(len(policy["artifacts"]), check(inventory, policy, set()))
 
 
 class MavenWrapperTest(unittest.TestCase):
@@ -206,12 +264,12 @@ class MavenWrapperTest(unittest.TestCase):
             '<project xmlns="http://maven.apache.org/POM/4.0.0"><groupId>run.ratchet</groupId><artifactId>fixture</artifactId><version>1.0</version></project>'
         )
         policy = read_json(helper / "dependency-license-policy.json")
-        coordinate, review = next(iter(policy["dependencies"].items()))
+        coordinate, review = next(iter(policy["artifacts"].items()))
         (self.root / "fixture.json").write_text(
             json.dumps(
                 {
                     "dependencies": [
-                        {"coordinate": coordinate, "licenses": review["licenses"]}
+                        {"coordinate": coordinate + ":99.0", "licenses": review["licenses"]}
                     ]
                 }
             )

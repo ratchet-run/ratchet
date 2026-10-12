@@ -36,7 +36,7 @@ final class SqlserverJobStatusTransitions {
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET status = 'RUNNING', picked_by = ?, picked_at = SYSUTCDATETIME(),
+        SET status = 'RUNNING', claim_seq = claim_seq + 1, picked_by = ?, picked_at = SYSUTCDATETIME(),
             updated_at = SYSUTCDATETIME()
         WHERE job_id = ? AND status = 'PENDING'
         """;
@@ -62,7 +62,8 @@ final class SqlserverJobStatusTransitions {
     }
     if (!SqlserverJobRowMapper.isLiveStatus(expected)) {
       log.debugf(
-          "transitionToPaused(%s, %s) is a no-op post hot/cold-split — terminal jobs cannot be paused",
+          "transitionToPaused(%s, %s) is a no-op post hot/cold-split — terminal jobs cannot be"
+              + " paused",
           id, expected);
       return false;
     }

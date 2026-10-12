@@ -362,8 +362,8 @@ jobs:
           name: showcase-smoke-server-log
           path: testing/ratchet-showcase/target/wildfly-runs/*/standalone/log/server.log
 
-  # Required local policy check. Exact dependency versions and license metadata
-  # must match reviewed evidence. Runs in the merge queue and release verification
+  # Required local policy check. License aliases allow routine dependency updates;
+  # other license metadata must match artifact reviews. Runs in merge/release checks
   # too; external license-service availability is handled by license-audit.yml.
   license-gate:
     needs: changes

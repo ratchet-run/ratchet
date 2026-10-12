@@ -114,6 +114,8 @@ public final class RatchetConfigKeys {
           "RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS",
           10L,
           1L);
+  public static final RatchetConfigKey<Integer> NODE_MAX_CRASH_REDELIVERIES =
+      intKey("ratchet.node.max-crash-redeliveries", "RATCHET_NODE_MAX_CRASH_REDELIVERIES", 3, 0);
   public static final RatchetConfigKey<Long> NODE_ORPHAN_GRACE_SECONDS =
       longKey("ratchet.node.orphan-grace-seconds", "RATCHET_NODE_ORPHAN_GRACE_SECONDS", 60L, 0L);
   public static final RatchetConfigKey<Long> ORPHAN_SCAN_INTERVAL_SECONDS =
@@ -171,11 +173,20 @@ public final class RatchetConfigKeys {
             }
             return percent;
           });
+
+  /** Default SLA in seconds; options construction enforces the maximum of Integer.MAX_VALUE. */
   public static final RatchetConfigKey<Long> WORKER_DEFAULT_SLA =
       longKey("ratchet.timeout.default-sla-seconds", "RATCHET_WORKER_DEFAULT_SLA", 1800L, 1L);
+
   public static final RatchetConfigKey<Integer> SIGNAL_TIMEOUT_BATCH_SIZE =
       intKey(
           "ratchet.timeout.signal-timeout-batch-size", "RATCHET_SIGNAL_TIMEOUT_BATCH_SIZE", 500, 1);
+  public static final RatchetConfigKey<Long> CANCELLATION_GRACE_SECONDS =
+      longKey(
+          "ratchet.timeout.cancellation-grace-seconds",
+          "RATCHET_CANCELLATION_GRACE_SECONDS",
+          0L,
+          0L);
 
   public static final RatchetConfigKey<Long> SIGNAL_TIMEOUT_LEASE_TTL_SECONDS =
       longKey(

@@ -219,6 +219,11 @@ public class PostExecutionHandler {
         jobTerminalStore.commitCompletion(
             completionPlan(completed, expectedStatus, null, workflow));
     if (!result.committed()) {
+      if (expectedStatus == JobStatus.RUNNING && completed.getClaimSeq() != null)
+        Logger.getLogger(PostExecutionHandler.class)
+            .warnf(
+                "Rejected owner write for job %s, stale claimSeq %s, node %s",
+                completed.getId(), completed.getClaimSeq(), completed.getPickedBy());
       return false;
     }
     if (completed.getStatus() == JobStatus.SUCCEEDED) {
@@ -279,12 +284,14 @@ public class PostExecutionHandler {
         completed.getQueueWaitMs(),
         completed.getJobType() == JobExecutionType.BATCH_CHILD ? completed.getDependsOn() : null,
         batchCompletion,
-        workflow.dependencies());
+        workflow.dependencies(),
+        expectedStatus == JobStatus.RUNNING ? completed.getClaimSeq() : null);
   }
 
   private static JobEntity completionSnapshot(JobEntity source, JobStatus status) {
     JobEntity snapshot = new JobEntity();
     snapshot.setId(source.getId());
+    snapshot.setClaimSeq(source.getClaimSeq());
     snapshot.setStatus(status);
     snapshot.setJobType(source.getJobType());
     snapshot.setPriority(source.getPriority());

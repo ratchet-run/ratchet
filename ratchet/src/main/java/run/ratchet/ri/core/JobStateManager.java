@@ -57,7 +57,7 @@ public class JobStateManager {
    * <p>Transaction attribute: REQUIRED.
    */
   public boolean resetJobToPending(JobEntity job) {
-    if (resetJobToPending(job.getId())) {
+    if (resetJobToPending(job.getId(), job.getClaimSeq() == null ? 0L : job.getClaimSeq())) {
       job.setStatus(JobStatus.PENDING);
       job.setPickedBy(null);
       job.setPickedAt(null);
@@ -71,14 +71,18 @@ public class JobStateManager {
    *
    * <p>Transaction attribute: REQUIRED.
    */
-  public boolean resetJobToPending(UUID jobId) {
+  public boolean resetJobToPending(UUID jobId, long expectedClaimSeq) {
     try {
-      boolean reset = jobBatchStatusStore.resetRunningJob(jobId, nodeIdentityProvider.getNodeId());
+      boolean reset =
+          jobBatchStatusStore.resetRunningJob(
+              jobId, nodeIdentityProvider.getNodeId(), expectedClaimSeq);
       if (reset) {
         return true;
       }
 
-      log.warnf("Failed to reset job %s - scheduling for retry buffer", jobId);
+      log.warnf(
+          "Rejected owner write for job %s, stale claimSeq %s, node %s",
+          jobId, expectedClaimSeq, nodeIdentityProvider.getNodeId());
     } catch (Exception e) {
       log.errorf(e, "Reset to PENDING error for job %s", jobId);
       throw new IllegalStateException("Failed to reset job " + jobId + " to PENDING", e);

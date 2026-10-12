@@ -236,10 +236,6 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     // Drain before stop to prevent new claims
     stopService("drain controller", () -> drainController.setDraining(true));
 
-    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
-      stopService("node identity", defaultProvider::shutdown);
-    }
-
     stopService("poller", poller::stop);
     stopService("recurring scheduler", recurringScheduler::stop);
     stopService("orphan recovery timer", orphanRecoveryTimer::stop);
@@ -250,6 +246,11 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     // Stop background resubmission before resetting RUNNING jobs to PENDING.
     stopService(
         "job execution coordinator", () -> jobExecutionCoordinator.shutdown(shutdownTimeout));
+    // Heartbeat until the claims are released. A draining node that stops heartbeating looks dead,
+    // and another node's orphan scan would take its running jobs and charge them a crash.
+    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
+      stopService("node identity", defaultProvider::shutdown);
+    }
     // Release transport resources after no further notifyNewWork callers can submit.
     // First-party coordinators implement SchedulerLifecycleHook and close themselves via
     // afterStop (invoked below in the hook chain). The direct fallback only fires for
