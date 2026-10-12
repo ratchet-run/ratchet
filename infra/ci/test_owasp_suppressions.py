@@ -4,6 +4,7 @@ import json
 import re
 import unittest
 import xml.etree.ElementTree as ET
+from datetime import date, timedelta
 from pathlib import Path
 
 
@@ -13,13 +14,16 @@ class SuppressionTest(unittest.TestCase):
         ns = {"s": "https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.4.xsd"}
         rules = ET.parse(root / "owasp-suppressions.xml").getroot()
         cases = json.loads(Path(__file__).with_name("owasp-suppression-controls.json").read_text())["cases"]
-        self.assertEqual(len(cases), 30)
+        self.assertEqual(len(cases), 38)
         self.assertEqual(len({(p, c) for p, c, _ in cases}), len(cases))
         # This fast CI guard intentionally rejects selector forms it cannot
         # model. Extending the policy then requires controls for that form,
         # rather than silently treating an unknown suppression as harmless.
         for rule in rules:
-            self.assertFalse(rule.attrib, "Review conditional/base suppression semantics")
+            # An expiry date is the only modeled attribute: it narrows a rule in time.
+            self.assertTrue(set(rule.attrib) <= {"until"}, "Review conditional/base suppression semantics")
+            if "until" in rule.attrib:
+                self.assertRegex(rule.attrib["until"], r"^\d{4}-\d{2}-\d{2}Z$")
             self.assertEqual(len(rule.findall("s:packageUrl", ns)) + len(rule.findall("s:filePath", ns)),
                              1, "Each suppression must have exactly one reviewed package or file selector")
             self.assertTrue({item.tag.split("}")[-1] for item in rule} <= {
@@ -41,23 +45,45 @@ class SuppressionTest(unittest.TestCase):
                 return re.fullmatch(element.text, value, flags) is not None
             return element.text == value if case_sensitive else element.text.lower() == value.lower()
 
+        def until_date(rule):
+            return date.fromisoformat(rule.attrib["until"].rstrip("Z"))
+
+        def suppressed(package_url, cve, as_of):
+            for rule in rules:
+                package = rule.find("s:packageUrl", ns)
+                if package is None or not matches(package, package_url):
+                    continue
+                # Dependency-Check stops applying a rule on its until date.
+                if "until" in rule.attrib and as_of >= until_date(rule):
+                    continue
+                # Conservatively reject any matching CPE-level rule on
+                # these identities: it can remove findings before CVE
+                # suppression runs. The real DC parser is also exercised
+                # during security qualification.
+                if rule.find("s:cpe", ns) is not None or any(
+                    matches(item, cve) for item in rule.findall("s:cve", ns)
+                ):
+                    return True
+            return False
+
+        # Today, like the real scan: an expired rule fails this test as it
+        # fails the OWASP job, so it gets removed or renewed on purpose.
         for package_url, cve, expected in cases:
             with self.subTest(package_url=package_url, cve=cve):
-                suppressed = False
-                for rule in rules:
-                    package = rule.find("s:packageUrl", ns)
-                    if package is None:
-                        continue
-                    if matches(package, package_url):
-                        # Conservatively reject any matching CPE-level rule on
-                        # these identities: it can remove findings before CVE
-                        # suppression runs. The real DC parser is also exercised
-                        # during security qualification.
-                        if rule.find("s:cpe", ns) is not None or any(
-                            matches(item, cve) for item in rule.findall("s:cve", ns)
-                        ):
-                            suppressed = True
-                self.assertEqual(suppressed, expected)
+                self.assertEqual(suppressed(package_url, cve, date.today()), expected)
+
+        expiring = [rule for rule in rules if "until" in rule.attrib]
+        for rule in expiring:
+            package = rule.find("s:packageUrl", ns)
+            covered = [(p, c) for p, c, expected in cases if expected and package is not None
+                       and matches(package, p)
+                       and any(matches(item, c) for item in rule.findall("s:cve", ns))]
+            self.assertTrue(covered, "Each expiring rule needs a suppressed control case")
+            for package_url, cve in covered:
+                with self.subTest(until=rule.attrib["until"], package_url=package_url, cve=cve):
+                    last_day = until_date(rule) - timedelta(days=1)
+                    self.assertTrue(suppressed(package_url, cve, last_day))
+                    self.assertFalse(suppressed(package_url, cve, until_date(rule)))
 
 
 if __name__ == "__main__":

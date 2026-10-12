@@ -193,3 +193,22 @@ The scenarios verify:
 Process logs are written to `target/runtime-*.log`. CI retains them alongside the build log and
 Failsafe reports, including deliberate failure diagnostics. Expected migration, authorization,
 missing-key, and duplicate-key errors are checked by scenario rather than treated as blanket log failures.
+
+## Chaos tests
+
+The chaos profile runs three scheduler JVMs against one shared database.
+It checks crash recovery, graceful draining, and concurrent idempotent submission.
+The oracle checks delivery, duplicate attempts, overlapping owners, and cleanup.
+PostgreSQL and MySQL are supported. Stage the Ratchet artifacts first, as above.
+
+```sh
+mvn -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
+  -Pchaos -Dstore=postgresql -Dspring-boot.version=3.5.16 \
+  '-Dit.test=*ChaosIT' -Dfailsafe.failIfNoSpecifiedTests=false \
+  -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false \
+  -pl :sql-consumer -am verify
+```
+
+Use `-Dstore=mysql` to run against MySQL.
+Failure reports go to `sql/target/chaos-reports/`.
+Node logs go to `sql/target/runtime-*.log`.

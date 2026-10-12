@@ -61,6 +61,7 @@ import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -168,7 +169,8 @@ class DefaultJobCreationServiceAuthorizationTest {
         true,
         true,
         null,
-        new JakartaAfterCommitRegistrar(txRegistry));
+        new JakartaAfterCommitRegistrar(txRegistry),
+        new DefaultErrorSanitizer());
   }
 
   private DefaultJobCreationService serviceWithoutResourceCapability(
@@ -200,7 +202,8 @@ class DefaultJobCreationServiceAuthorizationTest {
         true,
         false,
         null,
-        new JakartaAfterCommitRegistrar(txRegistry));
+        new JakartaAfterCommitRegistrar(txRegistry),
+        new DefaultErrorSanitizer());
   }
 
   private DefaultJobCreationService serviceWithResolver(
@@ -228,7 +231,8 @@ class DefaultJobCreationServiceAuthorizationTest {
         true,
         true,
         callerPrincipalResolver,
-        new JakartaAfterCommitRegistrar(txRegistry));
+        new JakartaAfterCommitRegistrar(txRegistry),
+        new DefaultErrorSanitizer());
   }
 
   private DefaultJobCreationService serviceWithoutAuthorizationPolicy() {
@@ -257,7 +261,8 @@ class DefaultJobCreationServiceAuthorizationTest {
         true,
         true,
         null,
-        new JakartaAfterCommitRegistrar(txRegistry));
+        new JakartaAfterCommitRegistrar(txRegistry),
+        new DefaultErrorSanitizer());
   }
 
   @BeforeEach

@@ -238,9 +238,9 @@ public class ExecutionObserver {
     }
 
     @Override
-    public void failure(Throwable cause, int attempt) {
+    public void failure(String errorClass, String sanitizedMessage, int attempt) {
       try {
-        delegate.failure(cause, attempt);
+        delegate.failure(errorClass, sanitizedMessage, attempt);
       } catch (Throwable t) {
         log.warnf(t, "TracingCollector scope.failure threw; continuing");
       }

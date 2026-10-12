@@ -96,7 +96,7 @@ public class RecordingTracingCollector implements TracingCollector {
     }
 
     @Override
-    public void failure(Throwable cause, int attempt) {
+    public void failure(String errorClass, String sanitizedMessage, int attempt) {
       executionScopeEvents.add("failure");
       close();
     }

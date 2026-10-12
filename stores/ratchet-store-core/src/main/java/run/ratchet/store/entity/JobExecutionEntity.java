@@ -175,22 +175,19 @@ public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable
     this.durationMs = durationSinceStart(endedAt);
   }
 
-  public void markFailed(Throwable exception) {
-    markFailed(exception, Instant.now());
+  public void markFailed(String errorClass, String sanitizedMessage) {
+    markFailed(errorClass, sanitizedMessage, Instant.now());
   }
 
-  public void markFailed(Throwable exception, Instant endedAt) {
+  public void markFailed(String errorClass, String sanitizedMessage, Instant endedAt) {
     this.endedAt = endedAt;
     this.status = ExecutionStatus.FAILED;
     this.durationMs = durationSinceStart(endedAt);
-    if (exception != null) {
-      this.errorClass = exception.getClass().getName();
-      String message = exception.getMessage();
-      if (message != null && message.length() > 65535) {
-        message = message.substring(0, 65532) + "...";
-      }
-      this.errorMessage = message;
+    this.errorClass = errorClass;
+    if (sanitizedMessage != null && sanitizedMessage.length() > 65535) {
+      sanitizedMessage = sanitizedMessage.substring(0, 65532) + "...";
     }
+    this.errorMessage = sanitizedMessage;
   }
 
   public void markCanceled() {

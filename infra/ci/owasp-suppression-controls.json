@@ -149,6 +149,46 @@
       "pkg:maven/org.apache.httpcomponents.core5/httpcore5-reactive@5.0.2",
       "CVE-2026-54399",
       false
+    ],
+    [
+      "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.2",
+      "CVE-2026-54512",
+      true
+    ],
+    [
+      "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.2",
+      "CVE-2026-54513",
+      true
+    ],
+    [
+      "pkg:maven/tools.jackson.core/jackson-databind@3.1.2",
+      "CVE-2026-54512",
+      true
+    ],
+    [
+      "pkg:maven/tools.jackson.core/jackson-databind@3.1.2",
+      "CVE-2026-54513",
+      true
+    ],
+    [
+      "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.3",
+      "CVE-2026-54512",
+      false
+    ],
+    [
+      "pkg:maven/tools.jackson.core/jackson-databind@3.1.3",
+      "CVE-2026-54513",
+      false
+    ],
+    [
+      "pkg:maven/com.fasterxml.jackson.core/jackson-databind@3.1.2",
+      "CVE-2026-54512",
+      false
+    ],
+    [
+      "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.21.2",
+      "CVE-2026-54515",
+      false
     ]
   ]
 }
