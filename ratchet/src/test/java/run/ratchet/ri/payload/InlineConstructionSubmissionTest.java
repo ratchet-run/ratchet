@@ -225,7 +225,8 @@ public class InlineConstructionSubmissionTest {
         true,
         true,
         null,
-        new JakartaAfterCommitRegistrar());
+        new JakartaAfterCommitRegistrar(),
+        null);
   }
 
   private static final class NoopWakeup extends JobWakeupService {
