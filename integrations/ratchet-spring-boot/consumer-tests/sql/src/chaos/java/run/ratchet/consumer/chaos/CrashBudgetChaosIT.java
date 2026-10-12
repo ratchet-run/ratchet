@@ -17,10 +17,8 @@ package run.ratchet.consumer.chaos;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-@Tag("known-defect")
 class CrashBudgetChaosIT {
   @Test
   void twoCrashesExhaustCrashBudget() throws Exception {

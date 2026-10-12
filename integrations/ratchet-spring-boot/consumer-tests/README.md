@@ -237,21 +237,19 @@ Overlaps caused by a paused node (`I4-stale`) are reported but do not fail the r
 
 ### Known defects
 
-`StaleOwnerChaosIT`, `CrashBudgetChaosIT` and `DrainTimeoutChaosIT` carry the JUnit tag
-`known-defect`.
-They assert the correct behavior and fail today. They are excluded by default, including in CI.
-To run them, add `-Dchaos.excludedGroups=none` to the command above. To run only these three, also
-add `'-Dit.test=StaleOwnerChaosIT,CrashBudgetChaosIT,DrainTimeoutChaosIT'`.
+A scenario that reproduces an open defect carries the JUnit tag `known-defect`. It asserts the
+correct behavior, so it fails until the fix lands, and it is excluded by default, including in CI.
+To run tagged scenarios, add `-Dchaos.excludedGroups=none` to the command above. The PR that fixes
+the defect removes the tag.
+
+No scenario is tagged now. These three started out tagged and now guard their fixes:
 
 - `StaleOwnerChaosIT` pauses the node running a job until another node recovers it, then lets
-  the first node finish. The first node's commit still succeeds, so I8 fails. The fix is to
-  fence terminal writes by the current claim.
+  the first node finish. Owner writes are fenced by the claim sequence, so the first node's
+  commit is rejected and I8 holds.
 - `CrashBudgetChaosIT` crashes the owner of a job twice. Chaos nodes set
-  `ratchet.node.max-crash-redeliveries=1`, so the job should end `FAILED`; today it is
-  redelivered and succeeds. The fix is a crash redelivery budget.
+  `ratchet.node.max-crash-redeliveries=1`, so the second crash fails the job and it ends
+  `FAILED`.
 - `DrainTimeoutChaosIT` holds a `maxRetries=0` job past the 5 second drain, so shutdown
-  interrupts it, then SIGKILLs the node that runs the redelivery. The job should still succeed,
-  because a drain timeout charges neither an attempt nor a crash. Today the interrupt counts as
-  an application failure and the job ends `FAILED`.
-
-Remove the tag when the fix lands.
+  interrupts it, then SIGKILLs the node that runs the redelivery. The job still succeeds,
+  because a drain timeout charges neither an attempt nor a crash.
