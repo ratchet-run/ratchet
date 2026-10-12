@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.store.util.ExtensionValidation;
 
 /**
  * Optional capability for generic per-job extension storage: write-once indexed scalar properties
@@ -109,6 +110,8 @@ public interface JobExtensionStore {
    * @param namespace extension namespace; never {@code null} or blank, at most 64 characters
    * @param initialState serialized JSON blob; never {@code null}
    * @throws IllegalStateException when a row already exists for the {@code (job, namespace)}
+   * @throws IllegalArgumentException if state exceeds {@link ExtensionValidation#MAX_STATE_BYTES}
+   *     UTF-8 bytes
    */
   void initState(UUID jobId, String namespace, String initialState);
 
@@ -127,6 +130,8 @@ public interface JobExtensionStore {
    * @param expectedVersion the version the caller read; must be non-negative
    * @return {@code true} when the CAS write applied, {@code false} on version conflict or when the
    *     row is absent
+   * @throws IllegalArgumentException if state exceeds {@link ExtensionValidation#MAX_STATE_BYTES}
+   *     UTF-8 bytes
    */
   boolean updateState(UUID jobId, String namespace, String newState, int expectedVersion);
 

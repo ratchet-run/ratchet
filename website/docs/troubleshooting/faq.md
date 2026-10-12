@@ -84,7 +84,7 @@ Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrai
 |---|---|---|
 | `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` | How often nodes write their heartbeat |
 | `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | Time before a silent node's jobs are recovered |
-| `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_MINUTES` | `5` | How often to scan for orphaned jobs |
+| `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS` | `300` | Seconds between orphan scans |
 
 ## What happens if the server crashes mid-job?
 
@@ -102,7 +102,7 @@ When a node crashes while jobs are RUNNING:
 
 **Important:** The recovered job starts from scratch and does not resume from where it left off. If your job performs work that is not idempotent, design it to check for partial completion before proceeding.
 
-**Worst-case recovery time:** `orphan_scan_interval + orphan_grace_seconds`. With defaults, this is 5 minutes + 60 seconds = ~6 minutes.
+**Worst-case recovery time:** `orphanScanIntervalSeconds + orphanGraceSeconds`. With defaults, this is 300 seconds + 60 seconds ≈ 6 minutes.
 
 ## How do I migrate from Quartz?
 

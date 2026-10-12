@@ -244,7 +244,8 @@ DDL, not a datasource.
 | `nodeId(String)` | generated | Stable logical node id |
 | `heartbeatIntervalSeconds(long)` | `10` | Heartbeat interval |
 | `orphanGraceSeconds(long)` | `60` | Grace window before orphan recovery |
-| `orphanScanIntervalMinutes(long)` | `5` | Orphan recovery scan cadence |
+| `orphanScanIntervalSeconds(long)` | `300` | Orphan recovery scan cadence in seconds |
+| `orphanRecoveryLeaseTtlSeconds(long)` | `120` | Orphan scan lease lifetime in seconds |
 | `dynamicHeartbeatEnabled(boolean)` | `true` | Adjust heartbeat cadence by load |
 | `store.isolationCheckMode(FAIL)` | `FAIL` | SQL isolation validation behavior |
 | `store.priorityBoostIntervalMinutes(15)` | `15` | Age-based priority boost interval; `0` disables boosting |
@@ -276,8 +277,9 @@ DDL, not a datasource.
 | `recurring.startupGraceSeconds(long)` | `60` | Grace period before orphaned recurring masters fire |
 | `recurring.convergenceWindowSeconds(long)` | `0` | Startup cleanup convergence window |
 | `timeout.softTimeoutPercent(int)` | `80` | Percent of SLA where warning fires |
-| `timeout.defaultSlaSeconds(long)` | `1800` | Default job SLA timeout |
+| `timeout.defaultSlaSeconds(long)` | `1800` | Default job SLA timeout, 1–2147483647 seconds |
 | `timeout.signalTimeoutBatchSize(int)` | `500` | Maximum waiting jobs scanned during one signal-timeout tick |
+| `timeout.cancellationGraceSeconds(long)` | `0` | Seconds before the hard timeout at which `JobContext.isCancellationRequested()` turns true; `0` sets it only at the hard timeout |
 | `circuitBreaker.enabled(boolean)` | `true` | Master switch for built-in circuit breakers |
 | `circuitBreaker.profile(profile, builder)` | profile defaults | Per-profile thresholds |
 

@@ -292,6 +292,8 @@ public interface JobStore
 | `JobAuditStore` | Execution history recording and structured job log storage |
 | `JobExtensionStore` | Indexed job properties (`scheduler_job_properties`) and mutable per-namespace extension state with optimistic CAS (`scheduler_job_extension_state`), used by framework extensions; archiving copies both onto the archive row as denormalized JSON |
 
+Extension state is limited to 1 MiB (1,048,576 UTF-8 bytes) of plaintext per namespace, before encryption.
+
 ### Why a Core-Plus-Capabilities Split?
 
 The decomposition serves multiple purposes:

@@ -41,7 +41,7 @@ class WebAndClusterRuntimeIT {
     properties.put("ratchet.node.id", node);
     properties.put("ratchet.node.heartbeat-interval-seconds", 1);
     properties.put("ratchet.node.orphan-grace-seconds", 3);
-    properties.put("ratchet.node.orphan-scan-interval-minutes", 1);
+    properties.put("ratchet.node.orphan-scan-interval-seconds", 1);
     properties.put("ratchet.node.dynamic-heartbeat-enabled", false);
     return properties;
   }
@@ -131,7 +131,8 @@ class WebAndClusterRuntimeIT {
                   "select count(*) from scheduler_job where business_key = 'raced'", Integer.class))
           .isEqualTo(1);
       jdbc.update(
-          "insert into scheduler_resource_limit (resource_name, max_concurrent) values ('runtime-serial', 1)");
+          "insert into scheduler_resource_limit (resource_name, max_concurrent) values"
+              + " ('runtime-serial', 1)");
       var serial = new ArrayList<UUID>();
       for (int i = 0; i < 8; i++)
         serial.add(
@@ -146,12 +147,16 @@ class WebAndClusterRuntimeIT {
               () ->
                   assertThat(
                           jdbc.queryForObject(
-                              "select count(*) from scheduler_job where business_key like 'serial-%' and terminal_status = 'SUCCEEDED'",
+                              "select count(*) from scheduler_job where business_key like"
+                                  + " 'serial-%' and terminal_status = 'SUCCEEDED'",
                               Integer.class))
                       .isEqualTo(8));
       assertThat(
               jdbc.queryForObject(
-                  "select count(*) from runtime_attempt a join runtime_attempt b on a.attempt_id < b.attempt_id and (b.finished_at is null or a.started_at < b.finished_at) and (a.finished_at is null or b.started_at < a.finished_at) where a.business_id like 'serial-%' and b.business_id like 'serial-%'",
+                  "select count(*) from runtime_attempt a join runtime_attempt b on a.attempt_id <"
+                      + " b.attempt_id and (b.finished_at is null or a.started_at < b.finished_at)"
+                      + " and (a.finished_at is null or b.started_at < a.finished_at) where"
+                      + " a.business_id like 'serial-%' and b.business_id like 'serial-%'",
                   Integer.class))
           .isZero();
       assertThat(

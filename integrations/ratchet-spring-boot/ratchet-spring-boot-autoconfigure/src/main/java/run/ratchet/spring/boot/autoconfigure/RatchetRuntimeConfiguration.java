@@ -175,8 +175,10 @@ class RatchetRuntimeConfiguration {
   @Bean(destroyMethod = "")
   @ConditionalOnMissingBean
   BatchRecoveryTimer batchRecoveryTimer(
-      BatchService batchService, SingletonLeaseService singletonLeaseService) {
-    return new BatchRecoveryTimer(batchService, singletonLeaseService);
+      RatchetOptions options,
+      BatchService batchService,
+      SingletonLeaseService singletonLeaseService) {
+    return new BatchRecoveryTimer(batchService, singletonLeaseService, options);
   }
 
   @Bean(destroyMethod = "shutdown")
@@ -246,7 +248,13 @@ class RatchetRuntimeConfiguration {
       RatchetOptions options,
       Clock clock) {
     return new OrphanRecoveryTimer(
-        store, store, permits, leases, options.node().orphanGraceSeconds(), clock);
+        store,
+        store,
+        permits,
+        leases,
+        options.node().orphanGraceSeconds(),
+        options.node().orphanRecoveryLeaseTtlSeconds(),
+        clock);
   }
 
   @Bean(destroyMethod = "")

@@ -103,6 +103,45 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   @Test
+  void createRecurring_roundTripsLargeMultibytePayload() {
+    String value = "é".repeat(128 * 1024);
+    var original = definition(UuidV7Factory.create(), "0 * * * * ?", Instant.now().plusSeconds(60));
+    JobPayload payload =
+        new JobPayload(
+            "java.lang.String",
+            "valueOf",
+            "(Ljava/lang/Object;)Ljava/lang/String;",
+            true,
+            List.of(value),
+            null);
+    var large =
+        new RecurringJobDefinition(
+            original.id(),
+            original.cronExpr(),
+            original.zoneId(),
+            original.nextFire(),
+            original.paused(),
+            original.pausedAt(),
+            original.priority(),
+            original.maxRetries(),
+            original.backoffPolicy(),
+            original.backoffParamMs(),
+            original.timeoutSec(),
+            payload,
+            original.onSuccessPayload(),
+            original.onFailurePayload(),
+            original.businessKey(),
+            original.resourceName(),
+            original.executionTarget(),
+            original.createdAt(),
+            original.callerPrincipal(),
+            original.encryptedPayload(),
+            original.misfirePolicy());
+    recurringStore().createRecurring(large);
+    assertEquals(payload, recurringStore().getRecurring(large.id()).orElseThrow().payload());
+  }
+
+  @Test
   void recurringCommitInsertsChildAndAdvancesTogether() {
     UUID id = UuidV7Factory.create();
     Instant due = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MILLIS);

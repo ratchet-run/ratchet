@@ -266,4 +266,27 @@ public abstract class AbstractJobAuditStoreContract implements JobStoreContractF
           () -> auditStore().appendLog(log), "appendLog should accept " + level.name() + " level");
     }
   }
+
+  private static String largeAuditText() {
+    return "é".repeat(256 * 1024 / 2);
+  }
+
+  @Test
+  void saveExecution_roundTripsMultibyteErrorAtCharacterLimit() {
+    var job = persist(newPendingJob());
+    String error = "€".repeat(65535);
+    var execution = JobExecutionEntity.start(job.getId(), 1, "node-1");
+    execution.markFailed(new IllegalStateException(error));
+    auditStore().saveExecution(execution);
+    assertEquals(
+        error, auditStore().findLatestExecution(job.getId()).orElseThrow().getErrorMessage());
+  }
+
+  @Test
+  void appendLog_acceptsLargeMultibyteMessage() {
+    var job = persist(newPendingJob());
+    var log =
+        new JobLogEntity(job.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, largeAuditText());
+    assertDoesNotThrow(() -> auditStore().appendLog(log));
+  }
 }

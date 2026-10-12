@@ -152,7 +152,7 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
         poller.init();
         recurringScheduler.init();
 
-        orphanRecoveryTimer.start(scheduledExecutor, options.node().orphanScanIntervalMinutes());
+        orphanRecoveryTimer.start(scheduledExecutor, options.node().orphanScanIntervalSeconds());
         batchRecoveryTimer.start(scheduledExecutor);
 
         if (options.maintenance().dlqPurgeEnabled()) {

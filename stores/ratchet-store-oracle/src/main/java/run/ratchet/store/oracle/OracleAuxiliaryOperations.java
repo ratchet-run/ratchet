@@ -128,41 +128,44 @@ final class OracleAuxiliaryOperations
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
     prepareCondition(condition);
+    // Oracle cannot bind a value over 32 KB inside a MERGE, so use update-then-insert.
+    if (updateCondition(condition) == 0) {
+      // language=Oracle
+      String insertSql =
+          """
+          INSERT INTO scheduler_workflow_condition
+            (parent_job_id, child_job_id, condition_type, condition_expression,
+             condition_priority, definition_order, created_at, id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          """;
+      bindCondition(insertSql, condition).executeUpdate();
+    }
+    return condition;
+  }
+
+  private int updateCondition(WorkflowConditionEntity condition) {
     // language=Oracle
     String sql =
         """
-        MERGE INTO scheduler_workflow_condition d
-        USING (SELECT ? AS id, ? AS parent_job_id, ? AS child_job_id, ? AS condition_type,
-                      ? AS condition_expression, ? AS condition_priority, ? AS definition_order,
-                      ? AS created_at
-               FROM dual) s
-        ON (d.id = s.id)
-        WHEN MATCHED THEN UPDATE SET
-          d.parent_job_id = s.parent_job_id,
-          d.child_job_id = s.child_job_id,
-          d.condition_type = s.condition_type,
-          d.condition_expression = s.condition_expression,
-          d.condition_priority = s.condition_priority,
-          d.definition_order = s.definition_order,
-          d.created_at = s.created_at
-        WHEN NOT MATCHED THEN INSERT
-          (id, parent_job_id, child_job_id, condition_type, condition_expression,
-           condition_priority, definition_order, created_at)
-          VALUES (s.id, s.parent_job_id, s.child_job_id, s.condition_type,
-                  s.condition_expression, s.condition_priority, s.definition_order, s.created_at)
+        UPDATE scheduler_workflow_condition
+        SET parent_job_id = ?, child_job_id = ?, condition_type = ?, condition_expression = ?,
+            condition_priority = ?, definition_order = ?, created_at = ?
+        WHERE id = ?
         """;
-    ctx.em()
+    return bindCondition(sql, condition).executeUpdate();
+  }
+
+  private Query bindCondition(String sql, WorkflowConditionEntity condition) {
+    return ctx.em()
         .createNativeQuery(sql)
-        .setParameter(1, UuidRawConverter.toBytes(condition.getId()))
-        .setParameter(2, UuidRawConverter.toBytes(condition.getParentJobId()))
-        .setParameter(3, UuidRawConverter.toBytes(condition.getChildJobId()))
-        .setParameter(4, condition.getConditionType().name())
-        .setParameter(5, condition.getConditionExpression())
-        .setParameter(6, condition.getConditionPriority())
-        .setParameter(7, condition.getDefinitionOrder())
-        .setParameter(8, Timestamp.from(condition.getCreatedAt()))
-        .executeUpdate();
-    return condition;
+        .setParameter(1, UuidRawConverter.toBytes(condition.getParentJobId()))
+        .setParameter(2, UuidRawConverter.toBytes(condition.getChildJobId()))
+        .setParameter(3, condition.getConditionType().name())
+        .setParameter(4, condition.getConditionExpression())
+        .setParameter(5, condition.getConditionPriority())
+        .setParameter(6, condition.getDefinitionOrder())
+        .setParameter(7, Timestamp.from(condition.getCreatedAt()))
+        .setParameter(8, UuidRawConverter.toBytes(condition.getId()));
   }
 
   @Override

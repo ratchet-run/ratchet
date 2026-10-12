@@ -43,7 +43,7 @@ class MongoProcessesRuntimeIT {
     properties.put("ratchet.node.id", node);
     properties.put("ratchet.node.heartbeat-interval-seconds", 1);
     properties.put("ratchet.node.orphan-grace-seconds", 3);
-    properties.put("ratchet.node.orphan-scan-interval-minutes", 1);
+    properties.put("ratchet.node.orphan-scan-interval-seconds", 1);
     properties.put("ratchet.node.dynamic-heartbeat-enabled", false);
     properties.put("ratchet.poller.min-delay-ms", 100);
     properties.put("ratchet.poller.max-delay-ms", 500);

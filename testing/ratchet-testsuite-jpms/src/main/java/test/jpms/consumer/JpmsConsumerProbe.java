@@ -19,6 +19,7 @@ package test.jpms.consumer;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.coordinator.common.NotifyPayload;
 import run.ratchet.coordinator.hazelcast.HazelcastCoordinatorConfig;
@@ -50,6 +51,7 @@ public final class JpmsConsumerProbe {
       JobSchedulerService.class,
       JobCompletedEvent.class,
       JobTimeoutException.class,
+      CancellationRequestedException.class,
       ClassPolicy.class,
       RetryPolicy.class,
       NotifyPayload.class,

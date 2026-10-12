@@ -29,6 +29,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.RecurringJobExecutor;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -47,7 +48,8 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
 
   private static final Logger log = Logger.getLogger(DefaultRecurringScheduler.class);
   private static final String LEASE_NAME = "recurringScheduler";
-  private static final Duration LEASE_TTL = Duration.ofMinutes(5);
+  private final Duration leaseTtl;
+  private final long renewalPeriodSeconds;
 
   private final AtomicBoolean started = new AtomicBoolean();
   private final Object scheduleLock = new Object();
@@ -79,6 +81,8 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
     this.recurringJobExecutor = null;
     this.pollerScheduler = null;
     this.clock = null;
+    this.leaseTtl = null;
+    this.renewalPeriodSeconds = 0;
   }
 
   @Inject
@@ -89,7 +93,8 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
       NodeIdentityProvider nodeIdentityProvider,
       RecurringJobExecutor recurringJobExecutor,
       PollerScheduler pollerScheduler,
-      Clock clock) {
+      Clock clock,
+      RatchetOptions options) {
     this(
         executorProvider,
         recurringJobStore.isResolvable() ? recurringJobStore.get() : null,
@@ -97,7 +102,8 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
         nodeIdentityProvider,
         recurringJobExecutor,
         pollerScheduler,
-        clock);
+        clock,
+        options.recurring().leaseTtlSeconds());
   }
 
   /** Constructor for tests that supply a store directly (or {@code null} to disable scheduling). */
@@ -108,7 +114,10 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
       NodeIdentityProvider nodeIdentityProvider,
       RecurringJobExecutor recurringJobExecutor,
       PollerScheduler pollerScheduler,
-      Clock clock) {
+      Clock clock,
+      long leaseTtlSeconds) {
+    this.leaseTtl = Duration.ofSeconds(leaseTtlSeconds);
+    this.renewalPeriodSeconds = Math.max(1, leaseTtlSeconds * 2 / 5);
     this.executorProvider = executorProvider;
     this.recurringJobStore = recurringJobStore;
     this.singletonLeaseService = singletonLeaseService;
@@ -198,13 +207,16 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
     ScheduledFuture<?> renewalTask = null;
     Optional<SingletonLease> lease = Optional.empty();
     try {
-      lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
+      lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
       if (lease.isPresent()) {
         SingletonLease acquiredLease = lease.get();
         AtomicBoolean leaseValid = new AtomicBoolean(true);
         renewalTask =
             executor.scheduleWithFixedDelay(
-                () -> renewLease(acquiredLease, leaseValid), 2, 2, TimeUnit.MINUTES);
+                () -> renewLease(acquiredLease, leaseValid),
+                renewalPeriodSeconds,
+                renewalPeriodSeconds,
+                TimeUnit.SECONDS);
 
         int processedCount =
             recurringJobExecutor.process(config.batchLimit(), nodeIdentityProvider.getNodeId());
@@ -300,7 +312,7 @@ public class DefaultRecurringScheduler implements RecurringScheduler {
     // double-unlock on stores that don't ownership-verify (which could release a peer node's
     // lock between our first close and the redundant second one).
     try {
-      if (!lease.renew(LEASE_TTL)) {
+      if (!lease.renew(leaseTtl)) {
         log.warnf("RecurringScheduler could not renew singleton lease %s", lease.name());
         leaseValid.set(false);
       }

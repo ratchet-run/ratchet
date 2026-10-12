@@ -57,7 +57,7 @@ public class OrphanRecoveryTimer {
   private final Clock clock;
 
   private volatile ScheduledFuture<?> handle;
-  private volatile Duration leaseTtl = Duration.ofMinutes(2);
+  private final Duration leaseTtl;
 
   protected OrphanRecoveryTimer() {
     this.jobBulkStore = null;
@@ -66,34 +66,12 @@ public class OrphanRecoveryTimer {
     this.singletonLeaseService = null;
     this.orphanGraceSeconds = 0;
     this.clock = null;
+    this.leaseTtl = null;
   }
 
   public OrphanRecoveryTimer(
       JobBulkStore jobBulkStore, NodeStore nodeStore, ResourcePermitService resourcePermitService) {
-    this(jobBulkStore, nodeStore, resourcePermitService, null, 60);
-  }
-
-  public OrphanRecoveryTimer(
-      JobBulkStore jobBulkStore,
-      NodeStore nodeStore,
-      ResourcePermitService resourcePermitService,
-      long orphanGraceSeconds) {
-    this(jobBulkStore, nodeStore, resourcePermitService, null, orphanGraceSeconds);
-  }
-
-  public OrphanRecoveryTimer(
-      JobBulkStore jobBulkStore,
-      NodeStore nodeStore,
-      ResourcePermitService resourcePermitService,
-      SingletonLeaseService singletonLeaseService,
-      long orphanGraceSeconds) {
-    this(
-        jobBulkStore,
-        nodeStore,
-        resourcePermitService,
-        singletonLeaseService,
-        orphanGraceSeconds,
-        Clock.systemUTC());
+    this(jobBulkStore, nodeStore, resourcePermitService, null, 60, 120, Clock.systemUTC());
   }
 
   public OrphanRecoveryTimer(
@@ -102,6 +80,7 @@ public class OrphanRecoveryTimer {
       ResourcePermitService resourcePermitService,
       SingletonLeaseService singletonLeaseService,
       long orphanGraceSeconds,
+      long leaseTtlSeconds,
       Clock clock) {
     this.jobBulkStore = Objects.requireNonNull(jobBulkStore, "jobBulkStore must not be null");
     this.nodeStore = Objects.requireNonNull(nodeStore, "nodeStore must not be null");
@@ -109,20 +88,20 @@ public class OrphanRecoveryTimer {
         Objects.requireNonNull(resourcePermitService, "resourcePermitService must not be null");
     this.singletonLeaseService = singletonLeaseService;
     this.orphanGraceSeconds = orphanGraceSeconds;
+    this.leaseTtl = Duration.ofSeconds(leaseTtlSeconds);
     this.clock = clock;
   }
 
-  public synchronized void start(ScheduledExecutorService executor, long intervalMinutes) {
+  public synchronized void start(ScheduledExecutorService executor, long intervalSeconds) {
     if (handle != null) {
       handle.cancel(false);
     }
-    leaseTtl = Duration.ofMinutes(Math.max(2, intervalMinutes));
     handle =
         executor.scheduleAtFixedRate(
-            this::recoverNow, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
+            this::recoverNow, intervalSeconds, intervalSeconds, TimeUnit.SECONDS);
     log.infof(
-        "Initialized orphan recovery timer — scanning every %smin (grace=%ss)",
-        intervalMinutes, orphanGraceSeconds);
+        "Initialized orphan recovery timer — scanning every %ss (grace=%ss)",
+        intervalSeconds, orphanGraceSeconds);
   }
 
   public synchronized void stop() {

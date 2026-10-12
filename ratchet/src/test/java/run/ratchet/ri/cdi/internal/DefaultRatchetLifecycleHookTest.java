@@ -358,7 +358,7 @@ class DefaultRatchetLifecycleHookTest {
 
   private RatchetOptions quietOptions() {
     return RatchetOptions.builder()
-        .node(node -> node.orphanScanIntervalMinutes(1L))
+        .node(node -> node.orphanScanIntervalSeconds(1L))
         .maintenance(
             maintenance ->
                 maintenance.dlqPurgeEnabled(false).jobArchiveEnabled(false).logPurgeEnabled(false))

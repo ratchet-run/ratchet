@@ -240,7 +240,7 @@ If the circuit breaker for `payment-gateway` is OPEN, jobs targeting `PaymentSer
 
 ## Timeout as Failure
 
-When a job exceeds its configured timeout, the worker thread is interrupted. The resulting `InterruptedException` flows through the normal failure pipeline: `@DoNotRetry` check, `RetryPolicy` consultation, retry scheduling, or DLQ routing.
+When a job exceeds its configured timeout, the watchdog interrupts the worker thread and handles the attempt as a timeout: it reschedules the job if it has retries left, otherwise it fails it and routes it to the DLQ. A job that stops itself after a cancellation request by throwing `CancellationRequestedException` gets the same outcome without the interrupt. See [Stopping at a safe point](./execution-model.md#stopping-at-a-safe-point).
 
 ```java
 scheduler.enqueue(() -> longRunningService.process(data))
