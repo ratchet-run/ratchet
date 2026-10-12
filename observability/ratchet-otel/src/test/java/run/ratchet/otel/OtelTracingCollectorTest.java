@@ -15,9 +15,12 @@
  */
 package run.ratchet.otel;
 
+import static io.opentelemetry.api.common.AttributeKey.longKey;
 import static io.opentelemetry.api.common.AttributeKey.stringKey;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
+import io.opentelemetry.api.trace.StatusCode;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import io.opentelemetry.sdk.testing.exporter.InMemorySpanExporter;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
@@ -64,6 +67,36 @@ class OtelTracingCollectorTest {
       assertEquals("us-east-1", span.getAttributes().get(stringKey("deployment.region")));
     } finally {
       tracerProvider.close();
+    }
+  }
+
+  @Test
+  void failureExportsOnlySanitizedExceptionAttributes() {
+    InMemorySpanExporter exporter = InMemorySpanExporter.create();
+    try (SdkTracerProvider provider =
+        SdkTracerProvider.builder()
+            .addSpanProcessor(SimpleSpanProcessor.create(exporter))
+            .build()) {
+      OtelTracingCollector collector =
+          new OtelTracingCollector(OpenTelemetrySdk.builder().setTracerProvider(provider).build());
+      collector
+          .jobExecutionStarted(
+              new UUID(0, 1), JobType.SINGLE, JobPriority.NORMAL, Map.of(), Map.of())
+          .failure(IllegalStateException.class.getName(), "***REDACTED***", 2);
+      var span = exporter.getFinishedSpanItems().get(0);
+      assertEquals(StatusCode.ERROR, span.getStatus().getStatusCode());
+      assertEquals("***REDACTED***", span.getStatus().getDescription());
+      assertEquals("failure", span.getAttributes().get(stringKey("ratchet.outcome")));
+      assertEquals(2L, span.getAttributes().get(longKey("ratchet.attempt")));
+      assertEquals(1, span.getEvents().size());
+      var event = span.getEvents().get(0);
+      assertEquals("exception", event.getName());
+      assertEquals(
+          IllegalStateException.class.getName(),
+          event.getAttributes().get(stringKey("exception.type")));
+      assertEquals("***REDACTED***", event.getAttributes().get(stringKey("exception.message")));
+      assertNull(event.getAttributes().get(stringKey("exception.stacktrace")));
+      assertNull(span.getAttributes().get(stringKey("exception.stacktrace")));
     }
   }
 }

@@ -65,20 +65,20 @@ import java.util.UUID;
  * @param sortAscending true for ascending order, false for descending order
  * @param skipCount true to skip the total-count query and return {@code -1} as total count
  * @param includeArchived true to include archived jobs when the backing store supports archives.
- *     Stores silently skip the archive branch when {@code callerPrincipal} is non-null, because
- *     archive tables typically do not carry the {@code caller_principal} column needed for
- *     principal-scoped filtering. A caller that needs both principal-scoping AND archive results
- *     must resolve this at the {@link run.ratchet.spi.JobAuthorizationPolicy#filterForPrincipal}
- *     layer (for example by widening the policy to omit the principal filter when archive
- *     visibility is required, or by running two queries).
+ *     Stores skip the archive branch whenever callerPrincipal, tags, propertyFilters,
+ *     idempotencyKey, pickedBy, resourceName or traceCorrelationId constrains the query (non-empty
+ *     strings or collections/maps). Archived rows do not keep these fields, so skipping the archive
+ *     prevents returning rows to which the constraint, including an authorization scope, cannot be
+ *     applied.
  * @param cursor opaque keyset-pagination cursor, or null to use offset-based pagination
  * @param propertyFilters per-key extension-property constraints, or null for no property filter.
  *     Each entry matches jobs that carry a {@code scheduler_job_properties} row whose key equals
  *     the map key and whose value is one of the entry's values (IN semantics); multiple entries
  *     combine with AND. Requires a store advertising the {@code JobExtensionStore} capability to
- *     have written the rows. Property filters match hot rows only: like {@code callerPrincipal} and
- *     {@code traceCorrelationId}, they are not applied to the archive branch when {@code
- *     includeArchived} is set.
+ *     have written the rows. A non-empty propertyFilters map skips the archive branch, as do
+ *     constraints on callerPrincipal, tags, idempotencyKey, pickedBy, resourceName or
+ *     traceCorrelationId: archived rows do not keep these fields, so the constraints cannot be
+ *     applied there.
  * @since 0.1
  */
 @Incubating

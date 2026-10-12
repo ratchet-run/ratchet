@@ -292,7 +292,7 @@ class ExecutionObserverTest {
         .success(ArgumentMatchers.anyLong());
     doThrow(new RuntimeException("span boom"))
         .when(throwingScope)
-        .failure(ArgumentMatchers.any(), ArgumentMatchers.anyInt());
+        .failure(ArgumentMatchers.any(), ArgumentMatchers.any(), ArgumentMatchers.anyInt());
     doThrow(new RuntimeException("span boom")).when(throwingScope).close();
     when(tracingCollector.jobExecutionStarted(
             ArgumentMatchers.any(),
@@ -305,7 +305,7 @@ class ExecutionObserverTest {
     TracingCollector.ExecutionScope scope = observer.startExecutionScope(job(42L));
 
     assertDoesNotThrow(() -> scope.success(5L));
-    assertDoesNotThrow(() -> scope.failure(new RuntimeException("x"), 1));
+    assertDoesNotThrow(() -> scope.failure(RuntimeException.class.getName(), "[REDACTED]", 1));
     assertDoesNotThrow(scope::close);
   }
 }

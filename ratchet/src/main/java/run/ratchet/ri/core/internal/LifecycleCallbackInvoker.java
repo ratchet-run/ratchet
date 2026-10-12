@@ -24,6 +24,7 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCallbackFailedEvent.CallbackType;
 import run.ratchet.ri.payload.RuntimeArguments;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
@@ -37,18 +38,21 @@ public final class LifecycleCallbackInvoker {
   private final PayloadSerializer payloadSerializer;
   private final ExecutionObserver observabilityFacade;
   private final Clock clock;
+  private final ErrorSanitizer errorSanitizer;
 
   public LifecycleCallbackInvoker(
       PreExecutionValidator validationFacade,
       JobPayloadInvoker payloadInvoker,
       PayloadSerializer payloadSerializer,
       ExecutionObserver observabilityFacade,
-      Clock clock) {
+      Clock clock,
+      ErrorSanitizer errorSanitizer) {
     this.validationFacade = validationFacade;
     this.payloadInvoker = payloadInvoker;
     this.payloadSerializer = payloadSerializer;
     this.observabilityFacade = observabilityFacade;
     this.clock = clock;
+    this.errorSanitizer = errorSanitizer;
   }
 
   public void invokeOnSuccess(JobEntity job) {
@@ -121,12 +125,21 @@ public final class LifecycleCallbackInvoker {
                 job.getPickedBy(),
                 clock.instant(),
                 callbackType,
-                e.getMessage(),
+                sanitizeError(e),
                 e.getClass().getName(),
                 1));
       } catch (Throwable eventEx) {
         log.warnf("Callback event publish error for job %s: %s", job.getId(), eventEx.getMessage());
       }
+    }
+  }
+
+  private String sanitizeError(Throwable failure) {
+    try {
+      String sanitized = errorSanitizer.sanitize(failure);
+      return sanitized != null ? sanitized : failure.getClass().getName();
+    } catch (Throwable sanitizerError) {
+      return failure.getClass().getName();
     }
   }
 

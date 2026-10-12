@@ -32,6 +32,13 @@ sh infra/loadtest/run.sh mongodb 5
 The gateway is exposed at `http://localhost:8080`, Prometheus at `http://localhost:9090`, and
 Grafana at `http://localhost:3000` with `admin` / `ratchet` by default.
 
+Every published port, including the database ports, binds to `127.0.0.1` only. The gateway has no
+authentication: anyone who can reach it can start runs, enqueue jobs, and reset run data. Grafana
+and the databases use the fixed credentials above, and MongoDB runs without authentication. To
+reach the stack from another machine, prefer an SSH tunnel. If you must publish it, set
+`LOADTEST_BIND_ADDRESS` (for example `LOADTEST_BIND_ADDRESS=0.0.0.0`) on a trusted network only,
+and set `GRAFANA_ADMIN_PASSWORD` to something other than the default.
+
 ## Enable Chaos
 
 The chaos monkey uses the Docker socket to randomly disrupt containers whose Compose service is
@@ -154,7 +161,7 @@ Useful request fields:
 | `sleepSpikeRate` | `0.0` | Fraction of jobs that get an additional long-tail sleep spike |
 | `sleepSpikeMs` | `0` | Additional sleep added when a spike is selected |
 | `failureRate` | `0.0` | Value from `0.0` to `1.0` |
-| `payloadBytes` | `0` | Bytes added to each job payload argument |
+| `payloadBytes` | `0` | Bytes added to each job payload argument; at most 102400 (set `-Dratchet.loadtest.max-payload-bytes` to change). Ratchet's payload limit (100 KiB by default) covers the whole serialized job, so values close to 102400 are rejected when the job is submitted. |
 | `maxRetries` | `0` | Ratchet retry count for injected failures |
 | `priority` | `NORMAL` | Ratchet job priority |
 | `timeoutSeconds` | `60` | Per-job timeout |

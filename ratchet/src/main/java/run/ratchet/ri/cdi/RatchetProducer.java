@@ -193,7 +193,12 @@ public class RatchetProducer {
         singletonLeaseService,
         errorSanitizer,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock),
+            validationFacade,
+            payloadInvoker,
+            payloadSerializer,
+            observabilityFacade,
+            clock,
+            errorSanitizer),
         options.timeout().signalTimeoutLeaseTtlSeconds());
   }
 

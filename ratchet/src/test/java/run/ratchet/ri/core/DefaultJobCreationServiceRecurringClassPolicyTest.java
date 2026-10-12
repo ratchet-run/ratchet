@@ -38,6 +38,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
 import run.ratchet.spi.JobInvocation;
@@ -103,7 +104,8 @@ class DefaultJobCreationServiceRecurringClassPolicyTest {
             true,
             true,
             null,
-            new JakartaAfterCommitRegistrar());
+            new JakartaAfterCommitRegistrar(),
+            new DefaultErrorSanitizer());
     DefaultRecurringJobBuilder builder =
         new DefaultRecurringJobBuilder(
             "0 0 12 * * ?", ZoneId.of("UTC"), AppRecurringBean::doWork, service);

@@ -109,7 +109,8 @@ public interface JobExtensionStore {
    * @param jobId owning job id; never {@code null}
    * @param namespace extension namespace; never {@code null} or blank, at most 64 characters
    * @param initialState serialized JSON blob; never {@code null}
-   * @throws IllegalStateException when a row already exists for the {@code (job, namespace)}
+   * @throws IllegalStateException when a row already exists for the {@code (job, namespace)}, or
+   *     when no job exists with {@code jobId}; the message for a missing job includes its id
    * @throws IllegalArgumentException if state exceeds {@link ExtensionValidation#MAX_STATE_BYTES}
    *     UTF-8 bytes
    */
