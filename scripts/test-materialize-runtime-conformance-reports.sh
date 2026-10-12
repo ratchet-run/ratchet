@@ -51,85 +51,29 @@ database_label() {
   esac
 }
 
-print_inline_list() {
-  local key="$1"
-  shift
-  local value separator=''
+write_matrix_fixture() {
+  local fixture_root="$1"
+  local omitted_combination="${2:-}"
 
-  printf '        %s: [' "${key}"
-  for value in "$@"; do
-    printf '%s%s' "${separator}" "${value}"
-    separator=', '
-  done
-  printf ']\n'
+  python3 -c '
+import json
+import sys
+servers = sys.argv[2].split()
+databases = sys.argv[3].split()
+rows = [{"server": server, "database": database}
+        for server in servers for database in databases
+        if f"{server}:{database}" != sys.argv[1]]
+# Duplicate rows must not create duplicate reports.
+print(json.dumps(rows + rows[:1]))
+' "${omitted_combination}" "${SERVERS[*]}" "${DATABASES[*]}" > "${fixture_root}/matrix.json"
 }
 
-write_ci_fixture() {
-  local fixture_root="$1"
-  local omitted_include="${2:-}"
-  local server database
-  local base_servers=()
-
-  for server in "${SERVERS[@]}"; do
-    if [[ "${server}" != 'glassfish-managed' ]]; then
-      base_servers+=("${server}")
-    fi
-  done
-
-  {
-    printf 'name: Fixture CI\n\n'
-    printf 'jobs:\n'
-    printf '  integration-test:\n'
-    printf '    runs-on: ubuntu-latest\n'
-    printf '    strategy:\n'
-    printf '      fail-fast: false\n'
-    printf '      matrix:\n'
-    print_inline_list server "${base_servers[@]}"
-    printf '        # Fixture comment proves comments between matrix lists are ignored.\n'
-    print_inline_list database "${DATABASES[@]}"
-    printf '        include:\n'
-    for database in "${DATABASES[@]}"; do
-      if [[ "glassfish-managed:${database}" == "${omitted_include}" ]]; then
-        continue
-      fi
-      printf '          - server: glassfish-managed\n'
-      printf '            database: %s\n' "${database}"
-    done
-    printf '  showcase-smoke:\n'
-    printf '    runs-on: ubuntu-latest\n'
-  } > "${fixture_root}/ci.yml"
+write_empty_matrix_fixture() {
+  printf '[]' > "$1/matrix.json"
 }
 
-write_empty_server_ci_fixture() {
-  local fixture_root="$1"
-
-  {
-    printf 'jobs:\n'
-    printf '  integration-test:\n'
-    printf '    strategy:\n'
-    printf '      fail-fast: false\n'
-    printf '      matrix:\n'
-    print_inline_list server
-    printf '        # Empty-server failure fixture comment.\n'
-    print_inline_list database "${DATABASES[@]}"
-    printf '  showcase-smoke:\n'
-  } > "${fixture_root}/ci.yml"
-}
-
-write_unknown_label_ci_fixture() {
-  local fixture_root="$1"
-
-  {
-    printf 'jobs:\n'
-    printf '  integration-test:\n'
-    printf '    strategy:\n'
-    printf '      fail-fast: false\n'
-    printf '      matrix:\n'
-    print_inline_list server weblogic-managed
-    printf '        # Unknown-label failure fixture comment.\n'
-    print_inline_list database mysql
-    printf '  showcase-smoke:\n'
-  } > "${fixture_root}/ci.yml"
+write_unknown_label_fixture() {
+  printf '[{"server":"weblogic-managed","database":"mysql"}]' > "$1/matrix.json"
 }
 
 create_fixture() {
@@ -138,7 +82,7 @@ create_fixture() {
   local server database tier artifact_dir report_dir
 
   mkdir -p "${fixture_root}/runtime" "${fixture_root}/docs/api" "${fixture_root}/docs/jakarta"
-  write_ci_fixture "${fixture_root}"
+  write_matrix_fixture "${fixture_root}"
   printf '%s' "${API_INDEX_CONTENT}" > "${fixture_root}/docs/api/index.md"
   printf '%s' "${JAKARTA_INDEX_CONTENT}" > "${fixture_root}/docs/jakarta/index.md"
 
@@ -252,7 +196,7 @@ assert_legacy_flattened_regression() {
 
 run_materializer() {
   local fixture_root="$1"
-  CI_WORKFLOW_FILE="${fixture_root}/ci.yml" \
+  RUNTIME_MATRIX_JSON="$(< "${fixture_root}/matrix.json")" \
     "${MATERIALIZER}" "${fixture_root}/runtime" "${fixture_root}/docs"
 }
 
@@ -318,7 +262,7 @@ expect_failure 'placeholder Jakarta report for openliberty-managed / sqlserver' 
 
 combo_root="${TMP_ROOT}/combo-removal"
 create_fixture flattened "${combo_root}"
-write_ci_fixture "${combo_root}" 'glassfish-managed:sqlserver'
+write_matrix_fixture "${combo_root}" 'glassfish-managed:sqlserver'
 [[ -d "${combo_root}/runtime/tck-conformance-reports-glassfish-managed-sqlserver" ]] \
   || fail "removed combination artifact directory was not present before materialization"
 [[ -f "${combo_root}/docs/api/glassfish-managed-sqlserver.md" ]] \
@@ -334,18 +278,59 @@ assert_materialized "${combo_root}/docs" glassfish-managed sqlserver
 
 parse_root="${TMP_ROOT}/parse-failure"
 mkdir -p "${parse_root}/runtime"
-write_empty_server_ci_fixture "${parse_root}"
-expect_failure 'integration-test matrix server list is empty' \
+write_empty_matrix_fixture "${parse_root}"
+expect_failure 'Runtime matrix row list is empty' \
   run_materializer "${parse_root}"
 
 unknown_label_root="${TMP_ROOT}/unknown-label"
 mkdir -p "${unknown_label_root}/runtime"
-write_unknown_label_ci_fixture "${unknown_label_root}"
+write_unknown_label_fixture "${unknown_label_root}"
 expect_failure 'weblogic-managed' \
   run_materializer "${unknown_label_root}"
+
+printf '{invalid' > "${parse_root}/matrix.json"
+expect_failure 'Invalid runtime matrix JSON' run_materializer "${parse_root}"
+printf '[{"server":"wildfly-managed"}]' > "${parse_root}/matrix.json"
+expect_failure 'row 1 is missing database' run_materializer "${parse_root}"
+
+# Exercise the production source of truth, without the JSON override.
+live_root="${TMP_ROOT}/live"
+mkdir -p "${live_root}/runtime" "${live_root}/docs/api" "${live_root}/docs/jakarta"
+printf '%s' "${API_INDEX_CONTENT}" > "${live_root}/docs/api/index.md"
+printf '%s' "${JAKARTA_INDEX_CONTENT}" > "${live_root}/docs/jakarta/index.md"
+GITHUB_OUTPUT='' GITHUB_STEP_SUMMARY='' python3 "${SCRIPT_DIR}/../infra/ci/affected_lanes.py" --full > "${live_root}/lanes.txt"
+python3 - "${live_root}" <<'PYTHON'
+import json
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+rows = json.loads(next(line.removeprefix("integration=") for line in
+                       (root / "lanes.txt").read_text().splitlines()
+                       if line.startswith("integration=")))
+cells = sorted({(row["server"], row["database"]) for row in rows})
+assert cells, "live matrix is empty"
+assert any(server == "wildfly-ee11-managed" for server, _ in cells)
+(root / "cell-count").write_text(str(len(cells)))
+for server, database in cells:
+    artifact = root / "runtime" / f"tck-conformance-reports-{server}-{database}"
+    artifact.mkdir()
+    for tier in ("api", "jakarta"):
+        (artifact / f"tck-{tier}-conformance-report.md").write_text("fixture-result: PASS\n")
+PYTHON
+live_count="$(< "${live_root}/cell-count")"
+live_output="$(unset RUNTIME_MATRIX_JSON; "${MATERIALIZER}" "${live_root}/runtime" "${live_root}/docs")"
+grep -Fq "Materialized $((live_count * 2)) runtime conformance reports for ${live_count} server/database combinations" <<< "${live_output}" \
+  || fail "live matrix summary did not match its cell count"
+actual_count="$(find "${live_root}/docs" -name '*.md' ! -name index.md | wc -l | tr -d ' ')"
+[[ "${actual_count}" -eq "$((live_count * 2))" ]] || fail "live matrix report count did not match"
+grep -Rq 'title: "WildFly EE 11 /' "${live_root}/docs" || fail "live matrix omitted WildFly EE 11"
+assert_indexes_preserved "${live_root}/docs"
 
 echo 'PASS: runtime conformance reports materialize from flattened and nested artifacts'
 echo 'PASS: missing, duplicate, empty, and placeholder reports fail closed'
 echo 'PASS: stale conformance pages are pruned while index pages are preserved'
-echo 'PASS: ci.yml matrix removal materializes 68 reports for 34 combinations'
+echo 'PASS: matrix removal materializes 68 reports for 34 combinations'
 echo 'PASS: empty matrices and unknown display labels fail closed'
+echo 'PASS: invalid JSON and rows missing database fail closed'
+echo "PASS: live affected_lanes.py matrix materializes ${live_count} cells including WildFly EE 11"

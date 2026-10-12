@@ -3,7 +3,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CI_WORKFLOW_FILE="${CI_WORKFLOW_FILE:-${SCRIPT_DIR}/../.github/workflows/ci.yml}"
 
 if [[ "$#" -ne 2 ]]; then
   echo "Usage: $0 <runtime-artifact-root> <conformance-docs-root>" >&2
@@ -13,243 +12,62 @@ fi
 artifact_root="$1"
 docs_root="$2"
 
-if [[ ! -f "${CI_WORKFLOW_FILE}" ]]; then
-  echo "CI workflow file does not exist: ${CI_WORKFLOW_FILE}" >&2
-  exit 1
-fi
-
 if [[ ! -d "${artifact_root}" ]]; then
   echo "Runtime artifact root does not exist: ${artifact_root}" >&2
   exit 1
 fi
 
+if [[ "${RUNTIME_MATRIX_JSON+x}" == 'x' ]]; then
+  matrix_json="${RUNTIME_MATRIX_JSON}"
+else
+  if ! lane_output="$(GITHUB_OUTPUT='' GITHUB_STEP_SUMMARY='' python3 "${SCRIPT_DIR}/../infra/ci/affected_lanes.py" --full)"; then
+    echo 'Failed to read runtime matrix from affected_lanes.py --full' >&2
+    exit 1
+  fi
+  matrix_json=''
+  integration_found=0
+  while IFS= read -r line; do
+    if [[ "${line}" == integration=* ]]; then
+      matrix_json="${line#integration=}"
+      integration_found=1
+      break
+    fi
+  done <<< "${lane_output}"
+  if [[ "${integration_found}" -eq 0 ]]; then
+    echo 'Missing integration= output from affected_lanes.py --full' >&2
+    exit 1
+  fi
+fi
+
 matrix_output=''
-if ! matrix_output="$(LC_ALL=C awk -v workflow_file="${CI_WORKFLOW_FILE}" '
-  function trim(value) {
-    sub(/^[[:space:]]+/, "", value)
-    sub(/[[:space:]]+$/, "", value)
-    return value
-  }
+if ! matrix_output="$(python3 -c '
+import json
+import sys
 
-  function indentation(line, leading) {
-    leading = line
-    sub(/[^ ].*$/, "", leading)
-    return length(leading)
-  }
-
-  function set_parse_error(message) {
-    if (parse_error == "") {
-      parse_error = message
-    }
-  }
-
-  function parse_inline_list(line, kind, body, count, values, list_index, value) {
-    body = line
-    sub(/^[^[]*\[/, "", body)
-    sub(/\][[:space:]]*$/, "", body)
-    body = trim(body)
-    if (body == "") {
-      return
-    }
-
-    count = split(body, values, ",")
-    for (list_index = 1; list_index <= count; list_index++) {
-      value = trim(values[list_index])
-      if (value == "") {
-        continue
-      }
-      if (kind == "server") {
-        base_server_count++
-        base_servers[base_server_count] = value
-      } else {
-        base_database_count++
-        base_databases[base_database_count] = value
-      }
-    }
-  }
-
-  function parse_include_field(field, value) {
-    field = trim(field)
-    if (field ~ /^server:[[:space:]]*/) {
-      value = field
-      sub(/^server:[[:space:]]*/, "", value)
-      item_server = trim(value)
-    } else if (field ~ /^database:[[:space:]]*/) {
-      value = field
-      sub(/^database:[[:space:]]*/, "", value)
-      item_database = trim(value)
-    }
-  }
-
-  function finish_include_item(missing) {
-    if (!include_item_open) {
-      return
-    }
-
-    missing = ""
-    if (item_server == "") {
-      missing = "server"
-    }
-    if (item_database == "") {
-      if (missing == "") {
-        missing = "database"
-      } else {
-        missing = missing " and database"
-      }
-    }
-
-    if (missing != "") {
-      set_parse_error("integration-test matrix include item " include_item_number \
-        " is missing " missing " in " workflow_file)
-    } else {
-      include_count++
-      include_servers[include_count] = item_server
-      include_databases[include_count] = item_database
-    }
-
-    include_item_open = 0
-    item_server = ""
-    item_database = ""
-  }
-
-  function add_combination(server, database, key) {
-    key = server SUBSEP database
-    if (!(key in seen_combinations)) {
-      seen_combinations[key] = 1
-      combination_count++
-      combination_servers[combination_count] = server
-      combination_databases[combination_count] = database
-    }
-  }
-
-  {
-    raw_line = $0
-    if (raw_line ~ /^[[:space:]]*$/ || raw_line ~ /^[[:space:]]*#/) {
-      next
-    }
-
-    indent = indentation(raw_line)
-
-    if (!in_job) {
-      if (raw_line ~ /^  integration-test:[[:space:]]*$/) {
-        in_job = 1
-      }
-      next
-    }
-
-    if (raw_line ~ /^  [[:alnum:]_-]+:[[:space:]]*$/) {
-      finish_include_item()
-      exit
-    }
-
-    if (!in_strategy) {
-      if (raw_line ~ /^    strategy:[[:space:]]*$/) {
-        in_strategy = 1
-      }
-      next
-    }
-
-    if (!in_matrix) {
-      if (raw_line ~ /^      matrix:[[:space:]]*$/) {
-        in_matrix = 1
-      } else if (indent <= 4) {
-        in_strategy = 0
-      }
-      next
-    }
-
-    if (indent <= 6) {
-      finish_include_item()
-      exit
-    }
-
-    line = raw_line
-    sub(/[[:space:]]+#.*$/, "", line)
-
-    if (indent == 8 && line ~ /^        server:[[:space:]]*\[[^]]*\][[:space:]]*$/) {
-      finish_include_item()
-      in_include = 0
-      parse_inline_list(line, "server")
-      next
-    }
-    if (indent == 8 && line ~ /^        database:[[:space:]]*\[[^]]*\][[:space:]]*$/) {
-      finish_include_item()
-      in_include = 0
-      parse_inline_list(line, "database")
-      next
-    }
-    if (indent == 8 && line ~ /^        include:[[:space:]]*$/) {
-      finish_include_item()
-      in_include = 1
-      next
-    }
-
-    if (in_include && line ~ /^          -[[:space:]]*/) {
-      finish_include_item()
-      include_item_number++
-      include_item_open = 1
-      field = line
-      sub(/^          -[[:space:]]*/, "", field)
-      parse_include_field(field)
-      next
-    }
-    if (in_include && include_item_open && indent > 10) {
-      parse_include_field(line)
-      next
-    }
-    if (in_include && indent <= 8) {
-      finish_include_item()
-      in_include = 0
-    }
-  }
-
-  END {
-    finish_include_item()
-
-    if (parse_error != "") {
-      print parse_error > "/dev/stderr"
-      exit 1
-    }
-    if (base_server_count == 0) {
-      print "integration-test matrix server list is empty in " workflow_file > "/dev/stderr"
-      exit 1
-    }
-    if (base_database_count == 0) {
-      print "integration-test matrix database list is empty in " workflow_file > "/dev/stderr"
-      exit 1
-    }
-
-    for (server_index = 1; server_index <= base_server_count; server_index++) {
-      for (database_index = 1; database_index <= base_database_count; database_index++) {
-        add_combination(base_servers[server_index], base_databases[database_index])
-      }
-    }
-    for (include_index = 1; include_index <= include_count; include_index++) {
-      add_combination(include_servers[include_index], include_databases[include_index])
-    }
-
-    for (left = 1; left <= combination_count; left++) {
-      for (right = left + 1; right <= combination_count; right++) {
-        left_value = combination_servers[left] "\t" combination_databases[left]
-        right_value = combination_servers[right] "\t" combination_databases[right]
-        if (right_value < left_value) {
-          swap = combination_servers[left]
-          combination_servers[left] = combination_servers[right]
-          combination_servers[right] = swap
-          swap = combination_databases[left]
-          combination_databases[left] = combination_databases[right]
-          combination_databases[right] = swap
-        }
-      }
-    }
-
-    for (combination_index = 1; combination_index <= combination_count; combination_index++) {
-      print combination_servers[combination_index] "\t" combination_databases[combination_index]
-    }
-  }
-' "${CI_WORKFLOW_FILE}")"; then
+try:
+    rows = json.load(sys.stdin)
+except ValueError as error:
+    sys.exit(f"Invalid runtime matrix JSON: {error}")
+if not isinstance(rows, list):
+    sys.exit("Runtime matrix JSON must be an array")
+if not rows:
+    sys.exit("Runtime matrix row list is empty")
+combinations = set()
+for index, row in enumerate(rows, 1):
+    for field in ("server", "database"):
+        if not isinstance(row, dict) or field not in row:
+            sys.exit(f"Runtime matrix row {index} is missing {field}")
+        value = row[field]
+        if not isinstance(value, str) or not value or any(c in value for c in "\t\r\n:"):
+            sys.exit(f"Runtime matrix row {index} has invalid {field}")
+    combinations.add((row["server"], row["database"]))
+for server, database in sorted(combinations):
+    print(f"{server}\t{database}")
+' <<< "${matrix_json}")"; then
   exit 1
 fi
+
+echo "Read $(printf '%s\n' "${matrix_output}" | wc -l | tr -d ' ') runtime matrix cells"
 
 combinations=()
 while IFS=$'\t' read -r server database; do
