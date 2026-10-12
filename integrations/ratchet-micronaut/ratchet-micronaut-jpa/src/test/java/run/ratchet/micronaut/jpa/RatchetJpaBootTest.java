@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.junit.jupiter.Container;
@@ -58,6 +59,7 @@ import run.ratchet.store.spi.LockStore;
 /**
  * Boots Micronaut's real Hibernate infrastructure against migrated PostgreSQL, without a poller.
  */
+@Tag("single-store-classpath")
 @Testcontainers
 class RatchetJpaBootTest {
   @Container

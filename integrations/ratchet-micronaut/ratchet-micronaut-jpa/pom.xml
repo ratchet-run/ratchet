@@ -167,6 +167,35 @@
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>default-test</id>
+            <configuration>
+              <excludedGroups>single-store-classpath</excludedGroups>
+            </configuration>
+          </execution>
+          <!-- Every SQL store ships its scripts under ddl/migrations, so SchemaMigrator would merge
+               the other stores' indexes (MySQL's V010 among them) into the PostgreSQL run. An
+               application carries one store; give the boot test the same classpath. -->
+          <execution>
+            <id>postgresql-boot-test</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <groups>single-store-classpath</groups>
+              <classpathDependencyExcludes>
+                <classpathDependencyExclude>run.ratchet:ratchet-store-mysql</classpathDependencyExclude>
+                <classpathDependencyExclude>run.ratchet:ratchet-store-oracle</classpathDependencyExclude>
+                <classpathDependencyExclude>run.ratchet:ratchet-store-sqlserver</classpathDependencyExclude>
+              </classpathDependencyExcludes>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
         <configuration>
           <archive>
