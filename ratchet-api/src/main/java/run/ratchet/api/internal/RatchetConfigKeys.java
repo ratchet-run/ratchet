@@ -114,6 +114,8 @@ public final class RatchetConfigKeys {
           "RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS",
           10L,
           1L);
+  public static final RatchetConfigKey<Integer> NODE_MAX_CRASH_REDELIVERIES =
+      intKey("ratchet.node.max-crash-redeliveries", "RATCHET_NODE_MAX_CRASH_REDELIVERIES", 3, 0);
   public static final RatchetConfigKey<Long> NODE_ORPHAN_GRACE_SECONDS =
       longKey("ratchet.node.orphan-grace-seconds", "RATCHET_NODE_ORPHAN_GRACE_SECONDS", 60L, 0L);
   public static final RatchetConfigKey<Long> ORPHAN_SCAN_INTERVAL_SECONDS =

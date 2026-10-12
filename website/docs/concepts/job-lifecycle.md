@@ -284,7 +284,11 @@ job code must make external side effects idempotent.
 
 ## Orphan Recovery
 
-If a node crashes while executing a job, the job remains in RUNNING state with no node to complete it. The `OrphanRecoveryTimer` periodically scans for stale RUNNING jobs (based on `picked_at` timestamp) and resets them to PENDING for re-execution. The next claim advances the claim sequence, so a stalled worker that resumes cannot overwrite the new owner’s outcome or retry count. Its external side effects still require idempotency.
+If a node crashes while executing a job, orphan recovery checks its heartbeat and claim age. It returns the job to PENDING while its crash count is below `ratchet.node.max-crash-redeliveries`. Each recovery adds one to the count. The default allows three redeliveries. The next crash fails the job and sends it to the DLQ. A limit of zero fails it after the first crash. This budget is separate from application retries.
+
+A committed crash failure runs `onFailure`. If the job payload cannot be loaded, Ratchet fails it from stored metadata and skips the callback. A manual DLQ retry starts with a fresh crash budget. Graceful shutdown releases claims without charging the budget, even when a worker outlives the drain timeout.
+
+The next claim advances the claim sequence. A stalled worker cannot overwrite the new owner's outcome or retry count. External side effects still require idempotency. Execution-history rows for crashed runs can still remain RUNNING; cleaning up those rows is a separate follow-up.
 
 ## Archival
 

@@ -73,7 +73,7 @@ This sets the job status to PENDING, clears the error, resets attempts to 0, and
 Yes. Ratchet supports multi-node deployment. Each node runs its own poller that atomically claims jobs from the shared database using optimistic locking (`claimNextBatchOptimized`). This ensures:
 
 - **Claim ownership:** Atomic claiming grants one current owner. Every claim advances a sequence, and owner writes must match it. Recovery can overlap job bodies, so execution remains at least once and external side effects need idempotency.
-- **Automatic failover:** If a node crashes, the `OrphanRecoveryTimer` on surviving nodes detects stale heartbeats and resets orphaned RUNNING jobs to PENDING.
+- **Automatic failover:** If a node crashes, surviving nodes detect stale heartbeats. Orphan recovery returns its jobs to PENDING while they have crash budget left. Exhausted jobs fail and enter the DLQ.
 - **Node identity:** Each node registers in `scheduler_node` with a unique ID and periodic heartbeat (default every 10 seconds).
 
 Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrain which jobs a node claims by providing a `NodeTagAffinityProvider` (the default is `DefaultNodeTagAffinityProvider`, consumed by the poller). For fully custom routing or cross-node wakeups, implement the `ClusterCoordinator` SPI.
@@ -85,6 +85,7 @@ Ratchet supports worker tag affinity: tag jobs with `withTags(...)` and constrai
 | `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` | How often nodes write their heartbeat |
 | `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | Time before a silent node's jobs are recovered |
 | `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS` | `300` | Seconds between orphan scans |
+| `RATCHET_NODE_MAX_CRASH_REDELIVERIES` | `3` | Crash redeliveries before a job fails to the DLQ |
 
 ## What happens if the server crashes mid-job?
 
@@ -94,13 +95,15 @@ When a node crashes while jobs are RUNNING:
 
 2. **Orphan recovery kicks in.** Surviving nodes run the `OrphanRecoveryTimer` (default every 5 minutes). It finds RUNNING jobs assigned to nodes whose heartbeat is older than the grace period (default 60 seconds).
 
-3. **Jobs are reset to PENDING.** The orphaned jobs are atomically moved from RUNNING back to PENDING, making them eligible for re-claim by any healthy node.
+3. **The crash budget is checked.** Recovery returns the job to PENDING and adds one to its crash count while the count is below `ratchet.node.max-crash-redeliveries` (default 3). Once the limit is reached, the next crash fails the job and sends it to the DLQ. A limit of zero fails it on the first crash. Poison jobs that repeatedly kill their node stop after this limit.
 
 4. **Resource permits are cleaned up.** Any permits held by the dead node in `scheduler_resource_permit` are released.
 
 5. **The stale node entry is deleted.** The `scheduler_node` row for the crashed node is removed.
 
 **Important:** The recovered job starts from scratch and does not resume from where it left off. If your job performs work that is not idempotent, design it to check for partial completion before proceeding.
+
+The crash budget is separate from application retries. A committed crash failure runs `onFailure` if the payload can be loaded. A manual DLQ retry clears the crash count. Graceful shutdown releases claims without charging the budget, including when the drain times out.
 
 **Worst-case recovery time:** `orphanScanIntervalSeconds + orphanGraceSeconds`. With defaults, this is 300 seconds + 60 seconds ≈ 6 minutes.
 

@@ -533,10 +533,10 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     assertEquals(
         first.claimSeq(),
         store().findById(pending.getId()).orElseThrow().getClaimSeq().longValue());
-    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
     var sameNode = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
     assertTrue(sameNode.claimSeq() > first.claimSeq());
-    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
     var otherNode = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-2").get(0);
     assertTrue(otherNode.claimSeq() > sameNode.claimSeq());
   }

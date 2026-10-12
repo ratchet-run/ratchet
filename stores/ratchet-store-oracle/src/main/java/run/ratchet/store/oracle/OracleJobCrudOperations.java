@@ -28,6 +28,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.OrphanRecovery;
 
 final class OracleJobCrudOperations implements JobCrudStore, JobBulkStore, JobAnalyticsStore {
 
@@ -226,18 +227,26 @@ final class OracleJobCrudOperations implements JobCrudStore, JobBulkStore, JobAn
   }
 
   @Override
-  public int resetOrphanJobs(Duration grace) {
-    return deletes.resetOrphanJobs(grace);
+  public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
+    return deletes.findOrphanCompletionSnapshot(jobId);
   }
 
   @Override
-  public int resetOrphanJobsBefore(Instant cutoff) {
-    return deletes.resetOrphanJobsBefore(cutoff);
+  public OrphanRecovery resetOrphanJobs(
+      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
+    return deletes.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
   }
 
   @Override
-  public int resetOrphanJobsForNode(String nodeId) {
-    return deletes.resetOrphanJobsForNode(nodeId);
+  public OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
+    return deletes.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  }
+
+  @Override
+  public OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
+    return deletes.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
   }
 
   @Override

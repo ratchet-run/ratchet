@@ -52,6 +52,7 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
@@ -289,18 +290,26 @@ class OracleJobStoreImpl implements OracleJobStore {
   }
 
   @Override
-  public int resetOrphanJobs(Duration grace) {
-    return jobs.resetOrphanJobs(grace);
+  public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
+    return jobs.findOrphanCompletionSnapshot(jobId);
   }
 
   @Override
-  public int resetOrphanJobsBefore(Instant cutoff) {
-    return jobs.resetOrphanJobsBefore(cutoff);
+  public OrphanRecovery resetOrphanJobs(
+      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
+    return jobs.resetOrphanJobs(grace, maxCrashRedeliveries, exhaustedLimit);
   }
 
   @Override
-  public int resetOrphanJobsForNode(String nodeId) {
-    return jobs.resetOrphanJobsForNode(nodeId);
+  public OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
+    return jobs.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);
+  }
+
+  @Override
+  public OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
+    return jobs.resetOrphanJobsForNode(nodeId, maxCrashRedeliveries, exhaustedLimit);
   }
 
   @Override

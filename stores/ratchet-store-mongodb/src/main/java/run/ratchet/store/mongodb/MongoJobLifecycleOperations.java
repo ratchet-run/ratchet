@@ -25,6 +25,7 @@ import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.unset;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
+import static run.ratchet.store.mongodb.MongoFieldNames.CRASH_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_END_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
@@ -567,6 +568,7 @@ final class MongoJobLifecycleOperations
                           combine(
                               set(STATUS, "PENDING"),
                               set(ATTEMPTS, 0),
+                              set(CRASH_COUNT, 0),
                               set(LAST_ERROR, null),
                               set(SCHEDULED_TIME, DocumentMapper.toDate(now)),
                               set(PICKED_BY, null),
@@ -603,6 +605,7 @@ final class MongoJobLifecycleOperations
                         combine(
                             set(STATUS, "PENDING"),
                             set(ATTEMPTS, 0),
+                            set(CRASH_COUNT, 0),
                             set(LAST_ERROR, null),
                             set(SCHEDULED_TIME, DocumentMapper.toDate(now)),
                             set(PICKED_BY, null),

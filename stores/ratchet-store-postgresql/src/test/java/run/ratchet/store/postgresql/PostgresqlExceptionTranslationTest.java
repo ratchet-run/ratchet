@@ -138,7 +138,8 @@ class PostgresqlExceptionTranslationTest {
                 new PostgresqlStoreContext(entityManager(queryReturningUpdate(1)))));
 
     assertThrows(
-        RatchetTransientStoreException.class, () -> deletes.resetOrphanJobsForNode("node"));
+        RatchetTransientStoreException.class,
+        () -> deletes.resetOrphanJobsForNode("node", 3, 100).reset());
   }
 
   @Test

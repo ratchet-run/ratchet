@@ -46,6 +46,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ExecutionTargetFilter;
+import run.ratchet.store.spi.OrphanRecovery;
 
 /**
  * Single-threaded in-memory {@link run.ratchet.store.spi.JobStore} implementation that supports the
@@ -565,18 +566,26 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   // ----- JobBulkStore (no-op so background orphan-recovery loops don't trip stubs) -----
 
   @Override
-  public synchronized int resetOrphanJobs(Duration grace) {
-    return 0;
+  public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
+    return findById(jobId);
   }
 
   @Override
-  public synchronized int resetOrphanJobsBefore(Instant cutoff) {
-    return 0;
+  public synchronized OrphanRecovery resetOrphanJobs(
+      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
+    return new OrphanRecovery(0, List.of());
   }
 
   @Override
-  public synchronized int resetOrphanJobsForNode(String nodeId) {
-    return 0;
+  public synchronized OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
+    return new OrphanRecovery(0, List.of());
+  }
+
+  @Override
+  public synchronized OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
+    return new OrphanRecovery(0, List.of());
   }
 
   @Override

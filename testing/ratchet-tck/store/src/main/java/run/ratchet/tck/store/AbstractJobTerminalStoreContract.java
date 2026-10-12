@@ -502,7 +502,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             JobStatus.PENDING,
             Instant.now(),
             beforeChild.getJobType());
-    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
     var current = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
     var before = store().findById(parent.getId()).orElseThrow();
     var stale =

@@ -76,7 +76,7 @@ public class JobExecutionCoordinator {
     shutdown(Duration.ZERO);
   }
 
-  /** Stops submissions, drains accepted work, then cancels tasks that exceeded the deadline. */
+  /** Stops submissions, drains accepted work, releases its claims, then cancels what is left. */
   public void shutdown(Duration timeout) {
     retryBufferDrainer.shutdown();
     if (!timeout.isZero() && !timeout.isNegative()) {
@@ -86,15 +86,15 @@ public class JobExecutionCoordinator {
         Thread.currentThread().interrupt();
       }
     }
+    // Release before interrupting. The claim fence then rejects the failure an interrupted worker
+    // would record, so a drain timeout charges neither an attempt nor a crash.
+    int reset = jobStateManager.resetRunningJobsForNode();
+    log.infof("JobExecutionCoordinator shutdown - reset %s RUNNING jobs to PENDING", reset);
     int activeExecutions = jobExecutorService.shutdownActiveExecutions();
     if (activeExecutions > 0) {
       log.warnf(
-          "JobExecutionCoordinator shutdown - leaving RUNNING jobs unchanged because %s active "
-              + "execution(s) did not stop; orphan recovery will handle them",
+          "JobExecutionCoordinator shutdown - %s active execution(s) did not stop",
           activeExecutions);
-      return;
     }
-    int reset = jobStateManager.resetRunningJobsForNode();
-    log.infof("JobExecutionCoordinator shutdown - reset %s RUNNING jobs to PENDING", reset);
   }
 }
