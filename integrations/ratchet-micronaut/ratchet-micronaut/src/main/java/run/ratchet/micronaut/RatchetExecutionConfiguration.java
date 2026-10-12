@@ -162,6 +162,7 @@ class RatchetExecutionConfiguration {
   @Requires(missingBeans = RecurringScheduler.class)
   RecurringScheduler defaultRecurringScheduler(
       JobStore store,
+      RatchetOptions options,
       ExecutorProvider executorProvider,
       SingletonLeaseService singletonLeaseService,
       NodeIdentityProvider nodeIdentityProvider,
@@ -175,7 +176,8 @@ class RatchetExecutionConfiguration {
         nodeIdentityProvider,
         recurringJobExecutor,
         pollerScheduler,
-        clock);
+        clock,
+        options.recurring().leaseTtlSeconds());
   }
 
   @Singleton
@@ -491,9 +493,11 @@ class RatchetExecutionConfiguration {
         store.capability(SignalStore.class).orElse(null),
         metrics,
         options.timeout().signalTimeoutBatchSize(),
+        options.timeout().cancellationGraceSeconds(),
         leases,
         sanitizer,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
+            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock),
+        options.timeout().signalTimeoutLeaseTtlSeconds());
   }
 }
