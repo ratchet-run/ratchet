@@ -18,6 +18,7 @@ package run.ratchet.spring.boot.autoconfigure;
 import java.lang.reflect.Method;
 import org.aopalliance.intercept.MethodInterceptor;
 import org.aopalliance.intercept.MethodInvocation;
+import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.ObjectProvider;
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.ri.resilience.CircuitBreaker;
@@ -74,23 +75,20 @@ final class CircuitBreakerProtectedInterceptor implements MethodInterceptor {
 
   private static ResolvedAnnotation resolve(MethodInvocation invocation) {
     Method method = invocation.getMethod();
-    CircuitBreakerProtected annotation = method.getAnnotation(CircuitBreakerProtected.class);
-    if (annotation == null) {
-      annotation = method.getDeclaringClass().getAnnotation(CircuitBreakerProtected.class);
-    }
-    if (annotation != null) return new ResolvedAnnotation(annotation, method);
     Object target = invocation.getThis();
-    if (target == null) return null;
-    Class<?> targetClass = target.getClass();
-    Method targetMethod = method;
-    try {
-      targetMethod = targetClass.getMethod(method.getName(), method.getParameterTypes());
-      annotation = targetMethod.getAnnotation(CircuitBreakerProtected.class);
-    } catch (NoSuchMethodException ignored) {
-      annotation = null;
-    }
-    if (annotation == null) annotation = targetClass.getAnnotation(CircuitBreakerProtected.class);
-    return annotation == null ? null : new ResolvedAnnotation(annotation, targetMethod);
+    Class<?> targetClass =
+        target == null ? method.getDeclaringClass() : AopUtils.getTargetClass(target);
+    // A JDK proxy invokes the interface method. Resolve as Spring does for @Transactional: the
+    // implementation method, its class, then the interface method and the interface.
+    Method targetMethod = AopUtils.getMostSpecificMethod(method, targetClass);
+    CircuitBreakerProtected annotation = targetMethod.getAnnotation(CircuitBreakerProtected.class);
+    if (annotation != null) return new ResolvedAnnotation(annotation, targetMethod);
+    annotation = targetClass.getAnnotation(CircuitBreakerProtected.class);
+    if (annotation != null) return new ResolvedAnnotation(annotation, targetMethod);
+    annotation = method.getAnnotation(CircuitBreakerProtected.class);
+    if (annotation != null) return new ResolvedAnnotation(annotation, method);
+    annotation = method.getDeclaringClass().getAnnotation(CircuitBreakerProtected.class);
+    return annotation == null ? null : new ResolvedAnnotation(annotation, method);
   }
 
   private record ResolvedAnnotation(CircuitBreakerProtected annotation, Method method) {}

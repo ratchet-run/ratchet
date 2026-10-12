@@ -280,7 +280,8 @@ applies protection with no extra AOP setup, including in MongoDB applications an
 bean bypass the advice. Classes and methods must allow proxying.
 
 Method annotations take precedence over class annotations. Inherited class annotations
-are honoured. An open circuit rejects the call before Spring's default transaction advice
+are honoured. Through an interface proxy, annotations on the implementation win over
+annotations on the interface, the same order Spring uses for `@Transactional`. An open circuit rejects the call before Spring's default transaction advice
 starts a transaction or takes a connection. If you set a custom transaction advisor order,
 keep it after the circuit-breaker advisor (`Ordered.HIGHEST_PRECEDENCE + 100`).
 Protection passes calls through when Ratchet is disabled or its policy beans are absent.

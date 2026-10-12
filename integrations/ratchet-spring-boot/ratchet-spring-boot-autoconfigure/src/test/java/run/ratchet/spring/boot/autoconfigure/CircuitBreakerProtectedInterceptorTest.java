@@ -258,6 +258,12 @@ class CircuitBreakerProtectedInterceptorTest {
                           .getBreaker("implementation", CircuitBreakerProfile.FAST)
                           .getState())
                   .isEqualTo(CircuitBreaker.State.OPEN);
+              assertThat(
+                      context
+                          .getBean(CircuitBreakerRegistry.class)
+                          .getBreaker("interface", CircuitBreakerProfile.DEFAULT)
+                          .getState())
+                  .isEqualTo(CircuitBreaker.State.CLOSED);
             });
   }
 
@@ -403,6 +409,8 @@ class CircuitBreakerProtectedInterceptorTest {
     }
   }
 
+  // The interface's class-level binding must not override the implementation's method binding.
+  @CircuitBreakerProtected(service = "interface")
   interface ServiceApi {
     void call();
   }
