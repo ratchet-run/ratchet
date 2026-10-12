@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
@@ -119,15 +120,18 @@ public class DeadLetterService {
    * @return {@code true} when this call moved the live job to FAILED, or {@code false} when another
    *     path had already moved it out of RUNNING
    */
-  public boolean moveToDlq(JobEntity job, Throwable cause) {
+  public boolean moveToDlq(JobEntity job, Throwable cause, @Nullable Long expectedClaimSeq) {
     // Post hot/cold-split: setStatus(FAILED)+save() is rejected by the MySQL store's hot-mutation
     // guard. The terminal transition (DELETE hot + UPDATE cold to FAILED + DELETE bkres) is now
     // a single explicit store call that captures total_attempts atomically.
     String sanitized = sanitizeSafely(cause);
     boolean transitioned =
-        jobTerminalStore.markJobFailedTerminal(job.getId(), sanitized, job.getAttempts());
+        jobTerminalStore.markJobFailedTerminal(
+            job.getId(), sanitized, job.getAttempts(), expectedClaimSeq);
     if (!transitioned) {
-      log.debugf("Job %s was already outside RUNNING; DLQ transition skipped", job.getId());
+      log.warnf(
+          "Rejected owner write for job %s, stale claimSeq %s, node %s",
+          job.getId(), expectedClaimSeq, job.getPickedBy());
       return false;
     }
 

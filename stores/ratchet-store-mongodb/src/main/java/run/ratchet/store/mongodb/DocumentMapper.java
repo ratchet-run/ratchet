@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.mongodb;
 
+import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
+
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -151,6 +153,7 @@ public final class DocumentMapper {
     doc.append("job_result", job.getJobResult());
     doc.append("result_type", job.getResultType());
     doc.append("version", versionOrDefault(job.getVersion()));
+    doc.append(CLAIM_SEQ, job.getClaimSeq() == null ? 0L : job.getClaimSeq());
     doc.append("signal_key", job.getSignalKey());
     doc.append("signal_timeout", toDate(job.getSignalTimeout()));
     doc.append("signal_payload", job.getSignalPayload());
@@ -231,6 +234,7 @@ public final class DocumentMapper {
     job.setJobResult(doc.getString("job_result"));
     job.setResultType(doc.getString("result_type"));
     job.setVersion(doc.getInteger("version", DEFAULT_VERSION));
+    job.setClaimSeq(((Number) doc.getOrDefault(CLAIM_SEQ, 0L)).longValue());
     job.setSignalKey(doc.getString("signal_key"));
     job.setSignalTimeout(toInstant(doc.getDate("signal_timeout")));
     job.setSignalPayload(doc.getString("signal_payload"));
@@ -258,7 +262,8 @@ public final class DocumentMapper {
         doc.getInteger("attempts", DEFAULT_COUNT),
         doc.getInteger("max_retries", DEFAULT_COUNT),
         doc.getString("execution_target"),
-        doc.get("depends_on", UUID.class));
+        doc.get("depends_on", UUID.class),
+        ((Number) doc.getOrDefault(CLAIM_SEQ, 0L)).longValue());
   }
 
   public static Document toRecurringDocument(RecurringJobDefinition definition) {

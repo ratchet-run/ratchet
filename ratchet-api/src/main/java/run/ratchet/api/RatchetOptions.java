@@ -190,6 +190,7 @@ public class RatchetOptions {
     builder.node.nodeId = node.nodeId();
     builder.node.heartbeatIntervalSeconds = node.heartbeatIntervalSeconds();
     builder.node.orphanGraceSeconds = node.orphanGraceSeconds();
+    builder.node.maxCrashRedeliveries = node.maxCrashRedeliveries();
     builder.node.orphanScanIntervalSeconds = node.orphanScanIntervalSeconds();
     builder.node.orphanRecoveryLeaseTtlSeconds = node.orphanRecoveryLeaseTtlSeconds();
     builder.node.dynamicHeartbeatEnabled = node.dynamicHeartbeatEnabled();
@@ -634,6 +635,7 @@ public class RatchetOptions {
    * @param requireTags job tags that must be present on the node for a job to be claimed here;
    *     empty list disables the require-list constraint
    * @param excludeTags job tags that, when present on a job, exclude that job from this node
+   * @param maxCrashRedeliveries maximum charged redeliveries after node crashes
    * @param orphanRecoveryLeaseTtlSeconds orphan scan lease lifetime in seconds
    */
   public record NodeOptions(
@@ -644,9 +646,11 @@ public class RatchetOptions {
       boolean dynamicHeartbeatEnabled,
       List<String> requireTags,
       List<String> excludeTags,
-      long orphanRecoveryLeaseTtlSeconds) {
+      long orphanRecoveryLeaseTtlSeconds,
+      int maxCrashRedeliveries) {
 
     public NodeOptions {
+      atLeast("maxCrashRedeliveries", maxCrashRedeliveries, 0);
       requireTags = List.copyOf(requireTags == null ? List.of() : requireTags);
       excludeTags = List.copyOf(excludeTags == null ? List.of() : excludeTags);
     }
@@ -1182,6 +1186,12 @@ public class RatchetOptions {
     private List<String> excludeTags = List.of();
 
     private long orphanRecoveryLeaseTtlSeconds = 120L;
+    private int maxCrashRedeliveries = 3;
+
+    public NodeBuilder maxCrashRedeliveries(int maxCrashRedeliveries) {
+      this.maxCrashRedeliveries = atLeast("maxCrashRedeliveries", maxCrashRedeliveries, 0);
+      return this;
+    }
 
     private NodeBuilder() {}
 
@@ -1242,7 +1252,8 @@ public class RatchetOptions {
           dynamicHeartbeatEnabled,
           requireTags,
           excludeTags,
-          orphanRecoveryLeaseTtlSeconds);
+          orphanRecoveryLeaseTtlSeconds,
+          maxCrashRedeliveries);
     }
   }
 

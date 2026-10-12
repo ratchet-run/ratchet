@@ -75,14 +75,14 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
       String timeColumn,
       int boostInterval) {
     return """
-        SELECT %s
-        FROM scheduler_job_queue WITH (UPDLOCK, READPAST, ROWLOCK)
-        WHERE status = 'PENDING'
-          AND %s <= SYSUTCDATETIME()
-          AND %s%s%s
-        ORDER BY %s
-        OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
-        """
+    SELECT %s
+    FROM scheduler_job_queue WITH (UPDLOCK, READPAST, ROWLOCK)
+    WHERE status = 'PENDING'
+      AND %s <= SYSUTCDATETIME()
+      AND %s%s%s
+    ORDER BY %s
+    OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
+    """
         .formatted(
             selectColumns,
             timeColumn,
@@ -101,15 +101,15 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
       String timeColumn,
       int boostInterval) {
     return """
-        SELECT %s
-        FROM scheduler_job c
-        JOIN scheduler_job_queue q WITH (UPDLOCK, READPAST, ROWLOCK) ON q.job_id = c.job_id
-        WHERE q.status = 'PENDING'
-          AND %s <= SYSUTCDATETIME()
-          AND %s%s
-        ORDER BY %s
-        OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
-        """
+    SELECT %s
+    FROM scheduler_job c
+    JOIN scheduler_job_queue q WITH (UPDLOCK, READPAST, ROWLOCK) ON q.job_id = c.job_id
+    WHERE q.status = 'PENDING'
+      AND %s <= SYSUTCDATETIME()
+      AND %s%s
+    ORDER BY %s
+    OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY
+    """
         .formatted(
             selectColumns,
             timeColumn,
@@ -162,6 +162,7 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
       Instant now = Instant.now();
       markPendingClaimsRunning(ids, nodeId, now);
       for (JobEntity job : ordered) {
+        job.setClaimSeq(job.getClaimSeq() + 1);
         job.setStatus(JobStatus.RUNNING);
         job.setPickedBy(nodeId);
         job.setPickedAt(now);
@@ -253,7 +254,8 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
                     row.attempts(),
                     row.maxRetries(),
                     row.executionTarget(),
-                    row.dependsOn()));
+                    row.dependsOn(),
+                    row.claimSeq() + 1));
           }
           return claims;
         },
@@ -274,6 +276,7 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
             picked_by = ?,
             picked_at = ?,
             updated_at = ?,
+            claim_seq = claim_seq + 1,
             version = version + 1
         WHERE job_id IN (%s) AND status = 'PENDING'
         """
@@ -304,7 +307,8 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
     ATTEMPTS("attempts"),
     MAX_RETRIES("max_retries"),
     EXECUTION_TARGET("execution_target"),
-    DEPENDS_ON("depends_on");
+    DEPENDS_ON("depends_on"),
+    CLAIM_SEQ("claim_seq");
 
     private final String sqlName;
 
@@ -352,6 +356,10 @@ final class SqlserverJobClaimOperations implements JobClaimStore {
 
     Instant scheduledTime() {
       return RowValues.instantOrNull(value(ClaimColumn.SCHEDULED_TIME));
+    }
+
+    long claimSeq() {
+      return number(ClaimColumn.CLAIM_SEQ).longValue();
     }
 
     int version() {

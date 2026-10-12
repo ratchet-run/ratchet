@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -485,7 +486,7 @@ class WorkflowSchedulerTest {
     assertFalse(scheduler.scheduleNext(parent));
 
     verify(jobTerminalStore).cancelJob(child.getId());
-    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt());
+    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt(), isNull());
     assertEquals(JobStatus.SUCCEEDED, parent.getStatus());
   }
 

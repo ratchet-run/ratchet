@@ -34,6 +34,7 @@ import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.NodeStore;
+import run.ratchet.store.spi.OrphanRecovery;
 
 /**
  * Generates a node ID and maintains liveness via periodic heartbeats.
@@ -80,6 +81,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private final ExecutorProvider executorProvider;
   private final long heartbeatIntervalSeconds;
   private final long orphanGraceSeconds;
+  private final int maxCrashRedeliveries;
   private final boolean dynamicHeartbeatEnabled;
   private final String explicitNodeId;
   private final Clock clock;
@@ -96,6 +98,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.executorProvider = null;
     this.heartbeatIntervalSeconds = 0;
     this.orphanGraceSeconds = 0;
+    this.maxCrashRedeliveries = 0;
     this.dynamicHeartbeatEnabled = false;
     this.explicitNodeId = null;
     this.clock = null;
@@ -109,6 +112,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       ExecutorProvider executorProvider,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
+      int maxCrashRedeliveries,
       boolean dynamicHeartbeatEnabled) {
     this(
         nodeStore,
@@ -117,6 +121,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         executorProvider,
         heartbeatIntervalSeconds,
         orphanGraceSeconds,
+        maxCrashRedeliveries,
         dynamicHeartbeatEnabled,
         null,
         Clock.systemUTC());
@@ -129,6 +134,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       ExecutorProvider executorProvider,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
+      int maxCrashRedeliveries,
       boolean dynamicHeartbeatEnabled,
       String explicitNodeId) {
     this(
@@ -138,6 +144,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         executorProvider,
         heartbeatIntervalSeconds,
         orphanGraceSeconds,
+        maxCrashRedeliveries,
         dynamicHeartbeatEnabled,
         explicitNodeId,
         Clock.systemUTC());
@@ -150,6 +157,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       ExecutorProvider executorProvider,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
+      int maxCrashRedeliveries,
       boolean dynamicHeartbeatEnabled,
       String explicitNodeId,
       Clock clock) {
@@ -160,6 +168,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         executorProvider,
         heartbeatIntervalSeconds,
         orphanGraceSeconds,
+        maxCrashRedeliveries,
         dynamicHeartbeatEnabled,
         explicitNodeId,
         clock,
@@ -173,6 +182,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       ExecutorProvider executorProvider,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
+      int maxCrashRedeliveries,
       boolean dynamicHeartbeatEnabled,
       String explicitNodeId,
       Clock clock,
@@ -183,6 +193,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.executorProvider = executorProvider;
     this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
     this.orphanGraceSeconds = orphanGraceSeconds;
+    this.maxCrashRedeliveries = maxCrashRedeliveries;
     this.dynamicHeartbeatEnabled = dynamicHeartbeatEnabled;
     this.explicitNodeId = explicitNodeId;
     this.clock = clock;
@@ -242,17 +253,22 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     // Startup self-recovery: unconditionally reclaim RUNNING jobs owned by THIS nodeId. A node
     // that crashes and restarts inside the steady-state grace window would otherwise leave its
     // own prior RUNNING rows in place until the heartbeat aged out.
-    int ownReset = jobBulkStore.resetOrphanJobsForNode(resolvedNodeId);
-    if (ownReset > 0) {
-      log.infof(
-          "Reset %s RUNNING job(s) owned by this node (%s) at startup", ownReset, resolvedNodeId);
-    }
+    OrphanRecovery own =
+        jobBulkStore.resetOrphanJobsForNode(
+            resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.EXHAUSTED_LIMIT);
+    log.infof(
+        "Startup recovery for node %s: reset %s job(s), returned %s exhausted claim(s) for later"
+            + " failure",
+        resolvedNodeId, own.reset(), own.exhausted().size());
 
-    // Also run the normal grace-based sweep to pick up any other nodes' rows that have aged out.
-    int reset = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
-    if (reset > 0) {
-      log.infof("Reset %s orphan RUNNING job(s) at startup", reset);
-    }
+    OrphanRecovery others =
+        jobBulkStore.resetOrphanJobs(
+            Duration.ofSeconds(orphanGraceSeconds),
+            maxCrashRedeliveries,
+            OrphanRecoveryTimer.EXHAUSTED_LIMIT);
+    log.infof(
+        "Startup orphan recovery: reset %s job(s), found %s exhausted claim(s)",
+        others.reset(), others.exhausted().size());
 
     scheduleNextHeartbeat();
   }
@@ -283,7 +299,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
       if (skewSeconds > 5) {
         log.warnf(
-            "Clock skew: app/db differ by %ss (app=%s, db=%s) — sync clocks via NTP to avoid double-execution",
+            "Clock skew: app/db differ by %ss (app=%s, db=%s) — sync clocks via NTP to avoid"
+                + " double-execution",
             skewSeconds, appTime, dbTime);
       } else {
         log.debugf("Clock skew check passed: %ss difference", skewSeconds);

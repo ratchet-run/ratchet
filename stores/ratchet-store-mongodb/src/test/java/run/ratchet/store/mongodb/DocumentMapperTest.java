@@ -404,4 +404,17 @@ class DocumentMapperTest {
         false,
         misfirePolicy);
   }
+
+  @Test
+  void claimSequenceDefaultsToZeroAndSurvivesDocumentRoundTrip() {
+    JobEntity job = job(null);
+    Document legacy = DocumentMapper.toDocument(job);
+    legacy.remove("claim_seq");
+    assertEquals(0L, DocumentMapper.toJobEntity(legacy).getClaimSeq().longValue());
+    assertEquals(0L, DocumentMapper.toJobClaimDto(legacy).claimSeq());
+    job.setClaimSeq(37L);
+    Document current = DocumentMapper.toDocument(job);
+    assertEquals(37L, DocumentMapper.toJobEntity(current).getClaimSeq().longValue());
+    assertEquals(37L, DocumentMapper.toJobClaimDto(current).claimSeq());
+  }
 }

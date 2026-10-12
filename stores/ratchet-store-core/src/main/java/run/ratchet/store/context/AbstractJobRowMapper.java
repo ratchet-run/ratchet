@@ -41,7 +41,7 @@ import run.ratchet.store.util.RowValues;
  */
 public abstract class AbstractJobRowMapper {
 
-  public static final int HYDRATION_COL_COUNT = 53;
+  public static final int HYDRATION_COL_COUNT = 54;
   public static final int IDX_Q_STATUS = 34;
 
   protected static final int IDX_JOB_ID = 0;
@@ -98,6 +98,7 @@ public abstract class AbstractJobRowMapper {
   // Appended last so the queue-column indexes above do not shift. encryption_key_id is NOT in the
   // hydration projection — it is read only by the rare key-rotation drain-check query.
   protected static final int IDX_ENCRYPTED_PAYLOAD = 52;
+  protected static final int IDX_Q_CLAIM_SEQ = 53;
 
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
@@ -229,6 +230,7 @@ public abstract class AbstractJobRowMapper {
           enumValueOrNull(row, IDX_Q_PAUSED, "q.paused_from_status", JobStatus.class));
       j.setLastError(RowValues.stringOrNull(row[IDX_Q_LAST_ERROR]));
       j.setVersion(requiredNumber(row, IDX_Q_VERSION, "q.version").intValue());
+      j.setClaimSeq(requiredNumber(row, IDX_Q_CLAIM_SEQ, "q.claim_seq").longValue());
       // A live row's terminated_at is always null, so the updatedAt fallback resolves to createdAt.
       Instant updatedAt = RowValues.instantOrNull(row[IDX_Q_UPDATED_AT]);
       j.setUpdatedAt(updatedAt != null ? updatedAt : j.getCreatedAt());

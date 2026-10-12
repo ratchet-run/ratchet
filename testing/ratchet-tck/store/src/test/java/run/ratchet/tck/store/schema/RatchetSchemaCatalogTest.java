@@ -16,6 +16,7 @@
 package run.ratchet.tck.store.schema;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -23,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.store.schema.Column;
 import run.ratchet.store.schema.DeprecatedArtifact;
 import run.ratchet.store.schema.Index;
+import run.ratchet.store.schema.LogicalType;
 import run.ratchet.store.schema.RatchetSchemaCatalog;
 import run.ratchet.store.schema.Table;
 
@@ -103,9 +105,10 @@ class RatchetSchemaCatalogTest {
   @Test
   void currentVersionTracksTheCombinedSchemaRevision() {
     assertEquals(
-        14,
+        16,
         RatchetSchemaCatalog.CURRENT_VERSION,
-        "catalog version should track the combined workflow, recurring, DLQ, and node schema revision");
+        "catalog version should track the combined workflow, recurring, DLQ, and node schema"
+            + " revision");
   }
 
   @Test
@@ -179,5 +182,16 @@ class RatchetSchemaCatalogTest {
 
   private static Index index(Table table, String name) {
     return table.indexes().stream().filter(i -> i.name().equals(name)).findFirst().orElseThrow();
+  }
+
+  @Test
+  void queueDeclaresCrashBudget() {
+    Column crashCount =
+        table("scheduler_job_queue").columns().stream()
+            .filter(column -> column.name().equals("crash_count"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(LogicalType.INT32, crashCount.type());
+    assertFalse(crashCount.nullable());
   }
 }

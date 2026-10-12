@@ -449,4 +449,19 @@ class PostExecutionHandlerTest {
     verifyNoInteractions(
         batchService, workflowScheduler, deadLetterService, pollerScheduler, jobTerminalStore);
   }
+
+  @Test
+  void rejectedCompletionKeepsOwnerFenceAndHasNoDlqOrPublishedEffects() {
+    JobEntity job = job(JobExecutionType.BATCH_CHILD);
+    job.setClaimSeq(37L);
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
+    assertFalse(handler.moveToDlqAndHandlePermanentFailure(job, new RuntimeException("stale")));
+    var plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+    verify(jobTerminalStore).commitCompletion(plan.capture());
+    assertEquals(37L, plan.getValue().expectedClaimSeq().longValue());
+    verifyNoInteractions(batchService);
+    verify(deadLetterService, never()).recordDlqTransitionInCurrentTransaction(any(), any(), any());
+    verify(workflowScheduler, never()).publishTerminalEvent(any());
+    verify(workflowScheduler, never()).publishCompletion(any());
+  }
 }

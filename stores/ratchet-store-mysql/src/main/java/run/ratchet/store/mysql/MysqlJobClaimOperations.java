@@ -67,12 +67,13 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       String timeColumn,
       int boostInterval) {
     return """
-        SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable, idx_claim_pending_priority)
-        WHERE status = 'PENDING'
-          AND %s <= NOW(3)
-          AND %s%s%s
-        ORDER BY %s
-        LIMIT ?"""
+    SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable, idx_claim_pending_priority)
+    WHERE status = 'PENDING'
+      AND %s <= NOW(3)
+      AND %s%s%s
+    ORDER BY %s
+    LIMIT ?\
+    """
         .formatted(
             selectClause,
             timeColumn,
@@ -109,11 +110,11 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       for (Object[] row : candidateRows) {
         candidateIds.add(new ClaimRow(row).jobId());
       }
-      boolean[] updated = batchClaimRowsJpa(candidateIds, nodeId, Instant.now());
+      long[] updated = batchClaimRowsJpa(candidateIds, nodeId, Instant.now(), candidateRows);
 
       List<UUID> claimedIds = new ArrayList<>(candidateIds.size());
       for (int i = 0; i < candidateIds.size(); i++) {
-        if (updated[i]) {
+        if (updated[i] > 0) {
           claimedIds.add(candidateIds.get(i));
         }
       }
@@ -256,10 +257,10 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           for (Object[] row : rows) {
             jobIds.add(new ClaimRow(row).jobId());
           }
-          boolean[] updated = batchClaimRowsJpa(jobIds, nodeId, now);
+          long[] updated = batchClaimRowsJpa(jobIds, nodeId, now, rows);
           List<JobClaimDto> claims = new ArrayList<>(rows.size());
           for (int i = 0; i < rows.size(); i++) {
-            if (!updated[i]) {
+            if (updated[i] <= 0) {
               continue;
             }
             ClaimRow row = new ClaimRow(rows.get(i));
@@ -278,7 +279,8 @@ final class MysqlJobClaimOperations implements JobClaimStore {
                     row.attempts(),
                     row.maxRetries(),
                     row.executionTarget(),
-                    row.dependsOn()));
+                    row.dependsOn(),
+                    updated[i]));
           }
           return claims;
         },
@@ -311,7 +313,8 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     ATTEMPTS("attempts"),
     MAX_RETRIES("max_retries"),
     EXECUTION_TARGET("execution_target"),
-    DEPENDS_ON("depends_on");
+    DEPENDS_ON("depends_on"),
+    CLAIM_SEQ("claim_seq");
 
     private final String sqlName;
 
@@ -373,6 +376,10 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       return RowValues.instantOrNull(value(ClaimColumn.SCHEDULED_TIME));
     }
 
+    long claimSeq() {
+      return number(ClaimColumn.CLAIM_SEQ).longValue();
+    }
+
     int version() {
       return number(ClaimColumn.VERSION).intValue();
     }
@@ -410,7 +417,8 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     }
   }
 
-  private boolean[] batchClaimRowsJpa(List<UUID> jobIds, String nodeId, Instant now) {
+  private long[] batchClaimRowsJpa(
+      List<UUID> jobIds, String nodeId, Instant now, List<Object[]> selectedRows) {
     Timestamp nowTs = Timestamp.from(now);
     try {
       String placeholders = String.join(",", Collections.nCopies(jobIds.size(), "?"));
@@ -431,7 +439,8 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           """
           UPDATE scheduler_job_queue FORCE INDEX (PRIMARY)
           SET status = 'RUNNING', picked_by = ?, picked_at = ?, updated_at = ?,
-              version = version + 1
+              claim_seq = claim_seq + 1,
+            version = version + 1
           WHERE job_id IN (%s) AND status = 'PENDING'
           ORDER BY job_id ASC
           """
@@ -446,15 +455,17 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       }
       int affected = updateQuery.executeUpdate();
       if (affected == jobIds.size()) {
-        boolean[] claimed = new boolean[jobIds.size()];
-        Arrays.fill(claimed, true);
+        long[] claimed = new long[jobIds.size()];
+        for (int i = 0; i < claimed.length; i++) {
+          claimed[i] = new ClaimRow(selectedRows.get(i)).claimSeq() + 1;
+        }
         return claimed;
       }
 
       // language=MySQL
       String selectSql =
           """
-          SELECT job_id FROM scheduler_job_queue
+          SELECT job_id, claim_seq FROM scheduler_job_queue
           WHERE job_id IN (%s) AND status = 'RUNNING' AND picked_by = ?
           ORDER BY job_id ASC
           """
@@ -468,14 +479,15 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       @SuppressWarnings("unchecked")
       List<?> claimedRows = selectQuery.getResultList();
 
-      Set<UUID> claimedIds = new HashSet<>(claimedRows.size());
+      Map<UUID, Long> claimedSeqs = new HashMap<>(claimedRows.size());
       for (Object claimedRow : claimedRows) {
-        claimedIds.add(MysqlJobRowMapper.uuidOrNull(claimedRow));
+        Object[] stored = (Object[]) claimedRow;
+        claimedSeqs.put(MysqlJobRowMapper.uuidOrNull(stored[0]), ((Number) stored[1]).longValue());
       }
 
-      boolean[] updated = new boolean[jobIds.size()];
+      long[] updated = new long[jobIds.size()];
       for (int i = 0; i < jobIds.size(); i++) {
-        updated[i] = claimedIds.contains(jobIds.get(i));
+        updated[i] = claimedSeqs.getOrDefault(jobIds.get(i), 0L);
       }
       return updated;
     } catch (RuntimeException e) {

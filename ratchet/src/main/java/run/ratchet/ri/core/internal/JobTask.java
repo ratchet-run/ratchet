@@ -410,7 +410,20 @@ public class JobTask implements Callable<Void> {
                       new IllegalStateException(
                           "Job " + claim.id() + " not found - may have been deleted"));
     }
+    if (job != null && claim != null) {
+      job.setClaimSeq(claim.claimSeq());
+    }
     return job;
+  }
+
+  private Long expectedClaimSeq() {
+    return claim != null ? claim.claimSeq() : job.getClaimSeq();
+  }
+
+  private void warnRejectedOwnerWrite() {
+    log.warnf(
+        "Rejected owner write for job %s, stale claimSeq %s, node %s",
+        getJobId(), expectedClaimSeq(), nodeIdProvider.getNodeId());
   }
 
   private UUID getJobId() {
@@ -484,6 +497,7 @@ public class JobTask implements Callable<Void> {
     JobEntity snapshot = new JobEntity();
     snapshot.setId(jobId);
     snapshot.setStatus(JobStatus.RUNNING);
+    snapshot.setClaimSeq(expectedClaimSeq());
     if (claim == null) {
       snapshot.setPickedBy(nodeIdProvider.getNodeId());
       return snapshot;
@@ -517,7 +531,10 @@ public class JobTask implements Callable<Void> {
     // contract this method documents.
     int attempts = claim != null ? claim.attempts() : (job != null ? job.getAttempts() : 0);
     try {
-      jobStore.scheduleJobRetry(jobId, sanitizeError(ex), newScheduledTime, attempts);
+      if (!jobStore.scheduleJobRetry(
+          jobId, sanitizeError(ex), newScheduledTime, attempts, expectedClaimSeq())) {
+        warnRejectedOwnerWrite();
+      }
     } catch (Throwable t) {
       log.errorf(
           t,
@@ -653,11 +670,15 @@ public class JobTask implements Callable<Void> {
           observabilityFacade.saveExecution(currentExecution);
         }
 
-        jobStore.scheduleJobRetry(
+        if (!jobStore.scheduleJobRetry(
             job.getId(),
             "Waiting for resource: " + resourceName,
             newScheduledTime,
-            job.getAttempts());
+            job.getAttempts(),
+            expectedClaimSeq())) {
+          warnRejectedOwnerWrite();
+          return false;
+        }
 
         log.infof(
             "Job %s waiting for resource '%s' - rescheduled for %sms",
@@ -711,11 +732,14 @@ public class JobTask implements Callable<Void> {
       observabilityFacade.saveExecution(currentExecution);
     }
 
-    jobStore.scheduleJobRetry(
+    if (!jobStore.scheduleJobRetry(
         jobEntity.getId(),
         "Circuit breaker OPEN for service: " + serviceName,
         newScheduledTime,
-        jobEntity.getAttempts());
+        jobEntity.getAttempts(),
+        expectedClaimSeq())) {
+      warnRejectedOwnerWrite();
+    }
   }
 
   private boolean wasJobCanceledDuringExecution() {
@@ -768,9 +792,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleBatchOrWorkflowCancellation() {
-    if (job.getJobType() == JobExecutionType.BATCH_CHILD) {
-      lifecycleFacade.markBatchChildFailed(job);
-    } else {
+    if (job.getJobType() != JobExecutionType.BATCH_CHILD) {
       lifecycleFacade.cancelChain(job);
     }
   }
@@ -858,9 +880,9 @@ public class JobTask implements Callable<Void> {
       return;
     }
 
-    int attempt = jobStore.incrementRetryAttempt(job.getId());
+    int attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq());
     if (attempt == -1) {
-      log.infof("Job %s already in terminal state, skipping retry logic", job.getId());
+      warnRejectedOwnerWrite();
       return;
     }
 
@@ -1080,7 +1102,8 @@ public class JobTask implements Callable<Void> {
     Instant timestamp = effective().instant();
     Instant newScheduledTime = timestamp.plusMillis(backoff);
 
-    if (jobStore.scheduleJobRetry(job.getId(), sanitized, newScheduledTime, attempt)) {
+    if (jobStore.scheduleJobRetry(
+        job.getId(), sanitized, newScheduledTime, attempt, expectedClaimSeq())) {
       job.setAttempts(attempt);
       job.setScheduledTime(newScheduledTime);
       job.setLastError(sanitized);
@@ -1108,6 +1131,8 @@ public class JobTask implements Callable<Void> {
           job.getMaxRetries(),
           ex.getClass().getName(),
           ex.getMessage());
+    } else {
+      warnRejectedOwnerWrite();
     }
   }
 

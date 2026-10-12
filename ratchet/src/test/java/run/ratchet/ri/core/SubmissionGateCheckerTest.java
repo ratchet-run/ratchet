@@ -70,7 +70,8 @@ class SubmissionGateCheckerTest {
         0,
         0,
         null,
-        null);
+        null,
+        0L);
   }
 
   private void routeToPlatform() {

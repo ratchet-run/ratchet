@@ -27,6 +27,7 @@ import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -49,6 +50,7 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -282,7 +284,8 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+  public boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq) {
     return fail("markJobFailedTerminal");
   }
 
@@ -294,12 +297,17 @@ public abstract class ThrowingJobStoreBase
   // ----- JobRetryStore -----
 
   @Override
-  public int incrementRetryAttempt(UUID id) {
+  public int incrementRetryAttempt(UUID id, @Nullable Long expectedClaimSeq) {
     return fail("incrementRetryAttempt");
   }
 
   @Override
-  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
+  public boolean scheduleJobRetry(
+      UUID id,
+      String error,
+      Instant newScheduledTime,
+      int attempts,
+      @Nullable Long expectedClaimSeq) {
     return fail("scheduleJobRetry");
   }
 
@@ -349,7 +357,7 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public boolean resetRunningJob(UUID id, String nodeId) {
+  public boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq) {
     return fail("resetRunningJob");
   }
 
@@ -381,17 +389,25 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
-  public int resetOrphanJobs(Duration grace) {
+  public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
+    return fail("findOrphanCompletionSnapshot");
+  }
+
+  @Override
+  public OrphanRecovery resetOrphanJobs(
+      Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
     return fail("resetOrphanJobs");
   }
 
   @Override
-  public int resetOrphanJobsBefore(Instant cutoff) {
+  public OrphanRecovery resetOrphanJobsBefore(
+      Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
     return fail("resetOrphanJobsBefore");
   }
 
   @Override
-  public int resetOrphanJobsForNode(String nodeId) {
+  public OrphanRecovery resetOrphanJobsForNode(
+      String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
     return fail("resetOrphanJobsForNode");
   }
 

@@ -39,6 +39,35 @@ import run.ratchet.spi.RatchetConfigSource;
 class RatchetOptionsFactoryTest {
 
   @Test
+  void mapsCrashBudgetPropertyAndEnvironment() {
+    assertEquals(3, RatchetOptions.builder().build().node().maxCrashRedeliveries());
+    assertEquals(
+        0,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of(), Map.of("RATCHET_NODE_MAX_CRASH_REDELIVERIES", "0")))
+            .node()
+            .maxCrashRedeliveries());
+    assertEquals(
+        7,
+        optionsFrom(
+                new MapRatchetConfigSource(
+                    Map.of("ratchet.node.max-crash-redeliveries", "7"), Map.of()))
+            .node()
+            .maxCrashRedeliveries());
+    RatchetOptions options =
+        RatchetOptions.builder().node(node -> node.maxCrashRedeliveries(7)).build();
+    assertEquals(7, options.toBuilder().build().node().maxCrashRedeliveries());
+  }
+
+  @Test
+  void crashBudgetRejectsNegativeValues() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().node(node -> node.maxCrashRedeliveries(-1)));
+  }
+
+  @Test
   void rejectsDefaultSlaAboveIntegerMaximumFromConfig() {
     String tooLarge = Long.toString(Integer.MAX_VALUE + 1L);
     assertThrows(

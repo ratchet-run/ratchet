@@ -338,7 +338,7 @@ public abstract class AbstractSignalStoreContract implements JobStoreContractFix
   @Test
   void compareAndSwapStatus_waitingToFailedSucceeds() {
     JobEntity job = persist(newWaitingJob("fail-waiting", Instant.now().plusSeconds(600)));
-    assertEquals(1, store().incrementRetryAttempt(job.getId()));
+    assertEquals(1, store().incrementRetryAttempt(job.getId(), null));
 
     boolean failed =
         store().compareAndSwapStatus(job.getId(), JobStatus.WAITING, JobStatus.FAILED, "timeout");
