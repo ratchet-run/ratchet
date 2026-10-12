@@ -67,6 +67,7 @@ import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.InvocationSubmissionService;
@@ -95,13 +96,19 @@ class RatchetRuntimeConfiguration {
       JobPayloadInvoker payloadInvoker,
       PayloadSerializer payloadSerializer,
       ExecutionObserver observabilityFacade,
-      Clock clock) {
+      Clock clock,
+      ErrorSanitizer errorSanitizer) {
     return new RetryBufferManager(
         jobStateManager,
         lifecycleFacade,
         store,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
+            validationFacade,
+            payloadInvoker,
+            payloadSerializer,
+            observabilityFacade,
+            clock,
+            errorSanitizer));
   }
 
   @Singleton

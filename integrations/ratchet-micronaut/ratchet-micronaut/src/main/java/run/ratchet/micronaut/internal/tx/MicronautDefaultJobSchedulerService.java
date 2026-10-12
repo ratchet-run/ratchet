@@ -17,6 +17,7 @@ package run.ratchet.micronaut.internal.tx;
 
 import io.micronaut.core.annotation.Creator;
 import java.time.Clock;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
@@ -25,7 +26,6 @@ import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.AfterCommitRegistrar;
-import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
@@ -72,7 +72,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
       PayloadSerializer payloadSerializer,
       MetricsCollector metricsCollector,
       Clock clock,
-      CallerPrincipalResolver callerPrincipalResolver,
+      RatchetOptions options,
       AfterCommitRegistrar afterCommitRegistrar) {
     super(
         eventPublisher,
@@ -95,7 +95,7 @@ public class MicronautDefaultJobSchedulerService extends DefaultJobSchedulerServ
         payloadSerializer,
         metricsCollector,
         clock,
-        callerPrincipalResolver,
+        options,
         afterCommitRegistrar);
   }
 }

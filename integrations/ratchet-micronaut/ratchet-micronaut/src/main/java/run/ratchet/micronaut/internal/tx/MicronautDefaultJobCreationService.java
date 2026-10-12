@@ -27,6 +27,7 @@ import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
@@ -73,7 +74,8 @@ public class MicronautDefaultJobCreationService extends DefaultJobCreationServic
       boolean signalCapabilityAvailable,
       boolean resourcePermitCapabilityAvailable,
       CallerPrincipalResolver callerPrincipalResolver,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      ErrorSanitizer errorSanitizer) {
     super(
         jobBatchStatusStore,
         jobTerminalStore,
@@ -97,6 +99,7 @@ public class MicronautDefaultJobCreationService extends DefaultJobCreationServic
         signalCapabilityAvailable,
         resourcePermitCapabilityAvailable,
         callerPrincipalResolver,
-        afterCommitRegistrar);
+        afterCommitRegistrar,
+        errorSanitizer);
   }
 }

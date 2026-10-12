@@ -52,6 +52,7 @@ import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.InvocationSubmissionService;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
@@ -188,7 +189,8 @@ class RatchetSubmissionConfiguration {
       MetricsCollector metrics,
       Clock clock,
       RatchetOptions options,
-      AfterCommitRegistrar registrar) {
+      AfterCommitRegistrar registrar,
+      ErrorSanitizer errorSanitizer) {
     return new MicronautDefaultJobCreationService(
         store,
         store,
@@ -212,7 +214,8 @@ class RatchetSubmissionConfiguration {
         store.capability(SignalStore.class).isPresent(),
         store.capability(ResourcePermitStore.class).isPresent(),
         options.callerPrincipalResolver(),
-        registrar);
+        registrar,
+        errorSanitizer);
   }
 
   @Singleton
@@ -253,7 +256,7 @@ class RatchetSubmissionConfiguration {
         serializer,
         metrics,
         clock,
-        options.callerPrincipalResolver(),
+        options,
         registrar);
   }
 }
