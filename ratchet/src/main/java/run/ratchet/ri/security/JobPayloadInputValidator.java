@@ -239,7 +239,9 @@ public class JobPayloadInputValidator {
 
         if (i < args.size()) {
           Object arg = args.get(i);
-          if (arg != null && isTypeIncompatible(expectedType, arg.getClass())) {
+          if (arg != null
+              && !isEnumName(expectedType, arg)
+              && isTypeIncompatible(expectedType, arg.getClass())) {
             errors.add(
                 "Argument value at position "
                     + i
@@ -254,6 +256,15 @@ public class JobPayloadInputValidator {
       log.errorf(
           e, "Failed to validate method signature for %s.%s", payload.target(), payload.method());
       errors.add("Failed to validate method signature: " + e);
+    }
+  }
+
+  private static boolean isEnumName(Class<?> type, Object value) {
+    if (!type.isEnum() || !(value instanceof String name)) return false;
+    try {
+      return type.getDeclaredField(name).isEnumConstant();
+    } catch (NoSuchFieldException | SecurityException ignored) {
+      return false;
     }
   }
 

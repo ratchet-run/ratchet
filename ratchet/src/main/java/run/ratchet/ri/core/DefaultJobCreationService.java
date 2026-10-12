@@ -1040,7 +1040,7 @@ public class DefaultJobCreationService
         JobPayload p =
             expr instanceof JobInvocation invocation
                 ? validate(JobPayloadFactory.fromInvocation(invocation))
-                : validate(JobPayloadFactory.fromConditionLambda(expr));
+                : validate(JobPayloadFactory.deferredConditionPayload(expr));
         // The predicate belongs to the parent job, binds the parent id, and follows the parent's
         // encryption opt-in: an opted-in workflow encrypts its predicate even when the global
         // switch is off.
@@ -1085,7 +1085,6 @@ public class DefaultJobCreationService
   }
 
   private JobPayload validate(JobPayload payload) {
-    payloadValidator.validateAtCreation(payload);
     // Persist-time ClassPolicy gate: mirrors WorkflowConditionEvaluator and JobSecurityValidator
     // at execution time. Closes the TOCTOU window between persistence and execution — a malicious
     // lambda's target class is rejected before reaching the database, not after a worker dequeues
@@ -1104,6 +1103,8 @@ public class DefaultJobCreationService
       throw new SecurityException(
           "Class " + payload.target() + " is not allowed for job execution.");
     }
+    payload = JobPayloadFactory.evaluateArguments(payload);
+    payloadValidator.validateAtCreation(payload);
     return payload;
   }
 

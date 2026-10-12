@@ -108,7 +108,7 @@ class JobPayloadFactoryTest {
         JobPayloadFactory.toInvocation(duplicate, List.of("a", "b")).arguments());
     SerializableConsumer<String> withPlainNull = item -> PayloadTarget.capture(null, item);
     assertEquals(
-        List.of("fallback", "item"),
+        Arrays.asList(null, "item"),
         JobPayloadFactory.toInvocation(withPlainNull, List.of("item", "fallback")).arguments());
     SerializableConsumer<String> ignoresItem = item -> PayloadTarget.noArgs();
     var noArgs = JobPayloadFactory.toInvocation(ignoresItem, List.of("unused"));
@@ -221,7 +221,7 @@ class JobPayloadFactoryTest {
 
     assertEquals(PayloadTarget.class.getName(), payload.target());
     assertEquals("capture", payload.method());
-    assertEquals(List.of(first, "second"), payload.args());
+    assertEquals(List.of(first, "constructed"), payload.args());
   }
 
   @Test

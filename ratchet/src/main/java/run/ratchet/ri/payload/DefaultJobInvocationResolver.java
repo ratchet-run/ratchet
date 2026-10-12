@@ -27,11 +27,11 @@ public class DefaultJobInvocationResolver implements JobInvocationResolver {
 
   @Override
   public JobInvocation resolve(Serializable callback) {
-    return JobPayloadFactory.toInvocation(callback);
+    return JobPayloadFactory.deferredInvocation(callback, List.of());
   }
 
   @Override
   public JobInvocation resolve(Serializable callback, List<Object> runtimeArguments) {
-    return JobPayloadFactory.toInvocation(callback, runtimeArguments);
+    return JobPayloadFactory.deferredInvocation(callback, runtimeArguments);
   }
 }
