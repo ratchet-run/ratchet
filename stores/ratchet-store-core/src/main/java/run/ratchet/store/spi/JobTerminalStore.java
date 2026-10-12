@@ -18,6 +18,7 @@ package run.ratchet.store.spi;
 import java.time.Instant;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -137,18 +138,21 @@ public interface JobTerminalStore {
    * @param id job id to transition; must be a currently-RUNNING job
    * @param terminalError final error message to persist, or {@code null} when none is available
    * @param totalAttempts total attempts the worker recorded across all retries
+   * @param expectedClaimSeq claim sequence received by the owner; null for a non-owner mutation
    * @return {@code true} when the live row transitioned to FAILED, {@code false} for any other
    *     status (silent no-op for non-RUNNING rows)
    * @throws RatchetTransientStoreException if the backing store cannot complete the transition
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
-  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts);
+  boolean markJobFailedTerminal(
+      UUID id, String terminalError, int totalAttempts, @Nullable Long expectedClaimSeq);
 
   /**
    * Cancels a job by id. Dispatches by job_type internally: executable jobs DELETE the live queue
    * row + UPDATE cold to terminal CANCELED; recurring masters clear the recurring shim and set cold
    * terminal CANCELED. Single-table store implementations may treat this as an UPDATE to CANCELED.
-   * Returns true iff the job transitioned to CANCELED.
+   * Returns true iff the job transitioned to CANCELED. A batch child advances its parent’s failed
+   * counter in the same transaction; a repeated cancellation does not count it again.
    *
    * @param id job id to cancel
    * @return {@code true} when the job transitioned to CANCELED, {@code false} when the job did not

@@ -42,7 +42,8 @@ class MysqlJobClaimOperationsTest {
             "attempts",
             "max_retries",
             "execution_target",
-            "depends_on"),
+            "depends_on",
+            "claim_seq"),
         columns);
     assertEquals(
         Map.ofEntries(
@@ -59,7 +60,8 @@ class MysqlJobClaimOperationsTest {
             Map.entry("attempts", 10),
             Map.entry("max_retries", 11),
             Map.entry("execution_target", 12),
-            Map.entry("depends_on", 13)),
+            Map.entry("depends_on", 13),
+            Map.entry("claim_seq", 14)),
         MysqlJobClaimOperations.claimSelectColumnIndexes());
   }
 
@@ -72,6 +74,6 @@ class MysqlJobClaimOperationsTest {
     return "job_id, status, job_type, priority, scheduled_time, version, timeout_sec, picked_by,"
         + " picked_at, business_key, attempts, max_retries, execution_target,"
         + " (SELECT cold_job.depends_on FROM scheduler_job cold_job"
-        + " WHERE cold_job.job_id = scheduler_job_queue.job_id) AS depends_on";
+        + " WHERE cold_job.job_id = scheduler_job_queue.job_id) AS depends_on, claim_seq";
   }
 }

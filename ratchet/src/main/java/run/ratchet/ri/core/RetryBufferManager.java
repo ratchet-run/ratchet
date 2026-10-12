@@ -130,6 +130,7 @@ public class RetryBufferManager {
     job.setScheduledTime(claim.scheduledTime());
     job.setTimeoutSec(claim.timeoutSec());
     job.setPickedBy(claim.pickedBy());
+    job.setClaimSeq(claim.claimSeq());
     job.setPickedAt(claim.pickedAt());
     job.setBusinessKey(claim.businessKey());
     job.setAttempts(claim.attempts());
@@ -258,8 +259,8 @@ public class RetryBufferManager {
    * picked up elsewhere after shutdown.
    *
    * <p>Each claim is reset in its own transaction by delegating to {@link
-   * JobStateManager#resetJobToPending(java.util.UUID)} (transaction attribute REQUIRED, invoked
-   * across a bean boundary so a new transaction begins per claim). This method is deliberately not
+   * JobStateManager#resetJobToPending(UUID, long)} (transaction attribute REQUIRED, invoked across
+   * a bean boundary so a new transaction begins per claim). This method is deliberately not
    * {@code @Transactional}: a single enclosing transaction would let one failed reset mark the
    * whole batch rollback-only and silently undo every claim already flushed.
    *
@@ -278,7 +279,7 @@ public class RetryBufferManager {
         BufferedClaim buffered;
         while ((buffered = buffer.poll()) != null) {
           try {
-            if (jobStateManager.resetJobToPending(buffered.jobId())) {
+            if (jobStateManager.resetJobToPending(buffered.jobId(), buffered.claimSeq())) {
               flushed++;
             }
           } catch (Exception e) {
@@ -395,7 +396,8 @@ public class RetryBufferManager {
       int attempts,
       int maxRetries,
       String executionTarget,
-      UUID dependsOn) {
+      UUID dependsOn,
+      long claimSeq) {
 
     static BufferedClaim from(JobEntity job) {
       return new BufferedClaim(
@@ -410,7 +412,8 @@ public class RetryBufferManager {
           job.getAttempts(),
           job.getMaxRetries(),
           job.getExecutionTarget(),
-          job.getDependsOn());
+          job.getDependsOn(),
+          job.getClaimSeq() == null ? 0L : job.getClaimSeq());
     }
 
     static BufferedClaim from(JobClaimDto claim) {
@@ -426,7 +429,8 @@ public class RetryBufferManager {
           claim.attempts(),
           claim.maxRetries(),
           claim.executionTarget(),
-          claim.dependsOn());
+          claim.dependsOn(),
+          claim.claimSeq());
     }
 
     JobClaimDto toClaimDto() {
@@ -444,7 +448,8 @@ public class RetryBufferManager {
           attempts,
           maxRetries,
           executionTarget,
-          dependsOn);
+          dependsOn,
+          claimSeq);
     }
   }
 }

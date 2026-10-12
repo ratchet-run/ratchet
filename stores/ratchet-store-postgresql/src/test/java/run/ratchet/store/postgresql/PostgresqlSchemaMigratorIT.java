@@ -156,21 +156,24 @@ class PostgresqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     try (Connection c = newJdbcConnection();
         Statement statement = c.createStatement()) {
       statement.executeUpdate(
-          "INSERT INTO scheduler_job (job_id, job_type, payload, idempotency_key, created_at) "
-              + "VALUES ('00112233-4455-6677-8899-aabbccddeeff'::uuid, 'SINGLE', '{}', 'pre-upgrade-key', CURRENT_TIMESTAMP)");
+          "INSERT INTO scheduler_job (job_id, job_type, payload, idempotency_key, created_at)"
+              + " VALUES ('00112233-4455-6677-8899-aabbccddeeff'::uuid, 'SINGLE', '{}',"
+              + " 'pre-upgrade-key', CURRENT_TIMESTAMP)");
     }
 
     SchemaMigrator.MigrationResult result = migrator.migrate();
 
     assertEquals(
-        List.of("002", "003", "004", "005", "006", "007", "008", "009"),
+        List.of("002", "003", "004", "005", "006", "007", "008", "009", "010"),
         versions(result.applied()));
     assertEquals(List.of("001"), versions(result.skipped()));
     try (Connection c = newJdbcConnection();
         Statement statement = c.createStatement();
         var rows =
             statement.executeQuery(
-                "SELECT COUNT(*) FROM scheduler_idempotency_key WHERE idempotency_key = 'pre-upgrade-key' AND original_job_id = '00112233-4455-6677-8899-aabbccddeeff'::uuid")) {
+                "SELECT COUNT(*) FROM scheduler_idempotency_key WHERE idempotency_key ="
+                    + " 'pre-upgrade-key' AND original_job_id ="
+                    + " '00112233-4455-6677-8899-aabbccddeeff'::uuid")) {
       rows.next();
       assertEquals(1, rows.getInt(1));
     }
@@ -187,7 +190,7 @@ class PostgresqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     SchemaMigrator.MigrationResult result = migrator.migrate();
 
     assertEquals(
-        List.of("001", "002", "003", "004", "005", "006", "007", "008", "009"),
+        List.of("001", "002", "003", "004", "005", "006", "007", "008", "009", "010"),
         versions(result.applied()));
     assertEquals(List.of(), result.skipped());
     assertExtensionSchemaExists();

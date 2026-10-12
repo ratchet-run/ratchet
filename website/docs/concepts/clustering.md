@@ -293,7 +293,7 @@ shown in the [Kubernetes deployment guide](../deployment/kubernetes.md#rolling-t
 
 | Guarantee | Mechanism |
 |-----------|-----------|
-| No duplicate execution | `SKIP LOCKED` + `@Version` optimistic locking |
+| Current owner writes | Atomic claiming + monotonic `claim_seq` fencing |
 | At-least-once delivery | Orphan recovery resets stale RUNNING jobs |
 | Idempotency | `idempotency_key` UNIQUE constraint |
 | Active-unique business key | Partial unique index on active statuses |
@@ -301,7 +301,7 @@ shown in the [Kubernetes deployment guide](../deployment/kubernetes.md#rolling-t
 | Crash recovery | Orphan recovery timer + lock expiration |
 
 :::info
-Ratchet provides **at-least-once** delivery semantics. In rare cases (node crash after execution but before status update), a job may execute twice. If your job logic requires exactly-once semantics, implement idempotency in your business logic (e.g., using the job's idempotency key).
+Ratchet provides **at-least-once** delivery semantics. Each claim advances `claim_seq`; completion, retry, failure, and per-claim reset writes must match the sequence received at claim time. Recovery can leave an older body running, but its writes cannot change the new owner’s recorded outcome or attempts. In rare cases (node crash after execution but before status update), a job may execute twice. If your job logic requires exactly-once semantics, implement idempotency in your business logic (e.g., using the job's idempotency key).
 :::
 
 ## Related

@@ -219,13 +219,19 @@ public class DefaultJobExecutorService implements JobExecutorService {
   @Override
   public ExecutionResult execute(JobEntity job, String poolName) {
     Instant executionStartTime = effective().instant();
-    JobAttemptControl attempt =
-        timeoutHandler.newAttempt(
-            job.getId(), job.getTimeoutSec(), executionStartTime, job.getAttempts());
     JobExecutionType jobType = job.getJobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     Runnable release = permitRelease(jobType, poolName, handlesRef);
     try {
+      JobAttemptControl attempt =
+          timeoutHandler.newAttempt(
+              job.getId(),
+              job.getTimeoutSec(),
+              executionStartTime,
+              job.getAttempts(),
+              Objects.requireNonNull(
+                  job.getClaimSeq(), "job " + job.getId() + " has no claim sequence"),
+              job.getPickedBy());
       Callable<Void> callable =
           createPermitAwareRunner(
               jobType,
@@ -246,13 +252,18 @@ public class DefaultJobExecutorService implements JobExecutorService {
   @Override
   public ExecutionResult execute(JobClaimDto claim, String poolName) {
     Instant executionStartTime = effective().instant();
-    JobAttemptControl attempt =
-        timeoutHandler.newAttempt(
-            claim.id(), claim.timeoutSec(), executionStartTime, claim.attempts());
     JobExecutionType jobType = claim.jobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     Runnable release = permitRelease(jobType, poolName, handlesRef);
     try {
+      JobAttemptControl attempt =
+          timeoutHandler.newAttempt(
+              claim.id(),
+              claim.timeoutSec(),
+              executionStartTime,
+              claim.attempts(),
+              claim.claimSeq(),
+              claim.pickedBy());
       Callable<Void> callable =
           createPermitAwareRunner(
               jobType,

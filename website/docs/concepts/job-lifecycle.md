@@ -85,11 +85,11 @@ The job is queued and waiting for execution. A PENDING job becomes visible to th
 
 ### RUNNING
 
-A worker has claimed the job and is actively executing it. The `picked_by` field records which node owns the job, and optimistic locking (`@Version`) prevents duplicate execution.
+A worker has claimed the job and is actively executing it. The `picked_by` field records which node owns the job, and each claim advances a claim sequence. Owner writes must match that sequence, so a recovered job rejects outcomes and retry updates from an older execution. Delivery remains at least once: job bodies can overlap after recovery, so external side effects need idempotency.
 
 - **Visible to Poller:** No
 - **Transitions to:** SUCCEEDED (execution completes), FAILED (exception thrown or timeout), CANCELED (via `cancelJob()` -- checked mid-execution)
-- **Guard:** Only one node can hold a RUNNING job at a time
+- **Guard:** Only the current claim can persist owner writes
 
 ### SUCCEEDED
 
@@ -270,16 +270,21 @@ Behavior depends on current state:
 
 For chain steps, cancellation cascades to all downstream dependents using depth-first traversal.
 
-## Optimistic Locking
+## Claim fencing
 
-The `JobEntity` uses JPA `@Version` for optimistic locking. When two nodes attempt to modify the same job concurrently, one will get an `OptimisticLockException`. Combined with `SKIP LOCKED` during claiming, this prevents two nodes from running the same job at the same time:
+Each claim increments a persisted `claim_seq`. The worker keeps the sequence it received and
+includes it when completing, retrying, failing, or releasing that claim. The store rejects a write
+from an older claim before changing the outcome, attempts, or dependent jobs. This also protects
+against an older execution on the same node after that node reclaims the job.
 
-- `SKIP LOCKED` prevents two nodes from claiming the same job
-- `@Version` prevents stale updates if a race occurs during status transitions
+SQL stores lock queue rows when claiming; MongoDB uses atomic filter-and-update operations.
+The separate `version` column guards optimistic state transitions. Neither mechanism prevents a
+stalled worker's body from overlapping a recovered execution. Delivery remains at least once;
+job code must make external side effects idempotent.
 
 ## Orphan Recovery
 
-If a node crashes while executing a job, the job remains in RUNNING state with no node to complete it. The `OrphanRecoveryTimer` periodically scans for stale RUNNING jobs (based on `picked_at` timestamp) and resets them to PENDING for re-execution.
+If a node crashes while executing a job, the job remains in RUNNING state with no node to complete it. The `OrphanRecoveryTimer` periodically scans for stale RUNNING jobs (based on `picked_at` timestamp) and resets them to PENDING for re-execution. The next claim advances the claim sequence, so a stalled worker that resumes cannot overwrite the new owner’s outcome or retry count. Its external side effects still require idempotency.
 
 ## Archival
 

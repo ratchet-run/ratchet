@@ -66,7 +66,7 @@ class JobStateManagerTest {
   void resetJobToPending_entity_casSucceeds_updatesAllFields() {
     JobEntity job = runningJob(JOB_ID);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID, 0L)).thenReturn(true);
 
     boolean result = manager.resetJobToPending(job);
 
@@ -82,7 +82,7 @@ class JobStateManagerTest {
     JobEntity job = runningJob(JOB_ID);
     job.setPickedAt(pickedAt);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID, 0L)).thenReturn(false);
 
     boolean result = manager.resetJobToPending(job);
 
@@ -95,20 +95,20 @@ class JobStateManagerTest {
   @Test
   void resetJobToPending_byId_delegatesToStoreWithNodeId() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID, 0L)).thenReturn(true);
 
-    boolean result = manager.resetJobToPending(JOB_ID);
+    boolean result = manager.resetJobToPending(JOB_ID, 0L);
 
     assertTrue(result);
-    verify(jobBatchStatusStore).resetRunningJob(JOB_ID, NODE_ID);
+    verify(jobBatchStatusStore).resetRunningJob(JOB_ID, NODE_ID, 0L);
   }
 
   @Test
   void resetJobToPending_byId_storeReturnsFalse_returnsFalse() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID, 0L)).thenReturn(false);
 
-    boolean result = manager.resetJobToPending(JOB_ID);
+    boolean result = manager.resetJobToPending(JOB_ID, 0L);
 
     assertFalse(result);
   }
@@ -117,10 +117,10 @@ class JobStateManagerTest {
   void resetJobToPending_byId_storeThrows_propagatesFailure() {
     RuntimeException storeFailure = new RuntimeException("DB error");
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenThrow(storeFailure);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID, 0L)).thenThrow(storeFailure);
 
     IllegalStateException thrown =
-        assertThrows(IllegalStateException.class, () -> manager.resetJobToPending(JOB_ID));
+        assertThrows(IllegalStateException.class, () -> manager.resetJobToPending(JOB_ID, 0L));
 
     assertSame(storeFailure, thrown.getCause());
   }
@@ -151,7 +151,7 @@ class JobStateManagerTest {
     JobEntity job = runningJob(JOB_ID);
     job.setDependsOn(null);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID, 0L)).thenReturn(true);
 
     boolean result = manager.resetJobToPending(job);
 
@@ -165,7 +165,7 @@ class JobStateManagerTest {
     UUID dependency = new UUID(0L, 99L);
     job.setDependsOn(dependency);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID, 0L)).thenReturn(true);
 
     manager.resetJobToPending(job);
 
@@ -176,11 +176,11 @@ class JobStateManagerTest {
   void resetJobToPending_byId_usesNodeIdFromProvider() {
     String differentNodeId = "node-xyz";
     when(nodeIdentityProvider.getNodeId()).thenReturn(differentNodeId);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, differentNodeId)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, differentNodeId, 0L)).thenReturn(true);
 
-    boolean result = manager.resetJobToPending(JOB_ID);
+    boolean result = manager.resetJobToPending(JOB_ID, 0L);
 
     assertTrue(result);
-    verify(jobBatchStatusStore).resetRunningJob(JOB_ID, differentNodeId);
+    verify(jobBatchStatusStore).resetRunningJob(JOB_ID, differentNodeId, 0L);
   }
 }

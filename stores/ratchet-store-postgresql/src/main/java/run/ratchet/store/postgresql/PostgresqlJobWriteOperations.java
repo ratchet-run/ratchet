@@ -554,6 +554,22 @@ final class PostgresqlJobWriteOperations {
 
   private void terminalizeViaSave(JobEntity incoming, int expectedVersion) {
     UUID id = incoming.getId();
+    // Read the authoritative sequence while the queue row is locked, before deleting it.
+    List<?> sequences =
+        ctx.em()
+            .createNativeQuery(
+                """
+                SELECT claim_seq FROM scheduler_job_queue
+                WHERE job_id = ? AND version = ?
+                FOR UPDATE
+                """)
+            .setParameter(1, id)
+            .setParameter(2, expectedVersion)
+            .getResultList();
+    if (sequences.isEmpty()) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
+    long claimSeq = ((Number) sequences.get(0)).longValue();
     int deleted =
         ctx.em()
             .createNativeQuery("DELETE FROM scheduler_job_queue WHERE job_id = ? AND version = ?")
@@ -568,15 +584,17 @@ final class PostgresqlJobWriteOperations {
         """
         UPDATE scheduler_job
         SET terminal_status = ?,
-            terminal_error = COALESCE(?, terminal_error),
+            claim_seq = ?,
+            terminal_error = ?,
             terminated_at = statement_timestamp()
         WHERE job_id = ? AND terminal_status IS NULL
         """;
     ctx.em()
         .createNativeQuery(updateSql)
         .setParameter(1, incoming.getStatus().name())
-        .setParameter(2, incoming.getLastError())
-        .setParameter(3, id)
+        .setParameter(2, claimSeq)
+        .setParameter(3, incoming.getLastError())
+        .setParameter(4, id)
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
     incoming.setVersion(expectedVersion + 1);

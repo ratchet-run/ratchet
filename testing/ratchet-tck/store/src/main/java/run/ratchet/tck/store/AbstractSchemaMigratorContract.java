@@ -121,6 +121,42 @@ public abstract class AbstractSchemaMigratorContract {
     assertFalse(nodeInfoColumnExists(), "scheduler_node.node_info should stay absent");
   }
 
+  @Test
+  void claimSequenceMigrationIsIdempotentOnRepeat() throws Exception {
+    resetDatabase();
+    // Stores number their migrations independently, so find this one by name.
+    String version =
+        newMigrator().migrate().applied().stream()
+            .filter(script -> script.resourceName().endsWith("__claim_seq.sql"))
+            .map(SchemaMigrator.MigrationScript::version)
+            .findFirst()
+            .orElseThrow();
+    try (Connection connection = newJdbcConnection()) {
+      var metadata = connection.getMetaData();
+      boolean upper = metadata.storesUpperCaseIdentifiers();
+      for (String table : List.of("scheduler_job", "scheduler_job_queue")) {
+        try (ResultSet columns =
+            metadata.getColumns(
+                connection.getCatalog(),
+                connection.getSchema(),
+                upper ? table.toUpperCase(Locale.ROOT) : table,
+                upper ? "CLAIM_SEQ" : "claim_seq")) {
+          assertTrue(columns.next(), table + ".claim_seq must exist after migration");
+          assertEquals(0, columns.getInt("NULLABLE"), "claim_seq must be NOT NULL");
+        }
+      }
+      try (var statement =
+          connection.prepareStatement("DELETE FROM ratchet_schema_version WHERE version = ?")) {
+        statement.setString(1, version);
+        statement.executeUpdate();
+      }
+    }
+    var repeated = newMigrator().migrate();
+    assertEquals(
+        List.of(version),
+        repeated.applied().stream().map(SchemaMigrator.MigrationScript::version).toList());
+  }
+
   private boolean nodeInfoColumnExists() throws SQLException {
     try (Connection connection = newJdbcConnection()) {
       var metadata = connection.getMetaData();
@@ -225,7 +261,8 @@ public abstract class AbstractSchemaMigratorContract {
     try (Connection c = newJdbcConnection();
         PreparedStatement s =
             c.prepareStatement(
-                "SELECT version, description, checksum FROM ratchet_schema_version ORDER BY version");
+                "SELECT version, description, checksum FROM ratchet_schema_version ORDER BY"
+                    + " version");
         ResultSet rs = s.executeQuery()) {
       List<SchemaVersionRow> rows = new ArrayList<>();
       while (rs.next()) {

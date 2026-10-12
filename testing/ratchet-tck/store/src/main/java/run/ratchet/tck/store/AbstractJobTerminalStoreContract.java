@@ -37,6 +37,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionPlan.BatchCompletion;
 import run.ratchet.store.dto.JobCompletionPlan.DependencyTransition;
+import run.ratchet.store.entity.JobExecutionType;
 
 /** Base contract tests for {@code JobTerminalStore}. */
 public abstract class AbstractJobTerminalStoreContract implements JobStoreContractFixture {
@@ -104,7 +105,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             batch.getId(),
             null,
-            List.of(transition));
+            List.of(transition),
+            null);
     var bothInTransaction = new CountDownLatch(2);
     var executor = Executors.newFixedThreadPool(2);
     try {
@@ -166,7 +168,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
                 0L,
                 null,
                 null,
-                List.of());
+                List.of(),
+                null);
 
         assertTrue(store().commitCompletion(plan).committed());
 
@@ -213,7 +216,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             null,
             null,
-            List.of(transition));
+            List.of(transition),
+            null);
     assertTrue(store().commitCompletion(plan).committed());
     assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());
     assertEquals(
@@ -242,7 +246,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             UUID.randomUUID(),
             null,
-            List.of());
+            List.of(),
+            null);
     Assertions.assertThrows(RuntimeException.class, () -> store().commitCompletion(plan));
     assertEquals(
         JobStatus.RUNNING,
@@ -280,9 +285,52 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             null,
             null,
-            List.of(transition));
+            List.of(transition),
+            null);
     Assertions.assertThrows(RuntimeException.class, () -> store().commitCompletion(plan));
     assertEquals(JobStatus.RUNNING, store().findById(parent.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void canceledCompletionReturnsBatchProgressAndCountsChildExactlyOnce() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    var child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child = persist(child);
+    assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
+    var claimed = store().findById(child.getId()).orElseThrow();
+    Instant now = Instant.now();
+    var plan =
+        new JobCompletionPlan(
+            child.getId(),
+            JobStatus.RUNNING,
+            JobStatus.CANCELED,
+            null,
+            null,
+            null,
+            claimed.getAttempts(),
+            now,
+            now,
+            0L,
+            0L,
+            parent.getId(),
+            null,
+            List.of(),
+            claimed.getClaimSeq());
+    var completed = store().commitCompletion(plan);
+    assertTrue(completed.committed());
+    assertNotNull(completed.batchProgress());
+    assertEquals(parent.getId(), completed.batchProgress().batchId());
+    assertEquals(1, completed.batchProgress().totalItems());
+    assertEquals(0, completed.batchProgress().completedItems());
+    assertEquals(1, completed.batchProgress().failedItems());
+    assertEquals(JobStatus.CANCELED, store().findById(child.getId()).orElseThrow().getStatus());
+    assertFalse(store().commitCompletion(plan).committed());
+    var batch = batchStore().findBatchById(parent.getId()).orElseThrow();
+    assertEquals(0, batch.getCompletedItems());
+    assertEquals(1, batch.getFailedItems());
   }
 
   @Test
@@ -307,7 +355,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             parent.getId(),
             null,
-            List.of());
+            List.of(),
+            null);
     var completed = store().commitCompletion(childPlan);
     assertTrue(completed.committed());
     assertEquals(1, completed.batchProgress().completedItems());
@@ -328,7 +377,8 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
             0L,
             null,
             new BatchCompletion(1, 1, 0),
-            List.of());
+            List.of(),
+            null);
     assertTrue(store().commitCompletion(parentPlan).committed());
     assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());
     assertTrue(batchStore().findBatchById(parent.getId()).orElseThrow().getCompletionProcessed());
@@ -372,7 +422,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
 
-    boolean marked = store().markJobFailedTerminal(saved.getId(), "permanent", 3);
+    boolean marked = store().markJobFailedTerminal(saved.getId(), "permanent", 3, null);
 
     assertTrue(marked, "markJobFailedTerminal should return true for a running job");
     var reloaded = store().findById(saved.getId()).orElseThrow();
@@ -386,7 +436,7 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
   void compareAndSwapStatus_runningToFailedPreservesHotAttemptsAndTimingFields() {
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    assertEquals(1, store().incrementRetryAttempt(saved.getId()));
+    assertEquals(1, store().incrementRetryAttempt(saved.getId(), null));
 
     boolean marked =
         store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "boom");
@@ -432,5 +482,120 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     assertNotNull(start, "Terminal start time should be persisted");
     assertNotNull(end, "Terminal end time should be persisted");
     assertFalse(end.isBefore(start), "Terminal end time should not precede start time");
+  }
+
+  @Test
+  void staleCompletionLeavesPrimaryAndDependentUntouched() {
+    var parent = persist(newPendingJob());
+    var first = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    var child = newPendingJob();
+    child.setDependsOn(parent.getId());
+    child.setStatus(JobStatus.WAITING);
+    child = persist(child);
+    var beforeChild = store().findById(child.getId()).orElseThrow();
+    var dependency =
+        new DependencyTransition(
+            child.getId(),
+            beforeChild.getStatus(),
+            beforeChild.getVersion(),
+            beforeChild.getScheduledTime(),
+            JobStatus.PENDING,
+            Instant.now(),
+            beforeChild.getJobType());
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60)));
+    var current = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1").get(0);
+    var before = store().findById(parent.getId()).orElseThrow();
+    var stale =
+        new JobCompletionPlan(
+            parent.getId(),
+            JobStatus.RUNNING,
+            JobStatus.FAILED,
+            null,
+            null,
+            "stale",
+            99,
+            Instant.now(),
+            Instant.now(),
+            1L,
+            1L,
+            null,
+            null,
+            List.of(dependency),
+            first.claimSeq());
+    assertFalse(store().commitCompletion(stale).committed());
+    var untouched = store().findById(parent.getId()).orElseThrow();
+    assertEquals(JobStatus.RUNNING, untouched.getStatus());
+    assertEquals(before.getAttempts(), untouched.getAttempts());
+    assertEquals(before.getTerminalStatus(), untouched.getTerminalStatus());
+    assertEquals(before.getVersion(), untouched.getVersion());
+    assertEquals(before.getClaimSeq(), untouched.getClaimSeq());
+    assertEquals(before.getPickedBy(), untouched.getPickedBy());
+    assertEquals(before.getPickedAt(), untouched.getPickedAt());
+    assertEquals(before.getScheduledTime(), untouched.getScheduledTime());
+    assertEquals(before.getQueueWaitMs(), untouched.getQueueWaitMs());
+    assertEquals(before.getResultType(), untouched.getResultType());
+    assertEquals(before.getLastError(), untouched.getLastError());
+    assertEquals(before.getExecutionEndTime(), untouched.getExecutionEndTime());
+    assertEquals(before.getExecutionDurationMs(), untouched.getExecutionDurationMs());
+    assertEquals(before.getJobResult(), untouched.getJobResult());
+    var untouchedChild = store().findById(child.getId()).orElseThrow();
+    assertEquals(beforeChild.getStatus(), untouchedChild.getStatus());
+    assertEquals(beforeChild.getVersion(), untouchedChild.getVersion());
+    assertEquals(beforeChild.getScheduledTime(), untouchedChild.getScheduledTime());
+    var valid =
+        new JobCompletionPlan(
+            parent.getId(),
+            JobStatus.RUNNING,
+            JobStatus.SUCCEEDED,
+            "\"result\"",
+            null,
+            null,
+            1,
+            Instant.now(),
+            Instant.now(),
+            1L,
+            1L,
+            null,
+            null,
+            List.of(dependency),
+            current.claimSeq());
+    assertTrue(store().commitCompletion(valid).committed());
+    assertEquals(JobStatus.SUCCEEDED, store().findById(parent.getId()).orElseThrow().getStatus());
+    assertEquals(JobStatus.PENDING, store().findById(child.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void canceledRunningBatchChildIsCountedOnce() throws Exception {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+    var child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    child.setDependsOn(parent.getId());
+    child = persist(child);
+    assertTrue(store().tryPickUpJob(child.getId(), "node-1"));
+    UUID childId = child.getId();
+    var ready = new CountDownLatch(2);
+    var executor = Executors.newFixedThreadPool(2);
+    try {
+      Callable<Boolean> cancel =
+          () -> {
+            ready.countDown();
+            assertTrue(ready.await(20, TimeUnit.SECONDS));
+            return store()
+                .compareAndSwapStatus(childId, JobStatus.RUNNING, JobStatus.CANCELED, null);
+          };
+      var first = executor.submit(cancel);
+      var second = executor.submit(cancel);
+      assertEquals(
+          1,
+          (first.get(30, TimeUnit.SECONDS) ? 1 : 0) + (second.get(30, TimeUnit.SECONDS) ? 1 : 0));
+    } finally {
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+    }
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(childId));
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
+    assertFalse(store().cancelJob(childId));
+    assertEquals(1, batchStore().findBatchById(parent.getId()).orElseThrow().getFailedItems());
   }
 }

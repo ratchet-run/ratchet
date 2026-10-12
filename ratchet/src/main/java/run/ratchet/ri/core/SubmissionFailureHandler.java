@@ -61,11 +61,11 @@ public class SubmissionFailureHandler {
   void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
     recordGateRejected(job.getJobType(), result);
     if (isFirstAttempt) {
-      ResetOutcome outcome = resetToPendingOrBuffer(job);
+      ResetOutcome outcome = resetToPending(job);
       logFirstAttemptGateFailure(job, result, outcome);
     } else {
       if (!retryBufferManager.offer(job)) {
-        resetToPendingOrBuffer(job);
+        if (resetToPending(job) == ResetOutcome.STALE_CLAIM) return;
         if (result.status() == GateCheckResult.GateStatus.NO_PERMITS) {
           log.warnf(
               "Buffer for %s is full - returning job %s to PENDING", job.getJobType(), job.getId());
@@ -80,7 +80,7 @@ public class SubmissionFailureHandler {
       log.info(result.reason());
       return;
     }
-    jobStateManager.resetJobToPending(claim.id());
+    jobStateManager.resetJobToPending(claim.id(), claim.claimSeq());
     log.info(result.reason());
   }
 
@@ -88,13 +88,13 @@ public class SubmissionFailureHandler {
       JobEntity job, JobExecutionType jobType, String poolName, boolean isFirstAttempt) {
 
     if (isFirstAttempt) {
-      resetToPendingOrBuffer(job);
+      if (resetToPending(job) == ResetOutcome.STALE_CLAIM) return;
       log.warnf("Executor for %s rejected job %s - returned to PENDING", jobType, job.getId());
     } else {
       if (retryBufferManager.offer(job)) {
         log.warnf("Executor for %s rejected buffered job %s - re-buffering", jobType, job.getId());
       } else {
-        resetToPendingOrBuffer(job);
+        if (resetToPending(job) == ResetOutcome.STALE_CLAIM) return;
         log.warnf(
             "Buffer for %s is full - returning rejected job %s to PENDING", jobType, job.getId());
       }
@@ -107,13 +107,11 @@ public class SubmissionFailureHandler {
       log.warnf("Executor for %s rejected job %s - buffered locally", jobType, claim.id());
       return;
     }
-    if (jobStateManager.resetJobToPending(claim.id())) {
+    if (jobStateManager.resetJobToPending(claim.id(), claim.claimSeq())) {
       log.warnf("Executor for %s rejected job %s - returned to PENDING", jobType, claim.id());
       return;
     }
-    log.warnf(
-        "Executor for %s rejected job %s - neither buffered nor reset cleanly",
-        jobType, claim.id());
+    // The reset handler already logged the stale claim; discard it.
   }
 
   public void handleUnexpectedException(
@@ -128,7 +126,7 @@ public class SubmissionFailureHandler {
         job.getId());
 
     if (isFirstAttempt || !retryBufferManager.offer(job)) {
-      resetToPendingOrBuffer(job);
+      resetToPending(job);
     }
   }
 
@@ -142,38 +140,26 @@ public class SubmissionFailureHandler {
     if (bufferClaim(claim)) {
       return;
     }
-    jobStateManager.resetJobToPending(claim.id());
+    jobStateManager.resetJobToPending(claim.id(), claim.claimSeq());
   }
 
   void retainUnsubmittedClaim(JobClaimDto claim) {
     if (!retryBufferManager.forceOffer(claim)) {
-      jobStateManager.resetJobToPending(claim.id());
+      jobStateManager.resetJobToPending(claim.id(), claim.claimSeq());
     }
   }
 
-  private ResetOutcome resetToPendingOrBuffer(JobEntity job) {
+  private ResetOutcome resetToPending(JobEntity job) {
     if (jobStateManager.resetJobToPending(job)) {
       return ResetOutcome.RESET_TO_PENDING;
     }
-    boolean buffered = retryBufferManager.forceOffer(job);
-    if (buffered) {
-      return ResetOutcome.BUFFERED;
-    }
-    log.warnf("Job %s was neither reset to PENDING nor buffered", job.getId());
-    return ResetOutcome.NOT_RECOVERED;
+    return ResetOutcome.STALE_CLAIM;
   }
 
   private void logFirstAttemptGateFailure(
       JobEntity job, GateCheckResult result, ResetOutcome outcome) {
-    switch (outcome) {
-      case RESET_TO_PENDING ->
-          log.infof("%s - returned job %s to PENDING", result.reason(), job.getId());
-      case BUFFERED ->
-          log.infof(
-              "%s - buffered job %s because reset to PENDING did not apply",
-              result.reason(), job.getId());
-      case NOT_RECOVERED ->
-          log.warnf("%s - job %s was neither reset nor buffered", result.reason(), job.getId());
+    if (outcome == ResetOutcome.RESET_TO_PENDING) {
+      log.infof("%s - returned job %s to PENDING", result.reason(), job.getId());
     }
   }
 
@@ -189,7 +175,6 @@ public class SubmissionFailureHandler {
 
   private enum ResetOutcome {
     RESET_TO_PENDING,
-    BUFFERED,
-    NOT_RECOVERED
+    STALE_CLAIM
   }
 }

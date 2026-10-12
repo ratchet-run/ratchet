@@ -20,12 +20,13 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import run.ratchet.api.Nullable;
 
 /**
  * State shared by the worker and watchdog for one execution attempt. Retries get a fresh flag.
  * {@link #requestCancellation()} is the entry point for future sources such as a user-cancel poll.
- * Its attempt token identifies the attempt in memory; a future fencing token (#223) could build on
- * it.
+ * Its attempt token identifies the attempt in memory; its claim sequence fences persisted owner
+ * writes.
  */
 public final class JobAttemptControl {
   private final Object attemptToken = new Object();
@@ -34,6 +35,13 @@ public final class JobAttemptControl {
   private final Instant executionStartTime;
   private final long timeoutSeconds;
   private final int baselineAttempts;
+
+  /**
+   * The claim this attempt runs under; watchdog and cooperative stops fence their writes with it.
+   */
+  private final long claimSeq;
+
+  private final @Nullable String nodeId;
   private final AtomicBoolean cancellationRequested = new AtomicBoolean();
 
   private enum TimeoutOwner {
@@ -52,11 +60,15 @@ public final class JobAttemptControl {
       Instant deadline,
       long timeoutSeconds,
       Instant executionStartTime,
-      int baselineAttempts) {
+      int baselineAttempts,
+      long claimSeq,
+      @Nullable String nodeId) {
     this.jobId = Objects.requireNonNull(jobId);
     this.deadline = Objects.requireNonNull(deadline);
     this.timeoutSeconds = timeoutSeconds;
     this.baselineAttempts = baselineAttempts;
+    this.claimSeq = claimSeq;
+    this.nodeId = nodeId;
     this.executionStartTime = Objects.requireNonNull(executionStartTime);
   }
 
@@ -83,6 +95,14 @@ public final class JobAttemptControl {
   /** Attempt count persisted when this execution attempt started. */
   public int baselineAttempts() {
     return baselineAttempts;
+  }
+
+  public long claimSeq() {
+    return claimSeq;
+  }
+
+  public @Nullable String nodeId() {
+    return nodeId;
   }
 
   public Instant executionStartTime() {

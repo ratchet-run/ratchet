@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -515,7 +516,7 @@ class BatchServiceTest {
     batchService.markChildSucceeded(child);
 
     verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
-    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt());
+    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt(), isNull());
     verify(batchStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(deadLetterService, never()).recordDlqTransition(any(), any());
@@ -551,7 +552,7 @@ class BatchServiceTest {
 
     assertEquals(JobStatus.PENDING, parent.getStatus());
     verify(jobBatchStatusStore, never())
-        .resetRunningJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID);
+        .resetRunningJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID, 0L);
     verify(batchStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(workflowScheduler, never()).scheduleNext(any());

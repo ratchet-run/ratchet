@@ -554,7 +554,8 @@ class PollerTest {
         0,
         0,
         executionTarget,
-        null);
+        null,
+        0L);
   }
 
   private static final class RecordingDelayStrategy implements PollingDelayStrategy {

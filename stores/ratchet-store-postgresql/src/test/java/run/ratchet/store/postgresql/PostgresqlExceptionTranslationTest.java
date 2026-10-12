@@ -184,7 +184,7 @@ class PostgresqlExceptionTranslationTest {
 
     assertThrows(
         RatchetTransientStoreException.class,
-        () -> terminals.scheduleJobRetry(JOB_ID, "boom", Instant.now(), 1));
+        () -> terminals.scheduleJobRetry(JOB_ID, "boom", Instant.now(), 1, null));
   }
 
   @Test
@@ -311,6 +311,7 @@ class PostgresqlExceptionTranslationTest {
 
   private static Object[] terminalRow() {
     Object[] row = new Object[PostgresqlJobRowMapper.HYDRATION_COL_COUNT];
+    row[53] = 0L;
     Instant now = Instant.parse("2026-05-12T14:30:00Z");
     row[0] = JOB_ID;
     row[1] = JobExecutionType.SINGLE.name();

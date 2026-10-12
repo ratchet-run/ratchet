@@ -246,6 +246,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       if (!executionTargetFilter.matches(job.getExecutionTarget())) {
         continue;
       }
+      job.setClaimSeq((job.getClaimSeq() == null ? 0L : job.getClaimSeq()) + 1);
       job.setStatus(JobStatus.RUNNING);
       job.setPickedBy(nodeId);
       job.setPickedAt(now);
@@ -265,7 +266,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
               job.getAttempts(),
               job.getMaxRetries(),
               job.getExecutionTarget(),
-              job.getDependsOn()));
+              job.getDependsOn(),
+              job.getClaimSeq()));
     }
     return claimed;
   }
@@ -303,7 +305,10 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized JobCompletionResult commitCompletion(JobCompletionPlan plan) {
     JobEntity job = jobs.get(plan.jobId());
-    if (job == null || job.getStatus() != plan.expectedStatus()) {
+    if (job == null
+        || job.getStatus() != plan.expectedStatus()
+        || (plan.expectedClaimSeq() != null
+            && !Objects.equals(job.getClaimSeq(), plan.expectedClaimSeq()))) {
       return JobCompletionResult.notCommitted();
     }
     // Clocked contracts exercise ordinary jobs and signals; batch state is deliberately

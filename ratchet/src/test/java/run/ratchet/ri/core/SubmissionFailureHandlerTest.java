@@ -124,7 +124,8 @@ class SubmissionFailureHandlerTest {
             0,
             0,
             null,
-            null);
+            null,
+            0L);
     when(retryBufferManager.forceOffer(claim)).thenReturn(true);
     handler.retainUnsubmittedClaim(claim);
     verify(retryBufferManager).forceOffer(claim);
@@ -149,15 +150,16 @@ class SubmissionFailureHandlerTest {
             0,
             0,
             null,
-            null);
-    when(jobStateManager.resetJobToPending(claim.id())).thenReturn(true);
+            null,
+            0L);
+    when(jobStateManager.resetJobToPending(claim.id(), claim.claimSeq())).thenReturn(true);
 
     handler.handleGateFailure(
         claim, GateCheckResult.rateLimited(JobExecutionType.BATCH_CHILD, claimJobId, 10, 5));
 
     verify(metricsCollector).gateRejected(JobExecutionType.BATCH_CHILD.name(), "RATE_LIMITED");
     verify(retryBufferManager).offer(claim);
-    verify(jobStateManager).resetJobToPending(claim.id());
+    verify(jobStateManager).resetJobToPending(claim.id(), claim.claimSeq());
   }
 
   @Test
@@ -165,7 +167,7 @@ class SubmissionFailureHandlerTest {
     JobEntity job = runningSingleJob(46L);
     SubmissionFailureHandler realStateHandler = handlerWithRealStateManager();
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(job.getId(), "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(job.getId(), "node-1", 0L)).thenReturn(true);
 
     realStateHandler.handleGateFailure(
         job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), true);
@@ -173,7 +175,7 @@ class SubmissionFailureHandlerTest {
     assertSame(JobStatus.PENDING, job.getStatus());
     assertNull(job.getPickedBy());
     assertNull(job.getPickedAt());
-    verify(jobBatchStatusStore).resetRunningJob(job.getId(), "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(job.getId(), "node-1", 0L);
     verify(retryBufferManager, never()).forceOffer(job);
   }
 
@@ -190,16 +192,15 @@ class SubmissionFailureHandlerTest {
   }
 
   @Test
-  void handleGateFailure_firstAttemptHandlesResetAndForceBufferFailure() {
+  void handleGateFailure_rejectedResetDiscardsStaleClaim() {
     JobEntity job = runningSingleJob(54L);
     when(jobStateManager.resetJobToPending(job)).thenReturn(false);
-    when(retryBufferManager.forceOffer(job)).thenReturn(false);
 
     handler.handleGateFailure(
         job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), true);
 
     verify(jobStateManager).resetJobToPending(job);
-    verify(retryBufferManager).forceOffer(job);
+    verify(retryBufferManager, never()).forceOffer(job);
   }
 
   @Test
@@ -260,9 +261,10 @@ class SubmissionFailureHandlerTest {
             0,
             0,
             null,
-            null);
+            null,
+            0L);
     when(retryBufferManager.offer(claim)).thenReturn(true, false, false);
-    when(jobStateManager.resetJobToPending(claimJobId)).thenReturn(true, false);
+    when(jobStateManager.resetJobToPending(claimJobId, claim.claimSeq())).thenReturn(true, false);
 
     assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
     assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
@@ -274,7 +276,7 @@ class SubmissionFailureHandlerTest {
     verify(pool, never()).releasePermit(JobExecutionType.SINGLE);
     verify(pollerScheduler, never()).wakeup();
     verify(retryBufferManager, times(3)).offer(claim);
-    verify(jobStateManager, times(2)).resetJobToPending(claimJobId);
+    verify(jobStateManager, times(2)).resetJobToPending(claimJobId, claim.claimSeq());
   }
 
   @Test
@@ -282,7 +284,7 @@ class SubmissionFailureHandlerTest {
     JobEntity job = runningSingleJob(47L);
     SubmissionFailureHandler realStateHandler = handlerWithRealStateManager();
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(job.getId(), "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(job.getId(), "node-1", 0L)).thenReturn(true);
 
     realStateHandler.handleUnexpectedException(
         job, JobExecutionType.SINGLE, "platform", true, new IllegalStateException("boom"));
@@ -292,7 +294,7 @@ class SubmissionFailureHandlerTest {
     assertNull(job.getPickedAt());
     verify(pool, never()).releasePermit(JobExecutionType.SINGLE);
     verify(pollerScheduler, never()).wakeup();
-    verify(jobBatchStatusStore).resetRunningJob(job.getId(), "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(job.getId(), "node-1", 0L);
     verify(retryBufferManager, never()).offer(job);
     verify(retryBufferManager, never()).forceOffer(job);
   }
@@ -331,11 +333,12 @@ class SubmissionFailureHandlerTest {
             0,
             0,
             null,
-            null);
+            null,
+            0L);
     SubmissionFailureHandler realStateHandler = handlerWithRealStateManager();
     when(retryBufferManager.offer(claim)).thenReturn(false);
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(claimJobId, "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(claimJobId, "node-1", 0L)).thenReturn(true);
 
     realStateHandler.handleUnexpectedException(
         claim, JobExecutionType.BATCH_CHILD, "platform", new IllegalStateException("boom"));
@@ -343,7 +346,7 @@ class SubmissionFailureHandlerTest {
     verify(pool, never()).releasePermit(JobExecutionType.BATCH_CHILD);
     verify(pollerScheduler, never()).wakeup();
     verify(retryBufferManager).offer(claim);
-    verify(jobBatchStatusStore).resetRunningJob(claimJobId, "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(claimJobId, "node-1", 0L);
   }
 
   private SubmissionFailureHandler handlerWithRealStateManager() {

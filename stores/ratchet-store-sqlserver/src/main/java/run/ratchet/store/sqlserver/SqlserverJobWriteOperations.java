@@ -375,7 +375,8 @@ final class SqlserverJobWriteOperations {
               ",",
               Collections.nCopies(
                   chunk.size(),
-                  "(CAST(? AS BINARY(16)), CAST(? AS VARCHAR(16)), ?, ?, CAST(? AS DATETIME2(6)))"));
+                  "(CAST(? AS BINARY(16)), CAST(? AS VARCHAR(16)), ?, ?, CAST(? AS"
+                      + " DATETIME2(6)))"));
       // language=SQL Server
       String sql =
           """
@@ -565,6 +566,21 @@ final class SqlserverJobWriteOperations {
 
   private void terminalizeViaSave(JobEntity incoming, int expectedVersion) {
     UUID id = incoming.getId();
+    // Read the authoritative sequence while the queue row is locked, before deleting it.
+    List<?> sequences =
+        ctx.em()
+            .createNativeQuery(
+                """
+                SELECT claim_seq FROM scheduler_job_queue WITH (UPDLOCK, ROWLOCK)
+                WHERE job_id = ? AND version = ?
+                """)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .setParameter(2, expectedVersion)
+            .getResultList();
+    if (sequences.isEmpty()) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
+    long claimSeq = ((Number) sequences.get(0)).longValue();
     int deleted =
         ctx.em()
             .createNativeQuery("DELETE FROM scheduler_job_queue WHERE job_id = ? AND version = ?")
@@ -579,15 +595,17 @@ final class SqlserverJobWriteOperations {
         """
         UPDATE scheduler_job
         SET terminal_status = ?,
-            terminal_error = COALESCE(?, terminal_error),
+            claim_seq = ?,
+            terminal_error = ?,
             terminated_at = SYSUTCDATETIME()
         WHERE job_id = ? AND terminal_status IS NULL
         """;
     ctx.em()
         .createNativeQuery(updateSql)
         .setParameter(1, incoming.getStatus().name())
-        .setParameter(2, incoming.getLastError())
-        .setParameter(3, UuidByteArrayConverter.toBytes(id))
+        .setParameter(2, claimSeq)
+        .setParameter(3, incoming.getLastError())
+        .setParameter(4, UuidByteArrayConverter.toBytes(id))
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
     incoming.setVersion(expectedVersion + 1);

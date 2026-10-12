@@ -36,7 +36,7 @@ final class OracleJobStatusTransitions {
     String sql =
         """
         UPDATE scheduler_job_queue
-        SET status = 'RUNNING', picked_by = ?, picked_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
+        SET status = 'RUNNING', claim_seq = claim_seq + 1, picked_by = ?, picked_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), updated_at = CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP)
         WHERE job_id = ? AND status = 'PENDING'
         """;
     return ctx.timedStoreOperation(
@@ -68,7 +68,8 @@ final class OracleJobStatusTransitions {
       }
       if (!OracleJobRowMapper.isLiveStatus(expected)) {
         log.debugf(
-            "transitionToPaused(%s, %s) is a no-op post hot/cold-split — terminal jobs cannot be paused",
+            "transitionToPaused(%s, %s) is a no-op post hot/cold-split — terminal jobs cannot be"
+                + " paused",
             id, expected);
         return false;
       }

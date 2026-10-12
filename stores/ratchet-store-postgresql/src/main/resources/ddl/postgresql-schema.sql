@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- cleared by resetFailedToPending. Archival / deleteDlqOlderThan use terminated_at.
     -- terminal_error is the cold survivor of scheduler_job_queue.last_error: lifecycle
     -- copies last_error → terminal_error before deleting the queue row.
+    claim_seq BIGINT NOT NULL DEFAULT 0,
     terminal_status       TEXT,
     terminal_error        TEXT,
     total_attempts        INT,
@@ -201,6 +202,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 -- population — they are set at enqueue and never mutated.
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
+    claim_seq BIGINT NOT NULL DEFAULT 0,
     job_id             uuid         NOT NULL,
     status             TEXT         NOT NULL DEFAULT 'PENDING',
     job_type           TEXT         NOT NULL,
