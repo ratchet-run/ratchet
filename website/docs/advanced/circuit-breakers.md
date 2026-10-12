@@ -38,7 +38,7 @@ CLOSED                    OPEN
 
 ## Using @CircuitBreakerProtected
 
-The simplest way to apply circuit breaker protection is the `@CircuitBreakerProtected` annotation. It works as a CDI interceptor binding. Place it on a method or class, and the `CircuitBreakerInterceptor` wraps each invocation in circuit breaker logic.
+The simplest way to apply circuit breaker protection is the `@CircuitBreakerProtected` annotation. It works as a CDI interceptor binding. On Spring Boot, the starter applies it to application beans through Spring AOP, honours inherited class annotations, and rejects open circuits before the default transaction advice. On Micronaut, `ratchet-micronaut-processor` provides the compile-time binding for application beans. Place it on a method or class, and the `CircuitBreakerInterceptor` wraps each invocation in circuit breaker logic.
 
 ### Method-Level Protection
 

@@ -15,19 +15,26 @@
  */
 package run.ratchet.spring.boot.autoconfigure;
 
+import java.lang.reflect.Method;
 import org.springframework.aot.hint.BindingReflectionHintsRegistrar;
+import org.springframework.aot.hint.ExecutableMode;
 import org.springframework.aot.hint.MemberCategory;
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
 import org.springframework.aot.hint.TypeReference;
 import org.springframework.lang.NonNull;
 import org.springframework.lang.Nullable;
+import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.store.entity.JobPayload;
 
 /** Reflection used by the engine independently of application job discovery. */
 public final class RatchetRuntimeHints implements RuntimeHintsRegistrar {
   @Override
   public void registerHints(@NonNull RuntimeHints hints, @Nullable ClassLoader classLoader) {
+    // The bean circuit breaker reads the annotation's members reflectively.
+    for (Method member : CircuitBreakerProtected.class.getDeclaredMethods()) {
+      hints.reflection().registerMethod(member, ExecutableMode.INVOKE);
+    }
     for (String name :
         new String[] {
           "run.ratchet.store.entity.JobPayload",
