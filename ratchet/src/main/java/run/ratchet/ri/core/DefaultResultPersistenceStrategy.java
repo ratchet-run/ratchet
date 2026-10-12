@@ -17,10 +17,10 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ProtectedSurface;
 import run.ratchet.spi.ResultPersistenceStrategy;
@@ -62,18 +62,28 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
     }
 
     try {
-      String resultJson = payloadSerializer.serialize(result);
       String resultType = result.getClass().getName();
       boolean truncated = false;
       long maxBytes = options.payload().maxResultBytes();
-      int resultBytes = resultJson.getBytes(StandardCharsets.UTF_8).length;
-      if (maxBytes > 0 && resultBytes > maxBytes) {
+      String resultJson;
+      try {
+        resultJson =
+            maxBytes > 0
+                ? payloadSerializer.serialize(result, maxBytes)
+                : payloadSerializer.serialize(result);
+      } catch (PayloadTooLargeException tooLarge) {
+        if (maxBytes == 0) {
+          throw tooLarge;
+        }
+        long resultBytes = tooLarge.actualBytes();
         log.warnf(
-            "Job %s result exceeds configured maxResultBytes=%s bytes (actual=%s); truncating to marker",
-            jobId, maxBytes, resultBytes);
+            "Job %s result exceeds configured maxResultBytes=%s bytes (actual=%s%s); truncating to"
+                + " marker",
+            jobId, maxBytes, tooLarge.isLowerBound() ? "more than " : "", resultBytes);
         resultJson =
             "{\"_truncated\":true,\"_originalSize\":"
                 + resultBytes
+                + (tooLarge.isLowerBound() ? ",\"_originalSizeIsLowerBound\":true" : "")
                 + ",\"_maxAllowed\":"
                 + maxBytes
                 + ",\"_resultType\":\""

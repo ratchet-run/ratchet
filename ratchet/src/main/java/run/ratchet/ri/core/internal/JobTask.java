@@ -179,7 +179,12 @@ public class JobTask implements Callable<Void> {
     this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.callbackInvoker =
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock);
+            validationFacade,
+            payloadInvoker,
+            payloadSerializer,
+            observabilityFacade,
+            clock,
+            errorSanitizer);
   }
 
   /**
@@ -512,7 +517,7 @@ public class JobTask implements Callable<Void> {
     // contract this method documents.
     int attempts = claim != null ? claim.attempts() : (job != null ? job.getAttempts() : 0);
     try {
-      jobStore.scheduleJobRetry(jobId, ex.getMessage(), newScheduledTime, attempts);
+      jobStore.scheduleJobRetry(jobId, sanitizeError(ex), newScheduledTime, attempts);
     } catch (Throwable t) {
       log.errorf(
           t,
@@ -640,9 +645,11 @@ public class JobTask implements Callable<Void> {
         Instant newScheduledTime = effective().instant().plusMillis(retryDelay);
 
         if (currentExecution != null) {
-          currentExecution.markFailed(
+          ResourceCapacityException capacityFailure =
               new ResourceCapacityException(
-                  "Resource '" + resourceName + "' at capacity - rescheduling"));
+                  "Resource '" + resourceName + "' at capacity - rescheduling");
+          currentExecution.markFailed(
+              capacityFailure.getClass().getName(), sanitizeError(capacityFailure));
           observabilityFacade.saveExecution(currentExecution);
         }
 
@@ -700,7 +707,7 @@ public class JobTask implements Callable<Void> {
     Instant newScheduledTime = effective().instant().plusMillis(delayMs);
 
     if (currentExecution != null) {
-      currentExecution.markFailed(rejection);
+      currentExecution.markFailed(rejection.getClass().getName(), sanitizeError(rejection));
       observabilityFacade.saveExecution(currentExecution);
     }
 
@@ -790,6 +797,8 @@ public class JobTask implements Callable<Void> {
       return;
     }
 
+    String sanitized = sanitizeError(ex);
+
     // The job stopped itself after a cancellation request. Whoever claims the attempt first (this
     // worker or the hard-timeout watchdog) runs the transition. On worker failure, hand it back
     // to the watchdog, or retry here if the watchdog already passed while the worker owned it.
@@ -800,7 +809,7 @@ public class JobTask implements Callable<Void> {
         boolean executionSaved = false;
         try {
           if (currentExecution != null) {
-            currentExecution.markFailed(ex);
+            currentExecution.markFailed(ex.getClass().getName(), sanitized);
             observabilityFacade.saveExecution(currentExecution);
           }
           executionSaved = true;
@@ -840,10 +849,12 @@ public class JobTask implements Callable<Void> {
 
     // Non-retryable: skip retry count increment
     if (validationFacade.shouldNotRetry(ex)) {
-      observabilityFacade.recordJobFailure(job, ex, job.getAttempts());
-      currentScope.failure(ex, job.getAttempts());
+      // The stored count is not incremented, but observers get the 1-based attempt that failed.
+      int failedAttempt = job.getAttempts() + 1;
+      observabilityFacade.recordJobFailure(job, ex, failedAttempt);
+      currentScope.failure(ex.getClass().getName(), sanitized, failedAttempt);
       logIfTimeout(ex);
-      handleNonRetryableFailure(ex, job.getAttempts());
+      handleNonRetryableFailure(ex, job.getAttempts(), sanitized);
       return;
     }
 
@@ -855,13 +866,13 @@ public class JobTask implements Callable<Void> {
 
     job.setAttempts(attempt);
     observabilityFacade.recordJobFailure(job, ex, attempt);
-    currentScope.failure(ex, attempt);
+    currentScope.failure(ex.getClass().getName(), sanitized, attempt);
     logIfTimeout(ex);
 
     if (attempt <= job.getMaxRetries() && retryPolicy.shouldRetry(attempt, ex)) {
-      scheduleRetry(ex, attempt);
+      scheduleRetry(ex, attempt, sanitized);
     } else {
-      moveToDlq(ex, attempt);
+      moveToDlq(ex, attempt, sanitized);
     }
   }
 
@@ -881,12 +892,12 @@ public class JobTask implements Callable<Void> {
     return false;
   }
 
-  private void handleNonRetryableFailure(Throwable ex, int attempt) {
+  private void handleNonRetryableFailure(Throwable ex, int attempt, String sanitized) {
     log.warnf(
         "Job %s failed with non-retryable exception: %s - moving directly to DLQ",
         job.getId(), ex.getClass().getName());
 
-    transitionToDlq(ex, attempt);
+    transitionToDlq(ex, attempt, sanitized);
   }
 
   private void handleSuccess(Instant start, Object jobResult) {
@@ -965,19 +976,18 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private void moveToDlq(Throwable ex, int attempt) {
-    if (transitionToDlq(ex, attempt)) {
+  private void moveToDlq(Throwable ex, int attempt, String sanitized) {
+    if (transitionToDlq(ex, attempt, sanitized)) {
       log.errorf(ex, "Job %s moved to DLQ after %s attempts", job.getId(), attempt);
     }
   }
 
-  private boolean transitionToDlq(Throwable ex, int attempt) {
+  private boolean transitionToDlq(Throwable ex, int attempt, String sanitized) {
     if (currentExecution != null) {
-      currentExecution.markFailed(ex);
+      currentExecution.markFailed(ex.getClass().getName(), sanitized);
       observabilityFacade.saveExecution(currentExecution);
     }
 
-    String sanitized = errorSanitizer.sanitize(ex);
     job.setAttempts(attempt);
     job.setLastError(sanitized);
     if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
@@ -1049,9 +1059,9 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private void scheduleRetry(Throwable ex, int attempt) {
+  private void scheduleRetry(Throwable ex, int attempt, String sanitized) {
     if (currentExecution != null) {
-      currentExecution.markFailed(ex);
+      currentExecution.markFailed(ex.getClass().getName(), sanitized);
       observabilityFacade.saveExecution(currentExecution);
     }
 
@@ -1069,12 +1079,11 @@ public class JobTask implements Callable<Void> {
             : policyDelay.toMillis();
     Instant timestamp = effective().instant();
     Instant newScheduledTime = timestamp.plusMillis(backoff);
-    String sanitizedError = errorSanitizer.sanitize(ex);
 
-    if (jobStore.scheduleJobRetry(job.getId(), sanitizedError, newScheduledTime, attempt)) {
+    if (jobStore.scheduleJobRetry(job.getId(), sanitized, newScheduledTime, attempt)) {
       job.setAttempts(attempt);
       job.setScheduledTime(newScheduledTime);
-      job.setLastError(sanitizedError);
+      job.setLastError(sanitized);
       job.setStatus(JobStatus.PENDING);
 
       observabilityFacade.publishEvent(
@@ -1086,7 +1095,7 @@ public class JobTask implements Callable<Void> {
               job.getPriority(),
               job.getPickedBy(),
               timestamp,
-              sanitizedError,
+              sanitized,
               attempt,
               newScheduledTime));
       scheduleReadyJobsUpdate(backoff);
@@ -1115,6 +1124,15 @@ public class JobTask implements Callable<Void> {
 
     ResourceCapacityException(String message) {
       super(message);
+    }
+  }
+
+  private String sanitizeError(Throwable failure) {
+    try {
+      String sanitized = errorSanitizer.sanitize(failure);
+      return sanitized != null ? sanitized : failure.getClass().getName();
+    } catch (Throwable sanitizerError) {
+      return failure.getClass().getName();
     }
   }
 }

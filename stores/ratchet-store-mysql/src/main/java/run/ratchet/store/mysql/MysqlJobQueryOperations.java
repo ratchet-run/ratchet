@@ -37,6 +37,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.query.ArchiveSearch;
 import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.util.RowValues;
 
@@ -48,14 +49,12 @@ import run.ratchet.store.util.RowValues;
  * result set. WHERE clause conditions are built with a parameterized {@link StringBuilder}; no
  * user-supplied values are concatenated into SQL strings.
  *
- * <p>When {@link JobFilter#includeArchived()} is true and no principal filter is active, a {@code
- * UNION ALL} pulls matching rows from {@code scheduler_job_archive} into the same result set. The
- * archive projection maps its columns to the same positions as the live hydration SELECT so that
- * the existing row mapper reconstructs archived jobs correctly (with NULL queue fields). Note: tag
- * filtering and traceCorrelationId filtering are not applied to archived rows since those columns
- * are not present in the archive table. The caller-principal check is intentionally skipped for
- * archived rows — callers that require strict per-principal scoping should keep {@code
- * includeArchived=false} (the default).
+ * <p>When {@link JobFilter#includeArchived()} is true and no filter on fields absent from archives
+ * is active, a {@code UNION ALL} pulls matching rows from {@code scheduler_job_archive} into the
+ * same result set. The archive projection maps its columns to the same positions as the live
+ * hydration SELECT so that the existing row mapper reconstructs archived jobs correctly (with NULL
+ * queue fields). Filters on fields absent from archives exclude the archive branch; see {@link
+ * ArchiveSearch#includesArchive(JobFilter)}.
  */
 final class MysqlJobQueryOperations {
 
@@ -251,18 +250,11 @@ final class MysqlJobQueryOperations {
   /**
    * Decides whether the archive UNION should be appended to the live-row query.
    *
-   * <p>The archive UNION is intentionally skipped when {@code callerPrincipal} is non-null because
-   * principal-scoped queries do not span archived rows: the archive table does not carry the
-   * principal column, so appending the UNION would silently return archived rows belonging to other
-   * principals. Callers that need both principal scoping and archive inclusion must handle that at
-   * the policy or service layer; see {@code JobAuthorizationPolicy.filterForPrincipal} for the
-   * rationale.
+   * <p>Filters on fields absent from archived rows skip the archive to fail closed, including
+   * authorization scopes; see {@link ArchiveSearch#includesArchive(JobFilter)}.
    */
   private static boolean useArchive(JobFilter filter) {
-    // Skip archive when principal scoping is active to prevent auth bypass
-    return filter != null
-        && filter.includeArchived()
-        && (filter.callerPrincipal() == null || filter.callerPrincipal().isEmpty());
+    return ArchiveSearch.includesArchive(filter);
   }
 
   private static void and(StringBuilder where, String condition) {

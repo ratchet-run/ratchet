@@ -120,7 +120,7 @@ public interface TracingCollector {
     public void success(long executionTimeMs) {}
 
     @Override
-    public void failure(Throwable cause, int attempt) {}
+    public void failure(String errorClass, String sanitizedMessage, int attempt) {}
 
     @Override
     public void close() {}
@@ -145,10 +145,14 @@ public interface TracingCollector {
     /**
      * Records a failure outcome and closes this scope.
      *
-     * @param cause the exception that caused the failure
+     * <p>The message has already passed through the configured ErrorSanitizer. No throwable or
+     * stack trace is provided by design, to avoid exporting sensitive data to external telemetry.
+     *
+     * @param errorClass fully qualified exception class name
+     * @param sanitizedMessage sanitized failure message
      * @param attempt the 1-based attempt number including this failure
      */
-    void failure(Throwable cause, int attempt);
+    void failure(String errorClass, String sanitizedMessage, int attempt);
 
     /**
      * Closes this scope without recording an outcome. Used for early exits (cancelled during

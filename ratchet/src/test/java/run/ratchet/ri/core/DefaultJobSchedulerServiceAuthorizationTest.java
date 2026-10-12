@@ -41,6 +41,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -173,7 +174,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         null,
         null,
         Clock.systemUTC(),
-        callerPrincipalResolver,
+        RatchetOptions.builder().callerPrincipalResolver(callerPrincipalResolver).build(),
         new JakartaAfterCommitRegistrar());
   }
 

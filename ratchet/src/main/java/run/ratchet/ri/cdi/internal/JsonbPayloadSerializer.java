@@ -21,7 +21,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
+import java.io.Serial;
+import java.io.Writer;
 import org.jboss.logging.Logger;
+import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.spi.PayloadSerializer;
 
 /**
@@ -40,6 +43,8 @@ import run.ratchet.spi.PayloadSerializer;
  * that require payload size enforcement should validate size at the API boundary before submission
  * rather than inside the serializer. This will be revisited if a future JSON-B release standardizes
  * depth and length limits.
+ *
+ * <p>The write side is bounded by a UTF-8 byte budget when bounded serialization is requested.
  *
  * @apiNote Internal RI implementation. Applications interact with the {@link PayloadSerializer}
  *     SPI, not this class. Public visibility is retained because a cross-package fallback
@@ -64,6 +69,127 @@ public class JsonbPayloadSerializer implements PayloadSerializer {
       throw new IllegalArgumentException(
           "JSON-B serialization error for " + payload.getClass().getName(), e);
     }
+  }
+
+  @Override
+  public String serialize(Object payload, long maxUtf8Bytes) {
+    if (maxUtf8Bytes < 0) {
+      throw new IllegalArgumentException("maxUtf8Bytes must be non-negative");
+    }
+    if (payload == null) {
+      return null;
+    }
+    BoundedWriter writer = new BoundedWriter(maxUtf8Bytes);
+    try {
+      jsonb().toJson(payload, writer);
+      return writer.finish();
+    } catch (RuntimeException failure) {
+      Throwable cause = failure;
+      for (int depth = 0; cause != null && depth < 64; depth++, cause = cause.getCause()) {
+        if (cause instanceof BudgetExceeded exceeded) {
+          throw new PayloadTooLargeException(exceeded.countedBytes, maxUtf8Bytes, true);
+        }
+      }
+      if (failure instanceof JsonbException) {
+        throw new IllegalArgumentException(
+            "JSON-B serialization error for " + payload.getClass().getName(), failure);
+      }
+      throw failure;
+    }
+  }
+
+  private static final class BudgetExceeded extends RuntimeException {
+    @Serial private static final long serialVersionUID = 1L;
+    private final long countedBytes;
+
+    private BudgetExceeded(long countedBytes) {
+      super("Serialization byte budget exceeded", null, false, false);
+      this.countedBytes = countedBytes;
+    }
+  }
+
+  private static final class BoundedWriter extends Writer {
+    private final long maxBytes;
+    private final StringBuilder json = new StringBuilder();
+    private long bytes;
+    private char pendingHigh;
+    // Providers may flush their buffer again while closing after a failed write; report the count
+    // from the first overflow rather than counting those retries.
+    private long exceededAt = -1;
+
+    private BoundedWriter(long maxBytes) {
+      this.maxBytes = maxBytes;
+    }
+
+    @Override
+    public void write(char[] chars, int offset, int length) {
+      for (int i = offset; i < offset + length; i++) {
+        write(chars[i]);
+      }
+    }
+
+    @Override
+    public void write(String value, int offset, int length) {
+      for (int i = offset; i < offset + length; i++) {
+        write(value.charAt(i));
+      }
+    }
+
+    @Override
+    public void write(int value) {
+      if (exceededAt >= 0) {
+        throw new BudgetExceeded(exceededAt);
+      }
+      char current = (char) value;
+      if (pendingHigh != 0) {
+        char high = pendingHigh;
+        pendingHigh = 0;
+        if (Character.isLowSurrogate(current)) {
+          count(4);
+          json.append(high).append(current);
+          return;
+        }
+        count(1);
+        json.append(high);
+      }
+      if (Character.isHighSurrogate(current)) {
+        pendingHigh = current;
+        // Even an unpaired high surrogate requires one byte. Reject immediately if no room remains.
+        if (bytes >= maxBytes) {
+          throw exceeded(bytes + 1);
+        }
+      } else {
+        count(current <= 0x7f ? 1 : current <= 0x7ff ? 2 : Character.isSurrogate(current) ? 1 : 3);
+        json.append(current);
+      }
+    }
+
+    private void count(int added) {
+      bytes += added;
+      if (bytes > maxBytes) {
+        throw exceeded(bytes);
+      }
+    }
+
+    private BudgetExceeded exceeded(long counted) {
+      exceededAt = counted;
+      return new BudgetExceeded(counted);
+    }
+
+    private String finish() {
+      if (pendingHigh != 0) {
+        count(1);
+        json.append(pendingHigh);
+        pendingHigh = 0;
+      }
+      return json.toString();
+    }
+
+    @Override
+    public void flush() {}
+
+    @Override
+    public void close() {}
   }
 
   @Override

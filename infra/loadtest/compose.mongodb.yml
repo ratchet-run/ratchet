@@ -15,7 +15,7 @@ services:
     environment:
       MONGO_INITDB_DATABASE: ratchet
     ports:
-      - "${MONGO_PORT:-27017}:27017"
+      - "${LOADTEST_BIND_ADDRESS:-127.0.0.1}:${MONGO_PORT:-27017}:27017"
     volumes:
       - mongodata:/data/db
       - ../../stores/ratchet-store-mongodb/src/main/resources/ddl/mongodb-init.js:/docker-entrypoint-initdb.d/01-init.js:ro
