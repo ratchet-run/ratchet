@@ -87,6 +87,7 @@ import run.ratchet.ri.core.DefaultResultPersistenceStrategy;
 import run.ratchet.ri.core.JBossLoggingJobLogger;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
 import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
@@ -401,6 +402,8 @@ class JobTaskTest {
             .saveExecution(execution.capture());
         for (JobExecutionEntity saved : execution.getAllValues()) {
           Assertions.assertEquals(JobExecutionEntity.ExecutionStatus.FAILED, saved.getStatus());
+          // The mock sanitizer returns null, so history falls back to the class, never raw text.
+          Assertions.assertEquals(saved.getErrorClass(), saved.getErrorMessage());
         }
       } else {
         verify(timeoutHandler, never()).processCooperativeTimeout(any());
@@ -1101,7 +1104,9 @@ class JobTaskTest {
     // backoff for an already-upgraded peer — never dead-lettered, never left stuck RUNNING.
     JobClaimDto claim = claimForNode("node-1");
     jobTask.initFromClaim(claim);
-    when(jobStore.findById(JOB_UUID)).thenThrow(new UnsupportedEnvelopeVersionException(2, 1));
+    UnsupportedEnvelopeVersionException skew = new UnsupportedEnvelopeVersionException(2, 1);
+    when(jobStore.findById(JOB_UUID)).thenThrow(skew);
+    when(errorSanitizer.sanitize(skew)).thenReturn("sanitized skew");
     when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L)))
         .thenReturn(true);
 
@@ -1109,7 +1114,7 @@ class JobTaskTest {
 
     // Released for an upgraded peer (attempt count preserved), with a skew metric.
     verify(jobStore)
-        .scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(claim.attempts()), eq(0L));
+        .scheduleJobRetry(eq(JOB_UUID), eq("sanitized skew"), any(), eq(claim.attempts()), eq(0L));
     verify(observabilityFacade).recordEnvelopeVersionSkew(JOB_UUID, 2, 1);
     // Not poison: never dead-lettered.
     verify(lifecycleFacade, never())
@@ -1208,7 +1213,9 @@ class JobTaskTest {
     verify(retryPolicy, never()).shouldRetry(anyInt(), any());
     verify(jobStore, never())
         .scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt(), eq(0L));
-    verify(observabilityFacade).recordJobFailure(job, error, 2);
+    // The stored count stays at 2; observers see the third attempt, the one that failed.
+    verify(observabilityFacade).recordJobFailure(job, error, 3);
+    Assertions.assertEquals(2, job.getAttempts());
     verify(errorSanitizer, times(1)).sanitize(error);
     Assertions.assertEquals("safe do not retry", job.getLastError());
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
@@ -1321,7 +1328,7 @@ class JobTaskTest {
     stubWorkerFailure(task, job, original);
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts());
+        .recordJobFailure(job, original, job.getAttempts() + 1);
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
 
@@ -1343,7 +1350,7 @@ class JobTaskTest {
     stubWorkerFailure(task, job, original);
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts());
+        .recordJobFailure(job, original, job.getAttempts() + 1);
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(false);
 
     task.call();
@@ -1361,7 +1368,7 @@ class JobTaskTest {
     stubWorkerFailure(task, job, original);
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
-        .recordJobFailure(job, original, job.getAttempts());
+        .recordJobFailure(job, original, job.getAttempts() + 1);
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     doThrow(new LinkageError("boom")).when(invoker).invoke(any());
@@ -1445,7 +1452,7 @@ class JobTaskTest {
     when(validationFacade.shouldNotRetry(any())).thenReturn(true);
     doThrow(new IllegalStateException("observer failed"))
         .when(observabilityFacade)
-        .recordJobFailure(eq(job), any(), eq(0));
+        .recordJobFailure(eq(job), any(), eq(1));
     when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
     when(invoker.materializeArguments(any(), any())).thenAnswer(inv -> inv.getArgument(0));
     JobMdcContext.clear();
@@ -1457,7 +1464,7 @@ class JobTaskTest {
     Assertions.assertTrue(invoked.getValue().args().get(1) instanceof PayloadDecryptionException);
     Assertions.assertNotNull(invoked.getValue().args().get(0));
     ArgumentCaptor<Throwable> original = ArgumentCaptor.forClass(Throwable.class);
-    verify(observabilityFacade).recordJobFailure(eq(job), original.capture(), eq(0));
+    verify(observabilityFacade).recordJobFailure(eq(job), original.capture(), eq(1));
     Assertions.assertSame(original.getValue(), invoked.getValue().args().get(1));
     Assertions.assertNull(JobContext.currentOrNull());
   }
@@ -1886,7 +1893,7 @@ class JobTaskTest {
     jobTask.call();
 
     ArgumentCaptor<Throwable> failure = ArgumentCaptor.forClass(Throwable.class);
-    verify(observabilityFacade).recordJobFailure(eq(job), failure.capture(), eq(0));
+    verify(observabilityFacade).recordJobFailure(eq(job), failure.capture(), eq(1));
     SignalOutcomeHydrationException exception =
         Assertions.assertInstanceOf(SignalOutcomeHydrationException.class, failure.getValue());
     Assertions.assertEquals(
@@ -1979,7 +1986,7 @@ class JobTaskTest {
     verify(lifecycleFacade).completeFailure(any(JobEntity.class), eq(JobStatus.RUNNING), eq(false));
     // Poison surfaces with its true type now (no IllegalArgumentException wrap); it is still DLQ'd.
     verify(observabilityFacade)
-        .recordJobFailure(eq(job), any(PayloadDecryptionException.class), eq(0));
+        .recordJobFailure(eq(job), any(PayloadDecryptionException.class), eq(1));
     verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
     verify(resilienceStrategy, never()).execute(anyString(), any(), any(Callable.class));
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
@@ -2228,5 +2235,55 @@ class JobTaskTest {
     verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade, never()).publishEvent(any(JobRetryingEvent.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void executionHistoryAndTracingUseSanitizedFailure() throws Exception {
+    assertSanitizedFailure(false);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void failureSinksFallBackToClassNameWhenSanitizerThrows() throws Exception {
+    assertSanitizedFailure(true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertSanitizedFailure(boolean sanitizerThrows) throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    TracingCollector.ExecutionScope scope = mock(TracingCollector.ExecutionScope.class);
+    when(observabilityFacade.startExecutionScope(job)).thenReturn(scope);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    RuntimeException failure =
+        new IllegalStateException("jdbc:mysql://user:hunter2@localhost/db person@example.com");
+    doThrow(failure).when(resilienceStrategy).execute(anyString(), any(), any(Callable.class));
+    when(validationFacade.shouldNotRetry(failure)).thenReturn(true);
+    when(lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)).thenReturn(true);
+    String expected;
+    if (sanitizerThrows) {
+      when(errorSanitizer.sanitize(failure)).thenThrow(new AssertionError("sanitizer failed"));
+      expected = failure.getClass().getName();
+    } else {
+      expected = new DefaultErrorSanitizer().sanitize(failure);
+      when(errorSanitizer.sanitize(failure)).thenReturn(expected);
+    }
+
+    jobTask.call();
+
+    ArgumentCaptor<JobExecutionEntity> history = ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(history.capture());
+    Assertions.assertEquals(failure.getClass().getName(), history.getValue().getErrorClass());
+    Assertions.assertEquals(expected, history.getValue().getErrorMessage());
+    Assertions.assertEquals(expected, job.getLastError());
+    verify(scope).failure(failure.getClass().getName(), expected, job.getAttempts() + 1);
+    verify(errorSanitizer, times(1)).sanitize(failure);
+    if (!sanitizerThrows) {
+      Assertions.assertTrue(expected.contains("***REDACTED***"));
+    }
+    Assertions.assertFalse(history.getValue().getErrorMessage().contains("hunter2"));
+    Assertions.assertFalse(history.getValue().getErrorMessage().contains("person@example.com"));
   }
 }

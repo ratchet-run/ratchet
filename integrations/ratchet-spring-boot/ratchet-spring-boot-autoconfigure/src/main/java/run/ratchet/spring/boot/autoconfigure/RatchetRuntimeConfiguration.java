@@ -90,13 +90,19 @@ class RatchetRuntimeConfiguration {
       JobPayloadInvoker payloadInvoker,
       PayloadSerializer payloadSerializer,
       ExecutionObserver observabilityFacade,
-      Clock clock) {
+      Clock clock,
+      ErrorSanitizer errorSanitizer) {
     return new RetryBufferManager(
         jobStateManager,
         lifecycleFacade,
         store,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
+            validationFacade,
+            payloadInvoker,
+            payloadSerializer,
+            observabilityFacade,
+            clock,
+            errorSanitizer));
   }
 
   @Bean(destroyMethod = "")
@@ -263,7 +269,12 @@ class RatchetRuntimeConfiguration {
         leases,
         postExecutionHandler,
         new LifecycleCallbackInvoker(
-                validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock)
+                validationFacade,
+                payloadInvoker,
+                payloadSerializer,
+                observabilityFacade,
+                clock,
+                errorSanitizer)
             ::invokeOnFailureInJobContext,
         errorSanitizer,
         options.node().maxCrashRedeliveries(),

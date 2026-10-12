@@ -38,6 +38,7 @@ import run.ratchet.ri.core.internal.JobPayloadInvoker;
 import run.ratchet.ri.core.internal.LifecycleCallbackInvoker;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.PreExecutionValidator;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -85,13 +86,19 @@ public class RetryBufferManager {
       JobPayloadInvoker payloadInvoker,
       PayloadSerializer payloadSerializer,
       ExecutionObserver observabilityFacade,
-      Clock clock) {
+      Clock clock,
+      ErrorSanitizer errorSanitizer) {
     this(
         jobStateManager,
         lifecycleFacade,
         jobStore,
         new LifecycleCallbackInvoker(
-            validationFacade, payloadInvoker, payloadSerializer, observabilityFacade, clock));
+            validationFacade,
+            payloadInvoker,
+            payloadSerializer,
+            observabilityFacade,
+            clock,
+            errorSanitizer));
   }
 
   public RetryBufferManager(

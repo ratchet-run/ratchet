@@ -56,7 +56,7 @@ import run.ratchet.spi.PayloadEncryption;
  * is unrecoverable nonce reuse and the operator must avoid snapshotting a running engine, or call
  * {@link #reseed()} on each restored process before it encrypts. For deployments that cannot make
  * that guarantee, {@link XChaCha20Poly1305PayloadEncryption} draws a fresh random 192-bit nonce per
- * write and carries no cross-call nonce state to clone.
+ * write with no epoch or counter to clone, and folds the clock into every nonce.
  *
  * <p><b>Thread-safety.</b> {@link Cipher} is not thread-safe, so a fresh instance is created per
  * call; only the small nonce-state critical section is synchronized. Safe for concurrent use by

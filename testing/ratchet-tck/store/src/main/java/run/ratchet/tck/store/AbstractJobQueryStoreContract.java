@@ -552,6 +552,56 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   // ── Archive-inclusive search (UNION over live + archive tables) ─────────
 
   @Test
+  void searchIncludeArchived_skipsArchiveWhenTagsConstrain() {
+    JobEntity live = persist(newPendingJob("t1"));
+    UUID archivedId = archiveOnly(newPendingJob("t1"));
+
+    List<JobEntity> results =
+        queryStore()
+            .searchJobs(JobFilter.builder().tags("t1").includeArchived(true).build(), 100, 0);
+
+    List<UUID> ids = results.stream().map(JobEntity::getId).toList();
+    assertTrue(ids.contains(live.getId()), "Tag filter must still return the live tagged job");
+    assertFalse(ids.contains(archivedId), "Tag constraints must exclude archived jobs");
+    assertEquals(1, results.size());
+  }
+
+  @Test
+  void searchIncludeArchived_skipsArchiveWhenPropertyFilterConstrains() {
+    var extensions = extensionStore();
+    JobEntity live = persist(newPendingJob());
+    extensions.putProperty(live.getId(), "ratchet-tck.block_name", "invoice.send");
+    UUID archivedId = archiveOnly(newPendingJob());
+
+    List<JobEntity> results =
+        queryStore()
+            .searchJobs(
+                JobFilter.builder()
+                    .propertyEquals("ratchet-tck.block_name", "invoice.send")
+                    .includeArchived(true)
+                    .build(),
+                100,
+                0);
+
+    List<UUID> ids = results.stream().map(JobEntity::getId).toList();
+    assertTrue(ids.contains(live.getId()), "Property filter must still return the live match");
+    assertFalse(ids.contains(archivedId), "Property constraints must exclude archived jobs");
+    assertEquals(1, results.size());
+  }
+
+  @Test
+  void countJobsIncludeArchived_skipsArchiveWhenTagsConstrain() {
+    persist(newPendingJob("t1"));
+    persist(newPendingJob("other"));
+    archiveOnly(newPendingJob("t1"));
+
+    long count =
+        queryStore().countJobs(JobFilter.builder().tags("t1").includeArchived(true).build());
+
+    assertEquals(1L, count, "Tag constraints must count only the live match");
+  }
+
+  @Test
   void searchIncludeArchived_returnsLiveAndArchivedRowsOnce() {
     JobEntity live = persist(newPendingJob());
     UUID archivedId = archiveOnly(newPendingJob());
@@ -994,6 +1044,38 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     assertEquals(1, results.size(), "multiple property keys must intersect");
     assertEquals(both.getId(), results.get(0).getId());
+  }
+
+  @Test
+  void searchByMultiplePropertyKeys_combinesStatusAndPagination() {
+    List<UUID> matching = new ArrayList<>();
+    for (int i = 0; i < 3; i++) {
+      var job = persist(newPendingJob());
+      extensionStore().putProperty(job.getId(), "ratchet-tck.block_name", "invoice.send");
+      extensionStore().putProperty(job.getId(), "ratchet-tck.block_version", "2");
+      matching.add(job.getId());
+    }
+    var wrongStatus = persist(newPendingJob());
+    extensionStore().putProperty(wrongStatus.getId(), "ratchet-tck.block_name", "invoice.send");
+    extensionStore().putProperty(wrongStatus.getId(), "ratchet-tck.block_version", "2");
+    store().compareAndSwapStatus(wrongStatus.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    var wrongVersion = persist(newPendingJob());
+    extensionStore().putProperty(wrongVersion.getId(), "ratchet-tck.block_name", "invoice.send");
+    extensionStore().putProperty(wrongVersion.getId(), "ratchet-tck.block_version", "1");
+    var missingName = persist(newPendingJob());
+    extensionStore().putProperty(missingName.getId(), "ratchet-tck.block_version", "2");
+
+    JobFilter filter =
+        JobFilter.builder()
+            .statuses(Set.of(JobStatus.PENDING))
+            .propertyEquals("ratchet-tck.block_name", "invoice.send")
+            .propertyEquals("ratchet-tck.block_version", "2")
+            .build();
+    List<JobEntity> page = queryStore().searchJobs(filter, 2, 0);
+
+    assertEquals(2, page.size());
+    assertTrue(page.stream().allMatch(job -> matching.contains(job.getId())));
+    assertEquals(3, queryStore().countJobs(filter));
   }
 
   @Test
