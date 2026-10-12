@@ -49,6 +49,20 @@ public final class StoreProbe {
     return result;
   }
 
+  public Map<String, Integer> attempts(String run) {
+    var result = new LinkedHashMap<String, Integer>();
+    jdbc.query(
+        "select "
+            + id
+            + " as id, j.total_attempts from scheduler_job j"
+            + " join scheduler_job_tag t on t.job_id = j.job_id where t.tag = ?",
+        rs -> {
+          result.put(rs.getString("id"), rs.getObject("total_attempts", Integer.class));
+        },
+        "run:" + run);
+    return result;
+  }
+
   public List<String> quiescence(Set<String> live) {
     var evidence = new ArrayList<String>();
     int running =

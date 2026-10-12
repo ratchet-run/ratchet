@@ -212,3 +212,44 @@ mvn -f integrations/ratchet-spring-boot/consumer-tests/pom.xml \
 Use `-Dstore=mysql` to run against MySQL.
 Failure reports go to `sql/target/chaos-reports/`.
 Node logs go to `sql/target/runtime-*.log`.
+
+### Fault points and retry accounting
+
+A scenario can pause a job at one of three points: `body` (inside the job), `after-claim`
+(after a node claims it, before the body starts), and `before-commit` (after the body, before
+the terminal write). The pause is stored in the database, so it survives node restarts.
+These points let the tests kill a node at an exact moment, for example between claim and start
+(`ClaimedNotStartedChaosIT`) or between body and commit (`CommitWindowChaosIT`).
+
+`RetryAccountingChaosIT` submits 40 jobs that fail a set number of times and kills a node
+while they run. `chaos.seed` fixes the random choices; each seeded scenario prints its seed.
+Chaos nodes run with the circuit breaker off, because these jobs fail on purpose.
+
+The oracle adds two checks:
+
+- I8: only the most recently started attempt may commit a job, and only once. The exception is
+  orphan recovery failing a job whose crash budget is spent after the node running it was killed.
+- I10: `scheduler_job.total_attempts` matches the application failures recorded in the ledger.
+  A crash in the gap between a failure and its retry commit may leave one failure uncounted.
+  Jobs that saw no fault must succeed when `failTimes <= maxRetries` and fail otherwise.
+
+Overlaps caused by a paused node (`I4-stale`) are reported but do not fail the run.
+
+### Known defects
+
+A scenario that reproduces an open defect carries the JUnit tag `known-defect`. It asserts the
+correct behavior, so it fails until the fix lands, and it is excluded by default, including in CI.
+To run tagged scenarios, add `-Dchaos.excludedGroups=none` to the command above. The PR that fixes
+the defect removes the tag.
+
+No scenario is tagged now. These three started out tagged and now guard their fixes:
+
+- `StaleOwnerChaosIT` pauses the node running a job until another node recovers it, then lets
+  the first node finish. Owner writes are fenced by the claim sequence, so the first node's
+  commit is rejected and I8 holds.
+- `CrashBudgetChaosIT` crashes the owner of a job twice. Chaos nodes set
+  `ratchet.node.max-crash-redeliveries=1`, so the second crash fails the job and it ends
+  `FAILED`.
+- `DrainTimeoutChaosIT` holds a `maxRetries=0` job past the 5 second drain, so shutdown
+  interrupts it, then SIGKILLs the node that runs the redelivery. The job still succeeds,
+  because a drain timeout charges neither an attempt nor a crash.

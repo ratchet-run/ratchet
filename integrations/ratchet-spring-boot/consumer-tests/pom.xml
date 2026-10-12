@@ -129,6 +129,9 @@
     </profile>
     <profile>
       <id>chaos</id>
+      <properties>
+        <chaos.excludedGroups>known-defect</chaos.excludedGroups>
+      </properties>
       <build>
         <plugins>
           <plugin>
@@ -160,6 +163,7 @@
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-failsafe-plugin</artifactId>
             <configuration>
+              <excludedGroups>${chaos.excludedGroups}</excludedGroups>
               <classesDirectory>${project.build.outputDirectory}</classesDirectory>
               <systemPropertyVariables>
                 <spring.flyway.enabled>false</spring.flyway.enabled>

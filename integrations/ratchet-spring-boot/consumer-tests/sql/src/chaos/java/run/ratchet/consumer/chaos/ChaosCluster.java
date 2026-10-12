@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +47,8 @@ public final class ChaosCluster implements AutoCloseable {
   public final JdbcTemplate jdbc;
   public final DbClock clock;
   public final StoreProbe probe;
+  private final Map<String, Oracle.JobKind> kinds = new ConcurrentHashMap<>();
+  public final Gates gates;
   public final FaultTimeline timeline = new FaultTimeline();
 
   public ChaosCluster() throws Exception {
@@ -65,6 +68,7 @@ public final class ChaosCluster implements AutoCloseable {
                 (String) properties.get("spring.datasource.password")));
     clock = new DbClock(jdbc, store);
     probe = new StoreProbe(jdbc, store);
+    gates = new Gates(jdbc);
     try {
       for (int i = 0; i < count; i++) {
         nodes.add(null);
@@ -96,6 +100,9 @@ public final class ChaosCluster implements AutoCloseable {
     properties.put("ratchet.poller.min-delay-ms", 50);
     properties.put("ratchet.poller.max-delay-ms", 500);
     properties.put("ratchet.shutdown-timeout", "5s");
+    // Scenarios fail jobs on purpose; an open breaker would hold their retries past settlement.
+    properties.put("ratchet.circuit-breaker.enabled", false);
+    properties.put("ratchet.node.max-crash-redeliveries", 1);
     properties.put("spring.flyway.enabled", false);
     properties.put("spring.liquibase.enabled", false);
     properties.put("spring.main.web-application-type", "servlet");
@@ -142,6 +149,44 @@ public final class ChaosCluster implements AutoCloseable {
   public String submit(
       int i, String key, long durationMs, String idempotencyKey, String businessKey)
       throws Exception {
+    return submit(i, key, durationMs, idempotencyKey, businessKey, 0, null, "", 1);
+  }
+
+  public synchronized String submit(String key, long durationMs, int failTimes, int maxRetries)
+      throws Exception {
+    return submit(liveSubmitter(), key, durationMs, "", "", failTimes, maxRetries, "", 1);
+  }
+
+  public String submitGated(String key, long durationMs, int maxRetries, String point, int times)
+      throws Exception {
+    return submit(liveSubmitter(), key, durationMs, "", "", 0, maxRetries, point, times);
+  }
+
+  private int liveSubmitter() {
+    for (int attempt = 0; attempt < nodes.size(); attempt++) {
+      int i = Math.floorMod(next.getAndIncrement(), nodes.size());
+      if (node(i).process.isAlive() && !stopped.contains(i)) return i;
+    }
+    throw new IllegalStateException("No live node for submission");
+  }
+
+  public int index(String incarnation) {
+    int i = incarnations.indexOf(incarnation);
+    if (i < 0) throw new IllegalArgumentException("Unknown incarnation: " + incarnation);
+    return i;
+  }
+
+  private String submit(
+      int i,
+      String key,
+      long durationMs,
+      String idempotencyKey,
+      String businessKey,
+      int failTimes,
+      Integer maxRetries,
+      String gatePoint,
+      int gateTimes)
+      throws Exception {
     String id =
         node(i)
             .post(
@@ -154,9 +199,17 @@ public final class ChaosCluster implements AutoCloseable {
                     + "&idempotencyKey="
                     + encode(idempotencyKey)
                     + "&businessKey="
-                    + encode(businessKey))
+                    + encode(businessKey)
+                    + "&failTimes="
+                    + failTimes
+                    + (maxRetries == null ? "" : "&maxRetries=" + maxRetries)
+                    + "&gatePoint="
+                    + encode(gatePoint)
+                    + "&gateTimes="
+                    + gateTimes)
             .trim();
     submitted.add(id);
+    kinds.put(id, new Oracle.JobKind(failTimes, maxRetries == null ? 0 : maxRetries));
     return id;
   }
 
@@ -232,14 +285,34 @@ public final class ChaosCluster implements AutoCloseable {
 
   public List<Oracle.Violation> settle(Duration timeout) throws Exception {
     long deadline = System.nanoTime() + timeout.toNanos();
+    boolean settled = false;
     while (System.nanoTime() < deadline) {
       var statuses = probe.statuses(run);
+      var commits = ledger().commits();
       if (submitted.stream().allMatch(id -> Oracle.terminal(statuses.get(id)))
-          && probe.quiescence(live()).isEmpty()) break;
+          && submitted.stream()
+              .allMatch(
+                  id ->
+                      "CANCELED".equals(statuses.get(id))
+                          || commits.stream().anyMatch(c -> c.jobId().equals(id)))
+          && probe.quiescence(live()).isEmpty()) {
+        settled = true;
+        break;
+      }
       Thread.sleep(100);
     }
-    return Oracle.evaluate(
-        submitted(), probe.statuses(run), ledger(), timeline, probe.quiescence(live()));
+    var ledger = ledger();
+    var statuses = probe.statuses(run);
+    var violations =
+        new ArrayList<>(
+            Oracle.evaluate(submitted(), statuses, ledger, timeline, probe.quiescence(live())));
+    if (!settled)
+      violations.add(
+          new Oracle.Violation(
+              "I9", null, "Settlement deadline expired before terminal events and quiescence"));
+    violations.addAll(
+        Oracle.retryAccounting(kinds, probe.attempts(run), statuses, ledger, timeline));
+    return violations;
   }
 
   public int busiest(int minimum, Duration timeout) throws Exception {
