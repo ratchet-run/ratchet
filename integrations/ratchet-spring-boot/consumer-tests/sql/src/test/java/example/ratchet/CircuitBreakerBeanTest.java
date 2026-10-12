@@ -29,9 +29,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.context.annotation.Bean;
+import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.transaction.TransactionExecution;
 import org.springframework.transaction.TransactionExecutionListener;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -53,7 +52,6 @@ class CircuitBreakerBeanTest {
 
   private ConfigurableApplicationContext application(String... properties) {
     return new SpringApplicationBuilder(ConsumerApplication.class)
-        .sources(TransactionProbeConfiguration.class)
         .profiles("verification")
         .properties(database.properties())
         .properties(properties)
@@ -148,14 +146,14 @@ class CircuitBreakerBeanTest {
   void openCircuitRejectsBeforeTransactionStarts() {
     try (var context = application()) {
       var service = context.getBean(ProtectedService.class);
-      var manager = context.getBean(CountingTransactions.class);
-      int before = manager.starts;
+      var manager = new CountingTransactions();
+      context.getBean(JpaTransactionManager.class).addListener(manager);
       open(service::transactionalCall);
       assertThat(service.transactionalCalls()).isEqualTo(3);
-      assertThat(manager.starts).isEqualTo(before + 3);
+      assertThat(manager.starts).isEqualTo(3);
       assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
       assertThrows(CircuitBreakerOpenException.class, service::transactionalCall);
-      assertThat(manager.starts).isEqualTo(before + 3);
+      assertThat(manager.starts).isEqualTo(3);
       assertThat(service.transactionalCalls()).isEqualTo(3);
       assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
     }
@@ -165,16 +163,9 @@ class CircuitBreakerBeanTest {
     for (int i = 0; i < 3; i++) assertThrows(IllegalStateException.class, call::run);
   }
 
-  @TestConfiguration(proxyBeanMethods = false)
-  static class TransactionProbeConfiguration {
-    // Boot attaches listener beans to its transaction manager. Ratchet requires the real
-    // JpaTransactionManager, so the probe observes it instead of wrapping it.
-    @Bean
-    CountingTransactions countingTransactions() {
-      return new CountingTransactions();
-    }
-  }
-
+  // Ratchet requires the real JpaTransactionManager, so the probe listens to it instead of wrapping
+  // it. The test attaches the listener itself: Boot only attaches listener beans to a transaction
+  // manager it creates, and the EclipseLink lane declares its own.
   static class CountingTransactions implements TransactionExecutionListener {
     private final Thread caller = Thread.currentThread();
     private int starts;
