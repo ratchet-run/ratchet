@@ -151,6 +151,38 @@ class JobPayloadInputValidatorPayloadSizeTest {
     public static void accept(String value) {}
   }
 
+  @Test
+  void validatorUsesBoundedSerializerAndPreparesReturnedJsonForPersistence() {
+    PayloadSerializer serializer =
+        new PayloadSerializer() {
+          @Override
+          public String serialize(Object payload) {
+            throw new AssertionError("Unbounded serialization must not be used");
+          }
+
+          @Override
+          public String serialize(Object payload, long maxUtf8Bytes) {
+            assertEquals(ONE_KIBIBYTE, maxUtf8Bytes);
+            return "bounded";
+          }
+
+          @Override
+          public <T> T deserialize(String json, Class<T> type) {
+            throw new UnsupportedOperationException("Not used");
+          }
+        };
+    PayloadSerializerHolder.set(serializer);
+    JobPayload payload = payload();
+    JobPayloadConverter converter = new JobPayloadConverter();
+    converter.beginPreparationScope();
+    try {
+      validator().validateAtCreation(payload);
+      assertEquals("bounded", converter.convertToDatabaseColumn(payload));
+    } finally {
+      converter.endPreparationScope();
+    }
+  }
+
   private static final class RecordingSerializer implements PayloadSerializer {
 
     private String serialized;

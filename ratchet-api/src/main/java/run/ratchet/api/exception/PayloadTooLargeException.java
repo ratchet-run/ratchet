@@ -30,6 +30,7 @@ public class PayloadTooLargeException extends IllegalArgumentException {
 
   private final long actualBytes;
   private final long maxBytes;
+  private final boolean lowerBound;
 
   /**
    * Creates a payload-size rejection.
@@ -38,17 +39,29 @@ public class PayloadTooLargeException extends IllegalArgumentException {
    * @param maxBytes configured maximum UTF-8 byte length
    */
   public PayloadTooLargeException(long actualBytes, long maxBytes) {
+    this(actualBytes, maxBytes, false);
+  }
+
+  /** Creates a rejection whose counted size may be a lower bound after early termination. */
+  public PayloadTooLargeException(long actualBytes, long maxBytes, boolean lowerBound) {
     super(
         "Serialized job payload is "
+            + (lowerBound ? "more than " : "")
             + actualBytes
             + " UTF-8 bytes, exceeding the configured maximum of "
             + maxBytes
             + " bytes");
     this.actualBytes = actualBytes;
     this.maxBytes = maxBytes;
+    this.lowerBound = lowerBound;
   }
 
-  /** Returns the measured UTF-8 byte length. */
+  /** Whether the count is a lower bound rather than the full serialized size. */
+  public boolean isLowerBound() {
+    return lowerBound;
+  }
+
+  /** Returns the measured UTF-8 byte length, or the counted lower bound if stopped early. */
   public long actualBytes() {
     return actualBytes;
   }

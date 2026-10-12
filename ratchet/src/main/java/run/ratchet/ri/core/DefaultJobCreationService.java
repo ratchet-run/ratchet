@@ -62,6 +62,7 @@ import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobInvocationResolver;
@@ -115,6 +116,7 @@ public class DefaultJobCreationService
   private final JobAuthorizationPolicy authorizationPolicy;
   private final ClassPolicy classPolicy;
   private final InternalEventPublisher eventPublisher;
+  private final ErrorSanitizer errorSanitizer;
   private final MetricsCollector metricsCollector;
   private final Clock clock;
   private final boolean signalCapabilityAvailable;
@@ -141,6 +143,7 @@ public class DefaultJobCreationService
     this.authorizationPolicy = null;
     this.classPolicy = null;
     this.eventPublisher = null;
+    this.errorSanitizer = null;
     this.metricsCollector = null;
     this.clock = null;
     this.afterCommitRegistrar = null;
@@ -172,7 +175,8 @@ public class DefaultJobCreationService
       MetricsCollector metricsCollector,
       Clock clock,
       RatchetOptions options,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      ErrorSanitizer errorSanitizer) {
     this(
         jobBatchStatusStore,
         jobTerminalStore,
@@ -196,7 +200,8 @@ public class DefaultJobCreationService
         signalStore.isResolvable(),
         resourcePermitStore.isResolvable(),
         options != null ? options.callerPrincipalResolver() : null,
-        afterCommitRegistrar);
+        afterCommitRegistrar,
+        errorSanitizer);
   }
 
   public DefaultJobCreationService(
@@ -222,7 +227,8 @@ public class DefaultJobCreationService
       boolean signalCapabilityAvailable,
       boolean resourcePermitCapabilityAvailable,
       CallerPrincipalResolver callerPrincipalResolver,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      ErrorSanitizer errorSanitizer) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
@@ -241,6 +247,7 @@ public class DefaultJobCreationService
     this.authorizationPolicy = authorizationPolicy;
     this.classPolicy = classPolicy;
     this.eventPublisher = eventPublisher;
+    this.errorSanitizer = errorSanitizer;
     this.metricsCollector = metricsCollector;
     this.clock = clock;
     this.afterCommitRegistrar = afterCommitRegistrar;
@@ -892,12 +899,26 @@ public class DefaultJobCreationService
                   null,
                   chunkIndex,
                   chunk.size(),
-                  Objects.requireNonNullElse(e.getMessage(), e.getClass().getName())));
+                  sanitizeError(e)));
         }
         throw e;
       }
     }
     return createStreamingChildJobs(parentId, builder, chunk, callerPrincipal);
+  }
+
+  private String sanitizeError(Throwable failure) {
+    if (errorSanitizer != null) {
+      try {
+        String sanitized = errorSanitizer.sanitize(failure);
+        if (sanitized != null) {
+          return sanitized;
+        }
+      } catch (Throwable sanitizerError) {
+        // Fall back to the exception class name without exposing the raw message.
+      }
+    }
+    return failure.getClass().getName();
   }
 
   private <T extends Serializable> int createInvocationStreamingChildJobs(

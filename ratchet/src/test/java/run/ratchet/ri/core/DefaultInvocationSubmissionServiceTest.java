@@ -16,8 +16,10 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
@@ -50,6 +52,7 @@ import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.JobInvocation;
@@ -196,7 +199,8 @@ class DefaultInvocationSubmissionServiceTest {
         true,
         true,
         null,
-        new JakartaAfterCommitRegistrar());
+        new JakartaAfterCommitRegistrar(),
+        new DefaultErrorSanitizer());
   }
 
   private static JobInvocation sendInvoiceInvocation() {
@@ -409,7 +413,50 @@ class DefaultInvocationSubmissionServiceTest {
             .orElseThrow();
     assertEquals(0, event.getChunkIndex());
     assertEquals(1, event.getChunkSize());
-    assertEquals("boom", event.getFailureReason());
+    assertEquals(RuntimeException.class.getName() + ": boom", event.getFailureReason());
+  }
+
+  @Test
+  void chunkFailure_redactsCredentialsAndEmail() {
+    List<Object> events = new CopyOnWriteArrayList<>();
+    InternalEventPublisher publisher = new InternalEventPublisher() {};
+    publisher.addListener(events::add);
+    DefaultInvocationSubmissionService failing =
+        new DefaultInvocationSubmissionService(
+            newCreationService(null, publisher), new DefaultJobInvocationResolver());
+    Mockito.doThrow(
+            new RuntimeException("jdbc:mysql://user:hunter2@localhost/db person@example.com"))
+        .when(jobBulkStore)
+        .bulkInsert(any());
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            failing
+                .invocationStreamingBatch("stream")
+                .fromStream(Stream.of("inv_1"))
+                .process(
+                    id ->
+                        new JobInvocation(
+                            TARGET,
+                            "sendInvoice",
+                            "(Ljava/lang/String;)V",
+                            true,
+                            List.of(id),
+                            null))
+                .start());
+
+    BatchChunkFailureEvent event =
+        events.stream()
+            .filter(BatchChunkFailureEvent.class::isInstance)
+            .map(BatchChunkFailureEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(0, event.getChunkIndex());
+    assertEquals(1, event.getChunkSize());
+    assertTrue(event.getFailureReason().contains("***REDACTED***"));
+    assertFalse(event.getFailureReason().contains("hunter2"));
+    assertFalse(event.getFailureReason().contains("person@example.com"));
   }
 
   @Test
