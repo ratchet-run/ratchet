@@ -33,7 +33,7 @@ public final class ProcessScenarios {
     options.put("ratchet.poller.deep-idle-delay-ms", 200);
     options.put("ratchet.node.heartbeat-interval-seconds", 1);
     options.put("ratchet.node.orphan-grace-seconds", 2);
-    options.put("ratchet.node.orphan-scan-interval-minutes", 1);
+    options.put("ratchet.node.orphan-scan-interval-seconds", 1);
     options.put("ratchet.node.dynamic-heartbeat-enabled", false);
     options.put("ratchet.recurring.poll-ms", 100);
     options.put("ratchet.recurring.max-poll-ms", 200);
