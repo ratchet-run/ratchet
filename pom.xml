@@ -67,6 +67,10 @@
     <module>integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb</module>
     <module>integrations/ratchet-spring-boot/ratchet-spring-boot-starter</module>
     <module>integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb</module>
+    <module>integrations/ratchet-micronaut/ratchet-micronaut-processor</module>
+    <module>integrations/ratchet-micronaut/ratchet-micronaut</module>
+    <module>integrations/ratchet-micronaut/ratchet-micronaut-jpa</module>
+    <module>integrations/ratchet-micronaut/ratchet-micronaut-mongodb</module>
     <module>ratchet-bom</module>
     <module>testing/ratchet-tck</module>
     <module>testing/ratchet-testsuite</module>

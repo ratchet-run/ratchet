@@ -6,8 +6,8 @@ description: Schedule your first background job with Ratchet in under 5 minutes
 
 # Quick Start
 
-:::tip Spring Boot
-For the starter-based setup and `application.properties`, use the [Spring Boot guide](/deployment/spring-boot). The CDI producer examples below apply to Jakarta EE.
+:::tip Spring Boot and Micronaut
+For the starter-based setup and `application.properties`, use the [Spring Boot guide](/deployment/spring-boot). For Micronaut, use the [Micronaut guide](/deployment/micronaut). The CDI producer examples below apply to Jakarta EE.
 :::
 
 This guide gets you from zero to a running background job in the shortest path possible. Inject `JobSchedulerService`, enqueue a job, and verify it runs. No retries, no callbacks, no configuration -- just the fire-and-forget pattern.

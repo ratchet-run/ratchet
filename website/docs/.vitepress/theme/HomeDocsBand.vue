@@ -13,6 +13,12 @@ const docs = [
     event: 'quarkus',
   },
   {
+    title: 'Micronaut quickstart',
+    href: '/deployment/micronaut',
+    description: "Use the application's datasource and transactions, on the JVM or as a native image.",
+    event: 'micronaut',
+  },
+  {
     title: 'Install Ratchet',
     href: '/getting-started/installation',
     description: 'Import the BOM, choose a store, apply the schema, and configure runtime options.',
@@ -126,6 +132,12 @@ const docs = [
   border-radius: 8px;
   text-decoration: none;
   transition: border-color 0.2s;
+}
+
+/* With an odd number of cards, the last one spans both columns instead of
+   leaving a gap beside it. */
+.doc-link:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 .doc-link:hover {

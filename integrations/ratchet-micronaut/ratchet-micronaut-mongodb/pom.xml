@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-parent</artifactId>
+    <version>0.5.1-SNAPSHOT</version>
+    <relativePath>../../../pom.xml</relativePath>
+  </parent>
+  <artifactId>ratchet-micronaut-mongodb</artifactId>
+  <name>Ratchet :: Micronaut MongoDB</name>
+  <properties>
+    <mongodb-driver.version>5.11.1</mongodb-driver.version>
+    <maven.compiler.proc>full</maven.compiler.proc>
+  </properties>
+  <dependencyManagement>
+    <dependencies>
+      <!-- Platform 4.10.20 manages 4.11.5; the Ratchet store requires 5.11.1. -->
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>bson</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-driver-core</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-driver-sync</artifactId>
+        <version>${mongodb-driver.version}</version>
+      </dependency>
+      <!-- Listed first so it wins over the Micronaut platform's older Testcontainers 1.x pins,
+
+           which cannot talk to Docker 29. -->
+
+      <dependency>
+
+        <groupId>org.testcontainers</groupId>
+
+        <artifactId>testcontainers-bom</artifactId>
+
+        <version>${testcontainers.version}</version>
+
+        <type>pom</type>
+
+        <scope>import</scope>
+
+      </dependency>
+      <dependency>
+        <groupId>io.micronaut.platform</groupId>
+        <artifactId>micronaut-platform</artifactId>
+        <version>4.10.20</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-micronaut</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-mongodb</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>io.micronaut.mongodb</groupId>
+      <artifactId>micronaut-mongo-sync</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-junit-jupiter</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mongodb</artifactId>
+      <version>${testcontainers.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <proc>full</proc>
+          <annotationProcessorPaths combine.self="override">
+            <path>
+              <groupId>io.micronaut</groupId>
+              <artifactId>micronaut-inject-java</artifactId>
+              <version>4.10.30</version>
+            </path>
+          </annotationProcessorPaths>
+          <compilerArgs combine.self="override">
+            <arg>-Amicronaut.processing.group=run.ratchet</arg>
+            <arg>-Amicronaut.processing.module=ratchet-micronaut-mongodb</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-jar-plugin</artifactId>
+        <configuration>
+          <archive>
+            <manifestEntries>
+              <Automatic-Module-Name>run.ratchet.micronaut.mongodb</Automatic-Module-Name>
+            </manifestEntries>
+          </archive>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -15,6 +15,7 @@ If you only read one thing on this page, read the selection guide below.
 - For durable background jobs on Spring Boot, evaluate Ratchet's [starter](/deployment/spring-boot) alongside JobRunr. For chunk-oriented ETL, evaluate Spring Batch.
 - For Jakarta EE jobs with CDI and managed executors, use the [Ratchet Jakarta EE setup](/getting-started/installation).
 - For Quarkus JVM or native jobs, use the [Ratchet Quarkus extension](/deployment/quarkus).
+- For durable background jobs on Micronaut, evaluate the [Ratchet Micronaut integration](/deployment/micronaut) alongside JobRunr.
 - For persistent cron scheduling with a small feature set, consider db-scheduler. For a codebase already built around Quartz, the migration cost matters. For the JSR-352 specification, evaluate jBeret.
 
 
