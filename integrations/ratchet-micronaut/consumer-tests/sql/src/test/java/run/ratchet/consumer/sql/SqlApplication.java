@@ -84,7 +84,7 @@ public final class SqlApplication {
     }
   }
 
-  private static final String[] TABLES = {
+  static final String[] TABLES = {
     "scheduler_idempotency_key",
     "scheduler_business_key_reservation",
     "scheduler_job_queue",

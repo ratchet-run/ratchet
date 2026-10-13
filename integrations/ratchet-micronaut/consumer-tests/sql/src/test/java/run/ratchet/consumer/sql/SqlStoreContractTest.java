@@ -49,28 +49,6 @@ import run.ratchet.tck.store.JobStoreContractFixture;
 
 /** Existing store TCK contracts exercised through Ratchet's Micronaut transactional store proxy. */
 class SqlStoreContractTest {
-  private static final String[] TABLES = {
-    "scheduler_idempotency_key",
-    "scheduler_business_key_reservation",
-    "scheduler_job_queue",
-    "scheduler_job_tag",
-    "scheduler_job_log",
-    "scheduler_job_execution",
-    "scheduler_resource_permit",
-    "scheduler_workflow_condition",
-    "scheduler_batch_metrics",
-    "scheduler_job_archive",
-    "scheduler_job_properties",
-    "scheduler_job_extension_state",
-    "scheduler_job",
-    "scheduler_recurring_job_archive",
-    "scheduler_recurring_job",
-    "scheduler_batch",
-    "scheduler_resource_limit",
-    "scheduler_lock",
-    "scheduler_node"
-  };
-
   private static SqlDatabase database;
   private static ApplicationContext application;
   private static final MicronautStoreContracts FIXTURE =
@@ -85,7 +63,7 @@ class SqlStoreContractTest {
           SqlAccess jdbc = new SqlAccess(application);
           jdbc.transaction(
               status -> {
-                for (String table : TABLES) {
+                for (String table : SqlApplication.TABLES) {
                   jdbc.update("DELETE FROM " + table);
                 }
               });

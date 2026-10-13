@@ -103,7 +103,7 @@ public final class CircuitBreakerProtectedInterceptor
       targetMethod = targetClass.getMethod(method.getName(), method.getParameterTypes());
       annotation = targetMethod.getAnnotation(CircuitBreakerProtected.class);
     } catch (NoSuchMethodException ignored) {
-      annotation = null;
+      // Fall through to the class-level lookup.
     }
     if (annotation == null) {
       annotation = targetClass.getAnnotation(CircuitBreakerProtected.class);

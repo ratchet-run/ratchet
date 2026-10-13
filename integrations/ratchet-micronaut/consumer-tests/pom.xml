@@ -16,6 +16,10 @@
     <mn5.platform.version>5.2.2</mn5.platform.version>
     <mn5.inject.version>5.2.15</mn5.inject.version>
     <mn5.data.version>5.2.2</mn5.data.version>
+    <!-- mn4 is the default lane; mn5 overrides these. -->
+    <micronaut.platform.version>${mn4.platform.version}</micronaut.platform.version>
+    <micronaut.inject.version>${mn4.inject.version}</micronaut.inject.version>
+    <micronaut.data.version>${mn4.data.version}</micronaut.data.version>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <store>postgresql</store>
@@ -125,11 +129,6 @@
       <activation>
         <activeByDefault>true</activeByDefault>
       </activation>
-      <properties>
-        <micronaut.platform.version>${mn4.platform.version}</micronaut.platform.version>
-        <micronaut.inject.version>${mn4.inject.version}</micronaut.inject.version>
-        <micronaut.data.version>${mn4.data.version}</micronaut.data.version>
-      </properties>
       <build>
         <plugins>
           <plugin>

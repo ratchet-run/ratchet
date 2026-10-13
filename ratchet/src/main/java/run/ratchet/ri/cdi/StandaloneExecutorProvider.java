@@ -150,7 +150,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   }
 
   @PreDestroy
-  synchronized void shutdown() {
+  public synchronized void shutdown() {
     // Set before shutting the pools down so a concurrent lazy getter (which locks on this) cannot
     // resurrect a pool after @PreDestroy and leak its threads.
     closed = true;

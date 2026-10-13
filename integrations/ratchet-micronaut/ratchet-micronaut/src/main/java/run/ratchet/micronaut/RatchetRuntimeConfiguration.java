@@ -32,8 +32,8 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobArchivingService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultRecurringAnnotationMaintenanceService;
-import run.ratchet.ri.cdi.MicronautStandaloneExecutorProvider;
 import run.ratchet.ri.cdi.RecurringMethodInvoker;
+import run.ratchet.ri.cdi.StandaloneExecutorProvider;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
@@ -200,8 +200,8 @@ class RatchetRuntimeConfiguration {
   @Bean(preDestroy = "shutdown")
   @Requires(missingBeans = ExecutorProvider.class)
   // Keep the concrete product for shutdown; applications override its ExecutorProvider SPI.
-  MicronautStandaloneExecutorProvider ratchetExecutorProvider() {
-    return new MicronautStandaloneExecutorProvider();
+  StandaloneExecutorProvider ratchetExecutorProvider() {
+    return new StandaloneExecutorProvider();
   }
 
   @Singleton

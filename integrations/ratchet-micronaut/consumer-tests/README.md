@@ -197,9 +197,10 @@ Hibernate's BytecodeProvider service so Hibernate 6.6 and 7 use their no-op prov
 Buddy. SQL Server includes all charsets. App metadata covers both SQL entities, the converter and its
 value record, the captured record and POJO, and `META-INF/consumer-orm.xml`. Mongo only needs the
 captured argument metadata. The Feature registrations are automatic and are not changed by this
-harness. Construct arguments before submitting lambdas.
+harness. Lambdas may build record and POJO arguments inline. Ratchet builds them at submit time and
+rejects a value it cannot work out with an `IllegalArgumentException`.
 
-Recovery uses a one-second heartbeat, two-second orphan grace, and the minimum supported one-minute
-orphan scan. The second process gets 100 seconds to observe success. Drain uses a five-second job and
-a 20-second shutdown timeout. Process logs and Failsafe reports are retained under each module's
+Recovery uses a one-second heartbeat, a two-second orphan grace and a one-second orphan scan. The
+second process gets 100 seconds to observe success. Drain uses a five-second job and a 20-second
+shutdown timeout. Process logs and Failsafe reports are retained under each module's
 `target`. Runtime and native-image results must be reviewed separately from source checks.

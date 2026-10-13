@@ -47,6 +47,7 @@ final class RatchetTransactionalStoreProxy {
       Object target, Class<?> compositeType, TransactionOperations<?> transactions) {
     AtomicReference<Object> proxyReference = new AtomicReference<>();
     var defaultMethods = new ConcurrentHashMap<Method, MethodHandle>();
+    var resolvedMethods = new ConcurrentHashMap<Method, Resolved>();
     Object proxy =
         Proxy.newProxyInstance(
             compositeType.getClassLoader(),
@@ -65,17 +66,9 @@ final class RatchetTransactionalStoreProxy {
                   && args[0] instanceof Class<?> capability) {
                 return capability.isInstance(advised) ? Optional.of(advised) : Optional.empty();
               }
-              Method implementation =
-                  target.getClass().getMethod(method.getName(), method.getParameterTypes());
-              // The SQL implementation classes are package-private, although their methods are
-              // public.
-              if (!implementation.trySetAccessible()) {
-                throw new IllegalStateException(
-                    "Cannot invoke store implementation " + implementation);
-              }
-              Transactional annotation = implementation.getAnnotation(Transactional.class);
-              if (annotation == null)
-                annotation = target.getClass().getAnnotation(Transactional.class);
+              Resolved resolved = resolvedMethods.computeIfAbsent(method, m -> resolve(target, m));
+              Method implementation = resolved.implementation();
+              Transactional annotation = resolved.annotation();
               Invocation invocation =
                   () -> {
                     if (method.isDefault() && implementation.isDefault()) {
@@ -138,6 +131,25 @@ final class RatchetTransactionalStoreProxy {
 
   static TransactionDefinition definition(Transactional annotation) {
     return MicronautTransactions.definition(annotation);
+  }
+
+  /** Implementation method and its effective {@code @Transactional}, resolved once per method. */
+  private record Resolved(Method implementation, Transactional annotation) {}
+
+  private static Resolved resolve(Object target, Method method) {
+    Method implementation;
+    try {
+      implementation = target.getClass().getMethod(method.getName(), method.getParameterTypes());
+    } catch (NoSuchMethodException failure) {
+      throw new IllegalStateException("Store implementation lacks " + method, failure);
+    }
+    // The SQL implementation classes are package-private, although their methods are public.
+    if (!implementation.trySetAccessible()) {
+      throw new IllegalStateException("Cannot invoke store implementation " + implementation);
+    }
+    Transactional annotation = implementation.getAnnotation(Transactional.class);
+    if (annotation == null) annotation = target.getClass().getAnnotation(Transactional.class);
+    return new Resolved(implementation, annotation);
   }
 
   private static MethodHandle defaultMethod(Method method) {
