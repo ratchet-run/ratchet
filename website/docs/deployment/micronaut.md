@@ -128,6 +128,8 @@ After-commit work, such as waking the poller, runs only after the surrounding tr
 
 Ratchet creates or migrates its tables by default, before Hibernate starts. To manage the schema with your own migration tool, apply Ratchet's supplied migrations and set `ratchet.schema.auto-migrate=false`. Ratchet then only validates the schema, and fails fast if it is missing or out of date. See [Database setup](/deployment/database-setup).
 
+An externally managed schema may omit Ratchet's migration ledger. The supplied scripts create an empty `ratchet_schema_version` table, so an external migration manager should drop that empty table after applying them. If the ledger is populated, it must record every bundled migration with its matching checksum. Do not delete a populated ledger to bypass a validation mismatch.
+
 ## MongoDB
 
 Add the core integration, the MongoDB integration, the Ratchet MongoDB store, and Micronaut's synchronous Mongo client:
@@ -177,6 +179,22 @@ Set `ratchet.enabled=false` to switch the integration off.
 
 The shared settings, such as poll intervals and retry defaults, are listed in the [configuration reference](/deployment/configuration-reference).
 
+## Events and caller identity
+
+Ratchet publishes its lifecycle events through Micronaut's `ApplicationEventPublisher`. Observe them with an `@EventListener` method or an `ApplicationEventListener` bean:
+
+```java
+@Singleton
+public class JobAlerts {
+  @EventListener
+  public void onFailed(JobFailedEvent event) {
+    // ...
+  }
+}
+```
+
+To record who submitted a job, define one `PrincipalSource` bean for your security framework. The integration does not install a Micronaut Security adapter. Ratchet records the principal name the bean returns at submission. It does not restore a request or security context on the worker. If there is no `PrincipalSource` bean, or more than one, jobs record no submitter.
+
 ## Circuit breakers on application beans
 
 To use `@CircuitBreakerProtected` on Micronaut application beans, add
@@ -214,6 +232,7 @@ subclass.
 
 - **Converters and mapping files.** Micronaut's entity scan only registers `@Entity` classes. An application `@Converter(autoApply = true)` is never found: name it on the attribute with `@Convert(converter = ...)`. Micronaut also never loads `META-INF/orm.xml`. List your mapping files under `jpa.<name>.mapping-resources`. Ratchet's own entities and mappings need neither.
 - **Failed startup in tests.** If an `ApplicationContext` fails to start, Micronaut does not destroy the beans it created. Ratchet detects this and lets the next context on the same thread start normally.
+
 ## Native image
 
 Ratchet's jars activate their native Features automatically. At build time, the Features register

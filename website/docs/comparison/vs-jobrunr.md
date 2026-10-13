@@ -12,13 +12,13 @@ If you are picking between Ratchet and JobRunr, the decision is rarely about fea
 
 ## TL;DR
 
-| Pick **JobRunr** if                                       | Pick **Ratchet** if                                       |
-|-----------------------------------------------------------|-----------------------------------------------------------|
-| You are on Spring Boot, Quarkus, or Micronaut             | You are on Jakarta EE 10/11, Quarkus, or Spring Boot      |
-| You need a production-grade web dashboard today           | You need Jakarta Security caller-principal capture        |
-| You want a paid commercial support tier (JobRunr Pro)     | You want a TCK-enforced store SPI for cross-store parity  |
-| You want a 1.0-stable library today                       | You want everything Apache 2.0 with no paid tier          |
-| You are fine with LGPL core and Pro behind a paid license | You need a built-in circuit breaker and dead letter queue |
+| Pick **JobRunr** if                                              | Pick **Ratchet** if                                                |
+|------------------------------------------------------------------|--------------------------------------------------------------------|
+| You want a mature starter for Spring Boot, Quarkus, or Micronaut | You are on Jakarta EE 10/11, Quarkus, Spring Boot, or Micronaut    |
+| You need a production-grade web dashboard today                  | You need Jakarta Security caller-principal capture                 |
+| You want a paid commercial support tier (JobRunr Pro)            | You want a TCK-enforced store SPI for cross-store parity           |
+| You want a 1.0-stable library today                              | You want everything Apache 2.0 with no paid tier                   |
+| You are fine with LGPL core and Pro behind a paid license        | You need a built-in circuit breaker and dead letter queue          |
 
 ## The honest version
 
@@ -55,9 +55,9 @@ This is where the libraries split.
 
 **JobRunr** has first-class starters for Spring Boot, Quarkus, and Micronaut. In a Spring Boot app, `@Autowired private JobScheduler scheduler;` Just Works. Configuration is via `application.properties`. In a vanilla CDI / Jakarta EE app you can still run JobRunr, and 8.7.0 genuinely improved this path: `initialize()` now starts the background server and dashboard lazily and hands you `getBackgroundJobServer()` / `getDashboardWebServer()`, so the servers come up after CDI has booted instead of spinning up mid-configuration. They've published a guide for it, too. But it's still manual wiring: an `@ApplicationScoped` producer calls `JobRunr.configure()...initialize()`, `@Produces` exposes the scheduler, and job beans are resolved through a custom `JobActivator` that does `CDI.current().select(...).get()`. That carries two costs. The first is small: the lookup is service-locator style, and the published sample never calls `Instance.destroy()`, so `@Dependent` job beans leak because their `@PreDestroy` never fires. The second is the architecture itself. JobRunr embeds a self-contained runtime that runs *alongside* your application in the same JVM, not as part of it. Jobs execute on JobRunr's own thread pool rather than a Jakarta-managed executor, so inside a job the container's `@RequestScoped` and `@SessionScoped` contexts aren't active, caller security and JNDI don't propagate, and storage writes commit through raw JDBC instead of container JTA.
 
-**Ratchet** is the inverse. Its engine is a set of managed beans that deploy as part of your application, and it is CDI-native: `@Inject JobSchedulerService scheduler;` works out of the box on WildFly, Payara, Open Liberty, and GlassFish. The bean activator looks up `BeanResolver` through CDI, captures the caller principal through platform `PrincipalSource` beans, and registers lifecycle hooks through CDI events. The [Spring Boot starter](/deployment/spring-boot) wires the same engine with Spring beans, application transactions, and Boot configuration.
+**Ratchet** is the inverse. Its engine is a set of managed beans that deploy as part of your application, and it is CDI-native: `@Inject JobSchedulerService scheduler;` works out of the box on WildFly, Payara, Open Liberty, and GlassFish. The bean activator looks up `BeanResolver` through CDI, captures the caller principal through platform `PrincipalSource` beans, and registers lifecycle hooks through CDI events. The [Spring Boot starter](/deployment/spring-boot) wires the same engine with Spring beans, application transactions, and Boot configuration. The [Micronaut integration](/deployment/micronaut) does the same with Micronaut beans, transactions, and configuration.
 
-On Spring Boot, both projects provide starters that integrate with application beans and configuration. On Jakarta EE, Ratchet supplies CDI integration and managed-executor support directly.
+On Spring Boot, Quarkus, and Micronaut, both projects provide integrations that work with application beans and configuration. On Jakarta EE, Ratchet supplies CDI integration and managed-executor support directly.
 
 ## Persistence
 
@@ -168,7 +168,7 @@ If your workflows are "after A, do B" with no branching, both libraries cover it
 
 JobRunr's web dashboard is the most visible win. It is ready today, it looks polished, and it covers the operational questions you actually have to answer in production. Ratchet does not ship one.
 
-The Spring Boot, Quarkus, and Micronaut starters are the second big win. If your container is one of those, JobRunr lowers the integration cost to nearly zero. Configuration goes through `application.properties` and autoconfiguration handles the rest.
+The Spring Boot, Quarkus, and Micronaut starters are the second big win. Ratchet integrates with all three too, but JobRunr's starters have been in use for years and lower the integration cost to nearly zero. Configuration goes through the framework's own configuration files and autoconfiguration handles the rest.
 
 Maturity is the third. JobRunr has been past 1.0 for years, has a real user base, and has accumulated enough community Q&A that searching "jobrunr how do I X" tends to find an answer. Ratchet is alpha and has none of that yet.
 
@@ -178,8 +178,8 @@ Finally, the JobRunr team has invested in documentation, examples, and onboardin
 
 ## When to pick each
 
-Pick JobRunr if you are on Micronaut. Pick it if a dashboard matters to you today, if you need 1.0 stability, or if you want a paid commercial support contract.
+Pick JobRunr if a dashboard matters to you today, if you need 1.0 stability, or if you want a paid commercial support contract.
 
-Evaluate Ratchet on Jakarta EE 10/11, Quarkus, or [Spring Boot](/deployment/spring-boot). Pick it if you need caller-identity capture and a `JobAuthorizationPolicy`, if you need a TCK-enforced store SPI for cross-store parity, if you need a circuit breaker and dead letter queue baked into the scheduler, or if your organization needs an Apache 2.0 license with no paid tier.
+Evaluate Ratchet on Jakarta EE 10/11, Quarkus, [Spring Boot](/deployment/spring-boot), or [Micronaut](/deployment/micronaut). Pick it if you need caller-identity capture and a `JobAuthorizationPolicy`, if you need a TCK-enforced store SPI for cross-store parity, if you need a circuit breaker and dead letter queue baked into the scheduler, or if your organization needs an Apache 2.0 license with no paid tier.
 
 Both libraries are good. The decision usually comes down to your container, your stance on the dashboard, and whether you want vendor support, not to the API shape.

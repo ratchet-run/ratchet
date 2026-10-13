@@ -9,7 +9,7 @@ description: Add Ratchet to your Maven project with the BOM, choose your store m
 Ratchet is distributed as a set of Maven modules. You pick the modules you need, import the BOM for version alignment, and apply the database schema. This page walks through each step.
 
 :::tip Choose your runtime
-This page covers Jakarta EE. The [Spring Boot integration](/deployment/spring-boot) uses starters, Spring beans, and Boot datasource/MongoDB properties. The [Quarkus extension](/deployment/quarkus) supplies its persistence unit and schema setup. Follow the guide for your runtime.
+This page covers Jakarta EE. The [Spring Boot integration](/deployment/spring-boot) uses starters, Spring beans, and Boot datasource/MongoDB properties. The [Quarkus extension](/deployment/quarkus) supplies its persistence unit and schema setup. The [Micronaut integration](/deployment/micronaut) uses the application's datasource or MongoDB client and Micronaut transactions. Follow the guide for your runtime.
 :::
 
 ## Maven BOM setup
