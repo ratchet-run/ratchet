@@ -217,14 +217,16 @@ class RatchetExecutionConfiguration {
       WorkflowScheduler workflowScheduler,
       DeadLetterService deadLetterService,
       PollerScheduler pollerScheduler,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchCompletionTransaction completionTransaction) {
     return new PostExecutionHandler(
         batchService,
         workflowScheduler,
         deadLetterService,
         pollerScheduler,
         store,
-        afterCommitRegistrar);
+        afterCommitRegistrar,
+        completionTransaction);
   }
 
   @Bean(destroyMethod = "")
