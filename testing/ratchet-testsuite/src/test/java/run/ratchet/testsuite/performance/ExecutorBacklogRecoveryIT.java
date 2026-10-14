@@ -28,12 +28,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.app.TimingJob;
-import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
-import run.ratchet.testsuite.util.PerformanceReportWriter;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Measures recovery from executor backlog pressure. Burst-enqueues more sleeping jobs than the
@@ -45,24 +40,7 @@ class ExecutorBacklogRecoveryIT extends BasePerformanceIT {
 
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addClasses(
-            TimingJob.class,
-            ConfigurableWorkJob.class,
-            ProbabilisticFailingJob.class,
-            PerformanceMetricsCollector.class,
-            TestJobService.class,
-            BasePerformanceIT.class,
-            PerformanceBaseline.class,
-            PerformanceReport.class,
-            PerformanceReportWriter.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    return createPerformanceDeployment(ConfigurableWorkJob.class, ProbabilisticFailingJob.class);
   }
 
   @BeforeEach

@@ -27,12 +27,8 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector.PerformanceSnapshot;
-import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TimingJob;
-import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
-import run.ratchet.testsuite.util.PerformanceReportWriter;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Measures raw job processing throughput with no-op and light workload jobs. */
 class ThroughputIT extends BasePerformanceIT {
@@ -41,23 +37,7 @@ class ThroughputIT extends BasePerformanceIT {
 
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addClasses(
-            TimingJob.class,
-            ConfigurableWorkJob.class,
-            PerformanceMetricsCollector.class,
-            TestJobService.class,
-            BasePerformanceIT.class,
-            PerformanceBaseline.class,
-            PerformanceReport.class,
-            PerformanceReportWriter.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    return createPerformanceDeployment(ConfigurableWorkJob.class);
   }
 
   @BeforeEach
