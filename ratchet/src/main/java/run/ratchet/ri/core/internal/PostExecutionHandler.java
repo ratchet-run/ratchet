@@ -20,6 +20,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -29,9 +30,11 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.JobEntity;
@@ -44,19 +47,14 @@ import run.ratchet.store.spi.JobTerminalStore;
  *
  * <h2>Transaction semantics</h2>
  *
- * <p>External calls to public methods run in their own transaction ({@link TxType#REQUIRES_NEW})
- * with rollback on any exception ({@code rollbackOn = Exception.class}). Composite handlers such as
- * {@link #handlePermanentFailure(JobEntity, Throwable)} call local helper methods directly, so
- * those helper calls intentionally share the composite handler's transaction instead of re-entering
- * the CDI proxy.
- *
- * <p>A {@code ManagedExecutorService} task does not inherit the submitting transaction. Jakarta
- * Concurrency 3.0 §3.1.8 requires the task to run outside that transaction and suspends any
- * transaction already associated with the executing thread. The {@code REQUIRES_NEW} attribute is
- * still load bearing: it gives each composite lifecycle operation one explicit, independent
- * transaction. It also protects transactional non-executor callers and recovery paths by suspending
- * their caller transaction, so the lifecycle transition, event registration, and downstream
- * bookkeeping commit or roll back together instead of following the caller's outcome.
+ * <p>The completion entry points {@code completeSuccess}, {@code completeSuccessMinimal}, {@code
+ * completeFailure}, {@code moveToDlqAndHandlePermanentFailure}, and {@code handleTimeoutTransition}
+ * run outside a transaction. They open one independent {@link TxType#REQUIRES_NEW} transaction
+ * through {@link BatchCompletionTransaction}, then run batch-parent follow-up on the calling thread
+ * after that transaction commits and returns. {@code completeTimeoutFailure} uses {@link
+ * TxType#REQUIRED} to join the timeout wrapper's transaction. Other public methods retain the
+ * class-level {@code REQUIRES_NEW} boundary. Composite handlers call local helpers directly so
+ * their bookkeeping shares one transaction.
  *
  * <p>{@code rollbackOn = Exception.class} covers the {@code ExecutionException} wrapping that
  * {@code ManagedExecutorService} applies to failures from submitted {@code Callable}s. The default
@@ -90,12 +88,16 @@ public class PostExecutionHandler {
     }
   }
 
+  private static final ThreadLocal<List<BatchProgress>> PENDING_BATCH_FOLLOWUPS =
+      new ThreadLocal<>();
+
   private final BatchService batchService;
   private final JobTerminalStore jobTerminalStore;
   private final WorkflowScheduler workflowScheduler;
   private final DeadLetterService deadLetterService;
   private final PollerScheduler pollerScheduler;
   private final AfterCommitRegistrar afterCommitRegistrar;
+  private final BatchCompletionTransaction completionTransaction;
 
   protected PostExecutionHandler() {
     this.batchService = null;
@@ -104,6 +106,7 @@ public class PostExecutionHandler {
     this.deadLetterService = null;
     this.pollerScheduler = null;
     this.afterCommitRegistrar = null;
+    this.completionTransaction = null;
   }
 
   public PostExecutionHandler(
@@ -114,6 +117,10 @@ public class PostExecutionHandler {
     this(batchService, workflowScheduler, deadLetterService, pollerScheduler, null);
   }
 
+  /**
+   * Test constructor. Without a {@link BatchCompletionTransaction}, completion work runs with no
+   * transaction boundary, so containers must use the {@code @Inject} constructor.
+   */
   public PostExecutionHandler(
       BatchService batchService,
       WorkflowScheduler workflowScheduler,
@@ -126,7 +133,8 @@ public class PostExecutionHandler {
         deadLetterService,
         pollerScheduler,
         jobTerminalStore,
-        new JakartaAfterCommitRegistrar());
+        new JakartaAfterCommitRegistrar(),
+        null);
   }
 
   @Inject
@@ -136,15 +144,18 @@ public class PostExecutionHandler {
       DeadLetterService deadLetterService,
       PollerScheduler pollerScheduler,
       JobTerminalStore jobTerminalStore,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchCompletionTransaction completionTransaction) {
     this.jobTerminalStore = jobTerminalStore;
     this.batchService = batchService;
     this.workflowScheduler = workflowScheduler;
     this.deadLetterService = deadLetterService;
     this.pollerScheduler = pollerScheduler;
     this.afterCommitRegistrar = afterCommitRegistrar;
+    this.completionTransaction = completionTransaction;
   }
 
+  @Transactional(value = TxType.NOT_SUPPORTED)
   public boolean completeSuccess(
       JobEntity source,
       String resultJson,
@@ -153,23 +164,33 @@ public class PostExecutionHandler {
       Instant end,
       long durationMs,
       long queueWaitMs) {
-    JobEntity completed = completionSnapshot(source, JobStatus.SUCCEEDED);
-    completed.setJobResult(resultJson);
-    completed.setResultType(resultType);
-    completed.setExecutionStartTime(start);
-    completed.setExecutionEndTime(end);
-    completed.setExecutionDurationMs(durationMs);
-    completed.setQueueWaitMs(queueWaitMs);
-    completed.setLastError(null);
-    return complete(completed, JobStatus.RUNNING, false, null, List.of());
+    return inCompletionTransaction(
+        () -> {
+          JobEntity completed = completionSnapshot(source, JobStatus.SUCCEEDED);
+          completed.setJobResult(resultJson);
+          completed.setResultType(resultType);
+          completed.setExecutionStartTime(start);
+          completed.setExecutionEndTime(end);
+          completed.setExecutionDurationMs(durationMs);
+          completed.setQueueWaitMs(queueWaitMs);
+          completed.setLastError(null);
+          return complete(completed, JobStatus.RUNNING, false, null, List.of());
+        });
   }
 
+  @Transactional(value = TxType.NOT_SUPPORTED)
   public boolean completeSuccessMinimal(
       JobEntity source, Instant start, Instant end, long durationMs, long queueWaitMs) {
     return completeSuccess(source, null, null, start, end, durationMs, queueWaitMs);
   }
 
+  @Transactional(value = TxType.NOT_SUPPORTED)
   public boolean completeFailure(JobEntity source, JobStatus expectedStatus, boolean cancelChain) {
+    return inCompletionTransaction(() -> completeFailureBody(source, expectedStatus, cancelChain));
+  }
+
+  private boolean completeFailureBody(
+      JobEntity source, JobStatus expectedStatus, boolean cancelChain) {
     JobEntity completed = completionSnapshot(source, JobStatus.FAILED);
     String error = completed.getLastError() != null ? completed.getLastError() : "Job failed";
     completed.setLastError(error);
@@ -245,24 +266,51 @@ public class PostExecutionHandler {
     if (result.batchProgress() != null) {
       // Child terminal state and counters are already one durable unit. Parent completion is
       // independently recoverable if this following step fails (notably on Mongo).
-      Logger log = Logger.getLogger(PostExecutionHandler.class);
-      Runnable followup =
-          () -> {
-            try {
-              wakeupIfNewWorkAvailable(batchService.afterChildCompletion(result.batchProgress()));
-            } catch (RuntimeException failure) {
-              log.warnf(
-                  failure,
-                  "Batch %s completion deferred to recovery",
-                  result.batchProgress().batchId());
-            }
-          };
-      if (afterCommitRegistrar.registerAfterCommit(followup)
-          == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-        followup.run();
+      // The committed connection stays enlisted through afterCompletion callbacks on JTA servers
+      // and Spring. REQUIRES_NEW there needs a second connection, so a burst can exhaust the pool.
+      // Collect follow-ups until the completion transaction has returned and released its
+      // connection.
+      List<BatchProgress> pending = PENDING_BATCH_FOLLOWUPS.get();
+      if (pending != null) {
+        pending.add(result.batchProgress());
+      } else {
+        Runnable followup = () -> runBatchFollowup(result.batchProgress());
+        if (afterCommitRegistrar.registerAfterCommit(followup)
+            == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
+          followup.run();
+        }
       }
     }
     return true;
+  }
+
+  private <T> T inCompletionTransaction(Supplier<T> work) {
+    List<BatchProgress> previous = PENDING_BATCH_FOLLOWUPS.get();
+    List<BatchProgress> pending = new ArrayList<>();
+    PENDING_BATCH_FOLLOWUPS.set(pending);
+    T result;
+    try {
+      result = completionTransaction != null ? completionTransaction.complete(work) : work.get();
+    } finally {
+      if (previous == null) {
+        PENDING_BATCH_FOLLOWUPS.remove();
+      } else {
+        PENDING_BATCH_FOLLOWUPS.set(previous);
+      }
+    }
+    for (BatchProgress progress : pending) {
+      runBatchFollowup(progress);
+    }
+    return result;
+  }
+
+  private void runBatchFollowup(BatchProgress progress) {
+    Logger log = Logger.getLogger(PostExecutionHandler.class);
+    try {
+      wakeupIfNewWorkAvailable(batchService.afterChildCompletion(progress));
+    } catch (RuntimeException failure) {
+      log.warnf(failure, "Batch %s completion deferred to recovery", progress.batchId());
+    }
   }
 
   public static JobCompletionPlan completionPlan(
@@ -330,21 +378,25 @@ public class PostExecutionHandler {
 
   /**
    * Atomically moves a still-RUNNING job to the DLQ and applies its batch/workflow failure
-   * bookkeeping through the store's atomic completion operation. SQL stores join this method's
+   * bookkeeping through the store's atomic completion operation. SQL stores join the helper's
    * {@code REQUIRES_NEW} transaction; Mongo commits its own session transaction. Ordered events are
    * registered only after the store reports a successful transition.
    *
    * @return {@code true} when this call won the terminal transition, or {@code false} when the job
    *     had already left RUNNING
    */
+  @Transactional(value = TxType.NOT_SUPPORTED)
   public boolean moveToDlqAndHandlePermanentFailure(JobEntity job, Throwable ex) {
-    requireFailureRoutingMetadata(job);
-    job.setLastError(deadLetterService.sanitizeForCompletion(ex));
-    if (!completeFailure(job, JobStatus.RUNNING, false)) {
-      return false;
-    }
-    job.setStatus(JobStatus.FAILED);
-    return true;
+    return inCompletionTransaction(
+        () -> {
+          requireFailureRoutingMetadata(job);
+          job.setLastError(deadLetterService.sanitizeForCompletion(ex));
+          if (!completeFailureBody(job, JobStatus.RUNNING, false)) {
+            return false;
+          }
+          job.setStatus(JobStatus.FAILED);
+          return true;
+        });
   }
 
   public void handleJobSuccess(JobEntity job) {
@@ -379,21 +431,25 @@ public class PostExecutionHandler {
    * @param transition complete timeout state transition and event-registration callback
    * @return {@code true} when the callback applied the terminal transition
    */
+  @Transactional(value = TxType.NOT_SUPPORTED)
   public boolean handleTimeoutTransition(
       Throwable ex,
       boolean cancelChainOnFailure,
       Supplier<Optional<TerminalTimeoutTransition>> transition) {
-    Optional<TerminalTimeoutTransition> terminalTransition = transition.get();
-    if (terminalTransition.isEmpty()) {
-      return false;
-    }
+    return inCompletionTransaction(
+        () -> {
+          Optional<TerminalTimeoutTransition> terminalTransition = transition.get();
+          if (terminalTransition.isEmpty()) {
+            return false;
+          }
 
-    TerminalTimeoutTransition outcome = terminalTransition.orElseThrow();
-    JobEntity job = outcome.job();
-    requireFailureRoutingMetadata(job);
-    // The callback's atomic completion already registered timeout/failure/DLQ events and
-    // downstream events in order, in this transaction.
-    return true;
+          TerminalTimeoutTransition outcome = terminalTransition.orElseThrow();
+          JobEntity job = outcome.job();
+          requireFailureRoutingMetadata(job);
+          // The callback's atomic completion already registered timeout/failure/DLQ events and
+          // downstream events in order, in this transaction.
+          return true;
+        });
   }
 
   private boolean applyPermanentFailureBookkeeping(JobEntity job) {

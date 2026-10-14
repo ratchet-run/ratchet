@@ -20,11 +20,14 @@ import jakarta.transaction.Transactional;
 import java.util.Objects;
 import java.util.function.Supplier;
 
-/** Executes batch-parent completion work through a separately managed transaction boundary. */
+/**
+ * Runs completion work (a job's terminal transition or a batch parent's completion) in its own new
+ * transaction.
+ */
 @ApplicationScoped
 public class BatchCompletionTransaction {
-  @Transactional(Transactional.TxType.REQUIRES_NEW)
-  public boolean complete(Supplier<Boolean> work) {
+  @Transactional(value = Transactional.TxType.REQUIRES_NEW, rollbackOn = Exception.class)
+  public <T> T complete(Supplier<T> work) {
     return Objects.requireNonNull(work, "work must not be null").get();
   }
 }

@@ -17,6 +17,7 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,6 +34,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,9 +45,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.internal.PostExecutionHandler.TerminalTimeoutTransition;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
@@ -56,6 +60,8 @@ import run.ratchet.store.spi.JobTerminalStore;
 @ExtendWith(MockitoExtension.class)
 class PostExecutionHandlerTest {
 
+  @Mock private AfterCommitRegistrar afterCommitRegistrar;
+  @Mock private BatchCompletionTransaction completionTransaction;
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private BatchService batchService;
   @Mock private WorkflowScheduler workflowScheduler;
@@ -77,6 +83,225 @@ class PostExecutionHandlerTest {
     handler =
         new PostExecutionHandler(
             batchService, workflowScheduler, deadLetterService, pollerScheduler, jobTerminalStore);
+  }
+
+  private void useCompletionTransaction() {
+    handler =
+        new PostExecutionHandler(
+            batchService,
+            workflowScheduler,
+            deadLetterService,
+            pollerScheduler,
+            jobTerminalStore,
+            afterCommitRegistrar,
+            completionTransaction);
+  }
+
+  private BatchProgress stubBatchCompletion() {
+    BatchProgress progress = new BatchProgress(UUID.randomUUID(), 1, 1, 0, null);
+    when(jobTerminalStore.commitCompletion(any()))
+        .thenReturn(new JobCompletionResult(true, progress));
+    return progress;
+  }
+
+  private void stubSuccessfulCommit(AtomicBoolean committed) {
+    when(completionTransaction.complete(any()))
+        .thenAnswer(
+            invocation -> {
+              Supplier<?> work = invocation.getArgument(0);
+              Object result = work.get();
+              committed.set(true);
+              return result;
+            });
+  }
+
+  private void assertFollowupAfterCommit(BatchProgress progress, AtomicBoolean committed) {
+    when(batchService.afterChildCompletion(progress))
+        .thenAnswer(
+            invocation -> {
+              assertTrue(committed.get());
+              return false;
+            });
+  }
+
+  private void assertDirectTimeoutUsesRegistrar(JobEntity child, BatchProgress progress) {
+    when(afterCommitRegistrar.registerAfterCommit(any()))
+        .thenReturn(AfterCommitRegistrar.Result.REGISTERED);
+    assertTrue(handler.completeTimeoutFailure(child, JobStatus.RUNNING, false, null, List.of()));
+    ArgumentCaptor<Runnable> followup = ArgumentCaptor.forClass(Runnable.class);
+    verify(afterCommitRegistrar).registerAfterCommit(followup.capture());
+    verify(batchService, never()).afterChildCompletion(progress);
+    followup.getValue().run();
+    verify(batchService).afterChildCompletion(progress);
+  }
+
+  @Test
+  void successRunsBatchFollowupAfterCompletionTransactionReturns() {
+    useCompletionTransaction();
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    BatchProgress progress = stubBatchCompletion();
+    AtomicBoolean committed = new AtomicBoolean();
+    stubSuccessfulCommit(committed);
+    assertFollowupAfterCommit(progress, committed);
+
+    Instant now = Instant.now();
+    assertTrue(handler.completeSuccess(child, null, null, now, now, 0, 0));
+
+    verify(completionTransaction).complete(any());
+    verify(batchService).afterChildCompletion(progress);
+    verifyNoInteractions(afterCommitRegistrar);
+  }
+
+  @Test
+  void failedCommitDiscardsBatchFollowupAndClearsCollector() {
+    useCompletionTransaction();
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    BatchProgress progress = stubBatchCompletion();
+    RuntimeException failure = new IllegalStateException("commit failed");
+    when(completionTransaction.complete(any()))
+        .thenAnswer(
+            invocation -> {
+              Supplier<?> work = invocation.getArgument(0);
+              work.get();
+              throw failure;
+            });
+
+    Instant now = Instant.now();
+    assertSame(
+        failure,
+        assertThrows(
+            IllegalStateException.class,
+            () -> handler.completeSuccess(child, null, null, now, now, 0, 0)));
+    verifyNoInteractions(batchService, afterCommitRegistrar);
+
+    assertDirectTimeoutUsesRegistrar(child, progress);
+    verify(completionTransaction).complete(any());
+  }
+
+  @Test
+  void dlqCompositeUsesOneCompletionTransactionAndFollowsUpAfterCommit() {
+    useCompletionTransaction();
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    BatchProgress progress = stubBatchCompletion();
+    AtomicBoolean committed = new AtomicBoolean();
+    when(deadLetterService.sanitizeForCompletion(any())).thenReturn("sanitized failure");
+    when(completionTransaction.complete(any()))
+        .thenAnswer(
+            invocation -> {
+              assertFalse(committed.get());
+              Supplier<?> work = invocation.getArgument(0);
+              Object result = work.get();
+              assertEquals("sanitized failure", child.getLastError());
+              assertEquals(JobStatus.FAILED, child.getStatus());
+              verify(deadLetterService)
+                  .recordDlqTransitionInCurrentTransaction(any(), any(), any());
+              committed.set(true);
+              return result;
+            });
+    assertFollowupAfterCommit(progress, committed);
+
+    assertTrue(handler.moveToDlqAndHandlePermanentFailure(child, new RuntimeException("boom")));
+
+    verify(completionTransaction).complete(any());
+    verify(batchService).afterChildCompletion(progress);
+    verifyNoInteractions(afterCommitRegistrar);
+  }
+
+  @Test
+  void timeoutWrapperCollectsCallbackFollowupUntilCompletionTransactionReturns() {
+    useCompletionTransaction();
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    BatchProgress progress = stubBatchCompletion();
+    AtomicBoolean committed = new AtomicBoolean();
+    stubSuccessfulCommit(committed);
+    assertFollowupAfterCommit(progress, committed);
+    RuntimeException failure = new RuntimeException("timeout");
+
+    assertTrue(
+        handler.handleTimeoutTransition(
+            failure,
+            false,
+            () -> {
+              assertTrue(
+                  handler.completeTimeoutFailure(
+                      child, JobStatus.RUNNING, false, failure, List.of()));
+              verifyNoInteractions(batchService, afterCommitRegistrar);
+              return Optional.of(new TerminalTimeoutTransition(child, List.of()));
+            }));
+
+    verify(completionTransaction).complete(any());
+    verify(batchService).afterChildCompletion(progress);
+    verifyNoInteractions(afterCommitRegistrar);
+  }
+
+  @Test
+  void directTimeoutCompletionRegistersBatchFollowup() {
+    useCompletionTransaction();
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    BatchProgress progress = stubBatchCompletion();
+
+    assertDirectTimeoutUsesRegistrar(child, progress);
+
+    verifyNoInteractions(completionTransaction);
+  }
+
+  @Test
+  void successfulCompletionClearsCollectorBeforeDirectTimeoutCompletion() {
+    useCompletionTransaction();
+    JobEntity child = job(JobExecutionType.BATCH_CHILD);
+    BatchProgress completedProgress = new BatchProgress(UUID.randomUUID(), 1, 1, 0, null);
+    BatchProgress directProgress = new BatchProgress(UUID.randomUUID(), 1, 0, 1, null);
+    when(jobTerminalStore.commitCompletion(any()))
+        .thenReturn(
+            new JobCompletionResult(true, completedProgress),
+            new JobCompletionResult(true, directProgress));
+    AtomicBoolean committed = new AtomicBoolean();
+    stubSuccessfulCommit(committed);
+    Instant now = Instant.now();
+
+    assertTrue(handler.completeSuccess(child, null, null, now, now, 0, 0));
+    verify(batchService).afterChildCompletion(completedProgress);
+    verifyNoInteractions(afterCommitRegistrar);
+    assertDirectTimeoutUsesRegistrar(child, directProgress);
+    verify(completionTransaction).complete(any());
+  }
+
+  @Test
+  void completionEntryPointsOverrideClassTransactionAndTimeoutCompletionJoins()
+      throws NoSuchMethodException {
+    for (String methodName :
+        List.of(
+            "completeSuccess",
+            "completeSuccessMinimal",
+            "completeFailure",
+            "moveToDlqAndHandlePermanentFailure",
+            "handleTimeoutTransition")) {
+      Transactional transactional =
+          Arrays.stream(PostExecutionHandler.class.getDeclaredMethods())
+              .filter(method -> method.getName().equals(methodName))
+              .findFirst()
+              .orElseThrow()
+              .getAnnotation(Transactional.class);
+      assertEquals(Transactional.TxType.NOT_SUPPORTED, transactional.value(), methodName);
+    }
+    Transactional timeout =
+        PostExecutionHandler.class
+            .getMethod(
+                "completeTimeoutFailure",
+                JobEntity.class,
+                JobStatus.class,
+                boolean.class,
+                Throwable.class,
+                List.class)
+            .getAnnotation(Transactional.class);
+    assertEquals(Transactional.TxType.REQUIRED, timeout.value());
+    assertTrue(Arrays.asList(timeout.rollbackOn()).contains(Exception.class));
+    Transactional completion =
+        BatchCompletionTransaction.class
+            .getMethod("complete", Supplier.class)
+            .getAnnotation(Transactional.class);
+    assertEquals(Transactional.TxType.REQUIRES_NEW, completion.value());
+    assertTrue(Arrays.asList(completion.rollbackOn()).contains(Exception.class));
   }
 
   @Test
