@@ -25,6 +25,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
@@ -67,6 +68,7 @@ class WorkerTagAffinityIT extends BaseRatchetIT {
   // direct claim then sees nothing). Stop the poller before each truncate; nothing restarts it, so
   // it stays quiescent for the test body. This also keeps TRUNCATE from deadlocking a live cycle.
   @Override
+  @BeforeEach
   protected void truncateAll() throws Exception {
     PollerControl.stopAndAwait(pollerScheduler);
     super.truncateAll();
