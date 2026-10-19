@@ -1,0 +1,16 @@
+ratchet:
+  allowed-packages: example.ratchet,run.ratchet.consumer.sql
+  jpa:
+    datasource: default
+jpa:
+  default:
+    entity-scan:
+      packages:
+        - example.ratchet
+    # Micronaut never loads META-INF/orm.xml implicitly; applications list their own files.
+    mapping-resources:
+      - META-INF/consumer-orm.xml
+    properties:
+      hibernate:
+        hbm2ddl:
+          auto: validate

@@ -108,3 +108,9 @@ repository-relative paths, or select the full matrix:
 python3 infra/ci/affected_lanes.py --changed-files changed-files.txt
 python3 infra/ci/affected_lanes.py --full
 ```
+
+Micronaut consumer and native lanes cover mn4 and mn5 across all five stores.
+Consumer rows pair mn4 with Java 17 and mn5 with Java 25; native jobs use Java 25.
+PR diagonal reduction preserves these pairs and covers every selected store and
+lane. Changes in the independent Micronaut consumer-tests reactor trigger both
+Micronaut lanes, just as Spring consumer-tests changes trigger the Spring lanes.

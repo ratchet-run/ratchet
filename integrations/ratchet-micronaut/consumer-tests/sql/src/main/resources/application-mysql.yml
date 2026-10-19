@@ -1,0 +1,11 @@
+datasources:
+  default:
+    transaction-isolation: TRANSACTION_READ_COMMITTED
+    data-source-properties:
+      connectionTimeZone: UTC
+jpa:
+  default:
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC

@@ -1,0 +1,6 @@
+jpa:
+  default:
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC

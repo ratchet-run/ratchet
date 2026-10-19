@@ -8,7 +8,7 @@ description: What is Ratchet, why use it, and how it compares to other job sched
 
 ## What is Ratchet?
 
-Ratchet is a persistent job scheduler for Jakarta EE 10/11, Quarkus, and Spring Boot. It gives you a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience -- all without pulling in heavyweight frameworks or non-standard dependencies.
+Ratchet is a persistent job scheduler for Jakarta EE 10/11, Quarkus, Spring Boot, and Micronaut. It gives you a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience -- all without pulling in heavyweight frameworks or non-standard dependencies.
 
 If you've ever needed to run a task in the background, retry it on failure, chain it with other tasks, or schedule it on a cron timer inside a Jakarta EE application, Ratchet is built for exactly that.
 
@@ -145,13 +145,13 @@ Ratchet's internals are composed of focused SPI interfaces. The reference implem
 
 ## Target audience
 
-Ratchet supports Jakarta EE servers such as WildFly, Open Liberty, Payara, and GlassFish, plus Quarkus and Spring Boot. For the Jakarta EE setup, you should be comfortable with:
+Ratchet supports Jakarta EE servers such as WildFly, Open Liberty, Payara, and GlassFish, plus Quarkus, Spring Boot, and Micronaut. For the Jakarta EE setup, you should be comfortable with:
 
 - CDI injection and bean scoping
 - JPA/DataSource or MongoDB resource wiring
 - Maven dependency management
 
-On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a GraalVM native image. It supplies Ratchet's persistence unit itself, so setup is a dependency plus a datasource, with no persistence-unit configuration to write. See [Quarkus Deployment](/deployment/quarkus). The [Spring Boot starters](/deployment/spring-boot) wire the engine through Spring beans, reuse Boot persistence configuration, and support SQL or MongoDB. They do not require a CDI container. The guide covers installation and the Boot 3.5/4.1, Java 17/21 JVM matrix.
+On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a GraalVM native image. It supplies Ratchet's persistence unit itself, so setup is a dependency plus a datasource, with no persistence-unit configuration to write. See [Quarkus Deployment](/deployment/quarkus). The [Spring Boot starters](/deployment/spring-boot) wire the engine through Spring beans, reuse Boot persistence configuration, and support SQL or MongoDB. They do not require a CDI container. The guide covers installation and the Boot 3.5/4.1, Java 17/21 JVM matrix. The [Micronaut integration](/deployment/micronaut) uses the application's datasource, Hibernate session factory or MongoDB client, and transaction manager. It supports Micronaut 4.10 and 5, on the JVM and as a native image.
 
 ## Requirements
 
@@ -159,7 +159,7 @@ On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a 
 |-----------|---------|
 | **Java** | 17+ |
 | **Jakarta EE** | 10/11 -- CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1 |
-| **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8), Quarkus via the `ratchet-quarkus` extension, or the Spring Boot 3.5/4.1 starters (JVM and native image) |
+| **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8), Quarkus via the `ratchet-quarkus` extension, the Spring Boot 3.5/4.1 starters (JVM and native image), or the Micronaut 4.10/5 integration (JVM and native image) |
 | **Database** | MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+ |
 
 ## Project status

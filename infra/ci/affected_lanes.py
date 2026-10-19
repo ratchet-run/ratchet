@@ -23,6 +23,12 @@ DATABASES = ["mysql", "postgresql", "mongodb", "oracle", "sqlserver"]
 STORE_MODULES = {db: f"stores/ratchet-store-{db}" for db in DATABASES}
 STARTER = "integrations/ratchet-spring-boot/ratchet-spring-boot-starter"
 MONGO_STARTER = "integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb"
+MICRONAUT_MODULES = [f"integrations/ratchet-micronaut/{module}" for module in
+                     ["ratchet-micronaut", "ratchet-micronaut-processor",
+                      "ratchet-micronaut-jpa", "ratchet-micronaut-mongodb"]]
+MICRONAUT_ROOTS = MICRONAUT_MODULES + ["testing/ratchet-tck/api", "testing/ratchet-tck/store"]
+MICRONAUT_STORES = ["postgresql", "mysql", "oracle", "sqlserver", "mongodb"]
+MICRONAUT_VERSIONS = [("mn4", 17), ("mn5", 25)]
 TESTSUITE = "testing/ratchet-testsuite"
 COVERAGE = "testing/ratchet-coverage"
 QUARKUS = "integrations/ratchet-quarkus/integration-tests"
@@ -39,6 +45,10 @@ LANES = {
                        [{"java": java, "boot": boot, "store": "postgresql", "provider": "eclipselink"}
                         for java in JAVA for boot in BOOT],
     "spring_native": [{"boot": boot, "store": store} for boot in BOOT for store in DATABASES],
+    "micronaut_consumer": [{"lane": lane, "java": java, "store": store}
+                           for lane, java in MICRONAUT_VERSIONS for store in MICRONAUT_STORES],
+    "micronaut_native": [{"lane": lane, "store": store}
+                         for lane, _ in MICRONAUT_VERSIONS for store in MICRONAUT_STORES],
     "spring_runtime": [{"java": java, "boot": boot} for java in JAVA for boot in BOOT],
 }
 
@@ -120,6 +130,8 @@ def classify(graph, paths):
             reasons.append(path)
         elif path.startswith("integrations/ratchet-spring-boot/consumer-tests/"):
             triggers.update({"spring_consumer", "spring_native", "spring_runtime"})
+        elif path.startswith("integrations/ratchet-micronaut/consumer-tests/"):
+            triggers.update({"micronaut_consumer", "micronaut_native"})
         elif path in {"infra/ci/check_runtime_consumer_reports.py", "infra/ci/runtime-consumer-expected.json"}:
             triggers.add("spring_runtime")
         else:
@@ -148,6 +160,8 @@ def row_model(lane, row):
     if lane == "showcase":
         return [SHOWCASE], {"wildfly-managed", "postgresql"}, {"postgresql"}
     store = row.get("store", "postgresql")
+    if lane in {"micronaut_consumer", "micronaut_native"}:
+        return MICRONAUT_ROOTS + [STORE_MODULES[store]], {"github"}, {store}
     owned = {"postgresql", "mongodb"} if lane == "spring_runtime" else {store}
     return [STARTER, MONGO_STARTER, STORE_MODULES[store]], {"github"}, owned
 
@@ -158,6 +172,8 @@ def reduce_rows(lane, rows):
     if lane == "spring_consumer":
         return diagonal([r for r in rows if r["provider"] == "default"]) + diagonal(
             [r for r in rows if r["provider"] == "eclipselink"])
+    # Micronaut consumer lane/java values have matching order in the source
+    # rows, so diagonal preserves the mn4/17 and mn5/25 pairs.
     return diagonal(rows)
 
 

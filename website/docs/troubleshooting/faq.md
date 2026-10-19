@@ -11,7 +11,8 @@ description: Frequently asked questions about Ratchet job scheduling, deployment
 Yes. The [Spring Boot integration](/deployment/spring-boot) wires the scheduler with Spring beans,
 transactions, lifecycle events, and Boot connection properties. It does not need a CDI container.
 Use the SQL or MongoDB starter and follow that runtime's guide. Quarkus has its own
-[extension](/deployment/quarkus).
+[extension](/deployment/quarkus). The [Micronaut integration](/deployment/micronaut) wires the
+scheduler with Micronaut beans, transactions, and configuration, also without a CDI container.
 
 The Jakarta EE integration uses CDI. Manually constructing the implementation graph is not the
 recommended application setup; use the supported integration for your runtime.

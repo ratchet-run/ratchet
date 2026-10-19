@@ -6,7 +6,7 @@ description: High-level architecture of Ratchet and how it fits into a Jakarta E
 
 # Architecture Overview
 
-Ratchet is a persistent job scheduler for Jakarta EE 10/11, Quarkus, and [Spring Boot](/deployment/spring-boot). The CDI examples on this page describe the Jakarta EE integration; the job APIs are shared across runtimes. It provides persistent, cluster-safe background job scheduling with a fluent API -- covering batching, chaining, workflows, and transactional enqueueing out of the box.
+Ratchet is a persistent job scheduler for Jakarta EE 10/11, Quarkus, [Spring Boot](/deployment/spring-boot), and [Micronaut](/deployment/micronaut). The CDI examples on this page describe the Jakarta EE integration; the job APIs are shared across runtimes. It provides persistent, cluster-safe background job scheduling with a fluent API -- covering batching, chaining, workflows, and transactional enqueueing out of the box.
 
 ## Where Ratchet Fits
 
@@ -337,6 +337,8 @@ public void onJobFailed(@Observes JobFailedEvent event) {
 
 In Spring Boot, observe the same events with Spring's `@EventListener`; see the
 [Spring Boot guide](/deployment/spring-boot#configuration-and-overrides).
+In Micronaut, use Micronaut's `@EventListener` or an `ApplicationEventListener` bean; see the
+[Micronaut guide](/deployment/micronaut#events-and-caller-identity).
 You can also register a programmatic listener in any runtime:
 
 ```java

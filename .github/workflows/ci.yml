@@ -82,6 +82,10 @@ jobs:
       has_spring_native: ${{ steps.select.outputs.has_spring_native }}
       spring_runtime: ${{ steps.select.outputs.spring_runtime }}
       has_spring_runtime: ${{ steps.select.outputs.has_spring_runtime }}
+      micronaut_consumer: ${{ steps.select.outputs.micronaut_consumer }}
+      has_micronaut_consumer: ${{ steps.select.outputs.has_micronaut_consumer }}
+      micronaut_native: ${{ steps.select.outputs.micronaut_native }}
+      has_micronaut_native: ${{ steps.select.outputs.has_micronaut_native }}
       has_showcase: ${{ steps.select.outputs.has_showcase }}
     steps:
       - uses: actions/checkout@v7
@@ -805,6 +809,137 @@ jobs:
         if: always()
         run: rm -rf "$RUNNER_TEMP/ratchet-native-repository/run/ratchet"
 
+  # Same independent-consumer pattern as spring-boot-consumer. Both lanes consume one set of
+  # Ratchet jars compiled against Micronaut 4.10 on Java 17: mn4 runs it on Micronaut 4.10 and
+  # Java 17, and mn5 compiles the application with Micronaut 5's processors and runs it on Java 25.
+  micronaut-consumer:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_micronaut_consumer == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    name: micronaut-consumer (${{ matrix.lane }}, ${{ matrix.store }})
+    strategy:
+      fail-fast: false
+      # Matrix rows are defined in infra/ci/affected_lanes.py.
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.micronaut_consumer) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      # Cache third-party dependencies only. A fresh repository per cell downloads the whole
+      # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ratchet-staged-repository
+          key: m2-micronaut-consumer-${{ runner.os }}-${{ matrix.lane }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-micronaut-consumer-${{ runner.os }}-${{ matrix.lane }}-
+            m2-micronaut-consumer-${{ runner.os }}-
+      - name: Remove cached Ratchet artifacts
+        # Stage this checkout's artifacts, never a copy restored from an earlier run.
+        run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
+      - name: Stage Micronaut artifacts in an isolated Maven repository
+        run: >-
+          mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository"
+          -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true
+          -pl :ratchet-micronaut,:ratchet-micronaut-processor,:ratchet-micronaut-jpa,:ratchet-micronaut-mongodb,:ratchet-tck-api,:ratchet-tck-store,:ratchet-store-${{ matrix.store }}
+          -Pgithub -am install
+      - uses: actions/setup-java@v6
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+      - name: Verify independent Micronaut consumer
+        run: |
+          if [ "${{ matrix.store }}" = "mongodb" ]; then
+            selection=(-pl :mongodb-consumer -am)
+          else
+            selection=(-pl :sql-consumer -am -Dstore=${{ matrix.store }})
+          fi
+          mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml \
+            -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository" \
+            -P${{ matrix.lane }} "${selection[@]}" verify
+      - name: Upload Micronaut consumer reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: micronaut-consumer-${{ matrix.lane }}-${{ matrix.store }}-reports
+          path: |
+            integrations/ratchet-micronaut/consumer-tests/**/target/surefire-reports/
+            integrations/ratchet-micronaut/consumer-tests/**/target/failsafe-reports/
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Runs before the cache post-step saves the repository.
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
+
+  micronaut-native:
+    needs: changes
+    if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_micronaut_native == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    name: micronaut-native (${{ matrix.lane }}, ${{ matrix.store }})
+    strategy:
+      fail-fast: false
+      # Matrix rows are defined in infra/ci/affected_lanes.py.
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.micronaut_native) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      # Cache third-party dependencies only. A fresh repository per cell downloads the whole
+      # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
+      - uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ratchet-micronaut-native-repository
+          key: m2-micronaut-native-${{ runner.os }}-${{ matrix.lane }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-micronaut-native-${{ runner.os }}-${{ matrix.lane }}-
+            m2-micronaut-native-${{ runner.os }}-
+      - name: Remove cached Ratchet artifacts
+        # Stage this checkout's artifacts, never a copy restored from an earlier run.
+        run: rm -rf "$RUNNER_TEMP/ratchet-micronaut-native-repository/run/ratchet"
+      - name: Stage Micronaut artifacts in an isolated Maven repository
+        run: |
+          set -o pipefail
+          mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-micronaut-native-repository" \
+            -DskipTests -Dspotbugs.skip=true -Dspotless.skip=true \
+            -pl :ratchet-micronaut,:ratchet-micronaut-processor,:ratchet-micronaut-jpa,:ratchet-micronaut-mongodb,:ratchet-tck-api,:ratchet-tck-store,:ratchet-store-${{ matrix.store }} \
+            -Pgithub -am install 2>&1 | tee micronaut-native-stage.log
+      - name: Build and verify native Micronaut consumer
+        run: |
+          set -o pipefail
+          if [ "${{ matrix.store }}" = "mongodb" ]; then
+            selection=(-pl :mongodb-consumer -am)
+          else
+            selection=(-pl :sql-consumer -am -Dstore=${{ matrix.store }})
+          fi
+          mvn -B -ntp -f integrations/ratchet-micronaut/consumer-tests/pom.xml \
+            -Dmaven.repo.local="$RUNNER_TEMP/ratchet-micronaut-native-repository" \
+            -P${{ matrix.lane }},native "${selection[@]}" clean verify \
+            -Dgoogle-java-format.version=1.35.0 \
+            -Dtest=NoJvmTests -Dsurefire.failIfNoSpecifiedTests=false 2>&1 | tee micronaut-native-build.log
+      - name: Upload Micronaut consumer reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: micronaut-native-${{ matrix.lane }}-${{ matrix.store }}-reports
+          path: |
+            micronaut-native-stage.log
+            micronaut-native-build.log
+            integrations/ratchet-micronaut/consumer-tests/**/target/*.log
+            integrations/ratchet-micronaut/consumer-tests/**/target/surefire-reports/
+            integrations/ratchet-micronaut/consumer-tests/**/target/failsafe-reports/
+      - name: Keep Ratchet artifacts out of the saved cache
+        # Runs before the cache post-step saves the repository.
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/ratchet-micronaut-native-repository/run/ratchet"
+
   # Builds the VitePress site and runs the axe-core accessibility scan against
   # every page in both the light and dark themes (website/a11y/scan.mjs). Gated
   # on the web filter so it runs whenever anything under website/ changes —
@@ -855,7 +990,7 @@ jobs:
   ci-required:
     name: CI required
     if: ${{ always() }}
-    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, spring-boot-runtime, spring-boot-native, a11y]
+    needs: [workflow-lint, changes, build, unit-tests, spotbugs, ee11-verify, integration-test, showcase-smoke, license-gate, quarkus-extension-verify, quarkus-extension-native, spring-boot-consumer, spring-boot-runtime, spring-boot-native, micronaut-consumer, micronaut-native, a11y]
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required jobs passed

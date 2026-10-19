@@ -75,6 +75,26 @@ This is part of **Ratchet RI Verified**, the project's own claim. It is not a se
 TCK artifact, and Quarkus does not appear in the Jakarta Runtime matrix above because it is not a
 Jakarta EE container.
 
+## Micronaut Runtime
+
+Ratchet also runs on Micronaut 4.10 and 5 through the [Micronaut integration](/deployment/micronaut),
+on the JVM and as a GraalVM native image. Like Quarkus, Micronaut is not a Jakarta EE container. An
+independent consumer application runs the **API tier** contracts (`ratchet-tck-api`) and the
+**Store tier** contracts (`ratchet-tck-store`) inside a live Micronaut application context, which
+wires the engine the same way an application does.
+
+The full CI matrix tests the same Ratchet jars in two lanes, Micronaut 4.10 on Java 17 and
+Micronaut 5 on Java 25:
+
+- **JVM**, once per lane and database: PostgreSQL, MySQL, Oracle, SQL Server, and MongoDB. Each cell
+  runs the API and Store contracts and the consumer's process tests.
+- **Native image**, built with GraalVM 25, once per lane and database. The process tests run the
+  native executable and check job discovery, captured arguments, recurring work, shutdown drain,
+  crash recovery, and SQL migration from an empty database.
+
+This is also part of **Ratchet RI Verified**. It is not a separate third-party TCK artifact, and
+Micronaut does not appear in the Jakarta Runtime matrix above.
+
 ## Running Conformance Tests Locally
 
 **Store tier:**
@@ -103,6 +123,19 @@ mvn verify -Pdb-postgres -pl integrations/ratchet-quarkus/integration-tests -am 
 ```bash
 mvn verify -Pdb-postgres,native-sql -pl integrations/ratchet-quarkus/integration-tests -am   # PostgreSQL/Hibernate flavor
 mvn verify -Pdb-mongo,native-mongo -pl integrations/ratchet-quarkus/integration-tests -am
+```
+
+**Micronaut runtime (API and Store tiers):** stage the Ratchet artifacts into an isolated Maven
+repository as the
+[consumer harness README](https://github.com/ratchet-run/ratchet/blob/main/integrations/ratchet-micronaut/consumer-tests/README.md)
+describes, then pick a lane and a store. Use `-Pmn5` on Java 25, and add `native` to the profiles
+for a native build with GraalVM 25. On GraalVM 25, the mn4 lane also needs
+`-Dgoogle-java-format.version=1.35.0` for its format check.
+```bash
+mvn verify -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" \
+  -Pmn4 -Dstore=postgresql -pl :sql-consumer -am   # or mysql, oracle, sqlserver
+mvn verify -f integrations/ratchet-micronaut/consumer-tests/pom.xml -Dmaven.repo.local="$staged_repo" \
+  -Pmn4 -pl :mongodb-consumer -am
 ```
 
 ## Implementing a Conformant Store
