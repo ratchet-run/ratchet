@@ -1,4 +1,5 @@
 import { defineConfig, type HeadConfig } from 'vitepress'
+import { fileURLToPath } from 'node:url'
 import { bundledThemes } from 'shiki'
 import { heroCodePlugin } from './heroCodePlugin'
 
@@ -395,5 +396,13 @@ export default defineConfig({
 
   vite: {
     plugins: [heroCodePlugin()],
+    resolve: {
+      alias: [
+        {
+          find: './VPNavBarSearchButton.vue',
+          replacement: fileURLToPath(new URL('./theme/SearchButton.vue', import.meta.url)),
+        },
+      ],
+    },
   },
 })
