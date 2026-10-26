@@ -16,12 +16,15 @@
 package run.ratchet.ri.payload;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
 import run.ratchet.api.JobContext;
@@ -43,7 +46,8 @@ class ArgumentMaterializerTest {
             Arrays.asList(Map.of("reference", "invoice-42", "attempt", 3), null),
             Arrays.asList(null, 0));
     JobPayload restored =
-        ArgumentMaterializer.materialize(payload, new JsonbTestPayloadSerializer(), name -> true);
+        ArgumentMaterializer.materialize(
+            payload, null, new JsonbTestPayloadSerializer(), name -> true);
     assertEquals(Arrays.asList(new CustomArgument("invoice-42", 3), null), restored.args());
     assertEquals(Arrays.asList(null, 0), restored.runtimeArgIndexes());
   }
@@ -58,6 +62,7 @@ class ArgumentMaterializerTest {
     JobPayload restored =
         ArgumentMaterializer.materialize(
             payload,
+            null,
             new JsonbTestPayloadSerializer(),
             className -> className.equals(CustomArgument.class.getName()));
 
@@ -75,7 +80,8 @@ class ArgumentMaterializerTest {
         assertThrows(
             SecurityException.class,
             () ->
-                ArgumentMaterializer.materialize(payload, failIfCalledSerializer(), name -> false));
+                ArgumentMaterializer.materialize(
+                    payload, null, failIfCalledSerializer(), name -> false));
 
     assertEquals(
         "Class "
@@ -98,10 +104,149 @@ class ArgumentMaterializerTest {
             List.of("text", true, new BigDecimal("42"), map));
 
     JobPayload restored =
-        ArgumentMaterializer.materialize(payload, failIfCalledSerializer(), name -> false);
+        ArgumentMaterializer.materialize(payload, null, failIfCalledSerializer(), name -> false);
 
     assertEquals(List.of("text", true, 42L, map), restored.args());
   }
+
+  @Test
+  void restoresGenericContainersAndNumericElements() throws Exception {
+    CustomArgument expected = new CustomArgument("invoice-42", 3);
+    Object shape = Map.of("reference", "invoice-42", "attempt", 3);
+    for (String fixture : List.of("list", "set", "map", "nested", "longs")) {
+      Object input =
+          switch (fixture) {
+            case "map" -> Map.of("key", shape);
+            case "nested" -> List.of(List.of(shape));
+            case "longs" -> List.of(new BigDecimal("42"));
+            default -> List.of(shape);
+          };
+      Object expectedValue =
+          switch (fixture) {
+            case "set" -> Set.of(expected);
+            case "map" -> Map.of("key", expected);
+            case "nested" -> List.of(List.of(expected));
+            case "longs" -> List.of(42L);
+            default -> List.of(expected);
+          };
+      Method method = fixture(fixture);
+      JobPayload restored =
+          ArgumentMaterializer.materialize(
+              payload(Type.getMethodDescriptor(method), List.of(input)),
+              method.getGenericParameterTypes(),
+              new JsonbTestPayloadSerializer(),
+              name -> name.equals(CustomArgument.class.getName()));
+      Object actual = restored.args().get(0);
+      assertEquals(expectedValue, actual, fixture);
+    }
+  }
+
+  @Test
+  void preservesNativeAndUnresolvableGenericArguments() throws Exception {
+    for (String fixture :
+        List.of(
+            "strings",
+            "objects",
+            "nativeNested",
+            "wildcard",
+            "variable",
+            "directVariable",
+            "bounded",
+            "mixedBounded")) {
+      Method method = fixture(fixture);
+      Object value =
+          fixture.equals("objects") || fixture.equals("mixedBounded")
+              ? Map.of("key", "value")
+              : List.of("value");
+      JobPayload payload = payload(Type.getMethodDescriptor(method), List.of(value));
+      assertSame(
+          payload,
+          ArgumentMaterializer.materialize(
+              payload, method.getGenericParameterTypes(), failIfCalledSerializer(), name -> false));
+    }
+  }
+
+  @Test
+  void restoresNativeElementSetFromItsJsonArrayShape() throws Exception {
+    Method method = fixture("stringSet");
+    JobPayload restored =
+        ArgumentMaterializer.materialize(
+            payload(Type.getMethodDescriptor(method), List.of(List.of("a", "b"))),
+            method.getGenericParameterTypes(),
+            new JsonbTestPayloadSerializer(),
+            name -> false);
+    assertEquals(Set.of("a", "b"), restored.args().get(0));
+  }
+
+  @Test
+  void rejectsDeniedGenericElementBeforeCallingSerializer() throws Exception {
+    Method method = fixture("nested");
+    SecurityException failure =
+        assertThrows(
+            SecurityException.class,
+            () ->
+                ArgumentMaterializer.materialize(
+                    payload(Type.getMethodDescriptor(method), List.of(List.of(List.of(Map.of())))),
+                    method.getGenericParameterTypes(),
+                    failIfCalledSerializer(),
+                    name -> false));
+    assertEquals(
+        "Class "
+            + CustomArgument.class.getName()
+            + " is not allowed for job argument deserialization.",
+        failure.getMessage());
+  }
+
+  @Test
+  void missingOrMismatchedGenericTypesUseRawBehavior() throws Exception {
+    Method method = fixture("list");
+    JobPayload payload = payload(Type.getMethodDescriptor(method), List.of(List.of(Map.of())));
+    assertSame(
+        payload,
+        ArgumentMaterializer.materialize(payload, null, failIfCalledSerializer(), name -> false));
+    assertSame(
+        payload,
+        ArgumentMaterializer.materialize(
+            payload,
+            Arrays.copyOf(method.getGenericParameterTypes(), 0),
+            failIfCalledSerializer(),
+            name -> false));
+  }
+
+  private static Method fixture(String name) {
+    return Arrays.stream(ArgumentMaterializerTest.class.getDeclaredMethods())
+        .filter(method -> method.getName().equals(name))
+        .findFirst()
+        .orElseThrow();
+  }
+
+  static void list(List<CustomArgument> value) {}
+
+  static void set(Set<CustomArgument> value) {}
+
+  static void map(Map<String, CustomArgument> value) {}
+
+  static void nested(List<List<CustomArgument>> value) {}
+
+  static void longs(List<Long> value) {}
+
+  static void strings(List<String> value) {}
+
+  static void stringSet(Set<String> value) {}
+
+  static void objects(Map<String, Object> value) {}
+
+  static void nativeNested(List<List<String>> value) {}
+
+  static void wildcard(List<?> value) {}
+
+  static <T> void variable(List<T> value) {}
+
+  static <T> void directVariable(T value) {}
+
+  static void mixedBounded(Map<CustomArgument, ? extends CustomArgument> value) {}
+
+  static void bounded(List<? extends CustomArgument> value) {}
 
   private static JobPayload payload(String descriptor, List<Object> args) {
     return new JobPayload("allowed.Target", "run", descriptor, true, args, null);

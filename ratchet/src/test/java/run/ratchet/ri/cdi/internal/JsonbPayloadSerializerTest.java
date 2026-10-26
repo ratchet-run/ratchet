@@ -17,6 +17,7 @@ package run.ratchet.ri.cdi.internal;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -31,6 +32,7 @@ import java.io.Writer;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Type;
 import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,6 +45,25 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.PayloadTooLargeException;
 
 class JsonbPayloadSerializerTest {
+
+  @Test
+  void deserializesGenericTypesAndWrapsFailures() throws Exception {
+    Type type = getClass().getDeclaredMethod("longs", List.class).getGenericParameterTypes()[0];
+    JsonbPayloadSerializer serializer = new JsonbPayloadSerializer();
+    try {
+      assertEquals(List.of(42L), serializer.deserialize("[42]", type));
+      assertNull(serializer.deserialize(null, type));
+      assertNull(serializer.deserialize("", type));
+      IllegalArgumentException failure =
+          assertThrows(IllegalArgumentException.class, () -> serializer.deserialize("[", type));
+      assertTrue(failure.getCause() instanceof JsonbException);
+      assertTrue(failure.getMessage().contains(type.getTypeName()));
+    } finally {
+      serializer.close();
+    }
+  }
+
+  static void longs(List<Long> values) {}
 
   @Test
   void closeLogsJsonbCloseFailures() throws Exception {

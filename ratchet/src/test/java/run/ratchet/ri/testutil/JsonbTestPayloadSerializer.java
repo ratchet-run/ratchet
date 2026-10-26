@@ -18,6 +18,7 @@ package run.ratchet.ri.testutil;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
+import java.lang.reflect.Type;
 import run.ratchet.spi.PayloadSerializer;
 
 /**
@@ -51,6 +52,19 @@ public final class JsonbTestPayloadSerializer implements PayloadSerializer {
     } catch (JsonbException e) {
       throw new IllegalArgumentException(
           "JSON-B deserialization error for " + (type == null ? "null" : type.getName()), e);
+    }
+  }
+
+  @Override
+  public <T> T deserialize(String json, Type type) {
+    if (json == null || json.isEmpty()) {
+      return null;
+    }
+    try {
+      return jsonb.fromJson(json, type);
+    } catch (JsonbException e) {
+      throw new IllegalArgumentException(
+          "JSON-B deserialization error for " + (type == null ? "null" : type.getTypeName()), e);
     }
   }
 }

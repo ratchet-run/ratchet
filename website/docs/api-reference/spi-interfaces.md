@@ -361,6 +361,22 @@ The three builders mirror their public counterparts. `InvocationJobBuilder` carr
 
 `invocationCondition(...)` wraps a pre-resolved invocation as a `CUSTOM` workflow condition. The target method is dispatched reflectively at evaluation time with the parent's `JobResult` supplied as the trailing argument and must return `boolean`; the invocation persists as the condition's expression payload and is encrypted under the parent's predicate surface when payload encryption applies.
 
+## PayloadSerializer
+
+JSON persistence boundary for job payloads and results. The default implementation uses JSON-B.
+
+```java
+public interface PayloadSerializer {
+    String serialize(Object payload);
+    <T> T deserialize(String json, Class<T> type);
+    default <T> T deserialize(String json, Type type);
+}
+```
+
+At execution, Ratchet uses the target method's generic parameter types to restore collection and map arguments, including nested collections and numeric elements such as `List<Long>`. For example, `List<Order>` and `Map<String, Order>` receive `Order` instances after persistence. Declared element classes must pass the deployment's `ClassPolicy` before deserialization. Type variables, bounded wildcards and generic arrays such as `List<Order>[]` keep their raw argument behavior.
+
+Custom implementations should override `deserialize(String, Type)` to restore generic types. The default overload delegates plain classes to `deserialize(String, Class)` and throws `IllegalArgumentException` for unsupported generic types. Both overloads return null for null or empty JSON; deserialization failures must throw `IllegalArgumentException`. Implementations must be thread-safe and must not let JSON select arbitrary classes through polymorphic typing.
+
 ## PreExecutionArgResolver
 
 Worker-side hook that can patch a job's invocation **arguments** at the last moment before reflective dispatch — after security validation, before argument coercion. Extensions use it for late binding: resolving placeholder arguments against state that did not exist at submission time, such as upstream step results in a workflow.

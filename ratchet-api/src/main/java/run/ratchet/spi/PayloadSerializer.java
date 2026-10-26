@@ -15,6 +15,7 @@
  */
 package run.ratchet.spi;
 
+import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.exception.PayloadTooLargeException;
@@ -50,8 +51,8 @@ import run.ratchet.api.exception.PayloadTooLargeException;
  *
  * <p><b>Thread-safety:</b> implementations MUST be thread-safe. The framework holds a single
  * instance per deployment and invokes {@link #serialize(Object)} and {@link #deserialize(String,
- * Class)} concurrently from poller worker threads, JPA attribute converters, and result persistence
- * paths.
+ * Class)} and {@link #deserialize(String, Type)} concurrently from poller worker threads, JPA
+ * attribute converters, and result persistence paths.
  *
  * <p><b>Error handling:</b> implementations MUST throw {@link IllegalArgumentException} (or a
  * subclass) when serialization or deserialization fails. Callers expect this contract and convert
@@ -106,4 +107,31 @@ public interface PayloadSerializer {
    * @throws IllegalArgumentException if deserialization fails
    */
   <T> T deserialize(String json, Class<T> type);
+
+  /**
+   * Deserializes the given JSON string to an instance of the requested generic type.
+   *
+   * <p>The default implementation delegates class types to {@link #deserialize(String, Class)}.
+   * Implementations must override this method to restore generic types, including collection and
+   * map element types, and must throw {@link IllegalArgumentException} when deserialization fails.
+   *
+   * @param json the JSON string to deserialize; MAY be {@code null} or empty
+   * @param type the target type; must not be {@code null}
+   * @param <T> the target type
+   * @return the deserialized instance, or {@code null} if {@code json} is {@code null} or empty
+   * @throws IllegalArgumentException if deserialization fails or generic types are unsupported
+   */
+  @SuppressWarnings("unchecked")
+  default <T> T deserialize(String json, Type type) {
+    if (json == null || json.isEmpty()) {
+      return null;
+    }
+    if (type instanceof Class<?> clazz) {
+      return (T) deserialize(json, clazz);
+    }
+    throw new IllegalArgumentException(
+        "Cannot deserialize "
+            + type
+            + ": serializer must override this method to restore generic types");
+  }
 }
