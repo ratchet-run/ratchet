@@ -47,10 +47,11 @@ public enum ConformanceLevel {
 
   BEHAVIORAL(
       "Behavioral",
-      "Job lifecycle operations. The required contracts — terminal transitions, retry, pause/resume,"
-          + " and non-terminal status CAS — are part of the mandatory core. The optional contracts"
-          + " apply only to stores advertising the matching capability: audit, recurring scheduling,"
-          + " batch orchestration, workflow conditions, query, analytics, and signal delivery.",
+      "Job lifecycle operations. The required contracts — terminal transitions, retry,"
+          + " pause/resume, and non-terminal status CAS — are part of the mandatory core. The"
+          + " optional contracts apply only to stores advertising the matching capability: audit,"
+          + " recurring scheduling, batch orchestration, workflow conditions, query, analytics,"
+          + " signal delivery, and per-job state.",
       List.of(
           "AbstractJobRetryStoreContract",
           "AbstractJobPauseStoreContract",
@@ -63,13 +64,14 @@ public enum ConformanceLevel {
           "AbstractWorkflowConditionStoreContract",
           "AbstractJobQueryStoreContract",
           "AbstractJobAnalyticsStoreContract",
-          "AbstractSignalStoreContract")),
+          "AbstractSignalStoreContract",
+          "AbstractJobStateStoreContract")),
 
   ADVANCED(
       "Advanced",
       "Bulk operations, business-key uniqueness, and the dual-write storage invariant are core. The"
           + " optional contracts apply only to stores that advertise the capability: archival,"
-          + " distributed locks, resource permits, and — for SQL stores —"
+          + " distributed locks, resource permits, indexed properties, and — for SQL stores —"
           + " schema conformance, schema migration, JPA recurring-claim concurrency, and JTA"
           + " transaction boundaries.",
       List.of(
@@ -78,7 +80,7 @@ public enum ConformanceLevel {
           "AbstractDualWriteInvariantContract"),
       List.of(
           "AbstractArchiveStoreContract",
-          "AbstractJobExtensionStoreContract",
+          "AbstractJobPropertyStoreContract",
           "AbstractLockStoreContract",
           "AbstractResourcePermitStoreContract",
           "AbstractSchemaConformanceContract",

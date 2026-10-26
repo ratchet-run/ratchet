@@ -153,9 +153,9 @@ final class SqlserverArchiveOperations implements ArchiveStore {
             ctx.em()
                 .createNativeQuery(
                     """
-                  INSERT INTO scheduler_job_archive (%s)
-                  VALUES %s
-                  """
+                    INSERT INTO scheduler_job_archive (%s)
+                    VALUES %s
+                    """
                         .formatted(ArchiveParameterBinder.ARCHIVE_COLUMNS, rows));
         int parameter = 1;
         for (ArchivedJobEntity archive : chunk) {
@@ -276,7 +276,7 @@ final class SqlserverArchiveOperations implements ArchiveStore {
 
   private ArchiveExtensionData fetchArchiveExtensionData(List<UUID> jobIds) {
     return ArchiveExtensionData.fetch(
-        ctx.em(), jobIds, UuidByteArrayConverter::toBytes, RowValues::uuidOrNull);
+        ctx.em(), jobIds, true, true, UuidByteArrayConverter::toBytes, RowValues::uuidOrNull);
   }
 
   private void populateExtensionData(

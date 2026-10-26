@@ -40,8 +40,9 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
@@ -117,7 +118,8 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
             JobQueryStore.class,
             JobAnalyticsStore.class,
             JobAuditStore.class,
-            JobExtensionStore.class);
+            JobPropertyStore.class,
+            JobStateStore.class);
     for (Class<?> cap : capabilities) {
       var view = store.capability(cap);
       assertEquals(

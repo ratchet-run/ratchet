@@ -685,7 +685,8 @@ A store advertises each of these by implementing the interface; the engine probe
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
 | `JobAnalyticsStore` | Aggregate counts, rates, and percentiles | `countJobsByStatus()`, `getQueueWaitTimePercentile()` |
 | `JobAuditStore` | Execution history and per-job logs | `saveExecution()`, `findExecutionsByJobId()`, `appendLog()` |
-| `JobExtensionStore` | Indexed job properties and per-namespace extension state | `putProperty()`, `getPropertiesByPrefix()`, `initState()`, `updateState()` |
+| `JobPropertyStore` | Indexed plaintext extension metadata | `putProperty()`, `getProperty()`, `getPropertiesByPrefix()` |
+| `JobStateStore` | Mutable per-job, per-namespace JSON state with version CAS | `getState()`, `initState()`, `updateState()`, `VersionedState` |
 
 ### LockStore is a best-effort lease
 

@@ -71,12 +71,21 @@ final class MongoArchiveOperations implements ArchiveStore {
 
   private final MongoStoreContext ctx;
   private final Clock clock;
+  private final boolean copyProperties;
+  private final boolean copyState;
 
-  MongoArchiveOperations(MongoStoreContext ctx) {
-    this(ctx, Clock.systemUTC());
+  MongoArchiveOperations(MongoStoreContext ctx, boolean copyProperties, boolean copyState) {
+    this(ctx, Clock.systemUTC(), copyProperties, copyState);
   }
 
   MongoArchiveOperations(MongoStoreContext ctx, Clock clock) {
+    this(ctx, clock, true, true);
+  }
+
+  MongoArchiveOperations(
+      MongoStoreContext ctx, Clock clock, boolean copyProperties, boolean copyState) {
+    this.copyProperties = copyProperties;
+    this.copyState = copyState;
     this.ctx = ctx;
     this.clock = Objects.requireNonNull(clock, "clock");
   }
@@ -284,6 +293,9 @@ final class MongoArchiveOperations implements ArchiveStore {
 
   private Map<UUID, Map<String, String>> extensionProperties(
       ClientSession session, List<UUID> jobIds) {
+    if (!copyProperties) {
+      return Map.of();
+    }
     Map<UUID, Map<String, String>> propertiesByJobId = new LinkedHashMap<>();
     for (Document doc :
         ctx.jobProperties().find(session, in(JOB_ID, jobIds)).sort(new Document(PROPERTY_KEY, 1))) {
@@ -300,6 +312,9 @@ final class MongoArchiveOperations implements ArchiveStore {
 
   private Map<UUID, List<ExtensionArchiveJson.StateRow>> extensionStates(
       ClientSession session, List<UUID> jobIds) {
+    if (!copyState) {
+      return Map.of();
+    }
     Map<UUID, List<ExtensionArchiveJson.StateRow>> statesByJobId = new LinkedHashMap<>();
     for (Document doc : ctx.jobExtensionState().find(session, in(JOB_ID, jobIds))) {
       UUID jobId = doc.get(JOB_ID, UUID.class);
@@ -330,7 +345,11 @@ final class MongoArchiveOperations implements ArchiveStore {
    * of the SQL FK CASCADE that fires when the hot job row is deleted after archiving.
    */
   private void deleteExtensionData(ClientSession session, List<UUID> jobIds) {
-    ctx.jobProperties().deleteMany(session, in(JOB_ID, jobIds));
-    ctx.jobExtensionState().deleteMany(session, in(JOB_ID, jobIds));
+    if (copyProperties) {
+      ctx.jobProperties().deleteMany(session, in(JOB_ID, jobIds));
+    }
+    if (copyState) {
+      ctx.jobExtensionState().deleteMany(session, in(JOB_ID, jobIds));
+    }
   }
 }

@@ -259,7 +259,7 @@ final class MysqlArchiveOperations implements ArchiveStore {
 
   private ArchiveExtensionData fetchArchiveExtensionData(List<UUID> jobIds) {
     return ArchiveExtensionData.fetch(
-        ctx.em(), jobIds, UuidByteArrayConverter::toBytes, RowValues::uuidOrNull);
+        ctx.em(), jobIds, true, true, UuidByteArrayConverter::toBytes, RowValues::uuidOrNull);
   }
 
   private void populateExtensionData(

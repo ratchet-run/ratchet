@@ -97,10 +97,11 @@ compliance reviewers about this boundary.
 - A payload column echoed into a log line or diagnostic dump shows ciphertext, not the
   value.
 
-Deployments using framework extensions get one more surface: per-namespace extension
-state (`scheduler_job_extension_state`) is encrypted whenever the **global switch** is on
-— it has no per-job opt-in, because the state is written by extension code after
-submission, not by the submitter. Archiving copies the state rows as stored, so encrypted
+Stores advertising `JobStateStore` support general per-job, per-namespace state
+(`scheduler_job_extension_state`) for core features and extensions. State is encrypted when
+the **global switch** is on or the owning job opts in to payload encryption. `JobPropertyStore`
+metadata stays plaintext by design so it can be indexed; never put secrets in properties.
+Archiving copies the state rows as stored, so encrypted
 state stays ciphertext on the archive row. The full protected-surface table and rationale
 live in the payload-encryption ADR in the repository
 (`website/docs/adr/0001-payload-encryption-threat-model.md`).
