@@ -84,7 +84,8 @@ instead. See [Failure behavior](#failure-behavior) below.
 
 ## What is protected, and what is not
 
-Encryption covers two surfaces: the **parameter values** of a job and its **result**.
+Encryption covers three surfaces: the **parameter values** of a job, its **result**, and its
+per-job **state** in stores that advertise `JobStateStore`.
 Everything else stays readable so the scheduler keeps working. Be explicit with your
 compliance reviewers about this boundary.
 
@@ -116,8 +117,8 @@ live in the payload-encryption ADR in the repository
 - `KeyProvider` compromise. The scheme is only as strong as the provider behind it.
 - Routing and correlation metadata, cleartext by design. `target_class`, `method_name`,
   `business_key`, `idempotency_key`, `caller_principal`, `tags`, `signal_key`, the W3C
-  trace context, and parameter **keys** (only parameter *values* are encrypted) stay
-  readable so claim, query, dedup, and tracing keep working.
+  trace context, `JobPropertyStore` properties, and parameter **keys** (only parameter
+  *values* are encrypted) stay readable so claim, query, dedup, and tracing keep working.
 - Timing and structural shape: when a job ran, how long it took, how often a recurring job
   fires, which workflow branch was taken.
 - Application-emitted free text such as `last_error` or anything your job writes to its own
