@@ -32,6 +32,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.converter.EncryptionHolder;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobStateStore.StateWriteResult;
 import run.ratchet.store.spi.JobStateStore.VersionedState;
 import run.ratchet.store.util.EncryptionEnvelope;
 import run.ratchet.store.util.EncryptionTarget;
@@ -50,6 +52,152 @@ public abstract class AbstractJobStateStoreContract implements JobStoreContractF
   void cleanupExtensionFixture() {
     EncryptionHolder.disable();
     cleanupStore();
+  }
+
+  private JobEntity claimedStateJob() {
+    persist(newPendingJob());
+    return store().claimNextBatch(1, "state-owner").get(0);
+  }
+
+  @Test
+  void fencedState_liveClaimAndConflictsPreserveState() {
+    var job = claimedStateJob();
+    long claim = job.getClaimSeq();
+    assertEquals(
+        StateWriteResult.UPDATED, stateStore().initState(job.getId(), NAMESPACE, "initial", claim));
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT,
+        stateStore().initState(job.getId(), NAMESPACE, "duplicate", claim));
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT,
+        stateStore().updateState(job.getId(), NAMESPACE, "stale", 1, claim));
+    assertEquals(
+        StateWriteResult.SUPERSEDED,
+        stateStore().updateState(job.getId(), NAMESPACE, "wrong owner", 0, claim + 1));
+    assertEquals(
+        StateWriteResult.SUPERSEDED,
+        stateStore().initState(job.getId(), "other", "wrong owner", claim + 1));
+    assertTrue(stateStore().getState(job.getId(), "other").isEmpty());
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT,
+        stateStore().updateState(job.getId(), "other", "missing", 0, claim));
+    assertEquals(
+        StateWriteResult.SUPERSEDED,
+        stateStore().initState(job.getId(), NAMESPACE, "duplicate wrong owner", claim + 1));
+    assertEquals(
+        new VersionedState("initial", 0),
+        stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, "updated", 0, claim));
+    assertEquals(
+        new VersionedState("updated", 1),
+        stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+  }
+
+  @Test
+  void fencedState_recoveryRejectsOldOwnerBeforeAndAfterReclaim() {
+    var job = claimedStateJob();
+    long oldClaim = job.getClaimSeq();
+    stateStore().initState(job.getId(), NAMESPACE, "initial", oldClaim);
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+    assertEquals(oldClaim, store().findById(job.getId()).orElseThrow().getClaimSeq().longValue());
+    assertFencedSuperseded(job.getId(), oldClaim);
+    var next = store().claimNextBatch(1, "next-owner").get(0);
+    assertTrue(next.getClaimSeq() > oldClaim);
+    assertFencedSuperseded(job.getId(), oldClaim);
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, "next", 0, next.getClaimSeq()));
+  }
+
+  private void assertFencedSuperseded(UUID id, long claim) {
+    assertEquals(
+        StateWriteResult.SUPERSEDED, stateStore().initState(id, "absent", "rejected", claim));
+    assertEquals(
+        StateWriteResult.SUPERSEDED, stateStore().updateState(id, NAMESPACE, "rejected", 0, claim));
+    assertTrue(stateStore().getState(id, "absent").isEmpty());
+    assertEquals(
+        new VersionedState("initial", 0), stateStore().getState(id, NAMESPACE).orElseThrow());
+  }
+
+  @Test
+  void fencedState_rejectsSucceededJob() {
+    var job = claimedStateJob();
+    stateStore().initState(job.getId(), NAMESPACE, "initial", job.getClaimSeq());
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
+    assertFencedSuperseded(job.getId(), job.getClaimSeq());
+  }
+
+  @Test
+  void fencedState_rejectsCancelledJob() {
+    var job = claimedStateJob();
+    stateStore().initState(job.getId(), NAMESPACE, "initial", job.getClaimSeq());
+    store().cancelJob(job.getId());
+    assertFencedSuperseded(job.getId(), job.getClaimSeq());
+  }
+
+  @Test
+  void fencedState_missingJobIsSuperseded() {
+    UUID id = UUID.randomUUID();
+    assertEquals(StateWriteResult.SUPERSEDED, stateStore().initState(id, NAMESPACE, "{}", 1));
+    assertEquals(StateWriteResult.SUPERSEDED, stateStore().updateState(id, NAMESPACE, "{}", 0, 1));
+  }
+
+  @Test
+  void fencedState_sizeLimitsAndValidation() {
+    var job = claimedStateJob();
+    long claim = job.getClaimSeq();
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> stateStore().initState(job.getId(), NAMESPACE, stateOverLimit(), claim));
+    assertTrue(stateStore().getState(job.getId(), NAMESPACE).isEmpty());
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().initState(job.getId(), NAMESPACE, stateAtLimit(), claim));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> stateStore().updateState(job.getId(), NAMESPACE, stateOverLimit(), 0, claim));
+    assertEquals(
+        new VersionedState(stateAtLimit(), 0),
+        stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, stateAtLimit(), 0, claim));
+    assertEquals(
+        new VersionedState(stateAtLimit(), 1),
+        stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> stateStore().initState(job.getId(), "x".repeat(65), "{}", claim));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> stateStore().updateState(job.getId(), "x".repeat(65), "{}", 0, claim));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> stateStore().updateState(job.getId(), NAMESPACE, "{}", -1, claim));
+  }
+
+  @Test
+  void fencedState_atLimitCrossesEncryptionSeam() {
+    var job = claimedStateJob();
+    RecordingEngine engine = new RecordingEngine();
+    EncryptionHolder.install(
+        List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), true);
+    String value = stateAtLimit();
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().initState(job.getId(), NAMESPACE, value, job.getClaimSeq()));
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, value, 0, job.getClaimSeq()));
+    int beforeRead = engine.decryptCount.get();
+    assertEquals(
+        new VersionedState(value, 1), stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+    assertEquals(2, engine.encryptedPlaintexts.stream().filter(value::equals).count());
+    assertTrue(engine.decryptCount.get() > beforeRead);
   }
 
   // ---- Extension state ----

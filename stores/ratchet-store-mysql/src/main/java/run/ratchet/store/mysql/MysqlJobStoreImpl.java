@@ -959,6 +959,18 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   // ---------- JobStateStore delegates ----------
 
   @Override
+  public StateWriteResult initState(
+      UUID jobId, String namespace, String initialState, long expectedClaimSeq) {
+    return extensions.initState(jobId, namespace, initialState, expectedClaimSeq);
+  }
+
+  @Override
+  public StateWriteResult updateState(
+      UUID jobId, String namespace, String newState, int expectedVersion, long expectedClaimSeq) {
+    return extensions.updateState(jobId, namespace, newState, expectedVersion, expectedClaimSeq);
+  }
+
+  @Override
   public Optional<VersionedState> getState(UUID jobId, String namespace) {
     return extensions.getState(jobId, namespace);
   }

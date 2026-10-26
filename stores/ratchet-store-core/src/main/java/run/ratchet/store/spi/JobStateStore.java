@@ -78,6 +78,53 @@ public interface JobStateStore {
   boolean updateState(UUID jobId, String namespace, String newState, int expectedVersion);
 
   /**
+   * Creates state at version 0 only for a live RUNNING claim with the supplied sequence.
+   *
+   * <p>Transaction attribute: {@code REQUIRED}.
+   *
+   * @param jobId owning job id; never {@code null}
+   * @param namespace extension namespace; never {@code null} or blank, at most 64 characters
+   * @param initialState serialized JSON blob; never {@code null}
+   * @param expectedClaimSeq the executing attempt's claim sequence
+   * @return {@code UPDATED} when created, {@code VERSION_CONFLICT} when state already exists on a
+   *     live claim, or {@code SUPERSEDED} when the queue row is missing, not RUNNING, or has a
+   *     different sequence (including a missing job)
+   * @throws IllegalArgumentException if state exceeds {@link ExtensionValidation#MAX_STATE_BYTES}
+   *     UTF-8 bytes
+   */
+  StateWriteResult initState(
+      UUID jobId, String namespace, String initialState, long expectedClaimSeq);
+
+  /**
+   * Compares and sets state only for a live RUNNING claim with the supplied sequence.
+   *
+   * <p>An applied write increments the state version by one. On {@code VERSION_CONFLICT}, re-read
+   * and retry. On {@code SUPERSEDED}, the caller must stop writing. Status is checked as well as
+   * sequence because orphan recovery can leave the sequence unchanged on a PENDING job.
+   *
+   * <p>Transaction attribute: {@code REQUIRED}.
+   *
+   * @param jobId owning job id; never {@code null}
+   * @param namespace extension namespace; never {@code null} or blank, at most 64 characters
+   * @param newState serialized JSON blob; never {@code null}
+   * @param expectedVersion the version the caller read; must be non-negative
+   * @param expectedClaimSeq the executing attempt's claim sequence
+   * @return {@code UPDATED} when applied, {@code VERSION_CONFLICT} for absent state or a version
+   *     mismatch on a live claim, or {@code SUPERSEDED} for a missing job or non-live claim
+   * @throws IllegalArgumentException if the version is negative or state exceeds {@link
+   *     ExtensionValidation#MAX_STATE_BYTES} UTF-8 bytes
+   */
+  StateWriteResult updateState(
+      UUID jobId, String namespace, String newState, int expectedVersion, long expectedClaimSeq);
+
+  /** Outcome of a claim-fenced write. Conflicts may be retried; superseded owners must stop. */
+  enum StateWriteResult {
+    UPDATED,
+    VERSION_CONFLICT,
+    SUPERSEDED
+  }
+
+  /**
    * One extension-state read: the decrypted JSON blob and the version that CAS updates must pass
    * back as {@code expectedVersion}.
    *
