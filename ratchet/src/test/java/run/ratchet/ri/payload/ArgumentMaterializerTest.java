@@ -19,9 +19,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -167,6 +169,74 @@ class ArgumentMaterializerTest {
   }
 
   @Test
+  void preservesAssignableInterfaceAndAbstractGenericArguments() throws Exception {
+    for (String fixture :
+        List.of(
+            "numbers",
+            "charSequences",
+            "serializables",
+            "iterableStrings",
+            "iterableCustomArguments",
+            "comparables",
+            "nestedIterables")) {
+      Method method = fixture(fixture);
+      Object shape = Map.of("reference", "invoice-42", "attempt", 3);
+      Object value =
+          switch (fixture) {
+            case "numbers" -> List.of(new BigDecimal("42"));
+            case "iterableCustomArguments" -> List.of(shape);
+            case "comparables" -> Map.of("key", "value");
+            case "nestedIterables" -> List.of(List.of(shape));
+            default -> List.of("value");
+          };
+      Set<String> checked = new HashSet<>();
+      JobPayload payload = payload(Type.getMethodDescriptor(method), List.of(value));
+
+      JobPayload restored =
+          ArgumentMaterializer.materialize(
+              payload,
+              method.getGenericParameterTypes(),
+              failIfCalledSerializer(),
+              name -> {
+                checked.add(name);
+                return name.startsWith(ArgumentMaterializerTest.class.getPackageName() + ".");
+              });
+
+      assertSame(payload, restored, fixture);
+      assertSame(value, restored.args().get(0), fixture);
+      assertEquals(Set.of(), checked, fixture);
+    }
+  }
+
+  @Test
+  void restoresConcreteHolderWithoutCheckingAbstractTypeArgument() throws Exception {
+    Method method = fixture("holder");
+    Set<String> checked = new HashSet<>();
+    JobPayload restored =
+        ArgumentMaterializer.materialize(
+            payload(
+                Type.getMethodDescriptor(method),
+                List.of(
+                    Map.of(
+                        "first",
+                        Map.of("reference", "invoice-42", "attempt", 3),
+                        "second",
+                        new BigDecimal("42")))),
+            method.getGenericParameterTypes(),
+            new JsonbTestPayloadSerializer(),
+            name -> {
+              checked.add(name);
+              return name.startsWith(ArgumentMaterializerTest.class.getPackageName() + ".");
+            });
+
+    GenericArgumentHolder<?, ?> holder = (GenericArgumentHolder<?, ?>) restored.args().get(0);
+    assertEquals(new CustomArgument("invoice-42", 3), holder.getFirst());
+    assertEquals(new BigDecimal("42"), holder.getSecond());
+    assertEquals(
+        Set.of(GenericArgumentHolder.class.getName(), CustomArgument.class.getName()), checked);
+  }
+
+  @Test
   void restoresNativeElementSetFromItsJsonArrayShape() throws Exception {
     Method method = fixture("stringSet");
     JobPayload restored =
@@ -227,6 +297,22 @@ class ArgumentMaterializerTest {
   static void map(Map<String, CustomArgument> value) {}
 
   static void nested(List<List<CustomArgument>> value) {}
+
+  static void numbers(List<Number> value) {}
+
+  static void charSequences(List<CharSequence> value) {}
+
+  static void serializables(List<Serializable> value) {}
+
+  static void iterableStrings(Iterable<String> value) {}
+
+  static void iterableCustomArguments(Iterable<CustomArgument> value) {}
+
+  static void comparables(Map<String, Comparable<?>> value) {}
+
+  static void nestedIterables(List<Iterable<CustomArgument>> value) {}
+
+  static void holder(GenericArgumentHolder<CustomArgument, Number> value) {}
 
   static void longs(List<Long> value) {}
 

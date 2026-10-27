@@ -373,7 +373,7 @@ public interface PayloadSerializer {
 }
 ```
 
-At execution, Ratchet uses the target method's generic parameter types to restore collection and map arguments, including nested collections and numeric elements such as `List<Long>`. For example, `List<Order>` and `Map<String, Order>` receive `Order` instances after persistence. Declared element classes must pass the deployment's `ClassPolicy` before deserialization. Type variables, bounded wildcards and generic arrays such as `List<Order>[]` keep their raw argument behavior.
+At execution, Ratchet uses the target method's generic parameter types to restore collection and map arguments, including nested collections and numeric elements such as `List<Long>`. For example, `List<Order>` and `Map<String, Order>` receive `Order` instances after persistence. Declared element classes must pass the deployment's `ClassPolicy` before deserialization. Type variables, bounded wildcards and generic arrays such as `List<Order>[]` keep their raw argument behavior. Interface and abstract element types such as `Number` and `CharSequence` also keep raw behavior and are not sent to the policy. Non-container generic interfaces such as `Iterable<Order>` keep raw behavior too.
 
 Custom implementations should override `deserialize(String, Type)` to restore generic types. The default overload delegates plain classes to `deserialize(String, Class)` and throws `IllegalArgumentException` for unsupported generic types. Both overloads return null for null or empty JSON; deserialization failures must throw `IllegalArgumentException`. Implementations must be thread-safe and must not let JSON select arbitrary classes through polymorphic typing.
 
