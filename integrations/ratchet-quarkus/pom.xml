@@ -22,7 +22,7 @@
     <maven.compiler.proc>full</maven.compiler.proc>
     <quarkus.version>3.20.6.2</quarkus.version>
     <brotli4j.version>1.23.0</brotli4j.version>
-    <vertx.version>4.5.30</vertx.version>
+    <vertx.version>4.5.35</vertx.version>
     <ratchet.version>${project.version}</ratchet.version>
   </properties>
 
@@ -109,7 +109,8 @@
         <type>pom</type>
         <scope>import</scope>
       </dependency>
-      <!-- Vert.x 4.5.30 fixes CVE-2026-15075, CVE-2026-15076, and CVE-2026-6860.
+      <!-- Vert.x 4.5.35 fixes CVE-2026-15075, CVE-2026-15076, CVE-2026-6860, and the 2026
+           advisories that affect every 4.5.x release up to 4.5.34 (CVSS 8.2 to 9.2).
            Align the platform modules used here without importing unrelated dependency versions. -->
       <dependency>
         <groupId>io.vertx</groupId>
