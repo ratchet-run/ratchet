@@ -17,9 +17,9 @@ package run.ratchet.store.mysql;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractJobExtensionStoreContract;
+import run.ratchet.tck.store.AbstractJobPropertyStoreContract;
 
-class MysqlJobExtensionStoreContractTest extends AbstractJobExtensionStoreContract {
+class MysqlJobPropertyStoreContractTest extends AbstractJobPropertyStoreContract {
 
   private final MysqlTestFixture fixture = new MysqlTestFixture();
 

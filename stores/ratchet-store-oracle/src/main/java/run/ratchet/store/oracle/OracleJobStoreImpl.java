@@ -952,7 +952,7 @@ class OracleJobStoreImpl implements OracleJobStore {
     return recurringJobs.listAll();
   }
 
-  // ---------- JobExtensionStore delegates ----------
+  // ---------- JobPropertyStore delegates ----------
 
   @Override
   public void putProperty(UUID jobId, String key, String value) {
@@ -969,8 +969,10 @@ class OracleJobStoreImpl implements OracleJobStore {
     return extensions.getPropertiesByPrefix(jobId, prefix);
   }
 
+  // ---------- JobStateStore delegates ----------
+
   @Override
-  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+  public Optional<VersionedState> getState(UUID jobId, String namespace) {
     return extensions.getState(jobId, namespace);
   }
 

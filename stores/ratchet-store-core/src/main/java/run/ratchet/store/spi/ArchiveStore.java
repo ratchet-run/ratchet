@@ -43,11 +43,13 @@ public interface ArchiveStore {
    * Atomically moves a batch of terminal jobs from active storage to archive storage.
    *
    * <p>Transaction attribute: {@code REQUIRED}. Implementations must re-read the supplied job IDs
-   * inside the store transaction, copy every current row and its extension data to archive storage,
-   * then delete the active rows and any active-store business-key reservations and extension data
-   * in that same transaction. Every active-row delete must be guarded by terminal status. If any
-   * job is missing, no longer terminal, or cannot be deleted, the whole move must roll back: no
-   * archive row, active-row delete, or related-data cleanup may remain for any member of the batch.
+   * inside the store transaction, copy every current row to archive storage, including property and
+   * state data for whichever of {@link JobPropertyStore} and {@link JobStateStore} the store
+   * advertises, then delete the active rows and any active-store business-key reservations and
+   * extension data in that same transaction. Every active-row delete must be guarded by terminal
+   * status. If any job is missing, no longer terminal, or cannot be deleted, the whole move must
+   * roll back: no archive row, active-row delete, or related-data cleanup may remain for any member
+   * of the batch.
    *
    * <p>A non-empty call is all-or-nothing: it either returns {@code jobs.size()} or throws. After a
    * failed call, callers may safely retry with a freshly loaded batch.

@@ -954,7 +954,7 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     return recurringJobs.listAll();
   }
 
-  // ---------- JobExtensionStore delegates ----------
+  // ---------- JobPropertyStore delegates ----------
 
   @Override
   public void putProperty(UUID jobId, String key, String value) {
@@ -971,8 +971,10 @@ class SqlserverJobStoreImpl implements SqlserverJobStore {
     return extensions.getPropertiesByPrefix(jobId, prefix);
   }
 
+  // ---------- JobStateStore delegates ----------
+
   @Override
-  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+  public Optional<VersionedState> getState(UUID jobId, String namespace) {
     return extensions.getState(jobId, namespace);
   }
 

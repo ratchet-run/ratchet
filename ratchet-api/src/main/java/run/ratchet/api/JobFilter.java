@@ -74,11 +74,12 @@ import java.util.UUID;
  * @param propertyFilters per-key extension-property constraints, or null for no property filter.
  *     Each entry matches jobs that carry a {@code scheduler_job_properties} row whose key equals
  *     the map key and whose value is one of the entry's values (IN semantics); multiple entries
- *     combine with AND. Requires a store advertising the {@code JobExtensionStore} capability to
- *     have written the rows. A non-empty propertyFilters map skips the archive branch, as do
- *     constraints on callerPrincipal, tags, idempotencyKey, pickedBy, resourceName or
- *     traceCorrelationId: archived rows do not keep these fields, so the constraints cannot be
- *     applied there.
+ *     combine with AND. Requires a store advertising the {@code JobPropertyStore} capability to
+ *     have written the rows. The query service throws {@link UnsupportedOperationException} for
+ *     non-empty property filters when that capability is absent. A non-empty propertyFilters map
+ *     skips the archive branch, as do constraints on callerPrincipal, tags, idempotencyKey,
+ *     pickedBy, resourceName or traceCorrelationId: archived rows do not keep these fields, so the
+ *     constraints cannot be applied there.
  * @since 0.1
  */
 @Incubating

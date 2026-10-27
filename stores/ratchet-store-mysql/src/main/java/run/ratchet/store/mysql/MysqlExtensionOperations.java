@@ -29,21 +29,22 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.PayloadEncryptor;
 import run.ratchet.store.util.RowValues;
 
 /**
- * MySQL implementation of {@link JobExtensionStore}.
+ * MySQL implementation of {@link JobPropertyStore} and {@link JobStateStore}.
  *
  * <p>Property values are plaintext by design (indexed for the query layer). Extension-state blobs
  * follow the owning job's encryption opt-in or the deployment-wide switch: when active, the {@code
  * state} column holds a ciphertext frame bound to {@code (job_id, namespace)}; otherwise plaintext
  * with {@code encrypted_state = FALSE}.
  */
-final class MysqlExtensionOperations implements JobExtensionStore {
+final class MysqlExtensionOperations implements JobPropertyStore, JobStateStore {
 
   private final MysqlStoreContext ctx;
 
@@ -124,7 +125,7 @@ final class MysqlExtensionOperations implements JobExtensionStore {
   }
 
   @Override
-  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+  public Optional<VersionedState> getState(UUID jobId, String namespace) {
     requireNamespace(namespace);
     // language=MySQL
     String sql =
@@ -147,7 +148,7 @@ final class MysqlExtensionOperations implements JobExtensionStore {
     String stored = RowValues.stringOrNull(row[0]);
     String json =
         PayloadEncryptor.decryptValue(stored, EncryptionTarget.extensionState(jobId, namespace));
-    return Optional.of(new ExtensionState(json, ((Number) row[1]).intValue()));
+    return Optional.of(new VersionedState(json, ((Number) row[1]).intValue()));
   }
 
   @Override

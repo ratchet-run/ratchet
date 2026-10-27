@@ -45,13 +45,14 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.bson.Document;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.PayloadEncryptor;
 
 /**
- * MongoDB implementation of {@link JobExtensionStore}.
+ * MongoDB implementation of {@link JobPropertyStore} and {@link JobStateStore}.
  *
  * <p>Properties and extension state live in their own collections ({@code scheduler_job_properties}
  * and {@code scheduler_job_extension_state}), NOT as sub-documents on the job document: the job
@@ -63,7 +64,7 @@ import run.ratchet.store.util.PayloadEncryptor;
  * state} field holds a ciphertext frame bound to {@code (job_id, namespace)}; otherwise plaintext
  * with {@code encrypted_state = false}.
  */
-final class MongoExtensionOperations implements JobExtensionStore {
+final class MongoExtensionOperations implements JobPropertyStore, JobStateStore {
 
   private final MongoStoreContext ctx;
 
@@ -112,7 +113,7 @@ final class MongoExtensionOperations implements JobExtensionStore {
   }
 
   @Override
-  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+  public Optional<VersionedState> getState(UUID jobId, String namespace) {
     requireNamespace(namespace);
     Document doc =
         ctx.jobExtensionState().find(and(eq(JOB_ID, jobId), eq(NAMESPACE, namespace))).first();
@@ -122,7 +123,7 @@ final class MongoExtensionOperations implements JobExtensionStore {
     String json =
         PayloadEncryptor.decryptValue(
             doc.getString(STATE), EncryptionTarget.extensionState(jobId, namespace));
-    return Optional.of(new ExtensionState(json, doc.getInteger(VERSION, 0)));
+    return Optional.of(new VersionedState(json, doc.getInteger(VERSION, 0)));
   }
 
   @Override

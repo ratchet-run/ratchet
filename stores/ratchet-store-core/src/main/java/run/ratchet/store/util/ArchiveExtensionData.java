@@ -44,6 +44,8 @@ public final class ArchiveExtensionData {
   public static ArchiveExtensionData fetch(
       EntityManager em,
       Collection<UUID> jobIds,
+      boolean copyProperties,
+      boolean copyState,
       Function<UUID, Object> idEncoder,
       Function<Object, UUID> idDecoder) {
     Objects.requireNonNull(em, "em");
@@ -59,8 +61,12 @@ public final class ArchiveExtensionData {
     List<UUID> ids = jobIds.stream().toList();
     for (int start = 0; start < ids.size(); start += FIND_BY_IDS_CHUNK_SIZE) {
       List<UUID> chunk = ids.subList(start, Math.min(start + FIND_BY_IDS_CHUNK_SIZE, ids.size()));
-      fetchProperties(em, chunk, idEncoder, idDecoder, propertiesByJobId);
-      fetchStates(em, chunk, idEncoder, idDecoder, statesByJobId);
+      if (copyProperties) {
+        fetchProperties(em, chunk, idEncoder, idDecoder, propertiesByJobId);
+      }
+      if (copyState) {
+        fetchStates(em, chunk, idEncoder, idDecoder, statesByJobId);
+      }
     }
     return new ArchiveExtensionData(propertiesByJobId, statesByJobId);
   }
