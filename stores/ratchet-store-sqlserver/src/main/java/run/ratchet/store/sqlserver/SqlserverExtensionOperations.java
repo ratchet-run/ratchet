@@ -163,9 +163,7 @@ final class SqlserverExtensionOperations implements JobPropertyStore, JobStateSt
             .orElseThrow(
                 () -> new IllegalStateException("no job " + jobId + " for extension state"));
     boolean active = JobEncryption.activeFor(encryptedPayload);
-    String stored =
-        PayloadEncryptor.encryptValue(
-            initialState, active, EncryptionTarget.extensionState(jobId, namespace));
+    String stored = encryptState(jobId, namespace, initialState, active);
     // language=SQL Server
     String sql =
         """
@@ -205,9 +203,7 @@ final class SqlserverExtensionOperations implements JobPropertyStore, JobStateSt
       return false;
     }
     boolean active = JobEncryption.activeFor(encryptedPayload.get());
-    String stored =
-        PayloadEncryptor.encryptValue(
-            newState, active, EncryptionTarget.extensionState(jobId, namespace));
+    String stored = encryptState(jobId, namespace, newState, active);
     // language=SQL Server
     String sql =
         """
@@ -228,6 +224,121 @@ final class SqlserverExtensionOperations implements JobPropertyStore, JobStateSt
             .setParameter(7, expectedVersion)
             .executeUpdate();
     return updated > 0;
+  }
+
+  @Override
+  public StateWriteResult initState(
+      UUID jobId, String namespace, String initialState, long expectedClaimSeq) {
+    requireNamespace(namespace);
+    requireState(initialState);
+    Optional<Boolean> encryptedPayload = encryptedPayload(jobId);
+    if (encryptedPayload.isEmpty()) {
+      return StateWriteResult.SUPERSEDED;
+    }
+    boolean active = JobEncryption.activeFor(encryptedPayload.get());
+    String stored = encryptState(jobId, namespace, initialState, active);
+    // language=SQL Server
+    String sql =
+        """
+        INSERT INTO scheduler_job_extension_state
+          (job_id, namespace, state, encrypted_state, encryption_key_id, version, updated_at)
+        SELECT ?, ?, ?, ?, ?, 0, ?
+        WHERE EXISTS (SELECT 1 FROM scheduler_job_queue q
+                      WHERE q.job_id = ? AND q.claim_seq = ? AND q.status = 'RUNNING')
+          AND NOT EXISTS (SELECT 1 FROM scheduler_job_extension_state s
+                          WHERE s.job_id = ? AND s.namespace = ?)
+        """;
+    try {
+      int inserted =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+              .setParameter(2, namespace)
+              .setParameter(3, stored)
+              .setParameter(4, active)
+              .setParameter(5, JobEncryption.keyId(active))
+              .setParameter(6, Timestamp.from(Instant.now()))
+              .setParameter(7, UuidByteArrayConverter.toBytes(jobId))
+              .setParameter(8, expectedClaimSeq)
+              .setParameter(9, UuidByteArrayConverter.toBytes(jobId))
+              .setParameter(10, namespace)
+              .executeUpdate();
+      if (inserted == 0) {
+        return classifyStateWrite(jobId, expectedClaimSeq);
+      }
+      return StateWriteResult.UPDATED;
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateKey(e)) {
+        return classifyStateWrite(jobId, expectedClaimSeq);
+      }
+      throw e;
+    }
+  }
+
+  @Override
+  public StateWriteResult updateState(
+      UUID jobId, String namespace, String newState, int expectedVersion, long expectedClaimSeq) {
+    requireNamespace(namespace);
+    requireState(newState);
+    if (expectedVersion < 0) {
+      throw new IllegalArgumentException(
+          "expectedVersion must be non-negative: " + expectedVersion);
+    }
+    Optional<Boolean> encryptedPayload = encryptedPayload(jobId);
+    if (encryptedPayload.isEmpty()) {
+      return StateWriteResult.SUPERSEDED;
+    }
+    boolean active = JobEncryption.activeFor(encryptedPayload.get());
+    String stored = encryptState(jobId, namespace, newState, active);
+    // language=SQL Server
+    String sql =
+        """
+        UPDATE scheduler_job_extension_state
+        SET state = ?, encrypted_state = ?, encryption_key_id = ?,
+            version = version + 1, updated_at = ?
+        WHERE job_id = ? AND namespace = ? AND version = ?
+          AND EXISTS (SELECT 1 FROM scheduler_job_queue q
+                      WHERE q.job_id = ? AND q.claim_seq = ? AND q.status = 'RUNNING')
+        """;
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, stored)
+            .setParameter(2, active)
+            .setParameter(3, JobEncryption.keyId(active))
+            .setParameter(4, Timestamp.from(Instant.now()))
+            .setParameter(5, UuidByteArrayConverter.toBytes(jobId))
+            .setParameter(6, namespace)
+            .setParameter(7, expectedVersion)
+            .setParameter(8, UuidByteArrayConverter.toBytes(jobId))
+            .setParameter(9, expectedClaimSeq)
+            .executeUpdate();
+    return updated > 0 ? StateWriteResult.UPDATED : classifyStateWrite(jobId, expectedClaimSeq);
+  }
+
+  private StateWriteResult classifyStateWrite(UUID jobId, long expectedClaimSeq) {
+    String sql =
+        """
+        SELECT claim_seq, status FROM scheduler_job_queue WHERE job_id = ?
+        """;
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+            .getResultList();
+    if (rows.isEmpty()) {
+      return StateWriteResult.SUPERSEDED;
+    }
+    Object[] row = rows.get(0);
+    return ((Number) row[0]).longValue() == expectedClaimSeq && "RUNNING".equals(row[1])
+        ? StateWriteResult.VERSION_CONFLICT
+        : StateWriteResult.SUPERSEDED;
+  }
+
+  private String encryptState(UUID jobId, String namespace, String state, boolean active) {
+    return PayloadEncryptor.encryptValue(
+        state, active, EncryptionTarget.extensionState(jobId, namespace));
   }
 
   private Optional<Boolean> encryptedPayload(UUID jobId) {

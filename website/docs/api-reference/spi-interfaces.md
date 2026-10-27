@@ -952,6 +952,8 @@ public class AsmLambdaAnalyzer implements LambdaAnalyzer {
 
 `JobStateStore` provides general per-job, per-namespace mutable JSON state for core features and extensions through `getState`, `initState`, and `updateState`. Reads return `VersionedState(json, version)` and updates use version CAS. State follows the configured payload encryption policy. Each capability is optional and probed independently. Archiving retains the surfaces the store advertises.
 
+An executing attempt passes its claim sequence to `initState(jobId, namespace, initialState, expectedClaimSeq)` or `updateState(jobId, namespace, newState, expectedVersion, expectedClaimSeq)`. Both return `StateWriteResult`: `UPDATED` means the write applied, `VERSION_CONFLICT` means re-read and retry, and `SUPERSEDED` means stop. The fence requires a RUNNING job with the same claim sequence. Init creates version 0; update increments the version. Writers that own no claim use the unfenced methods.
+
 ## See also
 
 - [Annotations Reference](./annotations)
