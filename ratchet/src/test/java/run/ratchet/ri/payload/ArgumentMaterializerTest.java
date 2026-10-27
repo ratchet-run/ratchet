@@ -15,17 +15,22 @@
  */
 package run.ratchet.ri.payload;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
@@ -140,6 +145,143 @@ class ArgumentMaterializerTest {
               name -> name.equals(CustomArgument.class.getName()));
       Object actual = restored.args().get(0);
       assertEquals(expectedValue, actual, fixture);
+    }
+  }
+
+  @Test
+  void restoresNestedArraysAndNonListContainers() throws Exception {
+    List<String> checked = new ArrayList<>();
+    for (String fixture :
+        List.of("stringArrays", "nestedSets", "mapSets", "nestedQueues", "mapArrays", "rawSets")) {
+      Method method = fixture(fixture);
+      Object input =
+          (fixture.equals("mapSets") || fixture.equals("mapArrays"))
+              ? Map.of("k", List.of("a"))
+              : List.of(
+                  fixture.equals("nestedQueues") || fixture.equals("rawSets")
+                      ? List.of("a")
+                      : List.of("a", "b"));
+      JobPayload restored =
+          ArgumentMaterializer.materialize(
+              payload(Type.getMethodDescriptor(method), List.of(input)),
+              method.getGenericParameterTypes(),
+              new JsonbTestPayloadSerializer(),
+              name -> {
+                checked.add(name);
+                return false;
+              });
+      Object actual = restored.args().get(0);
+      switch (fixture) {
+        case "stringArrays" ->
+            assertArrayEquals(
+                new String[] {"a", "b"},
+                assertInstanceOf(String[].class, ((List<?>) actual).get(0)));
+        case "nestedSets" ->
+            assertEquals(Set.of("a", "b"), assertInstanceOf(Set.class, ((List<?>) actual).get(0)));
+        case "mapSets" ->
+            assertEquals(Set.of("a"), assertInstanceOf(Set.class, ((Map<?, ?>) actual).get("k")));
+        case "mapArrays" ->
+            assertArrayEquals(
+                new String[] {"a"},
+                assertInstanceOf(String[].class, ((Map<?, ?>) actual).get("k")));
+        case "rawSets" ->
+            assertEquals(Set.of("a"), assertInstanceOf(Set.class, ((List<?>) actual).get(0)));
+        case "nestedQueues" ->
+            assertEquals(
+                List.of("a"),
+                new ArrayList<>(assertInstanceOf(Queue.class, ((List<?>) actual).get(0))));
+        default -> throw new AssertionError(fixture);
+      }
+    }
+    assertEquals(List.of(), checked);
+  }
+
+  @Test
+  void preservesAssignableStandardCollectionClasses() throws Exception {
+    List<String> checked = new ArrayList<>();
+    for (String fixture : List.of("arrayListStrings", "hashMapObjects", "stringSet")) {
+      Method method = fixture(fixture);
+      Object value =
+          switch (fixture) {
+            case "arrayListStrings" -> new ArrayList<>(List.of("a"));
+            case "hashMapObjects" -> new HashMap<>(Map.of("k", "v"));
+            default -> new HashSet<>(Set.of("a"));
+          };
+      JobPayload payload = payload(Type.getMethodDescriptor(method), List.of(value));
+      assertSame(
+          payload,
+          ArgumentMaterializer.materialize(
+              payload,
+              method.getGenericParameterTypes(),
+              failIfCalledSerializer(),
+              name -> {
+                checked.add(name);
+                return false;
+              }),
+          fixture);
+    }
+    assertEquals(List.of(), checked);
+  }
+
+  @Test
+  void checksCollectionSubclassOutsideJavaUtil() throws Exception {
+    Method method = fixture("stringLists");
+    List<String> checked = new ArrayList<>();
+    assertThrows(
+        SecurityException.class,
+        () ->
+            ArgumentMaterializer.materialize(
+                payload(Type.getMethodDescriptor(method), List.of(List.of(List.of("a")))),
+                method.getGenericParameterTypes(),
+                failIfCalledSerializer(),
+                name -> {
+                  checked.add(name);
+                  return false;
+                }));
+    assertEquals(List.of(StringList.class.getName()), checked);
+  }
+
+  @Test
+  void restoresStandardCollectionClassesWithoutPolicyCheck() throws Exception {
+    Object shape = Map.of("reference", "invoice-42", "attempt", 3);
+    for (String fixture : List.of("arrayListCustom", "customArrays")) {
+      Method method = fixture(fixture);
+      Object input =
+          switch (fixture) {
+            case "customArrays" -> List.of(List.of(shape));
+            default -> List.of(shape);
+          };
+      List<String> checked = new ArrayList<>();
+      JobPayload restored =
+          ArgumentMaterializer.materialize(
+              payload(Type.getMethodDescriptor(method), List.of(input)),
+              method.getGenericParameterTypes(),
+              new JsonbTestPayloadSerializer(),
+              name -> {
+                checked.add(name);
+                return name.equals(CustomArgument.class.getName());
+              });
+      Object actual = restored.args().get(0);
+      switch (fixture) {
+        case "arrayListCustom" ->
+            assertEquals(
+                new CustomArgument("invoice-42", 3),
+                assertInstanceOf(
+                    CustomArgument.class, assertInstanceOf(ArrayList.class, actual).get(0)));
+        case "customArrays" -> {
+          CustomArgument[] elements =
+              assertInstanceOf(CustomArgument[].class, ((List<?>) actual).get(0));
+          assertEquals(1, elements.length);
+          assertEquals(new CustomArgument("invoice-42", 3), elements[0]);
+        }
+        default -> throw new AssertionError(fixture);
+      }
+      assertEquals(
+          fixture.equals("arrayListCustom") || fixture.equals("customArrays")
+              ? List.of(CustomArgument.class.getName())
+              : List.of(),
+          checked,
+          fixture);
     }
   }
 
@@ -320,6 +462,29 @@ class ArgumentMaterializerTest {
 
   static void stringSet(Set<String> value) {}
 
+  static void stringArrays(List<String[]> value) {}
+
+  static void nestedSets(List<Set<String>> value) {}
+
+  static void mapSets(Map<String, Set<String>> value) {}
+
+  static void mapArrays(Map<String, String[]> value) {}
+
+  @SuppressWarnings("rawtypes")
+  static void rawSets(List<Set> value) {}
+
+  static void stringLists(List<StringList> value) {}
+
+  static void nestedQueues(List<Queue<String>> value) {}
+
+  static void arrayListStrings(ArrayList<String> value) {}
+
+  static void hashMapObjects(HashMap<String, Object> value) {}
+
+  static void arrayListCustom(ArrayList<CustomArgument> value) {}
+
+  static void customArrays(List<CustomArgument[]> value) {}
+
   static void objects(Map<String, Object> value) {}
 
   static void nativeNested(List<List<String>> value) {}
@@ -350,6 +515,10 @@ class ArgumentMaterializerTest {
         throw new AssertionError("serializer must not be called");
       }
     };
+  }
+
+  public static class StringList extends ArrayList<String> {
+    private static final long serialVersionUID = 1L;
   }
 
   public record CustomArgument(String reference, int attempt) {}

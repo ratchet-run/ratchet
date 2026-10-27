@@ -27,7 +27,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobPayload;
@@ -57,15 +56,18 @@ public final class ArgumentMaterializer {
    * target class. Values that already have an assignable JSON-native type are retained, and numeric
    * values use {@link ArgumentCoercion}. A value that requires typed deserialization is restored
    * only when its declared class is also allowed by the policy. Generic collections and maps are
-   * restored when their type tree contains elements requiring typed deserialization. Native Object,
-   * String, Boolean and unbounded wildcard elements are retained, including nested standard
-   * containers. Interface and abstract element types such as Number, CharSequence and Iterable keep
-   * raw behavior and are not sent to the policy. Non-container generic interfaces such as {@code
-   * Iterable<Order>}, type variables, bounded wildcards and generic arrays also use raw behavior,
-   * as do all arguments when generic parameter types are absent or their count differs from the
-   * descriptor. Before generic restoration, the policy checks every declared concrete class except
-   * standard containers and JDK value types (primitives, wrappers, String, BigDecimal, BigInteger
-   * and Object).
+   * restored when their type tree contains elements requiring typed deserialization. Nested arrays
+   * and nested collection types other than List, Collection and Map (for example Set) are always
+   * restored because JSON has no set or array type. Native Object, String, Boolean and unbounded
+   * wildcard elements do not themselves require restoration. Interface and abstract element types
+   * such as Number, CharSequence and Iterable are never sent to the policy. They and non-container
+   * generic interfaces such as {@code Iterable<Order>} keep raw behavior only when nothing else in
+   * the argument's type tree needs restoring; otherwise the serializer rebuilds the whole argument.
+   * Type variables, bounded wildcards and generic arrays force raw behavior for the whole argument,
+   * as do absent generic parameter types or a count that differs from the descriptor. Before
+   * generic restoration, the policy checks every declared concrete class except standard {@code
+   * java.util} collection classes and JDK value types (primitives, wrappers, String, BigDecimal,
+   * BigInteger and Object).
    */
   public static JobPayload materialize(
       JobPayload payload,
@@ -94,7 +96,8 @@ public final class ArgumentMaterializer {
       boolean typedRestore =
           genericType instanceof ParameterizedType
               && isRestorable(genericType)
-              && (needsTypedRestore(genericType) || (value != null && !rawType.isInstance(value)));
+              && (needsTypedRestore(genericType, false)
+                  || (value != null && !rawType.isInstance(value)));
       if (value == null || (!typedRestore && rawType.isInstance(value))) {
         continue;
       }
@@ -161,20 +164,29 @@ public final class ArgumentMaterializer {
         && Arrays.equals(wildcard.getUpperBounds(), new Type[] {Object.class});
   }
 
-  private static boolean isContainer(Class<?> type) {
-    return type == List.class || type == Set.class || type == Collection.class || type == Map.class;
+  private static boolean isNativeContainer(Class<?> type) {
+    // Any decoded list or map satisfies these.
+    return type.isAssignableFrom(List.class) || type.isAssignableFrom(Map.class);
   }
 
-  private static boolean needsTypedRestore(Type type) {
+  private static boolean isStandardContainer(Class<?> type) {
+    return (Collection.class.isAssignableFrom(type) || Map.class.isAssignableFrom(type))
+        && type.getName().startsWith("java.util.");
+  }
+
+  private static boolean needsTypedRestore(Type type, boolean nested) {
     if (type instanceof WildcardType) {
       return false;
     }
     if (type instanceof Class<?> clazz) {
       if (clazz.isArray()) {
-        return needsTypedRestore(clazz.getComponentType());
+        return true;
       }
       if (clazz.isPrimitive()) {
         return true;
+      }
+      if (isStandardContainer(clazz)) {
+        return !isNativeContainer(clazz);
       }
       return clazz != Object.class
           && clazz != String.class
@@ -182,11 +194,12 @@ public final class ArgumentMaterializer {
           && !clazz.isInterface()
           && !Modifier.isAbstract(clazz.getModifiers());
     }
-    ParameterizedType parameterized = (ParameterizedType) type;
-    if (parameterized.getRawType() instanceof Class<?> raw) {
-      if (isContainer(raw)) {
-        return Arrays.stream(parameterized.getActualTypeArguments())
-            .anyMatch(ArgumentMaterializer::needsTypedRestore);
+    if (type instanceof ParameterizedType parameterized
+        && parameterized.getRawType() instanceof Class<?> raw) {
+      if (isStandardContainer(raw)) {
+        return (nested && !isNativeContainer(raw))
+            || Arrays.stream(parameterized.getActualTypeArguments())
+                .anyMatch(argument -> needsTypedRestore(argument, true));
       }
       return !raw.isInterface() && !Modifier.isAbstract(raw.getModifiers());
     }
@@ -199,7 +212,7 @@ public final class ArgumentMaterializer {
         clazz = clazz.getComponentType();
       }
       // The serializer never instantiates abstract declared types by name; a package-prefix
-      // policy cannot sensibly allow java.lang.Number.
+      // policy cannot sensibly allow java.lang.Number; standard collections use the declared type.
       if (!clazz.isPrimitive()
           && !clazz.isInterface()
           && !Modifier.isAbstract(clazz.getModifiers())
@@ -209,7 +222,7 @@ public final class ArgumentMaterializer {
           && clazz != BigDecimal.class
           && clazz != BigInteger.class
           && clazz != Object.class
-          && !isContainer(clazz)) {
+          && !isStandardContainer(clazz)) {
         requireAllowed(clazz, classPolicy);
       }
     } else if (type instanceof ParameterizedType parameterized) {
