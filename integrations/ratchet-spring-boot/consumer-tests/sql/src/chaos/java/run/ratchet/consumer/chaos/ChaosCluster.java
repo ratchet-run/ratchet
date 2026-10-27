@@ -288,13 +288,9 @@ public final class ChaosCluster implements AutoCloseable {
     boolean settled = false;
     while (System.nanoTime() < deadline) {
       var statuses = probe.statuses(run);
-      var commits = ledger().commits();
+      var ledger = ledger();
       if (submitted.stream().allMatch(id -> Oracle.terminal(statuses.get(id)))
-          && submitted.stream()
-              .allMatch(
-                  id ->
-                      "CANCELED".equals(statuses.get(id))
-                          || commits.stream().anyMatch(c -> c.jobId().equals(id)))
+          && submitted.stream().allMatch(id -> eventSettled(id, statuses, ledger))
           && probe.quiescence(live()).isEmpty()) {
         settled = true;
         break;
@@ -313,6 +309,24 @@ public final class ChaosCluster implements AutoCloseable {
     violations.addAll(
         Oracle.retryAccounting(kinds, probe.attempts(run), statuses, ledger, timeline));
     return violations;
+  }
+
+  private boolean eventSettled(String jobId, Map<String, String> statuses, Ledger ledger) {
+    if ("CANCELED".equals(statuses.get(jobId))
+        || ledger.commits().stream().anyMatch(c -> c.jobId().equals(jobId))) return true;
+    Ledger.Attempt latest = null;
+    for (var attempt : ledger.attempts()) {
+      if (attempt.jobId().equals(jobId)) latest = attempt;
+    }
+    if (latest == null || latest.finishedUs() == null) return false;
+    // The terminal event is published in memory after the commit; a kill in that gap
+    // leaves a terminal job with no commit row.
+    for (var entry : timeline.entries()) {
+      if ("kill".equals(entry.fault())
+          && entry.incarnation().equals(latest.incarnation())
+          && entry.confirmedUs() >= latest.finishedUs()) return true;
+    }
+    return false;
   }
 
   public int busiest(int minimum, Duration timeout) throws Exception {
