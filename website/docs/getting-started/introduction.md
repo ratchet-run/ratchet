@@ -102,7 +102,7 @@ scheduler.enqueueBatch("process-invoices")
 
 ### Observability
 
-Monitor job lifecycle through CDI events or programmatic listeners. Every state transition fires an event you can observe.
+Monitor job lifecycle through CDI events or programmatic listeners. Each committed state transition fires an event you can observe on the node that made it.
 
 ```java
 public void onJobFailed(@Observes JobFailedEvent event) {

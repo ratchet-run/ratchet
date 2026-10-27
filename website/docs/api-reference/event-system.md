@@ -6,7 +6,7 @@ description: Complete reference for job lifecycle events, batch events, chain ev
 
 # Event System Reference
 
-Observing and reacting to job lifecycle events. Ratchet publishes events at every state transition. Use them for monitoring, alerting, and custom integrations.
+Observing and reacting to job lifecycle events. Ratchet publishes an event after each state transition commits. Use them for monitoring, alerting, and custom integrations. Events are notifications, not a durable record: see [Delivery guarantees](#delivery-guarantees).
 
 ## Listening to events
 
@@ -48,6 +48,13 @@ scheduler.addEventListener(event -> {
     }
 });
 ```
+
+## Delivery guarantees
+
+- **After commit.** An event raised inside a transaction is delivered after that transaction commits. A rollback suppresses it, and an observer cannot roll the transaction back.
+- **Synchronous and local.** Observers run on the thread that made the change, on that node only. Other nodes in the cluster do not see the event.
+- **At most once.** An event is held in memory until it is delivered. If the node stops between the commit and the delivery, for example because its process is killed, the event is lost and is not delivered again.
+- **Stored state is the source of truth.** When every outcome matters, for example for billing or outgoing webhooks, check the job's stored status with the [Job Query Service](./job-query-service) instead of relying on events alone.
 
 ## Event base class
 
@@ -222,7 +229,7 @@ public void onCancelled(@Observes JobCancelledEvent event) {
 
 ### JobsBulkCancelledEvent
 
-Fired exactly once per successful bulk cancel-by-tag operation, when at least one job was cancelled. Produced by [`cancelJobsByTag()`](./job-scheduler-service) and [`cancelRecurringJobsByTag()`](./job-scheduler-service).
+Fired once per successful bulk cancel-by-tag operation, when at least one job was cancelled. Produced by [`cancelJobsByTag()`](./job-scheduler-service) and [`cancelRecurringJobsByTag()`](./job-scheduler-service).
 
 Bulk cancellation does not carry a single job id, business key, or priority, so this event does **not** extend `AbstractJobSchedulerEvent`.
 
@@ -248,7 +255,7 @@ public void onBulkCancelled(@Observes JobsBulkCancelledEvent event) {
 
 ### JobsBulkRetriedEvent
 
-Fired exactly once when `retryJobs(JobFilter, int)` resets at least one failed job. Bulk retry does
+Fired once when `retryJobs(JobFilter, int)` resets at least one failed job. Bulk retry does
 not publish a `JobRetryingEvent` for each selected job.
 
 ```java
@@ -529,7 +536,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
 
 ### JobsBulkSignaledEvent
 
-Fired exactly once per successful key-based signal delivery when at least one `WAITING` job is unblocked. Like [`JobsBulkCancelledEvent`](#jobsbulkcancelledevent), a key-based delivery can unblock many jobs, so this event does **not** extend `AbstractJobSchedulerEvent`.
+Fired once per successful key-based signal delivery when at least one `WAITING` job is unblocked. Like [`JobsBulkCancelledEvent`](#jobsbulkcancelledevent), a key-based delivery can unblock many jobs, so this event does **not** extend `AbstractJobSchedulerEvent`.
 
 ```java
 public class JobsBulkSignaledEvent implements Serializable {
