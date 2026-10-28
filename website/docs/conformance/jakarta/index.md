@@ -2,6 +2,7 @@
 id: index
 title: Jakarta Runtime Conformance Reports
 sidebar_label: Overview
+description: CI-generated Jakarta Runtime conformance reports (CDI injection, CDI events and JTA transactions) for each Jakarta EE server and database Ratchet is tested on.
 ---
 
 # Jakarta Runtime Conformance Reports

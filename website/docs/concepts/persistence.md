@@ -290,9 +290,12 @@ public interface JobStore
 | `JobQueryStore` | Read-only list/detail/queue-health queries and tag lookups |
 | `JobAnalyticsStore` | Aggregate counts, rate statistics, and percentile metrics |
 | `JobAuditStore` | Execution history recording and structured job log storage |
-| `JobExtensionStore` | Indexed job properties (`scheduler_job_properties`) and mutable per-namespace extension state with optimistic CAS (`scheduler_job_extension_state`), used by framework extensions; archiving copies both onto the archive row as denormalized JSON |
+| `JobPropertyStore` | Indexed plaintext extension metadata (`scheduler_job_properties`), intended to be write-once at submission |
+| `JobStateStore` | Mutable per-job, per-namespace JSON state with version CAS (`scheduler_job_extension_state`), used by core features and extensions; encrypted at rest when payload encryption is on |
 
-Extension state is limited to 1 MiB (1,048,576 UTF-8 bytes) of plaintext per namespace, before encryption.
+Archiving copies property and state data for whichever capabilities the store advertises, as denormalized JSON.
+
+Per-job state is limited to 1 MiB (1,048,576 UTF-8 bytes) of plaintext per namespace, before encryption.
 
 ### Why a Core-Plus-Capabilities Split?
 

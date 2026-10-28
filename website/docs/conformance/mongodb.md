@@ -2,6 +2,7 @@
 id: mongodb
 title: MongoDB Store Conformance
 sidebar_label: MongoDB Store
+description: Pass, fail and N/A status of every Ratchet store TCK contract for the MongoDB store, generated from the latest CI run on main.
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

@@ -588,3 +588,15 @@ bookkeeping that embeds user data, so it joins the protected-surface enum as
   `PayloadCipherHolder`, the store TCK `AbstractPayloadCipherStoreContract`, and the
   row-mapper wiring it validated.
 - AWS Encryption SDK, additional-authenticated-data reference, for the AAD model.
+
+## Amended 2026-10-26: independent property and state capabilities
+
+Issue #280 splits the former `JobExtensionStore` into optional `JobPropertyStore`
+(indexed plaintext extension metadata) and `JobStateStore` (general per-job mutable JSON
+state for core features and extensions, with version CAS). The state read record is now
+`VersionedState`. This changes no tables, collections, indexes, encryption behavior, or
+archive data. Archives copy whichever surfaces the store advertises; all five shipped
+stores advertise both. `ProtectedSurface.EXTENSION_STATE` and `EncryptionTarget.extensionState`
+retain their names because the surface name is part of the ciphertext AAD. State uses
+the global encryption switch or the owning job's encryption opt-in; the earlier
+global-only wording above records the original design.

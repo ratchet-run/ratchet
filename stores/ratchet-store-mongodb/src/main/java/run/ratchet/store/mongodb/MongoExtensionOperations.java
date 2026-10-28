@@ -36,6 +36,7 @@ import static run.ratchet.store.util.ExtensionValidation.requireState;
 import static run.ratchet.store.util.ExtensionValidation.requireValue;
 
 import com.mongodb.MongoException;
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.UpdateResult;
 import java.time.Instant;
@@ -45,13 +46,15 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.bson.Document;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.spi.JobPropertyStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.JobEncryption;
 import run.ratchet.store.util.PayloadEncryptor;
 
 /**
- * MongoDB implementation of {@link JobExtensionStore}.
+ * MongoDB implementation of {@link JobPropertyStore} and {@link JobStateStore}.
  *
  * <p>Properties and extension state live in their own collections ({@code scheduler_job_properties}
  * and {@code scheduler_job_extension_state}), NOT as sub-documents on the job document: the job
@@ -63,7 +66,7 @@ import run.ratchet.store.util.PayloadEncryptor;
  * state} field holds a ciphertext frame bound to {@code (job_id, namespace)}; otherwise plaintext
  * with {@code encrypted_state = false}.
  */
-final class MongoExtensionOperations implements JobExtensionStore {
+final class MongoExtensionOperations implements JobPropertyStore, JobStateStore {
 
   private final MongoStoreContext ctx;
 
@@ -112,7 +115,7 @@ final class MongoExtensionOperations implements JobExtensionStore {
   }
 
   @Override
-  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+  public Optional<VersionedState> getState(UUID jobId, String namespace) {
     requireNamespace(namespace);
     Document doc =
         ctx.jobExtensionState().find(and(eq(JOB_ID, jobId), eq(NAMESPACE, namespace))).first();
@@ -122,7 +125,7 @@ final class MongoExtensionOperations implements JobExtensionStore {
     String json =
         PayloadEncryptor.decryptValue(
             doc.getString(STATE), EncryptionTarget.extensionState(jobId, namespace));
-    return Optional.of(new ExtensionState(json, doc.getInteger(VERSION, 0)));
+    return Optional.of(new VersionedState(json, doc.getInteger(VERSION, 0)));
   }
 
   @Override
@@ -134,17 +137,7 @@ final class MongoExtensionOperations implements JobExtensionStore {
             .orElseThrow(
                 () -> new IllegalStateException("no job " + jobId + " for extension state"));
     boolean active = JobEncryption.activeFor(encryptedPayload);
-    String stored =
-        PayloadEncryptor.encryptValue(
-            initialState, active, EncryptionTarget.extensionState(jobId, namespace));
-    Document doc =
-        new Document(JOB_ID, jobId)
-            .append(NAMESPACE, namespace)
-            .append(STATE, stored)
-            .append(ENCRYPTED_STATE, active)
-            .append(ENCRYPTION_KEY_ID, JobEncryption.keyId(active))
-            .append(VERSION, 0)
-            .append(UPDATED_AT, DocumentMapper.toDate(Instant.now()));
+    Document doc = stateDocument(jobId, namespace, initialState, active);
     try {
       ctx.jobExtensionState().insertOne(doc);
     } catch (MongoException e) {
@@ -169,28 +162,123 @@ final class MongoExtensionOperations implements JobExtensionStore {
       return false;
     }
     boolean active = JobEncryption.activeFor(encryptedPayload.get());
+    return updateState(null, jobId, namespace, newState, expectedVersion, active);
+  }
+
+  @Override
+  public StateWriteResult initState(
+      UUID jobId, String namespace, String initialState, long expectedClaimSeq) {
+    requireNamespace(namespace);
+    requireState(initialState);
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            if (!fenceStateWrite(session, jobId, expectedClaimSeq)) {
+              return StateWriteResult.SUPERSEDED;
+            }
+            boolean active =
+                JobEncryption.activeFor(encryptedPayload(session, jobId).orElse(false));
+            ctx.jobExtensionState()
+                .insertOne(session, stateDocument(jobId, namespace, initialState, active));
+            return StateWriteResult.UPDATED;
+          });
+    } catch (MongoException e) {
+      // A duplicate aborts the transaction, including its fence increment.
+      if (ctx.constraintDetector().isDuplicateKey(e)) {
+        return StateWriteResult.VERSION_CONFLICT;
+      }
+      throw e;
+    }
+  }
+
+  @Override
+  public StateWriteResult updateState(
+      UUID jobId, String namespace, String newState, int expectedVersion, long expectedClaimSeq) {
+    requireNamespace(namespace);
+    requireState(newState);
+    if (expectedVersion < 0) {
+      throw new IllegalArgumentException(
+          "expectedVersion must be non-negative: " + expectedVersion);
+    }
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            if (!fenceStateWrite(session, jobId, expectedClaimSeq)) {
+              return StateWriteResult.SUPERSEDED;
+            }
+            boolean active =
+                JobEncryption.activeFor(encryptedPayload(session, jobId).orElse(false));
+            return updateState(session, jobId, namespace, newState, expectedVersion, active)
+                ? StateWriteResult.UPDATED
+                : StateWriteResult.VERSION_CONFLICT;
+          });
+    }
+  }
+
+  private boolean fenceStateWrite(ClientSession session, UUID jobId, long expectedClaimSeq) {
+    // Change an unmapped field to force write conflicts with claims and terminal writes.
+    // Never bump version: the owner's save replaces the document under that version check.
+    // That replacement may drop state_fence, which is only a transaction conflict guard.
+    return ctx.jobs()
+            .updateOne(
+                session,
+                and(
+                    eq(MongoFieldNames.ID, jobId),
+                    eq(MongoFieldNames.CLAIM_SEQ, expectedClaimSeq),
+                    eq(MongoFieldNames.STATUS, JobStatus.RUNNING.name())),
+                inc("state_fence", 1))
+            .getMatchedCount()
+        > 0;
+  }
+
+  private Document stateDocument(UUID jobId, String namespace, String state, boolean active) {
+    String stored =
+        PayloadEncryptor.encryptValue(
+            state, active, EncryptionTarget.extensionState(jobId, namespace));
+    return new Document(JOB_ID, jobId)
+        .append(NAMESPACE, namespace)
+        .append(STATE, stored)
+        .append(ENCRYPTED_STATE, active)
+        .append(ENCRYPTION_KEY_ID, JobEncryption.keyId(active))
+        .append(VERSION, 0)
+        .append(UPDATED_AT, DocumentMapper.toDate(Instant.now()));
+  }
+
+  private boolean updateState(
+      ClientSession session,
+      UUID jobId,
+      String namespace,
+      String newState,
+      int expectedVersion,
+      boolean active) {
     String stored =
         PayloadEncryptor.encryptValue(
             newState, active, EncryptionTarget.extensionState(jobId, namespace));
+    var filter = and(eq(JOB_ID, jobId), eq(NAMESPACE, namespace), eq(VERSION, expectedVersion));
+    var changes =
+        combine(
+            set(STATE, stored),
+            set(ENCRYPTED_STATE, active),
+            set(ENCRYPTION_KEY_ID, JobEncryption.keyId(active)),
+            inc(VERSION, 1),
+            set(UPDATED_AT, DocumentMapper.toDate(Instant.now())));
     UpdateResult result =
-        ctx.jobExtensionState()
-            .updateOne(
-                and(eq(JOB_ID, jobId), eq(NAMESPACE, namespace), eq(VERSION, expectedVersion)),
-                combine(
-                    set(STATE, stored),
-                    set(ENCRYPTED_STATE, active),
-                    set(ENCRYPTION_KEY_ID, JobEncryption.keyId(active)),
-                    inc(VERSION, 1),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now()))));
+        session == null
+            ? ctx.jobExtensionState().updateOne(filter, changes)
+            : ctx.jobExtensionState().updateOne(session, filter, changes);
     return result.getModifiedCount() > 0;
   }
 
   private Optional<Boolean> encryptedPayload(UUID jobId) {
-    Document job =
-        ctx.jobs()
-            .find(eq(MongoFieldNames.ID, jobId))
-            .projection(new Document("encrypted_payload", 1))
-            .first();
+    return encryptedPayload(null, jobId);
+  }
+
+  private Optional<Boolean> encryptedPayload(ClientSession session, UUID jobId) {
+    var query =
+        session == null
+            ? ctx.jobs().find(eq(MongoFieldNames.ID, jobId))
+            : ctx.jobs().find(session, eq(MongoFieldNames.ID, jobId));
+    Document job = query.projection(new Document("encrypted_payload", 1)).first();
     return job == null ? Optional.empty() : Optional.of(job.getBoolean("encrypted_payload", false));
   }
 }

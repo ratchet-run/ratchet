@@ -568,7 +568,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
   @Test
   void searchIncludeArchived_skipsArchiveWhenPropertyFilterConstrains() {
-    var extensions = extensionStore();
+    var extensions = propertyStore();
     JobEntity live = persist(newPendingJob());
     extensions.putProperty(live.getId(), "ratchet-tck.block_name", "invoice.send");
     UUID archivedId = archiveOnly(newPendingJob());
@@ -986,8 +986,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   void searchByPropertyEquals_returnsOnlyJobsCarryingTheProperty() {
     var tagged = persist(newPendingJob());
     var other = persist(newPendingJob());
-    extensionStore().putProperty(tagged.getId(), "ratchet-tck.block_name", "invoice.send");
-    extensionStore().putProperty(other.getId(), "ratchet-tck.block_name", "invoice.archive");
+    propertyStore().putProperty(tagged.getId(), "ratchet-tck.block_name", "invoice.send");
+    propertyStore().putProperty(other.getId(), "ratchet-tck.block_name", "invoice.archive");
 
     List<JobEntity> results =
         queryStore()
@@ -1007,9 +1007,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     var first = persist(newPendingJob());
     var second = persist(newPendingJob());
     var third = persist(newPendingJob());
-    extensionStore().putProperty(first.getId(), "ratchet-tck.block_name", "invoice.send");
-    extensionStore().putProperty(second.getId(), "ratchet-tck.block_name", "invoice.archive");
-    extensionStore().putProperty(third.getId(), "ratchet-tck.block_name", "invoice.void");
+    propertyStore().putProperty(first.getId(), "ratchet-tck.block_name", "invoice.send");
+    propertyStore().putProperty(second.getId(), "ratchet-tck.block_name", "invoice.archive");
+    propertyStore().putProperty(third.getId(), "ratchet-tck.block_name", "invoice.void");
 
     List<JobEntity> results =
         queryStore()
@@ -1028,9 +1028,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   void searchByMultiplePropertyKeys_combinesWithAnd() {
     var both = persist(newPendingJob());
     var nameOnly = persist(newPendingJob());
-    extensionStore().putProperty(both.getId(), "ratchet-tck.block_name", "invoice.send");
-    extensionStore().putProperty(both.getId(), "ratchet-tck.block_version", "2");
-    extensionStore().putProperty(nameOnly.getId(), "ratchet-tck.block_name", "invoice.send");
+    propertyStore().putProperty(both.getId(), "ratchet-tck.block_name", "invoice.send");
+    propertyStore().putProperty(both.getId(), "ratchet-tck.block_version", "2");
+    propertyStore().putProperty(nameOnly.getId(), "ratchet-tck.block_name", "invoice.send");
 
     List<JobEntity> results =
         queryStore()
@@ -1051,19 +1051,19 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     List<UUID> matching = new ArrayList<>();
     for (int i = 0; i < 3; i++) {
       var job = persist(newPendingJob());
-      extensionStore().putProperty(job.getId(), "ratchet-tck.block_name", "invoice.send");
-      extensionStore().putProperty(job.getId(), "ratchet-tck.block_version", "2");
+      propertyStore().putProperty(job.getId(), "ratchet-tck.block_name", "invoice.send");
+      propertyStore().putProperty(job.getId(), "ratchet-tck.block_version", "2");
       matching.add(job.getId());
     }
     var wrongStatus = persist(newPendingJob());
-    extensionStore().putProperty(wrongStatus.getId(), "ratchet-tck.block_name", "invoice.send");
-    extensionStore().putProperty(wrongStatus.getId(), "ratchet-tck.block_version", "2");
+    propertyStore().putProperty(wrongStatus.getId(), "ratchet-tck.block_name", "invoice.send");
+    propertyStore().putProperty(wrongStatus.getId(), "ratchet-tck.block_version", "2");
     store().compareAndSwapStatus(wrongStatus.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     var wrongVersion = persist(newPendingJob());
-    extensionStore().putProperty(wrongVersion.getId(), "ratchet-tck.block_name", "invoice.send");
-    extensionStore().putProperty(wrongVersion.getId(), "ratchet-tck.block_version", "1");
+    propertyStore().putProperty(wrongVersion.getId(), "ratchet-tck.block_name", "invoice.send");
+    propertyStore().putProperty(wrongVersion.getId(), "ratchet-tck.block_version", "1");
     var missingName = persist(newPendingJob());
-    extensionStore().putProperty(missingName.getId(), "ratchet-tck.block_version", "2");
+    propertyStore().putProperty(missingName.getId(), "ratchet-tck.block_version", "2");
 
     JobFilter filter =
         JobFilter.builder()
@@ -1082,7 +1082,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   void countJobs_appliesPropertyFilters() {
     var tagged = persist(newPendingJob());
     persist(newPendingJob());
-    extensionStore().putProperty(tagged.getId(), "ratchet-tck.block_name", "invoice.send");
+    propertyStore().putProperty(tagged.getId(), "ratchet-tck.block_name", "invoice.send");
 
     long count =
         queryStore()

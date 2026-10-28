@@ -47,6 +47,11 @@ jobs:
       )
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history so VitePress can read each page's last git change for the
+          # "last updated" line and the sitemap's lastmod. A shallow clone dates
+          # every page to the newest commit.
+          fetch-depth: 0
 
       - name: Test runtime conformance report materialization
         run: scripts/test-materialize-runtime-conformance-reports.sh
@@ -103,8 +108,8 @@ jobs:
             src="$(find tck-reports/store -type f -path "*ratchet-store-${store}/target/tck-conformance-report.md" 2>/dev/null | head -1)"
             dst="website/docs/conformance/${store}.md"
             if [ -n "$src" ] && [ -f "$src" ]; then
-              printf -- '---\nid: %s\ntitle: %s Store Conformance\nsidebar_label: %s Store\n---\n\n' \
-                "$store" "$label" "$label" | cat - "$src" > "$dst"
+              printf -- '---\nid: %s\ntitle: %s Store Conformance\nsidebar_label: %s Store\ndescription: Pass, fail and N/A status of every Ratchet store TCK contract for the %s store, generated from the latest CI run on main.\n---\n\n' \
+                "$store" "$label" "$label" "$label" | cat - "$src" > "$dst"
             fi
           done
 

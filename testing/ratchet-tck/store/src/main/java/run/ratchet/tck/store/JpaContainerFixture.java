@@ -27,6 +27,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -51,8 +52,9 @@ import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -98,6 +100,20 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   // A method that fails with a transient store exception (e.g. a SQL Server deadlock victim) is
   // retried on a fresh transaction, emulating a production transient-retry interceptor.
   private static final int MAX_TRANSACTION_ATTEMPTS = 5;
+  private static final List<Class<?>> CAPABILITY_TYPES =
+      List.of(
+          RecurringJobStore.class,
+          BatchStore.class,
+          WorkflowConditionStore.class,
+          SignalStore.class,
+          ResourcePermitStore.class,
+          LockStore.class,
+          ArchiveStore.class,
+          JobQueryStore.class,
+          JobAnalyticsStore.class,
+          JobAuditStore.class,
+          JobPropertyStore.class,
+          JobStateStore.class);
 
   private final EntityManagerFactory emf;
   private final ThreadLocal<EntityManager> threadEm;
@@ -344,24 +360,26 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
             });
   }
 
+  /**
+   * The interfaces the transactional proxy implements: {@link JobStore} plus each capability the
+   * delegate advertises, so the proxy's type membership agrees with its {@code capability()} probe.
+   */
+  static Class<?>[] proxyInterfaces(JobStore delegate) {
+    List<Class<?>> interfaces = new ArrayList<>();
+    interfaces.add(JobStore.class);
+    for (Class<?> capability : CAPABILITY_TYPES) {
+      if (delegate.capability(capability).isPresent()) {
+        interfaces.add(capability);
+      }
+    }
+    return interfaces.toArray(Class<?>[]::new);
+  }
+
   private JobStore newTransactionalStoreProxy(JobStore delegate) {
     return (JobStore)
         Proxy.newProxyInstance(
             JobStore.class.getClassLoader(),
-            new Class<?>[] {
-              JobStore.class,
-              RecurringJobStore.class,
-              BatchStore.class,
-              WorkflowConditionStore.class,
-              SignalStore.class,
-              ResourcePermitStore.class,
-              LockStore.class,
-              ArchiveStore.class,
-              JobQueryStore.class,
-              JobAnalyticsStore.class,
-              JobAuditStore.class,
-              JobExtensionStore.class
-            },
+            proxyInterfaces(delegate),
             (proxy, method, args) -> {
               // capability() must return a view that still routes through this transactional proxy,
               // not the bare delegate — otherwise a capability contract would call the underlying

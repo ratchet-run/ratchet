@@ -33,8 +33,9 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
@@ -73,7 +74,8 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
   @Inject private Instance<JobQueryStore> queryStore;
   @Inject private Instance<JobAnalyticsStore> analyticsStore;
   @Inject private Instance<JobAuditStore> auditStore;
-  @Inject private Instance<JobExtensionStore> jobExtensionStore;
+  @Inject private Instance<JobPropertyStore> jobPropertyStore;
+  @Inject private Instance<JobStateStore> jobStateStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -106,7 +108,8 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
     assertTrue(queryStore.isUnsatisfied(), "JobQueryStore must be unsatisfied");
     assertTrue(analyticsStore.isUnsatisfied(), "JobAnalyticsStore must be unsatisfied");
     assertTrue(auditStore.isUnsatisfied(), "JobAuditStore must be unsatisfied");
-    assertTrue(jobExtensionStore.isUnsatisfied(), "JobExtensionStore must be unsatisfied");
+    assertTrue(jobPropertyStore.isUnsatisfied(), "JobPropertyStore must be unsatisfied");
+    assertTrue(jobStateStore.isUnsatisfied(), "JobStateStore must be unsatisfied");
   }
 
   @Test

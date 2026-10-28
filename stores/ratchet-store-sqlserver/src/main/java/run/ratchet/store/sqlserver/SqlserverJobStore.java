@@ -19,8 +19,9 @@ import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -51,4 +52,5 @@ public interface SqlserverJobStore
         JobQueryStore,
         JobAnalyticsStore,
         JobAuditStore,
-        JobExtensionStore {}
+        JobPropertyStore,
+        JobStateStore {}

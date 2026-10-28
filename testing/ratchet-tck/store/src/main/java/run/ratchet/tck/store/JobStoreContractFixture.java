@@ -25,8 +25,9 @@ import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.JobStateStore;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -114,8 +115,12 @@ public interface JobStoreContractFixture {
     return capabilityView(JobAuditStore.class);
   }
 
-  default JobExtensionStore extensionStore() {
-    return capabilityView(JobExtensionStore.class);
+  default JobStateStore stateStore() {
+    return capabilityView(JobStateStore.class);
+  }
+
+  default JobPropertyStore propertyStore() {
+    return capabilityView(JobPropertyStore.class);
   }
 
   /**

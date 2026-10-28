@@ -147,7 +147,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.query = new MongoJobQueryOperations(ctx);
     this.lifecycle = new MongoJobLifecycleOperations(ctx, batches, reservations, query);
     this.nodeLocks = new MongoNodeLockOperations(ctx);
-    this.archives = new MongoArchiveOperations(ctx);
+    this.archives = new MongoArchiveOperations(ctx, true, true);
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
     this.signals = new MongoSignalOperations(ctx);
     this.recurringJobs = new MongoRecurringJobOperations(ctx, reservations, crud);
@@ -1009,7 +1009,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     return recurringJobs.listAll();
   }
 
-  // ---------- JobExtensionStore delegates ----------
+  // ---------- JobPropertyStore delegates ----------
 
   @Override
   public void putProperty(UUID jobId, String key, String value) {
@@ -1026,8 +1026,22 @@ class MongoJobStoreImpl implements MongoJobStore {
     return extensions.getPropertiesByPrefix(jobId, prefix);
   }
 
+  // ---------- JobStateStore delegates ----------
+
   @Override
-  public Optional<ExtensionState> getState(UUID jobId, String namespace) {
+  public StateWriteResult initState(
+      UUID jobId, String namespace, String initialState, long expectedClaimSeq) {
+    return extensions.initState(jobId, namespace, initialState, expectedClaimSeq);
+  }
+
+  @Override
+  public StateWriteResult updateState(
+      UUID jobId, String namespace, String newState, int expectedVersion, long expectedClaimSeq) {
+    return extensions.updateState(jobId, namespace, newState, expectedVersion, expectedClaimSeq);
+  }
+
+  @Override
+  public Optional<VersionedState> getState(UUID jobId, String namespace) {
     return extensions.getState(jobId, namespace);
   }
 

@@ -685,7 +685,17 @@ A store advertises each of these by implementing the interface; the engine probe
 | `JobQueryStore` | Read-only admin/query projections and tag lookups | `searchJobs()`, `countJobs()`, `findJobIdsByTag()` |
 | `JobAnalyticsStore` | Aggregate counts, rates, and percentiles | `countJobsByStatus()`, `getQueueWaitTimePercentile()` |
 | `JobAuditStore` | Execution history and per-job logs | `saveExecution()`, `findExecutionsByJobId()`, `appendLog()` |
-| `JobExtensionStore` | Indexed job properties and per-namespace extension state | `putProperty()`, `getPropertiesByPrefix()`, `initState()`, `updateState()` |
+| `JobPropertyStore` | Indexed plaintext extension metadata | `putProperty()`, `getProperty()`, `getPropertiesByPrefix()` |
+| `JobStateStore` | Mutable per-job, per-namespace JSON state with version CAS | `getState()`, `initState()`, `updateState()`, `VersionedState` |
+
+### Claim-fenced job state
+
+The `JobStateStore` overloads that accept `expectedClaimSeq` return `StateWriteResult`.
+The claim fence must be atomic with the state write. Check both RUNNING status and
+`claim_seq`. Orphan recovery can change status to PENDING without changing the sequence.
+Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Return
+`VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
+Preserve validation and encryption behavior, and increment only the state version on updates.
 
 ### LockStore is a best-effort lease
 

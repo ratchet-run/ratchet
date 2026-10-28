@@ -12,6 +12,7 @@
 
   <artifactId>ratchet-quarkus-core-deployment</artifactId>
   <name>Ratchet :: Quarkus Extension :: Core Deployment</name>
+  <description>Shared build-time (deployment) wiring of the Ratchet Quarkus extension, used by the persistence-specific flavors.</description>
 
   <dependencies>
     <dependency>

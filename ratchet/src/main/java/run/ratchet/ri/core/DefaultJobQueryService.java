@@ -52,7 +52,7 @@ import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -80,7 +80,7 @@ public class DefaultJobQueryService implements JobQueryService {
   private final CallerPrincipalProvider principalProvider;
   private final Clock clock;
   private final boolean maskPayloads;
-  private final JobExtensionStore extensionStore;
+  private final JobPropertyStore propertyStore;
   private final CallerPrincipalResolver callerPrincipalResolver;
 
   protected DefaultJobQueryService() {
@@ -93,7 +93,7 @@ public class DefaultJobQueryService implements JobQueryService {
     this.principalProvider = null;
     this.clock = null;
     this.maskPayloads = false;
-    this.extensionStore = null;
+    this.propertyStore = null;
     this.callerPrincipalResolver = null;
   }
 
@@ -144,7 +144,7 @@ public class DefaultJobQueryService implements JobQueryService {
       Instance<JobAnalyticsStore> analyticsStore,
       Instance<JobAuditStore> executionStore,
       Instance<RecurringJobStore> recurringJobStore,
-      Instance<JobExtensionStore> extensionStore,
+      Instance<JobPropertyStore> propertyStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
       Clock clock,
@@ -159,7 +159,7 @@ public class DefaultJobQueryService implements JobQueryService {
         principalProvider,
         clock,
         options,
-        extensionStore.isResolvable() ? extensionStore.get() : null);
+        propertyStore.isResolvable() ? propertyStore.get() : null);
   }
 
   DefaultJobQueryService(
@@ -195,7 +195,7 @@ public class DefaultJobQueryService implements JobQueryService {
       CallerPrincipalProvider principalProvider,
       Clock clock,
       RatchetOptions options,
-      JobExtensionStore extensionStore) {
+      JobPropertyStore propertyStore) {
     this.queryStore = queryStore;
     this.crudStore = crudStore;
     this.analyticsStore = analyticsStore;
@@ -205,7 +205,7 @@ public class DefaultJobQueryService implements JobQueryService {
     this.principalProvider = principalProvider;
     this.clock = clock;
     this.maskPayloads = options != null && options.security().maskPayloads();
-    this.extensionStore = extensionStore;
+    this.propertyStore = propertyStore;
     this.callerPrincipalResolver = options != null ? options.callerPrincipalResolver() : null;
   }
 
@@ -216,7 +216,7 @@ public class DefaultJobQueryService implements JobQueryService {
   private MaskingContext maskingContext(UUID jobId) {
     return new MaskingContext(
         jobId,
-        () -> extensionStore == null ? Map.of() : extensionStore.getPropertiesByPrefix(jobId, ""));
+        () -> propertyStore == null ? Map.of() : propertyStore.getPropertiesByPrefix(jobId, ""));
   }
 
   private static String extractSortValue(JobEntity last, JobQuerySortField field) {
@@ -546,6 +546,7 @@ public class DefaultJobQueryService implements JobQueryService {
 
   private JobFilter scopeFilter(JobFilter filter) {
     JobFilter original = filter != null ? filter : JobFilter.builder().build();
+    requirePropertyCapability(original);
     if (authPolicy == null) {
       return original;
     }
@@ -557,7 +558,17 @@ public class DefaultJobQueryService implements JobQueryService {
               + ".filterForPrincipal returned null; it must return a filter"
               + " (return the input unchanged for permit-all)");
     }
+    requirePropertyCapability(scoped);
     return scoped;
+  }
+
+  private void requirePropertyCapability(JobFilter filter) {
+    if (propertyStore == null
+        && filter.propertyFilters() != null
+        && !filter.propertyFilters().isEmpty()) {
+      throw new UnsupportedOperationException(
+          "Property filters require a store advertising JobPropertyStore");
+    }
   }
 
   private String currentPrincipal() {

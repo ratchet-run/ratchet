@@ -2,6 +2,7 @@
 id: mysql
 title: MySQL Store Conformance
 sidebar_label: MySQL Store
+description: Pass, fail and N/A status of every Ratchet store TCK contract for the MySQL store, generated from the latest CI run on main.
 ---
 
 > This page is generated automatically after each successful CI run on `main`.

@@ -2,6 +2,7 @@
 id: index
 title: API Conformance Reports
 sidebar_label: Overview
+description: CI-generated API conformance reports for Ratchet's reference implementation, one for each Jakarta EE server and database it is tested on.
 ---
 
 # API Conformance Reports

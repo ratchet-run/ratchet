@@ -293,7 +293,7 @@ public interface PayloadMaskingPolicy {
 public record MaskingContext(UUID jobId, Map<String, String> jobProperties) {}
 ```
 
-The context-aware overload exists for per-job decisions — the same field name can be secret on one job and not on another. `MaskingContext` carries the owning job's id and its extension properties, populated when the store advertises the `JobExtensionStore` capability (empty map otherwise). Existing name-only policies keep working unchanged through the default method.
+The context-aware overload exists for per-job decisions — the same field name can be secret on one job and not on another. `MaskingContext` carries the owning job's id and its extension properties, populated when the store advertises the `JobPropertyStore` capability (empty map otherwise). Existing name-only policies keep working unchanged through the default method.
 
 ## PayloadEncryption
 
@@ -961,6 +961,14 @@ public class AsmLambdaAnalyzer implements LambdaAnalyzer {
     }
 }
 ```
+
+## Per-job property and state capabilities
+
+`JobPropertyStore` provides indexed plaintext extension metadata through `putProperty`, `getProperty`, and `getPropertiesByPrefix`. Properties are intended to be write-once at submission. Querying with non-empty property filters requires this capability; otherwise the query service throws `UnsupportedOperationException`.
+
+`JobStateStore` provides general per-job, per-namespace mutable JSON state for core features and extensions through `getState`, `initState`, and `updateState`. Reads return `VersionedState(json, version)` and updates use version CAS. State follows the configured payload encryption policy. Each capability is optional and probed independently. Archiving retains the surfaces the store advertises.
+
+An executing attempt passes its claim sequence to `initState(jobId, namespace, initialState, expectedClaimSeq)` or `updateState(jobId, namespace, newState, expectedVersion, expectedClaimSeq)`. Both return `StateWriteResult`: `UPDATED` means the write applied, `VERSION_CONFLICT` means re-read and retry, and `SUPERSEDED` means stop. The fence requires a RUNNING job with the same claim sequence. Init creates version 0; update increments the version. Writers that own no claim use the unfenced methods.
 
 ## See also
 

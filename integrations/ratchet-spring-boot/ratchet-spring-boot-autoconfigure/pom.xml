@@ -9,6 +9,7 @@
   </parent>
   <artifactId>ratchet-spring-boot-autoconfigure</artifactId>
   <name>Ratchet :: Spring Boot autoconfigure</name>
+  <description>Shared Spring Boot auto-configuration for the Ratchet job scheduler, used by the SQL and MongoDB starters.</description>
   <properties>
     <jakarta.persistence-api.version>3.2.0</jakarta.persistence-api.version>
     <spring-boot.version>4.1.1</spring-boot.version>

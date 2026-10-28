@@ -61,7 +61,7 @@ for (JobSummary job : page.items()) {
 With `includeArchived(true)`, sorting and cursor pagination use the same effective values across retained jobs and archives. In SQL stores, terminal jobs no longer retain their live queue row: their `scheduledTime` falls back to execution start time, then creation time. Archival records that effective value as `originalScheduledTime`; it cannot reconstruct a scheduled time already removed with the queue row.
 Archive inclusion is skipped whenever `callerPrincipal`, `tags`, `propertyFilters`, `idempotencyKey`, `pickedBy`, `resourceName`, or `traceCorrelationId` constrains the query, because archived rows do not retain these fields and cannot satisfy those filters or authorization scopes.
 
-When the store advertises the `JobExtensionStore` capability, jobs can also be filtered by their indexed extension properties:
+Jobs can be filtered by indexed extension properties when the store advertises `JobPropertyStore`. Non-empty property filters throw `UnsupportedOperationException` when that capability is absent:
 
 ```java
 JobFilter filter = JobFilter.builder()

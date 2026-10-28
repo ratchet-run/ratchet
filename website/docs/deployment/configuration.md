@@ -1,5 +1,6 @@
 ---
 title: Configuration
+description: Configure Ratchet on Jakarta EE with a RatchetOptions producer, store resources, common options, per-job execution targets, the configuration source chain and SPI overrides.
 ---
 
 # Configuration

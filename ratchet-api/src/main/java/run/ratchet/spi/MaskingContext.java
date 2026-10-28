@@ -27,9 +27,9 @@ import run.ratchet.api.Incubating;
  * alone (the same field name can be secret in one job and not in another).
  *
  * <p>{@code jobProperties()} carries the job's extension-property rows (read through the {@code
- * JobExtensionStore} capability when the store advertises it; empty otherwise). Extensions key
- * their identity here — for example {@code ratchet-blocks.block_name} — so a policy can look up
- * what the job is and which of its fields are declared secret.
+ * JobPropertyStore} capability when the store advertises it; empty otherwise). Extensions key their
+ * identity here — for example {@code ratchet-blocks.block_name} — so a policy can look up what the
+ * job is and which of its fields are declared secret.
  *
  * <p>Properties are loaded and copied to an immutable map on first access, then memoized. This
  * context is used single-threaded during masking, so the lazy memoization is intentionally
