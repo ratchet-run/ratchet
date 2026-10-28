@@ -1,5 +1,6 @@
 ---
 title: Oracle Deployment
+description: Run Ratchet on Oracle Database 23ai. Covers prerequisites, schema setup, configuration, Oracle dialect notes and schema auto-migration.
 ---
 
 # Oracle Deployment

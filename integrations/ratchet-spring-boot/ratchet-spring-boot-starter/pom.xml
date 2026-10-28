@@ -9,6 +9,7 @@
   </parent>
   <artifactId>ratchet-spring-boot-starter</artifactId>
   <name>Ratchet :: Spring Boot starter</name>
+  <description>Spring Boot starter for Ratchet, the open-source distributed job scheduler for Java, with a SQL store (PostgreSQL, MySQL, Oracle or SQL Server).</description>
   <properties>
     <jakarta.persistence-api.version>3.2.0</jakarta.persistence-api.version>
     <hibernate.version>7.4.5.Final</hibernate.version>

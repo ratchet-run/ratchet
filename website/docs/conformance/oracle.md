@@ -2,6 +2,7 @@
 id: oracle
 title: Oracle Store Conformance
 sidebar_label: Oracle Store
+description: Pass, fail and N/A status of every Ratchet store TCK contract for the Oracle store, generated from the latest CI run on main.
 ---
 
 > This page is generated automatically after each successful CI run on `main`.
