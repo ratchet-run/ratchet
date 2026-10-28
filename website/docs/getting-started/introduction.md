@@ -102,7 +102,7 @@ scheduler.enqueueBatch("process-invoices")
 
 ### Observability
 
-Monitor job lifecycle through CDI events or programmatic listeners. Each committed state transition fires an event you can observe on the node that made it.
+Monitor job lifecycle through CDI events or programmatic listeners. Ratchet publishes an event on the local node after each state transition commits. Delivery is at most once, so read the [delivery guarantees](/api-reference/event-system#delivery-guarantees) before relying on events for every outcome.
 
 ```java
 public void onJobFailed(@Observes JobFailedEvent event) {

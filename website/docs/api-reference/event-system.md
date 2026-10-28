@@ -51,8 +51,8 @@ scheduler.addEventListener(event -> {
 
 ## Delivery guarantees
 
-- **After commit.** An event raised inside a transaction is delivered after that transaction commits. A rollback suppresses it, and an observer cannot roll the transaction back.
-- **Synchronous and local.** Observers run on the thread that made the change, on that node only. Other nodes in the cluster do not see the event.
+- **After commit.** A state-transition event raised inside a transaction is delivered after that transaction commits. A rollback suppresses it, and an observer cannot roll the transaction back.
+- **Synchronous and local.** Observers run synchronously on the node that made the change, though not always on the same thread. Other nodes in the cluster do not see the event.
 - **At most once.** An event is held in memory until it is delivered. If the node stops between the commit and the delivery, for example because its process is killed, the event is lost and is not delivered again.
 - **Stored state is the source of truth.** When every outcome matters, for example for billing or outgoing webhooks, check the job's stored status with the [Job Query Service](./job-query-service) instead of relying on events alone.
 
@@ -229,7 +229,7 @@ public void onCancelled(@Observes JobCancelledEvent event) {
 
 ### JobsBulkCancelledEvent
 
-Fired once per successful bulk cancel-by-tag operation, when at least one job was cancelled. Produced by [`cancelJobsByTag()`](./job-scheduler-service) and [`cancelRecurringJobsByTag()`](./job-scheduler-service).
+Fired at most once per successful bulk cancel-by-tag operation, when at least one job was cancelled. Produced by [`cancelJobsByTag()`](./job-scheduler-service) and [`cancelRecurringJobsByTag()`](./job-scheduler-service).
 
 Bulk cancellation does not carry a single job id, business key, or priority, so this event does **not** extend `AbstractJobSchedulerEvent`.
 
@@ -255,7 +255,7 @@ public void onBulkCancelled(@Observes JobsBulkCancelledEvent event) {
 
 ### JobsBulkRetriedEvent
 
-Fired once when `retryJobs(JobFilter, int)` resets at least one failed job. Bulk retry does
+Fired at most once when `retryJobs(JobFilter, int)` resets at least one failed job. Bulk retry does
 not publish a `JobRetryingEvent` for each selected job.
 
 ```java
@@ -536,7 +536,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
 
 ### JobsBulkSignaledEvent
 
-Fired once per successful key-based signal delivery when at least one `WAITING` job is unblocked. Like [`JobsBulkCancelledEvent`](#jobsbulkcancelledevent), a key-based delivery can unblock many jobs, so this event does **not** extend `AbstractJobSchedulerEvent`.
+Fired at most once per successful key-based signal delivery when at least one `WAITING` job is unblocked. Like [`JobsBulkCancelledEvent`](#jobsbulkcancelledevent), a key-based delivery can unblock many jobs, so this event does **not** extend `AbstractJobSchedulerEvent`.
 
 ```java
 public class JobsBulkSignaledEvent implements Serializable {

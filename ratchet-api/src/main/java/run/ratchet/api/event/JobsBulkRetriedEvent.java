@@ -22,7 +22,7 @@ import run.ratchet.api.Incubating;
 import run.ratchet.api.JobFilter;
 
 /**
- * Fired once after a successful bounded bulk retry resets at least one failed job.
+ * Fired at most once after a successful bounded bulk retry resets at least one failed job.
  *
  * <p>This aggregate event carries the caller's selection and the number of jobs reset. Bulk retry
  * does not publish a {@link JobRetryingEvent} for every selected job.
