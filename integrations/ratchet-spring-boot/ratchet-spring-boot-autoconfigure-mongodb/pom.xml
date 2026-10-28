@@ -9,6 +9,7 @@
   </parent>
   <artifactId>ratchet-spring-boot-autoconfigure-mongodb</artifactId>
   <name>Ratchet :: Spring Boot autoconfigure-mongodb</name>
+  <description>Spring Boot auto-configuration for running the Ratchet job scheduler on the MongoDB store.</description>
   <properties>
     <jakarta.persistence-api.version>3.2.0</jakarta.persistence-api.version>
     <hibernate.version>7.4.5.Final</hibernate.version>

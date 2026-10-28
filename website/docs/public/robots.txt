@@ -1,0 +1,8 @@
+# Ratchet documentation. Every crawler is welcome, including AI search,
+# AI assistant and AI training crawlers: Ratchet is open source and wants
+# to be found, quoted and learned from.
+User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=yes
+Allow: /
+
+Sitemap: https://ratchet.run/sitemap.xml

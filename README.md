@@ -1,8 +1,10 @@
 # Ratchet
 
-**Portable, CDI-based job scheduler for Jakarta EE 10/11, Quarkus, and Spring Boot.**
+**Inject one service. Submit a method reference.**
 
-Inject one service, submit a method call, and let Ratchet persist, claim, execute, retry, and observe the work — no heavyweight framework, no proprietary runtime.
+Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java. It runs persistent background jobs, recurring schedules, batches and multi-step workflows across a cluster on Jakarta EE, Quarkus and Spring Boot, using the database you already run (PostgreSQL, MySQL, Oracle, SQL Server or MongoDB) as the queue.
+
+Ratchet persists, claims, executes, retries and observes the work for you. It needs no heavyweight framework and no proprietary runtime.
 
 ```java
 @ApplicationScoped

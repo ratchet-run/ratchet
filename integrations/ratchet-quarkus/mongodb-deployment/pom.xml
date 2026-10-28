@@ -12,6 +12,7 @@
 
   <artifactId>ratchet-quarkus-mongodb-deployment</artifactId>
   <name>Ratchet :: Quarkus Extension :: MongoDB Deployment</name>
+  <description>Build-time (deployment) module of the Ratchet Quarkus extension for the MongoDB store flavor.</description>
 
   <dependencyManagement>
     <dependencies>

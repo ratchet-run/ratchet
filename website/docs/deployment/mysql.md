@@ -1,5 +1,6 @@
 ---
 title: MySQL Deployment
+description: Run Ratchet on MySQL 8+. Covers schema setup, configuration, schema design, performance tuning, monitoring, maintenance and backup.
 ---
 
 # MySQL Deployment

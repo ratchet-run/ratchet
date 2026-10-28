@@ -1,5 +1,6 @@
 ---
 title: PostgreSQL Deployment
+description: Run Ratchet on PostgreSQL 14+. Covers schema setup, configuration, advanced features, performance tuning, monitoring, maintenance, backup and high availability.
 ---
 
 # PostgreSQL Deployment

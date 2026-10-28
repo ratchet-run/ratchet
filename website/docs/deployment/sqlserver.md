@@ -1,5 +1,6 @@
 ---
 title: SQL Server Deployment
+description: Run Ratchet on Microsoft SQL Server 2022. Covers prerequisites, schema setup, configuration, T-SQL dialect notes and schema auto-migration.
 ---
 
 # SQL Server Deployment

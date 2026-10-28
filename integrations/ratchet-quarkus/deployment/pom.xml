@@ -12,6 +12,7 @@
 
   <artifactId>ratchet-quarkus-deployment</artifactId>
   <name>Ratchet :: Quarkus Extension :: Deployment</name>
+  <description>Build-time (deployment) module of the Ratchet Quarkus extension for the Hibernate-backed SQL store flavor.</description>
 
   <dependencies>
     <dependency>
