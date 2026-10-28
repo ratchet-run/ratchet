@@ -35,7 +35,10 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.AbstractList;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -52,6 +55,11 @@ class JsonbPayloadSerializerTest {
     JsonbPayloadSerializer serializer = new JsonbPayloadSerializer();
     try {
       assertEquals(List.of(42L), serializer.deserialize("[42]", type));
+      assertEquals(Map.of("a", 1L), serializer.deserialize("{\"a\":1}", fixtureType("maps")));
+      assertEquals(Set.of(42L), serializer.deserialize("[42]", fixtureType("sets")));
+      assertEquals(
+          List.of(Map.of("a", 1L)),
+          serializer.deserialize("[{\"a\":1}]", fixtureType("nestedMaps")));
       assertNull(serializer.deserialize(null, type));
       assertNull(serializer.deserialize("", type));
       IllegalArgumentException failure =
@@ -64,6 +72,20 @@ class JsonbPayloadSerializerTest {
   }
 
   static void longs(List<Long> values) {}
+
+  static void maps(Map<String, Long> values) {}
+
+  static void sets(Set<Long> values) {}
+
+  static void nestedMaps(List<Map<String, Long>> values) {}
+
+  private Type fixtureType(String name) {
+    return Arrays.stream(getClass().getDeclaredMethods())
+        .filter(method -> method.getName().equals(name))
+        .findFirst()
+        .orElseThrow()
+        .getGenericParameterTypes()[0];
+  }
 
   @Test
   void closeLogsJsonbCloseFailures() throws Exception {
