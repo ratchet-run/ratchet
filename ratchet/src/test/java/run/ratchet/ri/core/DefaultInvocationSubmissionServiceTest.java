@@ -322,6 +322,7 @@ class DefaultInvocationSubmissionServiceTest {
                     TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id), null))
         .withResource("  gateway  ")
         .withMaxRetries(4)
+        .withTimeout(Duration.ofMinutes(45))
         .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(3))
         .submit();
 
@@ -332,6 +333,7 @@ class DefaultInvocationSubmissionServiceTest {
     assertEquals(List.of("inv_1"), children.get(0).getPayload().args());
     assertEquals(List.of("inv_2"), children.get(1).getPayload().args());
     children.forEach(child -> assertEquals("gateway", child.getResourceName()));
+    children.forEach(child -> assertEquals(2700, child.getTimeoutSec()));
     assertEquals(4, children.get(0).getMaxRetries());
     assertEquals(BackoffPolicy.FIXED, children.get(0).getBackoffPolicy());
     assertEquals(3_000, children.get(0).getBackoffParamMs());
@@ -361,6 +363,7 @@ class DefaultInvocationSubmissionServiceTest {
                     TARGET, "sendInvoice", "(Ljava/lang/String;)V", true, List.of(id), null))
         .withResource("  gateway  ")
         .withMaxRetries(2)
+        .withTimeout(Duration.ofMinutes(45))
         .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofMillis(500))
         .start();
 
@@ -373,6 +376,7 @@ class DefaultInvocationSubmissionServiceTest {
     assertEquals(List.of("inv_3"), chunks.get(1).get(0).getPayload().args());
     chunks.forEach(
         chunk -> chunk.forEach(child -> assertEquals("gateway", child.getResourceName())));
+    chunks.forEach(chunk -> chunk.forEach(child -> assertEquals(2700, child.getTimeoutSec())));
     assertEquals(2, chunks.get(0).get(0).getMaxRetries());
     assertEquals(BackoffPolicy.EXPONENTIAL, chunks.get(0).get(0).getBackoffPolicy());
     assertEquals(500, chunks.get(0).get(0).getBackoffParamMs());

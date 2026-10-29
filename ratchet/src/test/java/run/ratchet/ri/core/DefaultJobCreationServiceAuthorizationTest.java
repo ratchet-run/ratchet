@@ -694,6 +694,43 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void batchSubmit_persistsChildTimeoutConfiguredAfterForEach() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
+    builder.forEach(
+        List.of("one", "two"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withTimeout(Duration.ofMinutes(45));
+
+    service.submit(builder);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(2, childrenCaptor.getValue().size());
+    childrenCaptor.getValue().forEach(child -> assertEquals(2700, child.getTimeoutSec()));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_nullTimeoutClearsChildTimeout() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
+    builder.forEach(
+        List.of("one", "two"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withTimeout(Duration.ofMinutes(45));
+    builder.withTimeout(null);
+
+    service.submit(builder);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(2, childrenCaptor.getValue().size());
+    childrenCaptor.getValue().forEach(child -> assertEquals(0, child.getTimeoutSec()));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void batchSubmit_doesNotApplyChildRetriesToParentOrBranches() {
     when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
 
@@ -703,6 +740,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         .withResource("gateway")
         .withMaxRetries(3)
         .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(1))
+        .withTimeout(Duration.ofMinutes(45))
         .thenOnBatchSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask);
 
     service.submit(builder);
@@ -711,6 +749,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(jobCrudStore, times(2)).create(createdCaptor.capture());
     List<JobEntity> created = createdCaptor.getAllValues();
     created.forEach(job -> assertNull(job.getResourceName()));
+    created.forEach(job -> assertEquals(0, job.getTimeoutSec()));
     assertEquals(0, created.get(0).getMaxRetries(), "batch parent must not inherit child retries");
     assertEquals(
         0, created.get(1).getMaxRetries(), "workflow branch must not inherit child retries");
@@ -781,6 +820,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     builder.fromStream(Stream.of("one", "two", "three"));
     builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
     builder.withMaxRetries(2).withBackoff(BackoffPolicy.FIXED, Duration.ofMillis(750));
+    builder.withTimeout(Duration.ofMinutes(45));
     builder.withResource("  gateway  ");
 
     service.submit(builder);
@@ -795,6 +835,9 @@ class DefaultJobCreationServiceAuthorizationTest {
     assertEquals(2, child.getMaxRetries());
     assertEquals(BackoffPolicy.FIXED, child.getBackoffPolicy());
     assertEquals(750, child.getBackoffParamMs());
+    childrenCaptor
+        .getAllValues()
+        .forEach(chunk -> chunk.forEach(item -> assertEquals(2700, item.getTimeoutSec())));
   }
 
   @Test

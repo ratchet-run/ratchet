@@ -124,6 +124,23 @@ public interface StreamingBatchBuilder<T extends Serializable> {
   }
 
   /**
+   * Sets the execution timeout for every child job in this batch.
+   *
+   * <p>Null (the default) leaves children on the global default SLA. The setting applies to the
+   * whole builder, including children already added. It does not apply to the batch parent or to
+   * workflow branch and callback jobs.
+   *
+   * @param timeout child execution timeout; null clears the per-child timeout
+   * @return this builder
+   * @throws IllegalArgumentException if {@code timeout} is negative, is positive but shorter than
+   *     one second, or exceeds {@link Integer#MAX_VALUE} whole seconds
+   * @throws UnsupportedOperationException if the builder does not support child timeout settings
+   */
+  default StreamingBatchBuilder<T> withTimeout(Duration timeout) {
+    throw new UnsupportedOperationException("Batch child timeouts are not supported");
+  }
+
+  /**
    * Makes every child job acquire a permit from the named resource pool before it runs.
    *
    * <p>When the pool is at capacity, the child is rescheduled without counting as a retry. The

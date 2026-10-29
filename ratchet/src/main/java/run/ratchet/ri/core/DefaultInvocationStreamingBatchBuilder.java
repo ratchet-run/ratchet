@@ -89,6 +89,12 @@ final class DefaultInvocationStreamingBatchBuilder<T extends Serializable>
   }
 
   @Override
+  public InvocationStreamingBatchBuilder<T> withTimeout(Duration timeout) {
+    state.withTimeout(timeout);
+    return this;
+  }
+
+  @Override
   public InvocationStreamingBatchBuilder<T> thenBranch(
       WorkflowCondition condition, JobInvocation next, String description) {
     state.addBranch(new WorkflowBranch(condition, new InvocationAdapter(next), description));

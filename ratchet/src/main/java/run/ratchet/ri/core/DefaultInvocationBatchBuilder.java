@@ -95,6 +95,12 @@ final class DefaultInvocationBatchBuilder implements InvocationBatchBuilder {
   }
 
   @Override
+  public InvocationBatchBuilder withTimeout(Duration timeout) {
+    delegate.withTimeout(timeout);
+    return this;
+  }
+
+  @Override
   public JobHandle submit() {
     return delegate.submit();
   }

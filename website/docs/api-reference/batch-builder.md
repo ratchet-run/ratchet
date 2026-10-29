@@ -71,6 +71,23 @@ scheduler.enqueueBatch("Process Orders")
     .submit();
 ```
 
+### withTimeout
+
+```java
+BatchBuilder withTimeout(Duration timeout)
+```
+
+Sets the execution timeout for every child job. Null is the default and clears the override, leaving children on the global default SLA. The setting applies to the whole builder, including children already added. It does not apply to the batch parent or to workflow branch and callback jobs.
+
+Timeouts are stored in whole seconds. Negative durations, positive durations under one second, and values above `Integer.MAX_VALUE` whole seconds throw `IllegalArgumentException`.
+
+```java
+scheduler.enqueueBatch("Process Orders")
+    .forEach(orderIds, orderId -> orderService.process(orderId))
+    .withTimeout(Duration.ofMinutes(45))
+    .submit();
+```
+
 ### withResource
 
 ```java
@@ -282,11 +299,12 @@ Obtained from [`JobSchedulerService.streamingBatch()`](./job-scheduler-service#s
 
 Framework extensions that build invocations directly (rather than serializing lambdas) have mirrored builders — `InvocationBatchBuilder` and `InvocationStreamingBatchBuilder<T>` — on the [`InvocationSubmissionService`](./spi-interfaces#invocationsubmissionservice) SPI.
 
-`StreamingBatchBuilder` exposes the same child retry and resource methods as `BatchBuilder`:
+`StreamingBatchBuilder` exposes the same child retry, timeout, and resource methods as `BatchBuilder`:
 
 ```java
 StreamingBatchBuilder<T> withMaxRetries(int retries)
 StreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param)
+StreamingBatchBuilder<T> withTimeout(Duration timeout)
 StreamingBatchBuilder<T> withResource(String resourceName)
 ```
 
