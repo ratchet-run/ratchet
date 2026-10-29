@@ -78,7 +78,7 @@ import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobExtensionStore;
+import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -101,6 +101,43 @@ class DefaultJobQueryServiceTest {
   @Mock private CallerPrincipalProvider principalProvider;
 
   private DefaultJobQueryService service;
+
+  @Test
+  void propertyFiltersRequirePropertyCapability() {
+    var coreOnly =
+        new DefaultJobQueryService(
+            queryStore,
+            crudStore,
+            analyticsStore,
+            executionStore,
+            recurringJobStore,
+            authPolicy,
+            principalProvider,
+            FIXED_CLOCK);
+    var filter = JobFilter.builder().propertyEquals("tenant", "acme").build();
+    var failure =
+        assertThrows(UnsupportedOperationException.class, () -> coreOnly.findJobs(filter, 10, 0));
+    assertTrue(failure.getMessage().contains("JobPropertyStore"));
+    Mockito.verifyNoInteractions(queryStore, recurringJobStore);
+  }
+
+  @Test
+  void authorizationPropertyFiltersRequirePropertyCapability() {
+    var coreOnly =
+        new DefaultJobQueryService(
+            queryStore,
+            crudStore,
+            analyticsStore,
+            executionStore,
+            recurringJobStore,
+            authPolicy,
+            principalProvider,
+            FIXED_CLOCK);
+    when(authPolicy.filterForPrincipal(any(), any()))
+        .thenReturn(JobFilter.builder().propertyEquals("tenant", "acme").build());
+    assertThrows(UnsupportedOperationException.class, () -> coreOnly.findJobs(null, 10, 0));
+    Mockito.verifyNoInteractions(queryStore, recurringJobStore);
+  }
 
   @Test
   void nullAuthorizationScopeFailsClosed() {
@@ -231,7 +268,9 @@ class DefaultJobQueryServiceTest {
             recurringJobStore,
             authPolicy,
             principalProvider,
-            FIXED_CLOCK);
+            FIXED_CLOCK,
+            null,
+            Mockito.mock(JobPropertyStore.class));
     lenient().when(principalProvider.currentPrincipal()).thenReturn(Optional.empty());
     lenient()
         .when(authPolicy.filterForPrincipal(any(), any()))
@@ -625,8 +664,8 @@ class DefaultJobQueryServiceTest {
     when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
         .thenReturn(Collections.emptyList());
 
-    JobExtensionStore extensionStore = Mockito.mock(JobExtensionStore.class);
-    when(extensionStore.getPropertiesByPrefix(jobId, ""))
+    JobPropertyStore propertyStore = Mockito.mock(JobPropertyStore.class);
+    when(propertyStore.getPropertiesByPrefix(jobId, ""))
         .thenReturn(Map.of("ratchet-blocks.block_name", "invoice.send"));
 
     // A per-block policy: "channel" is secret only on invoice.send jobs, identified through the
@@ -657,7 +696,7 @@ class DefaultJobQueryServiceTest {
               principalProvider,
               FIXED_CLOCK,
               RatchetOptions.builder().security(s -> s.maskPayloads(true)).build(),
-              extensionStore);
+              propertyStore);
 
       Map<String, String> params = masking.getJobDetail(jobId).orElseThrow().params();
 

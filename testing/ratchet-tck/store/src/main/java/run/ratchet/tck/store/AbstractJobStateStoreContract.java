@@ -26,14 +26,15 @@ import jakarta.json.JsonObject;
 import java.io.StringReader;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.converter.EncryptionHolder;
-import run.ratchet.store.spi.JobExtensionStore.ExtensionState;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobStateStore.StateWriteResult;
+import run.ratchet.store.spi.JobStateStore.VersionedState;
 import run.ratchet.store.util.EncryptionEnvelope;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.ExtensionValidation;
@@ -41,16 +42,8 @@ import run.ratchet.store.util.PayloadEncryptor;
 import run.ratchet.tck.store.AbstractPayloadEncryptionStoreContract.RecordingEngine;
 import run.ratchet.tck.store.AbstractPayloadEncryptionStoreContract.SingleKeyProvider;
 
-/**
- * Base contract tests for {@code JobExtensionStore}: write-once indexed properties and mutable
- * per-namespace extension state with optimistic CAS.
- *
- * <p>The encryption tests install a recording engine into the static {@link EncryptionHolder} (the
- * same seam the framework's installer uses at startup) and prove the state blob crosses the
- * encryption seam on write and round-trips on read; the plaintext tests run with the holder
- * disabled and assert the plaintext posture.
- */
-public abstract class AbstractJobExtensionStoreContract implements JobStoreContractFixture {
+/** Contract tests for {@code JobStateStore}. */
+public abstract class AbstractJobStateStoreContract implements JobStoreContractFixture {
 
   private static final String NAMESPACE = "ratchet-tck";
 
@@ -61,119 +54,150 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     cleanupStore();
   }
 
-  // ---- Properties ----
-
-  @Test
-  void putProperty_roundTripsThroughGetProperty() {
-    var job = persist(newPendingJob());
-
-    extensionStore().putProperty(job.getId(), "ratchet-tck.block_name", "invoice.send");
-
-    assertEquals(
-        "invoice.send",
-        extensionStore().getProperty(job.getId(), "ratchet-tck.block_name").orElseThrow());
+  private JobEntity claimedStateJob() {
+    persist(newPendingJob());
+    return store().claimNextBatch(1, "state-owner").get(0);
   }
 
   @Test
-  void putProperty_rejectsKeyLongerThan255Characters() {
-    var job = persist(newPendingJob());
+  void fencedState_liveClaimAndConflictsPreserveState() {
+    var job = claimedStateJob();
+    long claim = job.getClaimSeq();
+    assertEquals(
+        StateWriteResult.UPDATED, stateStore().initState(job.getId(), NAMESPACE, "initial", claim));
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT,
+        stateStore().initState(job.getId(), NAMESPACE, "duplicate", claim));
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT,
+        stateStore().updateState(job.getId(), NAMESPACE, "stale", 1, claim));
+    assertEquals(
+        StateWriteResult.SUPERSEDED,
+        stateStore().updateState(job.getId(), NAMESPACE, "wrong owner", 0, claim + 1));
+    assertEquals(
+        StateWriteResult.SUPERSEDED,
+        stateStore().initState(job.getId(), "other", "wrong owner", claim + 1));
+    assertTrue(stateStore().getState(job.getId(), "other").isEmpty());
+    assertEquals(
+        StateWriteResult.VERSION_CONFLICT,
+        stateStore().updateState(job.getId(), "other", "missing", 0, claim));
+    assertEquals(
+        StateWriteResult.SUPERSEDED,
+        stateStore().initState(job.getId(), NAMESPACE, "duplicate wrong owner", claim + 1));
+    assertEquals(
+        new VersionedState("initial", 0),
+        stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, "updated", 0, claim));
+    assertEquals(
+        new VersionedState("updated", 1),
+        stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+  }
 
+  @Test
+  void fencedState_recoveryRejectsOldOwnerBeforeAndAfterReclaim() {
+    var job = claimedStateJob();
+    long oldClaim = job.getClaimSeq();
+    stateStore().initState(job.getId(), NAMESPACE, "initial", oldClaim);
+    assertEquals(1, store().resetOrphanJobsBefore(Instant.now().plusSeconds(60), 3, 100).reset());
+    assertEquals(oldClaim, store().findById(job.getId()).orElseThrow().getClaimSeq().longValue());
+    assertFencedSuperseded(job.getId(), oldClaim);
+    var next = store().claimNextBatch(1, "next-owner").get(0);
+    assertTrue(next.getClaimSeq() > oldClaim);
+    assertFencedSuperseded(job.getId(), oldClaim);
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, "next", 0, next.getClaimSeq()));
+  }
+
+  private void assertFencedSuperseded(UUID id, long claim) {
+    assertEquals(
+        StateWriteResult.SUPERSEDED, stateStore().initState(id, "absent", "rejected", claim));
+    assertEquals(
+        StateWriteResult.SUPERSEDED, stateStore().updateState(id, NAMESPACE, "rejected", 0, claim));
+    assertTrue(stateStore().getState(id, "absent").isEmpty());
+    assertEquals(
+        new VersionedState("initial", 0), stateStore().getState(id, NAMESPACE).orElseThrow());
+  }
+
+  @Test
+  void fencedState_rejectsSucceededJob() {
+    var job = claimedStateJob();
+    stateStore().initState(job.getId(), NAMESPACE, "initial", job.getClaimSeq());
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
+    assertFencedSuperseded(job.getId(), job.getClaimSeq());
+  }
+
+  @Test
+  void fencedState_rejectsCancelledJob() {
+    var job = claimedStateJob();
+    stateStore().initState(job.getId(), NAMESPACE, "initial", job.getClaimSeq());
+    store().cancelJob(job.getId());
+    assertFencedSuperseded(job.getId(), job.getClaimSeq());
+  }
+
+  @Test
+  void fencedState_missingJobIsSuperseded() {
+    UUID id = UUID.randomUUID();
+    assertEquals(StateWriteResult.SUPERSEDED, stateStore().initState(id, NAMESPACE, "{}", 1));
+    assertEquals(StateWriteResult.SUPERSEDED, stateStore().updateState(id, NAMESPACE, "{}", 0, 1));
+  }
+
+  @Test
+  void fencedState_sizeLimitsAndValidation() {
+    var job = claimedStateJob();
+    long claim = job.getClaimSeq();
     assertThrows(
         IllegalArgumentException.class,
-        () -> extensionStore().putProperty(job.getId(), "x".repeat(256), "value"));
-  }
-
-  @Test
-  void putProperty_rejectsValueLongerThan1024Characters() {
-    var job = persist(newPendingJob());
-
+        () -> stateStore().initState(job.getId(), NAMESPACE, stateOverLimit(), claim));
+    assertTrue(stateStore().getState(job.getId(), NAMESPACE).isEmpty());
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().initState(job.getId(), NAMESPACE, stateAtLimit(), claim));
     assertThrows(
         IllegalArgumentException.class,
-        () -> extensionStore().putProperty(job.getId(), "ratchet-tck.value", "x".repeat(1025)));
-  }
-
-  @Test
-  void putProperty_roundTrips255CharacterKey() {
-    var job = persist(newPendingJob());
-    String key = "x".repeat(255);
-
-    extensionStore().putProperty(job.getId(), key, "value");
-
-    assertEquals("value", extensionStore().getProperty(job.getId(), key).orElseThrow());
-  }
-
-  @Test
-  void putProperty_roundTrips1024CharacterValue() {
-    var job = persist(newPendingJob());
-    String value = "x".repeat(1024);
-
-    extensionStore().putProperty(job.getId(), "ratchet-tck.value", value);
-
+        () -> stateStore().updateState(job.getId(), NAMESPACE, stateOverLimit(), 0, claim));
     assertEquals(
-        value, extensionStore().getProperty(job.getId(), "ratchet-tck.value").orElseThrow());
-  }
-
-  @Test
-  void putProperty_replacesExistingValueForSameKey() {
-    var job = persist(newPendingJob());
-
-    extensionStore().putProperty(job.getId(), "ratchet-tck.block_version", "1");
-    extensionStore().putProperty(job.getId(), "ratchet-tck.block_version", "2");
-
+        new VersionedState(stateAtLimit(), 0),
+        stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
     assertEquals(
-        "2", extensionStore().getProperty(job.getId(), "ratchet-tck.block_version").orElseThrow());
-  }
-
-  @Test
-  void getProperty_returnsEmptyWhenAbsent() {
-    var job = persist(newPendingJob());
-
-    assertTrue(extensionStore().getProperty(job.getId(), "ratchet-tck.missing").isEmpty());
-    assertTrue(
-        extensionStore().getProperty(new UUID(0L, 424_242L), "ratchet-tck.missing").isEmpty());
-  }
-
-  @Test
-  void getPropertiesByPrefix_returnsOnlyMatchingNamespace() {
-    var job = persist(newPendingJob());
-    extensionStore().putProperty(job.getId(), "ratchet-tck.block_name", "invoice.send");
-    extensionStore().putProperty(job.getId(), "ratchet-tck.block_version", "2");
-    extensionStore().putProperty(job.getId(), "other-ext.key", "ignored");
-
-    Map<String, String> scoped =
-        extensionStore().getPropertiesByPrefix(job.getId(), "ratchet-tck.");
-
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, stateAtLimit(), 0, claim));
     assertEquals(
-        Map.of("ratchet-tck.block_name", "invoice.send", "ratchet-tck.block_version", "2"), scoped);
+        new VersionedState(stateAtLimit(), 1),
+        stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> stateStore().initState(job.getId(), "x".repeat(65), "{}", claim));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> stateStore().updateState(job.getId(), "x".repeat(65), "{}", 0, claim));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> stateStore().updateState(job.getId(), NAMESPACE, "{}", -1, claim));
   }
 
   @Test
-  void getPropertiesByPrefix_emptyPrefixReturnsEverything() {
-    var job = persist(newPendingJob());
-    extensionStore().putProperty(job.getId(), "a.one", "1");
-    extensionStore().putProperty(job.getId(), "b.two", "2");
-
-    assertEquals(2, extensionStore().getPropertiesByPrefix(job.getId(), "").size());
-  }
-
-  @Test
-  void getPropertiesByPrefix_treatsLikeMetacharactersLiterally() {
-    var job = persist(newPendingJob());
-    extensionStore().putProperty(job.getId(), "pct%key.x", "match");
-    extensionStore().putProperty(job.getId(), "pctXkey.x", "no-match");
-
-    Map<String, String> scoped = extensionStore().getPropertiesByPrefix(job.getId(), "pct%");
-
-    assertEquals(Map.of("pct%key.x", "match"), scoped);
-  }
-
-  @Test
-  void properties_areScopedToTheOwningJob() {
-    var first = persist(newPendingJob());
-    var second = persist(newPendingJob());
-    extensionStore().putProperty(first.getId(), "ratchet-tck.block_name", "invoice.send");
-
-    assertTrue(extensionStore().getProperty(second.getId(), "ratchet-tck.block_name").isEmpty());
+  void fencedState_atLimitCrossesEncryptionSeam() {
+    var job = claimedStateJob();
+    RecordingEngine engine = new RecordingEngine();
+    EncryptionHolder.install(
+        List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), true);
+    String value = stateAtLimit();
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().initState(job.getId(), NAMESPACE, value, job.getClaimSeq()));
+    assertEquals(
+        StateWriteResult.UPDATED,
+        stateStore().updateState(job.getId(), NAMESPACE, value, 0, job.getClaimSeq()));
+    int beforeRead = engine.decryptCount.get();
+    assertEquals(
+        new VersionedState(value, 1), stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
+    assertEquals(2, engine.encryptedPlaintexts.stream().filter(value::equals).count());
+    assertTrue(engine.decryptCount.get() > beforeRead);
   }
 
   // ---- Extension state ----
@@ -182,9 +206,9 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
   void initState_createsRowAtVersionZero() {
     var job = persist(newPendingJob());
 
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"steps\":{}}");
+    stateStore().initState(job.getId(), NAMESPACE, "{\"steps\":{}}");
 
-    ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
+    VersionedState state = stateStore().getState(job.getId(), NAMESPACE).orElseThrow();
     assertEquals("{\"steps\":{}}", state.json());
     assertEquals(0, state.version());
   }
@@ -195,34 +219,33 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
 
     assertThrows(
         IllegalArgumentException.class,
-        () -> extensionStore().initState(job.getId(), "x".repeat(65), "{}"));
+        () -> stateStore().initState(job.getId(), "x".repeat(65), "{}"));
   }
 
   @Test
   void initState_failsLoudWhenAlreadyInitialized() {
     var job = persist(newPendingJob());
-    extensionStore().initState(job.getId(), NAMESPACE, "{}");
+    stateStore().initState(job.getId(), NAMESPACE, "{}");
 
     assertThrows(
-        IllegalStateException.class,
-        () -> extensionStore().initState(job.getId(), NAMESPACE, "{}"));
+        IllegalStateException.class, () -> stateStore().initState(job.getId(), NAMESPACE, "{}"));
   }
 
   @Test
   void getState_returnsEmptyWhenAbsent() {
     var job = persist(newPendingJob());
 
-    assertTrue(extensionStore().getState(job.getId(), NAMESPACE).isEmpty());
+    assertTrue(stateStore().getState(job.getId(), NAMESPACE).isEmpty());
   }
 
   @Test
   void updateState_appliesOnMatchingVersionAndIncrements() {
     var job = persist(newPendingJob());
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"v\":0}");
+    stateStore().initState(job.getId(), NAMESPACE, "{\"v\":0}");
 
-    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, "{\"v\":1}", 0));
+    assertTrue(stateStore().updateState(job.getId(), NAMESPACE, "{\"v\":1}", 0));
 
-    ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
+    VersionedState state = stateStore().getState(job.getId(), NAMESPACE).orElseThrow();
     assertEquals("{\"v\":1}", state.json());
     assertEquals(1, state.version());
   }
@@ -230,14 +253,14 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
   @Test
   void updateState_rejectsStaleVersionAndLeavesStateUntouched() {
     var job = persist(newPendingJob());
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"v\":0}");
-    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, "{\"v\":1}", 0));
+    stateStore().initState(job.getId(), NAMESPACE, "{\"v\":0}");
+    assertTrue(stateStore().updateState(job.getId(), NAMESPACE, "{\"v\":1}", 0));
 
     assertFalse(
-        extensionStore().updateState(job.getId(), NAMESPACE, "{\"v\":-1}", 0),
+        stateStore().updateState(job.getId(), NAMESPACE, "{\"v\":-1}", 0),
         "a stale expectedVersion must not apply");
 
-    ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
+    VersionedState state = stateStore().getState(job.getId(), NAMESPACE).orElseThrow();
     assertEquals("{\"v\":1}", state.json());
     assertEquals(1, state.version());
   }
@@ -246,21 +269,19 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
   void updateState_returnsFalseWhenRowAbsent() {
     var job = persist(newPendingJob());
 
-    assertFalse(extensionStore().updateState(job.getId(), NAMESPACE, "{}", 0));
+    assertFalse(stateStore().updateState(job.getId(), NAMESPACE, "{}", 0));
   }
 
   @Test
   void state_isScopedPerNamespace() {
     var job = persist(newPendingJob());
-    extensionStore().initState(job.getId(), "ns-one", "{\"a\":1}");
-    extensionStore().initState(job.getId(), "ns-two", "{\"b\":2}");
-    assertTrue(extensionStore().updateState(job.getId(), "ns-one", "{\"a\":2}", 0));
+    stateStore().initState(job.getId(), "ns-one", "{\"a\":1}");
+    stateStore().initState(job.getId(), "ns-two", "{\"b\":2}");
+    assertTrue(stateStore().updateState(job.getId(), "ns-one", "{\"a\":2}", 0));
 
-    assertEquals(
-        "{\"a\":2}", extensionStore().getState(job.getId(), "ns-one").orElseThrow().json());
-    assertEquals(
-        "{\"b\":2}", extensionStore().getState(job.getId(), "ns-two").orElseThrow().json());
-    assertEquals(0, extensionStore().getState(job.getId(), "ns-two").orElseThrow().version());
+    assertEquals("{\"a\":2}", stateStore().getState(job.getId(), "ns-one").orElseThrow().json());
+    assertEquals("{\"b\":2}", stateStore().getState(job.getId(), "ns-two").orElseThrow().json());
+    assertEquals(0, stateStore().getState(job.getId(), "ns-two").orElseThrow().version());
   }
 
   // ---- Encryption posture ----
@@ -272,11 +293,11 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     EncryptionHolder.install(
         List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), true);
 
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"secret\":\"s3cr3t\"}");
-    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, "{\"secret\":\"upd4ted\"}", 0));
+    stateStore().initState(job.getId(), NAMESPACE, "{\"secret\":\"s3cr3t\"}");
+    assertTrue(stateStore().updateState(job.getId(), NAMESPACE, "{\"secret\":\"upd4ted\"}", 0));
 
     // Round-trip: decrypted blob and CAS version come back intact.
-    ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
+    VersionedState state = stateStore().getState(job.getId(), NAMESPACE).orElseThrow();
     assertEquals("{\"secret\":\"upd4ted\"}", state.json());
     assertEquals(1, state.version());
 
@@ -296,11 +317,11 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     job.setEncryptedPayload(true);
     job = persist(job);
 
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"secret\":\"initial\"}");
-    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, "{\"secret\":\"updated\"}", 0));
+    stateStore().initState(job.getId(), NAMESPACE, "{\"secret\":\"initial\"}");
+    assertTrue(stateStore().updateState(job.getId(), NAMESPACE, "{\"secret\":\"updated\"}", 0));
 
     int decryptCallsBeforeRead = engine.decryptCount.get();
-    ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
+    VersionedState state = stateStore().getState(job.getId(), NAMESPACE).orElseThrow();
     assertEquals("{\"secret\":\"updated\"}", state.json());
     assertEquals(1, state.version());
     assertTrue(engine.encryptedPlaintexts.contains("{\"secret\":\"initial\"}"));
@@ -320,11 +341,11 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     job.setEncryptedPayload(false);
     job = persist(job);
 
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"plain\":0}");
-    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, "{\"plain\":1}", 0));
+    stateStore().initState(job.getId(), NAMESPACE, "{\"plain\":0}");
+    assertTrue(stateStore().updateState(job.getId(), NAMESPACE, "{\"plain\":1}", 0));
 
     assertEquals(
-        "{\"plain\":1}", extensionStore().getState(job.getId(), NAMESPACE).orElseThrow().json());
+        "{\"plain\":1}", stateStore().getState(job.getId(), NAMESPACE).orElseThrow().json());
     assertTrue(engine.encryptedPlaintexts.isEmpty(), "non-opted job state must remain plaintext");
     assertEquals(0, engine.decryptCount.get());
   }
@@ -335,22 +356,21 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
 
     IllegalStateException failure =
         assertThrows(
-            IllegalStateException.class, () -> extensionStore().initState(jobId, NAMESPACE, "{}"));
+            IllegalStateException.class, () -> stateStore().initState(jobId, NAMESPACE, "{}"));
 
     assertTrue(
         String.valueOf(failure.getMessage()).contains(jobId.toString()),
         "the missing-job failure must identify the job");
-    assertTrue(extensionStore().getState(jobId, NAMESPACE).isEmpty());
-    assertFalse(extensionStore().updateState(jobId, NAMESPACE, "{}", 0));
+    assertTrue(stateStore().getState(jobId, NAMESPACE).isEmpty());
+    assertFalse(stateStore().updateState(jobId, NAMESPACE, "{}", 0));
   }
 
   // ---- Archive retention ----
 
   @Test
-  void archiveJob_copiesPropertiesAndExtensionStateOntoArchiveRow() {
+  void archiveJob_copiesStateOntoArchiveRow() {
     var job = persist(newPendingJob());
-    extensionStore().putProperty(job.getId(), "ratchet-tck.block_name", "invoice.send");
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"steps\":{}}");
+    stateStore().initState(job.getId(), NAMESPACE, "{\"steps\":{}}");
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store()
         .markJobSucceeded(
@@ -359,11 +379,6 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
 
     var archived = archiveStore().archiveJob(completed, "tck", "tck-node");
 
-    assertTrue(
-        archived.getProperties() != null
-            && archived.getProperties().contains("ratchet-tck.block_name")
-            && archived.getProperties().contains("invoice.send"),
-        "archive row must carry the job's properties as JSON");
     assertTrue(
         archived.getExtensionState() != null && archived.getExtensionState().contains(NAMESPACE),
         "archive row must carry the job's extension state as JSON");
@@ -384,7 +399,7 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     RecordingEngine engine = new RecordingEngine();
     EncryptionHolder.install(
         List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), true);
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"secret\":\"s3cr3t\"}");
+    stateStore().initState(job.getId(), NAMESPACE, "{\"secret\":\"s3cr3t\"}");
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store()
         .markJobSucceeded(
@@ -432,9 +447,9 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
   void state_isPlaintextWhenEncryptionDisabled() {
     var job = persist(newPendingJob());
 
-    extensionStore().initState(job.getId(), NAMESPACE, "{\"plain\":true}");
+    stateStore().initState(job.getId(), NAMESPACE, "{\"plain\":true}");
 
-    ExtensionState state = extensionStore().getState(job.getId(), NAMESPACE).orElseThrow();
+    VersionedState state = stateStore().getState(job.getId(), NAMESPACE).orElseThrow();
     assertEquals("{\"plain\":true}", state.json());
   }
 
@@ -452,21 +467,19 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
   void initState_acceptsStateAtTheSizeLimit() {
     var job = persist(newPendingJob());
     String value = stateAtLimit();
-    extensionStore().initState(job.getId(), NAMESPACE, value);
+    stateStore().initState(job.getId(), NAMESPACE, value);
     assertEquals(
-        new ExtensionState(value, 0),
-        extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
+        new VersionedState(value, 0), stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
   }
 
   @Test
   void updateState_acceptsStateAtTheSizeLimit() {
     var job = persist(newPendingJob());
-    extensionStore().initState(job.getId(), NAMESPACE, "{}");
+    stateStore().initState(job.getId(), NAMESPACE, "{}");
     String value = stateAtLimit();
-    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, value, 0));
+    assertTrue(stateStore().updateState(job.getId(), NAMESPACE, value, 0));
     assertEquals(
-        new ExtensionState(value, 1),
-        extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
+        new VersionedState(value, 1), stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
   }
 
   @Test
@@ -474,20 +487,19 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     var job = persist(newPendingJob());
     assertThrows(
         IllegalArgumentException.class,
-        () -> extensionStore().initState(job.getId(), NAMESPACE, stateOverLimit()));
-    assertTrue(extensionStore().getState(job.getId(), NAMESPACE).isEmpty());
+        () -> stateStore().initState(job.getId(), NAMESPACE, stateOverLimit()));
+    assertTrue(stateStore().getState(job.getId(), NAMESPACE).isEmpty());
   }
 
   @Test
   void updateState_rejectsStateOverTheSizeLimit() {
     var job = persist(newPendingJob());
-    extensionStore().initState(job.getId(), NAMESPACE, "{}");
+    stateStore().initState(job.getId(), NAMESPACE, "{}");
     assertThrows(
         IllegalArgumentException.class,
-        () -> extensionStore().updateState(job.getId(), NAMESPACE, stateOverLimit(), 0));
+        () -> stateStore().updateState(job.getId(), NAMESPACE, stateOverLimit(), 0));
     assertEquals(
-        new ExtensionState("{}", 0),
-        extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
+        new VersionedState("{}", 0), stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
   }
 
   @Test
@@ -497,11 +509,10 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
     EncryptionHolder.install(
         List.of(engine), RecordingEngine.ALGORITHM_ID, new SingleKeyProvider(), true);
     String value = stateAtLimit();
-    extensionStore().initState(job.getId(), NAMESPACE, value);
-    assertTrue(extensionStore().updateState(job.getId(), NAMESPACE, value, 0));
+    stateStore().initState(job.getId(), NAMESPACE, value);
+    assertTrue(stateStore().updateState(job.getId(), NAMESPACE, value, 0));
     assertEquals(
-        new ExtensionState(value, 1),
-        extensionStore().getState(job.getId(), NAMESPACE).orElseThrow());
+        new VersionedState(value, 1), stateStore().getState(job.getId(), NAMESPACE).orElseThrow());
     assertEquals(2, engine.encryptedPlaintexts.stream().filter(value::equals).count());
     assertTrue(engine.decryptCount.get() > 0, "read path must route through the engine");
   }
@@ -510,7 +521,7 @@ public abstract class AbstractJobExtensionStoreContract implements JobStoreContr
   void archiveJob_copiesStateAtTheSizeLimit() {
     var job = persist(newPendingJob());
     String value = stateAtLimit();
-    extensionStore().initState(job.getId(), NAMESPACE, value);
+    stateStore().initState(job.getId(), NAMESPACE, value);
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store()
         .markJobSucceeded(

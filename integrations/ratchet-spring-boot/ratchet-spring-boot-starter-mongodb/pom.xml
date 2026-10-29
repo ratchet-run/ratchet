@@ -9,6 +9,7 @@
   </parent>
   <artifactId>ratchet-spring-boot-starter-mongodb</artifactId>
   <name>Ratchet :: Spring Boot starter-mongodb</name>
+  <description>Spring Boot starter for Ratchet, the open-source distributed job scheduler for Java, with the MongoDB store.</description>
   <properties>
     <jakarta.persistence-api.version>3.2.0</jakarta.persistence-api.version>
     <spring-boot.version>4.1.1</spring-boot.version>

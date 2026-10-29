@@ -293,7 +293,7 @@ public interface PayloadMaskingPolicy {
 public record MaskingContext(UUID jobId, Map<String, String> jobProperties) {}
 ```
 
-The context-aware overload exists for per-job decisions — the same field name can be secret on one job and not on another. `MaskingContext` carries the owning job's id and its extension properties, populated when the store advertises the `JobExtensionStore` capability (empty map otherwise). Existing name-only policies keep working unchanged through the default method.
+The context-aware overload exists for per-job decisions — the same field name can be secret on one job and not on another. `MaskingContext` carries the owning job's id and its extension properties, populated when the store advertises the `JobPropertyStore` capability (empty map otherwise). Existing name-only policies keep working unchanged through the default method.
 
 ## PayloadEncryption
 
@@ -360,6 +360,22 @@ public interface InvocationSubmissionService {
 The three builders mirror their public counterparts. `InvocationJobBuilder` carries the options and chaining surface of [JobBuilder](/api-reference/job-builder) (`then`, `branch`, `awaitSignal`, `withTags`, `withEncryptedPayload`, ...) with a `JobInvocation` in place of each lambda. `InvocationBatchBuilder` and `InvocationStreamingBatchBuilder<T>` mirror [BatchBuilder and StreamingBatchBuilder](/api-reference/batch-builder); the streaming variant expands each stream item into a child job through a `Function<T, JobInvocation>` factory and inherits the chunk-boundary persistence and replay behavior. A streaming chunk whose bulk insert fails emits [`BatchChunkFailureEvent`](/api-reference/event-system#batchchunkfailureevent) before the submission transaction rolls back.
 
 `invocationCondition(...)` wraps a pre-resolved invocation as a `CUSTOM` workflow condition. The target method is dispatched reflectively at evaluation time with the parent's `JobResult` supplied as the trailing argument and must return `boolean`; the invocation persists as the condition's expression payload and is encrypted under the parent's predicate surface when payload encryption applies.
+
+## PayloadSerializer
+
+JSON persistence boundary for job payloads and results. The default implementation uses JSON-B.
+
+```java
+public interface PayloadSerializer {
+    String serialize(Object payload);
+    <T> T deserialize(String json, Class<T> type);
+    default <T> T deserialize(String json, Type type);
+}
+```
+
+At execution, Ratchet uses the target method's generic parameter types to restore collection and map arguments, including nested collections and numeric elements such as `List<Long>`. For example, `List<Order>` and `Map<String, Order>` receive `Order` instances after persistence. Nested sets, other collection types and arrays such as `List<Set<String>>` and `List<String[]>` are restored too, because JSON has no set or array type. Declared element classes must pass the deployment's `ClassPolicy` before deserialization. Interfaces, abstract classes and standard `java.util` collection classes are not sent to the policy. Type variables, bounded wildcards and generic arrays such as `List<Order>[]` force raw behavior for the whole argument. Interface and abstract element types such as `Number` and `CharSequence`, and non-container generic interfaces such as `Iterable<Order>`, keep raw behavior only when nothing else in the same argument needs restoring. Otherwise the serializer rebuilds the whole argument. In `Holder<Order, Number>`, the `Number` value is deserialized along with the `Order`.
+
+Custom implementations should override `deserialize(String, Type)` to restore generic types. The default overload delegates plain classes to `deserialize(String, Class)` and throws `IllegalArgumentException` for unsupported generic types. Both overloads return null for null or empty JSON; deserialization failures must throw `IllegalArgumentException`. Implementations must be thread-safe and must not let JSON select arbitrary classes through polymorphic typing.
 
 ## PreExecutionArgResolver
 
@@ -945,6 +961,14 @@ public class AsmLambdaAnalyzer implements LambdaAnalyzer {
     }
 }
 ```
+
+## Per-job property and state capabilities
+
+`JobPropertyStore` provides indexed plaintext extension metadata through `putProperty`, `getProperty`, and `getPropertiesByPrefix`. Properties are intended to be write-once at submission. Querying with non-empty property filters requires this capability; otherwise the query service throws `UnsupportedOperationException`.
+
+`JobStateStore` provides general per-job, per-namespace mutable JSON state for core features and extensions through `getState`, `initState`, and `updateState`. Reads return `VersionedState(json, version)` and updates use version CAS. State follows the configured payload encryption policy. Each capability is optional and probed independently. Archiving retains the surfaces the store advertises.
+
+An executing attempt passes its claim sequence to `initState(jobId, namespace, initialState, expectedClaimSeq)` or `updateState(jobId, namespace, newState, expectedVersion, expectedClaimSeq)`. Both return `StateWriteResult`: `UPDATED` means the write applied, `VERSION_CONFLICT` means re-read and retry, and `SUPERSEDED` means stop. The fence requires a RUNNING job with the same claim sequence. Init creates version 0; update increments the version. Writers that own no claim use the unfenced methods.
 
 ## See also
 

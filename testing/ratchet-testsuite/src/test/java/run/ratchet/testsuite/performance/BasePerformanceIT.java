@@ -178,17 +178,18 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return times;
   }
 
-  @BeforeEach
-  void restartPoller() {
-    pollerScheduler.start();
-    pollerScheduler.wakeup();
-  }
-
-  /** Stop poller to avoid TRUNCATE deadlock. */
+  /**
+   * Stops the poller so TRUNCATE cannot deadlock a live cycle, then restarts it for the test. This
+   * is one method because JUnit does not order two {@code @BeforeEach} methods declared in the same
+   * class.
+   */
   @Override
+  @BeforeEach
   protected void truncateAll() throws Exception {
     PollerControl.stopAndAwait(pollerScheduler);
     super.truncateAll();
+    pollerScheduler.start();
+    pollerScheduler.wakeup();
   }
 
   static boolean pollerSchedulerStopped(PollerScheduler scheduler) {

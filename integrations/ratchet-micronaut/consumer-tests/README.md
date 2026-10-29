@@ -117,7 +117,7 @@ entities independently of the application entity/converter scan.
   after failed migration discovery.
 - `SqlLifecycleTest`: sequential contexts, fatal startup recovery, disabled integration with usable
   host JPA and no Ratchet schema, and shutdown that drains a blocked job before datasource closure.
-- `SqlStoreContractTest` / `MongoStoreContractTest`: all 21 nested store contract groups are retained.
+- `SqlStoreContractTest` / `MongoStoreContractTest`: all 22 nested store contract groups are retained.
   The `fixtures` module supplies inert scheduling timers only for `consumer.store-contract=true`;
   the actual integration-created store bean and transaction proxy remain under test.
 - `SqlApiContractTest` / `MongoApiContractTest`: the shared API TCK remains enabled, including

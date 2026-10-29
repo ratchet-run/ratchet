@@ -127,10 +127,10 @@ public class LayeringArchitectureTest {
   /**
    * {@code run.ratchet.blocks..} is the optional low-code extension layered ON TOP of the core:
    * blocks depends on the API and SPI seams ({@code InvocationSubmissionService}, {@code
-   * JobExtensionStore}, {@code PreExecutionArgResolver}), never the reverse. A single core-side
-   * reference into the blocks package would make the optional module mandatory. The rule's subject
-   * packages are non-empty today, so it cannot pass vacuously even while the blocks module itself
-   * does not exist yet.
+   * JobPropertyStore}, {@code JobStateStore}, {@code PreExecutionArgResolver}), never the reverse.
+   * A single core-side reference into the blocks package would make the optional module mandatory.
+   * The rule's subject packages are non-empty today, so it cannot pass vacuously even while the
+   * blocks module itself does not exist yet.
    */
   @ArchTest
   static final ArchRule coreDoesNotDependOnBlocksExtension =

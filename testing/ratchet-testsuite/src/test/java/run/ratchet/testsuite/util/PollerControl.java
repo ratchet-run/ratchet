@@ -17,6 +17,9 @@ package run.ratchet.testsuite.util;
 
 import static org.awaitility.Awaitility.await;
 
+import jakarta.enterprise.inject.spi.Bean;
+import jakarta.enterprise.inject.spi.BeanManager;
+import jakarta.enterprise.inject.spi.CDI;
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.concurrent.Future;
@@ -32,7 +35,8 @@ import run.ratchet.ri.core.internal.DefaultPollerScheduler;
  * inserting a job and the test's own claim, the poller consumes the job and the direct claim sees
  * nothing. Stopping the poller (and waiting for any in-flight cycle to finish) removes the race so
  * the store sees only the test's own claims. It also avoids a {@code TRUNCATE} deadlocking against
- * a live poll cycle's row locks.
+ * a live poll cycle's row locks. CDI client proxies are resolved to their contextual bean instance
+ * before reading the poller's internal state.
  */
 public final class PollerControl {
 
@@ -54,7 +58,7 @@ public final class PollerControl {
    * idle-state query.
    */
   public static boolean isStopped(PollerScheduler scheduler) {
-    DefaultPollerScheduler poller = asDefault(scheduler);
+    DefaultPollerScheduler poller = contextualPoller(asDefault(scheduler));
     Object lock = readField(poller, "scheduleLock", Object.class);
     synchronized (lock) {
       Future<?> handle = readField(poller, "handle", Future.class);
@@ -65,8 +69,9 @@ public final class PollerControl {
 
   /**
    * Narrows to the concrete poller whose internals this helper reflects over, failing fast with an
-   * actionable message if a different {@link PollerScheduler} implementation is ever wired in. (A
-   * normal-scoped CDI client proxy still passes, since it subclasses the bean type.)
+   * actionable message if a different {@link PollerScheduler} implementation is ever wired in. A
+   * normal-scoped CDI client proxy passes this check; its contextual instance is resolved before
+   * reading fields.
    */
   private static DefaultPollerScheduler asDefault(PollerScheduler scheduler) {
     if (scheduler instanceof DefaultPollerScheduler poller) {
@@ -77,6 +82,26 @@ public final class PollerControl {
             + DefaultPollerScheduler.class.getName()
             + " but was given "
             + (scheduler == null ? "null" : scheduler.getClass().getName()));
+  }
+
+  private static DefaultPollerScheduler contextualPoller(DefaultPollerScheduler scheduler) {
+    if (scheduler.getClass() == DefaultPollerScheduler.class) {
+      return scheduler;
+    }
+    BeanManager beanManager = CDI.current().getBeanManager();
+    Bean<?> bean = beanManager.resolve(beanManager.getBeans(DefaultPollerScheduler.class));
+    if (bean == null) {
+      throw new IllegalStateException("No CDI bean found for DefaultPollerScheduler");
+    }
+    Object instance = contextualInstance(beanManager, bean);
+    if (instance == null) {
+      throw new IllegalStateException("No contextual instance found for DefaultPollerScheduler");
+    }
+    return DefaultPollerScheduler.class.cast(instance);
+  }
+
+  private static <T> T contextualInstance(BeanManager beanManager, Bean<T> bean) {
+    return beanManager.getContext(bean.getScope()).get(bean);
   }
 
   private static <T> T readField(DefaultPollerScheduler target, String name, Class<T> type) {

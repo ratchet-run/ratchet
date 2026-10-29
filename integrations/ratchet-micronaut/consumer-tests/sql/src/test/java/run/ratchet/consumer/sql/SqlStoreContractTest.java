@@ -34,10 +34,11 @@ import run.ratchet.tck.store.AbstractJobBatchStatusStoreContract;
 import run.ratchet.tck.store.AbstractJobBulkStoreContract;
 import run.ratchet.tck.store.AbstractJobClaimStoreContract;
 import run.ratchet.tck.store.AbstractJobCrudStoreContract;
-import run.ratchet.tck.store.AbstractJobExtensionStoreContract;
 import run.ratchet.tck.store.AbstractJobPauseStoreContract;
+import run.ratchet.tck.store.AbstractJobPropertyStoreContract;
 import run.ratchet.tck.store.AbstractJobQueryStoreContract;
 import run.ratchet.tck.store.AbstractJobRetryStoreContract;
+import run.ratchet.tck.store.AbstractJobStateStoreContract;
 import run.ratchet.tck.store.AbstractJobTerminalStoreContract;
 import run.ratchet.tck.store.AbstractLockStoreContract;
 import run.ratchet.tck.store.AbstractNodeStoreContract;
@@ -155,7 +156,10 @@ class SqlStoreContractTest {
   class Idempotency extends AbstractActiveBusinessKeyContract implements StoreFixture {}
 
   @Nested
-  class Extension extends AbstractJobExtensionStoreContract implements StoreFixture {}
+  class Properties extends AbstractJobPropertyStoreContract implements StoreFixture {}
+
+  @Nested
+  class State extends AbstractJobStateStoreContract implements StoreFixture {}
 
   @Nested
   class Query extends AbstractJobQueryStoreContract implements StoreFixture {}

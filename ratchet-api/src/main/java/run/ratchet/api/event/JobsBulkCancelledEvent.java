@@ -21,7 +21,7 @@ import java.time.Instant;
 import run.ratchet.api.Incubating;
 
 /**
- * Fired exactly once per successful bulk cancel-by-tag operation when at least one job was
+ * Fired at most once per successful bulk cancel-by-tag operation when at least one job was
  * cancelled.
  *
  * <p>Standalone event sibling of the per-job cancellation hierarchy. Bulk cancellation does not

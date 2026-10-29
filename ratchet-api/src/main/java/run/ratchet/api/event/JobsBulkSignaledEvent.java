@@ -22,7 +22,7 @@ import run.ratchet.api.Incubating;
 import run.ratchet.api.SignalDecision;
 
 /**
- * Fired exactly once per successful key-based signal delivery when at least one WAITING job is
+ * Fired at most once per successful key-based signal delivery when at least one WAITING job is
  * unblocked.
  *
  * <p>Standalone event sibling of {@link JobSignaledEvent}. Bulk signal delivery can unblock many

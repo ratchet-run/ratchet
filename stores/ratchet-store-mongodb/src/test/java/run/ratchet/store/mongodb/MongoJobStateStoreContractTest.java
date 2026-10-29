@@ -13,15 +13,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.store.sqlserver;
+package run.ratchet.store.mongodb;
 
+import org.junit.jupiter.api.AfterAll;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractJobExtensionStoreContract;
+import run.ratchet.tck.store.AbstractJobStateStoreContract;
 
-class SqlserverJobExtensionStoreContractTest extends AbstractJobExtensionStoreContract {
+/** MongoDB contract test for {@code JobStateStore} operations. */
+class MongoJobStateStoreContractTest extends AbstractJobStateStoreContract {
 
-  private final SqlserverTestFixture fixture = new SqlserverTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
+
+  @AfterAll
+  static void closeFixture() {
+    fixture.close();
+  }
 
   @Override
   public JobStore store() {

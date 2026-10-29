@@ -130,16 +130,15 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   }
 
   @Test
-  void archiveAndDeleteJobsBatch_preservesExtensionDataAndRemovesHotRows() {
-    // The probe-backed accessor aborts (conformance N/A) when the store does not
-    // advertise JobExtensionStore; a plain return would report a vacuous PASS.
-    var extensions = extensionStore();
+  void archiveAndDeleteJobsBatch_preservesPropertiesAndRemovesHotRows() {
+    // The probe-backed accessors abort (conformance N/A) when the store does not advertise the
+    // capability; a plain return would report a vacuous PASS.
+    var extensions = propertyStore();
 
     var job = newPendingJob();
     job.setBusinessKey("archive-extension-" + job.getId());
     job = persist(job);
     extensions.putProperty(job.getId(), "ratchet-tck.archive", "preserved");
-    extensions.initState(job.getId(), "ratchet-tck", "{\"step\":1}");
     var terminal = completeJob(job);
 
     archiveStore().archiveAndDeleteJobsBatch(List.of(terminal), "extension-batch-test", "tck");
@@ -151,12 +150,28 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
             && archived.getProperties().contains("\"preserved\""),
         () -> "archive should preserve extension properties: " + archived.getProperties());
     assertTrue(
+        extensions.getProperty(job.getId(), "ratchet-tck.archive").isEmpty(),
+        "hot extension properties should be removed");
+  }
+
+  @Test
+  void archiveAndDeleteJobsBatch_preservesStateAndRemovesHotRows() {
+    var extensions = stateStore();
+
+    var job = newPendingJob();
+    job.setBusinessKey("archive-extension-" + job.getId());
+    job = persist(job);
+    extensions.initState(job.getId(), "ratchet-tck", "{\"step\":1}");
+    var terminal = completeJob(job);
+
+    archiveStore().archiveAndDeleteJobsBatch(List.of(terminal), "extension-batch-test", "tck");
+
+    var archived =
+        archiveStore().findArchivedJobs(null, terminal.getBusinessKey(), null, null, 10).get(0);
+    assertTrue(
         archived.getExtensionState().contains("\"namespace\"")
             && archived.getExtensionState().contains("\"ratchet-tck\""),
         () -> "archive should preserve extension state: " + archived.getExtensionState());
-    assertTrue(
-        extensions.getProperty(job.getId(), "ratchet-tck.archive").isEmpty(),
-        "hot extension properties should be removed");
     assertTrue(
         extensions.getState(job.getId(), "ratchet-tck").isEmpty(),
         "hot extension state should be removed");

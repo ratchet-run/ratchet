@@ -295,8 +295,9 @@ public interface JobSchedulerService {
    *
    * <p>Like {@link #cancelJobsByTag(String)}, this administrative bulk operation is not subject to
    * per-job {@link JobAuthorizationPolicy} checks. Use {@link #retryJob(UUID)} when per-job
-   * authorization is required. A successful call publishes one {@link JobsBulkRetriedEvent}, not
-   * one {@link JobRetryingEvent} per selected job, and issues one scheduler wakeup.
+   * authorization is required. A successful call publishes at most one {@link
+   * JobsBulkRetriedEvent}, not one {@link JobRetryingEvent} per selected job, and issues one
+   * scheduler wakeup.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
@@ -432,8 +433,8 @@ public interface JobSchedulerService {
    *
    * <p>Implementations MUST publish exactly one {@link
    * run.ratchet.api.event.JobsBulkCancelledEvent} per call when the returned count is greater than
-   * zero, with the matching {@code (tag, count)}. No per-job {@code JobCancelledEvent} is fired for
-   * jobs cancelled by this method.
+   * zero, with the matching {@code (tag, count)}, unless the node stops after the commit and before
+   * delivery. No per-job {@code JobCancelledEvent} is fired for jobs cancelled by this method.
    *
    * <p>Not subject to per-job {@link run.ratchet.spi.JobAuthorizationPolicy} authorization; use
    * {@link #cancelJob(UUID)} for authorization-gated single-job cancellation.
@@ -452,7 +453,8 @@ public interface JobSchedulerService {
    *
    * <p>Implementations MUST publish exactly one {@link
    * run.ratchet.api.event.JobsBulkCancelledEvent} per call when the returned count is greater than
-   * zero, with the matching {@code (tag, count)}.
+   * zero, with the matching {@code (tag, count)}, unless the node stops after the commit and before
+   * delivery.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *

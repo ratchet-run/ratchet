@@ -1,14 +1,16 @@
 ---
 sidebar_position: 1
 title: Introduction
-description: What is Ratchet, why use it, and how it compares to other job schedulers in the Jakarta EE ecosystem
+description: What Ratchet is (an open-source distributed job scheduler for Java on Jakarta EE, Quarkus, Spring Boot and Micronaut), why you would use it, and how it compares with other Java job schedulers.
 ---
 
 # Introduction
 
 ## What is Ratchet?
 
-Ratchet is a persistent job scheduler for Jakarta EE 10/11, Quarkus, Spring Boot, and Micronaut. It gives you a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience -- all without pulling in heavyweight frameworks or non-standard dependencies.
+Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java. It runs persistent background jobs, recurring schedules, batches and multi-step workflows across a cluster on Jakarta EE, Quarkus, Spring Boot and Micronaut, using the database you already run (PostgreSQL, MySQL, Oracle, SQL Server or MongoDB) as the queue.
+
+The API is annotation-driven, with automatic retries and built-in resilience. It supports Jakarta EE 10 and 11 and needs no heavyweight frameworks or non-standard dependencies.
 
 If you've ever needed to run a task in the background, retry it on failure, chain it with other tasks, or schedule it on a cron timer inside a Jakarta EE application, Ratchet is built for exactly that.
 
@@ -102,7 +104,7 @@ scheduler.enqueueBatch("process-invoices")
 
 ### Observability
 
-Monitor job lifecycle through CDI events or programmatic listeners. Every state transition fires an event you can observe.
+Monitor job lifecycle through CDI events or programmatic listeners. Ratchet publishes an event on the local node after each state transition commits. Delivery is at most once, so read the [delivery guarantees](/api-reference/event-system#delivery-guarantees) before relying on events for every outcome.
 
 ```java
 public void onJobFailed(@Observes JobFailedEvent event) {

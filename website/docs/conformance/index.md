@@ -2,6 +2,7 @@
 id: index
 title: TCK Conformance
 sidebar_label: TCK Conformance
+description: How Ratchet's portability is tested. Three TCK tiers (Store, API and Jakarta Runtime) and CI-generated pass/fail reports for each store, server and database.
 ---
 
 # TCK Conformance

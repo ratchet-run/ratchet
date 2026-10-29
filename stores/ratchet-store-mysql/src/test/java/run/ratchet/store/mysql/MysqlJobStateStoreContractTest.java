@@ -13,15 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package run.ratchet.store.oracle;
+package run.ratchet.store.mysql;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractJobExtensionStoreContract;
+import run.ratchet.tck.store.AbstractJobStateStoreContract;
 
-class OracleJobExtensionStoreContractTest extends AbstractJobExtensionStoreContract {
+class MysqlJobStateStoreContractTest extends AbstractJobStateStoreContract {
 
-  private final OracleTestFixture fixture = new OracleTestFixture();
+  private final MysqlTestFixture fixture = new MysqlTestFixture();
 
   @Override
   public JobStore store() {

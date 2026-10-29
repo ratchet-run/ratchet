@@ -270,7 +270,7 @@ final class OracleArchiveOperations implements ArchiveStore {
 
   private ArchiveExtensionData fetchArchiveExtensionData(List<UUID> jobIds) {
     return ArchiveExtensionData.fetch(
-        ctx.em(), jobIds, UuidRawConverter::toBytes, RowValues::uuidOrNull);
+        ctx.em(), jobIds, true, true, UuidRawConverter::toBytes, RowValues::uuidOrNull);
   }
 
   private void populateExtensionData(

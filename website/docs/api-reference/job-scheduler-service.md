@@ -322,8 +322,8 @@ int recovered = scheduler.retryJobs(billingFailures, 250);
   whole selected batch instead of partially recovering it.
 - This administrative operation does not run per-job authorization checks. Use `retryJob(UUID)`
   when each job needs an authorization decision.
-- One `JobsBulkRetriedEvent` and one scheduler wakeup are emitted when the count is positive. Ratchet
-  does not emit one `JobRetryingEvent` per recovered job.
+- When the count is positive, Ratchet issues one scheduler wakeup and publishes at most one
+  `JobsBulkRetriedEvent`. It does not emit one `JobRetryingEvent` per recovered job.
 
 ## Signal delivery methods
 

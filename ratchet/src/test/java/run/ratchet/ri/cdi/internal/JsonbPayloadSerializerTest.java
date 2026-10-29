@@ -17,6 +17,7 @@ package run.ratchet.ri.cdi.internal;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -31,9 +32,13 @@ import java.io.Writer;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Type;
 import java.util.AbstractList;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -43,6 +48,44 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.PayloadTooLargeException;
 
 class JsonbPayloadSerializerTest {
+
+  @Test
+  void deserializesGenericTypesAndWrapsFailures() throws Exception {
+    Type type = getClass().getDeclaredMethod("longs", List.class).getGenericParameterTypes()[0];
+    JsonbPayloadSerializer serializer = new JsonbPayloadSerializer();
+    try {
+      assertEquals(List.of(42L), serializer.deserialize("[42]", type));
+      assertEquals(Map.of("a", 1L), serializer.deserialize("{\"a\":1}", fixtureType("maps")));
+      assertEquals(Set.of(42L), serializer.deserialize("[42]", fixtureType("sets")));
+      assertEquals(
+          List.of(Map.of("a", 1L)),
+          serializer.deserialize("[{\"a\":1}]", fixtureType("nestedMaps")));
+      assertNull(serializer.deserialize(null, type));
+      assertNull(serializer.deserialize("", type));
+      IllegalArgumentException failure =
+          assertThrows(IllegalArgumentException.class, () -> serializer.deserialize("[", type));
+      assertTrue(failure.getCause() instanceof JsonbException);
+      assertTrue(failure.getMessage().contains(type.getTypeName()));
+    } finally {
+      serializer.close();
+    }
+  }
+
+  static void longs(List<Long> values) {}
+
+  static void maps(Map<String, Long> values) {}
+
+  static void sets(Set<Long> values) {}
+
+  static void nestedMaps(List<Map<String, Long>> values) {}
+
+  private Type fixtureType(String name) {
+    return Arrays.stream(getClass().getDeclaredMethods())
+        .filter(method -> method.getName().equals(name))
+        .findFirst()
+        .orElseThrow()
+        .getGenericParameterTypes()[0];
+  }
 
   @Test
   void closeLogsJsonbCloseFailures() throws Exception {

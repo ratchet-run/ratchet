@@ -236,7 +236,8 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   }
 
   private ArchiveExtensionData fetchArchiveExtensionData(List<UUID> jobIds) {
-    return ArchiveExtensionData.fetch(ctx.em(), jobIds, id -> id, RowValues::uuidOrNull);
+    return ArchiveExtensionData.fetch(
+        ctx.em(), jobIds, true, true, id -> id, RowValues::uuidOrNull);
   }
 
   private void populateExtensionData(

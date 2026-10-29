@@ -1,5 +1,8 @@
 ---
 layout: home
+title: "Ratchet: open-source distributed job scheduler for Java"
+titleTemplate: false
+description: "Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java: persistent background jobs, schedules, batches and workflows on Jakarta EE, Quarkus, Spring Boot and Micronaut."
 
 hero:
   name: "Ratchet"
@@ -18,7 +21,7 @@ hero:
 
 features:
   - title: CDI-native API
-    details: Inject JobSchedulerService like any other bean and hand it a method reference. Ratchet persists it, runs it on exactly one node, retries on failure, and fires lifecycle events you can observe.
+    details: Inject JobSchedulerService like any other bean and hand it a method reference. Ratchet persists it, claims it for one node at a time, retries on failure, and fires lifecycle events you can observe.
   - title: Resilience built in
     details: Retries with fixed or exponential backoff, a circuit breaker for flaky downstreams, a dead-letter queue, and pause, resume, and cancel at runtime. It's part of the scheduler contract, not a library you bolt on.
   - title: Override any default

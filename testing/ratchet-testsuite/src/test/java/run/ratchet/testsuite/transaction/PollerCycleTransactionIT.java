@@ -72,6 +72,7 @@ class PollerCycleTransactionIT extends BaseRatchetIT {
   }
 
   @Override
+  @BeforeEach
   protected void truncateAll() throws Exception {
     PollerControl.stopAndAwait(pollerScheduler);
     super.truncateAll();

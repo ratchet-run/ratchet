@@ -43,6 +43,10 @@
  *       cannot register an after-commit callback for an existing transaction, it logs the failure
  *       and suppresses the event rather than risk publishing before the transaction outcome is
  *       known.
+ *   <li><b>At most once, on one node.</b> An event is held in memory on the node that made the
+ *       change and is delivered only there. If that node stops between the commit and the delivery,
+ *       for example because its process is killed, the event is lost and is not delivered again.
+ *       The stored job state is the source of truth; check it when every outcome matters.
  *   <li><b>Contained failures.</b> A programmatic listener runs in its own guard: one that throws
  *       is logged, and the remaining listeners still run. CDI observers follow standard synchronous
  *       {@code fire} semantics — a {@code @Observes} method that throws aborts delivery to the
