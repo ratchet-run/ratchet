@@ -308,6 +308,12 @@ public class ChaosNodeApplication {
     }
 
     private void commit(UUID job, String status) {
+      try {
+        gate("after-commit", job);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        return;
+      }
       transaction.executeWithoutResult(
           tx ->
               jdbc.update(
