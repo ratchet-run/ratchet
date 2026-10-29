@@ -19,7 +19,11 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.json.bind.annotation.JsonbCreator;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -42,6 +46,20 @@ class JobPayloadTest {
         null,
         new JobPayload("Target", "callback", "()V", true, List.of(), List.of())
             .runtimeArgIndexes());
+  }
+
+  @Test
+  void jsonbCreatorParametersAreNotImplicit() {
+    // javac 21+ marks compact-constructor parameters as mandated, and JDK 17 reflection then
+    // reports raw parameter types, so Yasson reads runtimeArgIndexes as BigDecimal (issue #294).
+    List<Constructor<?>> creators =
+        Arrays.stream(JobPayload.class.getDeclaredConstructors())
+            .filter(constructor -> constructor.isAnnotationPresent(JsonbCreator.class))
+            .toList();
+    assertEquals(1, creators.size());
+    assertTrue(
+        Arrays.stream(creators.get(0).getParameters()).noneMatch(Parameter::isImplicit),
+        "@JsonbCreator constructor must not have implicit (mandated) parameters");
   }
 
   @Test
