@@ -12,7 +12,7 @@ Retrying handles the blip. It is the wrong tool for the outage: a hundred queued
 Ratchet gives you both, and they stay out of each other's way. The retry budget rides out transient errors. The breaker rides out outages without spending that budget. The external call lives in a durable job, so none of this happens on the request thread, and a provider's bad afternoon never reaches your user as a failed request.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.5.1-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store. The `@CircuitBreakerProtected` annotation is marked `@Incubating` and may change.
+The Java on this page compiles against `ratchet-api` `0.5.0`, with a stand-in `ShipmentRepository` interface for your own persistence code. Every job lambda in it also passes the `0.5.0` runtime's lambda analysis, which `submit()` runs before it writes a job. The running app needs a Jakarta EE server and a configured store. The `@CircuitBreakerProtected` annotation is marked `@Incubating` and may change.
 :::
 
 ## Layer one: the call as a retrying job
@@ -20,6 +20,7 @@ The Java on this page compiles against `ratchet-api` `0.5.1-SNAPSHOT`. It shows 
 Put the external call in a job, give it a retry budget, and back off between attempts. A transient failure now costs the customer nothing.
 
 ```java
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -45,7 +46,7 @@ public class FulfillmentJobs {
         .withMaxRetries(8)
         .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(5))
         .withTimeout(Duration.ofSeconds(30))
-        .withIdempotencyKey("label-" + orderId)
+        .withIdempotencyKey(labelKey(orderId))
         .withTags("shipping", "external")
         .submit();
   }
@@ -53,6 +54,13 @@ public class FulfillmentJobs {
   public void bookLabel(UUID orderId) {
     String tracking = carrier.createLabel(orderId);
     shipments.attachTracking(orderId, tracking);
+  }
+
+  // Idempotency keys hold at most 36 characters and share one namespace across all jobs,
+  // so derive a UUID from the purpose and the order ID.
+  static String labelKey(UUID orderId) {
+    return UUID.nameUUIDFromBytes(("label:" + orderId).getBytes(StandardCharsets.UTF_8))
+        .toString();
   }
 }
 ```
@@ -80,7 +88,9 @@ public class CarrierApi {
     return doHttpCreateLabel(orderId);
   }
 
-  private String doHttpCreateLabel(UUID orderId) { /* the real HTTP client */ }
+  private String doHttpCreateLabel(UUID orderId) {
+    throw new UnsupportedOperationException("call the carrier's HTTP API here");
+  }
 }
 ```
 

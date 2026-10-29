@@ -14,7 +14,7 @@ Ratchet gives the job a waiting state instead. It parks in `WAITING`, holds no t
 The [durable LLM workflows](./durable-llm-workflows.md#pause-for-a-human-then-resume) page reaches for this same mechanism to gate an agent's actions. This page is the mechanism itself: how a job waits, how a decision reaches it, and what happens when nobody decides.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.5.1-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a store that advertises the `SignalStore` capability.
+The Java on this page compiles against `ratchet-api` `0.5.0`, with a stand-in `RefundStore` interface for your own persistence code. Every job lambda in it also passes the `0.5.0` runtime's lambda analysis, which `submit()` runs before it writes a job. The running app needs a Jakarta EE server and a store that advertises the `SignalStore` capability.
 :::
 
 ## Park, decide, resume
@@ -62,7 +62,8 @@ public class RefundApproval {
   }
 
   // 3. Once unblocked, the job body reads the decision and acts on it.
-  void settleRefund(UUID refundId) {
+  // Job methods must be public: submit() rejects a private or package-private target.
+  public void settleRefund(UUID refundId) {
     SignalDecision decision = JobContext.current().signalPayload(SignalDecision.class);
     if (decision == null || decision.isRejected()) {
       String why = decision == null ? "approval timed out" : decision.rejectionReason();

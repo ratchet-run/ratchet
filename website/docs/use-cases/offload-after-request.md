@@ -12,12 +12,13 @@ The usual escape hatch is a thread pool, or a `@Async` method, or handing the wo
 Ratchet closes that window. You enqueue the follow-up work inside the same transaction that writes the order, so the job and the order row commit together. The request returns as soon as the row is durable. The work runs later, on a worker, with retries, and it cannot get lost, because it was written to the same database as the thing it follows up on.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.5.1-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store.
+The Java on this page compiles against `ratchet-api` `0.5.0`, with stand-ins for your own `Order`, `Cart`, `OrderRepository` and `OrderConfirmation` types. Every job lambda in it also passes the `0.5.0` runtime's lambda analysis, which `submit()` runs before it writes a job. The running app needs a Jakarta EE server and a configured store.
 :::
 
 ## Enqueue inside the transaction, return now
 
 ```java
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.UUID;
 
@@ -39,40 +40,50 @@ public class CheckoutService {
   @Transactional
   public OrderConfirmation placeOrder(Cart cart) {
     Order order = orders.save(Order.from(cart));
+    // A job lambda may make exactly one method call, so read the ID outside it.
+    UUID orderId = order.id();
 
     scheduler
-        .enqueue(() -> sendReceipt(order.id()))
-        .withIdempotencyKey("receipt-" + order.id())
+        .enqueue(() -> sendReceipt(orderId))
+        .withIdempotencyKey(receiptKey(orderId))
         .withTags("email", "receipt")
         .submit();
 
     scheduler
-        .enqueue(() -> reserveInventory(order.id()))
+        .enqueue(() -> reserveInventory(orderId))
         .withMaxRetries(5)
         .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
         .withTags("inventory")
         .submit();
 
     scheduler
-        .enqueue(() -> notifyFulfillment(order.id()))
+        .enqueue(() -> notifyFulfillment(orderId))
         .withPriority(JobPriority.HIGH)
         .withTags("fulfillment")
         .submit();
 
-    return OrderConfirmation.accepted(order.id());
+    return OrderConfirmation.accepted(orderId);
   }
 
-  void sendReceipt(UUID orderId) { /* render and send the email */ }
+  // Idempotency keys hold at most 36 characters and share one namespace across all jobs,
+  // so derive a UUID from the purpose and the order ID.
+  static String receiptKey(UUID orderId) {
+    return UUID.nameUUIDFromBytes(("receipt:" + orderId).getBytes(StandardCharsets.UTF_8))
+        .toString();
+  }
 
-  void reserveInventory(UUID orderId) { /* decrement stock, place the hold */ }
+  // Job methods must be public: submit() rejects a private or package-private target.
+  public void sendReceipt(UUID orderId) { /* render and send the email */ }
 
-  void notifyFulfillment(UUID orderId) { /* hand off to the warehouse */ }
+  public void reserveInventory(UUID orderId) { /* decrement stock, place the hold */ }
+
+  public void notifyFulfillment(UUID orderId) { /* hand off to the warehouse */ }
 }
 ```
 
 The handler returns `OrderConfirmation` the moment the order row is committed. Three jobs are now sitting in the database, due immediately, and a worker picks them up on the next poll. The customer never waited on any of them.
 
-The lambdas are method references on this CDI bean. Ratchet serializes only the argument (`order.id()`) and resolves the bean again from CDI when the job runs, so anything injected into `CheckoutService` is live at execution time, not captured at submission.
+Each lambda makes one call to a method on this CDI bean. Ratchet serializes only the argument (`orderId`) and resolves the bean again from CDI when the job runs, so anything injected into `CheckoutService` is live at execution time, not captured at submission. `submit()` rejects a lambda that makes more than one call, which is why the code reads `order.id()` into `orderId` before it builds the jobs.
 
 ## Why "before returning" is a real guarantee
 
@@ -89,16 +100,16 @@ There is no moment where the order persisted but the receipt job evaporated, and
 
 Users double-click. Load balancers retry. A flaky network makes the browser resend a POST that actually succeeded. Without a guard, each of those creates a second order, and a second receipt.
 
-`withIdempotencyKey` is the guard. The key is unique forever, enforced by a database constraint. Submit a job with a key that already exists and the duplicate is silently dropped, not run again.
+`withIdempotencyKey` is the guard. The key is unique forever, enforced by a database constraint. Submit a job with a key that already exists and `submit()` returns the original job's handle instead of creating a second job. If two submissions race, the loser may get a `DuplicateIdempotencyKeyException`, and retrying it in a fresh transaction returns the original handle.
 
 ```java
 scheduler
     .enqueue(() -> sendReceipt(orderId))
-    .withIdempotencyKey("receipt-" + orderId)
+    .withIdempotencyKey(receiptKey(orderId))
     .submit();
 ```
 
-Key the job on something stable from the request: an order id, a payment intent id, a webhook delivery id. Now "send the receipt for order 8412" can be attempted any number of times and the email goes out once.
+Key the job on something stable from the request: an order id, a payment intent id, a webhook delivery id. Now "send the receipt for order 8412" can be submitted any number of times and only one receipt job is created. A key holds at most 36 characters, and every job shares one key namespace. Keying on the bare order ID would collide with any other job keyed on the same order, so `receiptKey` turns the purpose and the order ID into a name-based UUID.
 
 ## What happens when the work fails
 

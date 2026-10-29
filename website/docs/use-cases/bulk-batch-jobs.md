@@ -12,7 +12,7 @@ Roll that yourself and you end up writing the same ledger every time. A counter 
 A batch is Ratchet's name for that ledger. You hand it the items and the work; it enqueues one child job each, counts completions and failures as they land, and hands every progress hook an immutable snapshot. When the batch finishes, you branch on what actually happened.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.5.1-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a store that advertises the `BatchStore` capability.
+The Java on this page compiles against `ratchet-api` `0.5.0`. Every job lambda and progress hook in it also passes the `0.5.0` runtime's lambda analysis, which `submit()` runs before it writes a job. The running app needs a Jakarta EE server and a store that advertises the `BatchStore` capability.
 :::
 
 ## Fan out, track progress, branch on the result
@@ -45,22 +45,23 @@ public class ImageSetService {
         .withMaxRetries(3)
         .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
         .onProgress(ctx -> progress.record(albumId, ctx))
-        .thenWhenFailureCount(25, () -> quarantineAlbum(albumId))
-        .thenWhenSuccessRate(1.0, () -> publishAlbum(albumId))
+        .thenWhenFailureCount(25, () -> publishAlbum(albumId))
+        .thenOnBatchFailure(() -> quarantineAlbum(albumId))
         .submit();
   }
 
-  void renderDerivatives(String imageKey) { /* resize, thumbnail, virus-scan */ }
+  // Job methods must be public: submit() rejects a private or package-private target.
+  public void renderDerivatives(String imageKey) { /* resize, thumbnail, virus-scan */ }
 
-  void quarantineAlbum(UUID albumId) { /* too many bad files; hold for review */ }
+  public void publishAlbum(UUID albumId) { /* flip the album to visible */ }
 
-  void publishAlbum(UUID albumId) { /* flip the album to visible */ }
+  public void quarantineAlbum(UUID albumId) { /* too many bad files; hold for review */ }
 }
 ```
 
 `forEach` enqueues one child job per key. Each runs `renderDerivatives` independently, with up to three retry attempts and exponential backoff. Batch retries are opt-in: without `withMaxRetries`, each child gets one attempt. The parent job is the batch itself: it does no image work, it owns the count.
 
-The two `thenWhen` lines are the part you would otherwise hand-roll. `thenWhenFailureCount(25, ...)` schedules `quarantineAlbum` if twenty-five children fail, so a bad upload stops short of publishing. `thenWhenSuccessRate(1.0, ...)` runs `publishAlbum` only when every child succeeded. They are conditions on the final tally, evaluated once, by the batch, not by you polling a counter.
+The two completion lines are the part you would otherwise hand-roll. `thenWhenFailureCount(25, ...)` is a failure budget: it matches when 25 or fewer children failed, so an album with a few unreadable files still goes live. Ratchet checks completion branches in the order you register them and runs only the first one that matches, so `thenOnBatchFailure` runs `quarantineAlbum` only when more than 25 children failed. The batch checks both once, when every child has finished, so you never poll a counter.
 
 As with every Ratchet job, the lambdas are method references on this CDI bean: only the argument (`albumId`, an image key) is serialized, and the bean is resolved again from CDI when the child runs.
 
@@ -124,7 +125,7 @@ Same counting, same completion branches; the difference is that the items arrive
 
 ## Why reach for a batch
 
-The work was always going to be a few thousand background jobs. What a batch saves you is the ledger around them: the concurrency-safe counting, the "is it finished" check, and the decision about what a partial result means. Those land as `completedItems` and `failedItems` on a snapshot, `isComplete` instead of a polling loop, and `thenWhenSuccessRate` instead of an after-the-fact audit. You describe the items, the work, and the finish conditions; the count is the store's problem.
+The work was always going to be a few thousand background jobs. What a batch saves you is the ledger around them: the concurrency-safe counting, the "is it finished" check, and the decision about what a partial result means. Those land as `completedItems` and `failedItems` on a snapshot, `isComplete` instead of a polling loop, and `thenWhenFailureCount` instead of an after-the-fact audit. You describe the items, the work, and the finish conditions; the count is the store's problem.
 
 ## Next steps
 

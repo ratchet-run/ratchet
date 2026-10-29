@@ -10,7 +10,7 @@ Calling a language model from a request thread is a trap. The call is slow, it f
 This is the problem durable execution solves, and it is what Ratchet already does for any other background work. Ratchet is not an AI framework and ships no model client. It is the layer underneath: it persists the call before it runs, retries it with backoff, trips a circuit breaker when the provider is down, and resumes a half-finished multi-step workflow after a crash. You bring the model client. On Jakarta EE the natural choice is [langchain4j-cdi](https://github.com/langchain4j/langchain4j-cdi), which exposes a [LangChain4j](https://docs.langchain4j.dev) AI service as an injectable CDI bean, the same programming model Ratchet uses.
 
 ::: tip Verified
-The Java on this page is compile-checked in this repository against the next development API: `ratchet-api` `0.5.1-SNAPSHOT`, `langchain4j-cdi-portable-ext` `1.3.3`, and `langchain4j-bedrock` `1.0.0-beta5`. The copyable dependency block deliberately uses the latest published Ratchet release shown below so it resolves from Maven Central. This is not a full runnable application (wiring it up needs a Jakarta EE server and AWS credentials), but the API usage is real, not illustrative pseudocode.
+The Ratchet code on this page compiles against `ratchet-api` `0.5.0`, with stand-ins for `DocAssistant` and for your own `DocumentStore`. Every job lambda in it also passes the `0.5.0` runtime's lambda analysis, which `submit()` runs before it writes a job. The LangChain4j snippets were not part of that check. This is not a full runnable application: wiring it up needs a Jakarta EE server and AWS credentials.
 :::
 
 ## What you wire together
@@ -110,6 +110,8 @@ public class DocumentIntake {
 
   @Inject DocAssistant assistant;
 
+  @Inject DocumentStore documents;
+
   /** The request thread returns immediately; the model call runs as a persisted, retrying job. */
   public JobHandle enqueueSummary(UUID documentId) {
     return scheduler
@@ -123,9 +125,9 @@ public class DocumentIntake {
 
   /** Runs inside the job. Ratchet resolves this bean from CDI; only documentId is serialized. */
   public void summarize(UUID documentId) {
-    String text = loadDocument(documentId);
+    String text = documents.load(documentId);
     String summary = assistant.summarize(text, "English");
-    storeSummary(documentId, summary);
+    documents.saveSummary(documentId, summary);
   }
 }
 ```
@@ -139,14 +141,19 @@ Exponential backoff is the right default for a model provider: rate limits and b
 Agents are multi-step, and the steps fail independently. Model each step as its own job and chain them. A failure in step three does not discard the results of steps one and two, which are already persisted.
 
 ```java
-scheduler.enqueue(() -> retrieveContext(queryId))
-    .thenOnSuccess(() -> answerWithModel(queryId))
-    .thenOnSuccess(() -> indexAnswer(queryId))
-    .thenOnFailure(() -> flagForReview(queryId))
+scheduler
+    .enqueue(() -> retrieveContext(queryId))
+    .then(() -> answerWithModel(queryId))
+    .then(() -> indexAnswer(queryId))
+    .withMaxRetries(5)
+    .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(2))
+    .withTimeout(Duration.ofMinutes(2))
     .submit();
 ```
 
-Each step is a separate persisted job with its own retry budget. If `answerWithModel` keeps failing, Ratchet retries that step alone and the retrieved context is not thrown away and re-fetched.
+Each step is a separate persisted job, and every `.then()` step gets the builder's retry, backoff and timeout settings. If `answerWithModel` fails, Ratchet retries that step alone, and the context from step one is not fetched again. Steps don't pass return values to each other, so `retrieveContext` saves what it found under `queryId` and `answerWithModel` reads it back. If a step runs out of retries, it goes to the dead-letter queue and Ratchet cancels the steps after it.
+
+Use `.then()` for steps that must run in order. `thenOnSuccess` and `thenOnFailure` are branches off the first job, not further steps: only the first branch that matches runs, and branch jobs get no retries.
 
 ## Pause for a human, then resume
 

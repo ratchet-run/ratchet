@@ -117,11 +117,11 @@ public final class MigrationBatchConditions {
 scheduler.enqueueBatch("Data Migration")
     .forEach(records, record -> migrationService.migrate(record))
 
-    // Fire when success rate is above 95%
+    // Fire when the success rate is at least 95%
     .thenWhenSuccessRate(0.95, () -> reportService.generateSuccessReport())
 
-    // Fire when more than 10 items fail
-    .thenWhenFailureCount(10, () -> alertService.escalateToOps())
+    // Fire when 10 or fewer items failed
+    .thenWhenFailureCount(10, () -> reportService.generateReviewReport())
 
     // Custom condition based on BatchContext
     .thenWhenBatch(
@@ -137,6 +137,8 @@ scheduler.enqueueBatch("Data Migration")
     .submit();
 ```
 
+Ratchet checks these conditions in the order you register them, runs only the first one that matches and cancels the rest. Put the most specific condition first.
+
 ### Batch API Summary
 
 | Method | Description |
@@ -149,7 +151,7 @@ scheduler.enqueueBatch("Data Migration")
 | `thenOnBatchSuccess(task)` | Execute on 100% success |
 | `thenOnBatchFailure(task)` | Execute on any failure |
 | `thenWhenSuccessRate(rate, task)` | Execute when success rate meets threshold |
-| `thenWhenFailureCount(max, task)` | Execute when failure count reaches threshold |
+| `thenWhenFailureCount(max, task)` | Execute when the failure count is at or below the threshold |
 | `thenWhenBatch(predicate, task)` | Execute when custom BatchContext condition is met |
 | `thenBranch(condition, task, desc)` | Full workflow branch with WorkflowCondition |
 | `submit()` | Submit the batch for execution |
@@ -233,7 +235,7 @@ scheduler.<Record>streamingBatch("ETL Pipeline")
 | `thenOnBatchSuccess(task)` | Execute on 100% success |
 | `thenOnBatchFailure(task)` | Execute on any failure |
 | `thenWhenSuccessRate(rate, task)` | Execute when success rate meets threshold |
-| `thenWhenFailureCount(max, task)` | Execute when failure count reaches threshold |
+| `thenWhenFailureCount(max, task)` | Execute when the failure count is at or below the threshold |
 | `thenWhenBatch(predicate, task)` | Execute when custom condition is met |
 | `start()` | Begin streaming and job creation |
 

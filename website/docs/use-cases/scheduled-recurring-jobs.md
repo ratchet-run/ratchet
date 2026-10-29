@@ -12,7 +12,7 @@ The usual answer is Quartz, or a `@Scheduled` method, or a cron line on one box.
 Ratchet treats a scheduled run as what it already is: a job. It gets written to your database before it runs, claimed by exactly one node, retried on failure, and picked up again after a crash. The schedule is a row, not a thread on a single machine. If you already run Ratchet for background work, recurring work is the same engine with a cron string attached.
 
 ::: tip Verified
-The Java on this page compiles against `ratchet-api` `0.5.1-SNAPSHOT`. It shows real API usage, not pseudocode. The running app needs a Jakarta EE server and a configured store.
+The Java on this page compiles against `ratchet-api` `0.5.0`. Every job lambda in it also passes the `0.5.0` runtime's lambda analysis, which `submit()` runs before it writes a job. The running app needs a Jakarta EE server and a configured store.
 :::
 
 ## The declarative path: `@Recurring`
@@ -93,6 +93,9 @@ public class ReportScheduler {
         .withMisfirePolicy(RecurringMisfirePolicy.catchUp(3))
         .submit();
   }
+
+  // Job methods must be public: submit() rejects a private or package-private target.
+  public void generateReport(String tenantId) { /* build and send the tenant's report */ }
 }
 ```
 
