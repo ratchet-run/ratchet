@@ -18,6 +18,7 @@ package run.ratchet.ri.core.internal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -46,6 +47,9 @@ import run.ratchet.store.spi.OrphanRecovery;
  *
  * <p>Each scan charges a separate crash budget. Exhausted claims are failed through the fenced
  * completion path, including failure callbacks when payload hydration succeeds.
+ *
+ * <p>A node killed during its own scan leaves the lease held. Other nodes release it once the
+ * holder's heartbeat is older than the orphan grace, instead of waiting for the lease TTL.
  *
  * @see BatchRecoveryTimer
  */
@@ -146,6 +150,17 @@ public class OrphanRecoveryTimer {
       if (singletonLeaseService != null) {
         Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
         if (lease.isEmpty()) {
+          List<String> releasedNodeIds = releaseLeaseHeldByStaleNodes();
+          if (!releasedNodeIds.isEmpty()) {
+            lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
+            if (lease.isPresent()) {
+              log.infof(
+                  "Orphan recovery lease acquired after releasing holds by stale node(s) %s",
+                  releasedNodeIds);
+            }
+          }
+        }
+        if (lease.isEmpty()) {
           log.debug("Orphan recovery skipped - singleton lease held by another node");
           return;
         }
@@ -160,6 +175,23 @@ public class OrphanRecoveryTimer {
     } catch (Exception e) {
       log.error("Orphan recovery scan failed", e);
     }
+  }
+
+  private List<String> releaseLeaseHeldByStaleNodes() {
+    Instant cutoff = effective().instant().minusSeconds(orphanGraceSeconds);
+    List<String> releasedNodeIds = new ArrayList<>();
+    for (NodeEntity staleNode : nodeStore.findInactiveNodesSince(cutoff)) {
+      String nodeId = staleNode.getId();
+      // Re-read to avoid releasing a restarted node's lease or a row another scan removed.
+      Optional<NodeEntity> current = nodeStore.findNodeById(nodeId);
+      if (current.isPresent()
+          && current.get().getLastHeartbeat() != null
+          && current.get().getLastHeartbeat().isBefore(cutoff)) {
+        singletonLeaseService.releaseHeldBy(LEASE_NAME, nodeId);
+        releasedNodeIds.add(nodeId);
+      }
+    }
+    return releasedNodeIds;
   }
 
   private void recoverOrphansWithLease() {

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.time.Duration;
@@ -115,6 +116,45 @@ class SingletonLeaseServiceTest {
 
     assertTrue(service.tryAcquire("jobArchiver", Duration.ofMinutes(5)).isEmpty());
     verify(lockStore, times(2)).tryLock("jobArchiver", Duration.ofMinutes(5), "node-1");
+  }
+
+  @Test
+  void releaseHeldBy_delegatesToStore_whenAnotherNodeHoldsLease() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+
+    service.releaseHeldBy(" orphanRecovery ", "dead");
+
+    verify(lockStore).unlock("orphanRecovery", "dead");
+  }
+
+  @Test
+  void releaseHeldBy_neverUnlocks_whenNodeIsSelf() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+
+    service.releaseHeldBy("orphanRecovery", "node-1");
+
+    verifyNoInteractions(lockStore);
+  }
+
+  @Test
+  void releaseHeldBy_isNoOp_whenNoLockStore() {
+    service = new SingletonLeaseService((LockStore) null, nodeIdentityProvider);
+
+    service.releaseHeldBy("orphanRecovery", "dead");
+
+    verifyNoInteractions(lockStore, nodeIdentityProvider);
+  }
+
+  @Test
+  void releaseHeldBy_swallowsException_whenStoreThrows() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    doThrow(new RuntimeException("db unavailable"))
+        .when(lockStore)
+        .unlock("orphanRecovery", "dead");
+
+    service.releaseHeldBy("orphanRecovery", "dead");
+
+    verify(lockStore).unlock("orphanRecovery", "dead");
   }
 
   @Test
