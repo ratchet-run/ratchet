@@ -30,7 +30,9 @@ class SqlserverPriorityClaimIndexIT {
     var fixture = new SqlserverTestFixture();
     String migration;
     try (var input =
-        getClass().getResourceAsStream("/ddl/migrations/V008__priority_ordered_claim_index.sql")) {
+        getClass()
+            .getResourceAsStream(
+                "/ddl/migrations/sqlserver/V008__priority_ordered_claim_index.sql")) {
       migration = new String(Objects.requireNonNull(input).readAllBytes(), StandardCharsets.UTF_8);
     }
     try (var connection = fixture.openConnection();
