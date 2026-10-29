@@ -45,6 +45,7 @@ import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.event.BatchChunkFailureEvent;
@@ -323,6 +324,8 @@ class DefaultInvocationSubmissionServiceTest {
         .withResource("  gateway  ")
         .withMaxRetries(4)
         .withTimeout(Duration.ofMinutes(45))
+        .withCallbackOptions(JobOptions.defaults().withTimeout(Duration.ofHours(1)))
+        .thenOnBatchSuccess(sendInvoiceInvocation())
         .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(3))
         .submit();
 
@@ -334,6 +337,9 @@ class DefaultInvocationSubmissionServiceTest {
     assertEquals(List.of("inv_2"), children.get(1).getPayload().args());
     children.forEach(child -> assertEquals("gateway", child.getResourceName()));
     children.forEach(child -> assertEquals(2700, child.getTimeoutSec()));
+    ArgumentCaptor<JobEntity> createdCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore, Mockito.times(2)).create(createdCaptor.capture());
+    assertEquals(3600, createdCaptor.getAllValues().get(1).getTimeoutSec());
     assertEquals(4, children.get(0).getMaxRetries());
     assertEquals(BackoffPolicy.FIXED, children.get(0).getBackoffPolicy());
     assertEquals(3_000, children.get(0).getBackoffParamMs());
@@ -364,6 +370,8 @@ class DefaultInvocationSubmissionServiceTest {
         .withResource("  gateway  ")
         .withMaxRetries(2)
         .withTimeout(Duration.ofMinutes(45))
+        .withCallbackOptions(JobOptions.defaults().withTimeout(Duration.ofHours(1)))
+        .thenOnBatchSuccess(sendInvoiceInvocation())
         .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofMillis(500))
         .start();
 
@@ -377,6 +385,9 @@ class DefaultInvocationSubmissionServiceTest {
     chunks.forEach(
         chunk -> chunk.forEach(child -> assertEquals("gateway", child.getResourceName())));
     chunks.forEach(chunk -> chunk.forEach(child -> assertEquals(2700, child.getTimeoutSec())));
+    ArgumentCaptor<JobEntity> createdCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore, Mockito.times(2)).create(createdCaptor.capture());
+    assertEquals(3600, createdCaptor.getAllValues().get(1).getTimeoutSec());
     assertEquals(2, chunks.get(0).get(0).getMaxRetries());
     assertEquals(BackoffPolicy.EXPONENTIAL, chunks.get(0).get(0).getBackoffPolicy());
     assertEquals(500, chunks.get(0).get(0).getBackoffParamMs());

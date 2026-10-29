@@ -42,6 +42,18 @@ public class WorkflowBranchTracker {
   private static final AtomicBoolean CONDITIONAL_BRANCH_FIRED = new AtomicBoolean(false);
   private static final AtomicInteger CONDITIONAL_BRANCH_EXECUTIONS = new AtomicInteger();
 
+  private static final AtomicInteger RETRY_ATTEMPTS = new AtomicInteger();
+
+  public static void failOnceThenSucceed() {
+    if (RETRY_ATTEMPTS.incrementAndGet() == 1) {
+      throw new IllegalStateException("first branch attempt failed");
+    }
+  }
+
+  public static int retryAttempts() {
+    return RETRY_ATTEMPTS.get();
+  }
+
   public static void onSuccess() {
     SUCCESS_BRANCH_FIRED.set(true);
   }
@@ -112,6 +124,7 @@ public class WorkflowBranchTracker {
   }
 
   public static void reset() {
+    RETRY_ATTEMPTS.set(0);
     SUCCESS_BRANCH_FIRED.set(false);
     FAILURE_BRANCH_FIRED.set(false);
     SUCCESS_SCENARIO_SUCCESS_BRANCH_FIRED.set(false);

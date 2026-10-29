@@ -21,6 +21,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.InvocationStreamingBatchBuilder;
@@ -91,6 +92,12 @@ final class DefaultInvocationStreamingBatchBuilder<T extends Serializable>
   @Override
   public InvocationStreamingBatchBuilder<T> withTimeout(Duration timeout) {
     state.withTimeout(timeout);
+    return this;
+  }
+
+  @Override
+  public InvocationStreamingBatchBuilder<T> withCallbackOptions(JobOptions options) {
+    state.withCallbackOptions(options);
     return this;
   }
 

@@ -34,7 +34,7 @@ JobHandle handle = scheduler.enqueue(() -> orderService.process(orderId))
 JobBuilder withPriority(JobPriority priority)
 ```
 
-Sets the execution priority. Higher priority jobs are executed before lower priority ones when multiple jobs are queued.
+Sets the execution priority. Higher priority jobs are executed before lower priority ones when multiple jobs are queued. This setting also applies to the job's chain steps and workflow branches.
 
 **Parameters:**
 - `priority` -- the priority level. One of `LOWEST`, `LOW`, `NORMAL` (default), `HIGH`, `CRITICAL`.
@@ -51,7 +51,7 @@ scheduler.enqueue(() -> criticalService.process())
 JobBuilder withMaxRetries(int retries)
 ```
 
-Sets the maximum number of retry attempts after failure. The default is 0 (no retries).
+Sets the maximum number of retry attempts after failure. The default is 0 (no retries). This setting also applies to the job's chain steps and workflow branches.
 
 **Parameters:**
 - `retries` -- maximum retry count. Must be non-negative.
@@ -68,7 +68,7 @@ scheduler.enqueue(() -> externalApi.call())
 JobBuilder withBackoff(BackoffPolicy policy, Duration param)
 ```
 
-Configures the backoff strategy applied between retry attempts. Only relevant when `maxRetries > 0`.
+Configures the backoff strategy applied between retry attempts. Only relevant when `maxRetries > 0`. This setting also applies to the job's chain steps and workflow branches.
 
 **Parameters:**
 - `policy` -- the backoff strategy: `NONE` (immediate retry), `FIXED` (constant delay), or `EXPONENTIAL` (doubling delay).
@@ -89,7 +89,7 @@ scheduler.enqueue(() -> paymentService.charge(amount))
 JobBuilder withTimeout(Duration timeout)
 ```
 
-Sets the maximum execution duration. Jobs exceeding this limit are forcibly terminated and marked as failed.
+Sets the maximum execution duration. Jobs exceeding this limit are forcibly terminated and marked as failed. This setting also applies to the job's chain steps and workflow branches.
 
 **Parameters:**
 - `timeout` -- the maximum execution duration. Use `Duration.ZERO` to disable timeout.
@@ -385,7 +385,7 @@ scheduler.enqueue(() -> validateData())
 JobBuilder thenOnSuccess(SerializableCheckedRunnable next)
 ```
 
-Schedules a **separate job** to execute if the current job succeeds. This creates a workflow branch with a `SUCCESS` condition. Unlike `then()`, this creates an independent job, not a chain step.
+Schedules a **separate job** to execute if the current job succeeds. This creates a workflow branch with a `SUCCESS` condition. Unlike `then()`, this creates an independent job, not a chain step. The branch inherits the root job's priority, retries, backoff and timeout, like chain steps.
 
 **Parameters:**
 - `next` -- the task to execute on success as a separate job.
@@ -403,7 +403,7 @@ scheduler.enqueue(() -> processPayment(orderId))
 JobBuilder thenOnFailure(SerializableCheckedRunnable next)
 ```
 
-Schedules a **separate job** to execute if the current job fails (after all retries are exhausted). This creates a workflow branch with a `FAILURE` condition.
+Schedules a **separate job** to execute if the current job fails (after all retries are exhausted). This creates a workflow branch with a `FAILURE` condition. The branch inherits the root job's priority, retries, backoff and timeout, like chain steps.
 
 **Parameters:**
 - `next` -- the task to execute on failure as a separate job.
@@ -422,7 +422,7 @@ scheduler.enqueue(() -> processPayment(orderId))
     SerializableCheckedRunnable next)
 ```
 
-Schedules a job to execute when a custom condition is met. The condition receives the full [`JobResult<T>`](./job-result) of the current job. Workflow routing is exclusive: the first matching branch runs and all remaining sibling branches are canceled. Equal priorities preserve registration order.
+Schedules a job to execute when a custom condition is met. The condition receives the full [`JobResult<T>`](./job-result) of the current job. Workflow routing is exclusive: the first matching branch runs and all remaining sibling branches are canceled. Equal priorities preserve registration order. The branch inherits the root job's priority, retries, backoff and timeout, like chain steps.
 
 **Type Parameters:**
 - `T` -- the type of the job result.
@@ -480,7 +480,7 @@ scheduler.enqueue(() -> processOrder())
     SerializableCheckedRunnable next)
 ```
 
-Schedules a job based on the **return value** of the current job. The condition function receives only the value, not the full `JobResult`. As with `when()`, only the first matching branch runs; the scheduler cancels its siblings.
+Schedules a job based on the **return value** of the current job. The condition function receives only the value, not the full `JobResult`. As with `when()`, only the first matching branch runs; the scheduler cancels its siblings. The branch inherits the root job's priority, retries, backoff and timeout, like chain steps.
 
 **Type Parameters:**
 - `T` -- the type of the job's return value.
@@ -519,7 +519,7 @@ JobBuilder branch(WorkflowCondition condition,
                   String description)
 ```
 
-Adds a workflow branch with an explicit [`WorkflowCondition`](./workflow-condition) and a human-readable description for monitoring and debugging. Branches are evaluated by lower-numbered priority first and then by registration order. The first match runs and all remaining siblings are canceled.
+Adds a workflow branch with an explicit [`WorkflowCondition`](./workflow-condition) and a human-readable description for monitoring and debugging. Branches are evaluated by lower-numbered priority first and then by registration order. The first match runs and all remaining siblings are canceled. The branch inherits the root job's priority, retries, backoff and timeout, like chain steps.
 
 **Parameters:**
 - `condition` -- the workflow condition determining when this branch fires.

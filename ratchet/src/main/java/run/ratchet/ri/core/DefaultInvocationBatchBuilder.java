@@ -21,6 +21,7 @@ import java.util.Collection;
 import java.util.function.Function;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.InvocationBatchBuilder;
 import run.ratchet.spi.JobInvocation;
@@ -97,6 +98,12 @@ final class DefaultInvocationBatchBuilder implements InvocationBatchBuilder {
   @Override
   public InvocationBatchBuilder withTimeout(Duration timeout) {
     delegate.withTimeout(timeout);
+    return this;
+  }
+
+  @Override
+  public InvocationBatchBuilder withCallbackOptions(JobOptions options) {
+    delegate.withCallbackOptions(options);
     return this;
   }
 

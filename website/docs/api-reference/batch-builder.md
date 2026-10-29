@@ -88,6 +88,23 @@ scheduler.enqueueBatch("Process Orders")
     .submit();
 ```
 
+### withCallbackOptions
+
+```java
+BatchBuilder withCallbackOptions(JobOptions options)
+```
+
+Sets priority, retries, backoff and timeout for jobs created by `thenOnBatchSuccess`, `thenOnBatchFailure`, `thenWhenSuccessRate`, `thenWhenFailureCount`, `thenWhenBatch` and `thenBranch`.
+
+The default is `JobOptions.defaults()`: NORMAL priority, no retries, no backoff and the global default SLA. Child settings from `withMaxRetries`, `withBackoff` and `withTimeout` do not apply to callbacks. The setting applies to the whole builder regardless of call order. Callbacks use these options for both retries and backoff.
+
+```java
+batch.withCallbackOptions(JobOptions.defaults()
+    .withMaxRetries(2)
+    .withTimeout(Duration.ofHours(1))
+    .withPriority(JobPriority.HIGH));
+```
+
 ### withResource
 
 ```java
@@ -299,12 +316,13 @@ Obtained from [`JobSchedulerService.streamingBatch()`](./job-scheduler-service#s
 
 Framework extensions that build invocations directly (rather than serializing lambdas) have mirrored builders — `InvocationBatchBuilder` and `InvocationStreamingBatchBuilder<T>` — on the [`InvocationSubmissionService`](./spi-interfaces#invocationsubmissionservice) SPI.
 
-`StreamingBatchBuilder` exposes the same child retry, timeout, and resource methods as `BatchBuilder`:
+`StreamingBatchBuilder` exposes the same child retry, timeout, resource, and callback option methods as `BatchBuilder`:
 
 ```java
 StreamingBatchBuilder<T> withMaxRetries(int retries)
 StreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param)
 StreamingBatchBuilder<T> withTimeout(Duration timeout)
+StreamingBatchBuilder<T> withCallbackOptions(JobOptions options)
 StreamingBatchBuilder<T> withResource(String resourceName)
 ```
 

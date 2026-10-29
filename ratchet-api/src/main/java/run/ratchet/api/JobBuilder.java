@@ -338,6 +338,8 @@ public interface JobBuilder {
   /**
    * Sets the backoff policy and base delay for retries.
    *
+   * <p>The setting also applies to the job's chain steps and workflow branches.
+   *
    * @param policy the backoff strategy applied between retry attempts
    * @param param policy-specific base delay (e.g. initial delay for {@code EXPONENTIAL})
    * @return this builder
@@ -346,6 +348,8 @@ public interface JobBuilder {
 
   /**
    * Sets the maximum number of retry attempts (must be &gt;= 0).
+   *
+   * <p>The setting also applies to the job's chain steps and workflow branches.
    *
    * @param retries the maximum number of retry attempts; {@code 0} disables retries
    * @return this builder
@@ -364,6 +368,8 @@ public interface JobBuilder {
   /**
    * Sets the job execution priority.
    *
+   * <p>The setting also applies to the job's chain steps and workflow branches.
+   *
    * @param priority execution priority for this job
    * @return this builder
    */
@@ -379,6 +385,8 @@ public interface JobBuilder {
 
   /**
    * Sets the maximum execution duration before the job is timed out and marked failed.
+   *
+   * <p>The setting also applies to the job's chain steps and workflow branches.
    *
    * @param timeout maximum execution duration; null clears the per-job timeout
    * @return this builder

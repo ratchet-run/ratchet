@@ -128,6 +128,23 @@ public interface BatchBuilder {
   }
 
   /**
+   * Sets the priority, retries, backoff and timeout of jobs created through thenOnBatchSuccess,
+   * thenOnBatchFailure, thenWhenSuccessRate, thenWhenFailureCount, thenWhenBatch and thenBranch.
+   *
+   * <p>The default is {@link JobOptions#defaults()}. Child settings from {@code withMaxRetries},
+   * {@code withBackoff} and {@code withTimeout} do not apply to these jobs. This setting applies to
+   * the whole builder regardless of call order. A callback that inherits retries also uses this
+   * backoff.
+   *
+   * @param options callback job options; never null
+   * @return this builder
+   */
+  default BatchBuilder withCallbackOptions(JobOptions options) {
+    Objects.requireNonNull(options, "options");
+    throw new UnsupportedOperationException("Batch callback options are not supported");
+  }
+
+  /**
    * Makes every child job acquire a permit from the named resource pool before it runs.
    *
    * <p>When the pool is at capacity, the child is rescheduled without counting as a retry. The

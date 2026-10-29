@@ -26,7 +26,7 @@ import java.util.Objects;
  * @param maxRetries maximum number of retry attempts (0 = no retries)
  * @param backoffPolicy retry backoff strategy
  * @param backoffParam base delay or policy-specific backoff parameter
- * @param timeoutSec maximum execution time in seconds (0 = no timeout)
+ * @param timeoutSec maximum execution time in seconds (0 = global default SLA)
  * @see JobBuilder
  * @see BackoffPolicy
  */
@@ -49,7 +49,9 @@ public record JobOptions(
     }
   }
 
-  /** Returns a JobOptions with NORMAL priority, no retries, no backoff, and no timeout. */
+  /**
+   * Returns a JobOptions with NORMAL priority, no retries, no backoff, and the global default SLA.
+   */
   public static JobOptions defaults() {
     return new JobOptions(JobPriority.NORMAL, 0, BackoffPolicy.NONE, Duration.ZERO, 0);
   }

@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.BatchBuilder;
@@ -54,6 +55,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   private final List<ChildSpec> children = new ArrayList<>();
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
   private final BatchChildOptions childOptionState = new BatchChildOptions();
+  private JobOptions callbackOptions = JobOptions.defaults();
   private SerializableConsumer<BatchContext> progressHook;
   private String executionTarget;
   private String childResourceName;
@@ -111,6 +113,12 @@ public class DefaultBatchBuilder implements BatchBuilder {
   @Override
   public BatchBuilder withTimeout(Duration timeout) {
     childOptionState.withTimeout(timeout);
+    return this;
+  }
+
+  @Override
+  public BatchBuilder withCallbackOptions(JobOptions options) {
+    callbackOptions = Objects.requireNonNull(options, "options");
     return this;
   }
 
@@ -185,6 +193,10 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   String executionTarget() {
     return executionTarget;
+  }
+
+  JobOptions callbackOptions() {
+    return callbackOptions;
   }
 
   JobOptions childOptions() {
