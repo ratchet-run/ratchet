@@ -72,6 +72,8 @@ public final class RatchetNativeFeature implements Feature {
         (resource, bytes) ->
             registerTransactionBoundary(
                 access, resource.substring(0, resource.length() - 6).replace('/', '.')));
+    // The one boundary without a carrier subclass. Every job completion calls it.
+    registerTransactionBoundary(access, "run.ratchet.ri.core.BatchCompletionTransaction");
 
     Map<String, byte[]> classes = new LinkedHashMap<>();
     Map<String, Path> origins = new LinkedHashMap<>();
