@@ -137,7 +137,7 @@ scheduler.enqueueBatch("Data Migration")
     .submit();
 ```
 
-Ratchet checks these conditions in the order you register them, runs only the first one that matches and cancels the rest. Put the most specific condition first.
+Ratchet checks these conditions by priority, then in the order you register them. Every condition here has the default priority of 0, so registration order decides. Only the first condition that matches runs, and Ratchet cancels the rest, so put the most specific condition first.
 
 ### Batch API Summary
 
