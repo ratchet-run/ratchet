@@ -44,6 +44,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
 import run.ratchet.micronaut.internal.MicronautTransactions;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautBatchService;
@@ -75,6 +76,7 @@ import run.ratchet.ri.core.internal.PollerCycleExecutor;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 
 class TransactionCarrierContractTest {
@@ -219,6 +221,29 @@ class TransactionCarrierContractTest {
             return null;
           });
       verify(store).resetRunningJob(job, node, 0L);
+    }
+  }
+
+  @Test
+  void postExecutionHandlerCompletesThroughBatchCompletionTransaction() {
+    // The handler's test constructor leaves the completion transaction null and still compiles,
+    // so only a call through the bean shows that the factory passed it in.
+    BatchCompletionTransaction completion = mock(BatchCompletionTransaction.class);
+    when(completion.complete(any())).thenReturn(false);
+    try (ApplicationContext context =
+        TestContexts.engine(
+            Map.of(
+                "datasources.default.url",
+                    "jdbc:h2:mem:completion-" + System.nanoTime() + ";DB_CLOSE_DELAY=-1",
+                "datasources.default.driver-class-name", "org.h2.Driver",
+                "datasources.default.username", "sa",
+                "datasources.default.password", ""))) {
+      context.registerSingleton(Poller.class, mock(Poller.class));
+      context.registerSingleton(BatchCompletionTransaction.class, completion);
+      context.start();
+      PostExecutionHandler handler = context.getBean(PostExecutionHandler.class);
+      assertFalse(handler.completeFailure(new JobEntity(), JobStatus.RUNNING, false));
+      verify(completion).complete(any());
     }
   }
 

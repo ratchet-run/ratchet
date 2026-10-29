@@ -19,6 +19,7 @@ import io.micronaut.core.annotation.Creator;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.ri.core.BatchCompletionTransaction;
 import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.internal.DeadLetterService;
@@ -44,13 +45,15 @@ public class MicronautPostExecutionHandler extends PostExecutionHandler {
       DeadLetterService deadLetterService,
       PollerScheduler pollerScheduler,
       JobTerminalStore jobTerminalStore,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchCompletionTransaction completionTransaction) {
     super(
         batchService,
         workflowScheduler,
         deadLetterService,
         pollerScheduler,
         jobTerminalStore,
-        afterCommitRegistrar);
+        afterCommitRegistrar,
+        completionTransaction);
   }
 }

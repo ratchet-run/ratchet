@@ -242,14 +242,16 @@ class RatchetExecutionConfiguration {
       WorkflowScheduler workflowScheduler,
       DeadLetterService deadLetterService,
       PollerScheduler pollerScheduler,
-      AfterCommitRegistrar afterCommitRegistrar) {
+      AfterCommitRegistrar afterCommitRegistrar,
+      BatchCompletionTransaction completionTransaction) {
     return new MicronautPostExecutionHandler(
         batchService,
         workflowScheduler,
         deadLetterService,
         pollerScheduler,
         store,
-        afterCommitRegistrar);
+        afterCommitRegistrar,
+        completionTransaction);
   }
 
   @Singleton
