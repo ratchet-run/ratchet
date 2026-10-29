@@ -158,6 +158,7 @@ export default defineConfig({
             { text: 'Offload Work After a Request', link: '/use-cases/offload-after-request' },
             { text: 'Scheduled & Recurring Jobs', link: '/use-cases/scheduled-recurring-jobs' },
             { text: 'Resilient Third-Party Integrations', link: '/use-cases/resilient-integrations' },
+            { text: 'Durable Workflows Without a Server', link: '/use-cases/durable-workflows-without-a-server' },
             { text: 'Durable LLM & Agent Workflows', link: '/use-cases/durable-llm-workflows' },
             { text: 'Bulk & Batch Jobs', link: '/use-cases/bulk-batch-jobs' },
             { text: 'Human-in-the-Loop Jobs', link: '/use-cases/human-in-the-loop' },

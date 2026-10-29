@@ -375,3 +375,4 @@ scheduler.enqueueBatch("SLA Check")
 - [Batches](./batches.md) -- Batch-level workflow conditions
 - [Job Lifecycle](./job-lifecycle.md) -- How workflow branches follow the state machine
 - [Persistence](./persistence.md) -- WorkflowConditionEntity storage
+- [Durable Workflows Without a Server](../use-cases/durable-workflows-without-a-server.md) -- An order workflow with a chain, a review step and a fan-out
