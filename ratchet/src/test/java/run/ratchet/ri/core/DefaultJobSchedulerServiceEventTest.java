@@ -56,6 +56,7 @@ import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -101,6 +102,10 @@ class DefaultJobSchedulerServiceEventTest {
 
   @BeforeEach
   void setUp() {
+    setUp(new JakartaAfterCommitRegistrar());
+  }
+
+  private void setUp(AfterCommitRegistrar registrar) {
     service =
         new DefaultJobSchedulerService(
             eventPublisher,
@@ -124,7 +129,7 @@ class DefaultJobSchedulerServiceEventTest {
             metricsCollector,
             FIXED_CLOCK,
             null,
-            new JakartaAfterCommitRegistrar());
+            registrar);
   }
 
   @ParameterizedTest
@@ -209,6 +214,34 @@ class DefaultJobSchedulerServiceEventTest {
     JobCancelledEvent event = published(JobCancelledEvent.class);
     assertEquals(JobStatus.PENDING.name(), event.getPreviousStatus());
     assertCommonJobEvent(event, JobType.RECURRING);
+  }
+
+  @Test
+  void cancelJobFailsWhenAfterCommitRegistrationFails() {
+    setUp(action -> AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    JobEntity job = job(JobStatus.PENDING, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+
+    assertThrows(IllegalStateException.class, () -> service.cancelJob(JOB_ID));
+
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void cancelJobSuppressesEventWhenTransactionIsRollbackOnly() {
+    setUp(action -> AfterCommitRegistrar.Result.ROLLBACK_ONLY);
+    JobEntity job = job(JobStatus.PENDING, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+
+    assertTrue(service.cancelJob(JOB_ID));
+
+    verify(eventPublisher, never()).publish(any());
   }
 
   @Test

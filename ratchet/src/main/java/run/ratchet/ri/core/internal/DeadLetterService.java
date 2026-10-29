@@ -278,10 +278,7 @@ public class DeadLetterService {
   }
 
   private void publishAfterCommit(Runnable action) {
-    if (afterCommitRegistrar.registerAfterCommit(action)
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      action.run();
-    }
+    AfterCommitActions.runOrWarn(afterCommitRegistrar, "dead-letter events", action);
   }
 
   /**

@@ -527,23 +527,34 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
-  void signalWaitingEventIsSuppressedWhenAfterCommitRegistrationFails() {
+  void signalWaitingSubmissionFailsWhenAfterCommitRegistrationFails() {
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     doThrow(new IllegalStateException("boom"))
         .when(txRegistry)
         .registerInterposedSynchronization(any());
+
+    assertThrows(IllegalStateException.class, () -> service.submit(signalWaitingBuilder()));
+
+    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+  }
+
+  @Test
+  void signalWaitingEventIsSuppressedWhenTransactionIsRollbackOnly() {
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_MARKED_ROLLBACK);
+
+    service.submit(signalWaitingBuilder());
+
+    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+  }
+
+  private DefaultJobBuilder signalWaitingBuilder() {
     JobEntity saved = savedEntity();
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
-    DefaultJobBuilder builder =
-        (DefaultJobBuilder)
-            DefaultJobBuilder.create(
-                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
-                .awaitSignal("approval", Duration.ofSeconds(30));
-
-    service.submit(builder);
-
-    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+    return (DefaultJobBuilder)
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+            .awaitSignal("approval", Duration.ofSeconds(30));
   }
 
   // ---- streaming batch parent ----

@@ -22,8 +22,8 @@ import run.ratchet.api.Incubating;
  *
  * <p>Implementations must preserve action ordering for registrations in the same transaction. A
  * caller may run its action immediately only when {@link Result#NO_ACTIVE_TRANSACTION} is returned.
- * Both other outcomes require suppression because the registrar either owns the action or cannot
- * determine whether the transaction will commit.
+ * A caller can ignore {@link Result#ROLLBACK_ONLY}, because the transaction will not commit. {@link
+ * Result#REGISTRATION_FAILED} means the action is lost; the caller must fail or report it.
  */
 @Incubating
 @FunctionalInterface
@@ -45,7 +45,16 @@ public interface AfterCommitRegistrar {
     /** The action is registered and will run only if the transaction commits. */
     REGISTERED,
 
-    /** A transaction exists, but its state prevented registration or registration failed. */
-    ACTIVE_TRANSACTION_REGISTRATION_FAILED
+    /**
+     * A transaction is marked for rollback or is already rolling back, so it will not commit. The
+     * action would never run, and dropping it loses nothing.
+     */
+    ROLLBACK_ONLY,
+
+    /**
+     * A transaction exists, but the action could not be registered. The transaction may still
+     * commit without the action, so the caller must fail or report the lost action.
+     */
+    REGISTRATION_FAILED
   }
 }

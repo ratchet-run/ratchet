@@ -58,10 +58,17 @@ public class JakartaAfterCommitRegistrar implements AfterCommitRegistrar {
         return Result.NO_ACTIVE_TRANSACTION;
       }
       if (transactionStatus != Status.STATUS_ACTIVE) {
+        if (transactionStatus == Status.STATUS_MARKED_ROLLBACK
+            || transactionStatus == Status.STATUS_ROLLING_BACK
+            || transactionStatus == Status.STATUS_ROLLEDBACK) {
+          log.debugf(
+              "After-commit action suppressed; transaction is rolling back: %s", transactionStatus);
+          return Result.ROLLBACK_ONLY;
+        }
         log.warnf(
             "After-commit registration failed; transaction status %s does not allow registration",
             transactionStatus);
-        return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+        return Result.REGISTRATION_FAILED;
       }
 
       // JTA does not promise FIFO delivery between separate synchronizations. Keep Ratchet
@@ -107,7 +114,7 @@ public class JakartaAfterCommitRegistrar implements AfterCommitRegistrar {
     } catch (Exception failure) {
       log.warnf(
           failure, "After-commit registration failed; action suppressed: %s", failure.getMessage());
-      return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+      return Result.REGISTRATION_FAILED;
     }
   }
 

@@ -44,8 +44,10 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
     if (!TransactionSynchronizationManager.isActualTransactionActive()) {
       return Result.NO_ACTIVE_TRANSACTION;
     }
+    // Rollback-only Spring transactions still accept registration and drop the queue on rollback.
     if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-      return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+      log.warn("After-commit action suppressed; transaction synchronization is not active");
+      return Result.REGISTRATION_FAILED;
     }
     QueueSynchronization actions =
         (QueueSynchronization) TransactionSynchronizationManager.getResource(KEY);
@@ -69,18 +71,19 @@ public final class SpringAfterCommitRegistrar implements AfterCommitRegistrar {
         TransactionSynchronizationManager.bindResource(KEY, actions);
       } catch (RuntimeException failure) {
         log.warn("After-commit registration failed; action suppressed", failure);
-        return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+        return Result.REGISTRATION_FAILED;
       }
     }
     try {
       if (actions.completed) {
-        return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+        log.warn("After-commit action suppressed; the transaction has already completed");
+        return Result.REGISTRATION_FAILED;
       }
       actions.actions.add(action);
       return Result.REGISTERED;
     } catch (RuntimeException failure) {
       log.warn("After-commit registration failed; action suppressed", failure);
-      return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+      return Result.REGISTRATION_FAILED;
     }
   }
 

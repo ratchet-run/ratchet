@@ -22,12 +22,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import run.ratchet.spi.AfterCommitRegistrar.Result;
@@ -76,8 +78,7 @@ class SpringAfterCommitRegistrarTest {
 
     TransactionSynchronizationManager.setActualTransactionActive(true);
 
-    assertEquals(
-        Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED, registrar.registerAfterCommit(() -> {}));
+    assertEquals(Result.REGISTRATION_FAILED, registrar.registerAfterCommit(() -> {}));
   }
 
   @Test
@@ -228,6 +229,26 @@ class SpringAfterCommitRegistrarTest {
                 new TransactionTemplate(manager)
                     .executeWithoutResult(status -> invalid.registerAfterCommit(() -> {})));
     assertTrue(failure.getMessage().contains("default or @Primary"));
+  }
+
+  @Test
+  void completedQueueReportsRegistrationFailure() {
+    List<String> calls = new ArrayList<>();
+    TransactionSynchronizationManager.setActualTransactionActive(true);
+    TransactionSynchronizationManager.initSynchronization();
+    assertEquals(Result.REGISTERED, registrar.registerAfterCommit(() -> calls.add("first")));
+    // getResourceMap() is a live view; copy it so the queue can be re-bound after completion.
+    Map<Object, Object> resources = Map.copyOf(TransactionSynchronizationManager.getResourceMap());
+    var synchronization = TransactionSynchronizationManager.getSynchronizations().get(0);
+    synchronization.afterCompletion(TransactionSynchronization.STATUS_ROLLED_BACK);
+    resources.forEach(TransactionSynchronizationManager::bindResource);
+    try {
+      assertEquals(
+          Result.REGISTRATION_FAILED, registrar.registerAfterCommit(() -> calls.add("late")));
+      assertTrue(calls.isEmpty());
+    } finally {
+      resources.keySet().forEach(TransactionSynchronizationManager::unbindResourceIfPossible);
+    }
   }
 
   private static DataSourceTransactionManager transactionManager() {

@@ -31,6 +31,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
+import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.spi.AfterCommitRegistrar;
@@ -245,9 +246,9 @@ public class JobCascadeService {
   }
 
   private void publishAfterCommit(Object event) {
-    if (afterCommitRegistrar.registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    AfterCommitActions.runOrFail(
+        afterCommitRegistrar,
+        event.getClass().getSimpleName(),
+        () -> eventPublisher.publish(event));
   }
 }

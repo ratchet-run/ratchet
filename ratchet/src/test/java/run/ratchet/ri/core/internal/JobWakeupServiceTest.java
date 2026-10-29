@@ -289,8 +289,7 @@ class JobWakeupServiceTest {
         .putResource(any(), any());
     AtomicInteger actions = new AtomicInteger();
     assertEquals(
-        Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED,
-        registerAfterCommit(txRegistry, actions::incrementAndGet));
+        Result.REGISTRATION_FAILED, registerAfterCommit(txRegistry, actions::incrementAndGet));
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
     assertEquals(0, actions.get());
   }
@@ -323,7 +322,7 @@ class JobWakeupServiceTest {
 
     Result result = registerAfterCommit(txRegistry, actions::incrementAndGet);
 
-    assertEquals(Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED, result);
+    assertEquals(Result.REGISTRATION_FAILED, result);
     assertEquals(0, actions.get());
   }
 
@@ -334,7 +333,38 @@ class JobWakeupServiceTest {
 
     Result result = registerAfterCommit(txRegistry, actions::incrementAndGet);
 
-    assertEquals(Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED, result);
+    assertEquals(Result.ROLLBACK_ONLY, result);
+    assertEquals(0, actions.get());
+    verify(txRegistry, never()).registerInterposedSynchronization(any());
+  }
+
+  @Test
+  void registerAfterCommit_reportsRolledBackTransaction() {
+    AtomicInteger actions = new AtomicInteger();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ROLLEDBACK);
+
+    assertEquals(Result.ROLLBACK_ONLY, registerAfterCommit(txRegistry, actions::incrementAndGet));
+    assertEquals(0, actions.get());
+    verify(txRegistry, never()).registerInterposedSynchronization(any());
+  }
+
+  @Test
+  void registerAfterCommit_reportsRollingBackTransaction() {
+    AtomicInteger actions = new AtomicInteger();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ROLLING_BACK);
+
+    assertEquals(Result.ROLLBACK_ONLY, registerAfterCommit(txRegistry, actions::incrementAndGet));
+    assertEquals(0, actions.get());
+    verify(txRegistry, never()).registerInterposedSynchronization(any());
+  }
+
+  @Test
+  void registerAfterCommit_reportsCommittingTransaction() {
+    AtomicInteger actions = new AtomicInteger();
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_COMMITTING);
+
+    assertEquals(
+        Result.REGISTRATION_FAILED, registerAfterCommit(txRegistry, actions::incrementAndGet));
     assertEquals(0, actions.get());
     verify(txRegistry, never()).registerInterposedSynchronization(any());
   }

@@ -236,10 +236,7 @@ public class ChainScheduler {
       return;
     }
     Runnable publish = () -> eventPublisher.publish(event);
-    if (afterCommitRegistrar.registerAfterCommit(publish)
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      publish.run();
-    }
+    AfterCommitActions.runOrWarn(afterCommitRegistrar, event.getClass().getSimpleName(), publish);
   }
 
   protected UUID findRootJobId(JobEntity job) {

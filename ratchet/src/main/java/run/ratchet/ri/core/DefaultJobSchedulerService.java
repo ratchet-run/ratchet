@@ -51,6 +51,7 @@ import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
+import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
@@ -434,9 +435,6 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     if (cancelledFrom == JobStatus.WAITING && metricsCollector != null) {
       metricsCollector.signalCancelled(jobId, existing.getPublicJobType(), existing.getSignalKey());
     }
-    if (cancelledFrom != null) {
-      publishCancelledEvent(jobId, cancelledFrom, existing);
-    }
 
     // Reload after CAS: compareAndSwapStatus bumps the optimistic-lock version; writing the
     // pre-CAS entity would throw. The intent is to annotate a terminal CANCELED row with
@@ -453,6 +451,11 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     }
     fresh.setSupersededBy(newHandle.id());
     jobCrudStore.save(fresh);
+    // Publish after the last write: a failed registration throws, and a store whose writes do not
+    // join the transaction (MongoDB) would otherwise keep a cancel without its supersededBy link.
+    if (cancelledFrom != null) {
+      publishCancelledEvent(jobId, cancelledFrom, existing);
+    }
 
     if (cancelledFrom != null) {
       log.infof("Replaced job %s with new job %s", jobId, newHandle.id());
@@ -622,10 +625,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     if (count > 0) {
       JobsBulkRetriedEvent event =
           new JobsBulkRetriedEvent(filter, limit, count, effective().instant());
-      if (registerAfterCommit(() -> eventPublisher.publish(event))
-          == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-        eventPublisher.publish(event);
-      }
+      publishAfterCommit(event);
       if (wakeupService != null) {
         wakeupService.notify(JobPriority.NORMAL, true, null);
       }
@@ -695,10 +695,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
    */
   private void publishBulkCancelledEvent(String tag, int count) {
     JobsBulkCancelledEvent event = new JobsBulkCancelledEvent(tag, count, effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
   /**
@@ -727,10 +724,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
                 null);
     // Defer publication until after the surrounding TX commits so a rollback does not produce a
     // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
   private void publishCancelledEventForRecurring(UUID jobId, RecurringJobDefinition def) {
@@ -746,10 +740,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             effective().instant(),
             previousStatus.name(),
             null);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
   private void publishRetryingEventAndWakeup(UUID jobId, JobEntity job) {
@@ -769,10 +760,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
                   job.getLastError(),
                   1,
                   retryAt);
-      if (registerAfterCommit(() -> eventPublisher.publish(event))
-          == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-        eventPublisher.publish(event);
-      }
+      publishAfterCommit(event);
     }
 
     if (wakeupService == null) {
@@ -820,10 +808,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             job.getPriority(),
             job.getPickedBy(),
             effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
   private void publishResumedEvent(UUID jobId, JobEntity job) {
@@ -836,10 +821,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             job.getPriority(),
             job.getPickedBy(),
             effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
   private void publishPausedEventForRecurring(UUID jobId, RecurringJobDefinition def) {
@@ -852,10 +834,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
   private void publishResumedEventForRecurring(UUID jobId, RecurringJobDefinition def) {
@@ -868,14 +847,14 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             JobPriorityMapper.fromPersistedCode(def.priority()),
             null,
             effective().instant());
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
-  private AfterCommitRegistrar.Result registerAfterCommit(Runnable action) {
-    return afterCommitRegistrar.registerAfterCommit(action);
+  private void publishAfterCommit(Object event) {
+    AfterCommitActions.runOrFail(
+        afterCommitRegistrar,
+        event.getClass().getSimpleName(),
+        () -> eventPublisher.publish(event));
   }
 
   private int deliverSignalRaw(UUID jobId, Serializable payload) {
@@ -1033,10 +1012,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       String rejectionReason) {
     JobsBulkSignaledEvent event =
         new JobsBulkSignaledEvent(signalKey, count, principal, outcome, rejectionReason, timestamp);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
   private void publishSignaledEvent(
@@ -1062,10 +1038,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             principal,
             outcome,
             rejectionReason);
-    if (registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    publishAfterCommit(event);
   }
 
   private static String signalKeyOf(JobEntity job) {
