@@ -130,6 +130,23 @@ Argument-type policy is checked when the worker reconstructs the payload for exe
 argument type raises `SecurityException`; allowlisting that type fixes the execution-time rejection,
 not a submission-time serialization error.
 
+### Record fails to deserialize on JDK 17
+
+**Symptom:** a job argument or job result that is a Java record fails to deserialize with
+`ClassCastException`, for example `BigDecimal cannot be cast to class Integer`, on JDK 17 or on a
+JDK 21 update before 21.0.6. The same job works on newer runtimes.
+
+This happens when the record declares a compact canonical constructor and has a generic component
+such as `List<Integer>`, was compiled with javac 21 or later (even with `--release 17`), and runs on
+one of those older runtimes with Yasson. javac 21 marks the compact constructor's parameters as
+mandated, and those runtimes then report their raw types through reflection
+([JDK-8320575](https://bugs.openjdk.org/browse/JDK-8320575)), so JSON-B reads the list elements as
+`BigDecimal`.
+
+To fix it, replace the compact constructor with an explicit canonical constructor, compile the
+record on JDK 17, or run on JDK 21.0.6 or later. The explicit constructor needs no extra
+annotations.
+
 ### Target class not found at execution time
 
 ```
