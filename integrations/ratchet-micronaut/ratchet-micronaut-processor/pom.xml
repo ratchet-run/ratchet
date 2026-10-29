@@ -9,6 +9,7 @@
   </parent>
   <artifactId>ratchet-micronaut-processor</artifactId>
   <name>Ratchet :: Micronaut Annotation Processor</name>
+  <description>Micronaut annotation processor that applies Ratchet's @CircuitBreakerProtected to application beans.</description>
   <dependencies>
     <dependency>
       <groupId>io.micronaut</groupId>

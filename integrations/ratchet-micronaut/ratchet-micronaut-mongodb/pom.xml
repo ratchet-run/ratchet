@@ -9,6 +9,7 @@
   </parent>
   <artifactId>ratchet-micronaut-mongodb</artifactId>
   <name>Ratchet :: Micronaut MongoDB</name>
+  <description>Micronaut integration for Ratchet with the MongoDB store through the application's micronaut-mongo-sync client.</description>
   <properties>
     <mongodb-driver.version>5.11.1</mongodb-driver.version>
     <maven.compiler.proc>full</maven.compiler.proc>

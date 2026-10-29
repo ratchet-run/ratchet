@@ -9,6 +9,7 @@
   </parent>
   <artifactId>ratchet-micronaut-jpa</artifactId>
   <name>Ratchet :: Micronaut JPA</name>
+  <description>Micronaut integration for Ratchet with a SQL store (PostgreSQL, MySQL, Oracle or SQL Server) through the application's Hibernate JPA datasource and transactions.</description>
   <dependencyManagement>
     <dependencies>
       <!-- Listed first so it wins over the Micronaut platform's older Testcontainers 1.x pins,

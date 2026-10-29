@@ -9,6 +9,7 @@
   </parent>
   <artifactId>ratchet-micronaut</artifactId>
   <name>Ratchet :: Micronaut</name>
+  <description>Run the Ratchet job scheduler in Micronaut 4.10 and 5 applications: engine wiring, configuration and lifecycle.</description>
   <properties>
     <jakarta.persistence-api.version>3.2.0</jakarta.persistence-api.version>
     <micronaut.core.version>4.10.30</micronaut.core.version>
