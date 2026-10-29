@@ -23,6 +23,7 @@ import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
 import java.io.Serial;
 import java.io.Writer;
+import java.lang.reflect.Type;
 import org.jboss.logging.Logger;
 import run.ratchet.api.exception.PayloadTooLargeException;
 import run.ratchet.spi.PayloadSerializer;
@@ -202,6 +203,19 @@ public class JsonbPayloadSerializer implements PayloadSerializer {
     } catch (JsonbException e) {
       throw new IllegalArgumentException(
           "JSON-B deserialization error for " + (type == null ? "null" : type.getName()), e);
+    }
+  }
+
+  @Override
+  public <T> T deserialize(String json, Type type) {
+    if (json == null || json.isEmpty()) {
+      return null;
+    }
+    try {
+      return jsonb().fromJson(json, type);
+    } catch (JsonbException e) {
+      throw new IllegalArgumentException(
+          "JSON-B deserialization error for " + (type == null ? "null" : type.getTypeName()), e);
     }
   }
 

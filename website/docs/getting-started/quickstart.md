@@ -225,6 +225,8 @@ scheduler.enqueueNow(() -> processOrder(orderId));
 Ratchet persists the target method metadata and captured argument values extracted by `JobInvocationResolver`. Pass IDs and simple serializable values, not large object graphs. A job that needs a complex object should accept an ID and look up the object from the database during execution. Job return values are stored separately through `ResultPersistenceStrategy`.
 :::
 
+Collection and map arguments keep their element types: a `List<Order>` parameter receives `Order` elements, not maps. Element classes must be allowed by the deployment's class policy. See [`PayloadSerializer`](../api-reference/spi-interfaces.md#payloadserializer) for the details.
+
 ## Delayed execution
 
 If you want to schedule a job for later instead of immediately, use `schedule`:

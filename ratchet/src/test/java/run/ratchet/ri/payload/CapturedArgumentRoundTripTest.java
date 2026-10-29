@@ -24,6 +24,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.objectweb.asm.Type;
 import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.store.entity.JobPayload;
 
 /**
@@ -80,6 +81,36 @@ class CapturedArgumentRoundTripTest {
         JobPayloadFactory.fromLambda(
             (SerializableCheckedRunnable) () -> NumericTarget.mixed(id, fraction, label, count));
     assertEquals(List.of(id, fraction, label, count), payload.args());
+  }
+
+  public record CapturedOrder(String reference) {}
+
+  private static List<CapturedOrder> receivedOrders;
+
+  public static void processOrders(List<CapturedOrder> orders) {
+    receivedOrders = orders;
+  }
+
+  @Test
+  void capturedRecordListSurvivesJsonRoundTripAndInvokesTarget() throws Exception {
+    List<CapturedOrder> orders = List.of(new CapturedOrder("order-42"));
+    JobPayload payload =
+        JobPayloadFactory.fromLambda((SerializableCheckedRunnable) () -> processOrders(orders));
+    JobPayload reloaded;
+    try (Jsonb jsonb = JsonbBuilder.create()) {
+      reloaded = jsonb.fromJson(jsonb.toJson(payload), JobPayload.class);
+    }
+    Method method = resolve(reloaded);
+    JobPayload restored =
+        ArgumentMaterializer.materialize(
+            reloaded,
+            method.getGenericParameterTypes(),
+            new JsonbTestPayloadSerializer(),
+            name -> true);
+    receivedOrders = null;
+    method.invoke(null, restored.args().toArray());
+    assertEquals("order-42", receivedOrders.get(0).reference());
+    assertEquals(orders, receivedOrders);
   }
 
   private static Method resolve(JobPayload payload) throws Exception {

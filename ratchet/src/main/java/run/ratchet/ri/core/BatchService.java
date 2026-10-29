@@ -271,7 +271,8 @@ public class BatchService {
     Object[] args;
     if (payload.runtimeArgIndexes() != null) {
       JobPayload materialized =
-          ArgumentMaterializer.materialize(payload, payloadSerializer, classPolicy);
+          ArgumentMaterializer.materialize(
+              payload, method.getGenericParameterTypes(), payloadSerializer, classPolicy);
       args =
           RuntimeArguments.bind(materialized, List.of(ctx), "Batch progress hook").args().toArray();
     } else {

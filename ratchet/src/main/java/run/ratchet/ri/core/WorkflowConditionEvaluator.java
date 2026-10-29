@@ -288,7 +288,9 @@ public class WorkflowConditionEvaluator {
       Class<?> cls =
           Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
       Method method = findMethod(cls, payload);
-      payload = ArgumentMaterializer.materialize(payload, payloadSerializer, classPolicy);
+      payload =
+          ArgumentMaterializer.materialize(
+              payload, method.getGenericParameterTypes(), payloadSerializer, classPolicy);
       Object target;
       Object[] args;
       if (payload.isStatic()) {

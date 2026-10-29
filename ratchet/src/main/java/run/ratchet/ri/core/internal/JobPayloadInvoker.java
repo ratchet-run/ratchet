@@ -77,8 +77,12 @@ public class JobPayloadInvoker {
   }
 
   /** Restores persisted arguments while applying this deployment's class policy. */
-  public JobPayload materializeArguments(JobPayload payload, PayloadSerializer serializer) {
-    return ArgumentMaterializer.materialize(payload, serializer, classPolicy);
+  public JobPayload materializeArguments(JobPayload payload, PayloadSerializer serializer)
+      throws ClassNotFoundException, NoSuchMethodException {
+    Class<?> targetClass = loadAllowedClass(payload.target());
+    Method method = resolveMethod(targetClass, payload);
+    return ArgumentMaterializer.materialize(
+        payload, method.getGenericParameterTypes(), serializer, classPolicy);
   }
 
   /** Resolves and invokes one payload against its static target or CDI bean. */
