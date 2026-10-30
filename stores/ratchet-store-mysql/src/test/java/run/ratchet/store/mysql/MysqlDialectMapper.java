@@ -39,7 +39,7 @@ final class MysqlDialectMapper implements DialectTypeMapper {
   @Override
   public Set<String> acceptedTypes(LogicalType logical) {
     return switch (logical) {
-      case INT32 -> Set.of("INT", "INT UNSIGNED", "TINYINT", "TINYINT UNSIGNED", "SMALLINT");
+      case INT32 -> Set.of("INT", "INT UNSIGNED");
       case INT64 -> Set.of("BIGINT", "BIGINT UNSIGNED");
       case UUID -> Set.of("BINARY"); // BINARY(16); column-length not policed here
       // MySQL 8 reports ENUM-typed columns as "ENUM" and free-text columns as TEXT/VARCHAR; both
