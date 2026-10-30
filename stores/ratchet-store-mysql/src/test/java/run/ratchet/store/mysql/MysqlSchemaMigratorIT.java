@@ -263,7 +263,7 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
     SchemaMigrator.MigrationResult result = migrator.migrate();
 
     assertEquals(
-        List.of("002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"),
+        List.of("002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012", "013"),
         versions(result.applied()));
     assertEquals(List.of("001"), versions(result.skipped()));
     try (Connection c = newJdbcConnection();
@@ -285,17 +285,118 @@ class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
   void migratesConsolidatedSchemaWithoutLedgerRows() throws Exception {
     resetDatabase();
     installConsolidatedSchema();
+    assertPriorityColumns("int");
     SchemaMigrator migrator = newMigrator();
 
     SchemaMigrator.MigrationResult result = migrator.migrate();
 
     assertEquals(
-        List.of("001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012"),
+        List.of(
+            "001", "002", "003", "004", "005", "006", "007", "008", "009", "010", "011", "012",
+            "013"),
         versions(result.applied()));
     assertEquals(List.of(), result.skipped());
     assertExtensionSchemaExists();
     assertMediumtextColumns();
     assertSchemaVersionRowsMatch(migrator.discoverMigrations());
+  }
+
+  @Test
+  void widensLegacyPriorityColumnsAndPreservesValues() throws Exception {
+    resetDatabase();
+    SchemaMigrator migrator = newMigrator();
+    installReleasedV001(migrator.discoverMigrations().get(0));
+    assertPriorityColumns("tinyint");
+    try (Connection connection = newJdbcConnection();
+        Statement statement = connection.createStatement()) {
+      for (int priority = 0; priority <= 4; priority++) {
+        String id = "UNHEX(LPAD('" + priority + "', 32, '0'))";
+        statement.executeUpdate(
+            "INSERT INTO scheduler_recurring_job"
+                + " (id, priority, cron_expr, next_fire, payload, created_at) VALUES ("
+                + id
+                + ", "
+                + priority
+                + ", '* * * * *', NOW(), '{}', NOW())");
+        statement.executeUpdate(
+            "INSERT INTO scheduler_job"
+                + " (job_id, job_type, priority, payload, idempotency_key, created_at) VALUES ("
+                + id
+                + ", 'SINGLE', "
+                + priority
+                + ", '{}', 'priority-"
+                + priority
+                + "', NOW())");
+        statement.executeUpdate(
+            "INSERT INTO scheduler_job_queue"
+                + " (job_id, job_type, priority, scheduled_time, updated_at) VALUES ("
+                + id
+                + ", 'SINGLE', "
+                + priority
+                + ", NOW(), NOW())");
+        statement.executeUpdate(
+            "INSERT INTO scheduler_job_archive"
+                + " (archive_id, original_job_id, final_status, job_type, priority, max_retries,"
+                + " backoff_policy, original_scheduled_time, original_created_at, archived_at)"
+                + " VALUES ("
+                + id
+                + ", "
+                + id
+                + ", 'SUCCEEDED', 'SINGLE', "
+                + priority
+                + ", 0, 'NONE', NOW(), NOW(), NOW())");
+      }
+    }
+
+    migrator.migrate();
+    assertPriorityColumns("int");
+    try (Connection connection = newJdbcConnection();
+        Statement statement = connection.createStatement()) {
+      for (String table : priorityTables()) {
+        try (ResultSet rows =
+            statement.executeQuery("SELECT priority FROM " + table + " ORDER BY priority")) {
+          for (int priority = 0; priority <= 4; priority++) {
+            assertTrue(rows.next(), table);
+            assertEquals(priority, rows.getInt(1), table);
+          }
+          assertTrue(!rows.next(), table);
+        }
+      }
+      // Exercise the SQL guards themselves, rather than only skipping a recorded migration.
+      executeSqlScript(
+          connection, readClasspathResource("ddl/migrations/mysql/V013__priority_int.sql"));
+    }
+    assertPriorityColumns("int");
+    assertEquals(0, migrator.migrate().appliedCount());
+  }
+
+  private static List<String> priorityTables() {
+    return List.of(
+        "scheduler_recurring_job", "scheduler_job", "scheduler_job_queue", "scheduler_job_archive");
+  }
+
+  private void assertPriorityColumns(String dataType) throws SQLException {
+    try (Connection connection = newJdbcConnection();
+        PreparedStatement statement =
+            connection.prepareStatement(
+                """
+                SELECT DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+                FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = ? AND column_name = 'priority'
+                """)) {
+      for (String table : priorityTables()) {
+        statement.setString(1, table);
+        try (ResultSet columns = statement.executeQuery()) {
+          assertTrue(columns.next(), table);
+          assertEquals(dataType, columns.getString(1), table);
+          assertEquals(
+              dataType.equals("tinyint"), columns.getString(2).contains("unsigned"), table);
+          assertEquals("NO", columns.getString(3), table);
+          assertEquals(
+              table.equals("scheduler_job_archive") ? null : "2", columns.getString(4), table);
+        }
+      }
+    }
   }
 
   private void assertMediumtextColumns() throws SQLException {

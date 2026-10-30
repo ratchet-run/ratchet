@@ -109,6 +109,42 @@ class RatchetJpaAotProcessorTest {
   }
 
   @Test
+  void generatesMysqlAotSettingsWithoutAMappingResource() throws Exception {
+    var factory = factory();
+    factory.setBeanClassLoader(
+        new FilteredClassLoader(
+            "run.ratchet.store.postgresql",
+            "run.ratchet.store.oracle",
+            "run.ratchet.store.sqlserver"));
+    var hints = new RuntimeHints();
+    var files = new InMemoryGeneratedFiles();
+    var context = mock(GenerationContext.class);
+    when(context.getRuntimeHints()).thenReturn(hints);
+    when(context.getGeneratedFiles()).thenReturn(files);
+    new RatchetJpaAotProcessor().processAheadOfTime(factory).applyTo(context, null);
+    assertThat(files.getGeneratedFileContent(Kind.RESOURCE, RatchetJpaAotSettings.RESOURCE))
+        .contains("vendor=MYSQL\nmapping=\n")
+        .doesNotContain("mapping=null", "orm-mysql.xml");
+    assertThat(RuntimeHintsPredicates.resource().forResource("META-INF/orm-mysql.xml"))
+        .rejects(hints);
+  }
+
+  @Test
+  void emptyAotMappingAddsEntitiesWithoutDetectingADatabase() {
+    try (var settings = Mockito.mockStatic(RatchetJpaAotSettings.class)) {
+      settings.when(() -> RatchetJpaAotSettings.get("mapping")).thenReturn("");
+      settings.when(() -> RatchetJpaAotSettings.get("default-orm")).thenReturn("ratchet");
+      var unit = new TestPersistenceUnitInfo();
+      unit.addMappingFileName("META-INF/application-orm.xml");
+      var transformed =
+          RatchetJpaPersistenceUnitPostProcessor.withRatchetEntities(
+              mock(PersistenceProvider.class), unit.info());
+      assertThat(transformed.getMappingFileNames()).containsExactly("META-INF/application-orm.xml");
+      assertThat(transformed.getManagedClassNames()).contains(JobEntity.class.getName());
+    }
+  }
+
+  @Test
   void usesDefaultClassLoaderWhenBeanFactoryDoesNotProvideOne() throws Exception {
     var factory =
         new DefaultListableBeanFactory() {

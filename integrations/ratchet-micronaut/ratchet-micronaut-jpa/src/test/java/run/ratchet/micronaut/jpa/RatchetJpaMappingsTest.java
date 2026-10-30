@@ -31,14 +31,15 @@ import java.util.Optional;
 import javax.sql.DataSource;
 import org.hibernate.boot.MetadataSources;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import run.ratchet.store.schema.RatchetJpaModel;
 
 class RatchetJpaMappingsTest {
   @ParameterizedTest
-  @ValueSource(strings = {"default", "jobs"})
-  void selectsEachBeanDatasourceAndInitializesSchemaBeforeAddingMappings(String name)
-      throws Exception {
+  @CsvSource({"default, PostgreSQL", "jobs, PostgreSQL", "default, MySQL", "jobs, MySQL"})
+  void selectsEachBeanDatasourceAndInitializesSchemaBeforeAddingMappings(
+      String name, String product) throws Exception {
     var infrastructure = mock(RatchetJpaInfrastructure.class);
     when(infrastructure.datasourceName()).thenReturn(name);
     var context = mock(BeanContext.class);
@@ -50,7 +51,7 @@ class RatchetJpaMappingsTest {
     when(infrastructure.dataSource()).thenReturn(dataSource);
     when(dataSource.getConnection()).thenReturn(connection);
     when(connection.getMetaData()).thenReturn(metadata);
-    when(metadata.getDatabaseProductName()).thenReturn("PostgreSQL");
+    when(metadata.getDatabaseProductName()).thenReturn(product);
     var listener = new RatchetJpaMappings(infrastructure);
     var sources = mock(MetadataSources.class);
 
@@ -63,7 +64,14 @@ class RatchetJpaMappingsTest {
       order.verify(sources).addAnnotatedClass(Class.forName(entity));
     for (String converter : RatchetJpaModel.CONVERTER_CLASS_NAMES)
       order.verify(sources).addAnnotatedClass(Class.forName(converter));
-    order.verify(sources).addResource(HibernateJpaMappings.mappingFile(SqlStoreVendor.POSTGRESQL));
+    if (product.equals("MySQL")) {
+      verify(sources, never()).addResource(anyString());
+      verify(sources, never()).addResource(isNull());
+    } else {
+      order
+          .verify(sources)
+          .addResource(HibernateJpaMappings.mappingFile(SqlStoreVendor.POSTGRESQL));
+    }
   }
 
   @ParameterizedTest

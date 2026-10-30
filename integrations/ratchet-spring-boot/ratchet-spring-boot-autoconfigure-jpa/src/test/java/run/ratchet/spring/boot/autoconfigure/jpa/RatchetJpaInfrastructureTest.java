@@ -37,6 +37,7 @@ import java.sql.DatabaseMetaData;
 import java.util.Map;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
+import org.hibernate.jpa.HibernatePersistenceProvider;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.aop.scope.ScopedProxyUtils;
@@ -173,6 +174,24 @@ class RatchetJpaInfrastructureTest {
 
     verify(secondary, never()).setPersistenceProvider(any());
     verify(primary).setPersistenceProvider(any());
+  }
+
+  @Test
+  void mysqlHibernateRetainsApplicationMappingsWithoutAVendorOverride() throws Exception {
+    var dataSource = mock(DataSource.class);
+    var connection = mock(Connection.class);
+    var metadata = mock(DatabaseMetaData.class);
+    when(dataSource.getConnection()).thenReturn(connection);
+    when(connection.getMetaData()).thenReturn(metadata);
+    when(metadata.getDatabaseProductName()).thenReturn("MySQL");
+    var unit = new TestPersistenceUnitInfo();
+    unit.setNonJtaDataSource(dataSource);
+    unit.addMappingFileName("META-INF/application-orm.xml");
+    var transformed =
+        RatchetJpaPersistenceUnitPostProcessor.withRatchetEntities(
+            new HibernatePersistenceProvider(), unit.info());
+    assertThat(transformed.getMappingFileNames()).containsExactly("META-INF/application-orm.xml");
+    assertThat(transformed.getManagedClassNames()).contains(JobEntity.class.getName());
   }
 
   @Test

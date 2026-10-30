@@ -61,8 +61,9 @@ final class RatchetJpaMappings implements BeanCreatedEventListener<MetadataSourc
                 throw new IllegalStateException("Missing Ratchet JPA class " + className, failure);
               }
             });
-    sources.addResource(
-        HibernateJpaMappings.mappingFile(SqlStoreVendor.detect(infrastructure.dataSource())));
+    String mapping =
+        HibernateJpaMappings.mappingFile(SqlStoreVendor.detect(infrastructure.dataSource()));
+    if (mapping != null) sources.addResource(mapping);
     // Micronaut uses native MetadataSources.buildMetadata(), not JPA PersistenceUnitInfo.
     // Neither version implicitly loads META-INF/orm.xml; application mapping-resources are
     // appended later by Micronaut. Thus disabled Ratchet needs no filtering provider wrapper.
