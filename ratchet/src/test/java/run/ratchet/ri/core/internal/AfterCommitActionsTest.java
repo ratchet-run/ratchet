@@ -16,13 +16,16 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.AfterCommitRegistrar.Result;
 
 class AfterCommitActionsTest {
@@ -47,5 +50,36 @@ class AfterCommitActionsTest {
     Runnable action = mock(Runnable.class);
     assertDoesNotThrow(() -> AfterCommitActions.runOrWarn(ignored -> result, "test event", action));
     verify(action, times(result == Result.NO_ACTIVE_TRANSACTION ? 1 : 0)).run();
+  }
+
+  @Test
+  void runOrWarnSuppressesRegistrarException() {
+    Runnable action = mock(Runnable.class);
+    AfterCommitRegistrar registrar =
+        ignored -> {
+          throw new IllegalStateException("boom");
+        };
+
+    assertDoesNotThrow(() -> AfterCommitActions.runOrWarn(registrar, "test event", action));
+
+    verify(action, times(0)).run();
+  }
+
+  @Test
+  void runOrFailPropagatesRegistrarException() {
+    Runnable action = mock(Runnable.class);
+    IllegalStateException failure = new IllegalStateException("boom");
+    AfterCommitRegistrar registrar =
+        ignored -> {
+          throw failure;
+        };
+
+    assertSame(
+        failure,
+        assertThrows(
+            IllegalStateException.class,
+            () -> AfterCommitActions.runOrFail(registrar, "test event", action)));
+
+    verify(action, times(0)).run();
   }
 }

@@ -246,7 +246,7 @@ public class JobCascadeService {
   }
 
   private void publishAfterCommit(Object event) {
-    AfterCommitActions.runOrFail(
+    AfterCommitActions.runOrWarn(
         afterCommitRegistrar,
         event.getClass().getSimpleName(),
         () -> eventPublisher.publish(event));

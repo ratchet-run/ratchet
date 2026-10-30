@@ -19,6 +19,7 @@ import static java.util.Objects.requireNonNull;
 
 import org.jboss.logging.Logger;
 import run.ratchet.spi.AfterCommitRegistrar;
+import run.ratchet.spi.AfterCommitRegistrar.Result;
 
 /**
  * Applies fail-closed or warn-only policies to deferred actions. API changes fail when registration
@@ -48,11 +49,23 @@ public final class AfterCommitActions {
     }
   }
 
-  /** Runs immediately without a transaction, or warns if registration could lose the action. */
+  /**
+   * Runs immediately without a transaction, or warns on failed registration or a registrar
+   * exception.
+   */
   public static void runOrWarn(AfterCommitRegistrar registrar, String what, Runnable action) {
-    switch (requireNonNull(
-        registrar.registerAfterCommit(action),
-        "AfterCommitRegistrar contract requires a non-null result")) {
+    Result result;
+    try {
+      result = registrar.registerAfterCommit(action);
+    } catch (RuntimeException e) {
+      log.warnf(
+          e,
+          "Could not register %s to run after the current transaction commits; the change"
+              + " commits without it",
+          what);
+      return;
+    }
+    switch (requireNonNull(result, "AfterCommitRegistrar contract requires a non-null result")) {
       case NO_ACTIVE_TRANSACTION -> action.run();
       case REGISTERED -> {}
       case ROLLBACK_ONLY ->
