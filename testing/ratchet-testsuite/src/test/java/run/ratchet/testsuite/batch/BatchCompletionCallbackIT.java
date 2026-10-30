@@ -26,11 +26,14 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.BatchItemProcessor;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.WorkflowBranchTracker;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
@@ -49,7 +52,11 @@ class BatchCompletionCallbackIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(BatchItemProcessor.class, SimpleJob.class, TestJobService.class)
+        .addClasses(
+            BatchItemProcessor.class,
+            SimpleJob.class,
+            TestJobService.class,
+            WorkflowBranchTracker.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -58,6 +65,7 @@ class BatchCompletionCallbackIT extends BaseRatchetIT {
   @BeforeEach
   void resetTrackers() {
     BatchItemProcessor.reset();
+    WorkflowBranchTracker.reset();
     SimpleJob.resetCount();
   }
 
@@ -85,5 +93,32 @@ class BatchCompletionCallbackIT extends BaseRatchetIT {
             () ->
                 assertEquals(
                     1, SimpleJob.getInvocationCount(), "Success callback should have fired once"));
+  }
+
+  @Test
+  void successCallback_shouldUseCallbackRetries() {
+    JobHandle handle =
+        jobService
+            .enqueueBatch("retry-callback-batch")
+            .forEach(List.of("x", "y"), BatchItemProcessor::process)
+            .withCallbackOptions(JobOptions.defaults().withMaxRetries(1))
+            .thenOnBatchSuccess(WorkflowBranchTracker::failOnceThenSucceed)
+            .submit();
+
+    JobAssertions.assertBatchSucceeded(jobCrudStore, handle, Duration.ofSeconds(30));
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(
+            () -> {
+              JobEntity callback =
+                  jobCrudStore
+                      .findDependants(handle.id(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0)
+                      .stream()
+                      .filter(job -> "failOnceThenSucceed".equals(job.getMethodName()))
+                      .findFirst()
+                      .orElseThrow(() -> new AssertionError("Expected persisted batch callback"));
+              assertEquals(JobStatus.SUCCEEDED, callback.getStatus());
+              assertEquals(2, WorkflowBranchTracker.retryAttempts());
+            });
   }
 }

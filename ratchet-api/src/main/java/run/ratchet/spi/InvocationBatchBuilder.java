@@ -24,6 +24,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.WorkflowCondition;
 
 /**
@@ -95,6 +96,23 @@ public interface InvocationBatchBuilder {
    */
   default InvocationBatchBuilder withTimeout(Duration timeout) {
     throw new UnsupportedOperationException("Batch child timeouts are not supported");
+  }
+
+  /**
+   * Sets the priority, retries, backoff and timeout of jobs created through thenOnBatchSuccess,
+   * thenOnBatchFailure and thenBranch.
+   *
+   * <p>The default is {@link JobOptions#defaults()}. Child settings from {@code withMaxRetries},
+   * {@code withBackoff} and {@code withTimeout} do not apply to these jobs. This setting applies to
+   * the whole builder regardless of call order. A callback that inherits retries also uses this
+   * backoff.
+   *
+   * @param options callback job options; never null
+   * @return this builder
+   */
+  default InvocationBatchBuilder withCallbackOptions(JobOptions options) {
+    Objects.requireNonNull(options, "options");
+    throw new UnsupportedOperationException("Batch callback options are not supported");
   }
 
   /** Sets the named resource pool acquired by every child job. */

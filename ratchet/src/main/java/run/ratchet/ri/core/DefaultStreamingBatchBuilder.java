@@ -51,6 +51,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
   private final BatchChildOptions childOptionState = new BatchChildOptions();
+  private JobOptions callbackOptions = JobOptions.defaults();
   private Stream<T> stream;
   private SerializableCheckedConsumer<T> action;
   private int chunkSize = DEFAULT_CHUNK_SIZE;
@@ -124,6 +125,12 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   @Override
   public StreamingBatchBuilder<T> withTimeout(Duration timeout) {
     childOptionState.withTimeout(timeout);
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> withCallbackOptions(JobOptions options) {
+    callbackOptions = Objects.requireNonNull(options, "options");
     return this;
   }
 
@@ -236,6 +243,10 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   String executionTarget() {
     return executionTarget;
+  }
+
+  JobOptions callbackOptions() {
+    return callbackOptions;
   }
 
   JobOptions childOptions() {

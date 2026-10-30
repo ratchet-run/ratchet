@@ -23,6 +23,7 @@ import java.util.stream.Stream;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.WorkflowCondition;
 
@@ -90,6 +91,23 @@ public interface InvocationStreamingBatchBuilder<T extends Serializable> {
    */
   default InvocationStreamingBatchBuilder<T> withTimeout(Duration timeout) {
     throw new UnsupportedOperationException("Batch child timeouts are not supported");
+  }
+
+  /**
+   * Sets the priority, retries, backoff and timeout of jobs created through thenOnBatchSuccess,
+   * thenOnBatchFailure and thenBranch.
+   *
+   * <p>The default is {@link JobOptions#defaults()}. Child settings from {@code withMaxRetries},
+   * {@code withBackoff} and {@code withTimeout} do not apply to these jobs. This setting applies to
+   * the whole builder regardless of call order. A callback that inherits retries also uses this
+   * backoff.
+   *
+   * @param options callback job options; never null
+   * @return this builder
+   */
+  default InvocationStreamingBatchBuilder<T> withCallbackOptions(JobOptions options) {
+    Objects.requireNonNull(options, "options");
+    throw new UnsupportedOperationException("Batch callback options are not supported");
   }
 
   /** Adds a conditional branch evaluated against the batch outcome. */

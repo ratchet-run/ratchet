@@ -84,22 +84,31 @@ public interface InvocationJobBuilder {
   /** Requests execution on the platform-thread executor target. */
   InvocationJobBuilder platform();
 
-  /** Sets the retry backoff policy. */
+  /**
+   * Sets the retry backoff policy. The setting also applies to the job's chain steps and workflow
+   * branches.
+   */
   InvocationJobBuilder withBackoff(BackoffPolicy policy, Duration param);
 
-  /** Sets the maximum retry count. */
+  /**
+   * Sets the maximum retry count. The setting also applies to the job's chain steps and workflow
+   * branches.
+   */
   InvocationJobBuilder withMaxRetries(int retries);
 
   /** Adds one cleartext key/value parameter. */
   InvocationJobBuilder withParam(String key, String value);
 
-  /** Sets the priority. */
+  /** Sets the priority. The setting also applies to the job's chain steps and workflow branches. */
   InvocationJobBuilder withPriority(JobPriority priority);
 
   /** Adds tags. */
   InvocationJobBuilder withTags(String... tags);
 
-  /** Sets the execution timeout. */
+  /**
+   * Sets the execution timeout. The setting also applies to the job's chain steps and workflow
+   * branches.
+   */
   InvocationJobBuilder withTimeout(Duration timeout);
 
   /** Opts this job into payload encryption at rest. */

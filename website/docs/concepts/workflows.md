@@ -8,6 +8,8 @@ description: Job chaining, conditional branching, and WorkflowCondition types
 
 Ratchet workflows let you define multi-step job pipelines with conditional branching. Simple chains execute steps sequentially. Workflows add conditional logic -- different paths execute based on the outcome of a previous job.
 
+Single-job workflow branches inherit the root's priority, retries, backoff and timeout, like chain steps. The resource name, tags and business key stay on the root. Batch callbacks use `withCallbackOptions` and default to no retries. Child retry, backoff and timeout settings do not apply to batch callbacks.
+
 ## Chains: sequential execution
 
 The simplest workflow is a chain. Steps execute one after another, each waiting for the previous step to complete:

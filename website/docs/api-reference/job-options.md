@@ -8,9 +8,11 @@ description: Reference for JobOptions record, JobPriority, BackoffPolicy, and Jo
 
 Configuration types used throughout the Ratchet API for controlling job execution behavior.
 
+Single-job workflow branches inherit the root's priority, retries, backoff and timeout, like chain steps. Batch callbacks use `withCallbackOptions` and default to no retries. Child retry, backoff and timeout settings do not apply to batch callbacks.
+
 ## JobOptions
 
-Immutable configuration record for job execution behavior and policies. `JobOptions` is used internally by `JobBuilder` and can be passed directly to `RecurringJobBuilder.withOptions()`.
+Immutable configuration record for job execution behavior and policies. `JobOptions` is used internally by `JobBuilder` and can be passed directly to `RecurringJobBuilder.withOptions()` and batch builders' `withCallbackOptions()`.
 
 **Package:** `run.ratchet.api`
 **Type:** `record JobOptions(JobPriority priority, int maxRetries, BackoffPolicy backoffPolicy, Duration backoffParam, int timeoutSec)`
@@ -23,7 +25,7 @@ Immutable configuration record for job execution behavior and policies. `JobOpti
 | `maxRetries` | `int` | `0` | Maximum retry attempts (0 = no retries) |
 | `backoffPolicy` | `BackoffPolicy` | `NONE` | Retry delay strategy |
 | `backoffParam` | `Duration` | `Duration.ZERO` | Base delay for backoff calculations |
-| `timeoutSec` | `int` | `0` | Maximum execution time in seconds (0 = no timeout) |
+| `timeoutSec` | `int` | `0` | Maximum execution time in seconds (0 = global default SLA) |
 
 ### defaults
 
@@ -31,7 +33,7 @@ Immutable configuration record for job execution behavior and policies. `JobOpti
 public static JobOptions defaults()
 ```
 
-Creates a `JobOptions` with default values: NORMAL priority, no retries, no backoff, no timeout.
+Creates a `JobOptions` with default values: NORMAL priority, no retries, no backoff and the global default SLA.
 
 ```java
 JobOptions opts = JobOptions.defaults();
