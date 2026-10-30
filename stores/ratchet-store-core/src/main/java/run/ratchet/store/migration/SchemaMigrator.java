@@ -57,6 +57,8 @@ import run.ratchet.store.schema.Table;
 /**
  * Optional classpath SQL migrator for Ratchet-managed schemas.
  *
+ * <p>Scripts are read from {@code ddl/migrations/<dialect id>} unless a prefix is given.
+ *
  * <p>Ratchet intentionally does not depend on Flyway or Liquibase. Applications that want a small
  * built-in bootstrap step can call this utility from a {@code SchedulerLifecycleHook#beforeStart}
  * implementation, before the poller and recurring scheduler are initialized.
@@ -69,8 +71,6 @@ public final class SchemaMigrator {
   private static final String MIGRATION_INDEX_FILE = "index.txt";
   private static final String VERSION_TABLE = "ratchet_schema_version";
 
-  public static final String DEFAULT_MIGRATION_PREFIX = "ddl/migrations";
-
   private static final Pattern SCRIPT_NAME = Pattern.compile("V(\\d+)__(.+)\\.sql");
 
   private final DataSource dataSource;
@@ -79,7 +79,7 @@ public final class SchemaMigrator {
   private final ClassLoader classLoader;
 
   public SchemaMigrator(DataSource dataSource, SchemaMigrationDialect dialect) {
-    this(dataSource, dialect, DEFAULT_MIGRATION_PREFIX);
+    this(dataSource, dialect, null);
   }
 
   public SchemaMigrator(
@@ -98,14 +98,24 @@ public final class SchemaMigrator {
     this.classLoader = Objects.requireNonNull(classLoader, "classLoader");
   }
 
+  /** Returns the bundled migration script prefix for the dialect. */
+  public static String defaultMigrationPrefix(SchemaMigrationDialect dialect) {
+    return "ddl/migrations/" + dialect.id();
+  }
+
+  /** Returns the resolved classpath prefix for migration scripts. */
+  public String classpathPrefix() {
+    return classpathPrefix;
+  }
+
   private static ClassLoader defaultClassLoader() {
     ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
     return contextClassLoader != null ? contextClassLoader : SchemaMigrator.class.getClassLoader();
   }
 
-  private static String normalizePrefix(String prefix) {
+  private String normalizePrefix(String prefix) {
     String normalized =
-        prefix == null || prefix.isBlank() ? DEFAULT_MIGRATION_PREFIX : prefix.trim();
+        prefix == null || prefix.isBlank() ? defaultMigrationPrefix(dialect) : prefix.trim();
     while (normalized.startsWith("/")) {
       normalized = normalized.substring(1);
     }

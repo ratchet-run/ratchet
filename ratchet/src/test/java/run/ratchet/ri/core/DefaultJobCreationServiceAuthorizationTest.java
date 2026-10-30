@@ -54,6 +54,7 @@ import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.event.JobSignalWaitingEvent;
@@ -758,6 +759,59 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void batchSubmit_persistsChildTimeoutConfiguredAfterForEach() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
+    builder.forEach(
+        List.of("one", "two"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withTimeout(Duration.ofMinutes(45));
+
+    service.submit(builder);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(2, childrenCaptor.getValue().size());
+    childrenCaptor.getValue().forEach(child -> assertEquals(2700, child.getTimeoutSec()));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_nullTimeoutClearsChildTimeout() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
+    builder.forEach(
+        List.of("one", "two"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder.withTimeout(Duration.ofMinutes(45));
+    builder.withTimeout(null);
+
+    service.submit(builder);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(2, childrenCaptor.getValue().size());
+    childrenCaptor.getValue().forEach(child -> assertEquals(0, child.getTimeoutSec()));
+  }
+
+  @Test
+  void batchWithTimeout_rejectsInvalidDurationsWhenCalled() {
+    DefaultBatchBuilder batch = new DefaultBatchBuilder("test-batch", service);
+    DefaultStreamingBatchBuilder<String> streaming =
+        new DefaultStreamingBatchBuilder<>("test-batch", service);
+
+    for (Duration invalid :
+        List.of(
+            Duration.ofSeconds(-1),
+            Duration.ofMillis(500),
+            Duration.ofSeconds(Integer.MAX_VALUE + 1L))) {
+      assertThrows(IllegalArgumentException.class, () -> batch.withTimeout(invalid));
+      assertThrows(IllegalArgumentException.class, () -> streaming.withTimeout(invalid));
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void batchSubmit_doesNotApplyChildRetriesToParentOrBranches() {
     when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
 
@@ -767,6 +821,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         .withResource("gateway")
         .withMaxRetries(3)
         .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(1))
+        .withTimeout(Duration.ofMinutes(45))
         .thenOnBatchSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask);
 
     service.submit(builder);
@@ -775,6 +830,9 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(jobCrudStore, times(2)).create(createdCaptor.capture());
     List<JobEntity> created = createdCaptor.getAllValues();
     created.forEach(job -> assertNull(job.getResourceName()));
+    created.forEach(job -> assertEquals(0, job.getTimeoutSec()));
+    created.forEach(job -> assertEquals(JobPriority.NORMAL, job.getPriority()));
+    assertEquals(BackoffPolicy.NONE, created.get(1).getBackoffPolicy());
     assertEquals(0, created.get(0).getMaxRetries(), "batch parent must not inherit child retries");
     assertEquals(
         0, created.get(1).getMaxRetries(), "workflow branch must not inherit child retries");
@@ -845,6 +903,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     builder.fromStream(Stream.of("one", "two", "three"));
     builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
     builder.withMaxRetries(2).withBackoff(BackoffPolicy.FIXED, Duration.ofMillis(750));
+    builder.withTimeout(Duration.ofMinutes(45));
     builder.withResource("  gateway  ");
 
     service.submit(builder);
@@ -859,6 +918,9 @@ class DefaultJobCreationServiceAuthorizationTest {
     assertEquals(2, child.getMaxRetries());
     assertEquals(BackoffPolicy.FIXED, child.getBackoffPolicy());
     assertEquals(750, child.getBackoffParamMs());
+    childrenCaptor
+        .getAllValues()
+        .forEach(chunk -> chunk.forEach(item -> assertEquals(2700, item.getTimeoutSec())));
   }
 
   @Test
@@ -1031,6 +1093,115 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     // 1 parent + 2 chain steps
     verify(authorizationPolicy, times(3)).checkCreate(any(UUID.class), anyString());
+  }
+
+  @Test
+  void singleJob_branchesInheritRootOptions() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+                .withMaxRetries(3)
+                .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(2))
+                .withTimeout(Duration.ofMinutes(5))
+                .withPriority(JobPriority.HIGH)
+                .thenOnSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask)
+                .thenOnFailure(DefaultJobCreationServiceAuthorizationTest::noopTask);
+
+    service.submit(builder);
+
+    ArgumentCaptor<JobEntity> captor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore, times(3)).create(captor.capture());
+    for (JobEntity branch : captor.getAllValues().subList(1, 3)) {
+      assertEquals(3, branch.getMaxRetries());
+      assertEquals(BackoffPolicy.FIXED, branch.getBackoffPolicy());
+      assertEquals(2000, branch.getBackoffParamMs());
+      assertEquals(300, branch.getTimeoutSec());
+      assertEquals(JobPriority.HIGH, branch.getPriority());
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_appliesSeparateCallbackOptions() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("callbacks", service);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder
+        .withMaxRetries(3)
+        .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(1))
+        .withTimeout(Duration.ofMinutes(45))
+        .thenOnBatchSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask)
+        .withCallbackOptions(
+            JobOptions.defaults()
+                .withMaxRetries(2)
+                .withTimeout(Duration.ofHours(1))
+                .withPriority(JobPriority.HIGH));
+
+    service.submit(builder);
+
+    ArgumentCaptor<JobEntity> createdCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore, times(2)).create(createdCaptor.capture());
+    JobEntity parent = createdCaptor.getAllValues().get(0);
+    assertEquals(JobPriority.NORMAL, parent.getPriority());
+    assertEquals(0, parent.getMaxRetries());
+    assertEquals(0, parent.getTimeoutSec());
+    JobEntity callback = createdCaptor.getAllValues().get(1);
+    assertEquals(2, callback.getMaxRetries());
+    assertEquals(3600, callback.getTimeoutSec());
+    assertEquals(JobPriority.HIGH, callback.getPriority());
+    assertEquals(BackoffPolicy.NONE, callback.getBackoffPolicy());
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    JobEntity child = childrenCaptor.getValue().get(0);
+    assertEquals(3, child.getMaxRetries());
+    assertEquals(2700, child.getTimeoutSec());
+    assertEquals(JobPriority.NORMAL, child.getPriority());
+    assertEquals(BackoffPolicy.FIXED, child.getBackoffPolicy());
+    assertEquals(1000, child.getBackoffParamMs());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void streamingBatchSubmit_appliesSeparateCallbackOptions() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("callbacks", service);
+    builder.fromStream(Stream.of("one"));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+    builder
+        .withMaxRetries(3)
+        .withBackoff(BackoffPolicy.FIXED, Duration.ofSeconds(1))
+        .withTimeout(Duration.ofMinutes(45))
+        .thenOnBatchSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask)
+        .withCallbackOptions(
+            JobOptions.defaults()
+                .withMaxRetries(2)
+                .withTimeout(Duration.ofHours(1))
+                .withPriority(JobPriority.HIGH));
+
+    service.submit(builder);
+
+    ArgumentCaptor<JobEntity> createdCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore, times(2)).create(createdCaptor.capture());
+    JobEntity parent = createdCaptor.getAllValues().get(0);
+    assertEquals(JobPriority.NORMAL, parent.getPriority());
+    assertEquals(0, parent.getMaxRetries());
+    assertEquals(0, parent.getTimeoutSec());
+    JobEntity callback = createdCaptor.getAllValues().get(1);
+    assertEquals(2, callback.getMaxRetries());
+    assertEquals(3600, callback.getTimeoutSec());
+    assertEquals(JobPriority.HIGH, callback.getPriority());
+    assertEquals(BackoffPolicy.NONE, callback.getBackoffPolicy());
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    JobEntity child = childrenCaptor.getValue().get(0);
+    assertEquals(3, child.getMaxRetries());
+    assertEquals(2700, child.getTimeoutSec());
+    assertEquals(JobPriority.NORMAL, child.getPriority());
+    assertEquals(BackoffPolicy.FIXED, child.getBackoffPolicy());
+    assertEquals(1000, child.getBackoffParamMs());
   }
 
   @Test

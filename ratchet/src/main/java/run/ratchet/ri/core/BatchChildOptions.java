@@ -19,8 +19,8 @@ import java.time.Duration;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobOptions;
 
-/** Shared mutable builder state for batch-child retry configuration. */
-final class BatchChildRetryOptions {
+/** Shared mutable builder state for batch-child configuration. */
+final class BatchChildOptions {
 
   private JobOptions options = JobOptions.defaults();
 
@@ -30,6 +30,13 @@ final class BatchChildRetryOptions {
 
   void withMaxRetries(int retries) {
     options = options.withMaxRetries(retries);
+  }
+
+  void withTimeout(Duration timeout) {
+    if (timeout == null) {
+      timeout = Duration.ZERO;
+    }
+    options = options.withTimeout(timeout);
   }
 
   JobOptions value() {

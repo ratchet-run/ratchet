@@ -1,14 +1,14 @@
 ---
 sidebar_position: 1
 title: Introduction
-description: What Ratchet is (an open-source distributed job scheduler for Java on Jakarta EE, Quarkus and Spring Boot), why you would use it, and how it compares with other Java job schedulers.
+description: What Ratchet is (an open-source distributed job scheduler for Java on Jakarta EE, Quarkus, Spring Boot and Micronaut), why you would use it, and how it compares with other Java job schedulers.
 ---
 
 # Introduction
 
 ## What is Ratchet?
 
-Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java. It runs persistent background jobs, recurring schedules, batches and multi-step workflows across a cluster on Jakarta EE, Quarkus and Spring Boot, using the database you already run (PostgreSQL, MySQL, Oracle, SQL Server or MongoDB) as the queue.
+Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java. It runs persistent background jobs, recurring schedules, batches and multi-step workflows across a cluster on Jakarta EE, Quarkus, Spring Boot and Micronaut, using the database you already run (PostgreSQL, MySQL, Oracle, SQL Server or MongoDB) as the queue.
 
 The API is annotation-driven, with automatic retries and built-in resilience. It supports Jakarta EE 10 and 11 and needs no heavyweight frameworks or non-standard dependencies.
 
@@ -147,13 +147,13 @@ Ratchet's internals are composed of focused SPI interfaces. The reference implem
 
 ## Target audience
 
-Ratchet supports Jakarta EE servers such as WildFly, Open Liberty, Payara, and GlassFish, plus Quarkus and Spring Boot. For the Jakarta EE setup, you should be comfortable with:
+Ratchet supports Jakarta EE servers such as WildFly, Open Liberty, Payara, and GlassFish, plus Quarkus, Spring Boot, and Micronaut. For the Jakarta EE setup, you should be comfortable with:
 
 - CDI injection and bean scoping
 - JPA/DataSource or MongoDB resource wiring
 - Maven dependency management
 
-On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a GraalVM native image. It supplies Ratchet's persistence unit itself, so setup is a dependency plus a datasource, with no persistence-unit configuration to write. See [Quarkus Deployment](/deployment/quarkus). The [Spring Boot starters](/deployment/spring-boot) wire the engine through Spring beans, reuse Boot persistence configuration, and support SQL or MongoDB. They do not require a CDI container. The guide covers installation and the Boot 3.5/4.1, Java 17/21 JVM matrix.
+On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a GraalVM native image. It supplies Ratchet's persistence unit itself, so setup is a dependency plus a datasource, with no persistence-unit configuration to write. See [Quarkus Deployment](/deployment/quarkus). The [Spring Boot starters](/deployment/spring-boot) wire the engine through Spring beans, reuse Boot persistence configuration, and support SQL or MongoDB. They do not require a CDI container. The guide covers installation and the Boot 3.5/4.1, Java 17/21 JVM matrix. The [Micronaut integration](/deployment/micronaut) uses the application's datasource, Hibernate session factory or MongoDB client, and transaction manager. It supports Micronaut 4.10 and 5, on the JVM and as a native image.
 
 ## Requirements
 
@@ -161,7 +161,7 @@ On Quarkus, the `ratchet-quarkus` extension runs the engine on the JVM and as a 
 |-----------|---------|
 | **Java** | 17+ |
 | **Jakarta EE** | 10/11 -- CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1 |
-| **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8), Quarkus via the `ratchet-quarkus` extension, or the Spring Boot 3.5/4.1 starters (JVM and native image) |
+| **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8), Quarkus via the `ratchet-quarkus` extension, the Spring Boot 3.5/4.1 starters (JVM and native image), or the Micronaut 4.10/5 integration (JVM and native image) |
 | **Database** | MySQL 8+, PostgreSQL 14+, Oracle 23ai+, SQL Server 2022+, or MongoDB 6+ |
 
 ## Project status

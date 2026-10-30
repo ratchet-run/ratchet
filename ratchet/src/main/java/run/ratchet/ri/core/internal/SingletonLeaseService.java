@@ -76,6 +76,30 @@ public class SingletonLeaseService {
     }
   }
 
+  /**
+   * Releases the lease only if the given node holds it; {@link LockStore#unlock} is owner-scoped.
+   * Callers must only pass nodes they have established are dead, for example from a stale
+   * heartbeat. The leased work must tolerate a falsely-dead holder that is still running, as it
+   * already must after TTL expiry.
+   *
+   * @return {@code true} if the store's unlock ran without error; {@code false} if there is no lock
+   *     store, the node is this node, or the unlock failed
+   */
+  public boolean releaseHeldBy(String leaseName, String nodeId) {
+    String normalizedName = requireLeaseName(leaseName);
+    Objects.requireNonNull(nodeId, "nodeId must not be null");
+    if (lockStore == null || nodeId.equals(nodeIdentityProvider.getNodeId())) {
+      return false;
+    }
+    try {
+      lockStore.unlock(normalizedName, nodeId);
+      return true;
+    } catch (RuntimeException e) {
+      log.warnf(e, "Failed to release singleton lease %s held by node %s", normalizedName, nodeId);
+      return false;
+    }
+  }
+
   public Optional<SingletonLease> tryAcquire(String leaseName, Duration ttl) {
     String normalizedName = requireLeaseName(leaseName);
     requirePositiveDuration(ttl, "ttl");

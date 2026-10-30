@@ -115,6 +115,20 @@ class WorkflowBranchIT extends BaseRatchetIT {
         "Success branch should not fire on failure");
   }
 
+  @Test
+  void successBranch_shouldInheritRootRetries() {
+    JobHandle handle =
+        jobService
+            .enqueue(SimpleJob::execute)
+            .withMaxRetries(1)
+            .thenOnSuccess(WorkflowBranchTracker::failOnceThenSucceed)
+            .submit();
+
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
+    assertPersistedBranchStatus(handle, "failOnceThenSucceed", JobStatus.SUCCEEDED);
+    assertEquals(2, WorkflowBranchTracker.retryAttempts());
+  }
+
   private void assertPersistedBranchStatus(
       JobHandle parentHandle, String branchMethodName, JobStatus expectedStatus) {
     await()

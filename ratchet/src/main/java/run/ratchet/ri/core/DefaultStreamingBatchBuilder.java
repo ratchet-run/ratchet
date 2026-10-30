@@ -39,7 +39,8 @@ import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 
 /** {@inheritDoc} */
-class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingBatchBuilder<T> {
+public class DefaultStreamingBatchBuilder<T extends Serializable>
+    implements StreamingBatchBuilder<T> {
 
   private static final Logger log = Logger.getLogger(DefaultStreamingBatchBuilder.class);
   private static final int MIN_CHUNK_SIZE = 1;
@@ -49,7 +50,8 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
   private final StreamingBatchSubmitter submitter;
 
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
-  private final BatchChildRetryOptions childRetryOptions = new BatchChildRetryOptions();
+  private final BatchChildOptions childOptionState = new BatchChildOptions();
+  private JobOptions callbackOptions = JobOptions.defaults();
   private Stream<T> stream;
   private SerializableCheckedConsumer<T> action;
   private int chunkSize = DEFAULT_CHUNK_SIZE;
@@ -110,13 +112,25 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
 
   @Override
   public StreamingBatchBuilder<T> withBackoff(BackoffPolicy policy, Duration param) {
-    childRetryOptions.withBackoff(policy, param);
+    childOptionState.withBackoff(policy, param);
     return this;
   }
 
   @Override
   public StreamingBatchBuilder<T> withMaxRetries(int retries) {
-    childRetryOptions.withMaxRetries(retries);
+    childOptionState.withMaxRetries(retries);
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> withTimeout(Duration timeout) {
+    childOptionState.withTimeout(timeout);
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> withCallbackOptions(JobOptions options) {
+    callbackOptions = Objects.requireNonNull(options, "options");
     return this;
   }
 
@@ -231,8 +245,12 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
     return executionTarget;
   }
 
+  JobOptions callbackOptions() {
+    return callbackOptions;
+  }
+
   JobOptions childOptions() {
-    return childRetryOptions.value();
+    return childOptionState.value();
   }
 
   List<WorkflowBranch> workflowBranches() {

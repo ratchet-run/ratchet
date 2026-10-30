@@ -23,6 +23,7 @@ import java.util.stream.Stream;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.WorkflowCondition;
 
@@ -73,6 +74,40 @@ public interface InvocationStreamingBatchBuilder<T extends Serializable> {
     }
     throw new UnsupportedOperationException(
         "Invocation streaming batch child retries are not supported");
+  }
+
+  /**
+   * Sets the execution timeout for every child job in this batch.
+   *
+   * <p>Null (the default) leaves children on the global default SLA. The setting applies to the
+   * whole builder, including children already added. It does not apply to the batch parent or to
+   * workflow branch and callback jobs.
+   *
+   * @param timeout child execution timeout; null clears the per-child timeout
+   * @return this builder
+   * @throws IllegalArgumentException if {@code timeout} is negative, is positive but shorter than
+   *     one second, or exceeds {@link Integer#MAX_VALUE} whole seconds
+   * @throws UnsupportedOperationException if the builder does not support child timeout settings
+   */
+  default InvocationStreamingBatchBuilder<T> withTimeout(Duration timeout) {
+    throw new UnsupportedOperationException("Batch child timeouts are not supported");
+  }
+
+  /**
+   * Sets the priority, retries, backoff and timeout of jobs created through thenOnBatchSuccess,
+   * thenOnBatchFailure and thenBranch.
+   *
+   * <p>The default is {@link JobOptions#defaults()}. Child settings from {@code withMaxRetries},
+   * {@code withBackoff} and {@code withTimeout} do not apply to these jobs. This setting applies to
+   * the whole builder regardless of call order. A callback that inherits retries also uses this
+   * backoff.
+   *
+   * @param options callback job options; never null
+   * @return this builder
+   */
+  default InvocationStreamingBatchBuilder<T> withCallbackOptions(JobOptions options) {
+    Objects.requireNonNull(options, "options");
+    throw new UnsupportedOperationException("Batch callback options are not supported");
   }
 
   /** Adds a conditional branch evaluated against the batch outcome. */

@@ -428,7 +428,7 @@ scheduler.scheduleRecurring("0 0 10 * * ?", ZoneId.of("UTC"),
 void addEventListener(Consumer<Object> listener)
 ```
 
-Registers a programmatic event listener that receives all scheduler events in any runtime. For type-specific event observation, use CDI `@Observes` on Jakarta EE or Spring's `@EventListener` in Spring Boot.
+Registers a programmatic event listener that receives all scheduler events in any runtime. For type-specific event observation, use CDI `@Observes` on Jakarta EE, Spring's `@EventListener` in Spring Boot, or Micronaut's `@EventListener` in Micronaut.
 
 **Parameters:**
 - `listener` -- a consumer that receives all scheduler events. Events are instances of classes in the `run.ratchet.api.event` package.

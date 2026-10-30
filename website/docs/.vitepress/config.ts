@@ -68,7 +68,7 @@ const umamiHead: HeadConfig[] = umamiEnabled
 
 export default defineConfig({
   title: 'Ratchet',
-  description: 'Open-source (Apache-2.0) distributed job scheduler for Java: persistent background jobs, schedules, batches and workflows on Jakarta EE, Quarkus and Spring Boot.',
+  description: 'Open-source (Apache-2.0) distributed job scheduler for Java: persistent background jobs, schedules, batches and workflows on Jakarta EE, Quarkus, Spring Boot and Micronaut.',
   sitemap: { hostname },
   cleanUrls: true,
   lastUpdated: true,
@@ -144,6 +144,7 @@ export default defineConfig({
         items: [
           { text: 'Spring Boot', link: '/deployment/spring-boot' },
           { text: 'Quarkus', link: '/deployment/quarkus' },
+          { text: 'Micronaut', link: '/deployment/micronaut' },
           { text: 'Jakarta EE and deployment', link: '/deployment/overview' },
         ],
       },
@@ -242,6 +243,7 @@ export default defineConfig({
             { text: 'Configuration reference', link: '/deployment/configuration-reference' },
             { text: 'Spring Boot', link: '/deployment/spring-boot' },
             { text: 'Quarkus', link: '/deployment/quarkus' },
+            { text: 'Micronaut', link: '/deployment/micronaut' },
             { text: 'Database Setup', link: '/deployment/database-setup' },
             { text: 'Upgrading', link: '/deployment/rolling-upgrades' },
             { text: 'MySQL', link: '/deployment/mysql' },
@@ -418,7 +420,7 @@ export default defineConfig({
       llmstxt({
         domain: hostname,
         title: 'Ratchet',
-        description: 'Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java. It runs persistent background jobs, recurring schedules, batches and multi-step workflows across a cluster on Jakarta EE, Quarkus and Spring Boot, using the database you already run (PostgreSQL, MySQL, Oracle, SQL Server or MongoDB) as the queue.',
+        description: 'Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java. It runs persistent background jobs, recurring schedules, batches and multi-step workflows across a cluster on Jakarta EE, Quarkus, Spring Boot and Micronaut, using the database you already run (PostgreSQL, MySQL, Oracle, SQL Server or MongoDB) as the queue.',
         details: 'This is Ratchet, the Java job scheduler at https://ratchet.run (source: https://github.com/ratchet-run/ratchet, Maven group run.ratchet). It is unrelated to ratchetphp/Ratchet (PHP WebSockets), Hatchet (hatchet.run) and sethvargo/ratchet.',
         ignoreFiles: ['conformance/**'],
       }),

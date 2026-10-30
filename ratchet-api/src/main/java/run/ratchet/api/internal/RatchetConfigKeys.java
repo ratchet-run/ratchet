@@ -128,7 +128,7 @@ public final class RatchetConfigKeys {
       longKey(
           "ratchet.node.orphan-recovery-lease-ttl-seconds",
           "RATCHET_NODE_ORPHAN_RECOVERY_LEASE_TTL_SECONDS",
-          120L,
+          30L,
           1L);
   public static final RatchetConfigKey<Boolean> DYNAMIC_HEARTBEAT_ENABLED =
       boolKey("ratchet.node.dynamic-heartbeat-enabled", "RATCHET_DYNAMIC_HEARTBEAT_ENABLED", true);
@@ -233,8 +233,7 @@ public final class RatchetConfigKeys {
   public static final RatchetConfigKey<String> SCHEMA_MIGRATION_DIALECT =
       stringKey("ratchet.schema.migration-dialect", "RATCHET_SCHEMA_MIGRATION_DIALECT", "");
   public static final RatchetConfigKey<String> SCHEMA_MIGRATION_PREFIX =
-      stringKey(
-          "ratchet.schema.migration-prefix", "RATCHET_SCHEMA_MIGRATION_PREFIX", "ddl/migrations");
+      stringKey("ratchet.schema.migration-prefix", "RATCHET_SCHEMA_MIGRATION_PREFIX", "");
 
   public static final RatchetConfigKey<Integer> MAX_PAYLOAD_KB =
       intKey("ratchet.payload.max-payload-kb", "RATCHET_MAX_PAYLOAD_KB", 100, 1);

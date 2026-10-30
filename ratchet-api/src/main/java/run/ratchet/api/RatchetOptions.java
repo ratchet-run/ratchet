@@ -762,8 +762,8 @@ public class RatchetOptions {
    * @param autoMigrate {@code true} to run the migrator from the schema-migration lifecycle hook
    * @param migrationDialect explicit dialect identifier (for example {@code mysql} or {@code
    *     postgresql}); empty string asks the store to autodetect
-   * @param migrationPrefix classpath prefix under which dialect-specific migration scripts are
-   *     resolved
+   * @param migrationPrefix classpath prefix of the migration scripts; empty uses the selected
+   *     dialect's bundled scripts under {@code ddl/migrations/<dialect id>}
    */
   public record SchemaOptions(
       boolean autoMigrate, String migrationDialect, String migrationPrefix) {}
@@ -1185,7 +1185,7 @@ public class RatchetOptions {
     private List<String> requireTags = List.of();
     private List<String> excludeTags = List.of();
 
-    private long orphanRecoveryLeaseTtlSeconds = 120L;
+    private long orphanRecoveryLeaseTtlSeconds = 30L;
     private int maxCrashRedeliveries = 3;
 
     public NodeBuilder maxCrashRedeliveries(int maxCrashRedeliveries) {
@@ -1481,7 +1481,7 @@ public class RatchetOptions {
   public static final class SchemaBuilder {
     private boolean autoMigrate;
     private String migrationDialect = "";
-    private String migrationPrefix = "ddl/migrations";
+    private String migrationPrefix = "";
 
     private SchemaBuilder() {}
 
@@ -1496,7 +1496,7 @@ public class RatchetOptions {
     }
 
     public SchemaBuilder migrationPrefix(String migrationPrefix) {
-      this.migrationPrefix = requireText("migrationPrefix", migrationPrefix);
+      this.migrationPrefix = migrationPrefix == null ? "" : migrationPrefix.trim();
       return this;
     }
 

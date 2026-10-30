@@ -42,7 +42,7 @@ This build exposes **64 fixed keys**.
 | `ratchet.node.max-crash-redeliveries` | `RATCHET_NODE_MAX_CRASH_REDELIVERIES` | `3` | `NODE_MAX_CRASH_REDELIVERIES` |
 | `ratchet.node.orphan-grace-seconds` | `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | `NODE_ORPHAN_GRACE_SECONDS` |
 | `ratchet.node.orphan-scan-interval-seconds` | `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_SECONDS` | `300` | `ORPHAN_SCAN_INTERVAL_SECONDS` |
-| `ratchet.node.orphan-recovery-lease-ttl-seconds` | `RATCHET_NODE_ORPHAN_RECOVERY_LEASE_TTL_SECONDS` | `120` | `ORPHAN_RECOVERY_LEASE_TTL_SECONDS` |
+| `ratchet.node.orphan-recovery-lease-ttl-seconds` | `RATCHET_NODE_ORPHAN_RECOVERY_LEASE_TTL_SECONDS` | `30` | `ORPHAN_RECOVERY_LEASE_TTL_SECONDS` |
 | `ratchet.node.dynamic-heartbeat-enabled` | `RATCHET_DYNAMIC_HEARTBEAT_ENABLED` | `true` | `DYNAMIC_HEARTBEAT_ENABLED` |
 | `ratchet.recurring.batch-limit` | `RATCHET_RECURRING_BATCH_LIMIT` | `20` | `RECURRING_BATCH_LIMIT` |
 | `ratchet.recurring.poll-ms` | `RATCHET_RECURRING_POLL_MS` | `1000` | `RECURRING_POLL_MS` |
@@ -70,7 +70,7 @@ This build exposes **64 fixed keys**.
 | `ratchet.logs.retention-days` | `RATCHET_LOG_RETENTION_DAYS` | `30` | `LOG_RETENTION_DAYS` |
 | `ratchet.schema.auto-migrate` | `RATCHET_SCHEMA_AUTO_MIGRATE` | `false` | `SCHEMA_AUTO_MIGRATE` |
 | `ratchet.schema.migration-dialect` | `RATCHET_SCHEMA_MIGRATION_DIALECT` | `(empty string)` | `SCHEMA_MIGRATION_DIALECT` |
-| `ratchet.schema.migration-prefix` | `RATCHET_SCHEMA_MIGRATION_PREFIX` | `ddl/migrations` | `SCHEMA_MIGRATION_PREFIX` |
+| `ratchet.schema.migration-prefix` | `RATCHET_SCHEMA_MIGRATION_PREFIX` | `(empty string)` | `SCHEMA_MIGRATION_PREFIX` |
 | `ratchet.payload.max-payload-kb` | `RATCHET_MAX_PAYLOAD_KB` | `100` | `MAX_PAYLOAD_KB` |
 | `ratchet.jobs.max-result-bytes` | `RATCHET_JOB_RESULT_MAX_BYTES` | `65536` | `MAX_RESULT_BYTES` |
 | `ratchet.allow-empty-class-policy` | `RATCHET_ALLOW_EMPTY_CLASS_POLICY` | `false` | `ALLOW_EMPTY_CLASS_POLICY` |

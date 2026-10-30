@@ -383,7 +383,12 @@ public class DefaultJobCreationService
     List<WorkflowBranch> branches = builder.workflowBranches();
     if (!branches.isEmpty()) {
       createWorkflowBranches(
-          jobId, branches, state.executionTarget(), saved.isEncryptedPayload(), callerPrincipal);
+          jobId,
+          branches,
+          opts,
+          state.executionTarget(),
+          saved.isEncryptedPayload(),
+          callerPrincipal);
     }
 
     // Publish after the last write: a failed registration throws, and a store whose writes do not
@@ -496,6 +501,7 @@ public class DefaultJobCreationService
     createWorkflowBranches(
         parentId,
         builder.workflowBranches(),
+        builder.callbackOptions(),
         builder.executionTarget(),
         savedParent.isEncryptedPayload(),
         callerPrincipal);
@@ -580,6 +586,7 @@ public class DefaultJobCreationService
     createWorkflowBranches(
         parentId,
         builder.workflowBranches(),
+        builder.callbackOptions(),
         builder.executionTarget(),
         savedParent.isEncryptedPayload(),
         callerPrincipal);
@@ -989,6 +996,7 @@ public class DefaultJobCreationService
   private void createWorkflowBranches(
       UUID parentId,
       List<WorkflowBranch> branches,
+      JobOptions options,
       String executionTarget,
       boolean parentEncrypted,
       String callerPrincipal) {
@@ -1002,6 +1010,7 @@ public class DefaultJobCreationService
           parentId,
           branches.get(definitionOrder),
           definitionOrder,
+          options,
           executionTarget,
           parentEncrypted,
           callerPrincipal);
@@ -1012,13 +1021,15 @@ public class DefaultJobCreationService
       UUID parentId,
       WorkflowBranch branch,
       int definitionOrder,
+      JobOptions options,
       String executionTarget,
       boolean parentEncrypted,
       String callerPrincipal) {
     JobEntity branchJob = new JobEntity();
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
-    branchJob.setPriority(JobPriority.NORMAL);
+    branchJob.setPriority(options.priority());
+    applyOptions(branchJob, options);
     branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
     branchJob.setPayload(payload(branch.task()));
     branchJob.setEncryptedPayload(parentEncrypted);

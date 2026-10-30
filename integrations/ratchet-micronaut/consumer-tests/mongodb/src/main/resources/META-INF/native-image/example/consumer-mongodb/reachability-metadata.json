@@ -1,0 +1,21 @@
+{
+  "reflection": [
+    {
+      "type": "example.ratchet.verification.VerificationJobs$RecordArgument",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    },
+    {
+      "type": "example.ratchet.verification.VerificationJobs$PojoArgument",
+      "allDeclaredConstructors": true,
+      "allDeclaredMethods": true,
+      "allDeclaredFields": true
+    }
+  ],
+  "resources": [
+    {
+      "glob": "application*.yml"
+    }
+  ]
+}

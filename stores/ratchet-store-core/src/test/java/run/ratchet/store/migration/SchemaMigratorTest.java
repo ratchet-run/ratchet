@@ -189,6 +189,24 @@ class SchemaMigratorTest {
     };
   }
 
+  @Test
+  void defaultPrefixUsesDialectId() {
+    assertEquals("ddl/migrations/stub", new SchemaMigrator(dataSource, dialect).classpathPrefix());
+  }
+
+  @Test
+  void nullAndBlankPrefixesUseDialectDefault() {
+    String expected = SchemaMigrator.defaultMigrationPrefix(dialect);
+    assertEquals(expected, new SchemaMigrator(dataSource, dialect, null).classpathPrefix());
+    assertEquals(expected, new SchemaMigrator(dataSource, dialect, "  ").classpathPrefix());
+  }
+
+  @Test
+  void explicitPrefixTrimsSlashes() {
+    assertEquals(
+        "custom/path", new SchemaMigrator(dataSource, dialect, "/custom/path/").classpathPrefix());
+  }
+
   @BeforeEach
   void setUp() throws Exception {
     dataSource = mock(DataSource.class);
