@@ -45,6 +45,11 @@ import run.ratchet.store.id.UuidV7EntityListener;
 @EntityListeners(UuidV7EntityListener.class)
 public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable {
 
+  /** Explanation recorded when orphan recovery closes a lost attempt. */
+  public static final String ORPHAN_RECOVERY_ERROR_MESSAGE =
+      "The node running this attempt stopped before it finished; orphan recovery took the job"
+          + " back.";
+
   @Id private UUID id;
 
   @Column(name = "job_id", nullable = false)

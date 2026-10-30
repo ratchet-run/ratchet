@@ -16,37 +16,49 @@
 package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
+import java.sql.Timestamp;
 import java.time.Duration;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class MysqlJobDeleteOperationsTest {
 
   @Test
   void resetOrphanJobsIncludesNullPickedByRows() {
-    AtomicReference<String> sql = new AtomicReference<>();
+    List<String> sql = new ArrayList<>();
     MysqlStoreContext ctx = new MysqlStoreContext(entityManagerCapturingSql(sql), null);
     MysqlJobDeleteOperations deletes =
         new MysqlJobDeleteOperations(ctx, new MysqlBusinessKeyReservations(ctx));
 
     assertEquals(3, deletes.resetOrphanJobs(Duration.ofSeconds(30), 3, 0).reset());
-    assertTrue(sql.get().contains("picked_by IS NULL OR picked_by NOT IN"));
+    assertEquals(2, sql.size());
+    assertTrue(sql.get(0).startsWith("UPDATE scheduler_job_execution"));
+    assertTrue(sql.get(0).contains("picked_by IS NULL OR picked_by NOT IN"));
+    assertTrue(sql.get(0).contains("WHERE status = 'RUNNING' AND job_id IN"));
+    assertFalse(sql.get(0).contains("crash_count"));
+    assertTrue(sql.get(1).startsWith("UPDATE scheduler_job_queue"));
+    assertTrue(sql.get(1).contains("picked_by IS NULL OR picked_by NOT IN"));
   }
 
-  private static EntityManager entityManagerCapturingSql(AtomicReference<String> sql) {
+  private static EntityManager entityManagerCapturingSql(List<String> sql) {
     return (EntityManager)
         Proxy.newProxyInstance(
             EntityManager.class.getClassLoader(),
             new Class<?>[] {EntityManager.class},
             (proxy, method, args) -> {
               if ("createNativeQuery".equals(method.getName())) {
-                sql.set(((String) args[0]).replaceAll("\\s+", " "));
-                return queryReturningUpdateCount();
+                String statement = ((String) args[0]).replaceAll("\\s+", " ");
+                return queryReturningUpdateCount(statement, sql);
               }
               if ("clear".equals(method.getName())) {
                 return null;
@@ -55,15 +67,32 @@ class MysqlJobDeleteOperationsTest {
             });
   }
 
-  private static Query queryReturningUpdateCount() {
+  private static Query queryReturningUpdateCount(String statement, List<String> sql) {
+    Map<Integer, Object> parameters = new HashMap<>();
     return (Query)
         Proxy.newProxyInstance(
             Query.class.getClassLoader(),
             new Class<?>[] {Query.class},
             (proxy, method, args) -> {
               return switch (method.getName()) {
-                case "setParameter" -> proxy;
-                case "executeUpdate" -> 3;
+                case "setParameter" -> {
+                  parameters.put((Integer) args[0], args[1]);
+                  yield proxy;
+                }
+                case "executeUpdate" -> {
+                  sql.add(statement);
+                  assertEquals(3, parameters.size());
+                  if (statement.startsWith("UPDATE scheduler_job_execution")) {
+                    assertEquals(ORPHAN_RECOVERY_ERROR_MESSAGE, parameters.get(1));
+                    assertTrue(parameters.get(2) instanceof Timestamp);
+                    assertEquals(parameters.get(2), parameters.get(3));
+                    yield 7; // The close count must not become the recovery reset count.
+                  }
+                  assertTrue(parameters.get(1) instanceof Timestamp);
+                  assertEquals(parameters.get(1), parameters.get(2));
+                  assertEquals(3, parameters.get(3));
+                  yield 3;
+                }
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });
