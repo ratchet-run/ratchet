@@ -92,7 +92,7 @@ JobBuilder withTimeout(Duration timeout)
 Sets the maximum execution duration. Jobs exceeding this limit are forcibly terminated and marked as failed. This setting also applies to the job's chain steps and workflow branches.
 
 **Parameters:**
-- `timeout` -- the maximum execution duration. Use `Duration.ZERO` to disable timeout.
+- `timeout` -- the maximum execution duration. `Duration.ZERO` clears the timeout, so the job uses `ratchet.timeout.default-sla-seconds`.
 
 ```java
 scheduler.enqueue(() -> longRunningImport.execute())

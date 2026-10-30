@@ -73,13 +73,13 @@ public record JobOptions(
 
   /**
    * Returns a copy with the specified execution timeout. The timeout is stored in whole seconds and
-   * must fit in a signed 32-bit integer. Use {@link Duration#ZERO} to disable timeout enforcement;
-   * a positive timeout must be at least 1 second.
+   * must fit in a signed 32-bit integer. Use {@link Duration#ZERO} to clear the timeout, so the job
+   * uses the global default SLA; a positive timeout must be at least 1 second.
    *
    * @throws NullPointerException if {@code t} is null
    * @throws IllegalArgumentException if {@code t} is negative, is positive but shorter than 1
-   *     second (which would truncate to 0 and silently disable enforcement), or exceeds {@link
-   *     Integer#MAX_VALUE} seconds
+   *     second (which would truncate to 0 and silently fall back to the global default SLA), or
+   *     exceeds {@link Integer#MAX_VALUE} seconds
    */
   public JobOptions withTimeout(Duration t) {
     Objects.requireNonNull(t, "timeout must not be null");
@@ -89,7 +89,7 @@ public record JobOptions(
     long timeoutSeconds = t.toSeconds();
     if (timeoutSeconds == 0 && !t.isZero()) {
       throw new IllegalArgumentException(
-          "timeout must be at least 1 second when positive; use Duration.ZERO to disable");
+          "timeout must be at least 1 second when positive; use Duration.ZERO for the default SLA");
     }
     if (timeoutSeconds > Integer.MAX_VALUE) {
       throw new IllegalArgumentException("timeout must be <= " + Integer.MAX_VALUE + " seconds");
