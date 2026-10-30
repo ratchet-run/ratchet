@@ -229,7 +229,7 @@ class MicronautAfterCommitRegistrarTest {
         .when(active)
         .registerSynchronization(any(TransactionSynchronization.class));
     assertEquals(
-        Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED,
+        Result.REGISTRATION_FAILED,
         new MicronautAfterCommitRegistrar(() -> invalidManager).registerAfterCommit(() -> {}));
     var ambiguous =
         new MicronautAfterCommitRegistrar(

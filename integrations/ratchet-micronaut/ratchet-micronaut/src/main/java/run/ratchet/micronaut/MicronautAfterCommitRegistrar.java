@@ -56,7 +56,10 @@ public final class MicronautAfterCommitRegistrar implements AfterCommitRegistrar
     TransactionStatus<?> status = manager.findTransactionStatus().orElse(null);
     if (status == null) return Result.NO_ACTIVE_TRANSACTION;
     if (!MicronautTransactions.hasActiveTransaction(manager)) return Result.NO_ACTIVE_TRANSACTION;
-    if (status.isCompleted()) return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+    if (status.isCompleted()) {
+      LOG.warning("After-commit action suppressed; the transaction has already completed");
+      return Result.REGISTRATION_FAILED;
+    }
     status = MicronautTransactions.rootStatus(status);
     // JDBC leaves getTransaction() null even for a real transaction, and participating JPA
     // statuses need not copy it. Use the shared connection/session identity for the entire unit.
@@ -69,7 +72,10 @@ public final class MicronautAfterCommitRegistrar implements AfterCommitRegistrar
       transaction = status.getTransaction();
     }
     if (transaction == null) transaction = status.getTransaction();
-    if (transaction == null) return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+    if (transaction == null) {
+      LOG.warning("After-commit action suppressed; the transaction has no connection to key it on");
+      return Result.REGISTRATION_FAILED;
+    }
     synchronized (queues) {
       QueueSynchronization queue = queues.get(transaction);
       if (queue == null) {
@@ -79,10 +85,13 @@ public final class MicronautAfterCommitRegistrar implements AfterCommitRegistrar
           queues.put(transaction, queue);
         } catch (RuntimeException failure) {
           LOG.log(Level.WARNING, "After-commit registration failed; action suppressed", failure);
-          return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+          return Result.REGISTRATION_FAILED;
         }
       }
-      if (queue.completed) return Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+      if (queue.completed) {
+        LOG.warning("After-commit action suppressed; the transaction has already completed");
+        return Result.REGISTRATION_FAILED;
+      }
       queue.actions.add(action);
       return Result.REGISTERED;
     }
