@@ -101,6 +101,10 @@ closures contain changed modules. Pull requests use a reduced matrix that
 covers every selected dimension value. Every other event selects the full
 matrix and the full unit suite; the merge queue still skips heavy lanes.
 
+The Spring Boot consumer lane has one row that compiles Ratchet on Java 21 and
+runs the consumer on Java 17, matching how releases are built. Pull requests keep
+that row as its own group, so it runs whenever the PostgreSQL consumer rows are selected.
+
 Run locally from the repository root with a newline-separated list of changed
 repository-relative paths, or select the full matrix:
 
