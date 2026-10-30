@@ -46,8 +46,9 @@ public interface AfterCommitRegistrar {
     REGISTERED,
 
     /**
-     * A transaction is marked for rollback or is already rolling back, so it will not commit. The
-     * action would never run, and dropping it loses nothing.
+     * A transaction is marked for rollback or is already rolling back, so it will not commit, and
+     * the action would never run. A change that does not join the transaction, such as a MongoDB
+     * write, stays saved without the action.
      */
     ROLLBACK_ONLY,
 

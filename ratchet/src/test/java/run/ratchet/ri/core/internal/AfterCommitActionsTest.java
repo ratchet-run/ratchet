@@ -16,12 +16,19 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -48,8 +55,16 @@ class AfterCommitActionsTest {
   @EnumSource(Result.class)
   void runOrWarnAppliesRegistrationPolicy(Result result) {
     Runnable action = mock(Runnable.class);
-    assertDoesNotThrow(() -> AfterCommitActions.runOrWarn(ignored -> result, "test event", action));
-    verify(action, times(result == Result.NO_ACTIVE_TRANSACTION ? 1 : 0)).run();
+    try (LogCapture logs = LogCapture.start(AfterCommitActions.class)) {
+      assertDoesNotThrow(
+          () -> AfterCommitActions.runOrWarn(ignored -> result, "test event", action));
+      verify(action, times(result == Result.NO_ACTIVE_TRANSACTION ? 1 : 0)).run();
+      assertEquals(
+          result == Result.REGISTRATION_FAILED ? 1L : 0L,
+          logs.records().stream()
+              .filter(record -> record.getLevel().intValue() >= Level.WARNING.intValue())
+              .count());
+    }
   }
 
   @Test
@@ -91,5 +106,50 @@ class AfterCommitActionsTest {
             () -> AfterCommitActions.runOrFail(registrar, "test event", action)));
 
     verify(action, times(0)).run();
+  }
+
+  private static final class LogCapture implements AutoCloseable {
+    private final Logger logger;
+    private final Handler handler;
+    private final Level originalLevel;
+    private final boolean originalUseParentHandlers;
+    private final List<LogRecord> records = new ArrayList<>();
+
+    private LogCapture(Class<?> type) {
+      logger = Logger.getLogger(type.getName());
+      originalLevel = logger.getLevel();
+      originalUseParentHandlers = logger.getUseParentHandlers();
+      handler =
+          new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+              records.add(record);
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+          };
+      logger.setLevel(Level.ALL);
+      logger.setUseParentHandlers(false);
+      logger.addHandler(handler);
+    }
+
+    static LogCapture start(Class<?> type) {
+      return new LogCapture(type);
+    }
+
+    List<LogRecord> records() {
+      return records;
+    }
+
+    @Override
+    public void close() {
+      logger.removeHandler(handler);
+      logger.setLevel(originalLevel);
+      logger.setUseParentHandlers(originalUseParentHandlers);
+    }
   }
 }

@@ -196,6 +196,12 @@ class SqlTransactionsTest {
                   String.class,
                   database.queryId(handle.id())))
           .isNull();
+      assertThat(
+              jdbc.queryForObject(
+                  "select status from scheduler_job_queue where " + database.jobIdPredicate(),
+                  String.class,
+                  database.queryId(handle.id())))
+          .isEqualTo("PENDING");
     }
   }
 
