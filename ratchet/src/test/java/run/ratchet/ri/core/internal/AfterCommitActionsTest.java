@@ -66,6 +66,16 @@ class AfterCommitActionsTest {
   }
 
   @Test
+  void runOrWarnSuppressesNullResult() {
+    Runnable action = mock(Runnable.class);
+    AfterCommitRegistrar registrar = ignored -> null;
+
+    assertDoesNotThrow(() -> AfterCommitActions.runOrWarn(registrar, "test event", action));
+
+    verify(action, times(0)).run();
+  }
+
+  @Test
   void runOrFailPropagatesRegistrarException() {
     Runnable action = mock(Runnable.class);
     IllegalStateException failure = new IllegalStateException("boom");

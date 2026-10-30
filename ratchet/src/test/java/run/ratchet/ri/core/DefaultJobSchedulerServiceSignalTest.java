@@ -56,6 +56,7 @@ import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
@@ -223,6 +224,28 @@ class DefaultJobSchedulerServiceSignalTest {
     assertEquals(SignalDecision.Outcome.APPROVED, event.getOutcome());
     assertNull(event.getRejectionReason());
     assertEquals(FIXED_NOW, event.getTimestamp());
+  }
+
+  @Test
+  void deliverSignalByIdDoesNotCountDeliveryWhenAfterCommitRegistrationFails() {
+    service =
+        newService(
+            payloadSerializer,
+            metricsCollector,
+            null,
+            Optional.of("bob"),
+            action -> AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    SignalDecision decision = SignalDecision.approved("approved-payload");
+    when(payloadSerializer.serialize("approved-payload")).thenReturn("serialized-payload");
+    when(signalStore.deliverSignalById(
+            eq(JOB_ID), any(), any(), any(), any(), any(), any(), anyString()))
+        .thenReturn(1);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job(JOB_ID, "approval-key")));
+
+    assertThrows(IllegalStateException.class, () -> service.deliverSignal(JOB_ID, decision));
+
+    verify(metricsCollector, never()).signalDelivered(any(), any(), anyString(), any());
+    verify(eventPublisher, never()).publish(any());
   }
 
   @Test
@@ -553,6 +576,20 @@ class DefaultJobSchedulerServiceSignalTest {
       MetricsCollector signalMetricsCollector,
       JobAuthorizationPolicy signalAuthorizationPolicy,
       Optional<String> currentPrincipal) {
+    return newService(
+        serializer,
+        signalMetricsCollector,
+        signalAuthorizationPolicy,
+        currentPrincipal,
+        new JakartaAfterCommitRegistrar());
+  }
+
+  private DefaultJobSchedulerService newService(
+      PayloadSerializer serializer,
+      MetricsCollector signalMetricsCollector,
+      JobAuthorizationPolicy signalAuthorizationPolicy,
+      Optional<String> currentPrincipal,
+      AfterCommitRegistrar registrar) {
     CallerPrincipalProvider callerProvider =
         new CallerPrincipalProvider(null) {
           @Override
@@ -583,6 +620,6 @@ class DefaultJobSchedulerServiceSignalTest {
         signalMetricsCollector,
         FIXED_CLOCK,
         RatchetOptions.builder().payload(payload -> payload.maxPayloadKb(1)).build(),
-        new JakartaAfterCommitRegistrar());
+        registrar);
   }
 }

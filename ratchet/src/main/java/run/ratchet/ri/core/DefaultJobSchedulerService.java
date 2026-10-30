@@ -297,10 +297,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled waiting job %s", jobId);
+      publishCancelledEvent(jobId, JobStatus.WAITING, job);
       if (metricsCollector != null && job != null) {
         metricsCollector.signalCancelled(jobId, job.getPublicJobType(), job.getSignalKey());
       }
-      publishCancelledEvent(jobId, JobStatus.WAITING, job);
       return true;
     }
 
@@ -432,9 +432,6 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     JobHandle newHandle = builder.submit();
 
     JobStatus cancelledFrom = cancelForReplacement(jobId, existing);
-    if (cancelledFrom == JobStatus.WAITING && metricsCollector != null) {
-      metricsCollector.signalCancelled(jobId, existing.getPublicJobType(), existing.getSignalKey());
-    }
 
     // Reload after CAS: compareAndSwapStatus bumps the optimistic-lock version; writing the
     // pre-CAS entity would throw. The intent is to annotate a terminal CANCELED row with
@@ -455,6 +452,9 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
     // join the transaction (MongoDB) would otherwise keep a cancel without its supersededBy link.
     if (cancelledFrom != null) {
       publishCancelledEvent(jobId, cancelledFrom, existing);
+    }
+    if (cancelledFrom == JobStatus.WAITING && metricsCollector != null) {
+      metricsCollector.signalCancelled(jobId, existing.getPublicJobType(), existing.getSignalKey());
     }
 
     if (cancelledFrom != null) {
@@ -1022,9 +1022,6 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
       Instant timestamp,
       SignalDecision.Outcome outcome,
       String rejectionReason) {
-    if (metricsCollector != null && job != null) {
-      metricsCollector.signalDelivered(jobId, job.getPublicJobType(), job.getSignalKey(), outcome);
-    }
     JobSignaledEvent event =
         new JobSignaledEvent(
             jobId,
@@ -1039,6 +1036,9 @@ public class DefaultJobSchedulerService implements JobSchedulerService {
             outcome,
             rejectionReason);
     publishAfterCommit(event);
+    if (metricsCollector != null && job != null) {
+      metricsCollector.signalDelivered(jobId, job.getPublicJobType(), job.getSignalKey(), outcome);
+    }
   }
 
   private static String signalKeyOf(JobEntity job) {

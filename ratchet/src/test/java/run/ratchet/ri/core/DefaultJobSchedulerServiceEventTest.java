@@ -198,6 +198,30 @@ class DefaultJobSchedulerServiceEventTest {
   }
 
   @Test
+  void replaceWaitingJobDoesNotCountCancelWhenAfterCommitRegistrationFails() {
+    AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
+    when(registrar.registerAfterCommit(any()))
+        .thenReturn(AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    setUp(registrar);
+    JobEntity job = job(JobStatus.WAITING, JobExecutionType.SINGLE);
+    job.setSignalKey("approval-key");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCreationService.submit(any(DefaultJobBuilder.class))).thenReturn(() -> REPLACEMENT_ID);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), any(JobStatus.class), eq(JobStatus.CANCELED), isNull()))
+        .thenAnswer(inv -> inv.getArgument(1) == JobStatus.WAITING);
+    when(jobCrudStore.save(any(JobEntity.class))).thenReturn(job);
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            service.replace(
+                JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceEventTest::noopTask, null));
+
+    verify(metricsCollector, never()).signalCancelled(any(), any(), any());
+  }
+
+  @Test
   void replaceRunningCancellationPublishesCancelledEventAfterStateChange() {
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
@@ -257,6 +281,22 @@ class DefaultJobSchedulerServiceEventTest {
 
     assertThrows(IllegalStateException.class, () -> service.cancelJob(JOB_ID));
 
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void cancelWaitingJobDoesNotCountCancelWhenAfterCommitRegistrationFails() {
+    setUp(action -> AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    JobEntity job = job(JobStatus.WAITING, JobExecutionType.SINGLE);
+    job.setSignalKey("approval-key");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), any(JobStatus.class), eq(JobStatus.CANCELED), isNull()))
+        .thenAnswer(inv -> inv.getArgument(1) == JobStatus.WAITING);
+
+    assertThrows(IllegalStateException.class, () -> service.cancelJob(JOB_ID));
+
+    verify(metricsCollector, never()).signalCancelled(any(), any(), any());
     verify(eventPublisher, never()).publish(any());
   }
 

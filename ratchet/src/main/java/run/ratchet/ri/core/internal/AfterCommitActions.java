@@ -51,12 +51,15 @@ public final class AfterCommitActions {
 
   /**
    * Runs immediately without a transaction, or warns on failed registration or a registrar
-   * exception.
+   * exception or null result.
    */
   public static void runOrWarn(AfterCommitRegistrar registrar, String what, Runnable action) {
     Result result;
     try {
-      result = registrar.registerAfterCommit(action);
+      result =
+          requireNonNull(
+              registrar.registerAfterCommit(action),
+              "AfterCommitRegistrar contract requires a non-null result");
     } catch (RuntimeException e) {
       log.warnf(
           e,
@@ -65,7 +68,7 @@ public final class AfterCommitActions {
           what);
       return;
     }
-    switch (requireNonNull(result, "AfterCommitRegistrar contract requires a non-null result")) {
+    switch (result) {
       case NO_ACTIVE_TRANSACTION -> action.run();
       case REGISTERED -> {}
       case ROLLBACK_ONLY ->
