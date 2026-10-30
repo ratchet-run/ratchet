@@ -125,7 +125,8 @@ class GraphFixtureTest(unittest.TestCase):
         self.assertEqual(consumer, [dict(java=JAVA[i % 2], boot=BOOT[i % 2], store=store, provider='default')
                                     for i, store in enumerate(DATABASES)] +
                          [dict(java=java, boot=boot, store='postgresql', provider='eclipselink')
-                          for java, boot in zip(JAVA, BOOT)])
+                          for java, boot in zip(JAVA, BOOT)] +
+                         [dict(java=17, stage_java=21, boot='3.5.16', store='postgresql', provider='default')])
         for lane, full in LANES.items():
             reduced = reduce_rows(lane, full)
             self.assertTrue(all(row in full for row in reduced))
@@ -150,14 +151,14 @@ class RealRepoTest(unittest.TestCase):
                 self.assertTrue(all(r in LANES[lane] for r in self.rows(outputs, lane)))
 
     def reduced_all(self, outputs):
-        self.counts(outputs, dict(integration=7, spring_consumer=7, spring_native=5,
+        self.counts(outputs, dict(integration=7, spring_consumer=8, spring_native=5,
                                  spring_runtime=2, quarkus_jvm=5, quarkus_native=2,
                                  micronaut_consumer=5, micronaut_native=5))
         self.assertEqual(outputs['has_showcase'], 'true')
 
     def test_full(self):
         outputs = select(REPO)[0]
-        self.counts(outputs, dict(integration=35, spring_consumer=24, spring_native=10,
+        self.counts(outputs, dict(integration=35, spring_consumer=25, spring_native=10,
                                  spring_runtime=4, quarkus_jvm=5, quarkus_native=2,
                                  micronaut_consumer=10, micronaut_native=10))
         for key in ['code', 'web', 'has_showcase']:
@@ -205,7 +206,7 @@ class RealRepoTest(unittest.TestCase):
 
     def test_consumer_path(self):
         outputs = self.output('integrations/ratchet-spring-boot/consumer-tests/sql/pom.xml')
-        self.counts(outputs, dict(spring_consumer=7, spring_native=5, spring_runtime=2))
+        self.counts(outputs, dict(spring_consumer=8, spring_native=5, spring_runtime=2))
         self.assertEqual(outputs['unit_scope'], 'none')
         self.assertEqual(outputs['ee11_scope'], 'none')
         self.assertEqual(outputs['has_showcase'], 'false')

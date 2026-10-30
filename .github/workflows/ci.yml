@@ -538,7 +538,7 @@ jobs:
     if: ${{ github.event_name != 'merge_group' && needs.changes.outputs.has_spring_consumer == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    name: spring-boot-consumer (Java ${{ matrix.java }}, Boot ${{ matrix.boot }}, ${{ matrix.store }}, ${{ matrix.provider }})
+    name: spring-boot-consumer (Java ${{ matrix.java }}, staged on ${{ matrix.stage_java || 17 }}, Boot ${{ matrix.boot }}, ${{ matrix.store }}, ${{ matrix.provider }})
     strategy:
       fail-fast: false
       matrix:
@@ -548,7 +548,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
         with:
-          java-version: '17'
+          java-version: ${{ matrix.stage_java || 17 }}
           distribution: 'temurin'
       # Cache third-party dependencies only. A fresh repository per cell downloads the whole
       # tree from Maven Central on every run, and Central now answers that load with HTTP 429.
@@ -562,7 +562,7 @@ jobs:
       - name: Remove cached Ratchet artifacts
         # Stage this checkout's artifacts, never a copy restored from an earlier run.
         run: rm -rf "$RUNNER_TEMP/ratchet-staged-repository/run/ratchet"
-      # Compile shared artifacts on Java 17, then test the selected consumer runtime.
+      # Compile artifacts on the row's staging Java (17 unless the row sets stage_java).
       - name: Stage Spring Boot artifacts in an isolated Maven repository
         run: >-
           mvn -B -ntp -Dmaven.repo.local="$RUNNER_TEMP/ratchet-staged-repository"
@@ -592,7 +592,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: spring-boot-consumer-java${{ matrix.java }}-${{ matrix.boot }}-${{ matrix.store }}-${{ matrix.provider }}-reports
+          name: spring-boot-consumer-java${{ matrix.java }}-stage${{ matrix.stage_java || 17 }}-${{ matrix.boot }}-${{ matrix.store }}-${{ matrix.provider }}-reports
           path: |
             integrations/ratchet-spring-boot/consumer-tests/**/target/surefire-reports/
             integrations/ratchet-spring-boot/consumer-tests/**/target/failsafe-reports/

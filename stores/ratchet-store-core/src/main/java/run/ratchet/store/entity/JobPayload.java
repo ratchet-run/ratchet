@@ -44,11 +44,23 @@ public record JobPayload(
     List<Integer> runtimeArgIndexes)
     implements Serializable {
 
+  // Deliberately not compact: javac 21+ marks compact-constructor parameters as mandated,
+  // so JDK 17 reflection reports raw generic types to JSON-B (issue #294).
   @JsonbCreator
-  public JobPayload {
+  public JobPayload(
+      String target,
+      String method,
+      String methodDescriptor,
+      boolean isStatic,
+      List<Object> args,
+      List<Integer> runtimeArgIndexes) {
+    this.target = target;
+    this.method = method;
+    this.methodDescriptor = methodDescriptor;
+    this.isStatic = isStatic;
     // Runtime slots hold null, so the copy must allow null elements (List.copyOf does not).
-    args = args == null ? null : Collections.unmodifiableList(new ArrayList<>(args));
-    runtimeArgIndexes =
+    this.args = args == null ? null : Collections.unmodifiableList(new ArrayList<>(args));
+    this.runtimeArgIndexes =
         runtimeArgIndexes == null || runtimeArgIndexes.stream().allMatch(index -> index == null)
             ? null
             : Collections.unmodifiableList(new ArrayList<>(runtimeArgIndexes));

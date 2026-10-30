@@ -43,7 +43,9 @@ LANES = {
     "spring_consumer": [{"java": java, "boot": boot, "store": store, "provider": "default"}
                         for java in JAVA for boot in BOOT for store in DATABASES] +
                        [{"java": java, "boot": boot, "store": "postgresql", "provider": "eclipselink"}
-                        for java in JAVA for boot in BOOT],
+                        for java in JAVA for boot in BOOT] +
+                       # Releases compile on Java 21, so this row stages on 21 and runs on 17 (issue #294).
+                       [{"java": 17, "stage_java": 21, "boot": "3.5.16", "store": "postgresql", "provider": "default"}],
     "spring_native": [{"boot": boot, "store": store} for boot in BOOT for store in DATABASES],
     "micronaut_consumer": [{"lane": lane, "java": java, "store": store}
                            for lane, java in MICRONAUT_VERSIONS for store in MICRONAUT_STORES],
@@ -170,8 +172,10 @@ def reduce_rows(lane, rows):
     if not rows or lane.startswith("quarkus_"):
         return rows
     if lane == "spring_consumer":
-        return diagonal([r for r in rows if r["provider"] == "default"]) + diagonal(
-            [r for r in rows if r["provider"] == "eclipselink"])
+        groups = {}
+        for row in rows:
+            groups.setdefault((row["provider"], row.get("stage_java")), []).append(row)
+        return [row for group in groups.values() for row in diagonal(group)]
     # Micronaut consumer lane/java values have matching order in the source
     # rows, so diagonal preserves the mn4/17 and mn5/25 pairs.
     return diagonal(rows)
