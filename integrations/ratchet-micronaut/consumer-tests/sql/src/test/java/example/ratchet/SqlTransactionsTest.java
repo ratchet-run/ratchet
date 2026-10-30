@@ -333,7 +333,7 @@ class SqlTransactionsTest {
     AfterCommitRegistrar failedAfterCommitRegistrar(FailedAfterCommitProbe probe) {
       return action -> {
         probe.recordRegistration();
-        return AfterCommitRegistrar.Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+        return AfterCommitRegistrar.Result.REGISTRATION_FAILED;
       };
     }
 

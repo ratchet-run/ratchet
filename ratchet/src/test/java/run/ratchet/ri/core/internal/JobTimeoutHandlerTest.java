@@ -1030,6 +1030,45 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void hardTimeoutRetrySuppressesEventsWhenRegistrationFails() {
+    AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
+    when(registrar.registerAfterCommit(any(Runnable.class)))
+        .thenReturn(AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    Instant now = Instant.parse("2026-05-09T12:00:00Z");
+    handler =
+        new JobTimeoutHandler(
+            registrar,
+            jobCrudStore,
+            jobRetryStore,
+            jobBatchStatusStore,
+            lifecycleFacade,
+            80,
+            60L,
+            Clock.fixed(now, ZoneOffset.UTC),
+            eventPublisher,
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            0L,
+            null,
+            null,
+            null,
+            120);
+    JobEntity job = jobWithMaxRetries(3);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID, 0L)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L)))
+        .thenReturn(true);
+
+    assertDoesNotThrow(() -> handler.processHardTimeout(JOB_ID, TIMEOUT_SEC, 0L, "node-1"));
+
+    verify(registrar).registerAfterCommit(any(Runnable.class));
+    verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1), eq(0L));
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
   void hardTimeoutRetryAddsJitterToTimeoutDelay() {
     Instant now = Instant.parse("2026-05-09T12:00:00Z");
     handler =

@@ -52,6 +52,7 @@ import run.ratchet.api.exception.DuplicateBusinessKeyException;
 import run.ratchet.api.exception.DuplicateIdempotencyKeyException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.api.internal.JobBuilderState;
+import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.ChainScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -363,13 +364,6 @@ public class DefaultJobCreationService
     }
     UUID jobId = saved.getId();
 
-    if (isSignalWaiting && eventPublisher != null) {
-      publishSignalWaitingEvent(saved, signalKey, signalTimeout);
-    }
-    if (isSignalWaiting && metricsCollector != null) {
-      metricsCollector.signalWaiting(jobId, saved.getPublicJobType(), signalKey);
-    }
-
     List<String> tags = builder.tags();
     if (!tags.isEmpty()) {
       tagStore.insertTags(jobId, tags);
@@ -395,6 +389,15 @@ public class DefaultJobCreationService
           state.executionTarget(),
           saved.isEncryptedPayload(),
           callerPrincipal);
+    }
+
+    // Publish after the last write: a failed registration throws, and a store whose writes do not
+    // join the transaction (MongoDB) would keep a job without its tags, steps or branches.
+    if (isSignalWaiting && eventPublisher != null) {
+      publishSignalWaitingEvent(saved, signalKey, signalTimeout);
+    }
+    if (isSignalWaiting && metricsCollector != null) {
+      metricsCollector.signalWaiting(jobId, saved.getPublicJobType(), signalKey);
     }
 
     boolean shouldWakeup =
@@ -1190,10 +1193,10 @@ public class DefaultJobCreationService
             null,
             signalKey,
             signalTimeout);
-    if (afterCommitRegistrar.registerAfterCommit(() -> eventPublisher.publish(event))
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      eventPublisher.publish(event);
-    }
+    AfterCommitActions.runOrFail(
+        afterCommitRegistrar,
+        event.getClass().getSimpleName(),
+        () -> eventPublisher.publish(event));
   }
 
   /**

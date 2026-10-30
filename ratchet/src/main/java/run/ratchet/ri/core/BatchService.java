@@ -37,6 +37,7 @@ import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.ri.core.internal.AfterCommitActions;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.ManagedInvocation;
@@ -363,10 +364,7 @@ public class BatchService {
   private void publishBatchEvents(
       BatchEntity batch, JobEntity parent, boolean succeeded, Long totalDurationMs) {
     Runnable publish = () -> publishBatchEventsNow(batch, parent, succeeded, totalDurationMs);
-    if (afterCommitRegistrar.registerAfterCommit(publish)
-        == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      publish.run();
-    }
+    AfterCommitActions.runOrWarn(afterCommitRegistrar, "batch events", publish);
   }
 
   private void publishBatchEventsNow(

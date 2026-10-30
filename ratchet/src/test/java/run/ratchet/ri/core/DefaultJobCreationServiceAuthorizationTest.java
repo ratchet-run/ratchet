@@ -21,6 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -64,6 +66,7 @@ import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.CallerPrincipalResolver;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MetricsCollector;
@@ -147,6 +150,22 @@ class DefaultJobCreationServiceAuthorizationTest {
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
       Clock clock) {
+    return serviceWith(
+        principalProvider,
+        authorizationPolicy,
+        eventPublisher,
+        metricsCollector,
+        clock,
+        new JakartaAfterCommitRegistrar(txRegistry));
+  }
+
+  private DefaultJobCreationService serviceWith(
+      CallerPrincipalProvider principalProvider,
+      JobAuthorizationPolicy authorizationPolicy,
+      InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
+      Clock clock,
+      AfterCommitRegistrar registrar) {
     return new DefaultJobCreationService(
         jobBatchStatusStore,
         jobTerminalStore,
@@ -170,7 +189,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         true,
         true,
         null,
-        new JakartaAfterCommitRegistrar(txRegistry),
+        registrar,
         new DefaultErrorSanitizer());
   }
 
@@ -506,6 +525,40 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
+  void signalWaitingSubmissionRegistersEventAfterTagsChainStepsAndBranches() {
+    AfterCommitRegistrar registrar = Mockito.mock(AfterCommitRegistrar.class);
+    when(registrar.registerAfterCommit(any()))
+        .thenReturn(AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    service =
+        serviceWith(
+            null,
+            authorizationPolicy,
+            eventPublisher,
+            metricsCollector,
+            Clock.systemUTC(),
+            registrar);
+    DefaultJobBuilder builder = signalWaitingBuilder();
+    builder
+        .withTags("approval")
+        .then(DefaultJobCreationServiceAuthorizationTest::noopTask)
+        .thenOnSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask);
+
+    assertThrows(IllegalStateException.class, () -> service.submit(builder));
+
+    InOrder inOrder = Mockito.inOrder(tagStore, jobCrudStore, workflowConditionStore, registrar);
+    inOrder.verify(tagStore).insertTags(any(UUID.class), eq(List.of("approval")));
+    inOrder
+        .verify(jobCrudStore)
+        .create(argThat(job -> job.getJobType() == JobExecutionType.CHAIN_STEP));
+    inOrder
+        .verify(jobCrudStore)
+        .create(argThat(job -> job.getJobType() == JobExecutionType.WORKFLOW_BRANCH));
+    inOrder.verify(workflowConditionStore).saveCondition(any());
+    inOrder.verify(registrar).registerAfterCommit(any());
+    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+  }
+
+  @Test
   void signalWaitingEventIsSuppressedWhenTransactionRollsBack() {
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     ArgumentCaptor<Synchronization> synchronizationCaptor =
@@ -528,23 +581,34 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
-  void signalWaitingEventIsSuppressedWhenAfterCommitRegistrationFails() {
+  void signalWaitingSubmissionFailsWhenAfterCommitRegistrationFails() {
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     doThrow(new IllegalStateException("boom"))
         .when(txRegistry)
         .registerInterposedSynchronization(any());
+
+    assertThrows(IllegalStateException.class, () -> service.submit(signalWaitingBuilder()));
+
+    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+  }
+
+  @Test
+  void signalWaitingEventIsSuppressedWhenTransactionIsRollbackOnly() {
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_MARKED_ROLLBACK);
+
+    service.submit(signalWaitingBuilder());
+
+    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+  }
+
+  private DefaultJobBuilder signalWaitingBuilder() {
     JobEntity saved = savedEntity();
     when(jobCrudStore.findOriginalJobIdByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
-    DefaultJobBuilder builder =
-        (DefaultJobBuilder)
-            DefaultJobBuilder.create(
-                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
-                .awaitSignal("approval", Duration.ofSeconds(30));
-
-    service.submit(builder);
-
-    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+    return (DefaultJobBuilder)
+        DefaultJobBuilder.create(
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+            .awaitSignal("approval", Duration.ofSeconds(30));
   }
 
   // ---- streaming batch parent ----

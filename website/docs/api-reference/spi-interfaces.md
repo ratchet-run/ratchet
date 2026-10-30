@@ -621,15 +621,17 @@ public interface AfterCommitRegistrar {
     enum Result {
         NO_ACTIVE_TRANSACTION,
         REGISTERED,
-        ACTIVE_TRANSACTION_REGISTRATION_FAILED
+        ROLLBACK_ONLY,
+        REGISTRATION_FAILED
     }
 }
 ```
 
 Run the action immediately only for `NO_ACTIVE_TRANSACTION`. `REGISTERED` means the registrar
 owns it and preserves registration order within that transaction, as required by this SPI.
-Suppress it for `ACTIVE_TRANSACTION_REGISTRATION_FAILED`, because the transaction may still
-commit and the registrar cannot safely determine the outcome.
+Ignore `ROLLBACK_ONLY`, because the transaction will not commit. Fail or report the lost action
+for `REGISTRATION_FAILED`, because the transaction may still commit without it. Implementations
+should return `ROLLBACK_ONLY` only when they know the transaction will not commit.
 
 ## MetricsCollector
 

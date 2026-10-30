@@ -39,10 +39,16 @@
  *       thread, hand it to your own executor from inside a synchronous observer.
  *   <li><b>After commit.</b> A state-change event raised inside a transaction is delivered after
  *       that transaction commits. A rollback suppresses the event, and an observer cannot roll the
- *       source transaction back. When no transaction is active, delivery is immediate. If Ratchet
- *       cannot register an after-commit callback for an existing transaction, it logs the failure
- *       and suppresses the event rather than risk publishing before the transaction outcome is
- *       known.
+ *       source transaction back. When no transaction is active, delivery is immediate. When Ratchet
+ *       cannot register an after-commit callback in an active transaction, an API call that changes
+ *       state before any job runs (submitting a signal-waiting job, cancel, replace, pause, resume,
+ *       retry, signal) throws so the transaction rolls back with the change. A change the engine
+ *       makes after a job runs (completion, dead letter, timeout, chain and batch events) still
+ *       commits, and the event is lost with a warning in the log. Ratchet does not throw in a
+ *       rollback-only transaction, because it will not commit. MongoDB writes do not join the
+ *       caller's transaction, so with the MongoDB store the change stays saved both when Ratchet
+ *       throws and when the transaction is rollback-only. The event is lost, and a retried or
+ *       resumed job waits for the next poll instead of starting at once.
  *   <li><b>At most once, on one node.</b> An event is held in memory on the node that made the
  *       change and is delivered only there. If that node stops between the commit and the delivery,
  *       for example because its process is killed, the event is lost and is not delivered again.

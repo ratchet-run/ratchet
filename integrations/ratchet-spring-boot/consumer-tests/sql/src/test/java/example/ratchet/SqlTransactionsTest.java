@@ -178,6 +178,34 @@ class SqlTransactionsTest {
   }
 
   @Test
+  void failedAfterCommitRegistrationRollsBackACancel() {
+    try (var context = application(FailedRegistrarConfiguration.class)) {
+      var scheduler = context.getBean(JobSchedulerService.class);
+      var jobs = context.getBean(ConsumerJobs.class);
+      var jdbc = context.getBean(JdbcTemplate.class);
+      String id = id("cancel-registration-failed");
+      JobHandle handle = scheduler.schedule(Duration.ofHours(2), () -> jobs.complete(id)).submit();
+
+      assertThatThrownBy(() -> scheduler.cancelJob(handle.id()))
+          .isInstanceOf(IllegalStateException.class);
+
+      assertThat(countJob(jdbc, handle)).isEqualTo(1);
+      assertThat(
+              jdbc.queryForObject(
+                  "select terminal_status from scheduler_job where " + database.jobIdPredicate(),
+                  String.class,
+                  database.queryId(handle.id())))
+          .isNull();
+      assertThat(
+              jdbc.queryForObject(
+                  "select status from scheduler_job_queue where " + database.jobIdPredicate(),
+                  String.class,
+                  database.queryId(handle.id())))
+          .isEqualTo("PENDING");
+    }
+  }
+
+  @Test
   void configuredThreadTargetsRetainTransactionAdviceOnEachSupportedJavaRuntime() {
     boolean virtualAvailable = Runtime.version().feature() >= 21;
     String defaultId = id("thread-default");
@@ -287,7 +315,7 @@ class SqlTransactionsTest {
     AfterCommitRegistrar failedAfterCommitRegistrar(FailedAfterCommitProbe probe) {
       return action -> {
         probe.recordRegistration();
-        return AfterCommitRegistrar.Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED;
+        return AfterCommitRegistrar.Result.REGISTRATION_FAILED;
       };
     }
 

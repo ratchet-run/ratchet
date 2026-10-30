@@ -229,7 +229,7 @@ class MicronautAfterCommitRegistrarTest {
         .when(active)
         .registerSynchronization(any(TransactionSynchronization.class));
     assertEquals(
-        Result.ACTIVE_TRANSACTION_REGISTRATION_FAILED,
+        Result.REGISTRATION_FAILED,
         new MicronautAfterCommitRegistrar(() -> invalidManager).registerAfterCommit(() -> {}));
     var ambiguous =
         new MicronautAfterCommitRegistrar(
@@ -245,6 +245,19 @@ class MicronautAfterCommitRegistrarTest {
             .getMessage()
             .contains("default or @Primary"));
     assertThrows(NullPointerException.class, () -> registrar.registerAfterCommit(null));
+  }
+
+  @Test
+  void registrationFailsWhenTheTransactionHasNoConnectionOrTransaction() {
+    TransactionOperations<?> manager = mock(TransactionOperations.class);
+    TransactionStatus<?> status = mock(TransactionStatus.class);
+    doReturn(Optional.of(status)).when(manager).findTransactionStatus();
+
+    assertEquals(
+        Result.REGISTRATION_FAILED,
+        new MicronautAfterCommitRegistrar(() -> manager).registerAfterCommit(() -> {}));
+
+    verify(status, never()).registerSynchronization(any(TransactionSynchronization.class));
   }
 
   private static void execute(TransactionStatus<?> status, String sql) {

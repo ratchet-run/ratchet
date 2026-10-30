@@ -633,10 +633,6 @@ public class JobTimeoutHandler {
     return new TerminalTimeoutTransition(job, List.of(event, failedEvent));
   }
 
-  private AfterCommitRegistrar.Result registerAfterCommit(Runnable action) {
-    return afterCommitRegistrar.registerAfterCommit(action);
-  }
-
   private void publishHardTimeoutRetryEvents(
       JobEntity job,
       String errorMessage,
@@ -727,9 +723,7 @@ public class JobTimeoutHandler {
   }
 
   private void publishAfterCommit(Runnable action) {
-    if (registerAfterCommit(action) == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
-      action.run();
-    }
+    AfterCommitActions.runOrWarn(afterCommitRegistrar, "timeout events", action);
   }
 
   private String formatDuration(Duration duration) {

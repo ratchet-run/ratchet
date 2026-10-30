@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -39,6 +41,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
@@ -56,6 +59,7 @@ import run.ratchet.api.event.JobsBulkRetriedEvent;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JakartaAfterCommitRegistrar;
 import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -101,6 +105,10 @@ class DefaultJobSchedulerServiceEventTest {
 
   @BeforeEach
   void setUp() {
+    setUp(new JakartaAfterCommitRegistrar());
+  }
+
+  private void setUp(AfterCommitRegistrar registrar) {
     service =
         new DefaultJobSchedulerService(
             eventPublisher,
@@ -124,7 +132,7 @@ class DefaultJobSchedulerServiceEventTest {
             metricsCollector,
             FIXED_CLOCK,
             null,
-            new JakartaAfterCommitRegistrar());
+            registrar);
   }
 
   @ParameterizedTest
@@ -160,6 +168,57 @@ class DefaultJobSchedulerServiceEventTest {
     } else {
       verify(metricsCollector, never()).signalCancelled(any(), any(), any());
     }
+  }
+
+  @Test
+  void replaceFailsAfterSavingWhenAfterCommitRegistrationFails() {
+    AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
+    when(registrar.registerAfterCommit(any()))
+        .thenReturn(AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    setUp(registrar);
+    JobEntity job = job(JobStatus.PENDING, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCreationService.submit(any(DefaultJobBuilder.class))).thenReturn(() -> REPLACEMENT_ID);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+    when(jobCrudStore.save(any(JobEntity.class))).thenReturn(job);
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            service.replace(
+                JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceEventTest::noopTask, null));
+
+    InOrder inOrder = inOrder(jobCrudStore, registrar);
+    inOrder.verify(jobCrudStore).save(job);
+    inOrder.verify(registrar).registerAfterCommit(any());
+    assertEquals(REPLACEMENT_ID, job.getSupersededBy());
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void replaceWaitingJobDoesNotCountCancelWhenAfterCommitRegistrationFails() {
+    AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
+    when(registrar.registerAfterCommit(any()))
+        .thenReturn(AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    setUp(registrar);
+    JobEntity job = job(JobStatus.WAITING, JobExecutionType.SINGLE);
+    job.setSignalKey("approval-key");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCreationService.submit(any(DefaultJobBuilder.class))).thenReturn(() -> REPLACEMENT_ID);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), any(JobStatus.class), eq(JobStatus.CANCELED), isNull()))
+        .thenAnswer(inv -> inv.getArgument(1) == JobStatus.WAITING);
+    when(jobCrudStore.save(any(JobEntity.class))).thenReturn(job);
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            service.replace(
+                JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceEventTest::noopTask, null));
+
+    verify(metricsCollector, never()).signalCancelled(any(), any(), any());
   }
 
   @Test
@@ -209,6 +268,50 @@ class DefaultJobSchedulerServiceEventTest {
     JobCancelledEvent event = published(JobCancelledEvent.class);
     assertEquals(JobStatus.PENDING.name(), event.getPreviousStatus());
     assertCommonJobEvent(event, JobType.RECURRING);
+  }
+
+  @Test
+  void cancelJobFailsWhenAfterCommitRegistrationFails() {
+    setUp(action -> AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    JobEntity job = job(JobStatus.PENDING, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+
+    assertThrows(IllegalStateException.class, () -> service.cancelJob(JOB_ID));
+
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void cancelWaitingJobDoesNotCountCancelWhenAfterCommitRegistrationFails() {
+    setUp(action -> AfterCommitRegistrar.Result.REGISTRATION_FAILED);
+    JobEntity job = job(JobStatus.WAITING, JobExecutionType.SINGLE);
+    job.setSignalKey("approval-key");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), any(JobStatus.class), eq(JobStatus.CANCELED), isNull()))
+        .thenAnswer(inv -> inv.getArgument(1) == JobStatus.WAITING);
+
+    assertThrows(IllegalStateException.class, () -> service.cancelJob(JOB_ID));
+
+    verify(metricsCollector, never()).signalCancelled(any(), any(), any());
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void cancelJobSuppressesEventWhenTransactionIsRollbackOnly() {
+    setUp(action -> AfterCommitRegistrar.Result.ROLLBACK_ONLY);
+    JobEntity job = job(JobStatus.PENDING, JobExecutionType.SINGLE);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            JOB_ID, JobStatus.PENDING, JobStatus.CANCELED, null))
+        .thenReturn(true);
+
+    assertTrue(service.cancelJob(JOB_ID));
+
+    verify(eventPublisher, never()).publish(any());
   }
 
   @Test
