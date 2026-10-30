@@ -158,8 +158,34 @@ class RatchetOptionsTest {
   }
 
   @Test
+  void schemaMigrationPrefixAllowsDefaultAndTrimsOverrides() {
+    assertEquals(
+        "",
+        RatchetOptions.builder()
+            .schema(schema -> schema.migrationPrefix(null))
+            .build()
+            .schema()
+            .migrationPrefix());
+    assertEquals(
+        "",
+        RatchetOptions.builder()
+            .schema(schema -> schema.migrationPrefix("  "))
+            .build()
+            .schema()
+            .migrationPrefix());
+    assertEquals(
+        "custom/path",
+        RatchetOptions.builder()
+            .schema(schema -> schema.migrationPrefix(" custom/path "))
+            .build()
+            .schema()
+            .migrationPrefix());
+  }
+
+  @Test
   void defaultsMatchRuntimeDefaults() {
     RatchetOptions options = RatchetOptions.defaults();
+    assertEquals("", options.schema().migrationPrefix());
 
     assertEquals(50, options.polling().batchSize());
     assertEquals(20, options.execution().maxConcurrency("SINGLE", -1));

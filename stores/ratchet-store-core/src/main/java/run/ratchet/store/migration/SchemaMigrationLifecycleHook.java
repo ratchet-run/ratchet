@@ -115,13 +115,13 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
     DataSource dataSource = dataSourceLookup.get();
     SchemaMigrationDialect dialect = resolveDialect(schemaOptions);
     String prefix = schemaOptions.migrationPrefix();
-    log.infof(
-        "Ratchet schema auto-migration enabled (dialect=%s, prefix=%s); applying pending"
-            + " migrations.",
-        dialect.id(), prefix);
     try {
-      SchemaMigrator.MigrationResult result =
-          new SchemaMigrator(dataSource, dialect, prefix).migrate();
+      SchemaMigrator migrator = new SchemaMigrator(dataSource, dialect, prefix);
+      log.infof(
+          "Ratchet schema auto-migration enabled (dialect=%s, prefix=%s); applying pending"
+              + " migrations.",
+          dialect.id(), migrator.classpathPrefix());
+      SchemaMigrator.MigrationResult result = migrator.migrate();
       log.infof(
           "Ratchet schema migration complete: applied=%d skipped=%d.",
           result.appliedCount(), result.skippedCount());

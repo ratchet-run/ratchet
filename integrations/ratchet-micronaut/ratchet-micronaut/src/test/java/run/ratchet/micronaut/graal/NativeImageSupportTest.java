@@ -70,7 +70,7 @@ class NativeImageSupportTest {
     for (String vendor : List.of("postgresql", "mysql")) {
       Path jar = temporary.resolve(vendor + ".jar");
       try (var output = new JarOutputStream(Files.newOutputStream(jar))) {
-        output.putNextEntry(new JarEntry("ddl/migrations/index.txt"));
+        output.putNextEntry(new JarEntry("ddl/migrations/postgresql/index.txt"));
         output.write(vendor.getBytes(StandardCharsets.UTF_8));
         output.closeEntry();
         output.putNextEntry(new JarEntry("unrelated.txt"));
@@ -83,7 +83,7 @@ class NativeImageSupportTest {
         jars,
         name -> name.startsWith("ddl/migrations/"),
         (name, bytes) -> {
-          assertEquals("ddl/migrations/index.txt", name);
+          assertEquals("ddl/migrations/postgresql/index.txt", name);
           contents.add(new String(bytes, StandardCharsets.UTF_8));
         });
     assertEquals(List.of("postgresql", "mysql"), contents);

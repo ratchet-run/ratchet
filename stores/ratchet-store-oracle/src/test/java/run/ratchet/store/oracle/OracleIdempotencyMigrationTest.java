@@ -32,7 +32,8 @@ class OracleIdempotencyMigrationTest {
       var job = fixture.store().create(fixture.newPendingJob());
       String migration;
       try (var input =
-          getClass().getResourceAsStream("/ddl/migrations/V007__permanent_idempotency_keys.sql")) {
+          getClass()
+              .getResourceAsStream("/ddl/migrations/oracle/V007__permanent_idempotency_keys.sql")) {
         migration =
             new String(Objects.requireNonNull(input).readAllBytes(), StandardCharsets.UTF_8);
       }

@@ -103,10 +103,10 @@ reviews:
     - path: "stores/*/src/main/resources/ddl/**"
       instructions: |
         - Released migrations are immutable. Flag any edit to an existing
-          `migrations/V###__*.sql` file.
+          `migrations/<dialect>/V###__*.sql` file.
         - A schema change adds a new `V###__description.sql`, with the same number and name, to
           all four SQL stores (MySQL, PostgreSQL, Oracle, SQL Server). Each store also lists it
-          in `migrations/index.txt` and makes the same change to its consolidated
+          in `migrations/<dialect>/index.txt` and makes the same change to its consolidated
           `<dialect>-schema.sql`. The store contract tests load the consolidated file, so a
           missing change there fails at test time, not at compile time.
         - Check whether `RatchetSchemaCatalog` in ratchet-store-core needs the change too, and

@@ -419,7 +419,7 @@ Since Ratchet does not bundle a Flyway/Liquibase runtime dependency, you are fre
 
 ## Auto-migration
 
-For SQL stores, Ratchet ships a built-in startup migrator that applies `ddl/migrations/V###__description.sql` from the SQL store JARs. **Spring Boot and Micronaut enable it by default** for their SQL integrations. Jakarta EE and Quarkus use the CDI lifecycle hook, where it is **OFF by default**; production deployments commonly keep that default and run migrations through their existing pipelines. Enable it there with a single configuration value for development, CI, or embedded deployments.
+For SQL stores, Ratchet ships a built-in startup migrator. It applies the `V###__description.sql` scripts each SQL store JAR carries under `ddl/migrations/<dialect>`, for example `ddl/migrations/postgresql`. **Spring Boot and Micronaut enable it by default** for their SQL integrations. Jakarta EE and Quarkus use the CDI lifecycle hook, where it is **OFF by default**; production deployments commonly keep that default and run migrations through their existing pipelines. Enable it there with a single configuration value for development, CI, or embedded deployments.
 
 When using Spring Boot or Micronaut with `ratchet.schema.auto-migrate=false`, follow the migration-ledger guidance in the [Spring Boot](/deployment/spring-boot#transactions-and-schema) or [Micronaut](/deployment/micronaut#transactions-and-schema) guide after applying the supplied SQL scripts. The scripts create an empty `ratchet_schema_version` ledger, which must be dropped when an external tool owns migration history; retain any populated ledger.
 
@@ -436,6 +436,8 @@ ratchet.schema.auto-migrate=true
 ```
 
 When enabled, `SchemaMigrationLifecycleHook` runs during scheduler startup (before the poller is initialized), acquires an advisory lock (`GET_LOCK` on MySQL, `pg_advisory_lock` on PostgreSQL), records each applied script in `ratchet_schema_version`, and verifies SHA-256 checksums on subsequent runs. Concurrent startups converge: exactly one node applies migrations while the others wait on the lock.
+
+The migrator reads only the selected dialect's folder, so an application with more than one SQL store JAR on its classpath doesn't mix their scripts. To apply scripts from a different classpath folder, set `ratchet.schema.migration-prefix` (`RATCHET_SCHEMA_MIGRATION_PREFIX`) to that folder. Ratchet's native-image resource rules cover only `ddl/migrations` (all of `ddl/` on Spring Boot), so a native image needs any other folder registered as a resource by the application.
 
 ### DataSource binding
 

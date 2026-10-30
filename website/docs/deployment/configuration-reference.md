@@ -70,7 +70,7 @@ This build exposes **64 fixed keys**.
 | `ratchet.logs.retention-days` | `RATCHET_LOG_RETENTION_DAYS` | `30` | `LOG_RETENTION_DAYS` |
 | `ratchet.schema.auto-migrate` | `RATCHET_SCHEMA_AUTO_MIGRATE` | `false` | `SCHEMA_AUTO_MIGRATE` |
 | `ratchet.schema.migration-dialect` | `RATCHET_SCHEMA_MIGRATION_DIALECT` | `(empty string)` | `SCHEMA_MIGRATION_DIALECT` |
-| `ratchet.schema.migration-prefix` | `RATCHET_SCHEMA_MIGRATION_PREFIX` | `ddl/migrations` | `SCHEMA_MIGRATION_PREFIX` |
+| `ratchet.schema.migration-prefix` | `RATCHET_SCHEMA_MIGRATION_PREFIX` | `(empty string)` | `SCHEMA_MIGRATION_PREFIX` |
 | `ratchet.payload.max-payload-kb` | `RATCHET_MAX_PAYLOAD_KB` | `100` | `MAX_PAYLOAD_KB` |
 | `ratchet.jobs.max-result-bytes` | `RATCHET_JOB_RESULT_MAX_BYTES` | `65536` | `MAX_RESULT_BYTES` |
 | `ratchet.allow-empty-class-policy` | `RATCHET_ALLOW_EMPTY_CLASS_POLICY` | `false` | `ALLOW_EMPTY_CLASS_POLICY` |

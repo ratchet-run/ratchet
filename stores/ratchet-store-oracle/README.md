@@ -7,7 +7,7 @@ Oracle Database 23ai+ persistence implementation for the Ratchet scheduler.
 Authoritative DDL lives under `src/main/resources/ddl/`:
 
 - `oracle-schema.sql` — clean-install schema applied by integration tests via Testcontainers.
-- `migrations/V###__*.sql` — ordered upgrade scripts tracked through `ratchet_schema_version` by external migration tooling (or the opt-in `SchemaMigrator` utility). The Oracle migrator holds its lock on a second pooled connection, so the DataSource pool maximum must be at least 2.
+- `migrations/oracle/V###__*.sql` — ordered upgrade scripts tracked through `ratchet_schema_version` by external migration tooling (or the opt-in `SchemaMigrator` utility). The Oracle migrator holds its lock on a second pooled connection, so the DataSource pool maximum must be at least 2.
 - `views/vw_jobs.sql` — operator-only views (see below). Not loaded by the application or tests.
 
 ## Operator debugging

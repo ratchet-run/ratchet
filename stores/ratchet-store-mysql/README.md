@@ -7,7 +7,7 @@ MySQL 8.0+ persistence implementation for the Ratchet scheduler.
 Authoritative DDL lives under `src/main/resources/ddl/`:
 
 - `mysql-schema.sql` — clean-install schema applied by integration tests via Testcontainers.
-- `migrations/V###__*.sql` — ordered upgrade scripts tracked through `ratchet_schema_version` by external migration tooling (or the opt-in `SchemaMigrator` utility).
+- `migrations/mysql/V###__*.sql` — ordered upgrade scripts tracked through `ratchet_schema_version` by external migration tooling (or the opt-in `SchemaMigrator` utility).
 - `views/vw_jobs.sql` — operator-only views (see below). Not loaded by the application or tests.
 
 ## Operator debugging
