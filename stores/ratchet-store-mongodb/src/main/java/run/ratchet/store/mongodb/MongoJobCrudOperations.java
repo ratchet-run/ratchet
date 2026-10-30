@@ -97,6 +97,8 @@ import run.ratchet.store.util.StatusClassifier;
  */
 final class MongoJobCrudOperations {
 
+  static final int ORPHAN_EXECUTION_CLOSE_BATCH = 500;
+
   private static final Logger log = Logger.getLogger(MongoJobCrudOperations.class);
   private static final String STATUS_PENDING = JobStatus.PENDING.name();
   private static final String STATUS_RUNNING = JobStatus.RUNNING.name();
@@ -723,14 +725,20 @@ final class MongoJobCrudOperations {
       orphanIds.add(doc.get(ID, UUID.class));
     }
     if (!orphanIds.isEmpty()) {
-      ctx.executions()
-          .updateMany(
-              session,
-              and(in(JOB_ID, orphanIds), eq(STATUS, STATUS_RUNNING)),
-              combine(
-                  set(STATUS, STATUS_FAILED),
-                  set(ENDED_AT, DocumentMapper.toDate(Instant.now())),
-                  set(ERROR_MESSAGE, ORPHAN_RECOVERY_ERROR_MESSAGE)));
+      Date endedAt = DocumentMapper.toDate(Instant.now());
+      for (int start = 0; start < orphanIds.size(); start += ORPHAN_EXECUTION_CLOSE_BATCH) {
+        List<UUID> batch =
+            orphanIds.subList(
+                start, Math.min(start + ORPHAN_EXECUTION_CLOSE_BATCH, orphanIds.size()));
+        ctx.executions()
+            .updateMany(
+                session,
+                and(in(JOB_ID, batch), eq(STATUS, STATUS_RUNNING)),
+                combine(
+                    set(STATUS, STATUS_FAILED),
+                    set(ENDED_AT, endedAt),
+                    set(ERROR_MESSAGE, ORPHAN_RECOVERY_ERROR_MESSAGE)));
+      }
     }
     // Missing means zero, including when the configured budget is zero.
     Bson atLimit =

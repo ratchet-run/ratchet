@@ -187,6 +187,9 @@ final class PostgresqlJobDeleteOperations {
       int exhaustedLimit,
       boolean releaseOwner) {
     try {
+      // Close first: after the reset the predicate no longer matches. Each statement checks the
+      // heartbeat again, so a node that heartbeats in between keeps its job, and this attempt reads
+      // FAILED until that node's own saveExecution writes the real outcome.
       Query close =
           ctx.em()
               .createNativeQuery(
