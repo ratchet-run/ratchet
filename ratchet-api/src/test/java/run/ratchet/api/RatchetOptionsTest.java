@@ -71,7 +71,7 @@ class RatchetOptionsTest {
     assertEquals(
         1L,
         orphanScanIntervalSecondsOptions.toBuilder().build().node().orphanScanIntervalSeconds());
-    assertEquals(120L, defaults.node().orphanRecoveryLeaseTtlSeconds());
+    assertEquals(30L, defaults.node().orphanRecoveryLeaseTtlSeconds());
     assertThrows(
         IllegalArgumentException.class,
         () -> RatchetOptions.builder().node(b -> b.orphanRecoveryLeaseTtlSeconds(0L)));

@@ -1185,7 +1185,7 @@ public class RatchetOptions {
     private List<String> requireTags = List.of();
     private List<String> excludeTags = List.of();
 
-    private long orphanRecoveryLeaseTtlSeconds = 120L;
+    private long orphanRecoveryLeaseTtlSeconds = 30L;
     private int maxCrashRedeliveries = 3;
 
     public NodeBuilder maxCrashRedeliveries(int maxCrashRedeliveries) {

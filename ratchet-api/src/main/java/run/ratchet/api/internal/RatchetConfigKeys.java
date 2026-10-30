@@ -128,7 +128,7 @@ public final class RatchetConfigKeys {
       longKey(
           "ratchet.node.orphan-recovery-lease-ttl-seconds",
           "RATCHET_NODE_ORPHAN_RECOVERY_LEASE_TTL_SECONDS",
-          120L,
+          30L,
           1L);
   public static final RatchetConfigKey<Boolean> DYNAMIC_HEARTBEAT_ENABLED =
       boolKey("ratchet.node.dynamic-heartbeat-enabled", "RATCHET_DYNAMIC_HEARTBEAT_ENABLED", true);
