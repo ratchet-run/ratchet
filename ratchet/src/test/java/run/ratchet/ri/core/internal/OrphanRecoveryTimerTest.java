@@ -142,6 +142,7 @@ class OrphanRecoveryTimerTest {
     when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60)))
         .thenReturn(List.of(staleNode));
     when(nodeStore.findNodeById("dead")).thenReturn(Optional.of(staleNode));
+    when(leases.releaseHeldBy("orphanRecovery", "dead")).thenReturn(true);
     OrphanRecoveryTimer configured =
         new OrphanRecoveryTimer(
             jobBulkStore,
@@ -269,6 +270,7 @@ class OrphanRecoveryTimerTest {
     when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60)))
         .thenReturn(List.of(staleNode));
     when(nodeStore.findNodeById("dead")).thenReturn(Optional.of(staleNode));
+    when(leases.releaseHeldBy("orphanRecovery", "dead")).thenReturn(true);
     OrphanRecoveryTimer configured =
         new OrphanRecoveryTimer(
             jobBulkStore,
@@ -288,6 +290,39 @@ class OrphanRecoveryTimerTest {
 
     verify(leases).releaseHeldBy("orphanRecovery", "dead");
     verify(leases, times(2)).tryAcquire("orphanRecovery", Duration.ofSeconds(120));
+    verify(jobBulkStore, never()).resetOrphanJobsBefore(any(Instant.class), eq(3), eq(100));
+  }
+
+  @Test
+  void failedReleaseSkipsRetryAndScan() {
+    SingletonLeaseService leases = mock(SingletonLeaseService.class);
+    when(leases.tryAcquire("orphanRecovery", Duration.ofSeconds(120))).thenReturn(Optional.empty());
+    NodeEntity staleNode = new NodeEntity();
+    staleNode.setId("dead");
+    staleNode.setLastHeartbeat(Instant.parse("2026-05-12T11:50:00Z"));
+    when(nodeStore.findInactiveNodesSince(FIXED_NOW.minusSeconds(60)))
+        .thenReturn(List.of(staleNode));
+    when(nodeStore.findNodeById("dead")).thenReturn(Optional.of(staleNode));
+    when(leases.releaseHeldBy("orphanRecovery", "dead")).thenReturn(false);
+    OrphanRecoveryTimer configured =
+        new OrphanRecoveryTimer(
+            jobBulkStore,
+            jobCrudStore,
+            nodeStore,
+            resourcePermitService,
+            leases,
+            lifecycleFacade,
+            callbackInvoker,
+            errorSanitizer,
+            3,
+            60,
+            120,
+            FIXED_CLOCK);
+
+    configured.recoverNow();
+
+    verify(leases).releaseHeldBy("orphanRecovery", "dead");
+    verify(leases, times(1)).tryAcquire("orphanRecovery", Duration.ofSeconds(120));
     verify(jobBulkStore, never()).resetOrphanJobsBefore(any(Instant.class), eq(3), eq(100));
   }
 

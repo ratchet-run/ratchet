@@ -186,8 +186,8 @@ public class OrphanRecoveryTimer {
       Optional<NodeEntity> current = nodeStore.findNodeById(nodeId);
       if (current.isPresent()
           && current.get().getLastHeartbeat() != null
-          && current.get().getLastHeartbeat().isBefore(cutoff)) {
-        singletonLeaseService.releaseHeldBy(LEASE_NAME, nodeId);
+          && current.get().getLastHeartbeat().isBefore(cutoff)
+          && singletonLeaseService.releaseHeldBy(LEASE_NAME, nodeId)) {
         releasedNodeIds.add(nodeId);
       }
     }

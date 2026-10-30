@@ -168,7 +168,7 @@ Locks are acquired with an expiration time. If a node crashes, its locks expire 
 
 Each scan closes its lease when it finishes. The TTL limits how long a crashed holder blocks another node.
 
-The orphan recovery lease does not wait for its TTL. If a node dies during its own orphan scan, another node releases that lease once the dead node's heartbeat is older than `ratchet.node.orphan-grace-seconds`, then runs the scan. The other leases wait for their TTL.
+If a node dies during its own orphan scan, another node can release the orphan recovery lease before its TTL runs out. It does so once the dead node's heartbeat is older than `ratchet.node.orphan-grace-seconds`, then runs the scan. With the defaults (60-second grace, 30-second TTL, heartbeats at most 20 seconds apart) the TTL usually runs out first, so the early release matters when you raise the TTL or a node's heartbeats are delayed. The other leases always wait for their TTL.
 
 | Singleton lease | TTL property | Default |
 |---|---|---|

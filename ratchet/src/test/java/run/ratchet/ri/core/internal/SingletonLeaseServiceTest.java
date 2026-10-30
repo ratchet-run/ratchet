@@ -122,7 +122,7 @@ class SingletonLeaseServiceTest {
   void releaseHeldBy_delegatesToStore_whenAnotherNodeHoldsLease() {
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
 
-    service.releaseHeldBy(" orphanRecovery ", "dead");
+    assertTrue(service.releaseHeldBy(" orphanRecovery ", "dead"));
 
     verify(lockStore).unlock("orphanRecovery", "dead");
   }
@@ -131,7 +131,7 @@ class SingletonLeaseServiceTest {
   void releaseHeldBy_neverUnlocks_whenNodeIsSelf() {
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
 
-    service.releaseHeldBy("orphanRecovery", "node-1");
+    assertFalse(service.releaseHeldBy("orphanRecovery", "node-1"));
 
     verifyNoInteractions(lockStore);
   }
@@ -140,7 +140,7 @@ class SingletonLeaseServiceTest {
   void releaseHeldBy_isNoOp_whenNoLockStore() {
     service = new SingletonLeaseService((LockStore) null, nodeIdentityProvider);
 
-    service.releaseHeldBy("orphanRecovery", "dead");
+    assertFalse(service.releaseHeldBy("orphanRecovery", "dead"));
 
     verifyNoInteractions(lockStore, nodeIdentityProvider);
   }
@@ -152,7 +152,7 @@ class SingletonLeaseServiceTest {
         .when(lockStore)
         .unlock("orphanRecovery", "dead");
 
-    service.releaseHeldBy("orphanRecovery", "dead");
+    assertFalse(service.releaseHeldBy("orphanRecovery", "dead"));
 
     verify(lockStore).unlock("orphanRecovery", "dead");
   }
