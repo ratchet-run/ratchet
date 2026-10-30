@@ -53,7 +53,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   private final List<ChildSpec> children = new ArrayList<>();
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
-  private final BatchChildRetryOptions childRetryOptions = new BatchChildRetryOptions();
+  private final BatchChildOptions childOptionState = new BatchChildOptions();
   private SerializableConsumer<BatchContext> progressHook;
   private String executionTarget;
   private String childResourceName;
@@ -98,13 +98,19 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   @Override
   public BatchBuilder withBackoff(BackoffPolicy policy, Duration param) {
-    childRetryOptions.withBackoff(policy, param);
+    childOptionState.withBackoff(policy, param);
     return this;
   }
 
   @Override
   public BatchBuilder withMaxRetries(int retries) {
-    childRetryOptions.withMaxRetries(retries);
+    childOptionState.withMaxRetries(retries);
+    return this;
+  }
+
+  @Override
+  public BatchBuilder withTimeout(Duration timeout) {
+    childOptionState.withTimeout(timeout);
     return this;
   }
 
@@ -182,7 +188,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   }
 
   JobOptions childOptions() {
-    return childRetryOptions.value();
+    return childOptionState.value();
   }
 
   /** Invocation-typed sibling of {@link #forEach}: each child persists the factory's invocation. */

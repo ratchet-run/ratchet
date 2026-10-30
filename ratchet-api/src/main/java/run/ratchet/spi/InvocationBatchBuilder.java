@@ -80,6 +80,23 @@ public interface InvocationBatchBuilder {
     throw new UnsupportedOperationException("Invocation batch child retries are not supported");
   }
 
+  /**
+   * Sets the execution timeout for every child job in this batch.
+   *
+   * <p>Null (the default) leaves children on the global default SLA. The setting applies to the
+   * whole builder, including children already added. It does not apply to the batch parent or to
+   * workflow branch and callback jobs.
+   *
+   * @param timeout child execution timeout; null clears the per-child timeout
+   * @return this builder
+   * @throws IllegalArgumentException if {@code timeout} is negative, is positive but shorter than
+   *     one second, or exceeds {@link Integer#MAX_VALUE} whole seconds
+   * @throws UnsupportedOperationException if the builder does not support child timeout settings
+   */
+  default InvocationBatchBuilder withTimeout(Duration timeout) {
+    throw new UnsupportedOperationException("Batch child timeouts are not supported");
+  }
+
   /** Sets the named resource pool acquired by every child job. */
   InvocationBatchBuilder withResource(String resourceName);
 
