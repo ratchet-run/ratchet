@@ -730,6 +730,22 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
+  void batchWithTimeout_rejectsInvalidDurationsWhenCalled() {
+    DefaultBatchBuilder batch = new DefaultBatchBuilder("test-batch", service);
+    DefaultStreamingBatchBuilder<String> streaming =
+        new DefaultStreamingBatchBuilder<>("test-batch", service);
+
+    for (Duration invalid :
+        List.of(
+            Duration.ofSeconds(-1),
+            Duration.ofMillis(500),
+            Duration.ofSeconds(Integer.MAX_VALUE + 1L))) {
+      assertThrows(IllegalArgumentException.class, () -> batch.withTimeout(invalid));
+      assertThrows(IllegalArgumentException.class, () -> streaming.withTimeout(invalid));
+    }
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void batchSubmit_doesNotApplyChildRetriesToParentOrBranches() {
     when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());

@@ -53,7 +53,7 @@ scheduler.enqueueBatch("Import Users")
 
 ### Child Retries
 
-Retries are opt-in and apply to every child in the batch. `withMaxRetries(3)` allows three attempts after the initial failure. The parent and batch-level workflow branches do not inherit these settings.
+Retries are opt-in and apply to every child in the batch. `withMaxRetries(3)` allows three attempts after the initial failure. `withTimeout(duration)` sets an execution timeout for every child in the same way; without it, children use the global default SLA. The parent and batch-level workflow branches do not inherit these settings.
 
 Builder order does not change the result. You can set the retry options before or after `forEach`; they apply to the whole batch.
 
@@ -144,6 +144,7 @@ scheduler.enqueueBatch("Data Migration")
 | `forEach(items, action)` | Process each item in the collection |
 | `withMaxRetries(retries)` | Set child retry attempts (default: 0) |
 | `withBackoff(policy, delay)` | Set the child retry backoff policy |
+| `withTimeout(duration)` | Set the child execution timeout (default: global default SLA) |
 | `withResource(name)` | Share named resource permits across all children and other jobs using that name |
 | `onProgress(hook)` | Track progress during execution |
 | `thenOnBatchSuccess(task)` | Execute on 100% success |
@@ -227,6 +228,7 @@ scheduler.<Record>streamingBatch("ETL Pipeline")
 | `withChunkSize(size)` | Items per bulk insert (default: 100) |
 | `withMaxRetries(retries)` | Set child retry attempts (default: 0) |
 | `withBackoff(policy, delay)` | Set the child retry backoff policy |
+| `withTimeout(duration)` | Set the child execution timeout (default: global default SLA) |
 | `withResource(name)` | Share named resource permits across all children and other jobs using that name |
 | `onProgress(hook)` | Track streaming progress |
 | `onBatchProgress(hook)` | Track batch execution progress |
