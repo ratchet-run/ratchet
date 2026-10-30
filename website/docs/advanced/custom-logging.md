@@ -339,7 +339,7 @@ Ratchet's framework code logs through JBoss Logging, which auto-detects the runt
 |---|---|
 | WildFly 30+ | JBoss LogManager (native) |
 | Quarkus | JBoss LogManager (via `quarkus-logging-jboss-logmanager`) |
-| Spring Boot / Logback | Logback (via SLF4J detection) |
+| Spring Boot, Micronaut, or other Logback apps | Logback (via SLF4J detection) |
 | Standalone JDK | JDK `java.util.logging` (fallback) |
 
 No bridge or extra dependency is required for the framework's own logs. To render the MDC keys (`jobId`, `node`, `jobCreator`, `jobType`) in your output, add `%X{jobId} %X{node} %X{jobCreator} %X{jobType}` to your formatter pattern (e.g. in `standalone.xml`, `quarkus.log.console.format`, or `logback.xml`).

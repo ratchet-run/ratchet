@@ -7,9 +7,11 @@ import sys
 import tempfile
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from affected_lanes import (
     BOOT, COVERAGE, DATABASES, Graph, JAVA, LANES, SERVERS, STORE_MODULES,
-    TESTSUITE, classify, read_pom, reduce_rows, row_model, select,
+    MICRONAUT_MODULES, MICRONAUT_ROOTS, MICRONAUT_VERSIONS, TESTSUITE, classify, read_pom, reduce_rows, row_model, select,
 )
 
 REPO = Path(__file__).resolve().parents[2]
@@ -150,13 +152,15 @@ class RealRepoTest(unittest.TestCase):
 
     def reduced_all(self, outputs):
         self.counts(outputs, dict(integration=7, spring_consumer=8, spring_native=5,
-                                 spring_runtime=2, quarkus_jvm=5, quarkus_native=2))
+                                 spring_runtime=2, quarkus_jvm=5, quarkus_native=2,
+                                 micronaut_consumer=5, micronaut_native=5))
         self.assertEqual(outputs['has_showcase'], 'true')
 
     def test_full(self):
         outputs = select(REPO)[0]
         self.counts(outputs, dict(integration=35, spring_consumer=25, spring_native=10,
-                                 spring_runtime=4, quarkus_jvm=5, quarkus_native=2))
+                                 spring_runtime=4, quarkus_jvm=5, quarkus_native=2,
+                                 micronaut_consumer=10, micronaut_native=10))
         for key in ['code', 'web', 'has_showcase']:
             self.assertEqual(outputs[key], 'true')
         for prefix in ['unit', 'ee11']:
@@ -173,7 +177,8 @@ class RealRepoTest(unittest.TestCase):
 
     def test_mysql(self):
         outputs = self.output('stores/ratchet-store-mysql/src/main/java/Foo.java')
-        self.counts(outputs, dict(integration=7, quarkus_jvm=1, spring_consumer=2, spring_native=2))
+        self.counts(outputs, dict(integration=7, quarkus_jvm=1, spring_consumer=2, spring_native=2,
+                                 micronaut_consumer=2, micronaut_native=2))
         self.assertEqual(self.rows(outputs, 'integration'), [{'server': server, 'database': 'mysql'} for server in SERVERS])
         self.assertEqual(self.rows(outputs, 'quarkus_jvm'), [{'db': 'mysql', 'profile': 'db-mysql'}])
         self.assertEqual(self.rows(outputs, 'spring_consumer'),
@@ -205,6 +210,53 @@ class RealRepoTest(unittest.TestCase):
         self.assertEqual(outputs['unit_scope'], 'none')
         self.assertEqual(outputs['ee11_scope'], 'none')
         self.assertEqual(outputs['has_showcase'], 'false')
+
+    def test_micronaut_full_cells(self):
+        outputs = select(REPO)[0]
+        self.assertEqual(self.rows(outputs, 'micronaut_consumer'),
+                         [dict(lane=lane, java=java, store=store)
+                          for lane, java in [('mn4', 17), ('mn5', 25)]
+                          for store in ['postgresql', 'mysql', 'oracle', 'sqlserver', 'mongodb']])
+        self.assertEqual(self.rows(outputs, 'micronaut_native'),
+                         [dict(lane=lane, store=store) for lane in ['mn4', 'mn5']
+                          for store in ['postgresql', 'mysql', 'oracle', 'sqlserver', 'mongodb']])
+
+    def test_micronaut_modules_and_consumer_path(self):
+        paths = [module + '/src/main/java/Foo.java' for module in MICRONAUT_MODULES]
+        paths.append('integrations/ratchet-micronaut/consumer-tests/sql/pom.xml')
+        for path in paths:
+            with self.subTest(path=path):
+                outputs = self.output(path)
+                self.counts(outputs, dict(micronaut_consumer=5, micronaut_native=5))
+                self.assertEqual(outputs['has_showcase'], 'false')
+        outputs = self.output(paths[-1])
+        self.assertEqual(outputs['unit_scope'], 'none')
+        self.assertEqual(outputs['ee11_scope'], 'none')
+
+    def test_micronaut_store_ownership(self):
+        for store in DATABASES:
+            outputs = self.output(STORE_MODULES[store] + '/pom.xml')
+            for lane in ['micronaut_consumer', 'micronaut_native']:
+                rows = self.rows(outputs, lane)
+                self.assertEqual(len(rows), 2)
+                self.assertEqual({r['store'] for r in rows}, {store})
+                for row in rows:
+                    roots, profiles, owned = row_model(lane, row)
+                    self.assertEqual(roots, MICRONAUT_ROOTS + [STORE_MODULES[store]])
+                    self.assertEqual(profiles, {'github'})
+                    self.assertEqual(owned, {store})
+
+    def test_micronaut_reduction_dimensions_and_pairs(self):
+        for lane in ['micronaut_consumer', 'micronaut_native']:
+            for stores in [DATABASES, ['mysql'], ['oracle', 'mongodb']]:
+                original = [r for r in LANES[lane] if r['store'] in stores]
+                reduced = reduce_rows(lane, original)
+                self.assertTrue(all(r in original for r in reduced))
+                for key in original[0]:
+                    self.assertEqual({r[key] for r in reduced}, {r[key] for r in original})
+                if lane == 'micronaut_consumer':
+                    self.assertEqual({(r['lane'], r['java']) for r in reduced},
+                                     set(MICRONAUT_VERSIONS))
 
     def test_testsuite_and_coverage(self):
         for path in ['testing/ratchet-testsuite/src/test/java/Foo.java', 'testing/ratchet-coverage/pom.xml']:

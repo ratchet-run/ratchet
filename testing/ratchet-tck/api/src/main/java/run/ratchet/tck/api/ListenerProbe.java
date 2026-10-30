@@ -81,6 +81,23 @@ public class ListenerProbe implements RatchetTckProbe {
     }
   }
 
+  /**
+   * Creates a probe already listening to {@code scheduler}, for containers that never inject or
+   * call lifecycle methods on factory-built beans (Micronaut {@code @Factory} products). Pair with
+   * {@link #detach()}.
+   */
+  public static ListenerProbe attachedTo(JobSchedulerService scheduler) {
+    ListenerProbe probe = new ListenerProbe();
+    probe.scheduler = scheduler;
+    probe.registerListener();
+    return probe;
+  }
+
+  /** Stops listening; the counterpart of {@link #attachedTo(JobSchedulerService)}. */
+  public void detach() {
+    unregisterListener();
+  }
+
   /** Drops every recorded handle and clears all buffers. */
   public void reset() {
     synchronized (stateLock) {

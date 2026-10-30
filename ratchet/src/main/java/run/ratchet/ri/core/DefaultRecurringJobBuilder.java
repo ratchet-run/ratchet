@@ -27,7 +27,7 @@ import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.internal.BusinessKeyNormalizer;
 
 /** {@inheritDoc} */
-class DefaultRecurringJobBuilder implements RecurringJobBuilder {
+public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   private final String cronExpr;
   private final ZoneId zone;

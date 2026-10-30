@@ -14,6 +14,7 @@ const facts = [
   { label: 'Java 17+', detail: 'Jakarta EE 10 / 11' },
   { label: 'Quarkus verified', detail: 'JVM + native image, 5 databases', wide: true },
   { label: 'Spring Boot', detail: 'Boot 3.5 / 4.1 · Java 17 / 21 · JVM', wide: true },
+  { label: 'Micronaut', detail: 'Micronaut 4.10 / 5 · Java 17 / 25 · JVM + native image', wide: true },
 ]
 </script>
 
@@ -126,8 +127,9 @@ const facts = [
   line-height: 1.25;
 }
 
-/* The Quarkus fact spans both columns as a banner under the 2x2 grid, so it
-   reads as a distinct, deliberate row rather than an orphan in the last cell. */
+/* Each framework fact (Quarkus, Spring Boot, Micronaut) spans both columns as a
+   banner under the 2x2 grid, so it reads as a distinct, deliberate row rather
+   than an orphan in the last cell. */
 .fact-row li.wide {
   grid-column: 1 / -1;
   padding-top: 0.5rem;

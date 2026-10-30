@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hibernate-specific MySQL metadata. The store schema represents the compact JobPriority converter
+  value as TINYINT UNSIGNED, while Hibernate otherwise expects an INTEGER for the converter's
+  Java Integer database type. Keep this separate from orm-mysql.xml: that file targets
+  non-Hibernate providers and applies UUID AttributeConverters that Hibernate 7 rejects on IDs.
+-->
+<entity-mappings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xmlns="https://jakarta.ee/xml/ns/persistence/orm"
+                 xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence/orm
+                                     https://jakarta.ee/xml/ns/persistence/orm/orm_3_1.xsd"
+                 version="3.1">
+
+    <entity class="run.ratchet.store.entity.JobEntity">
+        <convert converter="run.ratchet.store.converter.JobPriorityConverter" attribute-name="priority"/>
+        <attributes>
+            <basic name="priority">
+                <column name="priority" column-definition="tinyint unsigned" nullable="false"/>
+            </basic>
+        </attributes>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ArchivedJobEntity">
+        <convert converter="run.ratchet.store.converter.JobPriorityConverter" attribute-name="priority"/>
+        <attributes>
+            <basic name="priority">
+                <column name="priority" column-definition="tinyint unsigned" nullable="false"/>
+            </basic>
+        </attributes>
+    </entity>
+
+</entity-mappings>

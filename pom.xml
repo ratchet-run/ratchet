@@ -11,7 +11,7 @@
   <packaging>pom</packaging>
 
   <name>Ratchet</name>
-  <description>Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java. It runs persistent background jobs, recurring schedules, batches and multi-step workflows across a cluster on Jakarta EE, Quarkus and Spring Boot, using the database you already run (PostgreSQL, MySQL, Oracle, SQL Server or MongoDB) as the queue.</description>
+  <description>Ratchet is an open-source (Apache-2.0) distributed job scheduler for Java. It runs persistent background jobs, recurring schedules, batches and multi-step workflows across a cluster on Jakarta EE, Quarkus, Spring Boot and Micronaut, using the database you already run (PostgreSQL, MySQL, Oracle, SQL Server or MongoDB) as the queue.</description>
   <url>https://ratchet.run</url>
   <inceptionYear>2026</inceptionYear>
 
@@ -73,6 +73,10 @@
     <module>integrations/ratchet-spring-boot/ratchet-spring-boot-autoconfigure-mongodb</module>
     <module>integrations/ratchet-spring-boot/ratchet-spring-boot-starter</module>
     <module>integrations/ratchet-spring-boot/ratchet-spring-boot-starter-mongodb</module>
+    <module>integrations/ratchet-micronaut/ratchet-micronaut-processor</module>
+    <module>integrations/ratchet-micronaut/ratchet-micronaut</module>
+    <module>integrations/ratchet-micronaut/ratchet-micronaut-jpa</module>
+    <module>integrations/ratchet-micronaut/ratchet-micronaut-mongodb</module>
     <module>ratchet-bom</module>
     <module>testing/ratchet-tck</module>
     <module>testing/ratchet-testsuite</module>
