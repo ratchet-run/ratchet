@@ -16,6 +16,8 @@
 package run.ratchet.store.mongodb;
 
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
+import static run.ratchet.store.mongodb.MongoFieldNames.ENDED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_MESSAGE;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -429,9 +431,9 @@ public final class DocumentMapper {
     doc.append("attempt", exec.getAttempt());
     doc.append("node_id", exec.getNodeId());
     doc.append("started_at", toDate(exec.getStartedAt()));
-    doc.append("ended_at", toDate(exec.getEndedAt()));
+    doc.append(ENDED_AT, toDate(exec.getEndedAt()));
     doc.append("status", enumName(exec.getStatus()));
-    doc.append("error_message", exec.getErrorMessage());
+    doc.append(ERROR_MESSAGE, exec.getErrorMessage());
     doc.append("error_class", exec.getErrorClass());
     doc.append("duration_ms", exec.getDurationMs());
     return doc;
@@ -444,11 +446,11 @@ public final class DocumentMapper {
     exec.setAttempt(doc.getInteger("attempt", DEFAULT_COUNT));
     exec.setNodeId(doc.getString("node_id"));
     exec.setStartedAt(toInstant(doc.getDate("started_at")));
-    exec.setEndedAt(toInstant(doc.getDate("ended_at")));
+    exec.setEndedAt(toInstant(doc.getDate(ENDED_AT)));
     if (doc.getString("status") != null) {
       exec.setStatus(enumValue(doc.getString("status"), JobExecutionEntity.ExecutionStatus.class));
     }
-    exec.setErrorMessage(doc.getString("error_message"));
+    exec.setErrorMessage(doc.getString(ERROR_MESSAGE));
     exec.setErrorClass(doc.getString("error_class"));
     exec.setDurationMs(doc.getLong("duration_ms"));
     return exec;

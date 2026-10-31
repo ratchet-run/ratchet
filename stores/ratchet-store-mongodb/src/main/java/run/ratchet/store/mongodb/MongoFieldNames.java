@@ -79,6 +79,8 @@ final class MongoFieldNames {
   static final String STARTED_AT = "started_at";
   static final String COMPLETED_AT = "completed_at";
   // Job execution attempt
+  static final String ENDED_AT = "ended_at";
+  static final String ERROR_MESSAGE = "error_message";
   static final String JOB_ID = "job_id";
   static final String ATTEMPT = "attempt";
   // Extension properties / state

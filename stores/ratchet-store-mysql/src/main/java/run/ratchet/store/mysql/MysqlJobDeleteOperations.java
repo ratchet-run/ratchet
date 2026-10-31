@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.mysql;
 
+import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
+
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -213,6 +215,21 @@ final class MysqlJobDeleteOperations {
       int exhaustedLimit,
       boolean releaseOwner) {
     try {
+      // Close first: after the reset the predicate no longer matches. Each statement checks the
+      // heartbeat again, so a node that heartbeats in between keeps its job, and this attempt reads
+      // FAILED until that node's own saveExecution writes the real outcome.
+      Query close =
+          ctx.em()
+              .createNativeQuery(
+                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
+                      + "NOW(3), error_message = ? "
+                      + "WHERE status = 'RUNNING' AND job_id IN "
+                      + "(SELECT job_id FROM scheduler_job_queue "
+                      + predicate
+                      + ")");
+      close.setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
+      bindPredicate(close, parameters, 2);
+      close.executeUpdate();
       String resetSql =
           """
           UPDATE scheduler_job_queue
@@ -263,10 +280,13 @@ final class MysqlJobDeleteOperations {
   }
 
   private static void bindRecovery(Query query, List<?> parameters, int maxCrashRedeliveries) {
-    int index = 1;
+    bindPredicate(query, parameters, 1);
+    query.setParameter(parameters.size() + 1, maxCrashRedeliveries);
+  }
+
+  private static void bindPredicate(Query query, List<?> parameters, int index) {
     for (Object parameter : parameters) {
       query.setParameter(index++, parameter);
     }
-    query.setParameter(index, maxCrashRedeliveries);
   }
 }

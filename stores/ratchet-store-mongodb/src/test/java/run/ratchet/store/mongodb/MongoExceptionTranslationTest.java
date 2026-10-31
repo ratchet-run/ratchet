@@ -15,13 +15,19 @@
  */
 package run.ratchet.store.mongodb;
 
+import static org.bson.codecs.configuration.CodecRegistries.fromCodecs;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_NODE;
+import static run.ratchet.store.mongodb.MongoJobCrudOperations.ORPHAN_EXECUTION_CLOSE_BATCH;
 
+import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
@@ -43,6 +49,8 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -52,6 +60,9 @@ import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.bson.BsonString;
 import org.bson.Document;
+import org.bson.UuidRepresentation;
+import org.bson.codecs.UuidCodec;
+import org.bson.conversions.Bson;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
@@ -337,8 +348,11 @@ class MongoExceptionTranslationTest {
     MongoCollection<Document> jobs =
         mongoCollection(
             (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                return findIterable(cursor(List.of(), new AtomicBoolean()));
+              }
               if ("updateMany".equals(method.getName())) {
-                return UpdateResult.acknowledged(1, 1L, null);
+                return UpdateResult.acknowledged(0, 0L, null);
               }
               return defaultValue(method);
             });
@@ -351,11 +365,162 @@ class MongoExceptionTranslationTest {
               }
               return defaultValue(method);
             });
+    MongoCollection<Document> executions =
+        mongoCollection(
+            (proxy, method, args) -> {
+              throw new AssertionError("No execution update is needed without orphan ids");
+            });
     MongoJobCrudOperations crud =
-        new MongoJobCrudOperations(contextWithCollections(jobs, nodes, session));
+        new MongoJobCrudOperations(contextWithCollections(jobs, nodes, executions, session));
 
-    assertTrue(crud.resetOrphanJobs(Duration.ofMinutes(5), 3, 0).reset() >= 0);
+    assertEquals(0, crud.resetOrphanJobs(Duration.ofMinutes(5), 3, 0).reset());
     assertTrue(usedTransaction.get());
+  }
+
+  @Test
+  void startupRecoveryClosesExecutionsInTheSessionBeforeResettingJobs() {
+    UUID jobId = UUID.randomUUID();
+    var registry =
+        fromRegistries(
+            fromCodecs(new UuidCodec(UuidRepresentation.STANDARD)),
+            MongoClientSettings.getDefaultCodecRegistry());
+    AtomicBoolean inTransaction = new AtomicBoolean();
+    List<String> calls = new ArrayList<>();
+    AtomicReference<ClientSession> activeSession = new AtomicReference<>();
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                assertSame(activeSession.get(), args[0]);
+                calls.add("find");
+                return findIterable(cursor(List.of(new Document(ID, jobId)), new AtomicBoolean()));
+              }
+              if ("updateMany".equals(method.getName())) {
+                assertTrue(inTransaction.get());
+                assertSame(activeSession.get(), args[0]);
+                calls.add("reset");
+                return UpdateResult.acknowledged(1, 1L, null);
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> executions =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("updateMany".equals(method.getName())) {
+                assertTrue(inTransaction.get());
+                assertSame(activeSession.get(), args[0]);
+                calls.add("close");
+                String filter = ((Bson) args[1]).toBsonDocument(Document.class, registry).toJson();
+                String update = ((Bson) args[2]).toBsonDocument(Document.class, registry).toJson();
+                assertTrue(filter.contains("job_id"));
+                assertTrue(filter.contains("RUNNING"));
+                assertTrue(update.contains("FAILED"));
+                assertTrue(update.contains("ended_at"));
+                assertTrue(update.contains(ORPHAN_RECOVERY_ERROR_MESSAGE));
+                return UpdateResult.acknowledged(7, 7L, null);
+              }
+              return defaultValue(method);
+            });
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) {
+                inTransaction.set(true);
+                try {
+                  return ((TransactionBody<?>) args[0]).execute();
+                } finally {
+                  inTransaction.set(false);
+                }
+              }
+              return defaultValue(method);
+            });
+    activeSession.set(session);
+    MongoJobCrudOperations crud =
+        new MongoJobCrudOperations(contextWithCollections(jobs, jobs, executions, session));
+
+    assertEquals(1, crud.resetOrphanJobsForNode("dead", 3, 0).reset());
+    assertEquals(List.of("find", "close", "reset", "reset"), calls);
+  }
+
+  @Test
+  void startupRecoveryClosesExecutionsInBatches() {
+    List<UUID> jobIds = new ArrayList<>();
+    List<Document> documents = new ArrayList<>();
+    for (int i = 0; i < ORPHAN_EXECUTION_CLOSE_BATCH + 1; i++) {
+      UUID jobId = UUID.randomUUID();
+      jobIds.add(jobId);
+      documents.add(new Document(ID, jobId));
+    }
+    var registry =
+        fromRegistries(
+            fromCodecs(new UuidCodec(UuidRepresentation.STANDARD)),
+            MongoClientSettings.getDefaultCodecRegistry());
+    AtomicBoolean inTransaction = new AtomicBoolean();
+    AtomicReference<ClientSession> activeSession = new AtomicReference<>();
+    List<String> calls = new ArrayList<>();
+    List<Integer> batchSizes = new ArrayList<>();
+    List<UUID> closedIds = new ArrayList<>();
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                assertSame(activeSession.get(), args[0]);
+                calls.add("find");
+                return findIterable(cursor(documents, new AtomicBoolean()));
+              }
+              if ("updateMany".equals(method.getName())) {
+                assertTrue(inTransaction.get());
+                assertSame(activeSession.get(), args[0]);
+                calls.add("reset");
+                return UpdateResult.acknowledged(jobIds.size(), (long) jobIds.size(), null);
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> executions =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("updateMany".equals(method.getName())) {
+                assertTrue(inTransaction.get());
+                assertSame(activeSession.get(), args[0]);
+                calls.add("close");
+                BsonDocument filter = ((Bson) args[1]).toBsonDocument(Document.class, registry);
+                var ids =
+                    filter
+                        .getArray("$and")
+                        .get(0)
+                        .asDocument()
+                        .getDocument("job_id")
+                        .getArray("$in");
+                batchSizes.add(ids.size());
+                for (var id : ids) {
+                  closedIds.add(id.asBinary().asUuid(UuidRepresentation.STANDARD));
+                }
+                return UpdateResult.acknowledged(ids.size(), (long) ids.size(), null);
+              }
+              return defaultValue(method);
+            });
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) {
+                inTransaction.set(true);
+                try {
+                  return ((TransactionBody<?>) args[0]).execute();
+                } finally {
+                  inTransaction.set(false);
+                }
+              }
+              return defaultValue(method);
+            });
+    activeSession.set(session);
+    MongoJobCrudOperations crud =
+        new MongoJobCrudOperations(contextWithCollections(jobs, jobs, executions, session));
+
+    assertEquals(jobIds.size(), crud.resetOrphanJobsForNode("dead", 3, 0).reset());
+    assertEquals(List.of(ORPHAN_EXECUTION_CLOSE_BATCH, 1), batchSizes);
+    assertEquals(jobIds.size(), closedIds.size());
+    assertEquals(new HashSet<>(jobIds), new HashSet<>(closedIds));
+    assertEquals(List.of("find", "close", "close", "reset", "reset"), calls);
   }
 
   @Test
@@ -429,12 +594,21 @@ class MongoExceptionTranslationTest {
 
   private static MongoStoreContext contextWithCollections(
       MongoCollection<Document> jobs, MongoCollection<Document> nodes, ClientSession session) {
+    return contextWithCollections(jobs, nodes, jobs, session);
+  }
+
+  private static MongoStoreContext contextWithCollections(
+      MongoCollection<Document> jobs,
+      MongoCollection<Document> nodes,
+      MongoCollection<Document> executions,
+      ClientSession session) {
     MongoDatabase database =
         mongoDatabase(
             (proxy, method, args) -> {
               if ("getCollection".equals(method.getName())) {
                 return switch ((String) args[0]) {
                   case "scheduler_node" -> nodes;
+                  case "scheduler_job_execution" -> executions;
                   default -> jobs;
                 };
               }

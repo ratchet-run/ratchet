@@ -213,6 +213,8 @@ Nodes register themselves in the `scheduler_node` table on startup and update th
 
 If a node crashes, orphan recovery finds its old RUNNING claims after the heartbeat grace period. It also finds claims with no owner.
 
+Recovery closes the lost attempt's RUNNING execution row as FAILED with the message "The node running this attempt stopped before it finished; orphan recovery took the job back."
+
 Each recovery returns a job to PENDING and adds one to its crash count. The limit is `ratchet.node.max-crash-redeliveries`, which defaults to 3. Once the count reaches the limit, the next crash fails the job through the normal completion path. The job enters the DLQ and runs `onFailure` if its payload can be loaded. Application retry counts are unchanged.
 
 On restart, a node recovers its own claims immediately. Exhausted claims stay RUNNING with their owner cleared. The next orphan scan can fail them after the claim grace period. Other nodes continue to use the heartbeat and claim-age checks.

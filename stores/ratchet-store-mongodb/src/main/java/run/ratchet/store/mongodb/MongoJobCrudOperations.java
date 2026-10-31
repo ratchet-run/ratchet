@@ -30,17 +30,21 @@ import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
+import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRASH_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.DEPENDS_ON;
+import static run.ratchet.store.mongodb.MongoFieldNames.ENDED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.MAX_RETRIES;
 import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_AT;
@@ -92,6 +96,8 @@ import run.ratchet.store.util.StatusClassifier;
  * read-only analytics surface that the scheduler exposes for dashboards.
  */
 final class MongoJobCrudOperations {
+
+  static final int ORPHAN_EXECUTION_CLOSE_BATCH = 500;
 
   private static final Logger log = Logger.getLogger(MongoJobCrudOperations.class);
   private static final String STATUS_PENDING = JobStatus.PENDING.name();
@@ -714,6 +720,26 @@ final class MongoJobCrudOperations {
       int maxCrashRedeliveries,
       int exhaustedLimit,
       boolean releaseOwner) {
+    List<UUID> orphanIds = new ArrayList<>();
+    for (Document doc : ctx.jobs().find(session, orphan).projection(new Document(ID, 1))) {
+      orphanIds.add(doc.get(ID, UUID.class));
+    }
+    if (!orphanIds.isEmpty()) {
+      Date endedAt = DocumentMapper.toDate(Instant.now());
+      for (int start = 0; start < orphanIds.size(); start += ORPHAN_EXECUTION_CLOSE_BATCH) {
+        List<UUID> batch =
+            orphanIds.subList(
+                start, Math.min(start + ORPHAN_EXECUTION_CLOSE_BATCH, orphanIds.size()));
+        ctx.executions()
+            .updateMany(
+                session,
+                and(in(JOB_ID, batch), eq(STATUS, STATUS_RUNNING)),
+                combine(
+                    set(STATUS, STATUS_FAILED),
+                    set(ENDED_AT, endedAt),
+                    set(ERROR_MESSAGE, ORPHAN_RECOVERY_ERROR_MESSAGE)));
+      }
+    }
     // Missing means zero, including when the configured budget is zero.
     Bson atLimit =
         maxCrashRedeliveries == 0

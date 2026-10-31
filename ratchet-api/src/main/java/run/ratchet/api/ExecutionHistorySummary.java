@@ -26,11 +26,14 @@ import java.util.UUID;
  * @param attempt one-based attempt number
  * @param nodeId the scheduler node that executed this attempt
  * @param startedAt when execution began
- * @param endedAt when execution finished; null if still running
- * @param durationMs wall-clock duration in milliseconds; null if not yet finished
+ * @param endedAt when execution finished or orphan recovery closed a lost attempt; null if still
+ *     running
+ * @param durationMs wall-clock duration in milliseconds; null if not yet finished or the node
+ *     running the attempt was lost
  * @param succeeded true if this attempt completed without error
  * @param errorMessage the error message if the attempt failed; null otherwise
- * @param errorClass the exception class name if the attempt failed; null otherwise
+ * @param errorClass the exception class name if the attempt failed; null if unknown or no exception
+ *     occurred
  * @since 0.1
  */
 @Incubating
