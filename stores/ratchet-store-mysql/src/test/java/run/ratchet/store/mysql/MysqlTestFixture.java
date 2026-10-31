@@ -49,6 +49,18 @@ public class MysqlTestFixture extends JpaContainerFixture {
     CONTAINER.start();
   }
 
+  static String jdbcUrl() {
+    return CONTAINER.getJdbcUrl();
+  }
+
+  static String username() {
+    return CONTAINER.getUsername();
+  }
+
+  static String password() {
+    return CONTAINER.getPassword();
+  }
+
   @Override
   public boolean isStaleWriteException(Throwable t) {
     for (Throwable c = t; c != null; c = c.getCause()) {

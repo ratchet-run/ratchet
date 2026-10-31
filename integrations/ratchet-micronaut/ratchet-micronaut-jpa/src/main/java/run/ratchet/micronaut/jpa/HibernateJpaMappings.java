@@ -24,7 +24,7 @@ final class HibernateJpaMappings {
   static String mappingFile(SqlStoreVendor vendor) {
     return switch (vendor) {
       case POSTGRESQL -> vendor.jpaMappingFile();
-      case MYSQL -> "META-INF/ratchet/hibernate/orm-mysql.xml";
+      case MYSQL -> null;
       case ORACLE -> "META-INF/ratchet/hibernate/orm-oracle.xml";
       case SQLSERVER -> sqlserverHibernateMappingFile(hibernateMajorVersion());
     };

@@ -18,6 +18,13 @@ messages, then fit on MySQL as they already do on the other stores. To change a 
 copies the whole table, and writes to that table wait until the copy finishes. On a large
 installation, run this migration in a quiet window.
 
+MySQL also gains `V013__priority_int.sql`, which changes `priority` from `TINYINT UNSIGNED` to
+`INT` on `scheduler_recurring_job`, `scheduler_job`, `scheduler_job_queue` and
+`scheduler_job_archive`, as the other stores already declare it. Hibernate schema validation then
+passes on MySQL without a mapping file. Values, defaults and check constraints are unchanged. Like
+`V010`, it copies each table and blocks writes to it until the copy finishes, so run it in a quiet
+window on a large installation.
+
 Extension state is now limited to 1 MiB of UTF-8 per namespace on every store. A store rejects
 larger state with `IllegalArgumentException`.
 

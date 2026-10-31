@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_limit
 CREATE TABLE IF NOT EXISTS scheduler_recurring_job
 (
     id                    BINARY(16)                                                        NOT NULL,
-    priority              TINYINT UNSIGNED                                                  NOT NULL DEFAULT 2,
+    priority              INT                                                               NOT NULL DEFAULT 2,
     max_retries           INT                                                               NOT NULL DEFAULT 0,
     backoff_policy        ENUM ('NONE','FIXED','EXPONENTIAL')                               NOT NULL DEFAULT 'NONE',
     backoff_param_ms      INT                                                               NOT NULL DEFAULT 0,
@@ -132,7 +132,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     job_id                BINARY(16)      NOT NULL,
     -- Immutable job-shape fields (duplicated on scheduler_job_queue per §duplication rule).
     job_type              ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
-    priority              TINYINT UNSIGNED                                                                                                    NOT NULL DEFAULT 2,
+    priority              INT                                                                                                                 NOT NULL DEFAULT 2,
     max_retries           INT                                                                                                                 NOT NULL DEFAULT 0,
     backoff_policy        ENUM ('NONE','FIXED','EXPONENTIAL')                                                                                 NOT NULL DEFAULT 'NONE',
     backoff_param_ms      INT                                                                                                                 NOT NULL DEFAULT 0,
@@ -231,7 +231,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     job_id             BINARY(16)      NOT NULL,
     status             ENUM ('PENDING','RUNNING','PAUSED','WAITING')                                                                      NOT NULL DEFAULT 'PENDING',
     job_type           ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
-    priority           TINYINT UNSIGNED                                                                                                    NOT NULL DEFAULT 2,
+    priority           INT                                                                                                                 NOT NULL DEFAULT 2,
     scheduled_time     DATETIME(6)                                                                                                         NOT NULL,
     business_key       VARCHAR(255)                                                                                                        NULL,
     timeout_sec        INT                                                                                                                 NOT NULL DEFAULT 0,
@@ -390,7 +390,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     original_job_id         BINARY(16)                                                                                                          NOT NULL,
     final_status            ENUM ('SUCCEEDED','FAILED','CANCELED')                                                                                 NOT NULL,
     job_type                ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
-    priority                TINYINT UNSIGNED                                                                                                    NOT NULL,
+    priority                INT                                                                                                                 NOT NULL,
     total_attempts          INT                                                                                                                 NOT NULL DEFAULT 0,
     max_retries             INT                                                                                                                 NOT NULL,
     backoff_policy          ENUM ('NONE','FIXED','EXPONENTIAL')                                                                                 NOT NULL,

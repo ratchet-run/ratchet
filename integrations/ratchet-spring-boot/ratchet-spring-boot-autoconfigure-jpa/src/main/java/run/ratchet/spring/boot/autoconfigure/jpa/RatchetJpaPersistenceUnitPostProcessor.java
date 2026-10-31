@@ -63,7 +63,8 @@ final class RatchetJpaPersistenceUnitPostProcessor implements BeanPostProcessor 
   private static String ratchetVendorMappingFile(
       PersistenceProvider provider, PersistenceUnitInfo persistenceUnitInfo) {
     String aotMapping = RatchetJpaAotSettings.get("mapping");
-    if (aotMapping != null) return aotMapping;
+    // An empty AOT value records that this vendor needs no mapping.
+    if (aotMapping != null) return aotMapping.isEmpty() ? null : aotMapping;
     DataSource dataSource = persistenceUnitInfo.getNonJtaDataSource();
     if (dataSource == null) {
       dataSource = persistenceUnitInfo.getJtaDataSource();

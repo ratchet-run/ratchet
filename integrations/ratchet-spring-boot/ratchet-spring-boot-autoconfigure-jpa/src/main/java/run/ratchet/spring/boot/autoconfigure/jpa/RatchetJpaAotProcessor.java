@@ -125,7 +125,7 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
       hints.proxies().registerJdkProxy(PersistenceProvider.class);
       hints.proxies().registerJdkProxy(PersistenceUnitInfo.class);
       hints.proxies().registerJdkProxy(PersistenceUnitInfo.class, SmartPersistenceUnitInfo.class);
-      hints.resources().registerPattern(mapping);
+      if (mapping != null) hints.resources().registerPattern(mapping);
       hints.resources().registerPattern("ddl/**");
       hints.resources().registerPattern(RatchetJpaAotSettings.RESOURCE);
       String applicationResource = "META-INF/ratchet/spring-application-orm.xml";
@@ -139,7 +139,7 @@ public final class RatchetJpaAotProcessor implements BeanFactoryInitializationAo
           "vendor="
               + vendor.name()
               + "\nmapping="
-              + mapping
+              + (mapping == null ? "" : mapping)
               + "\ndefault-orm="
               + ownership
               + "\n"

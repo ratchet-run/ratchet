@@ -33,6 +33,11 @@ class HibernateJpaMappingsTest {
     assertThat(HibernateJpaMappings.mappingFile(mock(PersistenceProvider.class), vendor))
         .isEqualTo(vendor.jpaMappingFile());
     String mapping = HibernateJpaMappings.mappingFile(new HibernatePersistenceProvider(), vendor);
+    if (vendor == SqlStoreVendor.MYSQL) {
+      assertThat(mapping).isNull();
+      assertThat(HibernateJpaMappings.aotMappingFile(vendor)).isNull();
+      return;
+    }
     assertThat(getClass().getClassLoader().getResource(mapping)).isNotNull();
     if (vendor == SqlStoreVendor.POSTGRESQL) {
       assertThat(mapping).isEqualTo(vendor.jpaMappingFile());
