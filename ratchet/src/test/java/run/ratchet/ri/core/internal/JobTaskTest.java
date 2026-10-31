@@ -868,6 +868,47 @@ class JobTaskTest {
   }
 
   @Test
+  void handleSuccess_releasedClaimClosesExecutionWithDiscardedResult() throws Exception {
+    assertDiscardedSuccessExecution(false);
+  }
+
+  @Test
+  void handleSuccess_discardedExecutionSaveFailureDoesNotEscape() throws Exception {
+    assertDiscardedSuccessExecution(true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertDiscardedSuccessExecution(boolean saveFails) throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(2)).call());
+    when(lifecycleFacade.completeSuccess(
+            any(JobEntity.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(false);
+    if (saveFails) {
+      doThrow(new IllegalStateException("execution store down"))
+          .when(observabilityFacade)
+          .saveExecution(any(JobExecutionEntity.class));
+    }
+
+    Assertions.assertDoesNotThrow(jobTask::call);
+
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(
+        JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+    Assertions.assertNull(execution.getValue().getErrorClass());
+    Assertions.assertEquals(
+        JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, execution.getValue().getErrorMessage());
+    verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+  }
+
+  @Test
   void watchdogInterruptClosesExecutionWithHardTimeout() throws Exception {
     assertWatchdogInterruptExecution(false);
   }
@@ -1864,6 +1905,7 @@ class JobTaskTest {
     verify(observabilityFacade).recordSuccessFinalizationStuck(job);
     verify(observabilityFacade, never()).publishEvent(any(JobCompletedEvent.class));
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
+    verify(observabilityFacade, never()).saveExecution(any(JobExecutionEntity.class));
   }
 
   @Test

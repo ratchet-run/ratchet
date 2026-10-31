@@ -286,7 +286,7 @@ This prevents new claims once shutdown starts, but it does not promise that ever
 finishes. Jobs should remain interruptible and idempotent because Ratchet provides at-least-once
 execution and may recover an interrupted RUNNING row on another node.
 
-A drain timeout does not consume the crash budget. SIGKILL and node crashes do. An old worker cannot record a job outcome after its claim is released. It may still overwrite its own execution row with the error it saw. The heartbeat runs until the claims are released, so orphan recovery on another node does not take them first unless the heartbeat itself fails.
+A drain timeout does not consume the crash budget. SIGKILL and node crashes do. An old worker cannot record a job outcome after its claim is released. It may still overwrite its own execution row with the error it saw, or with a note that its result was discarded. The heartbeat runs until the claims are released, so orphan recovery on another node does not take them first unless the heartbeat itself fails.
 
 `DrainController` is an internal implementation detail, not a public health-check API. Application
 readiness controls incoming request traffic; it does not control Ratchet's polling loop. For a

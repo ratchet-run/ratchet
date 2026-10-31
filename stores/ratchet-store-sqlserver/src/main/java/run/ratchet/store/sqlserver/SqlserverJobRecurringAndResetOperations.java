@@ -71,11 +71,15 @@ final class SqlserverJobRecurringAndResetOperations {
         () -> {
           ctx.em()
               .createNativeQuery(
-                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
-                      + "SYSUTCDATETIME(), error_message = ? "
-                      + "WHERE status = 'RUNNING' AND job_id IN "
-                      + "(SELECT job_id FROM scheduler_job_queue "
-                      + "WHERE status = 'RUNNING' AND picked_by = ?)")
+                  """
+                  UPDATE scheduler_job_execution
+                  SET status = 'FAILED', ended_at = SYSUTCDATETIME(),
+                      error_message = ?
+                  WHERE status = 'RUNNING' AND job_id IN (
+                    SELECT job_id FROM scheduler_job_queue
+                    WHERE status = 'RUNNING' AND picked_by = ?
+                  )
+                  """)
               .setParameter(1, SHUTDOWN_RELEASE_ERROR_MESSAGE)
               .setParameter(2, nodeId)
               .executeUpdate();

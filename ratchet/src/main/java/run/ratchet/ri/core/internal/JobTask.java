@@ -920,10 +920,14 @@ public class JobTask implements Callable<Void> {
   }
 
   private void saveDeferredExecutionFailure(Throwable ex) {
+    saveDeferredExecutionFailure(ex.getClass().getName(), sanitizeError(ex));
+  }
+
+  private void saveDeferredExecutionFailure(String errorClass, String errorMessage) {
     if (currentExecution == null || currentExecution.getStatus() != ExecutionStatus.RUNNING) {
       return;
     }
-    currentExecution.markFailed(ex.getClass().getName(), sanitizeError(ex));
+    currentExecution.markFailed(errorClass, errorMessage);
     try {
       observabilityFacade.saveExecution(currentExecution);
     } catch (RuntimeException failure) {
@@ -955,6 +959,7 @@ public class JobTask implements Callable<Void> {
             job, resultJson, resultType, start, endTime, executionMs, queueMs);
     if (finalizationState == JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED) {
       log.infof("Job %s already in terminal state, skipping success handling", job.getId());
+      saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
       return;
     }
     if (finalizationState == JobSuccessFinalizer.Outcome.STUCK) {
