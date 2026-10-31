@@ -78,7 +78,8 @@ public interface JobBatchStatusStore {
   boolean resetRunningJob(UUID id, String nodeId, long expectedClaimSeq);
 
   /**
-   * Resets all running jobs owned by a node. Transaction attribute: {@code REQUIRED}.
+   * Resets all running jobs owned by a node. Also closes those jobs' RUNNING execution rows when
+   * the store records executions. Transaction attribute: {@code REQUIRED}.
    *
    * @param nodeId stable identity of the owning node whose claims should all be released; never
    *     {@code null} or blank

@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.mysql;
 
+import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
+
 import java.util.UUID;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
@@ -61,7 +63,19 @@ final class MysqlJobRecurringAndResetOperations {
         """;
     return ctx.timedStoreOperation(
         "reset_running_jobs",
-        () -> ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate(),
+        () -> {
+          ctx.em()
+              .createNativeQuery(
+                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
+                      + "NOW(3), error_message = ? "
+                      + "WHERE status = 'RUNNING' AND job_id IN "
+                      + "(SELECT job_id FROM scheduler_job_queue "
+                      + "WHERE status = 'RUNNING' AND picked_by = ?)")
+              .setParameter(1, SHUTDOWN_RELEASE_ERROR_MESSAGE)
+              .setParameter(2, nodeId)
+              .executeUpdate();
+          return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
+        },
         updated -> updated > 0 ? "updated" : "miss");
   }
 

@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.oracle;
 
+import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
+
 import java.util.UUID;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
 
@@ -60,7 +62,19 @@ final class OracleJobRecurringAndResetOperations {
         """;
     return ctx.timedStoreOperation(
         "reset_running_jobs",
-        () -> ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate(),
+        () -> {
+          ctx.em()
+              .createNativeQuery(
+                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
+                      + "CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS TIMESTAMP), error_message = ? "
+                      + "WHERE status = 'RUNNING' AND job_id IN "
+                      + "(SELECT job_id FROM scheduler_job_queue "
+                      + "WHERE status = 'RUNNING' AND picked_by = ?)")
+              .setParameter(1, SHUTDOWN_RELEASE_ERROR_MESSAGE)
+              .setParameter(2, nodeId)
+              .executeUpdate();
+          return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
+        },
         updated -> updated > 0 ? "updated" : "miss");
   }
 

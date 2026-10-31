@@ -64,6 +64,7 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStore;
@@ -816,6 +817,8 @@ public class JobTask implements Callable<Void> {
           "Job %s interrupted by hard-timeout watchdog — deferring retry to the watchdog",
           job.getId());
       logIfTimeout(ex);
+      saveDeferredExecutionFailure(
+          attempt == null ? ex : JobTimeoutHandler.hardTimeoutException(attempt.timeoutSeconds()));
       return;
     }
 
@@ -865,6 +868,7 @@ public class JobTask implements Callable<Void> {
         log.infof(
             "Job %s stopped after the hard-timeout watchdog claimed it — deferring to the watchdog",
             job.getId());
+        saveDeferredExecutionFailure(ex);
       }
       return;
     }
@@ -883,6 +887,7 @@ public class JobTask implements Callable<Void> {
     int attempt = jobStore.incrementRetryAttempt(job.getId(), expectedClaimSeq());
     if (attempt == -1) {
       warnRejectedOwnerWrite();
+      saveDeferredExecutionFailure(ex);
       return;
     }
 
@@ -912,6 +917,18 @@ public class JobTask implements Callable<Void> {
       }
     }
     return false;
+  }
+
+  private void saveDeferredExecutionFailure(Throwable ex) {
+    if (currentExecution == null || currentExecution.getStatus() != ExecutionStatus.RUNNING) {
+      return;
+    }
+    currentExecution.markFailed(ex.getClass().getName(), sanitizeError(ex));
+    try {
+      observabilityFacade.saveExecution(currentExecution);
+    } catch (RuntimeException failure) {
+      log.warnf(failure, "Job %s could not save deferred execution failure", job.getId());
+    }
   }
 
   private void handleNonRetryableFailure(Throwable ex, int attempt, String sanitized) {

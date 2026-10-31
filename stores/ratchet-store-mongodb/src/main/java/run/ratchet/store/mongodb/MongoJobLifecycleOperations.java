@@ -23,13 +23,17 @@ import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.unset;
+import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRASH_COUNT;
+import static run.ratchet.store.mongodb.MongoFieldNames.ENDED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_END_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_RESULT;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.LAST_ERROR;
@@ -44,6 +48,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+import static run.ratchet.store.mongodb.MongoJobCrudOperations.ORPHAN_EXECUTION_CLOSE_BATCH;
 
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
@@ -495,17 +500,43 @@ final class MongoJobLifecycleOperations
     return intMutation(
         "reset_running_jobs",
         () -> {
-          UpdateResult result =
-              ctx.jobs()
-                  .updateMany(
-                      and(eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
-                      combine(
-                          set(STATUS, "PENDING"),
-                          set(PICKED_BY, null),
-                          set(PICKED_AT, null),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                          inc(VERSION, 1)));
-          return (int) result.getModifiedCount();
+          try (ClientSession session = ctx.startSession()) {
+            return session.withTransaction(
+                () -> {
+                  Bson filter = and(eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId));
+                  List<UUID> ids = new ArrayList<>();
+                  for (Document doc :
+                      ctx.jobs().find(session, filter).projection(new Document(ID, 1))) {
+                    ids.add(doc.get(ID, UUID.class));
+                  }
+                  Date now = DocumentMapper.toDate(Instant.now());
+                  for (int start = 0; start < ids.size(); start += ORPHAN_EXECUTION_CLOSE_BATCH) {
+                    List<UUID> batch =
+                        ids.subList(
+                            start, Math.min(start + ORPHAN_EXECUTION_CLOSE_BATCH, ids.size()));
+                    ctx.executions()
+                        .updateMany(
+                            session,
+                            and(in(JOB_ID, batch), eq(STATUS, "RUNNING")),
+                            combine(
+                                set(STATUS, "FAILED"),
+                                set(ENDED_AT, now),
+                                set(ERROR_MESSAGE, SHUTDOWN_RELEASE_ERROR_MESSAGE)));
+                  }
+                  UpdateResult result =
+                      ctx.jobs()
+                          .updateMany(
+                              session,
+                              filter,
+                              combine(
+                                  set(STATUS, "PENDING"),
+                                  set(PICKED_BY, null),
+                                  set(PICKED_AT, null),
+                                  set(UPDATED_AT, now),
+                                  inc(VERSION, 1)));
+                  return (int) result.getModifiedCount();
+                });
+          }
         });
   }
 

@@ -15,6 +15,8 @@
  */
 package run.ratchet.store.postgresql;
 
+import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
+
 import jakarta.persistence.Query;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -65,7 +67,19 @@ final class PostgresqlJobRecurringAndResetOperations {
         """;
     return ctx.timedStoreOperation(
         "reset_running_jobs",
-        () -> ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate(),
+        () -> {
+          ctx.em()
+              .createNativeQuery(
+                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
+                      + "statement_timestamp(), error_message = ? "
+                      + "WHERE status = 'RUNNING' AND job_id IN "
+                      + "(SELECT job_id FROM scheduler_job_queue "
+                      + "WHERE status = 'RUNNING' AND picked_by = ?)")
+              .setParameter(1, SHUTDOWN_RELEASE_ERROR_MESSAGE)
+              .setParameter(2, nodeId)
+              .executeUpdate();
+          return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
+        },
         updated -> updated > 0 ? "updated" : "miss");
   }
 

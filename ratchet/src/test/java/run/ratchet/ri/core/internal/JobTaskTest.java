@@ -47,6 +47,7 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -389,6 +390,17 @@ class JobTaskTest {
       Assertions.assertEquals(Optional.of(attempt.deadline()), observed.deadline());
       Assertions.assertEquals(
           attempt.isCancellationRequested(), observed.isCancellationRequested());
+      if (failure != null && expectCooperative && claimed) {
+        ArgumentCaptor<JobExecutionEntity> execution =
+            ArgumentCaptor.forClass(JobExecutionEntity.class);
+        verify(observabilityFacade).saveExecution(execution.capture());
+        Assertions.assertEquals(
+            JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+        Assertions.assertEquals(
+            CancellationRequestedException.class.getName(), execution.getValue().getErrorClass());
+        Assertions.assertEquals(
+            CancellationRequestedException.class.getName(), execution.getValue().getErrorMessage());
+      }
       if (failure != null && expectCooperative && !claimed) {
         verify(
                 timeoutHandler,
@@ -853,6 +865,51 @@ class JobTaskTest {
     jobTask.call();
 
     verify(lifecycleFacade).completeFailure(eq(job), eq(JobStatus.RUNNING), eq(false));
+  }
+
+  @Test
+  void watchdogInterruptClosesExecutionWithHardTimeout() throws Exception {
+    assertWatchdogInterruptExecution(false);
+  }
+
+  @Test
+  void deferredExecutionSaveFailureDoesNotEscapeOrChangeDeferral() throws Exception {
+    assertWatchdogInterruptExecution(true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void assertWatchdogInterruptExecution(boolean saveFails) throws Exception {
+    JobEntity job = createTestJob();
+    JobTimeoutHandler timeoutHandler = mock(JobTimeoutHandler.class);
+    JobTask task = newJobTaskWithTimeoutHandler(timeoutHandler);
+    initJobTaskWithDefaultStubs(task, job);
+    task.attach(
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1"));
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenThrow(new InterruptedException("watchdog interrupt"));
+    when(timeoutHandler.isWatchdogCancelled(JOB_UUID)).thenReturn(true);
+    when(errorSanitizer.sanitize(any(Throwable.class)))
+        .thenAnswer(invocation -> invocation.<Throwable>getArgument(0).getMessage());
+    if (saveFails) {
+      doThrow(new IllegalStateException("execution store down"))
+          .when(observabilityFacade)
+          .saveExecution(any(JobExecutionEntity.class));
+    }
+
+    Assertions.assertDoesNotThrow(task::call);
+
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(
+        JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+    Assertions.assertEquals(TimeoutException.class.getName(), execution.getValue().getErrorClass());
+    Assertions.assertEquals("Hard timeout exceeded (30s)", execution.getValue().getErrorMessage());
+    verify(jobStore, never()).incrementRetryAttempt(any(), anyLong());
+    verify(timeoutHandler, never()).processCooperativeTimeout(any());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
   }
 
   @Test
@@ -2230,6 +2287,14 @@ class JobTaskTest {
 
     task.call();
 
+    ArgumentCaptor<JobExecutionEntity> execution =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(observabilityFacade).saveExecution(execution.capture());
+    Assertions.assertEquals(
+        JobExecutionEntity.ExecutionStatus.FAILED, execution.getValue().getStatus());
+    Assertions.assertEquals(RuntimeException.class.getName(), execution.getValue().getErrorClass());
+    Assertions.assertEquals(
+        RuntimeException.class.getName(), execution.getValue().getErrorMessage());
     verify(jobStore).incrementRetryAttempt(JOB_UUID, 37L);
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
     verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
