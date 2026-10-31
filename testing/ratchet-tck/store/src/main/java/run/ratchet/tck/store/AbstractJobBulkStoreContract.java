@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
+import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -553,6 +554,67 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     assertEquals(2, result.exhausted().size());
     assertTrue(result.exhausted().stream().noneMatch(row -> row.jobId().equals(live.getId())));
     assertEquals(JobStatus.RUNNING, store().getJobStatus(live.getId()));
+  }
+
+  @Test
+  void resetRunningJobs_closesEveryReleasedRunningExecution() {
+    auditStore();
+    List<JobEntity> released = List.of(persist(newPendingJob()), persist(newPendingJob()));
+    for (JobEntity job : released) {
+      assertTrue(store().tryPickUpJob(job.getId(), "self"));
+      auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 1, "self"));
+      auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 1, "self"));
+    }
+
+    assertEquals(2, store().resetRunningJobs("self"));
+
+    for (JobEntity job : released) {
+      var executions = auditStore().findExecutionsByJobId(job.getId(), 100, 0);
+      assertEquals(2, executions.size());
+      for (JobExecutionEntity execution : executions) {
+        assertEquals(ExecutionStatus.FAILED, execution.getStatus());
+        assertNotNull(execution.getEndedAt());
+        assertEquals(SHUTDOWN_RELEASE_ERROR_MESSAGE, execution.getErrorMessage());
+        assertNull(execution.getErrorClass());
+        assertNull(execution.getDurationMs());
+      }
+      assertEquals(JobStatus.PENDING, store().getJobStatus(job.getId()));
+    }
+  }
+
+  @Test
+  void resetRunningJobs_preservesOtherOwnersNonRunningJobsAndEarlierSuccess() {
+    auditStore();
+    JobEntity released = persist(newPendingJob());
+    JobEntity other = persist(newPendingJob());
+    JobEntity pending = newPendingJob();
+    pending.setPickedBy("self");
+    pending = persist(pending);
+    assertTrue(store().tryPickUpJob(released.getId(), "self"));
+    assertTrue(store().tryPickUpJob(other.getId(), "other"));
+    for (JobEntity job : List.of(released, other, pending)) {
+      auditStore().saveExecution(JobExecutionEntity.start(job.getId(), 2, "self"));
+    }
+    JobExecutionEntity succeeded = JobExecutionEntity.start(released.getId(), 1, "self");
+    succeeded.markSucceeded();
+    succeeded.setEndedAt(Instant.ofEpochMilli(succeeded.getEndedAt().toEpochMilli()));
+    auditStore().saveExecution(succeeded);
+
+    assertEquals(1, store().resetRunningJobs("self"));
+
+    for (JobEntity job : List.of(other, pending)) {
+      assertRunningExecution(auditStore().findExecutionsByJobId(job.getId(), 100, 0).get(0));
+    }
+    JobExecutionEntity preserved =
+        auditStore().findExecutionsByJobId(released.getId(), 100, 0).stream()
+            .filter(row -> row.getId().equals(succeeded.getId()))
+            .findFirst()
+            .orElseThrow();
+    assertEquals(ExecutionStatus.SUCCEEDED, preserved.getStatus());
+    assertEquals(succeeded.getEndedAt(), preserved.getEndedAt());
+    assertEquals(succeeded.getDurationMs(), preserved.getDurationMs());
+    assertNull(preserved.getErrorClass());
+    assertNull(preserved.getErrorMessage());
   }
 
   @Test

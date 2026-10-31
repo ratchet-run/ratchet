@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
+import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_NODE;
@@ -375,6 +376,73 @@ class MongoExceptionTranslationTest {
 
     assertEquals(0, crud.resetOrphanJobs(Duration.ofMinutes(5), 3, 0).reset());
     assertTrue(usedTransaction.get());
+  }
+
+  @Test
+  void shutdownClosesExecutionsInTheSessionBeforeResettingJobs() {
+    UUID jobId = UUID.randomUUID();
+    var registry =
+        fromRegistries(
+            fromCodecs(new UuidCodec(UuidRepresentation.STANDARD)),
+            MongoClientSettings.getDefaultCodecRegistry());
+    AtomicBoolean inTransaction = new AtomicBoolean();
+    List<String> calls = new ArrayList<>();
+    AtomicReference<ClientSession> activeSession = new AtomicReference<>();
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                assertTrue(inTransaction.get());
+                assertSame(activeSession.get(), args[0]);
+                calls.add("find");
+                return findIterable(cursor(List.of(new Document(ID, jobId)), new AtomicBoolean()));
+              }
+              if ("updateMany".equals(method.getName())) {
+                assertTrue(inTransaction.get());
+                assertSame(activeSession.get(), args[0]);
+                calls.add("reset");
+                return UpdateResult.acknowledged(1, 1L, null);
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> executions =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("updateMany".equals(method.getName())) {
+                assertTrue(inTransaction.get());
+                assertSame(activeSession.get(), args[0]);
+                calls.add("close");
+                String filter = ((Bson) args[1]).toBsonDocument(Document.class, registry).toJson();
+                String update = ((Bson) args[2]).toBsonDocument(Document.class, registry).toJson();
+                assertTrue(filter.contains("job_id"));
+                assertTrue(filter.contains("RUNNING"));
+                assertTrue(update.contains("FAILED"));
+                assertTrue(update.contains("ended_at"));
+                assertTrue(update.contains(SHUTDOWN_RELEASE_ERROR_MESSAGE));
+                return UpdateResult.acknowledged(7, 7L, null);
+              }
+              return defaultValue(method);
+            });
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) {
+                inTransaction.set(true);
+                try {
+                  return ((TransactionBody<?>) args[0]).execute();
+                } finally {
+                  inTransaction.set(false);
+                }
+              }
+              return defaultValue(method);
+            });
+    activeSession.set(session);
+    MongoStoreContext ctx = contextWithCollections(jobs, jobs, executions, session);
+    MongoJobLifecycleOperations lifecycle =
+        new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx));
+
+    assertEquals(1, lifecycle.resetRunningJobs("dead"));
+    assertEquals(List.of("find", "close", "reset"), calls);
   }
 
   @Test
