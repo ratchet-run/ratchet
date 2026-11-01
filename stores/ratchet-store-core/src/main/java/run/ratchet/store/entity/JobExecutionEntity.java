@@ -55,9 +55,10 @@ public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable
       "The node running this attempt shut down before it finished; the job was released to run"
           + " again.";
 
-  /** Explanation recorded when a released attempt finishes successfully. */
+  /** Explanation recorded when an attempt finishes successfully after its job left RUNNING. */
   public static final String RESULT_DISCARDED_ERROR_MESSAGE =
-      "The attempt finished after its job was released; its result was discarded.";
+      "The attempt finished after its job was released, timed out or cancelled; its result was"
+          + " discarded.";
 
   @Id private UUID id;
 
