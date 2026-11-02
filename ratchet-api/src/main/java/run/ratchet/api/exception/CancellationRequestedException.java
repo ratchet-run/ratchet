@@ -18,7 +18,7 @@ package run.ratchet.api.exception;
 import java.io.Serial;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.Nullable;
-import run.ratchet.api.internal.AttemptTokens;
+import run.ratchet.api.internal.CancellationIdentities;
 
 /**
  * Thrown by job code, usually via {@link JobContext#throwIfCancellationRequested()}, when it stops
@@ -38,13 +38,15 @@ public class CancellationRequestedException extends RuntimeException {
   @Serial private static final long serialVersionUID = 1L;
 
   static {
-    AttemptTokens.installStopMatcher(
+    CancellationIdentities.installStopMatcher(
         (exception, token) ->
-            exception.cancellationRequested && token != null && exception.attemptToken == token);
+            exception.cancellationRequested
+                && token != null
+                && exception.cancellationIdentity == token);
   }
 
   private final boolean cancellationRequested;
-  private final transient @Nullable Object attemptToken;
+  private final transient @Nullable Object cancellationIdentity;
 
   /**
    * Records the request state and attempt of the {@link JobContext} bound to the current thread, if
@@ -66,7 +68,7 @@ public class CancellationRequestedException extends RuntimeException {
       String message, @Nullable Throwable cause, @Nullable JobContext context) {
     super(message, cause);
     this.cancellationRequested = requested(context);
-    this.attemptToken = AttemptTokens.tokenOf(context);
+    this.cancellationIdentity = CancellationIdentities.identityOf(context);
   }
 
   /**

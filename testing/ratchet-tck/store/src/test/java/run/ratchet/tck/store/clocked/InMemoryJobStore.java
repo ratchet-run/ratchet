@@ -45,6 +45,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.OrphanRecovery;
 
@@ -212,6 +213,19 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   // ----- JobClaimStore (real bodies) -----
+
+  @Override
+  public synchronized Optional<ClaimState> currentClaim(UUID jobId) {
+    JobEntity job = jobs.get(jobId);
+    if (job == null
+        || job.getStatus() == JobStatus.SUCCEEDED
+        || job.getStatus() == JobStatus.FAILED
+        || job.getStatus() == JobStatus.CANCELED) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        new ClaimState(job.getStatus(), job.getClaimSeq() == null ? 0L : job.getClaimSeq()));
+  }
 
   @Override
   public synchronized List<JobClaimDto> claimNextBatchOptimized(

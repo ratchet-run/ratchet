@@ -364,6 +364,7 @@ class JobTimeoutHandlerTest {
     assertTrue(attempt.claimTimeoutForWorker());
 
     handler.processCooperativeTimeout(attempt);
+    assertTrue(attempt.isSuperseded());
 
     verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 7L);
     verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
@@ -1862,6 +1863,7 @@ class JobTimeoutHandlerTest {
     when(jobRetryStore.incrementRetryAttempt(JOB_ID, 7L)).thenReturn(-1);
 
     hard.getAllValues().get(1).run();
+    assertTrue(attempt.isSuperseded());
 
     verify(jobRetryStore).incrementRetryAttempt(JOB_ID, 7L);
     verify(jobRetryStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());

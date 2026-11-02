@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import run.ratchet.api.JobPriority;
@@ -34,6 +35,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.oracle.converter.UuidRawConverter;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
@@ -154,6 +156,11 @@ final class OracleJobClaimOperations implements JobClaimStore {
       }
     }
     return result;
+  }
+
+  @Override
+  public Optional<ClaimState> currentClaim(UUID jobId) {
+    return jobs.currentClaim(jobId);
   }
 
   @Override

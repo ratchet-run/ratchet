@@ -21,16 +21,105 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.AttemptToken;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.spi.ClaimState;
+import run.ratchet.store.spi.JobClaimStore;
 
 class JobAttemptControlTest {
   private JobAttemptControl newAttempt() {
     return new JobAttemptControl(
         new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH, 0, 0L, "node-1");
+  }
+
+  private JobAttemptControl claimedAttempt() {
+    return new JobAttemptControl(
+        new UUID(0L, 42L), Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH, 0, 7L, "node-1");
+  }
+
+  @Test
+  void tokensRequirePositiveClaimSequence() {
+    assertTrue(newAttempt().token().isEmpty());
+    JobAttemptControl attempt = claimedAttempt();
+    assertEquals(Optional.of(new AttemptToken(attempt.jobId(), 7)), attempt.token());
+    JobClaimStore store = mock(JobClaimStore.class);
+    assertFalse(newAttempt().isCurrent(store));
+    attempt.markSuperseded();
+    assertTrue(attempt.isSuperseded());
+    assertFalse(attempt.isCurrent(store));
+    attempt.requestCancellation();
+    assertTrue(attempt.isSuperseded());
+    verifyNoInteractions(store);
+  }
+
+  @Test
+  void currentReadTracksRunningWithoutStickingOnPaused() {
+    JobAttemptControl attempt = claimedAttempt();
+    JobClaimStore store = mock(JobClaimStore.class);
+    when(store.currentClaim(attempt.jobId()))
+        .thenReturn(
+            Optional.of(new ClaimState(JobStatus.RUNNING, 7)),
+            Optional.of(new ClaimState(JobStatus.PAUSED, 7)),
+            Optional.of(new ClaimState(JobStatus.RUNNING, 7)));
+    assertTrue(attempt.isCurrent(store));
+    assertFalse(attempt.isCurrent(store));
+    assertFalse(attempt.isSuperseded());
+    assertTrue(attempt.isCurrent(store));
+    verify(store, times(3)).currentClaim(attempt.jobId());
+  }
+
+  @Test
+  void missingAndDifferentClaimsAreSticky() {
+    for (Optional<ClaimState> state :
+        List.of(Optional.<ClaimState>empty(), Optional.of(new ClaimState(JobStatus.RUNNING, 8)))) {
+      JobAttemptControl attempt = claimedAttempt();
+      JobClaimStore store = mock(JobClaimStore.class);
+      when(store.currentClaim(attempt.jobId())).thenReturn(state);
+      assertFalse(attempt.isCurrent(store));
+      assertTrue(attempt.isSuperseded());
+      assertFalse(attempt.isCurrent(store));
+      verify(store).currentClaim(attempt.jobId());
+    }
+  }
+
+  @Test
+  void storeErrorsPropagateWithoutSuperseding() {
+    JobAttemptControl attempt = claimedAttempt();
+    JobClaimStore store = mock(JobClaimStore.class);
+    IllegalStateException failure = new IllegalStateException("store down");
+    when(store.currentClaim(attempt.jobId()))
+        .thenThrow(failure)
+        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7)));
+    assertSame(failure, assertThrows(IllegalStateException.class, () -> attempt.isCurrent(store)));
+    assertFalse(attempt.isSuperseded());
+    assertTrue(attempt.isCurrent(store));
+  }
+
+  @Test
+  void supersedingDuringReadWins() {
+    JobAttemptControl attempt = claimedAttempt();
+    JobClaimStore store = mock(JobClaimStore.class);
+    when(store.currentClaim(attempt.jobId()))
+        .thenAnswer(
+            invocation -> {
+              attempt.markSuperseded();
+              return Optional.of(new ClaimState(JobStatus.RUNNING, 7));
+            });
+    assertFalse(attempt.isCurrent(store));
+    assertTrue(attempt.isSuperseded());
   }
 
   @Test
@@ -47,13 +136,13 @@ class JobAttemptControlTest {
   }
 
   @Test
-  void attemptTokensAreStableAndDistinct() {
+  void cancellationIdentitiesAreStableAndDistinct() {
     JobAttemptControl first = newAttempt();
     JobAttemptControl second = newAttempt();
-    assertNotNull(first.attemptToken());
-    assertNotNull(second.attemptToken());
-    assertSame(first.attemptToken(), first.attemptToken());
-    assertNotSame(first.attemptToken(), second.attemptToken());
+    assertNotNull(first.cancellationIdentity());
+    assertNotNull(second.cancellationIdentity());
+    assertSame(first.cancellationIdentity(), first.cancellationIdentity());
+    assertNotSame(first.cancellationIdentity(), second.cancellationIdentity());
   }
 
   @Test
@@ -68,6 +157,7 @@ class JobAttemptControlTest {
     assertFalse(attempt.claimTimeoutForWorker());
     assertFalse(attempt.handBackTimeoutToWatchdog());
     assertTrue(attempt.claimTimeoutForWatchdog());
+    assertTrue(attempt.isSuperseded());
     assertFalse(attempt.isTimeoutHandedBack());
     assertFalse(attempt.claimTimeoutForWatchdog());
   }
@@ -76,6 +166,7 @@ class JobAttemptControlTest {
   void watchdogCanClaimUnclaimedTimeoutAndExcludeWorker() {
     JobAttemptControl attempt = newAttempt();
     assertTrue(attempt.claimTimeoutForWatchdog());
+    assertTrue(attempt.isSuperseded());
     assertFalse(attempt.claimTimeoutForWorker());
     assertFalse(attempt.claimTimeoutForWatchdog());
     assertFalse(attempt.handBackTimeoutToWatchdog());

@@ -116,6 +116,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.util.EncryptionTarget;
 import run.ratchet.store.util.PayloadEncryptor;
@@ -234,6 +235,41 @@ class JobTaskTest {
         false);
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void executingContextExposesTokenAndReadsCurrentClaim() throws Exception {
+    JobEntity job = createTestJob();
+    job.setClaimSeq(7L);
+    job.setPayload(
+        new JobPayload(
+            JobTaskTest.class.getName(),
+            "cooperativePayload",
+            "()Ljava/lang/String;",
+            true,
+            List.of(),
+            null));
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    initJobTaskWithDefaultStubs(job);
+    jobTask.attach(attempt);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.currentClaim(JOB_UUID))
+        .thenReturn(Optional.of(new ClaimState(JobStatus.RUNNING, 7)));
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(), any(Callable.class)))
+        .thenAnswer(
+            invocation -> {
+              JobContext context = JobContext.current();
+              Assertions.assertEquals(attempt.token(), context.attemptToken());
+              Assertions.assertTrue(context.isCurrentAttempt());
+              return invocation.<Callable<?>>getArgument(2).call();
+            });
+    when(lifecycleFacade.completeSuccess(any(), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+    jobTask.call();
+    verify(jobStore).currentClaim(JOB_UUID);
+  }
+
   private CancellationRequestedException cancellationFromPreviousAttempt() {
     JobAttemptControl previous =
         new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 0L, "node-1");
@@ -246,7 +282,7 @@ class JobTaskTest {
         null,
         previous.deadline(),
         previous::isCancellationRequested,
-        previous.attemptToken());
+        previous.cancellationIdentity());
     try {
       CancellationRequestedException stale = new CancellationRequestedException("stop");
       Assertions.assertTrue(stale.isCancellationRequested());
@@ -2327,7 +2363,11 @@ class JobTaskTest {
     when(validationFacade.shouldNotRetry(failure)).thenReturn(false);
     when(jobStore.incrementRetryAttempt(JOB_UUID, 37L)).thenReturn(-1);
 
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_UUID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 37L, "node-1");
+    task.attach(attempt);
     task.call();
+    Assertions.assertTrue(attempt.isSuperseded());
 
     ArgumentCaptor<JobExecutionEntity> execution =
         ArgumentCaptor.forClass(JobExecutionEntity.class);

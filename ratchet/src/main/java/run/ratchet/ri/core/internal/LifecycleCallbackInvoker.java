@@ -15,6 +15,7 @@
  */
 package run.ratchet.ri.core.internal;
 
+import java.io.Serializable;
 import java.time.Clock;
 import java.util.Arrays;
 import java.util.Collections;
@@ -23,6 +24,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCallbackFailedEvent.CallbackType;
+import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.ri.payload.RuntimeArguments;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.PayloadSerializer;
@@ -56,19 +58,52 @@ public final class LifecycleCallbackInvoker {
   }
 
   public void invokeOnSuccess(JobEntity job) {
-    invoke(
-        job,
-        job.getOnSuccessPayload(),
-        CallbackType.ON_SUCCESS,
-        Collections.singletonList(JobContext.currentOrNull()));
+    invokeWithoutAttempt(
+        () ->
+            invoke(
+                job,
+                job.getOnSuccessPayload(),
+                CallbackType.ON_SUCCESS,
+                Collections.singletonList(JobContext.currentOrNull())));
   }
 
   public void invokeOnFailure(JobEntity job, Throwable failure) {
-    invoke(
-        job,
-        job.getOnFailurePayload(),
-        CallbackType.ON_FAILURE,
-        Arrays.asList(JobContext.currentOrNull(), failure));
+    invokeWithoutAttempt(
+        () ->
+            invoke(
+                job,
+                job.getOnFailurePayload(),
+                CallbackType.ON_FAILURE,
+                Arrays.asList(JobContext.currentOrNull(), failure)));
+  }
+
+  private void invokeWithoutAttempt(Runnable callback) {
+    JobContext previous = JobContext.currentOrNull();
+    if (previous == null || previous.attemptToken().isEmpty()) {
+      callback.run();
+      return;
+    }
+    try {
+      JobContext.bind(
+          previous.jobId(),
+          previous.logger(),
+          previous.params(),
+          previous.callerPrincipal(),
+          previous.signalPayload(Serializable.class));
+      callback.run();
+    } finally {
+      JobContext.bind(
+          previous.jobId(),
+          previous.logger(),
+          previous.params(),
+          previous.callerPrincipal(),
+          previous.signalPayload(Serializable.class),
+          previous.deadline().orElse(null),
+          previous::isCancellationRequested,
+          CancellationIdentities.identityOf(previous),
+          previous.attemptToken().orElse(null),
+          previous::isCurrentAttempt);
+    }
   }
 
   private void invoke(

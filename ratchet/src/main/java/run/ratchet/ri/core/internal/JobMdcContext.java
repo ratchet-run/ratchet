@@ -21,7 +21,9 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import org.jboss.logging.MDC;
+import run.ratchet.api.AttemptToken;
 import run.ratchet.api.JobContext;
+import run.ratchet.api.Nullable;
 import run.ratchet.spi.JobLogger;
 
 /**
@@ -113,7 +115,18 @@ final class JobMdcContext {
       String jobType,
       Serializable signalPayload) {
     bindJobContext(
-        jobId, logger, params, nodeId, jobCreator, jobType, signalPayload, null, () -> false, null);
+        jobId,
+        logger,
+        params,
+        nodeId,
+        jobCreator,
+        jobType,
+        signalPayload,
+        null,
+        () -> false,
+        null,
+        null,
+        () -> false);
   }
 
   static void bindJobContext(
@@ -126,7 +139,9 @@ final class JobMdcContext {
       Serializable signalPayload,
       Instant deadline,
       BooleanSupplier cancellationRequested,
-      Object attemptToken) {
+      Object cancellationIdentity,
+      @Nullable AttemptToken attemptToken,
+      BooleanSupplier currentAttempt) {
     JobContext.bind(
         jobId,
         logger,
@@ -135,7 +150,9 @@ final class JobMdcContext {
         signalPayload,
         deadline,
         cancellationRequested,
-        attemptToken);
+        cancellationIdentity,
+        attemptToken,
+        currentAttempt);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));
     }

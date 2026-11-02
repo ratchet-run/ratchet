@@ -88,6 +88,52 @@ class MysqlRepeatableReadClaimTest {
   }
 
   @Test
+  void currentClaimUsesFreshTransactionRatherThanCallersSnapshot() {
+    var id = fixture.store().create(fixture.newPendingJob()).getId();
+    var reader = emf.createEntityManager();
+    var writer = emf.createEntityManager();
+    var fresh = emf.createEntityManager();
+    try {
+      var writerStore = store(writer);
+      writer.getTransaction().begin();
+      long original = writerStore.claimNextBatch(1, "node-1").get(0).getClaimSeq();
+      writer.getTransaction().commit();
+      reader.getTransaction().begin();
+      assertEquals(
+          "REPEATABLE-READ",
+          reader.createNativeQuery("SELECT @@transaction_isolation").getSingleResult());
+      String sql =
+          """
+          SELECT claim_seq FROM scheduler_job_queue WHERE job_id = ?
+          """;
+      byte[] key = UuidByteArrayConverter.toBytes(id);
+      long snapshot =
+          ((Number) reader.createNativeQuery(sql).setParameter(1, key).getSingleResult())
+              .longValue();
+      assertEquals(original, snapshot);
+      writer.getTransaction().begin();
+      assertTrue(writerStore.resetRunningJob(id, "node-1", original));
+      long reclaimed = writerStore.claimNextBatch(1, "node-1").get(0).getClaimSeq();
+      writer.getTransaction().commit();
+      assertTrue(reclaimed > original);
+      var freshStore = store(fresh);
+      fresh.getTransaction().begin();
+      var state = freshStore.currentClaim(id).orElseThrow();
+      fresh.getTransaction().commit();
+      assertEquals(reclaimed, state.claimSeq());
+      assertEquals(
+          original,
+          ((Number) reader.createNativeQuery(sql).setParameter(1, key).getSingleResult())
+              .longValue());
+    } finally {
+      for (var em : List.of(reader, writer, fresh)) {
+        if (em.getTransaction().isActive()) em.getTransaction().rollback();
+        em.close();
+      }
+    }
+  }
+
+  @Test
   void emptyClaimDoesNotBlockEnqueue() throws Exception {
     enqueueWhileClaimIsOpen(false);
   }
