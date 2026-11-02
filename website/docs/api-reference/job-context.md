@@ -131,6 +131,32 @@ public static JobContext bind(
 
 Binds a context with parameters, the persisted caller principal, and an optional signal payload. Ratchet calls this overload internally while executing persisted jobs. `callerPrincipal` may be `null` when no principal was captured at creation.
 
+### bindAttempt
+
+```java
+public static JobContext bindAttempt(
+    UUID jobId,
+    JobLogger logger,
+    Map<String, String> params,
+    AttemptToken attemptToken,
+    BooleanSupplier currentAttempt)
+```
+
+Binds a context that has an [attempt token](#attempt-tokens), for unit tests of job code that calls `attemptToken()` or `isCurrentAttempt()`. The supplier decides what `isCurrentAttempt()` returns, so a test can make the attempt current, then superseded. The token must belong to `jobId`.
+
+```java
+UUID jobId = UUID.randomUUID();
+AtomicBoolean current = new AtomicBoolean(true);
+JobContext.bindAttempt(
+    jobId, new NoOpJobLogger(), Map.of(), new AttemptToken(jobId, 3), current::get);
+try {
+    current.set(false);
+    myService.importBatch();  // should stop without writing
+} finally {
+    JobContext.clear();
+}
+```
+
 ### clear
 
 ```java
@@ -270,6 +296,66 @@ For simple payloads delivered with `deliverSignal(jobId, payload)`, request the 
 ```java
 String reviewer = JobContext.current().signalPayload(String.class);
 ```
+
+### attemptToken
+
+```java
+public Optional<AttemptToken> attemptToken()
+```
+
+Returns the token of the attempt this context belongs to. It is empty when there is no attempt: in `onSuccess` and `onFailure` callbacks, and in contexts bound with the plain `bind` methods. See [Attempt tokens](#attempt-tokens).
+
+### isCurrentAttempt
+
+```java
+public boolean isCurrentAttempt()
+```
+
+Returns `true` only while the store shows this job `RUNNING` under this attempt's token. Returns `false` with no database call when there is no attempt, or when Ratchet already knows the attempt has lost its claim: the watchdog took it over, the store rejected one of its writes, or the node is shutting down.
+
+Otherwise each call reads the store. A store error is thrown, never read as current. See [Attempt tokens](#attempt-tokens) for when to call it and what it does not guarantee.
+
+## Attempt tokens
+
+Every time a node claims a job, the claim gets a sequence number one higher than the job's last claim. An `AttemptToken` holds the job's ID and that sequence. A retry, or a reclaim after a node stops responding, gets a higher sequence. So does a job reset after it failed.
+
+An old attempt can keep running after Ratchet has given its job to a new one: the watchdog's interrupt is cooperative, and a node that was paused for a long time does not know that orphan recovery has moved its jobs. `isCurrentAttempt()` lets such code find out, so it can stop before it does more work.
+
+```java
+void importBatch(long batchId) {
+    JobContext ctx = JobContext.current();
+    for (Chunk chunk : chunks(batchId)) {
+        if (!ctx.isCurrentAttempt()) {
+            ctx.logger().info("Superseded; leaving the rest to the current attempt");
+            return;
+        }
+        importChunk(chunk);
+    }
+}
+```
+
+### A check is not a fence
+
+`isCurrentAttempt()` can become false just after it returns true. Use it to stop early, not to protect a write. To make sure an old attempt cannot overwrite a newer one, store the token's `sequence()` next to your own data and refuse a write that carries a lower sequence, in the same statement as the write:
+
+```java
+AttemptToken token = ctx.attemptToken().orElseThrow();
+int updated = jdbc.update(
+    "UPDATE import_progress SET last_chunk = ?, attempt_seq = ? "
+        + "WHERE batch_id = ? AND attempt_seq <= ?",
+    chunkNo, token.sequence(), batchId, token.sequence());
+if (updated == 0) {
+    return;  // a newer attempt has written here
+}
+```
+
+Compare tokens only for the same job. `isNewerThan` throws for tokens of different jobs. Each firing of a recurring job, each batch child, chain step and workflow branch is its own job with its own ID, so a token never orders two firings of one schedule. `toString()` gives `jobId:sequence`, and `AttemptToken.parse` reads it back.
+
+### Cost and threads
+
+On SQL stores each `isCurrentAttempt()` call runs a small read in its own transaction. If your job holds a database transaction at the time, the read needs a second connection from the pool, and it waits when the pool is empty. Call it at safe points, outside long transactions, and never in a tight loop. Leave headroom in the pool for these reads.
+
+The token is a value. You can pass it, or the `JobContext` itself, to threads your job starts. `isCurrentAttempt()` works from any thread that holds the context.
 
 ## Thread-local lifecycle
 

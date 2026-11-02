@@ -267,7 +267,7 @@ public interface JobStore
 | Interface | Responsibility |
 |-----------|---------------|
 | `JobCrudStore` | Create, read, update, delete individual jobs |
-| `JobClaimStore` | Atomic batch claiming (`SKIP LOCKED` for SQL stores, atomic updates for MongoDB) |
+| `JobClaimStore` | Atomic batch claiming (`SKIP LOCKED` for SQL stores, atomic updates for MongoDB), and the current claim behind `JobContext.isCurrentAttempt()` |
 | `JobTerminalStore` | Terminal success, failure, and cancellation transitions |
 | `JobRetryStore` | Retry scheduling and attempt-state updates |
 | `JobPauseStore` | Pause and resume transitions |
