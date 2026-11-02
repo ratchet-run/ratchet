@@ -76,6 +76,27 @@ import run.ratchet.store.entity.JobExecutionType;
 class MongoExceptionTranslationTest {
 
   @Test
+  void closeStaleExecutionsTranslatesTransientFailure() {
+    MongoSocketException failure = transientFailure();
+    MongoCollection<Document> executions =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                throw failure;
+              }
+              return defaultValue(method);
+            });
+    MongoJobCrudOperations crud =
+        new MongoJobCrudOperations(contextWithCollections(null, null, executions, null));
+    assertEquals(0, crud.closeStaleExecutions(Instant.now(), 0));
+    var thrown =
+        assertThrows(
+            RatchetTransientStoreException.class,
+            () -> crud.closeStaleExecutions(Instant.now(), 1));
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
   void claimNextBatchTranslatesTransientCandidateFailure() {
     MongoSocketException failure = transientFailure();
     MongoCollection<Document> jobs =

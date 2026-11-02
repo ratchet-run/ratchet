@@ -301,6 +301,26 @@ class MongoIndexConformanceTest {
   }
 
   @Test
+  void executionCleanupIndexHasStatusAndStartTime() {
+    assertIndex(
+        "scheduler_job_execution",
+        "idx_execution_status_started",
+        new Document("status", 1).append("started_at", 1),
+        false,
+        null);
+  }
+
+  @Test
+  void validationRequiresExecutionCleanupIndex() {
+    database.getCollection("scheduler_job_execution").dropIndex("idx_execution_status_started");
+    var failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> new MongoCollectionInitializer(database, client).validate());
+    assertTrue(failure.getMessage().contains("idx_execution_status_started"));
+  }
+
+  @Test
   void everyHintNamesAnIndexThatGetsCreated() throws IllegalAccessException {
     Set<String> created = allCreatedIndexNames();
     for (Field field : MongoIndexHints.class.getDeclaredFields()) {

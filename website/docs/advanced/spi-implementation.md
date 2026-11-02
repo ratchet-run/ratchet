@@ -665,7 +665,7 @@ Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations
 | `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `incrementRetryAttempt()` |
 | `JobPauseStore` | Pause and resume transitions | `transitionToPaused()`, `transitionFromPausedAtomic()` |
 | `JobBatchStatusStore` | Non-terminal status, pickup, and orphan operations | `updateJobStatus()`, `compareAndSwapStatus()`, `resetRunningJobs()` |
-| `JobBulkStore` | Bulk operations | `bulkInsert()`, `resetOrphanJobs()`, `deleteDlqOlderThan()` |
+| `JobBulkStore` | Bulk operations | `bulkInsert()`, `resetOrphanJobs()`, `closeStaleExecutions()`, `deleteDlqOlderThan()` |
 | `NodeStore` | Node registration, heartbeat, and crash recovery | `upsertHeartbeat()`, `findInactiveNodesSince()`, `findAllNodes()` |
 | `TagStore` | Job tag writes | `insertTags()`, `deleteTagsByJobId()` |
 

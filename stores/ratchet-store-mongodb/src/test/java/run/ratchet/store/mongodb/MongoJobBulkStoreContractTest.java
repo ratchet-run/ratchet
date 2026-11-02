@@ -21,10 +21,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionEntity.ExecutionStatus;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractJobBulkStoreContract;
 
@@ -56,6 +62,46 @@ class MongoJobBulkStoreContractTest extends AbstractJobBulkStoreContract {
   @Override
   public void cleanupStore() {
     fixture.cleanupStore();
+  }
+
+  @Test
+  void closeStaleExecutions_pagesPastProtectedChunk() {
+    Instant now = Instant.now();
+    JobEntity running = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(running.getId(), "live"));
+    List<Document> protectedRows = new ArrayList<>();
+    for (int i = 0; i < MongoJobCrudOperations.ORPHAN_EXECUTION_CLOSE_BATCH; i++) {
+      protectedRows.add(
+          new Document("_id", UUID.randomUUID())
+              .append("job_id", running.getId())
+              .append("status", "RUNNING")
+              .append("started_at", Date.from(now.minusSeconds(10800))));
+    }
+    var executions = fixture.database().getCollection("scheduler_job_execution");
+    executions.insertMany(protectedRows);
+    JobEntity pending = persist(newPendingJob());
+    var row = JobExecutionEntity.start(pending.getId(), 1, "node");
+    row.setStartedAt(now.minusSeconds(7200));
+    auditStore().saveExecution(row);
+    assertEquals(1, store().closeStaleExecutions(now.plusSeconds(600), 1));
+    assertEquals(500, executions.countDocuments(eq("status", "RUNNING")));
+    assertEquals(
+        ExecutionStatus.FAILED,
+        auditStore().findExecutionsByJobId(pending.getId(), 100, 0).get(0).getStatus());
+  }
+
+  @Test
+  void closeStaleExecutions_closesRowsOfDeletedJobs() {
+    Instant now = Instant.now();
+    JobEntity job = persist(newPendingJob());
+    var row = JobExecutionEntity.start(job.getId(), 1, "node");
+    row.setStartedAt(now.minusSeconds(7200));
+    auditStore().saveExecution(row);
+    store().deleteJobsByIds(List.of(job.getId()));
+    assertEquals(1, store().closeStaleExecutions(now.plusSeconds(600), 1));
+    var closed = auditStore().findExecutionsByJobId(job.getId(), 100, 0).get(0);
+    assertEquals(ExecutionStatus.FAILED, closed.getStatus());
+    assertEquals(JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE, closed.getErrorMessage());
   }
 
   @Test

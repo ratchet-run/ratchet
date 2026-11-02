@@ -67,6 +67,16 @@ class MongoInitScriptConformanceTest {
   }
 
   @Test
+  void initScript_namesExecutionCleanupIndex() throws IOException {
+    String script = readInitScript();
+    int name = script.indexOf("\"idx_execution_status_started\"");
+    assertTrue(name >= 0);
+    String block =
+        script.substring(script.lastIndexOf("createIndex", name), script.indexOf(';', name));
+    assertTrue(block.contains("status: 1, started_at: 1"));
+  }
+
+  @Test
   void initScript_marksRecurringBusinessKeyUnique() throws IOException {
     String script = readInitScript();
     int nameIndex = script.indexOf("\"uk_rec_business_key\"");

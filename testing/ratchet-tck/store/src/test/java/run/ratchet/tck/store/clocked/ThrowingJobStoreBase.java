@@ -400,6 +400,11 @@ public abstract class ThrowingJobStoreBase
   }
 
   @Override
+  public int closeStaleExecutions(Instant cutoff, int limit) {
+    return fail("closeStaleExecutions");
+  }
+
+  @Override
   public OrphanRecovery resetOrphanJobsBefore(
       Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
     return fail("resetOrphanJobsBefore");

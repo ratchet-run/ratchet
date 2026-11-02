@@ -59,6 +59,7 @@ public class OrphanRecoveryTimer {
   private static final String LEASE_NAME = "orphanRecovery";
 
   static final int EXHAUSTED_LIMIT = 100;
+  static final int STALE_EXECUTION_LIMIT = 500;
   private final JobBulkStore jobBulkStore;
   private final JobCrudStore jobCrudStore;
   private final PostExecutionHandler lifecycleFacade;
@@ -217,10 +218,21 @@ public class OrphanRecoveryTimer {
       deletedNodes = nodeStore.deleteInactiveNodesByIds(staleNodeIds);
     }
 
-    if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {
+    int closedExecutions = closeStaleExecutions(cutoff);
+    if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0 || closedExecutions > 0) {
       log.infof(
-          "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s)",
-          resetJobs, cleanedPermits, deletedNodes);
+          "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s),"
+              + " closed %s stale execution(s)",
+          resetJobs, cleanedPermits, deletedNodes, closedExecutions);
+    }
+  }
+
+  private int closeStaleExecutions(Instant cutoff) {
+    try {
+      return jobBulkStore.closeStaleExecutions(cutoff, STALE_EXECUTION_LIMIT);
+    } catch (RuntimeException e) {
+      log.warn("Stale execution cleanup failed", e);
+      return 0;
     }
   }
 

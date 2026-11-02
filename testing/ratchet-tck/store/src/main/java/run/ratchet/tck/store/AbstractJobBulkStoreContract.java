@@ -26,6 +26,7 @@ import static run.ratchet.store.entity.JobExecutionEntity.SHUTDOWN_RELEASE_ERROR
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -724,6 +725,143 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     executions.stream()
         .filter(row -> !row.getId().equals(succeeded.getId()))
         .forEach(this::assertLostExecution);
+  }
+
+  @Test
+  void closeStaleExecutions_closesOldRowsOfInactiveJobs() {
+    Instant now = Instant.now();
+    List<JobEntity> jobs = new ArrayList<>();
+    for (JobStatus status :
+        List.of(
+            JobStatus.PENDING,
+            JobStatus.WAITING,
+            JobStatus.SUCCEEDED,
+            JobStatus.FAILED,
+            JobStatus.CANCELED)) {
+      JobEntity job = staleJob(status);
+      jobs.add(job);
+      staleExecution(job, now.minusSeconds(7200));
+    }
+    assertEquals(jobs.size(), store().closeStaleExecutions(now.plusSeconds(600), 100));
+    for (JobEntity job : jobs) {
+      var row = auditStore().findExecutionsByJobId(job.getId(), 100, 0).get(0);
+      assertEquals(ExecutionStatus.FAILED, row.getStatus());
+      assertEquals(JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE, row.getErrorMessage());
+      assertNotNull(row.getEndedAt());
+      assertNull(row.getErrorClass());
+      assertNull(row.getDurationMs());
+    }
+  }
+
+  @Test
+  void closeStaleExecutions_preservesRunningJobsAndNewRows() {
+    Instant now = Instant.now();
+    JobEntity running = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(running.getId(), "live"));
+    staleExecution(running, now.minusSeconds(7200));
+    JobEntity pending = persist(newPendingJob());
+    staleExecution(pending, now.plusSeconds(1200));
+    assertEquals(0, store().closeStaleExecutions(now.plusSeconds(600), 100));
+    for (JobEntity job : List.of(running, pending)) {
+      assertRunningExecution(auditStore().findExecutionsByJobId(job.getId(), 100, 0).get(0));
+    }
+  }
+
+  @Test
+  void closeStaleExecutions_preservesRecentlyChangedLiveAndTerminalJobs() {
+    Instant now = Instant.now();
+    for (JobStatus status : List.of(JobStatus.PENDING, JobStatus.SUCCEEDED)) {
+      JobEntity job = staleJob(status);
+      staleExecution(job, now.minusSeconds(7200));
+      assertEquals(0, store().closeStaleExecutions(now.minusSeconds(600), 100));
+      assertRunningExecution(auditStore().findExecutionsByJobId(job.getId(), 100, 0).get(0));
+    }
+  }
+
+  @Test
+  void closeStaleExecutions_preservesRecordedOutcomes() {
+    Instant now = Instant.now();
+    JobEntity job = persist(newPendingJob());
+    for (ExecutionStatus status : List.of(ExecutionStatus.SUCCEEDED, ExecutionStatus.FAILED)) {
+      JobExecutionEntity row = JobExecutionEntity.start(job.getId(), 1, "node");
+      row.setStartedAt(now.minusSeconds(7200));
+      row.setStatus(status);
+      row.setEndedAt(Instant.ofEpochMilli(now.minusSeconds(3600).toEpochMilli()));
+      row.setErrorMessage("original outcome");
+      auditStore().saveExecution(row);
+    }
+    assertEquals(0, store().closeStaleExecutions(now.plusSeconds(600), 100));
+    for (var row : auditStore().findExecutionsByJobId(job.getId(), 100, 0)) {
+      assertTrue(row.getStatus() != ExecutionStatus.RUNNING);
+      assertEquals("original outcome", row.getErrorMessage());
+      assertEquals(
+          Instant.ofEpochMilli(now.minusSeconds(3600).toEpochMilli()),
+          Instant.ofEpochMilli(row.getEndedAt().toEpochMilli()));
+    }
+  }
+
+  @Test
+  void closeStaleExecutions_boundsEachScanAndIgnoresNonPositiveLimits() {
+    Instant now = Instant.now();
+    JobEntity job = persist(newPendingJob());
+    for (int i = 0; i < 3; i++) {
+      staleExecution(job, now.minusSeconds(7200 + i));
+    }
+    Instant cutoff = now.plusSeconds(600);
+    assertEquals(0, store().closeStaleExecutions(cutoff, 0));
+    assertEquals(0, store().closeStaleExecutions(cutoff, -1));
+    auditStore().findExecutionsByJobId(job.getId(), 100, 0).forEach(this::assertRunningExecution);
+    assertEquals(2, store().closeStaleExecutions(cutoff, 2));
+    var rows = auditStore().findExecutionsByJobId(job.getId(), 100, 0);
+    var newest =
+        rows.stream().max(Comparator.comparing(JobExecutionEntity::getStartedAt)).orElseThrow();
+    assertRunningExecution(newest);
+    assertEquals(1, store().closeStaleExecutions(cutoff, 2));
+    assertEquals(0, store().closeStaleExecutions(cutoff, 2));
+  }
+
+  @Test
+  void closeStaleExecutions_runningJobDoesNotBlockEligibleRows() {
+    Instant now = Instant.now();
+    JobEntity running = persist(newPendingJob());
+    assertTrue(store().tryPickUpJob(running.getId(), "live"));
+    staleExecution(running, now.minusSeconds(10800));
+    JobEntity succeeded = staleJob(JobStatus.SUCCEEDED);
+    staleExecution(succeeded, now.minusSeconds(7200));
+    assertEquals(1, store().closeStaleExecutions(now.plusSeconds(600), 1));
+    assertRunningExecution(auditStore().findExecutionsByJobId(running.getId(), 100, 0).get(0));
+    assertEquals(
+        ExecutionStatus.FAILED,
+        auditStore().findExecutionsByJobId(succeeded.getId(), 100, 0).get(0).getStatus());
+  }
+
+  private JobEntity staleJob(JobStatus status) {
+    JobEntity job = newPendingJob();
+    if (status == JobStatus.WAITING) {
+      job.setStatus(status);
+    }
+    job = persist(job);
+    if (status == JobStatus.PENDING) {
+      store().updateJobStatus(job.getId(), JobStatus.PENDING, null);
+    }
+    if (status == JobStatus.SUCCEEDED
+        || status == JobStatus.FAILED
+        || status == JobStatus.CANCELED) {
+      assertTrue(store().tryPickUpJob(job.getId(), "node"));
+      if (status == JobStatus.SUCCEEDED) {
+        Instant now = Instant.now();
+        assertTrue(store().markJobSucceededMinimal(job.getId(), now, now, 0L, 0L));
+      } else {
+        assertTrue(store().compareAndSwapStatus(job.getId(), JobStatus.RUNNING, status, null));
+      }
+    }
+    return job;
+  }
+
+  private void staleExecution(JobEntity job, Instant startedAt) {
+    JobExecutionEntity row = JobExecutionEntity.start(job.getId(), 1, "node");
+    row.setStartedAt(startedAt);
+    auditStore().saveExecution(row);
   }
 
   private void assertLostExecution(JobExecutionEntity execution) {

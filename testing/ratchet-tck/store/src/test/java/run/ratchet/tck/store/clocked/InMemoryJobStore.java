@@ -566,6 +566,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   // ----- JobBulkStore (no-op so background orphan-recovery loops don't trip stubs) -----
 
   @Override
+  public int closeStaleExecutions(Instant cutoff, int limit) {
+    return 0;
+  }
+
+  @Override
   public Optional<JobEntity> findOrphanCompletionSnapshot(UUID jobId) {
     return findById(jobId);
   }

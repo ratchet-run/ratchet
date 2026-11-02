@@ -215,6 +215,8 @@ If a node crashes, orphan recovery finds its old RUNNING claims after the heartb
 
 Recovery closes the lost attempt's RUNNING execution row as FAILED with the message "The node running this attempt stopped before it finished; orphan recovery took the job back."
 
+Each scan also closes up to 500 execution rows still RUNNING whose job is no longer running and has not changed for the orphan grace period. These can follow a failed save or come from older versions. Rows of a job that is running again stay open. The row closes as FAILED with the message "This attempt never recorded its outcome before its job moved on, so a cleanup scan closed it; the outcome is unknown." If the worker saves its own row later, its result replaces the message.
+
 Each recovery returns a job to PENDING and adds one to its crash count. The limit is `ratchet.node.max-crash-redeliveries`, which defaults to 3. Once the count reaches the limit, the next crash fails the job through the normal completion path. The job enters the DLQ and runs `onFailure` if its payload can be loaded. Application retry counts are unchanged.
 
 On restart, a node recovers its own claims immediately. Exhausted claims stay RUNNING with their owner cleared. The next orphan scan can fail them after the claim grace period. Other nodes continue to use the heartbeat and claim-age checks.
