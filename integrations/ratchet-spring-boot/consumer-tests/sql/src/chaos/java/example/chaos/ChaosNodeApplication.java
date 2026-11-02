@@ -68,7 +68,8 @@ public class ChaosNodeApplication {
           create table if not exists chaos_attempt (
             attempt_id varchar(36) primary key, run_id varchar(64), job_key varchar(128),
             job_id varchar(36), node_id varchar(128), incarnation varchar(36),
-            started_us bigint, finished_us bigint null, outcome varchar(16) null)
+            started_us bigint, finished_us bigint null, outcome varchar(16) null,
+            current_attempt varchar(8) null)
           """);
       jdbc.execute(
           """
@@ -218,7 +219,9 @@ public class ChaosNodeApplication {
       transaction.executeWithoutResult(
           status ->
               jdbc.update(
-                  "insert into chaos_attempt values (?, ?, ?, ?, ?, ?, " + clock + ", null, null)",
+                  "insert into chaos_attempt values (?, ?, ?, ?, ?, ?, "
+                      + clock
+                      + ", null, null, null)",
                   attempt,
                   runId,
                   key,
@@ -227,6 +230,19 @@ public class ChaosNodeApplication {
                   incarnation));
       try {
         gate("body", JobContext.current().jobId());
+        String current;
+        try {
+          current = Boolean.toString(JobContext.current().isCurrentAttempt());
+        } catch (Exception failure) {
+          current = "threw";
+        }
+        String observation = current;
+        transaction.executeWithoutResult(
+            tx ->
+                jdbc.update(
+                    "update chaos_attempt set current_attempt = ? where attempt_id = ?",
+                    observation,
+                    attempt));
         Thread.sleep(durationMs);
       } catch (InterruptedException interrupted) {
         finish(attempt, "interrupted");
