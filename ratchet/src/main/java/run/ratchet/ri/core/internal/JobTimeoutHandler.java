@@ -356,8 +356,7 @@ public class JobTimeoutHandler {
       long expectedClaimSeq,
       @Nullable String nodeId) {
     Duration observedElapsedTime = elapsedTime.isNegative() ? Duration.ZERO : elapsedTime;
-    TimeoutException timeoutEx =
-        new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
+    TimeoutException timeoutEx = hardTimeoutException(timeoutSec);
     // The interrupted worker cannot also run onFailure: it defers to the watchdog marker, gets
     // incrementRetryAttempt == -1, or loses completeFailure's CAS in transitionToDlq.
     runTimeoutTransition(
@@ -490,6 +489,10 @@ public class JobTimeoutHandler {
   private void warnRejectedOwnerWrite(UUID jobId, long claimSeq, String nodeId) {
     log.warnf(
         "Rejected owner write for job %s, stale claimSeq %s, node %s", jobId, claimSeq, nodeId);
+  }
+
+  static TimeoutException hardTimeoutException(long timeoutSec) {
+    return new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
   }
 
   private String sanitizeTimeoutError(TimeoutException timeout) {

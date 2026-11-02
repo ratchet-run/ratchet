@@ -50,6 +50,16 @@ public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable
       "The node running this attempt stopped before it finished; orphan recovery took the job"
           + " back.";
 
+  /** Explanation recorded when shutdown releases an unfinished attempt. */
+  public static final String SHUTDOWN_RELEASE_ERROR_MESSAGE =
+      "The node running this attempt shut down before it finished; the job was released to run"
+          + " again.";
+
+  /** Explanation recorded when an attempt finishes successfully after its job left RUNNING. */
+  public static final String RESULT_DISCARDED_ERROR_MESSAGE =
+      "The attempt finished after its job was released, timed out or cancelled; its result was"
+          + " discarded.";
+
   @Id private UUID id;
 
   @Column(name = "job_id", nullable = false)
