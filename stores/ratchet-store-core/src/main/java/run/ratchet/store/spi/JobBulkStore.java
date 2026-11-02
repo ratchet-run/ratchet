@@ -57,4 +57,22 @@ public interface JobBulkStore {
    */
   OrphanRecovery resetOrphanJobsForNode(
       String nodeId, int maxCrashRedeliveries, int exhaustedLimit);
+
+  /**
+   * Closes up to {@code limit} RUNNING execution rows started before {@code cutoff} whose job is
+   * not RUNNING and has not changed since {@code cutoff}, or no longer exists.
+   *
+   * <p>Sets status to FAILED, ended_at to store now, and error_message to {@code
+   * JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE}; other columns are unchanged. Leaves rows of
+   * RUNNING jobs, jobs changed at or after the cutoff, rows started at or after the cutoff, and
+   * rows not RUNNING alone. The default does nothing; stores recording executions should override
+   * it. Transaction attribute: REQUIRED.
+   *
+   * @param cutoff exclusive cutoff for execution start and job change times
+   * @param limit maximum rows to close; values at or below zero touch nothing
+   * @return number of rows closed
+   */
+  default int closeStaleExecutions(Instant cutoff, int limit) {
+    return 0;
+  }
 }

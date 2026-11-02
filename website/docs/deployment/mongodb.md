@@ -94,6 +94,7 @@ transaction.
 | Index | Fields | Notes |
 |-------|--------|-------|
 | `idx_execution_job_id` | `job_id` | Execution history lookup |
+| `idx_execution_status_started` | `status`, `started_at` | Stale execution cleanup |
 | `idx_execution_node_started` | `node_id`, `started_at` | Per-node execution queries |
 
 ## How It Differs from SQL Stores

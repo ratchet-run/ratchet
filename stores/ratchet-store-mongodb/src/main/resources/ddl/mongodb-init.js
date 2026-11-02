@@ -114,6 +114,10 @@ db.scheduler_batch.createIndex(
 // ── scheduler_job_execution ──────────────────────────────────────────────────
 db.scheduler_job_execution.createIndex({ job_id: 1 }, { name: "idx_execution_job_id" });
 db.scheduler_job_execution.createIndex(
+  { status: 1, started_at: 1 },
+  { name: "idx_execution_status_started" }
+);
+db.scheduler_job_execution.createIndex(
   { node_id: 1, started_at: 1 },
   { name: "idx_execution_node_started" }
 );

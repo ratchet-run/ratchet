@@ -16,6 +16,7 @@
 package run.ratchet.store.sqlserver;
 
 import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
+import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE;
 
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
@@ -155,6 +156,40 @@ final class SqlserverJobDeleteOperations {
 
   OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
     return resetOrphanJobsBefore(Instant.now().minus(grace), maxCrashRedeliveries, exhaustedLimit);
+  }
+
+  int closeStaleExecutions(Instant cutoff, int limit) {
+    if (limit <= 0) {
+      return 0;
+    }
+    try {
+      String sql =
+          """
+          UPDATE scheduler_job_execution
+          SET status = 'FAILED', ended_at = SYSUTCDATETIME(), error_message = ?
+          WHERE status = 'RUNNING' AND id IN (
+            SELECT TOP (?) e.id FROM scheduler_job_execution e
+            WHERE e.status = 'RUNNING' AND e.started_at < ?
+              AND NOT EXISTS (SELECT 1 FROM scheduler_job_queue q
+                WHERE q.job_id = e.job_id AND (q.status = 'RUNNING' OR q.updated_at >= ?))
+              AND NOT EXISTS (SELECT 1 FROM scheduler_job j
+                WHERE j.job_id = e.job_id AND j.terminated_at >= ?)
+            ORDER BY e.started_at
+          )
+          """;
+      Timestamp cutoffTimestamp = SqlserverTimestamps.microTimestamp(cutoff);
+      Query query = ctx.em().createNativeQuery(sql);
+      query.setParameter(1, STALE_EXECUTION_ERROR_MESSAGE);
+      query.setParameter(2, limit);
+      query.setParameter(3, cutoffTimestamp);
+      query.setParameter(4, cutoffTimestamp);
+      query.setParameter(5, cutoffTimestamp);
+      int closed = query.executeUpdate();
+      ctx.em().clear();
+      return closed;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("close stale executions", e);
+    }
   }
 
   OrphanRecovery resetOrphanJobsBefore(

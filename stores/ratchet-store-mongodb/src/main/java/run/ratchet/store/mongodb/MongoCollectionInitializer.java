@@ -555,6 +555,10 @@ class MongoCollectionInitializer {
     createIndex(coll, Indexes.ascending(JOB_ID), "idx_execution_job_id");
     createIndex(
         coll,
+        Indexes.compoundIndex(Indexes.ascending(STATUS), Indexes.ascending(STARTED_AT)),
+        "idx_execution_status_started");
+    createIndex(
+        coll,
         Indexes.compoundIndex(Indexes.ascending(NODE_ID), Indexes.ascending(STARTED_AT)),
         "idx_execution_node_started");
   }

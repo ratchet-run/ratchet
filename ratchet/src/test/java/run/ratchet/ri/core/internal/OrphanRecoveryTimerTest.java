@@ -17,6 +17,7 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
@@ -33,6 +34,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,6 +42,10 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -98,6 +104,69 @@ class OrphanRecoveryTimerTest {
             60,
             120,
             FIXED_CLOCK);
+  }
+
+  @Test
+  void staleExecutionFailureDoesNotUndoRecovery() {
+    Instant cutoff = FIXED_NOW.minusSeconds(60);
+    when(jobBulkStore.closeStaleExecutions(cutoff, 500))
+        .thenThrow(new IllegalStateException("cleanup failed"));
+    NodeEntity stale = new NodeEntity();
+    stale.setId("dead");
+    when(nodeStore.findInactiveNodesSince(cutoff)).thenReturn(List.of(stale));
+    try (LogCapture logs = LogCapture.start(OrphanRecoveryTimer.class)) {
+      timer.recoverNow();
+      assertTrue(
+          logs.records().stream()
+              .anyMatch(
+                  record ->
+                      record.getLevel().equals(Level.WARNING)
+                          && record.getMessage().equals("Stale execution cleanup failed")
+                          && record.getThrown() instanceof IllegalStateException));
+      assertTrue(
+          logs.records().stream()
+              .noneMatch(record -> record.getMessage().equals("Orphan recovery scan failed")));
+    }
+    InOrder order = inOrder(jobBulkStore, resourcePermitService, nodeStore);
+    order.verify(jobBulkStore).resetOrphanJobsBefore(cutoff, 3, 100);
+    order.verify(nodeStore).findInactiveNodesSince(cutoff);
+    order.verify(resourcePermitService).cleanupOrphanedPermits(List.of("dead"));
+    order.verify(nodeStore).deleteInactiveNodesByIds(List.of("dead"));
+    order.verify(jobBulkStore).closeStaleExecutions(cutoff, 500);
+  }
+
+  @Test
+  void staleExecutionCleanupLogsClosedCount() {
+    when(jobBulkStore.closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500)).thenReturn(2);
+    try (LogCapture logs = LogCapture.start(OrphanRecoveryTimer.class)) {
+      timer.recoverNow();
+      assertTrue(
+          logs.records().stream()
+              .anyMatch(
+                  record ->
+                      record.getLevel().equals(Level.INFO)
+                          && record
+                              .getMessage()
+                              .equals("Orphan recovery: closed 2 stale execution(s)")));
+    }
+  }
+
+  @Test
+  void recoveryFailureStillClosesStaleExecutions() {
+    Instant cutoff = FIXED_NOW.minusSeconds(60);
+    when(jobBulkStore.resetOrphanJobsBefore(cutoff, 3, 100))
+        .thenThrow(new IllegalStateException("reset failed"));
+    try (LogCapture logs = LogCapture.start(OrphanRecoveryTimer.class)) {
+      timer.recoverNow();
+      assertTrue(
+          logs.records().stream()
+              .anyMatch(
+                  record ->
+                      record.getMessage().equals("Orphan recovery scan failed")
+                          && record.getThrown() instanceof IllegalStateException));
+    }
+    verify(jobBulkStore).closeStaleExecutions(cutoff, 500);
+    verify(nodeStore, never()).findInactiveNodesSince(any(Instant.class));
   }
 
   @Test
@@ -191,6 +260,7 @@ class OrphanRecoveryTimerTest {
     verify(leases, never()).releaseHeldBy(any(String.class), any(String.class));
     verify(leases, times(1)).tryAcquire("orphanRecovery", Duration.ofSeconds(120));
     verify(jobBulkStore, never()).resetOrphanJobsBefore(any(Instant.class), eq(3), eq(100));
+    verify(jobBulkStore, never()).closeStaleExecutions(any(Instant.class), eq(500));
   }
 
   @Test
@@ -226,6 +296,7 @@ class OrphanRecoveryTimerTest {
     verify(leases, never()).releaseHeldBy(any(String.class), any(String.class));
     verify(leases, times(1)).tryAcquire("orphanRecovery", Duration.ofSeconds(120));
     verify(jobBulkStore, never()).resetOrphanJobsBefore(any(Instant.class), eq(3), eq(100));
+    verify(jobBulkStore, never()).closeStaleExecutions(any(Instant.class), eq(500));
   }
 
   @Test
@@ -258,6 +329,7 @@ class OrphanRecoveryTimerTest {
     verify(leases, never()).releaseHeldBy(any(String.class), any(String.class));
     verify(leases, times(1)).tryAcquire("orphanRecovery", Duration.ofSeconds(120));
     verify(jobBulkStore, never()).resetOrphanJobsBefore(any(Instant.class), eq(3), eq(100));
+    verify(jobBulkStore, never()).closeStaleExecutions(any(Instant.class), eq(500));
   }
 
   @Test
@@ -291,6 +363,7 @@ class OrphanRecoveryTimerTest {
     verify(leases).releaseHeldBy("orphanRecovery", "dead");
     verify(leases, times(2)).tryAcquire("orphanRecovery", Duration.ofSeconds(120));
     verify(jobBulkStore, never()).resetOrphanJobsBefore(any(Instant.class), eq(3), eq(100));
+    verify(jobBulkStore, never()).closeStaleExecutions(any(Instant.class), eq(500));
   }
 
   @Test
@@ -324,6 +397,7 @@ class OrphanRecoveryTimerTest {
     verify(leases).releaseHeldBy("orphanRecovery", "dead");
     verify(leases, times(1)).tryAcquire("orphanRecovery", Duration.ofSeconds(120));
     verify(jobBulkStore, never()).resetOrphanJobsBefore(any(Instant.class), eq(3), eq(100));
+    verify(jobBulkStore, never()).closeStaleExecutions(any(Instant.class), eq(500));
   }
 
   @Test
@@ -407,6 +481,7 @@ class OrphanRecoveryTimerTest {
     timer.recoverNow();
 
     verify(jobBulkStore).resetOrphanJobsBefore(FIXED_NOW.minusSeconds(60), 3, 100);
+    verify(jobBulkStore).closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500);
     verifyNoMoreInteractions(jobBulkStore, jobCrudStore, lifecycleFacade, callbackInvoker);
   }
 
@@ -526,5 +601,50 @@ class OrphanRecoveryTimerTest {
 
     verify(lifecycleFacade, times(2)).completeFailure(bad, JobStatus.RUNNING, false);
     verify(lifecycleFacade, times(2)).completeFailure(good, JobStatus.RUNNING, false);
+  }
+
+  private static final class LogCapture implements AutoCloseable {
+    private final Logger logger;
+    private final Handler handler;
+    private final Level originalLevel;
+    private final boolean originalUseParentHandlers;
+    private final List<LogRecord> records = new ArrayList<>();
+
+    private LogCapture(Class<?> type) {
+      logger = Logger.getLogger(type.getName());
+      originalLevel = logger.getLevel();
+      originalUseParentHandlers = logger.getUseParentHandlers();
+      handler =
+          new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+              records.add(record);
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+          };
+      logger.setLevel(Level.ALL);
+      logger.setUseParentHandlers(false);
+      logger.addHandler(handler);
+    }
+
+    static LogCapture start(Class<?> type) {
+      return new LogCapture(type);
+    }
+
+    List<LogRecord> records() {
+      return records;
+    }
+
+    @Override
+    public void close() {
+      logger.removeHandler(handler);
+      logger.setLevel(originalLevel);
+      logger.setUseParentHandlers(originalUseParentHandlers);
+    }
   }
 }

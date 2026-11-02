@@ -508,6 +508,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public int closeStaleExecutions(Instant cutoff, int limit) {
+    return crud.closeStaleExecutions(cutoff, limit);
+  }
+
+  @Override
   public OrphanRecovery resetOrphanJobsBefore(
       Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
     return crud.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);

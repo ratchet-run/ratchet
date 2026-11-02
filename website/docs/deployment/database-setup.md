@@ -340,6 +340,7 @@ db.scheduler_job.createIndex({ tags: 1 }, { name: "idx_job_tags" });
 db.scheduler_business_key_reservation.createIndex({ owner_job_id: 1 }, { name: "idx_bk_owner" });
 db.scheduler_job_archive.createIndex({ original_job_id: 1 }, { name: "idx_archive_original_job_id" });
 db.scheduler_job_execution.createIndex({ job_id: 1 }, { name: "idx_execution_job_id" });
+db.scheduler_job_execution.createIndex({ status: 1, started_at: 1 }, { name: "idx_execution_status_started" });
 db.scheduler_node.createIndex({ heartbeat_ts: 1 }, { name: "idx_node_heartbeat" });
 db.scheduler_lock.createIndex({ expires_at: 1 }, { name: "idx_lock_ttl", expireAfterSeconds: 0 });
 db.scheduler_job_log.createIndex({ job_id: 1, ts: 1 }, { name: "idx_log_job_ts" });

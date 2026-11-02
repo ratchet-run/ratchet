@@ -60,6 +60,14 @@ public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable
       "The attempt finished after its job was released, timed out or cancelled; its result was"
           + " discarded.";
 
+  /**
+   * Explanation recorded when the stale-execution cleanup closes an attempt that never recorded its
+   * outcome.
+   */
+  public static final String STALE_EXECUTION_ERROR_MESSAGE =
+      "This attempt never recorded its outcome before its job moved on, so a cleanup scan closed"
+          + " it; the outcome is unknown.";
+
   @Id private UUID id;
 
   @Column(name = "job_id", nullable = false)

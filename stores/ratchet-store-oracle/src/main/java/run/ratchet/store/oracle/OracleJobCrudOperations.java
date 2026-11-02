@@ -238,6 +238,11 @@ final class OracleJobCrudOperations implements JobCrudStore, JobBulkStore, JobAn
   }
 
   @Override
+  public int closeStaleExecutions(Instant cutoff, int limit) {
+    return deletes.closeStaleExecutions(cutoff, limit);
+  }
+
+  @Override
   public OrphanRecovery resetOrphanJobsBefore(
       Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
     return deletes.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);

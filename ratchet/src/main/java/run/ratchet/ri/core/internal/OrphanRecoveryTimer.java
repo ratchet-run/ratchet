@@ -59,6 +59,7 @@ public class OrphanRecoveryTimer {
   private static final String LEASE_NAME = "orphanRecovery";
 
   static final int EXHAUSTED_LIMIT = 100;
+  static final int STALE_EXECUTION_LIMIT = 500;
   private final JobBulkStore jobBulkStore;
   private final JobCrudStore jobCrudStore;
   private final PostExecutionHandler lifecycleFacade;
@@ -200,6 +201,15 @@ public class OrphanRecoveryTimer {
     }
 
     Instant cutoff = effective().instant().minusSeconds(orphanGraceSeconds);
+    try {
+      recoverOrphans(cutoff);
+    } finally {
+      // Runs after a failed recovery step too; it only touches execution rows.
+      closeStaleExecutions(cutoff);
+    }
+  }
+
+  private void recoverOrphans(Instant cutoff) {
     OrphanRecovery recovery =
         jobBulkStore.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, EXHAUSTED_LIMIT);
     int resetJobs = recovery.reset();
@@ -221,6 +231,17 @@ public class OrphanRecoveryTimer {
       log.infof(
           "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s)",
           resetJobs, cleanedPermits, deletedNodes);
+    }
+  }
+
+  private void closeStaleExecutions(Instant cutoff) {
+    try {
+      int closed = jobBulkStore.closeStaleExecutions(cutoff, STALE_EXECUTION_LIMIT);
+      if (closed > 0) {
+        log.infof("Orphan recovery: closed %s stale execution(s)", closed);
+      }
+    } catch (RuntimeException e) {
+      log.warn("Stale execution cleanup failed", e);
     }
   }
 

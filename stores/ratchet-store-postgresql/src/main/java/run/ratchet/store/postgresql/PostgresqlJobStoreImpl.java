@@ -303,6 +303,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  public int closeStaleExecutions(Instant cutoff, int limit) {
+    return jobs.closeStaleExecutions(cutoff, limit);
+  }
+
+  @Override
   public OrphanRecovery resetOrphanJobsBefore(
       Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
     return jobs.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, exhaustedLimit);

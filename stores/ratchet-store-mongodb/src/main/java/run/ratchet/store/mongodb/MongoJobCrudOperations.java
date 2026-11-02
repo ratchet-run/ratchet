@@ -31,6 +31,7 @@ import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
+import static run.ratchet.store.entity.JobExecutionEntity.STALE_EXECUTION_ERROR_MESSAGE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_SEQ;
@@ -53,6 +54,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.QUEUE_WAIT_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.RECURRING_MASTER_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
+import static run.ratchet.store.mongodb.MongoFieldNames.STARTED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
@@ -69,10 +71,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -674,6 +678,73 @@ final class MongoJobCrudOperations {
 
   OrphanRecovery resetOrphanJobs(Duration grace, int maxCrashRedeliveries, int exhaustedLimit) {
     return resetOrphanJobsBefore(Instant.now().minus(grace), maxCrashRedeliveries, exhaustedLimit);
+  }
+
+  int closeStaleExecutions(Instant cutoffInstant, int limit) {
+    if (limit <= 0) {
+      return 0;
+    }
+    Date cutoff = DocumentMapper.toDate(cutoffInstant);
+    Date now = new Date();
+    int closed = 0;
+    try (var cursor =
+        ctx.executions()
+            .find(and(eq(STATUS, STATUS_RUNNING), lt(STARTED_AT, cutoff)))
+            .sort(ascending(STARTED_AT))
+            .projection(new Document(ID, 1).append(JOB_ID, 1))
+            .batchSize(ORPHAN_EXECUTION_CLOSE_BATCH)
+            .iterator()) {
+      while (closed < limit && cursor.hasNext()) {
+        List<Document> batch = new ArrayList<>();
+        List<UUID> jobIds = new ArrayList<>();
+        while (batch.size() < ORPHAN_EXECUTION_CLOSE_BATCH && cursor.hasNext()) {
+          Document row = cursor.next();
+          batch.add(row);
+          jobIds.add(row.get(JOB_ID, UUID.class));
+        }
+        Set<UUID> protectedIds = new HashSet<>();
+        for (Document job :
+            ctx.jobs()
+                .find(
+                    and(
+                        in(ID, jobIds),
+                        or(
+                            eq(STATUS, STATUS_RUNNING),
+                            gte(UPDATED_AT, cutoff),
+                            gte(TERMINATED_AT, cutoff))))
+                .projection(new Document(ID, 1))) {
+          protectedIds.add(job.get(ID, UUID.class));
+        }
+        var candidates = batch.iterator();
+        while (closed < limit && candidates.hasNext()) {
+          List<UUID> closeIds = new ArrayList<>();
+          while (closeIds.size() < limit - closed && candidates.hasNext()) {
+            Document row = candidates.next();
+            if (!protectedIds.contains(row.get(JOB_ID, UUID.class))) {
+              closeIds.add(row.get(ID, UUID.class));
+            }
+          }
+          if (!closeIds.isEmpty()) {
+            closed +=
+                (int)
+                    ctx.executions()
+                        .updateMany(
+                            and(
+                                in(ID, closeIds),
+                                eq(STATUS, STATUS_RUNNING),
+                                lt(STARTED_AT, cutoff)),
+                            combine(
+                                set(STATUS, STATUS_FAILED),
+                                set(ENDED_AT, now),
+                                set(ERROR_MESSAGE, STALE_EXECUTION_ERROR_MESSAGE)))
+                        .getModifiedCount();
+          }
+        }
+      }
+      return closed;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("close stale executions", e);
+    }
   }
 
   OrphanRecovery resetOrphanJobsBefore(
