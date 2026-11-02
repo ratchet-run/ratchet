@@ -237,12 +237,16 @@ public class ChaosNodeApplication {
           current = "threw";
         }
         String observation = current;
-        transaction.executeWithoutResult(
-            tx ->
-                jdbc.update(
-                    "update chaos_attempt set current_attempt = ? where attempt_id = ?",
-                    observation,
-                    attempt));
+        try {
+          transaction.executeWithoutResult(
+              tx ->
+                  jdbc.update(
+                      "update chaos_attempt set current_attempt = ? where attempt_id = ?",
+                      observation,
+                      attempt));
+        } catch (RuntimeException ledgerFailure) {
+          // An injected database fault must not fail the body here; the observation stays empty.
+        }
         Thread.sleep(durationMs);
       } catch (InterruptedException interrupted) {
         finish(attempt, "interrupted");

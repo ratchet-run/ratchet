@@ -81,7 +81,12 @@ class MongoExceptionTranslationTest {
     MongoCollection<Document> jobs =
         mongoCollection(
             (proxy, method, args) -> {
-              if ("find".equals(method.getName())) throw failure;
+              if ("withReadPreference".equals(method.getName())) {
+                return proxy;
+              }
+              if ("find".equals(method.getName())) {
+                throw failure;
+              }
               return defaultValue(method);
             });
     var crud = new MongoJobCrudOperations(contextWithJobs(jobs));

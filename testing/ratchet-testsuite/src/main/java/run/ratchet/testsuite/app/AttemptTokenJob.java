@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import run.ratchet.api.AttemptToken;
 import run.ratchet.api.JobContext;
@@ -33,6 +34,10 @@ public class AttemptTokenJob {
 
   private static final Map<UUID, List<Attempt>> ATTEMPTS = new ConcurrentHashMap<>();
   private static final List<Attempt> BLOCKED = new CopyOnWriteArrayList<>();
+  // Recurring firings go to their own list, and only while a test watches them, so a firing that
+  // starts after its test cannot block or show up in another test.
+  private static final List<Attempt> FIRINGS = new CopyOnWriteArrayList<>();
+  private static final AtomicBoolean FIRINGS_OPEN = new AtomicBoolean();
   public static final AtomicReference<JobContext> FAILURE_CONTEXT = new AtomicReference<>();
   public static final AtomicReference<Optional<AttemptToken>> FAILURE_TOKEN =
       new AtomicReference<>();
@@ -64,15 +69,38 @@ public class AttemptTokenJob {
     }
     if (block) {
       BLOCKED.add(attempt);
-      try {
-        if (!attempt.release().await(60, TimeUnit.SECONDS)) {
-          throw new IllegalStateException("Attempt was not released");
-        }
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new IllegalStateException("Interrupted while blocked", e);
-      }
+      awaitRelease(attempt);
     }
+  }
+
+  /** Blocks a recurring firing while a test watches firings; any other firing returns at once. */
+  public static void blockFiring() {
+    JobContext context = JobContext.current();
+    var attempt = new Attempt(context, context.attemptToken().orElseThrow(), new CountDownLatch(1));
+    if (!FIRINGS_OPEN.get()) {
+      return;
+    }
+    FIRINGS.add(attempt);
+    awaitRelease(attempt);
+  }
+
+  private static void awaitRelease(Attempt attempt) {
+    try {
+      if (!attempt.release().await(60, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Attempt was not released");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while blocked", e);
+    }
+  }
+
+  public static void openFirings() {
+    FIRINGS_OPEN.set(true);
+  }
+
+  public static List<Attempt> firings() {
+    return List.copyOf(FIRINGS);
   }
 
   public static void batchItem(String item) {
@@ -96,12 +124,15 @@ public class AttemptTokenJob {
 
   public static void releaseAll() {
     ATTEMPTS.values().forEach(list -> list.forEach(attempt -> attempt.release().countDown()));
+    FIRINGS.forEach(attempt -> attempt.release().countDown());
   }
 
   public static void reset() {
+    FIRINGS_OPEN.set(false);
     releaseAll();
     ATTEMPTS.clear();
     BLOCKED.clear();
+    FIRINGS.clear();
     FAILURE_CONTEXT.set(null);
     FAILURE_TOKEN.set(null);
     FAILURE_CURRENT.set(null);

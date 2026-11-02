@@ -83,13 +83,18 @@ public final class LifecycleCallbackInvoker {
       callback.run();
       return;
     }
+    // Callbacks run after the attempt's outcome is recorded, so they get no token. They keep the
+    // deadline and cancellation state they saw before tokens existed.
     try {
       JobContext.bind(
           previous.jobId(),
           previous.logger(),
           previous.params(),
           previous.callerPrincipal(),
-          previous.signalPayload(Serializable.class));
+          previous.signalPayload(Serializable.class),
+          previous.deadline().orElse(null),
+          previous::isCancellationRequested,
+          CancellationIdentities.identityOf(previous));
       callback.run();
     } finally {
       JobContext.bind(

@@ -146,17 +146,18 @@ class AttemptTokenIT extends BaseRatchetIT {
 
   @Test
   void recurringFiringsHaveDifferentUnorderedTokens() {
+    AttemptTokenJob.openFirings();
     JobHandle schedule =
         jobService
-            .scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, AttemptTokenJob::block)
+            .scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, AttemptTokenJob::blockFiring)
             .submit();
     try {
-      var first = blocked(0);
+      var first = firing(0);
       assertCurrent(first);
       assertNotEquals(schedule.id(), first.token().jobId());
       first.release().countDown();
       JobAssertions.assertJobCompleted(jobCrudStore, first.token()::jobId);
-      var second = blocked(1);
+      var second = firing(1);
       assertCurrent(second);
       assertNotEquals(schedule.id(), second.token().jobId());
       assertNotEquals(first.token().jobId(), second.token().jobId());
@@ -167,7 +168,7 @@ class AttemptTokenIT extends BaseRatchetIT {
       try {
         recurringJobStore.pauseRecurring(schedule.id());
       } finally {
-        AttemptTokenJob.releaseAll();
+        AttemptTokenJob.reset();
       }
     }
   }
@@ -194,6 +195,11 @@ class AttemptTokenIT extends BaseRatchetIT {
   private AttemptTokenJob.Attempt blocked(int index) {
     await().atMost(Duration.ofSeconds(30)).until(() -> AttemptTokenJob.blocked().size() > index);
     return AttemptTokenJob.blocked().get(index);
+  }
+
+  private AttemptTokenJob.Attempt firing(int index) {
+    await().atMost(Duration.ofSeconds(30)).until(() -> AttemptTokenJob.firings().size() > index);
+    return AttemptTokenJob.firings().get(index);
   }
 
   private void assertCurrent(AttemptTokenJob.Attempt attempt) {

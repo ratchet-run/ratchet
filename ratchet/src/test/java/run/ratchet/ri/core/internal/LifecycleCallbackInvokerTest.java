@@ -28,6 +28,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +63,7 @@ class LifecycleCallbackInvokerTest {
     job.setOnFailurePayload(callback);
     JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
     PayloadSerializer serializer = mock(PayloadSerializer.class);
+    Instant deadline = Instant.parse("2026-01-01T00:00:00Z");
     when(invoker.materializeArguments(any(), eq(serializer)))
         .thenAnswer(
             invocation -> {
@@ -69,6 +71,8 @@ class LifecycleCallbackInvokerTest {
               assertSame(ctx, JobContext.current());
               assertTrue(ctx.attemptToken().isEmpty());
               assertFalse(ctx.isCurrentAttempt());
+              assertEquals(deadline, ctx.deadline().orElseThrow());
+              assertTrue(ctx.isCancellationRequested());
               assertEquals("value", ctx.param("key"));
               return invocation.getArgument(0);
             });
@@ -81,13 +85,27 @@ class LifecycleCallbackInvokerTest {
             Clock.systemUTC(),
             new DefaultErrorSanitizer());
     AttemptToken token = new AttemptToken(job.getId(), 7);
-    JobContext.bindAttempt(job.getId(), null, Map.of("key", "value"), token, () -> true);
+    JobContext.bind(
+        job.getId(),
+        null,
+        Map.of("key", "value"),
+        null,
+        null,
+        deadline,
+        () -> true,
+        new Object(),
+        token,
+        () -> true);
     callbacks.invokeOnSuccess(job);
     assertEquals(token, JobContext.current().attemptToken().orElseThrow());
     assertTrue(JobContext.current().isCurrentAttempt());
+    assertEquals(deadline, JobContext.current().deadline().orElseThrow());
+    assertTrue(JobContext.current().isCancellationRequested());
     callbacks.invokeOnFailure(job, new IllegalStateException("failed"));
     assertEquals(token, JobContext.current().attemptToken().orElseThrow());
     assertTrue(JobContext.current().isCurrentAttempt());
+    assertEquals(deadline, JobContext.current().deadline().orElseThrow());
+    assertTrue(JobContext.current().isCancellationRequested());
   }
 
   @Test

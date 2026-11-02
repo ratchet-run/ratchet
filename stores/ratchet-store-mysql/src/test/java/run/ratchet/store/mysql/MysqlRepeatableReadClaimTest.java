@@ -88,7 +88,7 @@ class MysqlRepeatableReadClaimTest {
   }
 
   @Test
-  void currentClaimUsesFreshTransactionRatherThanCallersSnapshot() {
+  void currentClaimInAFreshTransactionSeesReclaimThatCallersSnapshotMisses() {
     var id = fixture.store().create(fixture.newPendingJob()).getId();
     var reader = emf.createEntityManager();
     var writer = emf.createEntityManager();
