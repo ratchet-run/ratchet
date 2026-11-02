@@ -136,6 +136,22 @@ class OrphanRecoveryTimerTest {
   }
 
   @Test
+  void staleExecutionCleanupLogsClosedCount() {
+    when(jobBulkStore.closeStaleExecutions(FIXED_NOW.minusSeconds(60), 500)).thenReturn(2);
+    try (LogCapture logs = LogCapture.start(OrphanRecoveryTimer.class)) {
+      timer.recoverNow();
+      assertTrue(
+          logs.records().stream()
+              .anyMatch(
+                  record ->
+                      record.getLevel().equals(Level.INFO)
+                          && record
+                              .getMessage()
+                              .equals("Orphan recovery: closed 2 stale execution(s)")));
+    }
+  }
+
+  @Test
   void recoveryFailureStillClosesStaleExecutions() {
     Instant cutoff = FIXED_NOW.minusSeconds(60);
     when(jobBulkStore.resetOrphanJobsBefore(cutoff, 3, 100))
