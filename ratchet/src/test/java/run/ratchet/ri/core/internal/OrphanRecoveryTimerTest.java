@@ -136,6 +136,24 @@ class OrphanRecoveryTimerTest {
   }
 
   @Test
+  void recoveryFailureStillClosesStaleExecutions() {
+    Instant cutoff = FIXED_NOW.minusSeconds(60);
+    when(jobBulkStore.resetOrphanJobsBefore(cutoff, 3, 100))
+        .thenThrow(new IllegalStateException("reset failed"));
+    try (LogCapture logs = LogCapture.start(OrphanRecoveryTimer.class)) {
+      timer.recoverNow();
+      assertTrue(
+          logs.records().stream()
+              .anyMatch(
+                  record ->
+                      record.getMessage().equals("Orphan recovery scan failed")
+                          && record.getThrown() instanceof IllegalStateException));
+    }
+    verify(jobBulkStore).closeStaleExecutions(cutoff, 500);
+    verify(nodeStore, never()).findInactiveNodesSince(any(Instant.class));
+  }
+
+  @Test
   void configuredLeaseTtlHasNoFloorAndIsIndependentOfScanInterval() {
     SingletonLeaseService leases = mock(SingletonLeaseService.class);
     LockStore locks = mock(LockStore.class);

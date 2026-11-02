@@ -201,6 +201,15 @@ public class OrphanRecoveryTimer {
     }
 
     Instant cutoff = effective().instant().minusSeconds(orphanGraceSeconds);
+    try {
+      recoverOrphans(cutoff);
+    } finally {
+      // Runs after a failed recovery step too; it only touches execution rows.
+      closeStaleExecutions(cutoff);
+    }
+  }
+
+  private void recoverOrphans(Instant cutoff) {
     OrphanRecovery recovery =
         jobBulkStore.resetOrphanJobsBefore(cutoff, maxCrashRedeliveries, EXHAUSTED_LIMIT);
     int resetJobs = recovery.reset();
@@ -218,21 +227,21 @@ public class OrphanRecoveryTimer {
       deletedNodes = nodeStore.deleteInactiveNodesByIds(staleNodeIds);
     }
 
-    int closedExecutions = closeStaleExecutions(cutoff);
-    if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0 || closedExecutions > 0) {
+    if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {
       log.infof(
-          "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s),"
-              + " closed %s stale execution(s)",
-          resetJobs, cleanedPermits, deletedNodes, closedExecutions);
+          "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s)",
+          resetJobs, cleanedPermits, deletedNodes);
     }
   }
 
-  private int closeStaleExecutions(Instant cutoff) {
+  private void closeStaleExecutions(Instant cutoff) {
     try {
-      return jobBulkStore.closeStaleExecutions(cutoff, STALE_EXECUTION_LIMIT);
+      int closed = jobBulkStore.closeStaleExecutions(cutoff, STALE_EXECUTION_LIMIT);
+      if (closed > 0) {
+        log.infof("Orphan recovery: closed %s stale execution(s)", closed);
+      }
     } catch (RuntimeException e) {
       log.warn("Stale execution cleanup failed", e);
-      return 0;
     }
   }
 
