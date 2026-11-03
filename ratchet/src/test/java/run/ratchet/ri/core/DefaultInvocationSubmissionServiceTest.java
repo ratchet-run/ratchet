@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 
 import java.time.Clock;
@@ -61,10 +62,8 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
@@ -130,8 +129,6 @@ class DefaultInvocationSubmissionServiceTest {
 
   private static final String TARGET = DefaultInvocationSubmissionServiceTest.class.getName();
 
-  @Mock private JobBatchStatusStore jobBatchStatusStore;
-  @Mock private JobTerminalStore jobTerminalStore;
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
   @Mock private BatchStore batchStore;
@@ -178,8 +175,7 @@ class DefaultInvocationSubmissionServiceTest {
   private DefaultJobCreationService newCreationService(
       ClassPolicy classPolicy, InternalEventPublisher eventPublisher) {
     return new DefaultJobCreationService(
-        jobBatchStatusStore,
-        jobTerminalStore,
+        mock(BatchService.class),
         jobCrudStore,
         jobBulkStore,
         batchStore,

@@ -50,10 +50,8 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringExecutionPlan;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -219,8 +217,7 @@ class DefaultJobCreationServiceRecurringReconciliationTest {
   private static DefaultJobCreationService newService(
       RecurringJobStore recurringJobStore, Clock clock) {
     return new DefaultJobCreationService(
-        mock(JobBatchStatusStore.class),
-        mock(JobTerminalStore.class),
+        mock(BatchService.class),
         mock(JobCrudStore.class),
         mock(JobBulkStore.class),
         mock(BatchStore.class),

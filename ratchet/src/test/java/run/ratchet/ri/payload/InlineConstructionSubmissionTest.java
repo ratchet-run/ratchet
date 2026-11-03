@@ -32,6 +32,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.exception.PayloadTooLargeException;
+import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.RecurringScheduler;
@@ -47,10 +48,8 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -202,8 +201,7 @@ public class InlineConstructionSubmissionTest {
 
   private DefaultJobCreationService service(ClassPolicy policy) {
     return new DefaultJobCreationService(
-        mock(JobBatchStatusStore.class),
-        mock(JobTerminalStore.class),
+        mock(BatchService.class),
         store,
         mock(JobBulkStore.class),
         mock(BatchStore.class),

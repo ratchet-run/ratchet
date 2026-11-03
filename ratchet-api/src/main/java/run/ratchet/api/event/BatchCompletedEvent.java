@@ -27,7 +27,8 @@ import run.ratchet.api.JobType;
  *
  * <p>{@code completedItems} counts successful children and {@code failedItems} counts children that
  * ended in a failed state. The event is still emitted when one or more children failed, after the
- * batch has no remaining pending/running children.
+ * batch has no remaining pending/running children. A batch with no items completes when it is
+ * submitted, and its event has all three counts at 0.
  */
 @Incubating
 public class BatchCompletedEvent extends AbstractJobSchedulerEvent {

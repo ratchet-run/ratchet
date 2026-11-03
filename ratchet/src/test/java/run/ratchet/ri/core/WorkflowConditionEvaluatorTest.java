@@ -33,6 +33,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BatchContext;
@@ -852,14 +854,15 @@ class WorkflowConditionEvaluatorTest {
             parent));
   }
 
-  @Test
-  void batchSuccessRate_zeroTotalItems_returnsFalse() {
+  @ParameterizedTest
+  @ValueSource(strings = {"0.0", "0.90", "1.0"})
+  void batchSuccessRate_zeroTotalItems_returnsTrue(String threshold) {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(0, 0, 0)));
 
-    assertFalse(
+    assertTrue(
         evaluator.evaluate(
-            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, "0.90"),
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, threshold),
             parent));
   }
 

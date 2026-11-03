@@ -74,10 +74,8 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -87,8 +85,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   private static final String CAPTURED_PRINCIPAL = "bob";
 
-  @Mock private JobBatchStatusStore jobBatchStatusStore;
-  @Mock private JobTerminalStore jobTerminalStore;
+  @Mock private BatchService batchService;
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
   @Mock private BatchStore batchStore;
@@ -167,8 +164,7 @@ class DefaultJobCreationServiceAuthorizationTest {
       Clock clock,
       AfterCommitRegistrar registrar) {
     return new DefaultJobCreationService(
-        jobBatchStatusStore,
-        jobTerminalStore,
+        batchService,
         jobCrudStore,
         jobBulkStore,
         batchStore,
@@ -200,8 +196,7 @@ class DefaultJobCreationServiceAuthorizationTest {
       MetricsCollector metricsCollector,
       Clock clock) {
     return new DefaultJobCreationService(
-        jobBatchStatusStore,
-        jobTerminalStore,
+        batchService,
         jobCrudStore,
         jobBulkStore,
         batchStore,
@@ -229,8 +224,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   private DefaultJobCreationService serviceWithResolver(
       CallerPrincipalProvider principalProvider, CallerPrincipalResolver callerPrincipalResolver) {
     return new DefaultJobCreationService(
-        jobBatchStatusStore,
-        jobTerminalStore,
+        batchService,
         jobCrudStore,
         jobBulkStore,
         batchStore,
@@ -259,8 +253,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     // null jobBulkStore reproduces the legacy convenience-ctor behaviour where the bulk store was
     // omitted; batch submissions on this service exercise the "no bulk store" fallback path.
     return new DefaultJobCreationService(
-        jobBatchStatusStore,
-        jobTerminalStore,
+        batchService,
         jobCrudStore,
         null,
         batchStore,
@@ -1042,18 +1035,15 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
-  void emptyBatchSubmit_marksBatchCompleteOnlyAfterSyntheticPickupWins() {
+  void emptyBatchSubmit_delegatesCompletionToBatchService() {
     JobEntity saved = savedEntity();
     when(jobCrudStore.create(any())).thenReturn(saved);
-    when(jobBatchStatusStore.tryPickUpJob(
-            saved.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
-        .thenReturn(false);
 
     DefaultBatchBuilder builder = new DefaultBatchBuilder("empty-batch", service);
 
     service.submit(builder);
 
-    verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
+    verify(batchService).completeEmptyBatch(eq(saved.getId()), any());
     verify(batchStore, never()).markBatchCompleteIfReady(saved.getId());
   }
 

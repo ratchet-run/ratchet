@@ -20,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,10 +49,8 @@ import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -59,8 +58,6 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 @ExtendWith(MockitoExtension.class)
 class DefaultJobCreationServiceIdempotencyRaceTest {
 
-  @Mock private JobBatchStatusStore jobBatchStatusStore;
-  @Mock private JobTerminalStore jobTerminalStore;
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
   @Mock private BatchStore batchStore;
@@ -82,8 +79,7 @@ class DefaultJobCreationServiceIdempotencyRaceTest {
 
   private DefaultJobCreationService newService() {
     return new DefaultJobCreationService(
-        jobBatchStatusStore,
-        jobTerminalStore,
+        mock(BatchService.class),
         jobCrudStore,
         jobBulkStore,
         batchStore,

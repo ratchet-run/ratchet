@@ -37,7 +37,13 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 @Incubating
 public interface StreamingBatchBuilder<T extends Serializable> {
 
-  /** Sets the input stream of items to process. The stream item type must match this builder. */
+  /**
+   * Sets the input stream of items to process. The stream item type must match this builder.
+   *
+   * <p>A stream with no items creates an empty batch that completes as succeeded when submitted and
+   * runs its success callbacks ({@code thenOnBatchSuccess} and conditions met by a 100% success
+   * rate with zero failures).
+   */
   StreamingBatchBuilder<T> fromStream(Stream<T> stream);
 
   /** Sets the processing action applied to each item; may throw checked exceptions. */

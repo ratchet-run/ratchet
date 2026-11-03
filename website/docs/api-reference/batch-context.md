@@ -57,7 +57,7 @@ if (ctx.isComplete()) {
 public int percentDone()
 ```
 
-Calculates the completion percentage as `(completedItems * 100) / totalItems`. Returns 100 for empty batches.
+Calculates the completion percentage as `(completedItems * 100) / totalItems`. Returns 100 for empty batches. An empty collection or stream completes as succeeded when submitted and runs its success callbacks and conditions met by a 100% success rate with zero failures.
 
 **Returns:** an integer between 0 and 100.
 

@@ -37,6 +37,8 @@ A batch consists of a **parent job** (BATCH_PARENT) and many **child jobs** (BAT
   </div>
 </div>
 
+An empty collection or stream completes as succeeded during submission and runs its success callbacks and any conditions met by a 100% success rate with zero failures.
+
 ## BatchBuilder -- In-Memory Collections
 
 Use `BatchBuilder` when the entire collection fits in memory:

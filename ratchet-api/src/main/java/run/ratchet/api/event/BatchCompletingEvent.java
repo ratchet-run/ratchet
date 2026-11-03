@@ -23,7 +23,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
 /**
- * Fired after all batch children are terminal and before the batch completion event is published.
+ * Fired after all batch children are terminal and before the batch completion event is published. A
+ * batch with no items completes when it is submitted, and its event has all three counts at 0.
  */
 @Incubating
 public class BatchCompletingEvent extends AbstractJobSchedulerEvent {

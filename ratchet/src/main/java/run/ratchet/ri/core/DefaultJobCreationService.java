@@ -78,10 +78,8 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
@@ -99,11 +97,10 @@ public class DefaultJobCreationService
   private static final Logger log = Logger.getLogger(DefaultJobCreationService.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
 
-  private final JobBatchStatusStore jobBatchStatusStore;
-  private final JobTerminalStore jobTerminalStore;
   private final JobCrudStore jobCrudStore;
   private final JobBulkStore jobBulkStore;
   private final BatchStore batchStore;
+  private final BatchService batchService;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final RecurringJobStore recurringJobStore;
@@ -126,11 +123,10 @@ public class DefaultJobCreationService
   private final AfterCommitRegistrar afterCommitRegistrar;
 
   protected DefaultJobCreationService() {
-    this.jobBatchStatusStore = null;
-    this.jobTerminalStore = null;
     this.jobCrudStore = null;
     this.jobBulkStore = null;
     this.batchStore = null;
+    this.batchService = null;
     this.tagStore = null;
     this.workflowConditionStore = null;
     this.recurringJobStore = null;
@@ -154,8 +150,7 @@ public class DefaultJobCreationService
 
   @Inject
   public DefaultJobCreationService(
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
+      BatchService batchService,
       JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
       Instance<BatchStore> batchStore,
@@ -179,8 +174,7 @@ public class DefaultJobCreationService
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer) {
     this(
-        jobBatchStatusStore,
-        jobTerminalStore,
+        batchService,
         jobCrudStore,
         jobBulkStore,
         batchStore.isResolvable() ? batchStore.get() : null,
@@ -206,8 +200,7 @@ public class DefaultJobCreationService
   }
 
   public DefaultJobCreationService(
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
+      BatchService batchService,
       JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
       BatchStore batchStore,
@@ -230,11 +223,10 @@ public class DefaultJobCreationService
       CallerPrincipalResolver callerPrincipalResolver,
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer) {
-    this.jobBatchStatusStore = jobBatchStatusStore;
-    this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
     this.batchStore = batchStore;
+    this.batchService = batchService;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
     this.recurringJobStore = recurringJobStore;
@@ -471,14 +463,6 @@ public class DefaultJobCreationService
     }
     saveBatch(batch);
 
-    if (builder.children().isEmpty()) {
-      completeEmptyBatch(parentId);
-      log.infof(
-          "Batch '%s' submitted with 0 children — completed immediately (id=%s)",
-          builder.name(), parentId);
-      return () -> parentId;
-    }
-
     List<JobEntity> childJobs = new ArrayList<>(builder.children().size());
     for (DefaultBatchBuilder.ChildSpec child : builder.children()) {
       JobEntity childJob = new JobEntity();
@@ -496,7 +480,9 @@ public class DefaultJobCreationService
       checkCreateAuthorization(childJob);
       childJobs.add(childJob);
     }
-    bulkInsertJobs(childJobs);
+    if (!childJobs.isEmpty()) {
+      bulkInsertJobs(childJobs);
+    }
 
     createWorkflowBranches(
         parentId,
@@ -505,6 +491,16 @@ public class DefaultJobCreationService
         builder.executionTarget(),
         savedParent.isEncryptedPayload(),
         callerPrincipal);
+
+    if (childJobs.isEmpty()) {
+      if (batchService.completeEmptyBatch(parentId, batch)) {
+        wakeupService.notify(JobPriority.NORMAL, true, builder.executionTarget());
+      }
+      log.infof(
+          "Batch '%s' submitted with 0 children — completed immediately (id=%s)",
+          builder.name(), parentId);
+      return () -> parentId;
+    }
 
     wakeupService.notifyIfNeeded(
         JobExecutionType.BATCH_PARENT,
@@ -590,6 +586,16 @@ public class DefaultJobCreationService
         builder.executionTarget(),
         savedParent.isEncryptedPayload(),
         callerPrincipal);
+
+    if (totalItems == 0) {
+      if (batchService.completeEmptyBatch(parentId, batch)) {
+        wakeupService.notify(JobPriority.NORMAL, true, builder.executionTarget());
+      }
+      log.infof(
+          "Streaming batch '%s' submitted with 0 items — completed immediately (id=%s)",
+          builder.name(), parentId);
+      return () -> parentId;
+    }
 
     wakeupService.notifyIfNeeded(
         JobExecutionType.BATCH_PARENT,
@@ -838,14 +844,6 @@ public class DefaultJobCreationService
     parent.setIdempotencyKey(UUID.randomUUID().toString());
     stampCallerPrincipal(parent, callerPrincipal);
     return parent;
-  }
-
-  private void completeEmptyBatch(UUID parentId) {
-    if (jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-      Instant now = effective().instant();
-      jobTerminalStore.markJobSucceededMinimal(parentId, now, now, 0L, 0L);
-      batchStore.markBatchCompleteIfReady(parentId);
-    }
   }
 
   private void createChainSteps(

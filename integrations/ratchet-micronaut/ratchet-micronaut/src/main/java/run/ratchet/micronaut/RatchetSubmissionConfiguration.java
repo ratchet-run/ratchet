@@ -28,6 +28,7 @@ import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobCreationService;
 import run.ratchet.micronaut.internal.tx.MicronautDefaultJobSchedulerService;
 import run.ratchet.micronaut.internal.tx.MicronautJobCascadeService;
+import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultClusterQueryService;
 import run.ratchet.ri.core.DefaultInvocationSubmissionService;
 import run.ratchet.ri.core.DefaultJobCreationService;
@@ -176,6 +177,7 @@ class RatchetSubmissionConfiguration {
   @Secondary
   @RatchetTransactionBoundary
   MicronautDefaultJobCreationService defaultJobCreationService(
+      BatchService batchService,
       JobStore store,
       JobWakeupService wakeup,
       RecurringScheduler recurring,
@@ -192,8 +194,7 @@ class RatchetSubmissionConfiguration {
       AfterCommitRegistrar registrar,
       ErrorSanitizer errorSanitizer) {
     return new MicronautDefaultJobCreationService(
-        store,
-        store,
+        batchService,
         store,
         store,
         store.capability(BatchStore.class).orElse(null),

@@ -27,6 +27,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.transaction.Status;
@@ -46,6 +47,9 @@ import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.InOrder;
@@ -71,8 +75,10 @@ import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.dto.JobCompletionPlan;
 import run.ratchet.store.dto.JobCompletionResult;
 import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
@@ -199,6 +205,149 @@ class BatchServiceTest {
     assertNotNull(unit);
     assertEquals(Transactional.TxType.NOT_SUPPORTED, sweep.value());
     assertEquals(Transactional.TxType.REQUIRES_NEW, unit.value());
+  }
+
+  @Test
+  void emptyBatchCompletionUsesRequiredTransaction() throws NoSuchMethodException {
+    Method completion =
+        BatchService.class.getMethod("completeEmptyBatch", UUID.class, BatchEntity.class);
+    Transactional transaction = completion.getAnnotation(Transactional.class);
+    if (transaction == null) {
+      transaction = BatchService.class.getAnnotation(Transactional.class);
+    }
+    assertNotNull(transaction);
+    assertEquals(Transactional.TxType.REQUIRED, transaction.value());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void emptyBatchCompletesInCallerTransactionAndPublishesAfterCommit(boolean newWorkAvailable) {
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    UUID parentId = UUID.randomUUID();
+    JobEntity parent = parent(parentId);
+    WorkflowCompletionPlan workflow =
+        new WorkflowCompletionPlan(List.of(), List.of(), newWorkAvailable);
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(workflowScheduler.planCompletion(parent, false)).thenReturn(workflow);
+
+    assertEquals(
+        newWorkAvailable, batchService.completeEmptyBatch(parentId, batch(parentId, 0, 0, 0)));
+
+    ArgumentCaptor<JobCompletionPlan> plan = ArgumentCaptor.forClass(JobCompletionPlan.class);
+    verify(jobTerminalStore).commitCompletion(plan.capture());
+    assertEquals(parentId, plan.getValue().jobId());
+    assertEquals(JobStatus.PENDING, plan.getValue().expectedStatus());
+    assertEquals(JobStatus.SUCCEEDED, plan.getValue().terminalStatus());
+    assertEquals(new JobCompletionPlan.BatchCompletion(0, 0, 0), plan.getValue().completedBatch());
+    assertEquals(JobStatus.SUCCEEDED, parent.getStatus());
+    verify(metricsCollector).jobCompleted(parentId, JobType.BATCH, 0L);
+    verify(workflowScheduler).publishCompletion(workflow);
+    verifyNoInteractions(batchCompletionTransaction);
+    verify(batchStore, never()).markBatchCompleteIfReady(any());
+
+    ArgumentCaptor<Synchronization> synchronization =
+        ArgumentCaptor.forClass(Synchronization.class);
+    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    verifyNoInteractions(eventPublisher);
+
+    synchronization.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    InOrder events = inOrder(eventPublisher);
+    events.verify(eventPublisher).publish(any(BatchCompletingEvent.class));
+    events.verify(eventPublisher).publish(any(BatchCompletedEvent.class));
+    ArgumentCaptor<JobCompletedEvent> completed = ArgumentCaptor.forClass(JobCompletedEvent.class);
+    events.verify(eventPublisher).publish(completed.capture());
+    assertEquals(parentId, completed.getValue().getJobId());
+    assertEquals(0L, completed.getValue().getExecutionTimeMs());
+  }
+
+  @Test
+  void emptyBatchWithMetricsWithoutDurationRecordsZeroDuration() {
+    UUID parentId = UUID.randomUUID();
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent(parentId)));
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.of(new BatchMetricsEntity()));
+
+    batchService.completeEmptyBatch(parentId, batch(parentId, 0, 0, 0));
+
+    verify(metricsCollector).jobCompleted(parentId, JobType.BATCH, 0L);
+  }
+
+  @Test
+  void emptyBatchPreservesExistingMetricsDuration() {
+    UUID parentId = UUID.randomUUID();
+    BatchMetricsEntity metrics = new BatchMetricsEntity();
+    metrics.setTotalDurationMs(7L);
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent(parentId)));
+    when(batchStore.findBatchMetrics(parentId)).thenReturn(Optional.of(metrics));
+
+    batchService.completeEmptyBatch(parentId, batch(parentId, 0, 0, 0));
+
+    verify(metricsCollector).jobCompleted(parentId, JobType.BATCH, 7L);
+  }
+
+  @Test
+  void nonEmptyBatchWithoutMetricsDurationStillDoesNotRecordCompletionMetric() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+    when(batchStore.incrementCompletedAtomic(parentId))
+        .thenReturn(new BatchProgress(parentId, 1, 1, 0, null));
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 1, 0)));
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent(parentId)));
+
+    batchService.markChildSucceeded(child);
+
+    verifyNoInteractions(metricsCollector);
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = JobStatus.class, names = "PENDING", mode = EnumSource.Mode.EXCLUDE)
+  void emptyBatchDoesNothingUnlessParentIsPending(JobStatus status) {
+    UUID parentId = UUID.randomUUID();
+    JobEntity parent = parent(parentId);
+    parent.setStatus(status);
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+
+    assertFalse(batchService.completeEmptyBatch(parentId, batch(parentId, 0, 0, 0)));
+
+    assertEquals(status, parent.getStatus());
+    verifyNoInteractions(
+        jobTerminalStore,
+        batchStore,
+        workflowScheduler,
+        metricsCollector,
+        eventPublisher,
+        batchCompletionTransaction);
+  }
+
+  @Test
+  void emptyBatchLostCompletionDoesNotPublishOrRecordMetrics() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity parent = parent(parentId);
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobTerminalStore.commitCompletion(any())).thenReturn(JobCompletionResult.notCommitted());
+
+    assertFalse(batchService.completeEmptyBatch(parentId, batch(parentId, 0, 0, 0)));
+
+    assertEquals(JobStatus.PENDING, parent.getStatus());
+    verifyNoInteractions(batchStore, metricsCollector, eventPublisher);
+    verify(workflowScheduler, never()).publishCompletion(any());
+  }
+
+  @Test
+  void emptyBatchRollbackSuppressesCompletionEvents() {
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    UUID parentId = UUID.randomUUID();
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent(parentId)));
+
+    batchService.completeEmptyBatch(parentId, batch(parentId, 0, 0, 0));
+
+    ArgumentCaptor<Synchronization> synchronization =
+        ArgumentCaptor.forClass(Synchronization.class);
+    verify(txRegistry).registerInterposedSynchronization(synchronization.capture());
+    synchronization.getValue().afterCompletion(Status.STATUS_ROLLEDBACK);
+
+    verifyNoInteractions(eventPublisher);
   }
 
   @Test

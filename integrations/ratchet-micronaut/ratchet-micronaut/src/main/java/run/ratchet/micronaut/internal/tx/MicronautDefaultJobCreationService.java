@@ -18,6 +18,7 @@ package run.ratchet.micronaut.internal.tx;
 import io.micronaut.core.annotation.Creator;
 import java.time.Clock;
 import run.ratchet.micronaut.internal.RatchetTransactionBoundary;
+import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultJobCreationService;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
@@ -33,10 +34,8 @@ import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -52,8 +51,7 @@ public class MicronautDefaultJobCreationService extends DefaultJobCreationServic
   }
 
   public MicronautDefaultJobCreationService(
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
+      BatchService batchService,
       JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
       BatchStore batchStore,
@@ -77,8 +75,7 @@ public class MicronautDefaultJobCreationService extends DefaultJobCreationServic
       AfterCommitRegistrar afterCommitRegistrar,
       ErrorSanitizer errorSanitizer) {
     super(
-        jobBatchStatusStore,
-        jobTerminalStore,
+        batchService,
         jobCrudStore,
         jobBulkStore,
         batchStore,
