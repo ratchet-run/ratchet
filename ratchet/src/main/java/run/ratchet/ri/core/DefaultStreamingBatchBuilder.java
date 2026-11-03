@@ -37,6 +37,7 @@ import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.StreamingBatchContext;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 
 /** {@inheritDoc} */
 public class DefaultStreamingBatchBuilder<T extends Serializable>
@@ -58,11 +59,22 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   private Consumer<StreamingBatchContext> localProgressHook;
   private SerializableConsumer<BatchContext> batchProgressHook;
   private String executionTarget;
+  private String idempotencyKey;
   private String childResourceName;
 
   DefaultStreamingBatchBuilder(String name, StreamingBatchSubmitter submitter) {
     this.name = name;
     this.submitter = submitter;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> withIdempotencyKey(String key) {
+    this.idempotencyKey = IdempotencyKeyNormalizer.normalize(key);
+    return this;
+  }
+
+  String idempotencyKey() {
+    return idempotencyKey;
   }
 
   @Override

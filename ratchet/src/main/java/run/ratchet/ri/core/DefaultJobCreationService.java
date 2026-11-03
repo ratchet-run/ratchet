@@ -454,8 +454,19 @@ public class DefaultJobCreationService
   private JobHandle submitPrepared(DefaultBatchBuilder builder) {
     requireBatchCapability();
     requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
+    String idempotencyKey = builder.idempotencyKey();
+    if (idempotencyKey != null) {
+      Optional<UUID> existingByKey = jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
+      if (existingByKey.isPresent()) {
+        UUID existingId = existingByKey.get();
+        log.debugf(
+            "Duplicate idempotency key '%s', returning existing job %s",
+            idempotencyKey, existingId);
+        return () -> existingId;
+      }
+    }
     String callerPrincipal = resolveCallerPrincipal();
-    JobEntity parent = newBatchParent(callerPrincipal);
+    JobEntity parent = newBatchParent(callerPrincipal, idempotencyKey);
     parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
     JobEntity savedParent = createJob(parent);
@@ -541,8 +552,21 @@ public class DefaultJobCreationService
     requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
     builder.validateReady();
 
+    String idempotencyKey = builder.idempotencyKey();
+    if (idempotencyKey != null) {
+      Optional<UUID> existingByKey = jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
+      if (existingByKey.isPresent()) {
+        UUID existingId = existingByKey.get();
+        log.debugf(
+            "Duplicate idempotency key '%s', returning existing job %s",
+            idempotencyKey, existingId);
+        builder.stream().close();
+        return () -> existingId;
+      }
+    }
+
     String callerPrincipal = resolveCallerPrincipal();
-    JobEntity parent = newBatchParent(callerPrincipal);
+    JobEntity parent = newBatchParent(callerPrincipal, idempotencyKey);
     parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
     JobEntity savedParent = createJob(parent);
@@ -828,14 +852,15 @@ public class DefaultJobCreationService
     job.setTimeoutSec(opts.timeoutSec());
   }
 
-  private JobEntity newBatchParent(String callerPrincipal) {
+  private JobEntity newBatchParent(String callerPrincipal, String idempotencyKey) {
     JobEntity parent = new JobEntity();
     parent.setJobType(JobExecutionType.BATCH_PARENT);
     parent.setStatus(JobStatus.PENDING);
     parent.setPriority(JobPriority.NORMAL);
     parent.setScheduledTime(effective().instant());
     parent.setPayload(validate(JobPayloadFactory.noop()));
-    parent.setIdempotencyKey(UUID.randomUUID().toString());
+    parent.setIdempotencyKey(
+        idempotencyKey != null ? idempotencyKey : UUID.randomUUID().toString());
     stampCallerPrincipal(parent, callerPrincipal);
     return parent;
   }
