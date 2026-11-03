@@ -40,9 +40,9 @@ public interface StreamingBatchBuilder<T extends Serializable> {
   /**
    * Sets the input stream of items to process. The stream item type must match this builder.
    *
-   * <p>A stream with no items creates an empty batch that completes as succeeded when submitted and
-   * runs its success callbacks ({@code thenOnBatchSuccess} and conditions met by a 100% success
-   * rate with zero failures).
+   * <p>A stream with no items creates an empty batch that completes as succeeded when submitted.
+   * Its workflow branches are routed as for a batch with a 100% success rate and zero failures.
+   * Routing is exclusive: the first matching branch runs, and every other branch is canceled.
    */
   StreamingBatchBuilder<T> fromStream(Stream<T> stream);
 

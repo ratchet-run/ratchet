@@ -34,6 +34,7 @@ import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.BatchCompletedEvent;
+import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.BatchCompletionTracker;
@@ -180,6 +181,11 @@ class BatchExecutionIT extends BaseRatchetIT {
         .atMost(Duration.ofSeconds(10))
         .untilAsserted(
             () -> {
+              assertEquals(
+                  1L,
+                  eventCapture.getEvents(BatchCompletingEvent.class).stream()
+                      .filter(event -> handle.id().equals(event.getJobId()))
+                      .count());
               assertEquals(
                   1L,
                   eventCapture.getEvents(BatchCompletedEvent.class).stream()

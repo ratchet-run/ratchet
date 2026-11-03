@@ -37,7 +37,7 @@ A batch consists of a **parent job** (BATCH_PARENT) and many **child jobs** (BAT
   </div>
 </div>
 
-An empty collection or stream completes as succeeded during submission and runs its success callbacks and any conditions met by a 100% success rate with zero failures.
+An empty collection or stream completes as succeeded during submission. Its workflow branches are routed as for a batch with a 100% success rate and zero failures. Routing is exclusive, so the first matching branch runs and every other branch is canceled.
 
 ## BatchBuilder -- In-Memory Collections
 
