@@ -438,7 +438,7 @@ ratchet.schema.auto-migrate=true
 
 When enabled, `SchemaMigrationLifecycleHook` runs during scheduler startup (before the poller is initialized), acquires an advisory lock (`GET_LOCK` on MySQL, `pg_advisory_lock` on PostgreSQL), records each applied script in `ratchet_schema_version`, and verifies SHA-256 checksums on subsequent runs. Concurrent startups converge: exactly one node applies migrations while the others wait on the lock.
 
-The migrator reads only the selected dialect's folder, so an application with more than one SQL store JAR on its classpath doesn't mix their scripts. To apply scripts from a different classpath folder, set `ratchet.schema.migration-prefix` (`RATCHET_SCHEMA_MIGRATION_PREFIX`) to that folder. Ratchet's native-image resource rules cover only `ddl/migrations` (all of `ddl/` on Spring Boot), so a native image needs any other folder registered as a resource by the application.
+The migrator reads only the selected dialect's folder, so an application with more than one SQL store JAR on its classpath doesn't mix their scripts. To apply scripts from a different classpath folder, set `ratchet.schema.migration-prefix` (`RATCHET_SCHEMA_MIGRATION_PREFIX`) to that folder. Ratchet's native-image resource rules include everything under `ddl/migrations/` on the application classpath (all of `ddl/` on Spring Boot), so a folder your application ships there works without extra setup. A native image needs any other folder registered as a resource by the application. A native image also can't list a classpath folder, so a custom folder needs an `index.txt` that names each script, one file name per line, as the store JARs' folders do.
 
 ### DataSource binding
 

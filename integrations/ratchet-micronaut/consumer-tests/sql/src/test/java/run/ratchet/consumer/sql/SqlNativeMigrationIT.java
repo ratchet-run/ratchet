@@ -18,6 +18,7 @@ package run.ratchet.consumer.sql;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Path;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import run.ratchet.consumer.ConsumerProcess;
 import run.ratchet.consumer.ProcessScenarios;
@@ -26,14 +27,26 @@ import run.ratchet.consumer.ProcessScenarios;
 class SqlNativeMigrationIT {
   @Test
   void migratesEmptyDatabase() throws Exception {
+    migrate(Map.of(), "target/native-migration.log");
+  }
+
+  /** The pom copies the store's scripts to ddl/migrations/consumer-app in the application. */
+  @Test
+  void migratesFromApplicationFolder() throws Exception {
+    migrate(
+        Map.of("ratchet.schema.migration-prefix", "ddl/migrations/consumer-app"),
+        "target/native-migration-application-folder.log");
+  }
+
+  private static void migrate(Map<String, Object> overrides, String log) throws Exception {
     try (var database = SqlDatabase.start()) {
       var options = ProcessScenarios.options(database.properties());
       options.put("micronaut.environments", database.store());
       options.put("jpa.default.properties.hibernate.hbm2ddl.auto", "none");
       options.put("consumer.scenario", "migration");
       options.put("ratchet.schema.auto-migrate", true);
-      try (var process =
-          ConsumerProcess.start("sql-consumer", options, Path.of("target/native-migration.log"))) {
+      options.putAll(overrides);
+      try (var process = ConsumerProcess.start("sql-consumer", options, Path.of(log))) {
         assertThat(process.awaitExit()).withFailMessage("%s", process.output()).isZero();
         assertThat(process.output()).contains("RATCHET_CHECK DURABLE");
       }
