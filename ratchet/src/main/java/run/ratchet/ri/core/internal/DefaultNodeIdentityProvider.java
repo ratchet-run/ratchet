@@ -29,7 +29,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongUnaryOperator;
+import java.util.function.Supplier;
 import org.jboss.logging.Logger;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.JobBulkStore;
@@ -58,6 +60,8 @@ import run.ratchet.store.spi.OrphanRecovery;
  * @see NodeIdentityProvider
  */
 public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
+
+  private static final int MAX_STARTUP_RECOVERY_ATTEMPTS = 3;
 
   private static final Logger log = Logger.getLogger(DefaultNodeIdentityProvider.class);
 
@@ -254,23 +258,62 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     // that crashes and restarts inside the steady-state grace window would otherwise leave its
     // own prior RUNNING rows in place until the heartbeat aged out.
     OrphanRecovery own =
-        jobBulkStore.resetOrphanJobsForNode(
-            resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.EXHAUSTED_LIMIT);
+        recoverAtStartup(
+            resolvedNodeId,
+            () ->
+                jobBulkStore.resetOrphanJobsForNode(
+                    resolvedNodeId, maxCrashRedeliveries, OrphanRecoveryTimer.EXHAUSTED_LIMIT));
     log.infof(
         "Startup recovery for node %s: reset %s job(s), returned %s exhausted claim(s) for later"
             + " failure",
         resolvedNodeId, own.reset(), own.exhausted().size());
 
-    OrphanRecovery others =
-        jobBulkStore.resetOrphanJobs(
-            Duration.ofSeconds(orphanGraceSeconds),
-            maxCrashRedeliveries,
-            OrphanRecoveryTimer.EXHAUSTED_LIMIT);
-    log.infof(
-        "Startup orphan recovery: reset %s job(s), found %s exhausted claim(s)",
-        others.reset(), others.exhausted().size());
+    // The orphan recovery timer runs this scan again after one interval, so only the node's own
+    // reset above must succeed for startup to continue.
+    try {
+      OrphanRecovery others =
+          recoverAtStartup(
+              resolvedNodeId,
+              () ->
+                  jobBulkStore.resetOrphanJobs(
+                      Duration.ofSeconds(orphanGraceSeconds),
+                      maxCrashRedeliveries,
+                      OrphanRecoveryTimer.EXHAUSTED_LIMIT));
+      log.infof(
+          "Startup orphan recovery: reset %s job(s), found %s exhausted claim(s)",
+          others.reset(), others.exhausted().size());
+    } catch (RatchetTransientStoreException e) {
+      log.warnf(
+          e,
+          "Startup orphan recovery failed for node %s; the orphan recovery timer will retry",
+          resolvedNodeId);
+    }
 
     scheduleNextHeartbeat();
+  }
+
+  /**
+   * Retries transient startup recovery failures, propagating failure when attempts are exhausted.
+   *
+   * <p>Each attempt is a separate store call. A retry is clean only when no caller transaction is
+   * open around {@code init()}, so that the failed attempt has already rolled back.
+   */
+  private OrphanRecovery recoverAtStartup(String nodeId, Supplier<OrphanRecovery> recovery) {
+    for (int attempt = 1; ; attempt++) {
+      try {
+        return recovery.get();
+      } catch (RatchetTransientStoreException e) {
+        if (attempt == MAX_STARTUP_RECOVERY_ATTEMPTS) {
+          throw e;
+        }
+        log.warnf(
+            e,
+            "Transient startup recovery failure for node %s; retrying after attempt %s/%s",
+            nodeId,
+            attempt,
+            MAX_STARTUP_RECOVERY_ATTEMPTS);
+      }
+    }
   }
 
   /** Shuts down the heartbeat scheduler. */
