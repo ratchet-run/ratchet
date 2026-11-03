@@ -34,6 +34,7 @@ import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ReadConcern;
+import com.mongodb.ReadPreference;
 import com.mongodb.ServerAddress;
 import com.mongodb.WriteError;
 import com.mongodb.bulk.BulkWriteResult;
@@ -79,11 +80,13 @@ class MongoExceptionTranslationTest {
   @Test
   void currentClaimTranslatesTransientReadFailure() {
     MongoSocketException failure = transientFailure();
+    AtomicReference<Object> readPreference = new AtomicReference<>();
     AtomicReference<Object> readConcern = new AtomicReference<>();
     MongoCollection<Document> jobs =
         mongoCollection(
             (proxy, method, args) -> {
               if ("withReadPreference".equals(method.getName())) {
+                readPreference.set(args[0]);
                 return proxy;
               }
               if ("withReadConcern".equals(method.getName())) {
@@ -100,6 +103,7 @@ class MongoExceptionTranslationTest {
         assertThrows(
             RatchetTransientStoreException.class, () -> crud.currentClaim(UUID.randomUUID()));
     assertSame(failure, thrown.getCause());
+    assertEquals(ReadPreference.primary(), readPreference.get());
     assertEquals(ReadConcern.MAJORITY, readConcern.get());
   }
 
@@ -177,6 +181,7 @@ class MongoExceptionTranslationTest {
             (proxy, method, args) -> {
               return switch (method.getName()) {
                 case "aggregate" -> aggregateIterable(candidateCursor);
+                case "withWriteConcern" -> proxy;
                 case "bulkWrite" -> BulkWriteResult.acknowledged(0, 1, 0, 1, List.of(), List.of());
                 case "find" -> findIterable(readBackCursor);
                 default -> defaultValue(method);

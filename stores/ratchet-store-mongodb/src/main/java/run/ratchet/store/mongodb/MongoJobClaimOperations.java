@@ -36,6 +36,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
 import com.mongodb.MongoBulkWriteException;
+import com.mongodb.WriteConcern;
 import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoCursor;
@@ -292,8 +293,12 @@ final class MongoJobClaimOperations {
 
           long matched;
           try {
+            // currentClaim reads majority-committed data, so a claim acknowledged before a majority
+            // has it could read back as superseded.
             BulkWriteResult result =
-                ctx.jobs().bulkWrite(ops, new BulkWriteOptions().ordered(false));
+                ctx.jobs()
+                    .withWriteConcern(WriteConcern.MAJORITY)
+                    .bulkWrite(ops, new BulkWriteOptions().ordered(false));
             matched = result.getMatchedCount();
           } catch (MongoBulkWriteException e) {
             // ordered=false: server applied every op; partial successes are durable. Log per-op
