@@ -248,6 +248,25 @@ class DefaultJobCreationServiceBatchIdempotencyTest {
     verifyNoInteractions(jobBulkStore, batchStore, workflowConditionStore);
   }
 
+  @Test
+  void streamingParentInsertRaceClosesStreamWithoutReadingIt() {
+    DefaultJobCreationService service = newService();
+    when(jobCrudStore.findOriginalJobIdByIdempotencyKey("stream-42")).thenReturn(Optional.empty());
+    DuplicateIdempotencyKeyException collision =
+        new DuplicateIdempotencyKeyException("stream-42", new RuntimeException("duplicate"));
+    when(jobCrudStore.create(any(JobEntity.class))).thenThrow(collision);
+    @SuppressWarnings("unchecked")
+    Stream<String> stream = mock(Stream.class);
+    DefaultStreamingBatchBuilder<String> builder = streamingBuilder(service, stream);
+    builder.withIdempotencyKey("stream-42");
+
+    assertSame(collision, assertThrows(DuplicateIdempotencyKeyException.class, builder::start));
+
+    verify(stream).close();
+    verifyNoMoreInteractions(stream);
+    verifyNoInteractions(jobBulkStore, batchStore, workflowConditionStore);
+  }
+
   private static DefaultBatchBuilder batchBuilder(DefaultJobCreationService service) {
     DefaultBatchBuilder builder = new DefaultBatchBuilder("batch", service);
     builder.forEach(

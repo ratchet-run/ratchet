@@ -45,8 +45,9 @@ public interface InvocationStreamingBatchBuilder<T extends Serializable> {
    * <p>The key is trimmed and must be at most 36 characters. Null or blank keeps the generated key.
    * Children and branch jobs keep generated keys. The key namespace is shared with single jobs.
    *
-   * <p>A later submission with the same key returns the existing batch's handle and writes no
-   * parent, children, progress hook or branches. The stream is closed without being read.
+   * <p>A later submission with the same key returns the handle of the job that holds the key, which
+   * is a single job if one used it first, and writes no parent, children, progress hook or
+   * branches. The stream is closed without being read.
    *
    * <p>If two submissions race on the same key, the loser's {@link #start()} may throw. A retry in
    * a new transaction returns the original handle, even after job history is purged. Task execution

@@ -21,10 +21,14 @@ public final class IdempotencyKeyNormalizer {
   private IdempotencyKeyNormalizer() {}
 
   public static String normalize(String key) {
-    if (key == null || key.isBlank()) {
+    if (key == null) {
       return null;
     }
+    // trim() also strips control characters that isBlank() does not count as blank.
     String normalized = key.trim();
+    if (normalized.isBlank()) {
+      return null;
+    }
     if (normalized.length() > 36) {
       throw new IllegalArgumentException(
           "Idempotency key must be at most 36 characters, got " + normalized.length());

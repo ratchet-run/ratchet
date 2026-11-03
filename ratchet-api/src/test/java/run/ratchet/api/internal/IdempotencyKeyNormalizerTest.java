@@ -36,6 +36,15 @@ class IdempotencyKeyNormalizerTest {
   }
 
   @Test
+  void keyThatTrimsToNothingIsAbsent() {
+    // Not blank by isBlank(), but trim() strips every character below U+0021.
+    assertNull(IdempotencyKeyNormalizer.normalize("\u0000"));
+    assertNull(IdempotencyKeyNormalizer.normalize(" \u0001\u001f "));
+    // Blank by isBlank(), but trim() leaves it in place.
+    assertNull(IdempotencyKeyNormalizer.normalize("\u2003"));
+  }
+
+  @Test
   void accepts36CharactersAfterTrimming() {
     String key = "k".repeat(36);
     assertEquals(key, IdempotencyKeyNormalizer.normalize(" " + key + " "));

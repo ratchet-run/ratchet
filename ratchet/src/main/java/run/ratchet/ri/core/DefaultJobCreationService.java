@@ -551,7 +551,15 @@ public class DefaultJobCreationService
     requireBatchCapability();
     requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
     builder.validateReady();
+    // Close the caller's stream on every path, including a duplicate key and a failed insert.
+    try {
+      return submitStream(builder);
+    } finally {
+      builder.stream().close();
+    }
+  }
 
+  private <T extends Serializable> JobHandle submitStream(DefaultStreamingBatchBuilder<T> builder) {
     String idempotencyKey = builder.idempotencyKey();
     if (idempotencyKey != null) {
       Optional<UUID> existingByKey = jobCrudStore.findOriginalJobIdByIdempotencyKey(idempotencyKey);
@@ -560,7 +568,6 @@ public class DefaultJobCreationService
         log.debugf(
             "Duplicate idempotency key '%s', returning existing job %s",
             idempotencyKey, existingId);
-        builder.stream().close();
         return () -> existingId;
       }
     }
@@ -585,25 +592,21 @@ public class DefaultJobCreationService
     }
     saveBatch(batch);
 
-    try {
-      var iterator = builder.stream().iterator();
-      while (iterator.hasNext()) {
-        chunk.add(iterator.next());
-        if (chunk.size() >= builder.chunkSize()) {
-          totalItems += createChildChunk(parentId, builder, chunk, chunksInserted, callerPrincipal);
-          chunksInserted++;
-          builder.invokeLocalProgressHook(parentId, totalItems, chunksInserted);
-          chunk.clear();
-        }
-      }
-
-      if (!chunk.isEmpty()) {
+    var iterator = builder.stream().iterator();
+    while (iterator.hasNext()) {
+      chunk.add(iterator.next());
+      if (chunk.size() >= builder.chunkSize()) {
         totalItems += createChildChunk(parentId, builder, chunk, chunksInserted, callerPrincipal);
         chunksInserted++;
         builder.invokeLocalProgressHook(parentId, totalItems, chunksInserted);
+        chunk.clear();
       }
-    } finally {
-      builder.stream().close();
+    }
+
+    if (!chunk.isEmpty()) {
+      totalItems += createChildChunk(parentId, builder, chunk, chunksInserted, callerPrincipal);
+      chunksInserted++;
+      builder.invokeLocalProgressHook(parentId, totalItems, chunksInserted);
     }
     batchStore.updateBatchTotalItems(parentId, totalItems);
 
