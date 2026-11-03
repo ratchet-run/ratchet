@@ -36,6 +36,18 @@ import run.ratchet.api.Incubating;
 public interface ExecutorProvider {
 
   /**
+   * Pins all supplied executors to the loader of the thread that starts the runtime.
+   *
+   * <p>The runtime calls this once before starting workers, including on deferred startup. Tasks
+   * must install this loader as their context class loader for their entire execution and restore
+   * the worker's previous loader in a finally block. Already-returned executor references must
+   * honor the captured loader too. Executor ownership and lifecycle remain with the provider.
+   *
+   * @param applicationClassLoader startup context class loader; never {@code null}
+   */
+  void initializeApplicationClassLoader(ClassLoader applicationClassLoader);
+
+  /**
    * Returns the executor used for job payload execution. This is the platform pool — the same
    * executor returned by {@link #getJobExecutor(String)} for {@link ExecutorTargets#PLATFORM}.
    *

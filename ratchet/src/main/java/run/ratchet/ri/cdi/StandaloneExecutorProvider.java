@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import run.ratchet.api.ExecutorTargets;
+import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.ExecutorProvider;
 
 /**
@@ -45,6 +46,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   // bean construction start OS threads; under a build-time-CDI runtime (Quarkus native) the bean is
   // instantiated during image build and a live thread would be captured into the image heap
   // ("Detected a started Thread in the image heap"). Lazy creation keeps construction inert.
+  private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
   private volatile ExecutorService jobExecutor;
   private volatile ScheduledExecutorService scheduledExecutor;
   private volatile ExecutorService virtualJobExecutor;
@@ -82,6 +84,11 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   }
 
   @Override
+  public void initializeApplicationClassLoader(ClassLoader applicationClassLoader) {
+    classLoader.initialize(applicationClassLoader);
+  }
+
+  @Override
   public ExecutorService getJobExecutor() {
     ExecutorService value = jobExecutor;
     if (value != null) {
@@ -90,7 +97,9 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
     return lazyInit(
         () -> jobExecutor,
         v -> jobExecutor = v,
-        () -> Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job")));
+        () ->
+            classLoader.wrap(
+                Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job"))));
   }
 
   @Override
@@ -112,7 +121,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
     return lazyInit(
         () -> virtualJobExecutor,
         v -> virtualJobExecutor = v,
-        StandaloneExecutorProvider::newVirtualThreadExecutor);
+        () -> classLoader.wrap(newVirtualThreadExecutor()));
   }
 
   @Override
@@ -125,8 +134,9 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
         () -> scheduledExecutor,
         v -> scheduledExecutor = v,
         () ->
-            Executors.newScheduledThreadPool(
-                2, namedThreadFactory("ratchet-standalone-scheduler")));
+            classLoader.wrap(
+                Executors.newScheduledThreadPool(
+                    2, namedThreadFactory("ratchet-standalone-scheduler"))));
   }
 
   /**

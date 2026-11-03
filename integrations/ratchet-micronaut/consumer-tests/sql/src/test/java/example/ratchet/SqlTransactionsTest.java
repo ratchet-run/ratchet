@@ -49,6 +49,7 @@ import run.ratchet.api.NodeIdentity;
 import run.ratchet.consumer.sql.SqlAccess;
 import run.ratchet.consumer.sql.SqlApplication;
 import run.ratchet.consumer.sql.SqlDatabase;
+import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ExecutorProvider;
@@ -258,16 +259,25 @@ class SqlTransactionsTest {
   }
 
   public static final class ThreadExecutors implements ExecutorProvider, AutoCloseable {
-    private final ExecutorService platform = Executors.newCachedThreadPool();
-    private final ScheduledExecutorService timers = Executors.newScheduledThreadPool(2);
+    private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+
+    @Override
+    public void initializeApplicationClassLoader(ClassLoader loader) {
+      classLoader.initialize(loader);
+    }
+
+    private final ExecutorService platform = classLoader.wrap(Executors.newCachedThreadPool());
+    private final ScheduledExecutorService timers =
+        classLoader.wrap(Executors.newScheduledThreadPool(2));
     private final ExecutorService virtual;
 
     public ThreadExecutors() {
       try {
         virtual =
             Runtime.version().feature() >= 21
-                ? (ExecutorService)
-                    Executors.class.getMethod("newVirtualThreadPerTaskExecutor").invoke(null)
+                ? classLoader.wrap(
+                    (ExecutorService)
+                        Executors.class.getMethod("newVirtualThreadPerTaskExecutor").invoke(null))
                 : null;
       } catch (ReflectiveOperationException failure) {
         throw new IllegalStateException(failure);
