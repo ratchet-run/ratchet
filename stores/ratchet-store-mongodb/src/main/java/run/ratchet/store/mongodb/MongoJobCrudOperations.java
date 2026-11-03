@@ -61,6 +61,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
+import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
@@ -267,10 +268,12 @@ final class MongoJobCrudOperations {
   Optional<ClaimState> currentClaim(UUID jobId) {
     try {
       // Read the primary even when the client prefers secondaries: a lagging secondary could
-      // still show a superseded claim as current.
+      // still show a superseded claim as current. Read only majority-committed data, so a newer
+      // claim that a failover later rolls back cannot mark this attempt superseded for good.
       Document doc =
           ctx.jobs()
               .withReadPreference(ReadPreference.primary())
+              .withReadConcern(ReadConcern.MAJORITY)
               .find(eq(ID, jobId))
               .projection(new Document(STATUS, 1).append(CLAIM_SEQ, 1))
               .first();

@@ -33,6 +33,7 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
 import com.mongodb.MongoWriteException;
+import com.mongodb.ReadConcern;
 import com.mongodb.ServerAddress;
 import com.mongodb.WriteError;
 import com.mongodb.bulk.BulkWriteResult;
@@ -78,10 +79,15 @@ class MongoExceptionTranslationTest {
   @Test
   void currentClaimTranslatesTransientReadFailure() {
     MongoSocketException failure = transientFailure();
+    AtomicReference<Object> readConcern = new AtomicReference<>();
     MongoCollection<Document> jobs =
         mongoCollection(
             (proxy, method, args) -> {
               if ("withReadPreference".equals(method.getName())) {
+                return proxy;
+              }
+              if ("withReadConcern".equals(method.getName())) {
+                readConcern.set(args[0]);
                 return proxy;
               }
               if ("find".equals(method.getName())) {
@@ -94,6 +100,7 @@ class MongoExceptionTranslationTest {
         assertThrows(
             RatchetTransientStoreException.class, () -> crud.currentClaim(UUID.randomUUID()));
     assertSame(failure, thrown.getCause());
+    assertEquals(ReadConcern.MAJORITY, readConcern.get());
   }
 
   @Test

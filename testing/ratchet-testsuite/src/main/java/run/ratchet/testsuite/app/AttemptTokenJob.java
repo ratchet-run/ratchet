@@ -38,6 +38,10 @@ public class AttemptTokenJob {
   // starts after its test cannot block or show up in another test.
   private static final List<Attempt> FIRINGS = new CopyOnWriteArrayList<>();
   private static final AtomicBoolean FIRINGS_OPEN = new AtomicBoolean();
+  // Guards the gate check and add in blockFiring() against reset(), so reset() cannot clear a
+  // firing
+  // without releasing it.
+  private static final Object FIRINGS_LOCK = new Object();
   public static final AtomicReference<JobContext> FAILURE_CONTEXT = new AtomicReference<>();
   public static final AtomicReference<Optional<AttemptToken>> FAILURE_TOKEN =
       new AtomicReference<>();
@@ -77,10 +81,12 @@ public class AttemptTokenJob {
   public static void blockFiring() {
     JobContext context = JobContext.current();
     var attempt = new Attempt(context, context.attemptToken().orElseThrow(), new CountDownLatch(1));
-    if (!FIRINGS_OPEN.get()) {
-      return;
+    synchronized (FIRINGS_LOCK) {
+      if (!FIRINGS_OPEN.get()) {
+        return;
+      }
+      FIRINGS.add(attempt);
     }
-    FIRINGS.add(attempt);
     awaitRelease(attempt);
   }
 
@@ -128,11 +134,13 @@ public class AttemptTokenJob {
   }
 
   public static void reset() {
-    FIRINGS_OPEN.set(false);
-    releaseAll();
+    synchronized (FIRINGS_LOCK) {
+      FIRINGS_OPEN.set(false);
+      releaseAll();
+      FIRINGS.clear();
+    }
     ATTEMPTS.clear();
     BLOCKED.clear();
-    FIRINGS.clear();
     FAILURE_CONTEXT.set(null);
     FAILURE_TOKEN.set(null);
     FAILURE_CURRENT.set(null);
