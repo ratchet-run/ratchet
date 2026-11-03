@@ -33,6 +33,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.stream.Stream;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
@@ -548,14 +549,15 @@ public class DefaultJobCreationService
 
   private <T extends Serializable> JobHandle submitPrepared(
       DefaultStreamingBatchBuilder<T> builder) {
-    requireBatchCapability();
-    requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
-    builder.validateReady();
-    // Close the caller's stream on every path, including a duplicate key and a failed insert.
-    try {
+    // start() owns the caller's stream and closes it on every path, including a failed check, a
+    // duplicate key and a failed insert. A null stream (fromStream() never called) is skipped. If
+    // the submit failed, a close() failure is added to it as suppressed; after a normal return, a
+    // close() failure propagates, as with any try-with-resources.
+    try (Stream<T> stream = builder.stream()) {
+      requireBatchCapability();
+      requireResourcePermitCapability(builder.childResourceName(), "Batch declares child resource");
+      builder.validateReady();
       return submitStream(builder);
-    } finally {
-      builder.stream().close();
     }
   }
 

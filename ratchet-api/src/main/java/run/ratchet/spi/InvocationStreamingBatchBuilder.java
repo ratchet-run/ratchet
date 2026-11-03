@@ -146,6 +146,8 @@ public interface InvocationStreamingBatchBuilder<T extends Serializable> {
   /**
    * Consumes the stream, persisting children chunk by chunk through the standard creation path.
    *
+   * <p>The stream is closed before this method returns or throws.
+   *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    */
   JobHandle start();

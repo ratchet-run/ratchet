@@ -201,6 +201,8 @@ public interface StreamingBatchBuilder<T extends Serializable> {
   /**
    * Submits the configured streaming batch for execution.
    *
+   * <p>The stream is closed before this method returns or throws.
+   *
    * @return a {@link JobHandle} for the submitted batch job; never {@code null}
    * @throws RatchetTransientStoreException if the backing store is temporarily unavailable while
    *     the batch is submitted
