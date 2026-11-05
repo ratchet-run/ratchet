@@ -36,7 +36,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
 import com.mongodb.MongoBulkWriteException;
-import com.mongodb.WriteConcern;
 import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.MongoCursor;
@@ -246,6 +245,8 @@ final class MongoJobClaimOperations {
    * Claims a set of candidate jobs in two round-trips: a single {@code bulkWrite(ordered=false)}
    * for the conditional updates, then one {@code find} to read the claimed documents back.
    *
+   * <p>A write-concern error attempts to release this batch's claims before rethrowing the error.
+   *
    * <p><b>Invariant required of callers:</b> no two concurrent invocations on the same node may
    * share candidate IDs. The read-back filter is {@code _id $in ids AND picked_by = node AND status
    * = RUNNING}; if two threads on the same node have overlapping {@code ids}, the read-back cannot
@@ -293,14 +294,28 @@ final class MongoJobClaimOperations {
 
           long matched;
           try {
-            // currentClaim reads majority-committed data, so a claim acknowledged before a majority
-            // has it could read back as superseded.
+            // Claims need majority because currentClaim reads majority-committed data.
+            // Configured timeout and journal settings still apply.
             BulkWriteResult result =
                 ctx.jobs()
-                    .withWriteConcern(WriteConcern.MAJORITY)
+                    .withWriteConcern(ctx.claimWriteConcern())
                     .bulkWrite(ops, new BulkWriteOptions().ordered(false));
             matched = result.getMatchedCount();
           } catch (MongoBulkWriteException e) {
+            if (e.getWriteConcernError() != null) {
+              try {
+                releaseUnacknowledgedClaim(ids, nodeId, nowDate);
+              } catch (RuntimeException releaseFailure) {
+                log.warnf(
+                    releaseFailure,
+                    "Failed to release claim %s at %s for node %s",
+                    ids,
+                    nowDate,
+                    nodeId);
+                e.addSuppressed(releaseFailure);
+              }
+              throw e;
+            }
             // ordered=false: server applied every op; partial successes are durable. Log per-op
             // failures and continue with the read-back of whatever did succeed.
             matched = e.getWriteResult().getMatchedCount();
@@ -337,5 +352,23 @@ final class MongoJobClaimOperations {
           return ordered;
         },
         claims -> claims.isEmpty() ? "miss" : "updated");
+  }
+
+  private void releaseUnacknowledgedClaim(List<UUID> ids, String nodeId, Date pickedAt) {
+    ctx.jobs()
+        .withWriteConcern(ctx.claimWriteConcern())
+        .updateMany(
+            and(
+                new Document(ID, new Document("$in", ids)),
+                eq(PICKED_BY, nodeId),
+                eq(PICKED_AT, pickedAt),
+                eq(STATUS, "RUNNING")),
+            combine(
+                set(STATUS, "PENDING"),
+                set(PICKED_BY, null),
+                set(PICKED_AT, null),
+                set(EXECUTION_START_TIME, null),
+                set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                inc(VERSION, 1)));
   }
 }

@@ -50,7 +50,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 import static run.ratchet.store.mongodb.MongoJobCrudOperations.ORPHAN_EXECUTION_CLOSE_BATCH;
 
-import com.mongodb.WriteConcern;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
@@ -238,11 +237,11 @@ final class MongoJobLifecycleOperations
         "pickup_job",
         () -> {
           Instant now = Instant.now();
-          // currentClaim reads majority-committed data, so a claim acknowledged before a majority
-          // has it could read back as superseded.
+          // Claims need majority because currentClaim reads majority-committed data.
+          // Configured timeout and journal settings still apply.
           UpdateResult result =
               ctx.jobs()
-                  .withWriteConcern(WriteConcern.MAJORITY)
+                  .withWriteConcern(ctx.claimWriteConcern())
                   .updateOne(
                       and(eq(ID, id), eq(STATUS, "PENDING")),
                       combine(

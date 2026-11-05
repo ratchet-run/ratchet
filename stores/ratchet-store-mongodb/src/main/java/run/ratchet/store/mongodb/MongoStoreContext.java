@@ -16,6 +16,7 @@
 package run.ratchet.store.mongodb;
 
 import com.mongodb.MongoException;
+import com.mongodb.WriteConcern;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -120,6 +121,10 @@ final class MongoStoreContext extends AbstractStoreContext {
       current = current.getCause();
     }
     return false;
+  }
+
+  WriteConcern claimWriteConcern() {
+    return jobs().getWriteConcern().withW("majority");
   }
 
   MongoCollection<Document> jobs() {
