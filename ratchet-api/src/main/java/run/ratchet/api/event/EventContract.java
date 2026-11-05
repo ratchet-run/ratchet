@@ -72,7 +72,8 @@ final class EventContract {
   }
 
   static void requireBatchCounts(int totalItems, int completedItems, int failedItems) {
-    requirePositive(totalItems, "totalItems");
+    // An empty batch completes with all three counts at 0.
+    requireNonNegative(totalItems, "totalItems");
     requireNonNegative(completedItems, "completedItems");
     requireNonNegative(failedItems, "failedItems");
     if ((long) completedItems + failedItems > totalItems) {

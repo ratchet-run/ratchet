@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,10 +60,8 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
@@ -73,8 +72,6 @@ import run.ratchet.store.util.PayloadEncryptor;
 @ExtendWith(MockitoExtension.class)
 class DefaultJobCreationServiceExecutionTargetTest {
 
-  @Mock private JobBatchStatusStore jobBatchStatusStore;
-  @Mock private JobTerminalStore jobTerminalStore;
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
   @Mock private BatchStore batchStore;
@@ -106,8 +103,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
   void setUp() {
     service =
         new DefaultJobCreationService(
-            jobBatchStatusStore,
-            jobTerminalStore,
+            mock(BatchService.class),
             jobCrudStore,
             jobBulkStore,
             batchStore,
@@ -170,8 +166,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
         className -> className != null && className.startsWith("run.ratchet.ri.core.");
     DefaultJobCreationService gated =
         new DefaultJobCreationService(
-            jobBatchStatusStore,
-            jobTerminalStore,
+            mock(BatchService.class),
             jobCrudStore,
             jobBulkStore,
             batchStore,

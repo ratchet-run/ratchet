@@ -213,10 +213,10 @@ public class WorkflowConditionEvaluator {
     return getBatchForParent(parentJob)
         .map(
             batch -> {
-              if (batch.getTotalItems() == 0) {
-                return false;
-              }
-              double actualSuccessRate = batch.getCompletedItems() / (double) batch.getTotalItems();
+              double actualSuccessRate =
+                  batch.getTotalItems() == 0
+                      ? 1.0
+                      : batch.getCompletedItems() / (double) batch.getTotalItems();
               try {
                 double requiredRate = Double.parseDouble(condition.getConditionExpression());
                 return actualSuccessRate >= requiredRate;

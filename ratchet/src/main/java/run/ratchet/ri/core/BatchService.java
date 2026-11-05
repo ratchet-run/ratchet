@@ -228,6 +228,16 @@ public class BatchService {
     return recovered;
   }
 
+  /**
+   * Completes an empty batch during submission, joining the caller's transaction so the newly
+   * inserted parent, batch, and workflow branches are visible. Events publish after commit.
+   *
+   * @return whether completion made workflow work available
+   */
+  public boolean completeEmptyBatch(UUID parentId, BatchEntity batch) {
+    return processBatchCompletion(parentId, batch);
+  }
+
   public boolean recoverCompletedBatch(UUID batchId, BatchEntity batch, JobEntity parent) {
     JobStatus before = parent.getStatus();
     boolean scheduledNext = processBatchCompletion(batchId, batch, parent);
@@ -347,6 +357,10 @@ public class BatchService {
             .findBatchMetrics(parentId)
             .map(BatchMetricsEntity::getTotalDurationMs)
             .orElse(null);
+    // Empty batches have no child execution to initialize batch metrics.
+    if (totalDurationMs == null && batch.getTotalItems() == 0) {
+      totalDurationMs = 0L;
+    }
     if (totalDurationMs != null) {
       metricsCollector.jobCompleted(parentId, parent.getPublicJobType(), totalDurationMs);
     }

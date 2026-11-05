@@ -18,6 +18,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -45,10 +46,8 @@ import run.ratchet.spi.JobInvocation;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
@@ -57,8 +56,6 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 @ExtendWith(MockitoExtension.class)
 class DefaultJobCreationServiceRecurringClassPolicyTest {
 
-  @Mock private JobBatchStatusStore jobBatchStatusStore;
-  @Mock private JobTerminalStore jobTerminalStore;
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
   @Mock private BatchStore batchStore;
@@ -82,8 +79,7 @@ class DefaultJobCreationServiceRecurringClassPolicyTest {
         .thenAnswer(invocation -> invocation.<RecurringJobDefinition>getArgument(0).id());
     DefaultJobCreationService service =
         new DefaultJobCreationService(
-            jobBatchStatusStore,
-            jobTerminalStore,
+            mock(BatchService.class),
             jobCrudStore,
             jobBulkStore,
             batchStore,

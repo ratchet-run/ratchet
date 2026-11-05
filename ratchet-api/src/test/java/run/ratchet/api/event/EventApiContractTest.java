@@ -291,9 +291,13 @@ class EventApiContractTest {
                 JobType.BATCH,
                 JobPriority.NORMAL,
                 "node-a",
-                0,
+                -1,
                 0,
                 0));
+    BatchCompletedEvent emptyBatch =
+        new BatchCompletedEvent(
+            JOB_ID, "business-key", null, JobType.BATCH, JobPriority.NORMAL, "node-a", 0, 0, 0);
+    assertEquals(0, emptyBatch.getTotalItems());
     assertThrows(
         IllegalArgumentException.class,
         () ->

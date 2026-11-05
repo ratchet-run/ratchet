@@ -23,6 +23,7 @@ import run.ratchet.api.ClusterQueryService;
 import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DefaultClusterQueryService;
 import run.ratchet.ri.core.DefaultInvocationSubmissionService;
 import run.ratchet.ri.core.DefaultJobCreationService;
@@ -167,6 +168,7 @@ class RatchetSubmissionConfiguration {
   @Bean
   @ConditionalOnMissingBean
   DefaultJobCreationService defaultJobCreationService(
+      BatchService batchService,
       JobStore store,
       JobWakeupService wakeup,
       RecurringScheduler recurring,
@@ -183,8 +185,7 @@ class RatchetSubmissionConfiguration {
       AfterCommitRegistrar registrar,
       ErrorSanitizer errorSanitizer) {
     return new DefaultJobCreationService(
-        store,
-        store,
+        batchService,
         store,
         store,
         store.capability(BatchStore.class).orElse(null),

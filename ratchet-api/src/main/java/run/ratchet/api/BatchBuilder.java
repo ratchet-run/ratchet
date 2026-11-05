@@ -53,7 +53,10 @@ public interface BatchBuilder {
   /**
    * Enqueues one child job per item in the collection, each processed by {@code action}.
    *
-   * <p>The items collection must not be null. An empty collection creates an empty batch.
+   * <p>The items collection must not be null. An empty collection creates an empty batch that
+   * completes as succeeded when submitted. Its workflow branches are routed as for a batch with a
+   * 100% success rate and zero failures. Routing is exclusive: the first matching branch runs, and
+   * every other branch is canceled.
    *
    * @param <T> item payload type
    * @param items the items to process
