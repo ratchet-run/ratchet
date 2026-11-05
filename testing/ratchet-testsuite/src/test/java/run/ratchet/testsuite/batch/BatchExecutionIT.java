@@ -71,6 +71,31 @@ class BatchExecutionIT extends BaseRatchetIT {
   }
 
   @Test
+  void duplicateIdempotencyKeyReturnsOriginalAndRunsChildrenOnce() {
+    String key = UUID.randomUUID().toString();
+    List<String> items = List.of("idempotent-a", "idempotent-b", "idempotent-c");
+    JobHandle original =
+        jobService
+            .enqueueBatch("idempotent-batch")
+            .withIdempotencyKey(key)
+            .forEach(items, BatchItemProcessor::process)
+            .submit();
+
+    JobAssertions.assertBatchSucceeded(jobCrudStore, original, Duration.ofSeconds(30));
+
+    JobHandle duplicate =
+        jobService
+            .enqueueBatch("idempotent-batch-retry")
+            .withIdempotencyKey(key)
+            .forEach(items, BatchItemProcessor::process)
+            .submit();
+
+    assertEquals(original.id(), duplicate.id());
+    assertEquals(Set.copyOf(items), BatchItemProcessor.processedItems());
+    assertEquals(items.size(), BatchItemProcessor.executionCount());
+  }
+
+  @Test
   void enqueueBatch_shouldProcessAllItems() {
     List<String> items = List.of("a", "b", "c");
 

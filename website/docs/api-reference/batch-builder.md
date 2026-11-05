@@ -17,6 +17,27 @@ Builders for processing collections of items as coordinated batch jobs. Ratchet 
 
 Obtained from [`JobSchedulerService.enqueueBatch()`](./job-scheduler-service#enqueuebatch).
 
+### withIdempotencyKey
+
+```java
+BatchBuilder withIdempotencyKey(String key)
+```
+
+Sets the batch parent's idempotency key. The key is trimmed and must be at most 36 characters. A longer trimmed key throws `IllegalArgumentException` from this method. Null or blank keeps the generated key.
+
+A later `submit()` with the same key returns the original handle and writes no parent, children, progress hook or branches. This also works after job history is purged. Single jobs and batches share the key namespace. Children and branch jobs keep generated keys.
+
+If two submissions race on the same key, the loser may throw. Retry in a new transaction to get the original handle. Execution remains at least once.
+
+**Returns:** the `BatchBuilder` for chaining.
+
+```java
+scheduler.enqueueBatch("Import Users")
+    .withIdempotencyKey("users-import-2026-11-03")
+    .forEach(users, user -> userService.importUser(user))
+    .submit();
+```
+
 ### forEach
 
 ```java
@@ -326,7 +347,17 @@ StreamingBatchBuilder<T> withCallbackOptions(JobOptions options)
 StreamingBatchBuilder<T> withResource(String resourceName)
 ```
 
-The invocation-typed mirrors expose the same methods and persist the same child retry options and resource name.
+The invocation-typed mirrors expose the same methods and persist the same child retry options and resource name. Both also expose `withIdempotencyKey(String key)` with the same parent-key semantics.
+
+### withIdempotencyKey {#streaming-withidempotencykey}
+
+```java
+StreamingBatchBuilder<T> withIdempotencyKey(String key)
+```
+
+Uses the same key validation, shared namespace and deduplication rules as [`BatchBuilder.withIdempotencyKey`](#withidempotencykey). A duplicate `start()` returns the original handle and closes the stream without reading it. No parent, children, progress hook or branches are written.
+
+**Returns:** the `StreamingBatchBuilder<T>` for chaining.
 
 ### fromStream
 

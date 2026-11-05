@@ -31,6 +31,26 @@ import run.ratchet.api.exception.PayloadTooLargeException;
 public interface BatchBuilder {
 
   /**
+   * Sets the idempotency key of the batch parent to deduplicate batch submissions.
+   *
+   * <p>The key is trimmed and must be at most 36 characters. Null or blank keeps the generated key.
+   * Children and branch jobs keep generated keys. The key namespace is shared with single jobs.
+   *
+   * <p>A later submission with the same key returns the handle of the job that holds the key, which
+   * is a single job if one used it first, and writes no parent, children, progress hook or
+   * branches.
+   *
+   * <p>If two submissions race on the same key, the loser's {@link #submit()} may throw. A retry in
+   * a new transaction returns the original handle, even after job history is purged. Task execution
+   * remains at least once.
+   *
+   * @param key if null or blank, the auto-generated UUID is kept
+   * @return this builder
+   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters
+   */
+  BatchBuilder withIdempotencyKey(String key);
+
+  /**
    * Enqueues one child job per item in the collection, each processed by {@code action}.
    *
    * <p>The items collection must not be null. An empty collection creates an empty batch.

@@ -42,6 +42,12 @@ final class DefaultInvocationStreamingBatchBuilder<T extends Serializable>
   }
 
   @Override
+  public InvocationStreamingBatchBuilder<T> withIdempotencyKey(String key) {
+    state.withIdempotencyKey(key);
+    return this;
+  }
+
+  @Override
   public InvocationStreamingBatchBuilder<T> fromStream(Stream<T> stream) {
     state.fromStream(stream);
     return this;

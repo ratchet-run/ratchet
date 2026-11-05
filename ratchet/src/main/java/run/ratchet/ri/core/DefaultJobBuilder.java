@@ -39,6 +39,7 @@ import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.internal.BusinessKeyNormalizer;
+import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.api.internal.JobBuilderState;
 
 /** Default {@link JobBuilder} implementation. */
@@ -158,13 +159,9 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
 
   @Override
   public JobBuilder withIdempotencyKey(String key) {
-    if (key != null && !key.isBlank()) {
-      String trimmed = key.trim();
-      if (trimmed.length() > 36) {
-        throw new IllegalArgumentException(
-            "Idempotency key must be at most 36 characters, got " + trimmed.length());
-      }
-      this.idempotencyKey = trimmed;
+    String normalized = IdempotencyKeyNormalizer.normalize(key);
+    if (normalized != null) {
+      this.idempotencyKey = normalized;
     }
     // If null/blank, keep the auto-generated UUID
     return this;

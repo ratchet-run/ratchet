@@ -39,6 +39,26 @@ import run.ratchet.api.WorkflowCondition;
 @Incubating
 public interface InvocationStreamingBatchBuilder<T extends Serializable> {
 
+  /**
+   * Sets the idempotency key of the batch parent to deduplicate batch submissions.
+   *
+   * <p>The key is trimmed and must be at most 36 characters. Null or blank keeps the generated key.
+   * Children and branch jobs keep generated keys. The key namespace is shared with single jobs.
+   *
+   * <p>A later submission with the same key returns the handle of the job that holds the key, which
+   * is a single job if one used it first, and writes no parent, children, progress hook or
+   * branches. The stream is closed without being read.
+   *
+   * <p>If two submissions race on the same key, the loser's {@link #start()} may throw. A retry in
+   * a new transaction returns the original handle, even after job history is purged. Task execution
+   * remains at least once.
+   *
+   * @param key if null or blank, the auto-generated UUID is kept
+   * @return this builder
+   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters
+   */
+  InvocationStreamingBatchBuilder<T> withIdempotencyKey(String key);
+
   /** Supplies the item stream; consumed once at {@link #start()}. */
   InvocationStreamingBatchBuilder<T> fromStream(Stream<T> stream);
 
@@ -125,6 +145,8 @@ public interface InvocationStreamingBatchBuilder<T extends Serializable> {
 
   /**
    * Consumes the stream, persisting children chunk by chunk through the standard creation path.
+   *
+   * <p>The stream is closed before this method returns or throws.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    */

@@ -37,6 +37,27 @@ A batch consists of a **parent job** (BATCH_PARENT) and many **child jobs** (BAT
   </div>
 </div>
 
+## Deduplicating Batch Submissions
+
+Use a stable key when retrying a batch submission:
+
+```java
+JobHandle handle = scheduler.enqueueBatch("Import Users")
+    .withIdempotencyKey("users-import-2026-11-03")
+    .forEach(users, user -> userService.importUser(user))
+    .submit();
+```
+
+The key belongs to the batch parent. A later submission with the same key returns the original handle. It writes no parent, children, progress hook or branches, even after job history is purged. Children and branch jobs keep generated keys. Single jobs and batches share the key namespace.
+
+Keys are trimmed. A key longer than 36 characters after trimming throws `IllegalArgumentException` from `withIdempotencyKey`. Null, or a key that is empty after trimming, keeps the generated key.
+
+Streaming batches support the same method before `start()`. On a duplicate, the stream is closed without being read. `start()` closes the stream whether it returns or throws. Both invocation builders support it too.
+
+If two submissions race on the same key, the loser may throw. Retry in a new transaction to get the original handle. Execution remains at least once.
+
+With the MongoDB store, the writes of a submission do not join the caller's transaction. If `submit()` or `start()` throws after the parent was written, the parent and its key stay. A retry with the same key then returns that parent's handle and writes nothing, so a batch that was only partly written stays that way. A single job keeps its key the same way when its tags, chain steps or branches fail to save.
+
 ## BatchBuilder -- In-Memory Collections
 
 Use `BatchBuilder` when the entire collection fits in memory:
@@ -142,6 +163,7 @@ scheduler.enqueueBatch("Data Migration")
 | Method | Description |
 |--------|-------------|
 | `forEach(items, action)` | Process each item in the collection |
+| `withIdempotencyKey(key)` | Deduplicate submissions using the batch parent key |
 | `withMaxRetries(retries)` | Set child retry attempts (default: 0) |
 | `withBackoff(policy, delay)` | Set the child retry backoff policy |
 | `withTimeout(duration)` | Set the child execution timeout (default: global default SLA) |
@@ -226,6 +248,7 @@ scheduler.<Record>streamingBatch("ETL Pipeline")
 | `fromStream(stream)` | Set the input stream |
 | `process(action)` | Define per-item processing logic |
 | `withChunkSize(size)` | Items per bulk insert (default: 100) |
+| `withIdempotencyKey(key)` | Deduplicate submissions using the batch parent key |
 | `withMaxRetries(retries)` | Set child retry attempts (default: 0) |
 | `withBackoff(policy, delay)` | Set the child retry backoff policy |
 | `withTimeout(duration)` | Set the child execution timeout (default: global default SLA) |
