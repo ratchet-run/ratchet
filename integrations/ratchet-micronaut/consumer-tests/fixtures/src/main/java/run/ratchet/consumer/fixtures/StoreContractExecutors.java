@@ -29,6 +29,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.ExecutorProvider;
 
 /** Store-only contracts boot the real integration without racing its background timers. */
@@ -42,8 +43,15 @@ public class StoreContractExecutors {
   }
 
   public static final class DormantExecutors implements ExecutorProvider, AutoCloseable {
-    private final ExecutorService workers = Executors.newCachedThreadPool();
-    private final ScheduledExecutorService timers = new DormantTimers();
+    private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+
+    @Override
+    public void initializeApplicationClassLoader(ClassLoader loader) {
+      classLoader.initialize(loader);
+    }
+
+    private final ExecutorService workers = classLoader.wrap(Executors.newCachedThreadPool());
+    private final ScheduledExecutorService timers = classLoader.wrap(new DormantTimers());
 
     public ExecutorService getJobExecutor() {
       return workers;

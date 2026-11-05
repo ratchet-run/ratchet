@@ -74,6 +74,7 @@ import run.ratchet.api.Recurring;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
+import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.InvocationSubmissionService;
 import run.ratchet.spi.JobInvocation;
@@ -803,8 +804,16 @@ class SqlLifecycleTest {
   }
 
   public static class ApplicationExecutors implements ExecutorProvider {
-    final ExecutorService workers = Executors.newCachedThreadPool();
-    final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+
+    @Override
+    public void initializeApplicationClassLoader(ClassLoader loader) {
+      classLoader.initialize(loader);
+    }
+
+    final ExecutorService workers = classLoader.wrap(Executors.newCachedThreadPool());
+    final ScheduledExecutorService scheduler =
+        classLoader.wrap(Executors.newScheduledThreadPool(2));
 
     @Override
     public ExecutorService getJobExecutor() {
@@ -830,6 +839,9 @@ class SqlLifecycleTest {
     @Bean
     ExecutorProvider brokenExecutorProvider() {
       return new ExecutorProvider() {
+        @Override
+        public void initializeApplicationClassLoader(ClassLoader loader) {}
+
         @Override
         public ExecutorService getJobExecutor() {
           throw new IllegalStateException("intentional executor unavailable");

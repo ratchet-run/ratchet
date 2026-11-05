@@ -17,6 +17,8 @@ package run.ratchet.ri.security;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -152,6 +154,22 @@ class JobSecurityValidatorTest {
         before,
         CLINIT_COUNTER.get(),
         "<clinit> must not fire when an allowed class fails method visibility validation");
+  }
+
+  @Test
+  void validatesWithExecutionLoaderRatherThanBeanConstructionLoader() throws Exception {
+    ClassLoader application = Thread.currentThread().getContextClassLoader();
+    try (URLClassLoader foreign = new URLClassLoader(new URL[0], null)) {
+      Thread.currentThread().setContextClassLoader(foreign);
+      JobSecurityValidator validator;
+      try {
+        validator = validatorAllowing(THIS_PACKAGE);
+      } finally {
+        Thread.currentThread().setContextClassLoader(application);
+      }
+      validator.validate(
+          new JobPayload(SampleTarget.class.getName(), "doWork", "()V", false, List.of(), null));
+    }
   }
 
   private JobSecurityValidator validatorAllowing(String... prefixes) {

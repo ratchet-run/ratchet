@@ -23,8 +23,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -32,6 +35,7 @@ import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import run.ratchet.spi.AfterCommitRegistrar;
 import run.ratchet.spi.AfterCommitRegistrar.Result;
 
@@ -106,6 +110,36 @@ class AfterCommitActionsTest {
             () -> AfterCommitActions.runOrFail(registrar, "test event", action)));
 
     verify(action, times(0)).run();
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void transactionCompletionOnForeignThreadUsesRegisteringLoader(boolean warn) throws Exception {
+    ClassLoader previous = Thread.currentThread().getContextClassLoader();
+    try (URLClassLoader application = new URLClassLoader(new URL[0], previous);
+        URLClassLoader foreign = new URLClassLoader(new URL[0], null)) {
+      AtomicReference<Runnable> registered = new AtomicReference<>();
+      AtomicReference<ClassLoader> observed = new AtomicReference<>();
+      AfterCommitRegistrar registrar =
+          action -> {
+            registered.set(action);
+            return Result.REGISTERED;
+          };
+      Thread.currentThread().setContextClassLoader(application);
+      Runnable action =
+          () -> {
+            observed.set(Thread.currentThread().getContextClassLoader());
+            throw new IllegalStateException("completion callback failed");
+          };
+      if (warn) AfterCommitActions.runOrWarn(registrar, "batch completion", action);
+      else AfterCommitActions.runOrFail(registrar, "workflow completion", action);
+      Thread.currentThread().setContextClassLoader(foreign);
+      assertThrows(IllegalStateException.class, registered.get()::run);
+      assertSame(foreign, Thread.currentThread().getContextClassLoader());
+      assertSame(application, observed.get());
+    } finally {
+      Thread.currentThread().setContextClassLoader(previous);
+    }
   }
 
   private static final class LogCapture implements AutoCloseable {

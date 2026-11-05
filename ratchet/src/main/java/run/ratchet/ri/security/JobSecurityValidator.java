@@ -37,25 +37,15 @@ public class JobSecurityValidator {
   private static final Logger log = Logger.getLogger(JobSecurityValidator.class);
 
   private final ClassPolicy classPolicy;
-  private final ClassLoader applicationClassLoader;
 
   // CDI proxy
   protected JobSecurityValidator() {
     this.classPolicy = null;
-    this.applicationClassLoader = null;
   }
 
   @Inject
   public JobSecurityValidator(ClassPolicy classPolicy) {
-    this(classPolicy, Thread.currentThread().getContextClassLoader());
-  }
-
-  JobSecurityValidator(ClassPolicy classPolicy, ClassLoader applicationClassLoader) {
     this.classPolicy = classPolicy;
-    this.applicationClassLoader =
-        applicationClassLoader != null
-            ? applicationClassLoader
-            : JobSecurityValidator.class.getClassLoader();
   }
 
   /**
@@ -78,7 +68,12 @@ public class JobSecurityValidator {
 
     Class<?> clazz;
     try {
-      clazz = Class.forName(targetClass, false, applicationClassLoader);
+      ClassLoader loader = Thread.currentThread().getContextClassLoader();
+      clazz =
+          Class.forName(
+              targetClass,
+              false,
+              loader != null ? loader : JobSecurityValidator.class.getClassLoader());
     } catch (ClassNotFoundException e) {
       log.errorf(e, "Cannot load class %s for job execution", targetClass);
       throw new SecurityException(
