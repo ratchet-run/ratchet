@@ -40,6 +40,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
@@ -59,6 +60,91 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
   @AfterEach
   void cleanupClaimFixture() {
     cleanupStore();
+  }
+
+  @Test
+  void currentClaimReadsPendingAndMissingJobs() {
+    var job = persist(newPendingJob());
+    assertEquals(
+        new ClaimState(JobStatus.PENDING, 0), store().currentClaim(job.getId()).orElseThrow());
+    assertTrue(store().currentClaim(UUID.randomUUID()).isEmpty());
+  }
+
+  @Test
+  void currentClaimReadsRunningAndReleaseWithoutAdvancingSequence() {
+    UUID id = persist(newPendingJob()).getId();
+    var claim = store().claimNextBatch(1, "node-1").get(0);
+    long seq = claim.getClaimSeq();
+    assertTrue(seq >= 1);
+    assertEquals(new ClaimState(JobStatus.RUNNING, seq), store().currentClaim(id).orElseThrow());
+    assertTrue(store().resetRunningJob(id, "node-1", seq));
+    assertEquals(new ClaimState(JobStatus.PENDING, seq), store().currentClaim(id).orElseThrow());
+    store().claimNextBatch(1, "node-1");
+    assertTrue(store().currentClaim(id).orElseThrow().claimSeq() > seq);
+  }
+
+  @Test
+  void currentClaimReadsWaitingJob() {
+    var waiting = newPendingJob();
+    waiting.setStatus(JobStatus.WAITING);
+    waiting.setSignalKey("current-claim-waiting");
+    waiting.setSignalTimeout(Instant.now().plusSeconds(600));
+    var saved = persist(waiting);
+    assertEquals(
+        new ClaimState(JobStatus.WAITING, 0), store().currentClaim(saved.getId()).orElseThrow());
+  }
+
+  @Test
+  void currentClaimIsEmptyForTerminalJobs() {
+    UUID succeeded = persist(newPendingJob()).getId();
+    store().claimNextBatch(1, "node-1");
+    assertTrue(
+        store().markJobSucceededMinimal(succeeded, Instant.now(), Instant.now(), 0L, 0L),
+        "markJobSucceededMinimal precondition");
+    assertTrue(store().currentClaim(succeeded).isEmpty(), "SUCCEEDED");
+
+    UUID canceled = persist(newPendingJob()).getId();
+    store().claimNextBatch(1, "node-1");
+    assertTrue(
+        store().compareAndSwapStatus(canceled, JobStatus.RUNNING, JobStatus.CANCELED, null),
+        "cancel precondition");
+    assertTrue(store().currentClaim(canceled).isEmpty(), "CANCELED");
+
+    UUID failed = persist(newPendingJob()).getId();
+    store().claimNextBatch(1, "node-1");
+    assertTrue(
+        store().markJobFailedTerminal(failed, "boom", 1, null),
+        "markJobFailedTerminal precondition");
+    assertTrue(store().currentClaim(failed).isEmpty(), "FAILED");
+  }
+
+  @Test
+  void currentClaimAdvancesAfterFailedReset() {
+    UUID id = persist(newPendingJob()).getId();
+    store().claimNextBatch(1, "node-1");
+    long first = store().currentClaim(id).orElseThrow().claimSeq();
+    assertTrue(store().compareAndSwapStatus(id, JobStatus.RUNNING, JobStatus.FAILED, "boom"));
+    assertTrue(store().currentClaim(id).isEmpty());
+    assertTrue(store().resetFailedToPending(id));
+    store().claimNextBatch(1, "node-1");
+    assertTrue(store().currentClaim(id).orElseThrow().claimSeq() > first);
+  }
+
+  @Test
+  void savingLowerSequencePreservesCurrentClaim() {
+    var saved = persist(newPendingJob());
+    var stale = store().findById(saved.getId()).orElseThrow();
+    store().claimNextBatch(1, "node-1");
+    ClaimState before = store().currentClaim(saved.getId()).orElseThrow();
+    var current = store().findById(saved.getId()).orElseThrow();
+    stale.setVersion(current.getVersion());
+    stale.setStatus(JobStatus.RUNNING);
+    stale.setPickedBy(current.getPickedBy());
+    stale.setPickedAt(current.getPickedAt());
+    stale.setExecutionStartTime(current.getExecutionStartTime());
+    stale.setClaimSeq(0L);
+    store().save(stale);
+    assertEquals(before, store().currentClaim(saved.getId()).orElseThrow());
   }
 
   @Test

@@ -15,7 +15,9 @@
  */
 package run.ratchet.ri.cdi.internal;
 
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -46,6 +48,7 @@ import run.ratchet.spi.NodeIdentityProvider;
  * recurring scheduler.
  */
 class DefaultRatchetLifecycleDeferredStartTest {
+  private final ExecutorProvider executors = executorProviderWithScheduler();
 
   @AfterEach
   void clearDeferFlag() {
@@ -91,6 +94,30 @@ class DefaultRatchetLifecycleDeferredStartTest {
     verify(poller).init();
   }
 
+  @Test
+  void deferredStartupCapturesEventThreadLoaderBeforeWorkersAndOnlyOnce() {
+    System.setProperty(RatchetRuntimeStart.DEFER_PROPERTY, "true");
+    ClassLoader previous = Thread.currentThread().getContextClassLoader();
+    ClassLoader application = new ClassLoader(previous) {};
+    Poller poller = mock(Poller.class);
+    DefaultRatchetLifecycle lifecycle = newLifecycle(poller, mock(RecurringScheduler.class));
+    lifecycle.onStartup(new Object());
+    verifyNoInteractions(executors);
+    Thread.currentThread().setContextClassLoader(application);
+    try {
+      lifecycle.onRuntimeStart(new RatchetRuntimeStart());
+      Thread.currentThread().setContextClassLoader(previous);
+      lifecycle.start();
+      var order = inOrder(executors, poller);
+      order.verify(executors).initializeApplicationClassLoader(application);
+      order.verify(poller).init();
+      verify(executors, times(1)).initializeApplicationClassLoader(application);
+    } finally {
+      Thread.currentThread().setContextClassLoader(previous);
+      lifecycle.onShutdown();
+    }
+  }
+
   private DefaultRatchetLifecycle newLifecycle(
       Poller poller, RecurringScheduler recurringScheduler) {
     return new DefaultRatchetLifecycle(
@@ -102,7 +129,7 @@ class DefaultRatchetLifecycleDeferredStartTest {
         mock(JobArchivingService.class),
         mock(LogPurgeTimer.class),
         mock(PollerWakeupListener.class),
-        executorProviderWithScheduler(),
+        executors,
         mock(NodeIdentityProvider.class),
         mock(DrainController.class),
         quietOptions(),

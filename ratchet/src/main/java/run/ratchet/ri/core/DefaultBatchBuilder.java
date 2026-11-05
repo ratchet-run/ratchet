@@ -33,6 +33,7 @@ import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.internal.IdempotencyKeyNormalizer;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.JobInvocation;
@@ -58,6 +59,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   private JobOptions callbackOptions = JobOptions.defaults();
   private SerializableConsumer<BatchContext> progressHook;
   private String executionTarget;
+  private String idempotencyKey;
   private String childResourceName;
 
   DefaultBatchBuilder(String name, BatchSubmitter submitter) {
@@ -69,6 +71,16 @@ public class DefaultBatchBuilder implements BatchBuilder {
     this.name = name;
     this.submitter = submitter;
     this.jobInvocationResolver = jobInvocationResolver;
+  }
+
+  @Override
+  public BatchBuilder withIdempotencyKey(String key) {
+    this.idempotencyKey = IdempotencyKeyNormalizer.normalize(key);
+    return this;
+  }
+
+  String idempotencyKey() {
+    return idempotencyKey;
   }
 
   @Override

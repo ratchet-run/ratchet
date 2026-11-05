@@ -24,6 +24,7 @@ import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.util.SqlIdempotencyKeys;
 
 final class PostgresqlJobReadOperations {
@@ -70,6 +71,26 @@ final class PostgresqlJobReadOperations {
 
   Optional<JobEntity> findByIdLatest(UUID id) {
     return findById(id);
+  }
+
+  @SuppressWarnings("unchecked")
+  Optional<ClaimState> currentClaim(UUID jobId) {
+    try {
+      // language=PostgreSQL
+      String sql =
+          """
+          SELECT status, claim_seq FROM scheduler_job_queue WHERE job_id = ?
+          """;
+      List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, jobId).getResultList();
+      if (rows.isEmpty()) {
+        return Optional.empty();
+      }
+      Object[] row = rows.get(0);
+      return Optional.of(
+          new ClaimState(JobStatus.valueOf((String) row[0]), ((Number) row[1]).longValue()));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("read current claim", e);
+    }
   }
 
   @SuppressWarnings("unchecked")

@@ -43,7 +43,7 @@ import run.ratchet.api.exception.KeyNotFoundException;
 import run.ratchet.api.exception.PayloadDecryptionException;
 import run.ratchet.api.exception.SignalOutcomeHydrationException;
 import run.ratchet.api.exception.UnsupportedEnvelopeVersionException;
-import run.ratchet.api.internal.AttemptTokens;
+import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.ri.core.DefaultJobSchedulerService;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.internal.JobPayloadInvoker.ResilienceTarget;
@@ -267,7 +267,9 @@ public class JobTask implements Callable<Void> {
         deserializedSignalPayload,
         attempt != null ? attempt.deadline() : null,
         attempt != null ? attempt::isCancellationRequested : () -> false,
-        attempt != null ? attempt.attemptToken() : null);
+        attempt != null ? attempt.cancellationIdentity() : null,
+        attempt != null ? attempt.token().orElse(null) : null,
+        attempt != null ? () -> attempt.isCurrent(jobStore) : () -> false);
 
     // The JobContext/MDC bound above must be cleared on every exit. Open the clearing try right
     // after the bind so a throw from the startup observability calls (metrics, execution recording)
@@ -421,7 +423,15 @@ public class JobTask implements Callable<Void> {
     return claim != null ? claim.claimSeq() : job.getClaimSeq();
   }
 
+  /** Records that this attempt no longer owns its claim, so isCurrentAttempt answers false. */
+  private void markAttemptSuperseded() {
+    if (attempt != null) {
+      attempt.markSuperseded();
+    }
+  }
+
   private void warnRejectedOwnerWrite() {
+    markAttemptSuperseded();
     log.warnf(
         "Rejected owner write for job %s, stale claimSeq %s, node %s",
         getJobId(), expectedClaimSeq(), nodeIdProvider.getNodeId());
@@ -484,6 +494,7 @@ public class JobTask implements Callable<Void> {
     JobEntity poisonedJob = poisonedJobSnapshot(jobId);
     try {
       if (!lifecycleFacade.moveToDlqAndHandlePermanentFailure(poisonedJob, ex)) {
+        markAttemptSuperseded();
         log.infof("Job %s already left RUNNING while poison handling was in progress", jobId);
       }
     } catch (Throwable t) {
@@ -617,6 +628,8 @@ public class JobTask implements Callable<Void> {
         if (lifecycleFacade.completeFailure(job, JobStatus.RUNNING, false)) {
           job.setStatus(JobStatus.FAILED);
           failed = true;
+        } else {
+          markAttemptSuperseded();
         }
       } catch (Throwable lastResort) {
         log.errorf(
@@ -803,7 +816,7 @@ public class JobTask implements Callable<Void> {
         attempt != null
             && timeoutHandler != null
             && attempt.isCancellationRequested()
-            && hasRequestedCancellationCause(ex, attempt.attemptToken());
+            && hasRequestedCancellationCause(ex, attempt.cancellationIdentity());
     if (!cooperativeStop) {
       log.errorf(
           ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
@@ -908,11 +921,11 @@ public class JobTask implements Callable<Void> {
    * before the request, or kept from an earlier attempt and rethrown in this one, is an ordinary
    * failure.
    */
-  private static boolean hasRequestedCancellationCause(Throwable ex, Object attemptToken) {
+  private static boolean hasRequestedCancellationCause(Throwable ex, Object cancellationIdentity) {
     Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
     for (int depth = 0; ex != null && depth < 256 && seen.add(ex); depth++, ex = ex.getCause()) {
       if (ex instanceof CancellationRequestedException cancellation
-          && AttemptTokens.isCooperativeStop(cancellation, attemptToken)) {
+          && CancellationIdentities.isCooperativeStop(cancellation, cancellationIdentity)) {
         return true;
       }
     }
@@ -958,6 +971,7 @@ public class JobTask implements Callable<Void> {
         successFinalizer.finalizeSuccess(
             job, resultJson, resultType, start, endTime, executionMs, queueMs);
     if (finalizationState == JobSuccessFinalizer.Outcome.TERMINAL_SKIPPED) {
+      markAttemptSuperseded();
       log.infof("Job %s already in terminal state, skipping success handling", job.getId());
       saveDeferredExecutionFailure(null, JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE);
       return;
@@ -1039,6 +1053,7 @@ public class JobTask implements Callable<Void> {
       callbackInvoker.invokeOnFailure(job, ex);
       return true;
     }
+    markAttemptSuperseded();
     return false;
   }
 

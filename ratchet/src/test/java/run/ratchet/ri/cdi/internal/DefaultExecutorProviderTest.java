@@ -15,7 +15,9 @@
  */
 package run.ratchet.ri.cdi.internal;
 
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,8 +45,12 @@ class DefaultExecutorProviderTest {
 
     verify(context).lookup(DefaultExecutorProvider.JOB_EXECUTOR_JNDI);
     verify(context).lookup(DefaultExecutorProvider.SCHEDULED_EXECUTOR_JNDI);
-    assertSame(jobExecutor, provider.getJobExecutor());
-    assertSame(scheduledExecutor, provider.getScheduledExecutor());
+    assertNotSame(jobExecutor, provider.getJobExecutor());
+    assertNotSame(scheduledExecutor, provider.getScheduledExecutor());
+    assertSame(provider.getJobExecutor(), provider.getJobExecutor());
+    assertSame(provider.getScheduledExecutor(), provider.getScheduledExecutor());
+    provider.getJobExecutor().execute(() -> {});
+    verify(jobExecutor).execute(any(Runnable.class));
   }
 
   @Test
@@ -69,8 +75,12 @@ class DefaultExecutorProviderTest {
 
     verify(context).lookup(jobName);
     verify(context).lookup(scheduledName);
-    assertSame(jobExecutor, provider.getJobExecutor());
-    assertSame(scheduledExecutor, provider.getScheduledExecutor());
+    assertNotSame(jobExecutor, provider.getJobExecutor());
+    assertNotSame(scheduledExecutor, provider.getScheduledExecutor());
+    assertSame(provider.getJobExecutor(), provider.getJobExecutor());
+    assertSame(provider.getScheduledExecutor(), provider.getScheduledExecutor());
+    provider.getJobExecutor().execute(() -> {});
+    verify(jobExecutor).execute(any(Runnable.class));
   }
 
   private static final class TestExecutorProvider extends DefaultExecutorProvider {

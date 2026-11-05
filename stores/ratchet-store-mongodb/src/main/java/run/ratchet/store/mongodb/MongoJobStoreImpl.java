@@ -58,6 +58,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7EntityListener;
 import run.ratchet.store.spi.ArchivedRecurringJob;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RecurringClaim;
@@ -177,6 +178,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public void delete(UUID id) {
     crud.delete(id);
+  }
+
+  @Override
+  public Optional<ClaimState> currentClaim(UUID jobId) {
+    return crud.currentClaim(jobId);
   }
 
   @Override

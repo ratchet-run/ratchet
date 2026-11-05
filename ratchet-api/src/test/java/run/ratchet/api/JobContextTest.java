@@ -32,9 +32,75 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.CancellationRequestedException;
-import run.ratchet.api.internal.AttemptTokens;
+import run.ratchet.api.internal.CancellationIdentities;
 
 class JobContextTest {
+
+  @Test
+  void shortAndLegacyBindsHaveNoAttempt() {
+    UUID id = UUID.randomUUID();
+    for (JobContext ctx :
+        new JobContext[] {
+          JobContext.bind(id, null),
+          JobContext.bind(id, null, Map.of()),
+          JobContext.bind(id, null, Map.of(), "payload"),
+          JobContext.bind(id, null, Map.of(), null, null),
+          JobContext.bind(id, null, Map.of(), null, null, null, () -> true, new Object())
+        }) {
+      assertTrue(ctx.attemptToken().isEmpty());
+      assertFalse(ctx.isCurrentAttempt());
+    }
+    JobContext ctx =
+        JobContext.bind(
+            id,
+            null,
+            Map.of(),
+            null,
+            null,
+            null,
+            () -> false,
+            null,
+            null,
+            () -> {
+              throw new AssertionError("No attempt must not call supplier");
+            });
+    assertFalse(ctx.isCurrentAttempt());
+  }
+
+  @Test
+  void attemptBindsExposeTokenAndConsultSupplier() {
+    UUID id = UUID.randomUUID();
+    AttemptToken token = new AttemptToken(id, 7);
+    AtomicBoolean current = new AtomicBoolean(true);
+    JobContext ctx = JobContext.bindAttempt(id, null, Map.of(), token, current::get);
+    assertEquals(Optional.of(token), ctx.attemptToken());
+    assertTrue(ctx.isCurrentAttempt());
+    current.set(false);
+    assertFalse(ctx.isCurrentAttempt());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> JobContext.bindAttempt(UUID.randomUUID(), null, Map.of(), token, current::get));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            JobContext.bind(
+                UUID.randomUUID(),
+                null,
+                Map.of(),
+                null,
+                null,
+                null,
+                () -> false,
+                null,
+                token,
+                current::get));
+    assertThrows(
+        NullPointerException.class, () -> JobContext.bindAttempt(id, null, Map.of(), token, null));
+    ctx =
+        JobContext.bind(
+            id, null, Map.of(), null, null, null, () -> false, new Object(), token, current::get);
+    assertEquals(Optional.of(token), ctx.attemptToken());
+  }
 
   @Test
   void legacyContextHasNoDeadlineOrCancellation() {
@@ -154,14 +220,14 @@ class JobContextTest {
         CancellationRequestedException.forContext("stop", contextA);
     JobContext.clear();
 
-    assertTrue(AttemptTokens.isCooperativeStop(exception, tokenA));
-    assertFalse(AttemptTokens.isCooperativeStop(exception, new Object()));
-    assertFalse(AttemptTokens.isCooperativeStop(exception, null));
+    assertTrue(CancellationIdentities.isCooperativeStop(exception, tokenA));
+    assertFalse(CancellationIdentities.isCooperativeStop(exception, new Object()));
+    assertFalse(CancellationIdentities.isCooperativeStop(exception, null));
 
     JobContext unrequested =
         JobContext.bind(UUID.randomUUID(), null, Map.of(), null, null, null, () -> false, tokenA);
     assertFalse(
-        AttemptTokens.isCooperativeStop(
+        CancellationIdentities.isCooperativeStop(
             CancellationRequestedException.forContext("stop", unrequested), tokenA));
   }
 

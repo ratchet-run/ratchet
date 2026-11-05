@@ -38,6 +38,26 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 public interface StreamingBatchBuilder<T extends Serializable> {
 
   /**
+   * Sets the idempotency key of the batch parent to deduplicate batch submissions.
+   *
+   * <p>The key is trimmed and must be at most 36 characters. Null or blank keeps the generated key.
+   * Children and branch jobs keep generated keys. The key namespace is shared with single jobs.
+   *
+   * <p>A later submission with the same key returns the handle of the job that holds the key, which
+   * is a single job if one used it first, and writes no parent, children, progress hook or
+   * branches. The stream is closed without being read.
+   *
+   * <p>If two submissions race on the same key, the loser's {@link #start()} may throw. A retry in
+   * a new transaction returns the original handle, even after job history is purged. Task execution
+   * remains at least once.
+   *
+   * @param key if null or blank, the auto-generated UUID is kept
+   * @return this builder
+   * @throws IllegalArgumentException if the trimmed key is longer than 36 characters
+   */
+  StreamingBatchBuilder<T> withIdempotencyKey(String key);
+
+  /**
    * Sets the input stream of items to process. The stream item type must match this builder.
    *
    * <p>A stream with no items creates an empty batch that completes as succeeded when submitted.
@@ -186,6 +206,8 @@ public interface StreamingBatchBuilder<T extends Serializable> {
 
   /**
    * Submits the configured streaming batch for execution.
+   *
+   * <p>The stream is closed before this method returns or throws.
    *
    * @return a {@link JobHandle} for the submitted batch job; never {@code null}
    * @throws RatchetTransientStoreException if the backing store is temporarily unavailable while

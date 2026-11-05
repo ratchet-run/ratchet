@@ -16,6 +16,8 @@
 package run.ratchet.store.spi;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
@@ -25,6 +27,23 @@ import run.ratchet.store.entity.JobExecutionType;
 /** Dialect-specific job claiming operations using SKIP LOCKED and priority boosting. */
 @Incubating
 public interface JobClaimStore {
+
+  /**
+   * Returns the status and claim sequence of the job's live row. Empty when the job does not exist
+   * or has finished (SUCCEEDED, FAILED, CANCELED). Terminal jobs are empty because the stored
+   * sequence of a SUCCEEDED or CANCELED job is not kept current.
+   *
+   * <p>Reads the latest committed state outside the caller's transaction. Takes no locks and does
+   * not load, decrypt or deserialize payload, params or callbacks. Transaction attribute: {@code
+   * REQUIRES_NEW}.
+   *
+   * <p>Only a claim ({@code claimNextBatch*}) or {@code tryPickUpJob} starts a new attempt; both
+   * increase the sequence. Other writes setting RUNNING ({@code updateJobStatus}, {@code
+   * compareAndSwapStatus}, {@code save}, {@code transitionFromPaused*}) keep the sequence and
+   * continue the current claim. The runtime never uses them to start an attempt. Releases ({@code
+   * resetRunningJob(s)} and orphan resets) set PENDING and keep the sequence.
+   */
+  Optional<ClaimState> currentClaim(UUID jobId);
 
   /**
    * Claims due one-shot jobs with SKIP LOCKED semantics. Transaction attribute: {@code REQUIRED}.

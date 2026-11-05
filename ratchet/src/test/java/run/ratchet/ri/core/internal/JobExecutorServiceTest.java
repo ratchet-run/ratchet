@@ -146,6 +146,35 @@ class JobExecutorServiceTest {
   }
 
   @Test
+  void shutdownSupersedesActiveAttemptBeforeCancellation() throws Exception {
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    when(pool.getExecutor()).thenReturn(jobExecutor);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    JobEntity job = new JobEntity();
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setId(JOB_ID);
+    job.setClaimSeq(7L);
+    job.setPickedBy("node-1");
+    JobAttemptControl attempt =
+        new JobAttemptControl(JOB_ID, FIXED_NOW.plusSeconds(30), 30, FIXED_NOW, 0, 7L, "node-1");
+    when(timeoutHandler.newAttempt(JOB_ID, job.getTimeoutSec(), FIXED_NOW, 0, 7L, "node-1"))
+        .thenReturn(attempt);
+    ExecutionResult result = service.execute(job, "platform");
+    verify(timeoutHandler)
+        .scheduleTimeoutMonitoring(
+            eq(attempt), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
+    assertFalse(result.isRejected());
+    ArgumentCaptor<Runnable> queued = ArgumentCaptor.forClass(Runnable.class);
+    verify(jobExecutor).execute(queued.capture());
+    service.shutdownActiveExecutions();
+    assertTrue(attempt.isSuperseded());
+    assertTrue(result.future().isCancelled());
+    queued.getValue().run();
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
+    assertTrue(service.awaitIdle(Duration.ZERO));
+  }
+
+  @Test
   void publicExecutionRejectionReleasesPermitExactlyOnce() {
     when(poolRegistry.pool(any())).thenReturn(pool);
     when(pool.getExecutor()).thenReturn(jobExecutor);

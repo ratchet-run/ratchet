@@ -15,6 +15,8 @@
  */
 package run.ratchet.consumer.chaos;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +46,23 @@ class StaleOwnerChaosIT {
       var violations = cluster.settle(Duration.ofSeconds(90));
       RunReport.assertClean(
           "stale-owner", cluster.store(), cluster.timeline, cluster.ledger(), violations);
+      var attempts =
+          cluster.ledger().attempts().stream()
+              .filter(attempt -> attempt.jobId().equals(job))
+              .toList();
+      var stale =
+          attempts.stream()
+              .filter(attempt -> attempt.incarnation().equals(a.incarnation()))
+              .toList();
+      var current =
+          attempts.stream()
+              .filter(attempt -> attempt.incarnation().equals(b.incarnation()))
+              .toList();
+      assertEquals(1, stale.size(), "Expected one attempt from the stopped owner");
+      assertEquals(1, current.size(), "Expected one attempt from the new owner");
+      assertEquals("false", stale.get(0).currentAttempt(), "Stale owner must observe supersession");
+      assertEquals(
+          "true", current.get(0).currentAttempt(), "New owner must observe its live claim");
     }
   }
 }

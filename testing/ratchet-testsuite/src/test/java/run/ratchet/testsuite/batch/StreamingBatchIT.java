@@ -17,12 +17,15 @@ package run.ratchet.testsuite.batch;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -63,6 +66,44 @@ class StreamingBatchIT extends BaseRatchetIT {
   @BeforeEach
   void resetTrackers() {
     BatchItemProcessor.reset();
+  }
+
+  @Test
+  void duplicateIdempotencyKeyReturnsOriginalAndRunsChildrenOnce() {
+    String key = UUID.randomUUID().toString();
+    List<String> items = List.of("idempotent-s1", "idempotent-s2", "idempotent-s3");
+    JobHandle original =
+        jobService
+            .<String>streamingBatch("idempotent-stream")
+            .withIdempotencyKey(key)
+            .fromStream(items.stream())
+            .process(BatchItemProcessor::process)
+            .withChunkSize(2)
+            .start();
+
+    JobAssertions.assertBatchSucceeded(jobCrudStore, original, BATCH_COMPLETION_TIMEOUT);
+
+    AtomicBoolean closed = new AtomicBoolean();
+    Stream<String> retryStream =
+        items.stream()
+            .peek(
+                item -> {
+                  throw new AssertionError("Duplicate stream must not be read");
+                })
+            .onClose(() -> closed.set(true));
+    JobHandle duplicate =
+        jobService
+            .<String>streamingBatch("idempotent-stream-retry")
+            .withIdempotencyKey(key)
+            .fromStream(retryStream)
+            .process(BatchItemProcessor::process)
+            .withChunkSize(2)
+            .start();
+
+    assertEquals(original.id(), duplicate.id());
+    assertTrue(closed.get());
+    assertEquals(Set.copyOf(items), BatchItemProcessor.processedItems());
+    assertEquals(items.size(), BatchItemProcessor.executionCount());
   }
 
   @Test

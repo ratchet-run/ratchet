@@ -24,7 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import run.ratchet.api.exception.CancellationRequestedException;
-import run.ratchet.api.internal.AttemptTokens;
+import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.spi.JobLogger;
 
 /**
@@ -55,10 +55,12 @@ public final class JobContext {
   private static final BooleanSupplier NEVER = () -> false;
 
   static {
-    AttemptTokens.installContextReader(context -> context.attemptToken);
+    CancellationIdentities.installContextReader(context -> context.cancellationIdentity);
   }
 
-  private final @Nullable Object attemptToken;
+  private final @Nullable Object cancellationIdentity;
+  private final @Nullable AttemptToken attemptToken;
+  private final BooleanSupplier currentAttempt;
   private final @Nullable Instant deadline;
   private final BooleanSupplier cancellationRequested;
   private final UUID jobId;
@@ -86,7 +88,7 @@ public final class JobContext {
       Map<String, String> params,
       @Nullable Serializable signalPayload,
       @Nullable String callerPrincipal) {
-    this(jobId, logger, params, signalPayload, callerPrincipal, null, NEVER, null);
+    this(jobId, logger, params, signalPayload, callerPrincipal, null, NEVER, null, null, NEVER);
   }
 
   private JobContext(
@@ -97,8 +99,16 @@ public final class JobContext {
       @Nullable String callerPrincipal,
       @Nullable Instant deadline,
       BooleanSupplier cancellationRequested,
-      @Nullable Object attemptToken) {
+      @Nullable Object cancellationIdentity,
+      @Nullable AttemptToken attemptToken,
+      BooleanSupplier currentAttempt) {
+    if (attemptToken != null && !attemptToken.jobId().equals(jobId)) {
+      throw new IllegalArgumentException("Attempt token belongs to another job");
+    }
     this.attemptToken = attemptToken;
+    Objects.requireNonNull(currentAttempt);
+    this.currentAttempt = attemptToken == null ? NEVER : currentAttempt;
+    this.cancellationIdentity = cancellationIdentity;
     this.deadline = deadline;
     this.cancellationRequested = Objects.requireNonNull(cancellationRequested);
     this.jobId = jobId;
@@ -160,9 +170,10 @@ public final class JobContext {
   /**
    * Binds a context for a watched execution. The deadline is when the watchdog interrupts this
    * attempt; the supplier reads its cancellation flag, which another thread may set. Always pair
-   * with {@link #clear()} in a finally block. The token is an opaque identity of this attempt
-   * supplied by the runtime. A {@link CancellationRequestedException} records it so one kept from
-   * an earlier attempt is not taken as this attempt's stop. It is null outside watched executions.
+   * with {@link #clear()} in a finally block. The cancellation identity is an opaque identity of
+   * this attempt supplied by the runtime. A {@link CancellationRequestedException} records it so
+   * one kept from an earlier attempt is not taken as this attempt's stop. It is null outside
+   * watched executions.
    */
   public static JobContext bind(
       UUID jobId,
@@ -172,7 +183,36 @@ public final class JobContext {
       @Nullable Serializable signalPayload,
       @Nullable Instant deadline,
       BooleanSupplier cancellationRequested,
-      @Nullable Object attemptToken) {
+      @Nullable Object cancellationIdentity) {
+    return bind(
+        jobId,
+        logger,
+        params,
+        callerPrincipal,
+        signalPayload,
+        deadline,
+        cancellationRequested,
+        cancellationIdentity,
+        null,
+        NEVER);
+  }
+
+  /**
+   * Binds a context with a persisted attempt token. Called by the runtime. The cancellation
+   * identity remains an opaque identity for cooperative stops. Always pair with {@link #clear()} in
+   * a finally block.
+   */
+  public static JobContext bind(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      @Nullable String callerPrincipal,
+      @Nullable Serializable signalPayload,
+      @Nullable Instant deadline,
+      BooleanSupplier cancellationRequested,
+      @Nullable Object cancellationIdentity,
+      @Nullable AttemptToken attemptToken,
+      BooleanSupplier currentAttempt) {
     JobContext ctx =
         new JobContext(
             jobId,
@@ -182,9 +222,46 @@ public final class JobContext {
             callerPrincipal,
             deadline,
             cancellationRequested,
-            attemptToken);
+            cancellationIdentity,
+            attemptToken,
+            currentAttempt);
     TL.set(ctx);
     return ctx;
+  }
+
+  /**
+   * Binds a context for unit tests of job code. The supplier decides what {@link
+   * #isCurrentAttempt()} returns. Always pair with {@link #clear()} in a finally block.
+   */
+  public static JobContext bindAttempt(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      AttemptToken attemptToken,
+      BooleanSupplier currentAttempt) {
+    Objects.requireNonNull(attemptToken);
+    return bind(jobId, logger, params, null, null, null, NEVER, null, attemptToken, currentAttempt);
+  }
+
+  /** Returns the token for this claim, or empty outside an executing attempt. */
+  public Optional<AttemptToken> attemptToken() {
+    return Optional.ofNullable(attemptToken);
+  }
+
+  /**
+   * Returns true only while the store shows this job RUNNING under this token's sequence. This
+   * conservative hint can be false while the store still shows RUNNING, for example after the
+   * watchdog takes over. It can turn false immediately after returning true, so a check is not a
+   * fence. Store {@link AttemptToken#sequence()} with your data and refuse writes carrying a lower
+   * sequence.
+   *
+   * <p>Each call reads the store unless a local signal already answers false. On SQL stores the
+   * read uses its own transaction and a second pooled connection while your transaction holds one.
+   * Call at safe points outside long transactions and never in a loop. Store errors propagate and
+   * never read as current. Safe from any thread holding this context.
+   */
+  public boolean isCurrentAttempt() {
+    return attemptToken != null && currentAttempt.getAsBoolean();
   }
 
   /**

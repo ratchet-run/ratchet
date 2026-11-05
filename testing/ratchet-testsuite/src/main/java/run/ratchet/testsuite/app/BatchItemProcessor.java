@@ -17,6 +17,7 @@ package run.ratchet.testsuite.app;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Test deployment helper used by batch integration tests to record processed items across the
@@ -30,9 +31,11 @@ import java.util.concurrent.ConcurrentHashMap;
 public class BatchItemProcessor {
 
   private static final Set<String> PROCESSED_ITEMS = ConcurrentHashMap.newKeySet();
+  private static final AtomicInteger EXECUTION_COUNT = new AtomicInteger();
   private static final String FAILING_ITEM = "s3";
 
   public static void process(String item) {
+    EXECUTION_COUNT.incrementAndGet();
     PROCESSED_ITEMS.add(item);
   }
 
@@ -58,8 +61,14 @@ public class BatchItemProcessor {
     return PROCESSED_ITEMS.size();
   }
 
+  /** Counts calls to process, including repeated calls for the same item. */
+  public static int executionCount() {
+    return EXECUTION_COUNT.get();
+  }
+
   /** Clears static test state before each batch test method. */
   public static void reset() {
     PROCESSED_ITEMS.clear();
+    EXECUTION_COUNT.set(0);
   }
 }

@@ -231,6 +231,32 @@
         <artifactId>maven-dependency-plugin</artifactId>
         <version>3.8.1</version>
         <executions>
+          <!-- Ships a copy of the store's scripts as the application's own migration folder, so
+               SqlNativeMigrationIT can point ratchet.schema.migration-prefix at it. -->
+          <execution>
+            <id>application-migrations</id>
+            <phase>generate-resources</phase>
+            <goals>
+              <goal>unpack</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>run.ratchet</groupId>
+                  <artifactId>ratchet-store-${store}</artifactId>
+                  <version>${ratchet.version}</version>
+                  <includes>ddl/migrations/*/*</includes>
+                  <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                  <fileMappers>
+                    <org.codehaus.plexus.components.io.filemappers.RegExpFileMapper>
+                      <pattern>^ddl/migrations/[^/]+/</pattern>
+                      <replacement>ddl/migrations/consumer-app/</replacement>
+                    </org.codehaus.plexus.components.io.filemappers.RegExpFileMapper>
+                  </fileMappers>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
           <execution>
             <id>runtime-classpath</id>
             <phase>package</phase>

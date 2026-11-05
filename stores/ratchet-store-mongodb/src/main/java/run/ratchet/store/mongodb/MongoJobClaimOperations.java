@@ -245,6 +245,8 @@ final class MongoJobClaimOperations {
    * Claims a set of candidate jobs in two round-trips: a single {@code bulkWrite(ordered=false)}
    * for the conditional updates, then one {@code find} to read the claimed documents back.
    *
+   * <p>A write-concern error attempts to release this batch's claims before rethrowing the error.
+   *
    * <p><b>Invariant required of callers:</b> no two concurrent invocations on the same node may
    * share candidate IDs. The read-back filter is {@code _id $in ids AND picked_by = node AND status
    * = RUNNING}; if two threads on the same node have overlapping {@code ids}, the read-back cannot
@@ -292,10 +294,28 @@ final class MongoJobClaimOperations {
 
           long matched;
           try {
+            // Claims need majority because currentClaim reads majority-committed data.
+            // Configured timeout and journal settings still apply.
             BulkWriteResult result =
-                ctx.jobs().bulkWrite(ops, new BulkWriteOptions().ordered(false));
+                ctx.jobs()
+                    .withWriteConcern(ctx.claimWriteConcern())
+                    .bulkWrite(ops, new BulkWriteOptions().ordered(false));
             matched = result.getMatchedCount();
           } catch (MongoBulkWriteException e) {
+            if (e.getWriteConcernError() != null) {
+              try {
+                ctx.releaseUnacknowledgedClaim(ids, nodeId, nowDate);
+              } catch (RuntimeException releaseFailure) {
+                log.warnf(
+                    releaseFailure,
+                    "Failed to release claim %s at %s for node %s",
+                    ids,
+                    nowDate,
+                    nodeId);
+                e.addSuppressed(releaseFailure);
+              }
+              throw e;
+            }
             // ordered=false: server applied every op; partial successes are durable. Log per-op
             // failures and continue with the read-back of whatever did succeed.
             matched = e.getWriteResult().getMatchedCount();

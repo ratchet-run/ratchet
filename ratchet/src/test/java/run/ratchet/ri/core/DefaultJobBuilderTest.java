@@ -25,6 +25,33 @@ import org.junit.jupiter.api.Test;
 class DefaultJobBuilderTest {
 
   @Test
+  void withIdempotencyKeyNormalizesAndPreservesGeneratedKeyForNullOrBlank() {
+    DefaultJobBuilder builder = newBuilder();
+    String generated = builder.idempotencyKey();
+    builder.withIdempotencyKey(null);
+    builder.withIdempotencyKey(" \t");
+    assertEquals(generated, builder.idempotencyKey());
+    builder.withIdempotencyKey("  order-42 ");
+    assertEquals("order-42", builder.idempotencyKey());
+    builder.withIdempotencyKey(null);
+    builder.withIdempotencyKey(" ");
+    assertEquals("order-42", builder.idempotencyKey());
+  }
+
+  @Test
+  void withIdempotencyKeyChecksTrimmedLength() {
+    DefaultJobBuilder builder = newBuilder();
+    String maximumKey = "k".repeat(36);
+    builder.withIdempotencyKey(" " + maximumKey + " ");
+    assertEquals(maximumKey, builder.idempotencyKey());
+    IllegalArgumentException exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> builder.withIdempotencyKey("k".repeat(37)));
+    assertEquals("Idempotency key must be at most 36 characters, got 37", exception.getMessage());
+    assertEquals(maximumKey, builder.idempotencyKey());
+  }
+
+  @Test
   void withBusinessKeyAcceptsMaximumPortableKeyWithoutTruncation() {
     DefaultJobBuilder builder = newBuilder();
     String key = "k".repeat(255);

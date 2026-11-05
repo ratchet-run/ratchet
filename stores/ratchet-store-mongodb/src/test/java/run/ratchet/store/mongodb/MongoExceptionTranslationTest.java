@@ -18,6 +18,7 @@ package run.ratchet.store.mongodb;
 import static org.bson.codecs.configuration.CodecRegistries.fromCodecs;
 import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,14 +29,22 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_NODE;
 import static run.ratchet.store.mongodb.MongoJobCrudOperations.ORPHAN_EXECUTION_CLOSE_BATCH;
 
+import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
+import com.mongodb.MongoWriteConcernException;
 import com.mongodb.MongoWriteException;
+import com.mongodb.ReadConcern;
+import com.mongodb.ReadPreference;
 import com.mongodb.ServerAddress;
+import com.mongodb.WriteConcern;
+import com.mongodb.WriteConcernResult;
 import com.mongodb.WriteError;
+import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
+import com.mongodb.bulk.WriteConcernError;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.FindIterable;
@@ -44,6 +53,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.TransactionBody;
+import com.mongodb.client.model.UpdateOneModel;
 import com.mongodb.client.result.UpdateResult;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -54,6 +64,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -74,6 +85,36 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 
 class MongoExceptionTranslationTest {
+
+  @Test
+  void currentClaimTranslatesTransientReadFailure() {
+    MongoSocketException failure = transientFailure();
+    AtomicReference<Object> readPreference = new AtomicReference<>();
+    AtomicReference<Object> readConcern = new AtomicReference<>();
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("withReadPreference".equals(method.getName())) {
+                readPreference.set(args[0]);
+                return proxy;
+              }
+              if ("withReadConcern".equals(method.getName())) {
+                readConcern.set(args[0]);
+                return proxy;
+              }
+              if ("find".equals(method.getName())) {
+                throw failure;
+              }
+              return defaultValue(method);
+            });
+    var crud = new MongoJobCrudOperations(contextWithJobs(jobs));
+    var thrown =
+        assertThrows(
+            RatchetTransientStoreException.class, () -> crud.currentClaim(UUID.randomUUID()));
+    assertSame(failure, thrown.getCause());
+    assertEquals(ReadPreference.primary(), readPreference.get());
+    assertEquals(ReadConcern.MAJORITY, readConcern.get());
+  }
 
   @Test
   void closeStaleExecutionsTranslatesTransientFailure() {
@@ -149,6 +190,8 @@ class MongoExceptionTranslationTest {
             (proxy, method, args) -> {
               return switch (method.getName()) {
                 case "aggregate" -> aggregateIterable(candidateCursor);
+                case "withWriteConcern" -> proxy;
+                case "getWriteConcern" -> WriteConcern.ACKNOWLEDGED;
                 case "bulkWrite" -> BulkWriteResult.acknowledged(0, 1, 0, 1, List.of(), List.of());
                 case "find" -> findIterable(readBackCursor);
                 default -> defaultValue(method);
@@ -160,6 +203,244 @@ class MongoExceptionTranslationTest {
         RuntimeException.class, () -> claims.claimNextBatch(1, "node-1", NodeTagFilter.NONE));
 
     assertTrue(readBackClosed.get());
+  }
+
+  @Test
+  void batchClaimPreservesConfiguredTimeoutAndJournal() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+
+    assertTrue(fixture.claim().isEmpty());
+
+    assertEquals(List.of(fixture.configured.withW("majority")), fixture.writeConcerns);
+    assertEquals(1, fixture.readBacks);
+  }
+
+  @Test
+  void tryPickUpJobPreservesConfiguredTimeoutAndJournal() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+    assertTrue(fixture.pickUp());
+
+    assertEquals(List.of(fixture.configured.withW("majority")), fixture.writeConcerns);
+    assertEquals(fixture.configured.withW("majority"), fixture.pickupConcern);
+  }
+
+  @Test
+  void batchWriteConcernErrorReleasesOnlyThisClaimAndPropagates() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+    fixture.bulkFailure = bulkClaimFailure(true);
+
+    IllegalStateException thrown = assertThrows(IllegalStateException.class, fixture::claim);
+
+    assertSame(fixture.bulkFailure, thrown.getCause());
+    assertEquals(0, fixture.readBacks);
+    assertEquals(1, fixture.releases);
+    assertEquals(
+        List.of(fixture.configured.withW("majority"), fixture.configured.withW("majority")),
+        fixture.writeConcerns);
+    assertEquals(fixture.configured.withW("majority"), fixture.releaseConcern);
+    BsonDocument claimUpdate = bson(fixture.claimOp.getUpdate());
+    BsonDocument expectedFilter =
+        bson(
+            new Document(
+                "$and",
+                List.of(
+                    new Document("_id", new Document("$in", List.of(fixture.id))),
+                    new Document("picked_by", "node-1"),
+                    new Document(
+                        "picked_at", claimUpdate.getDocument("$set").getDateTime("picked_at")),
+                    new Document("status", "RUNNING"))));
+    assertEquals(expectedFilter, fixture.releaseFilter);
+    BsonDocument releasedFields = fixture.releaseUpdate.getDocument("$set");
+    assertEquals(new BsonString("PENDING"), releasedFields.get("status"));
+    for (String field : List.of("picked_by", "picked_at", "execution_start_time")) {
+      assertTrue(releasedFields.get(field).isNull());
+    }
+    assertTrue(releasedFields.get("updated_at").isDateTime());
+    assertEquals(
+        new BsonDocument("version", new BsonInt32(1)), fixture.releaseUpdate.getDocument("$inc"));
+    assertFalse(fixture.releaseUpdate.toJson().contains("claim_seq"));
+  }
+
+  @Test
+  void batchReleaseFailureIsSuppressedOnOriginalWriteConcernError() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+    fixture.bulkFailure = bulkClaimFailure(true);
+    fixture.releaseFailure = new MongoException("release failed");
+
+    IllegalStateException thrown = assertThrows(IllegalStateException.class, fixture::claim);
+
+    assertSame(fixture.bulkFailure, thrown.getCause());
+    assertEquals(List.of(fixture.releaseFailure), List.of(fixture.bulkFailure.getSuppressed()));
+    assertEquals(1, fixture.releases);
+    assertEquals(0, fixture.readBacks);
+  }
+
+  @Test
+  void tryPickUpJobWriteConcernErrorReleasesOnlyThisClaimAndPropagates() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+    fixture.pickupFailure = pickupFailure();
+
+    IllegalStateException thrown = assertThrows(IllegalStateException.class, fixture::pickUp);
+
+    assertSame(fixture.pickupFailure, thrown.getCause());
+    assertEquals(0, fixture.readBacks);
+    assertEquals(1, fixture.releases);
+    assertEquals(
+        List.of(fixture.configured.withW("majority"), fixture.configured.withW("majority")),
+        fixture.writeConcerns);
+    assertEquals(fixture.configured.withW("majority"), fixture.pickupConcern);
+    assertEquals(fixture.configured.withW("majority"), fixture.releaseConcern);
+    BsonDocument claimUpdate = fixture.pickupUpdate;
+    BsonDocument expectedFilter =
+        bson(
+            new Document(
+                "$and",
+                List.of(
+                    new Document("_id", new Document("$in", List.of(fixture.id))),
+                    new Document("picked_by", "node-1"),
+                    new Document(
+                        "picked_at", claimUpdate.getDocument("$set").getDateTime("picked_at")),
+                    new Document("status", "RUNNING"))));
+    assertEquals(expectedFilter, fixture.releaseFilter);
+    BsonDocument releasedFields = fixture.releaseUpdate.getDocument("$set");
+    assertEquals(new BsonString("PENDING"), releasedFields.get("status"));
+    for (String field : List.of("picked_by", "picked_at", "execution_start_time")) {
+      assertTrue(releasedFields.get(field).isNull());
+    }
+    assertTrue(releasedFields.get("updated_at").isDateTime());
+    assertEquals(
+        new BsonDocument("version", new BsonInt32(1)), fixture.releaseUpdate.getDocument("$inc"));
+    assertFalse(fixture.releaseUpdate.toJson().contains("claim_seq"));
+  }
+
+  @Test
+  void tryPickUpJobReleaseFailureIsSuppressedOnOriginalWriteConcernError() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+    fixture.pickupFailure = pickupFailure();
+    fixture.releaseFailure = new MongoException("release failed");
+
+    IllegalStateException thrown = assertThrows(IllegalStateException.class, fixture::pickUp);
+
+    assertSame(fixture.pickupFailure, thrown.getCause());
+    assertEquals(List.of(fixture.releaseFailure), List.of(fixture.pickupFailure.getSuppressed()));
+    assertEquals(1, fixture.releases);
+    assertEquals(0, fixture.readBacks);
+  }
+
+  @Test
+  void batchPerOperationWriteErrorStillReadsBack() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+    fixture.bulkFailure = bulkClaimFailure(false);
+
+    assertTrue(fixture.claim().isEmpty());
+
+    assertEquals(1, fixture.readBacks);
+    assertEquals(0, fixture.releases);
+  }
+
+  private static MongoWriteConcernException pickupFailure() {
+    return new MongoWriteConcernException(
+        new WriteConcernError(64, "WriteConcernFailed", "majority timeout", new BsonDocument()),
+        WriteConcernResult.acknowledged(1, false, null),
+        new ServerAddress(),
+        new HashSet<>());
+  }
+
+  private static MongoBulkWriteException bulkClaimFailure(boolean writeConcernError) {
+    return new MongoBulkWriteException(
+        BulkWriteResult.acknowledged(0, 1, 0, 1, List.of(), List.of()),
+        writeConcernError
+            ? List.of()
+            : List.of(new BulkWriteError(11000, "per-op failure", new BsonDocument(), 0)),
+        writeConcernError
+            ? new WriteConcernError(
+                64, "WriteConcernFailed", "majority timeout", new BsonDocument())
+            : null,
+        new ServerAddress(),
+        new HashSet<>());
+  }
+
+  private static BsonDocument bson(Bson value) {
+    return value.toBsonDocument(
+        Document.class,
+        fromRegistries(
+            fromCodecs(new UuidCodec(UuidRepresentation.STANDARD)),
+            MongoClientSettings.getDefaultCodecRegistry()));
+  }
+
+  private static final class ClaimWriteFixture {
+    final UUID id = UUID.randomUUID();
+    final WriteConcern configured =
+        WriteConcern.W2.withWTimeout(1234, TimeUnit.MILLISECONDS).withJournal(true);
+    final List<WriteConcern> writeConcerns = new ArrayList<>();
+    WriteConcern activeConcern;
+    WriteConcern pickupConcern;
+    WriteConcern releaseConcern;
+    MongoBulkWriteException bulkFailure;
+    MongoWriteConcernException pickupFailure;
+    RuntimeException releaseFailure;
+    UpdateOneModel<?> claimOp;
+    BsonDocument pickupUpdate;
+    BsonDocument releaseFilter;
+    BsonDocument releaseUpdate;
+    int readBacks;
+    int releases;
+    final MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              return switch (method.getName()) {
+                case "getWriteConcern" -> configured;
+                case "withWriteConcern" -> {
+                  activeConcern = (WriteConcern) args[0];
+                  writeConcerns.add(activeConcern);
+                  yield proxy;
+                }
+                case "aggregate" ->
+                    aggregateIterable(cursor(List.of(new Document(ID, id)), new AtomicBoolean()));
+                case "bulkWrite" -> {
+                  assertEquals(configured.withW("majority"), activeConcern);
+                  claimOp = (UpdateOneModel<?>) ((List<?>) args[0]).get(0);
+                  if (bulkFailure != null) {
+                    throw bulkFailure;
+                  }
+                  yield BulkWriteResult.acknowledged(0, 1, 0, 1, List.of(), List.of());
+                }
+                case "updateOne" -> {
+                  pickupConcern = activeConcern;
+                  pickupUpdate = bson((Bson) args[1]);
+                  if (pickupFailure != null) {
+                    throw pickupFailure;
+                  }
+                  yield UpdateResult.acknowledged(1, 1L, null);
+                }
+                case "updateMany" -> {
+                  releases++;
+                  releaseConcern = activeConcern;
+                  releaseFilter = bson((Bson) args[0]);
+                  releaseUpdate = bson((Bson) args[1]);
+                  if (releaseFailure != null) {
+                    throw releaseFailure;
+                  }
+                  yield UpdateResult.acknowledged(1, 1L, null);
+                }
+                case "find" -> {
+                  readBacks++;
+                  yield findIterable(cursor(List.of(), new AtomicBoolean()));
+                }
+                default -> defaultValue(method);
+              };
+            });
+
+    boolean pickUp() {
+      MongoStoreContext ctx = contextWithJobs(jobs);
+      return new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx))
+          .tryPickUpJob(id, "node-1");
+    }
+
+    List<JobEntity> claim() {
+      return new MongoJobClaimOperations(contextWithJobs(jobs))
+          .claimNextBatch(1, "node-1", NodeTagFilter.NONE);
+    }
   }
 
   @Test

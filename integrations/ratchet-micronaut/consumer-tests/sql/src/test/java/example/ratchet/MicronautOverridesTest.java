@@ -34,6 +34,7 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.consumer.sql.SqlAccess;
 import run.ratchet.consumer.sql.SqlApplication;
 import run.ratchet.consumer.sql.SqlDatabase;
+import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ExecutorProvider;
 
@@ -107,8 +108,15 @@ class MicronautOverridesTest {
   }
 
   public static final class ApplicationExecutors implements ExecutorProvider, AutoCloseable {
-    final ExecutorService workers = Executors.newCachedThreadPool();
-    final ScheduledExecutorService timers = Executors.newScheduledThreadPool(2);
+    private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+
+    @Override
+    public void initializeApplicationClassLoader(ClassLoader loader) {
+      classLoader.initialize(loader);
+    }
+
+    final ExecutorService workers = classLoader.wrap(Executors.newCachedThreadPool());
+    final ScheduledExecutorService timers = classLoader.wrap(Executors.newScheduledThreadPool(2));
 
     public ExecutorService getJobExecutor() {
       return workers;

@@ -40,6 +40,12 @@ final class DefaultInvocationBatchBuilder implements InvocationBatchBuilder {
   }
 
   @Override
+  public InvocationBatchBuilder withIdempotencyKey(String key) {
+    delegate.withIdempotencyKey(key);
+    return this;
+  }
+
+  @Override
   public <T extends Serializable> InvocationBatchBuilder forEach(
       Collection<T> items, Function<T, JobInvocation> invocationFactory) {
     delegate.forEachInvocation(items, invocationFactory);

@@ -128,6 +128,9 @@ public final class RatchetRuntime implements RatchetLifecycle, AutoCloseable {
     }
     started = true;
     try {
+      ClassLoader loader = Thread.currentThread().getContextClassLoader();
+      executorProvider.initializeApplicationClassLoader(
+          loader != null ? loader : RatchetRuntime.class.getClassLoader());
       log.info("Ratchet starting");
       List<SchedulerLifecycleHook> beforeStartSucceeded =
           notifyHooks(

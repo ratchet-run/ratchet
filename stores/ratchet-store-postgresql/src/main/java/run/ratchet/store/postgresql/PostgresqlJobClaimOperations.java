@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import run.ratchet.api.JobPriority;
@@ -31,6 +32,7 @@ import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
@@ -123,6 +125,11 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
 
   // SQL template is a compile-time constant defined in this package; runtime values are bound as
   // JDBC parameters via setParameter.
+  @Override
+  public Optional<ClaimState> currentClaim(UUID jobId) {
+    return reads.currentClaim(jobId);
+  }
+
   @Override
   @SuppressWarnings("SqlSourceToSinkFlow")
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {

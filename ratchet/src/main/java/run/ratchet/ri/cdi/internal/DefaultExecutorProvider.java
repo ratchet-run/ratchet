@@ -26,6 +26,7 @@ import javax.naming.NamingException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.internal.ExecutorClassLoader;
 import run.ratchet.spi.ExecutorProvider;
 
 /**
@@ -72,6 +73,8 @@ public class DefaultExecutorProvider implements ExecutorProvider {
   static final String JOB_EXECUTOR_JNDI = "java:comp/DefaultManagedExecutorService";
   static final String SCHEDULED_EXECUTOR_JNDI = "java:comp/DefaultManagedScheduledExecutorService";
 
+  private final ExecutorClassLoader classLoader = new ExecutorClassLoader();
+
   private final String jobExecutorJndi;
   private final String scheduledExecutorJndi;
   private final String virtualExecutorJndi;
@@ -106,11 +109,13 @@ public class DefaultExecutorProvider implements ExecutorProvider {
       InitialContext context = newInitialContext();
       synchronized (this) {
         if (resolvedJobExecutor == null) {
-          resolvedJobExecutor = lookup(context, jobExecutorJndi, ExecutorService.class);
+          resolvedJobExecutor =
+              classLoader.wrap(lookup(context, jobExecutorJndi, ExecutorService.class));
         }
         if (resolvedScheduledExecutor == null) {
           resolvedScheduledExecutor =
-              lookup(context, scheduledExecutorJndi, ScheduledExecutorService.class);
+              classLoader.wrap(
+                  lookup(context, scheduledExecutorJndi, ScheduledExecutorService.class));
         }
       }
     } catch (IllegalStateException e) {
@@ -163,13 +168,18 @@ public class DefaultExecutorProvider implements ExecutorProvider {
   }
 
   @Override
+  public void initializeApplicationClassLoader(ClassLoader applicationClassLoader) {
+    classLoader.initialize(applicationClassLoader);
+  }
+
+  @Override
   public ExecutorService getJobExecutor() {
     ExecutorService executor = resolvedJobExecutor;
     if (executor == null) {
       synchronized (this) {
         executor = resolvedJobExecutor;
         if (executor == null) {
-          executor = lookup(jobExecutorJndi, ExecutorService.class);
+          executor = classLoader.wrap(lookup(jobExecutorJndi, ExecutorService.class));
           resolvedJobExecutor = executor;
         }
       }
@@ -196,7 +206,7 @@ public class DefaultExecutorProvider implements ExecutorProvider {
         if (executor == null) {
           // Resolved lazily on first use: a deployment-defined virtual executor may not be bound
           // when CDI beans initialize (notably on GlassFish), so eager resolution is skipped.
-          executor = lookup(virtualExecutorJndi, ExecutorService.class);
+          executor = classLoader.wrap(lookup(virtualExecutorJndi, ExecutorService.class));
           resolvedVirtualExecutor = executor;
         }
       }
@@ -211,7 +221,8 @@ public class DefaultExecutorProvider implements ExecutorProvider {
       synchronized (this) {
         executor = resolvedScheduledExecutor;
         if (executor == null) {
-          executor = lookup(scheduledExecutorJndi, ScheduledExecutorService.class);
+          executor =
+              classLoader.wrap(lookup(scheduledExecutorJndi, ScheduledExecutorService.class));
           resolvedScheduledExecutor = executor;
         }
       }

@@ -25,6 +25,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -75,6 +76,10 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore, J
   @Override
   public void delete(UUID id) {
     deletes.delete(id);
+  }
+
+  public Optional<ClaimState> currentClaim(UUID jobId) {
+    return reads.currentClaim(jobId);
   }
 
   @Override

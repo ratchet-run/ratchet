@@ -34,7 +34,7 @@ public final class AfterCommitActions {
   /** Runs immediately without a transaction, or fails if registration could lose the action. */
   public static void runOrFail(AfterCommitRegistrar registrar, String what, Runnable action) {
     switch (requireNonNull(
-        registrar.registerAfterCommit(action),
+        registrar.registerAfterCommit(ExecutorClassLoader.preserveContext(action)),
         "AfterCommitRegistrar contract requires a non-null result")) {
       case NO_ACTIVE_TRANSACTION -> action.run();
       case REGISTERED -> {}
@@ -58,7 +58,7 @@ public final class AfterCommitActions {
     try {
       result =
           requireNonNull(
-              registrar.registerAfterCommit(action),
+              registrar.registerAfterCommit(ExecutorClassLoader.preserveContext(action)),
               "AfterCommitRegistrar contract requires a non-null result");
     } catch (RuntimeException e) {
       log.warnf(

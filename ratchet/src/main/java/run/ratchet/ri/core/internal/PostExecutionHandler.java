@@ -274,7 +274,8 @@ public class PostExecutionHandler {
       if (pending != null) {
         pending.add(result.batchProgress());
       } else {
-        Runnable followup = () -> runBatchFollowup(result.batchProgress());
+        Runnable followup =
+            ExecutorClassLoader.preserveContext(() -> runBatchFollowup(result.batchProgress()));
         if (afterCommitRegistrar.registerAfterCommit(followup)
             == AfterCommitRegistrar.Result.NO_ACTIVE_TRANSACTION) {
           followup.run();
