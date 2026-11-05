@@ -16,16 +16,12 @@
 package run.ratchet.micronaut.jpa.graal;
 
 import java.io.Serializable;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import org.graalvm.nativeimage.hosted.Feature;
 import org.graalvm.nativeimage.hosted.RuntimeProxyCreation;
 import org.graalvm.nativeimage.hosted.RuntimeReflection;
-import org.graalvm.nativeimage.hosted.RuntimeResourceAccess;
 import run.ratchet.micronaut.graal.NativeImageSupport;
 import run.ratchet.store.schema.RatchetJpaModel;
 
@@ -73,16 +69,10 @@ public final class RatchetJpaNativeFeature implements Feature {
     NativeImageSupport.registerResources(
         access, getClass().getModule(), name -> name.equals("META-INF/orm.xml"));
     int stores = 0;
-    Set<Path> storePaths = new LinkedHashSet<>();
     for (Store store : STORES) {
       Class<?> composite = access.findClassByName(store.interfaceName());
       if (composite == null) continue;
       stores++;
-      String storeResource = store.interfaceName().replace('.', '/') + ".class";
-      for (Path path : access.getApplicationClassPath()) {
-        NativeImageSupport.visitEntries(
-            List.of(path), storeResource::equals, (name, bytes) -> storePaths.add(path));
-      }
       NativeImageSupport.registerType(access, store.adapterName());
       Class<?> implementation = NativeImageSupport.registerType(access, store.implementationName());
       if (implementation != null) registerInterfaces(implementation);
@@ -99,10 +89,10 @@ public final class RatchetJpaNativeFeature implements Feature {
       if (store.vendor().equals("oracle")) registerOracleLobs(access);
     }
     if (stores > 0) {
-      NativeImageSupport.visitEntries(
-          List.copyOf(storePaths),
-          name -> name.startsWith("ddl/migrations/"),
-          (name, bytes) -> RuntimeResourceAccess.addResource(getClass().getModule(), name, bytes));
+      // Every entry, not only the store JARs' own: ratchet.schema.migration-prefix may point at
+      // a folder the application ships, as Quarkus and Spring Boot already allow.
+      NativeImageSupport.registerResources(
+          access, getClass().getModule(), name -> name.startsWith("ddl/migrations/"));
       registerHibernateXml(access);
     }
     System.out.println(
