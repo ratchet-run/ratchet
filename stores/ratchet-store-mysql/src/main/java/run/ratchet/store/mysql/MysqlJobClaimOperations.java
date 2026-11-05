@@ -26,6 +26,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -36,6 +37,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
@@ -86,6 +88,11 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   private static String buildMysqlBoostedOrderBy(String timeColumn, int boostInterval) {
     return JobClaimSqlSupport.buildBoostedOrderBy(
         timeColumn, "TIMESTAMPDIFF(MINUTE, " + timeColumn + ", NOW(3))", boostInterval);
+  }
+
+  @Override
+  public Optional<ClaimState> currentClaim(UUID jobId) {
+    return jobs.currentClaim(jobId);
   }
 
   @Override

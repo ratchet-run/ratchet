@@ -61,6 +61,8 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
+import com.mongodb.ReadConcern;
+import com.mongodb.ReadPreference;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.ReplaceOptions;
@@ -89,6 +91,7 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.util.RowValues;
@@ -198,9 +201,15 @@ final class MongoJobCrudOperations {
               Document current =
                   ctx.jobs()
                       .find(session, eq(ID, job.getId()))
-                      .projection(new Document(CRASH_COUNT, 1))
+                      .projection(new Document(CRASH_COUNT, 1).append(CLAIM_SEQ, 1))
                       .first();
               doc.put(CRASH_COUNT, current == null ? 0 : current.getInteger(CRASH_COUNT, 0));
+              // Whole-document saves must preserve the store-owned claim sequence.
+              doc.put(
+                  CLAIM_SEQ,
+                  current == null
+                      ? 0L
+                      : ((Number) current.getOrDefault(CLAIM_SEQ, 0L)).longValue());
               UpdateResult result =
                   ctx.jobs()
                       .replaceOne(
@@ -253,6 +262,34 @@ final class MongoJobCrudOperations {
             ctx.jobs().deleteOne(session, eq(ID, id));
             return true;
           });
+    }
+  }
+
+  Optional<ClaimState> currentClaim(UUID jobId) {
+    try {
+      // Read the primary even when the client prefers secondaries: a lagging secondary could
+      // still show a superseded claim as current. Read only majority-committed data, so a newer
+      // claim that a failover later rolls back cannot mark this attempt superseded for good.
+      Document doc =
+          ctx.jobs()
+              .withReadPreference(ReadPreference.primary())
+              .withReadConcern(ReadConcern.MAJORITY)
+              .find(eq(ID, jobId))
+              .projection(new Document(STATUS, 1).append(CLAIM_SEQ, 1))
+              .first();
+      if (doc == null) {
+        return Optional.empty();
+      }
+      JobStatus status = JobStatus.valueOf(doc.getString(STATUS));
+      if (status == JobStatus.SUCCEEDED
+          || status == JobStatus.FAILED
+          || status == JobStatus.CANCELED) {
+        return Optional.empty();
+      }
+      return Optional.of(
+          new ClaimState(status, ((Number) doc.getOrDefault(CLAIM_SEQ, 0L)).longValue()));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("read current claim", e);
     }
   }
 

@@ -50,6 +50,7 @@ import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.ArchivedRecurringJob;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.OrphanRecovery;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
@@ -114,6 +115,12 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     this.entityManagerProvider = entityManagerProvider;
     this.metricsCollector = metricsCollector;
     this.options = options;
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public Optional<ClaimState> currentClaim(UUID jobId) {
+    return jobs.currentClaim(jobId);
   }
 
   @Override

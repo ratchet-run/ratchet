@@ -45,6 +45,7 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.ArchivedRecurringJob;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.ClaimState;
 import run.ratchet.store.spi.JobAnalyticsStore;
 import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobQueryStore;
@@ -91,6 +92,11 @@ public abstract class ThrowingJobStoreBase
   }
 
   // ----- JobCrudStore -----
+
+  @Override
+  public Optional<ClaimState> currentClaim(UUID jobId) {
+    return fail("currentClaim");
+  }
 
   @Override
   public JobEntity create(JobEntity job) {

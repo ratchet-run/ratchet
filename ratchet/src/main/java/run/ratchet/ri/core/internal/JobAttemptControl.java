@@ -17,19 +17,24 @@ package run.ratchet.ri.core.internal;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import run.ratchet.api.AttemptToken;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.Nullable;
+import run.ratchet.store.spi.ClaimState;
+import run.ratchet.store.spi.JobClaimStore;
 
 /**
  * State shared by the worker and watchdog for one execution attempt. Retries get a fresh flag.
  * {@link #requestCancellation()} is the entry point for future sources such as a user-cancel poll.
- * Its attempt token identifies the attempt in memory; its claim sequence fences persisted owner
- * writes.
+ * Its cancellation identity identifies the attempt in memory; its claim sequence fences persisted
+ * owner writes.
  */
 public final class JobAttemptControl {
-  private final Object attemptToken = new Object();
+  private final Object cancellationIdentity = new Object();
   private final UUID jobId;
   private final Instant deadline;
   private final Instant executionStartTime;
@@ -42,6 +47,7 @@ public final class JobAttemptControl {
   private final long claimSeq;
 
   private final @Nullable String nodeId;
+  private final AtomicBoolean superseded = new AtomicBoolean();
   private final AtomicBoolean cancellationRequested = new AtomicBoolean();
 
   private enum TimeoutOwner {
@@ -76,8 +82,42 @@ public final class JobAttemptControl {
    * Opaque identity of this attempt, recorded by CancellationRequestedException so an exception
    * kept from an earlier attempt is not taken as this attempt's cooperative stop.
    */
-  public Object attemptToken() {
-    return attemptToken;
+  public Object cancellationIdentity() {
+    return cancellationIdentity;
+  }
+
+  /** Returns the persisted token when this attempt has a claim sequence. */
+  public Optional<AttemptToken> token() {
+    return claimSeq > 0 ? Optional.of(new AttemptToken(jobId, claimSeq)) : Optional.empty();
+  }
+
+  /**
+   * Once set, this attempt is never current again. Called when an owner write is rejected, when the
+   * watchdog takes the attempt, at shutdown release, and by future callers that see a claim-fenced
+   * write return SUPERSEDED.
+   */
+  public void markSuperseded() {
+    superseded.set(true);
+  }
+
+  public boolean isSuperseded() {
+    return superseded.get();
+  }
+
+  /** Reads whether this attempt still owns the live RUNNING claim. Store errors propagate. */
+  public boolean isCurrent(JobClaimStore store) {
+    if (claimSeq <= 0 || isSuperseded()) {
+      return false;
+    }
+    Optional<ClaimState> claim = store.currentClaim(jobId);
+    if (claim.isEmpty() || claim.get().claimSeq() != claimSeq) {
+      markSuperseded();
+      return false;
+    }
+    if (claim.get().status() != JobStatus.RUNNING) {
+      return false;
+    }
+    return !isSuperseded();
   }
 
   public UUID jobId() {
@@ -128,6 +168,7 @@ public final class JobAttemptControl {
       TimeoutOwner owner = timeoutOwner.get();
       if (owner == TimeoutOwner.UNCLAIMED || owner == TimeoutOwner.HANDED_BACK) {
         if (timeoutOwner.compareAndSet(owner, TimeoutOwner.WATCHDOG)) {
+          markSuperseded();
           return true;
         }
       } else if (owner == TimeoutOwner.WORKER) {

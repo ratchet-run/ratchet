@@ -22,6 +22,7 @@ import jakarta.transaction.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -71,6 +72,11 @@ public abstract class AbstractJobStoreTransactionBoundaryContract {
   @Test
   void deleteInactiveNodesByIdsCommitsInItsOwnTransaction() throws NoSuchMethodException {
     assertRequiresNew("deleteInactiveNodesByIds", Collection.class);
+  }
+
+  @Test
+  void currentClaimReadsInItsOwnTransaction() throws NoSuchMethodException {
+    assertRequiresNew("currentClaim", UUID.class);
   }
 
   @Test

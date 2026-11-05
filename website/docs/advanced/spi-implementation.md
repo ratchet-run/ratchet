@@ -660,7 +660,7 @@ Ratchet ships MySQL, PostgreSQL, Oracle, SQL Server, and MongoDB implementations
 | Interface | Responsibility | Key Methods |
 |-----------|---------------|-------------|
 | `JobCrudStore` | Create, read, update, delete jobs | `save()`, `findById()`, `delete()` |
-| `JobClaimStore` | Atomic job claiming for execution | `claimNextBatch()`, `claimNextBatchOptimized()` |
+| `JobClaimStore` | Atomic job claiming for execution, and the current claim of a job | `claimNextBatch()`, `claimNextBatchOptimized()`, `currentClaim()` |
 | `JobTerminalStore` | Terminal success, failure, and cancellation transitions | `markJobSucceeded()`, `markJobFailedTerminal()`, `cancelJob()` |
 | `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `incrementRetryAttempt()` |
 | `JobPauseStore` | Pause and resume transitions | `transitionToPaused()`, `transitionFromPausedAtomic()` |
@@ -697,6 +697,21 @@ Return `SUPERSEDED` for a missing or non-live claim, including a missing job. Re
 `VERSION_CONFLICT` for an existing init row or a failed version comparison on a live claim.
 Preserve validation and encryption behavior, and increment only the state version on updates.
 
+### Current claim
+
+`JobClaimStore.currentClaim(UUID)` backs `JobContext.isCurrentAttempt()`. It returns the status
+and claim sequence of the job's live row, and is empty when the job is missing or has finished
+(`SUCCEEDED`, `FAILED` or `CANCELED`). The method is abstract, so every store must implement it.
+
+- Read the latest committed state, not the caller's snapshot. A job body may hold a MySQL
+  `REPEATABLE READ` transaction that started before another node reclaimed the job.
+- Take no locks, and do not load or decrypt the payload, params or callbacks.
+- Only a claim or `tryPickUpJob` may start a new attempt, and both must increase `claim_seq`.
+  Releases and other writes that set `RUNNING` keep the sequence. A whole-document `save()` must
+  never change it.
+
+`AbstractJobClaimStoreContract` checks the values; the transaction boundary is below.
+
 ### LockStore is a best-effort lease
 
 `LockStore` coordinates cluster work with expiring leases. It is not a strict-exclusive lock and it
@@ -726,19 +741,22 @@ in their Javadoc. Do not infer the boundary from the method name:
 | `SUPPORTS` | A read may join an existing transaction and must not require a new write transaction. A concrete provider may use a stronger boundary when needed for safe connection lifecycle, provided the observable read contract is preserved. |
 | `REQUIRED` | The mutation and all related statements must be atomic. It joins a caller transaction when the persistence model supports that, or starts the store's equivalent unit of work. |
 
-A separate JPA conformance profile strengthens six cluster-liveness methods. A JPA store must have
-a class-level `@Transactional(REQUIRED)` default and put `@Transactional(REQUIRES_NEW)` on:
+A separate JPA conformance profile strengthens six cluster-liveness methods and one read. A JPA
+store must have a class-level `@Transactional(REQUIRED)` default and put
+`@Transactional(REQUIRES_NEW)` on:
 
 - `tryLock`, `unlock`, and `renewLock`;
 - `upsertHeartbeat`;
-- `deleteInactiveNodesSince`; and
-- `deleteInactiveNodesByIds`.
+- `deleteInactiveNodesSince`;
+- `deleteInactiveNodesByIds`; and
+- `currentClaim`.
 
 For a JPA-backed store, this concrete profile is the requirement to follow even though the general
 SPI descriptions classify these mutations as `REQUIRED`.
 
-Those operations must commit independently so another node sees lease and heartbeat changes as
-soon as the call returns, and an outer rollback cannot undo liveness state. The conditional
+The liveness operations must commit independently so another node sees lease and heartbeat
+changes as soon as the call returns, and an outer rollback cannot undo liveness state.
+`currentClaim` needs its own transaction so it reads fresh data rather than the caller's snapshot. The conditional
 `AbstractJobStoreTransactionBoundaryContract` checks the annotations for JPA stores. A document
 store that provides the same independent-commit behavior through one atomic operation is exempt
 from that annotation contract.

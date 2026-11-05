@@ -28,12 +28,16 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import run.ratchet.api.AttemptToken;
+import run.ratchet.api.JobContext;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.spi.ErrorSanitizer;
@@ -42,6 +46,67 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 
 class LifecycleCallbackInvokerTest {
+
+  @Test
+  void callbacksHaveNoAttemptAndRestoreWorkerContext() throws Exception {
+    JobEntity job = new JobEntity();
+    job.setId(UUID.randomUUID());
+    JobPayload callback =
+        new JobPayload(
+            "Target",
+            "callback",
+            "(Ljava/lang/Object;)V",
+            true,
+            Arrays.asList((Object) null),
+            List.of(0));
+    job.setOnSuccessPayload(callback);
+    job.setOnFailurePayload(callback);
+    JobPayloadInvoker invoker = mock(JobPayloadInvoker.class);
+    PayloadSerializer serializer = mock(PayloadSerializer.class);
+    Instant deadline = Instant.parse("2026-01-01T00:00:00Z");
+    when(invoker.materializeArguments(any(), eq(serializer)))
+        .thenAnswer(
+            invocation -> {
+              JobContext ctx = (JobContext) invocation.<JobPayload>getArgument(0).args().get(0);
+              assertSame(ctx, JobContext.current());
+              assertTrue(ctx.attemptToken().isEmpty());
+              assertFalse(ctx.isCurrentAttempt());
+              assertEquals(deadline, ctx.deadline().orElseThrow());
+              assertTrue(ctx.isCancellationRequested());
+              assertEquals("value", ctx.param("key"));
+              return invocation.getArgument(0);
+            });
+    var callbacks =
+        new LifecycleCallbackInvoker(
+            mock(PreExecutionValidator.class),
+            invoker,
+            serializer,
+            mock(ExecutionObserver.class),
+            Clock.systemUTC(),
+            new DefaultErrorSanitizer());
+    AttemptToken token = new AttemptToken(job.getId(), 7);
+    JobContext.bind(
+        job.getId(),
+        null,
+        Map.of("key", "value"),
+        null,
+        null,
+        deadline,
+        () -> true,
+        new Object(),
+        token,
+        () -> true);
+    callbacks.invokeOnSuccess(job);
+    assertEquals(token, JobContext.current().attemptToken().orElseThrow());
+    assertTrue(JobContext.current().isCurrentAttempt());
+    assertEquals(deadline, JobContext.current().deadline().orElseThrow());
+    assertTrue(JobContext.current().isCancellationRequested());
+    callbacks.invokeOnFailure(job, new IllegalStateException("failed"));
+    assertEquals(token, JobContext.current().attemptToken().orElseThrow());
+    assertTrue(JobContext.current().isCurrentAttempt());
+    assertEquals(deadline, JobContext.current().deadline().orElseThrow());
+    assertTrue(JobContext.current().isCancellationRequested());
+  }
 
   @Test
   void missingContextStillInvokesCallbackWithNull() throws Exception {

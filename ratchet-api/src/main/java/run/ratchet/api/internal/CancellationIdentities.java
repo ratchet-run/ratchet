@@ -26,11 +26,11 @@ import run.ratchet.api.exception.CancellationRequestedException;
  * Framework-internal bridge for an opaque object the runtime creates for each execution attempt.
  * Applications must not depend on this type.
  */
-public final class AttemptTokens {
+public final class CancellationIdentities {
   private static volatile Function<JobContext, Object> contextReader;
   private static volatile BiPredicate<CancellationRequestedException, Object> stopMatcher;
 
-  private AttemptTokens() {}
+  private CancellationIdentities() {}
 
   public static void installContextReader(Function<JobContext, Object> reader) {
     contextReader = Objects.requireNonNull(reader);
@@ -41,12 +41,12 @@ public final class AttemptTokens {
     stopMatcher = Objects.requireNonNull(matcher);
   }
 
-  public static @Nullable Object tokenOf(@Nullable JobContext context) {
+  public static @Nullable Object identityOf(@Nullable JobContext context) {
     return context == null ? null : contextReader.apply(context);
   }
 
   public static boolean isCooperativeStop(
-      CancellationRequestedException exception, @Nullable Object attemptToken) {
-    return stopMatcher.test(exception, attemptToken);
+      CancellationRequestedException exception, @Nullable Object cancellationIdentity) {
+    return stopMatcher.test(exception, cancellationIdentity);
   }
 }

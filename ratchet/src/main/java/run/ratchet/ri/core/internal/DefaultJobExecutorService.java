@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
+import run.ratchet.api.Nullable;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobExecutorService;
@@ -310,7 +311,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       Runnable release) {
     TrackingFutureTask task;
     try {
-      task = prepareTask(callable, release);
+      task = prepareTask(callable, release, attempt);
     } catch (RejectedExecutionException e) {
       release.run();
       return ExecutionResult.rejected(e);
@@ -378,6 +379,9 @@ public class DefaultJobExecutorService implements JobExecutorService {
     synchronized (submissionLock) {
       acceptingExecutions.set(false);
       for (TrackingFutureTask task : activeFutures) {
+        if (task.attempt != null) {
+          task.attempt.markSuperseded();
+        }
         task.cancel(true);
       }
     }
@@ -456,8 +460,9 @@ public class DefaultJobExecutorService implements JobExecutorService {
     }
   }
 
-  private TrackingFutureTask prepareTask(Callable<Void> callable, Runnable release) {
-    TrackingFutureTask task = new TrackingFutureTask(callable, release);
+  private TrackingFutureTask prepareTask(
+      Callable<Void> callable, Runnable release, @Nullable JobAttemptControl attempt) {
+    TrackingFutureTask task = new TrackingFutureTask(callable, release, attempt);
     synchronized (submissionLock) {
       if (!acceptingExecutions.get()) {
         throw new RejectedExecutionException("Job executor is shutting down");
@@ -504,10 +509,13 @@ public class DefaultJobExecutorService implements JobExecutorService {
     private final AtomicBoolean runnerStarted = new AtomicBoolean(false);
     private final CountDownLatch runnerExited = new CountDownLatch(1);
     private final Runnable release;
+    private final @Nullable JobAttemptControl attempt;
 
-    private TrackingFutureTask(Callable<Void> callable, Runnable release) {
+    private TrackingFutureTask(
+        Callable<Void> callable, Runnable release, @Nullable JobAttemptControl attempt) {
       super(callable);
       this.release = release;
+      this.attempt = attempt;
     }
 
     @Override

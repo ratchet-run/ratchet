@@ -50,6 +50,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 import static run.ratchet.store.mongodb.MongoJobCrudOperations.ORPHAN_EXECUTION_CLOSE_BATCH;
 
+import com.mongodb.MongoWriteConcernException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
@@ -237,17 +238,37 @@ final class MongoJobLifecycleOperations
         "pickup_job",
         () -> {
           Instant now = Instant.now();
-          UpdateResult result =
-              ctx.jobs()
-                  .updateOne(
-                      and(eq(ID, id), eq(STATUS, "PENDING")),
-                      combine(
-                          set(STATUS, "RUNNING"),
-                          set(PICKED_BY, nodeId),
-                          set(PICKED_AT, DocumentMapper.toDate(now)),
-                          set(UPDATED_AT, DocumentMapper.toDate(now)),
-                          inc(CLAIM_SEQ, 1L),
-                          inc(VERSION, 1)));
+          Date pickedAt = DocumentMapper.toDate(now);
+          // Claims need majority because currentClaim reads majority-committed data.
+          // Configured timeout and journal settings still apply.
+          UpdateResult result;
+          try {
+            result =
+                ctx.jobs()
+                    .withWriteConcern(ctx.claimWriteConcern())
+                    .updateOne(
+                        and(eq(ID, id), eq(STATUS, "PENDING")),
+                        combine(
+                            set(STATUS, "RUNNING"),
+                            set(PICKED_BY, nodeId),
+                            set(PICKED_AT, pickedAt),
+                            set(UPDATED_AT, pickedAt),
+                            inc(CLAIM_SEQ, 1L),
+                            inc(VERSION, 1)));
+          } catch (MongoWriteConcernException e) {
+            try {
+              ctx.releaseUnacknowledgedClaim(List.of(id), nodeId, pickedAt);
+            } catch (RuntimeException releaseFailure) {
+              log.warnf(
+                  releaseFailure,
+                  "Failed to release claim %s at %s for node %s",
+                  List.of(id),
+                  pickedAt,
+                  nodeId);
+              e.addSuppressed(releaseFailure);
+            }
+            throw e;
+          }
           return result.getModifiedCount() > 0;
         });
   }
