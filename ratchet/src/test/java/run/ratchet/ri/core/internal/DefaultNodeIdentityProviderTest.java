@@ -17,6 +17,8 @@ package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -24,10 +26,10 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -55,6 +57,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.spi.ExhaustedOrphan;
 import run.ratchet.store.spi.JobBulkStore;
@@ -99,8 +102,9 @@ class DefaultNodeIdentityProviderTest {
   void setUp() {
     heartbeatCalculator = new TestHeartbeatCalculator();
     clock = Clock.fixed(Instant.parse("2026-05-12T12:00:00Z"), ZoneOffset.UTC);
-    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
-    doReturn(scheduledFuture)
+    lenient().when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    lenient()
+        .doReturn(scheduledFuture)
         .when(scheduledExecutor)
         .schedule(runnableCaptor.capture(), anyLong(), eq(TimeUnit.SECONDS));
 
@@ -129,6 +133,69 @@ class DefaultNodeIdentityProviderTest {
         explicitNodeId,
         clock,
         retryDelayJitter);
+  }
+
+  @Test
+  void init_retriesOwnNodeRecoveryAfterTransientFailure() {
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, 100))
+        .thenThrow(new RatchetTransientStoreException("transient conflict"))
+        .thenReturn(new OrphanRecovery(0, List.of()));
+
+    provider.init();
+
+    verify(jobBulkStore, times(2)).resetOrphanJobsForNode("test-node", 3, 100);
+    verify(jobBulkStore).resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void init_retriesOtherNodeRecoveryAfterTransientFailure() {
+    when(jobBulkStore.resetOrphanJobs(Duration.ofSeconds(30), 3, 100))
+        .thenThrow(new RatchetTransientStoreException("transient conflict"))
+        .thenReturn(new OrphanRecovery(0, List.of()));
+
+    provider.init();
+
+    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
+    verify(jobBulkStore, times(2)).resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void init_continuesWhenOtherNodeRecoveryExhaustsRetries() {
+    when(jobBulkStore.resetOrphanJobs(Duration.ofSeconds(30), 3, 100))
+        .thenThrow(new RatchetTransientStoreException("transient conflict"));
+
+    provider.init();
+
+    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
+    verify(jobBulkStore, times(3)).resetOrphanJobs(Duration.ofSeconds(30), 3, 100);
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void init_propagatesExhaustedOwnNodeRecoveryFailure() {
+    RatchetTransientStoreException failure =
+        new RatchetTransientStoreException("transient conflict");
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, 100)).thenThrow(failure);
+
+    assertSame(failure, assertThrows(RatchetTransientStoreException.class, provider::init));
+
+    verify(jobBulkStore, times(3)).resetOrphanJobsForNode("test-node", 3, 100);
+    verify(jobBulkStore, never()).resetOrphanJobs(any(Duration.class), eq(3), eq(100));
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
+  }
+
+  @Test
+  void init_propagatesNonTransientRecoveryFailureWithoutRetry() {
+    RuntimeException failure = new IllegalStateException("recovery failed");
+    when(jobBulkStore.resetOrphanJobsForNode("test-node", 3, 100)).thenThrow(failure);
+
+    assertSame(failure, assertThrows(IllegalStateException.class, provider::init));
+
+    verify(jobBulkStore).resetOrphanJobsForNode("test-node", 3, 100);
+    verify(jobBulkStore, never()).resetOrphanJobs(any(Duration.class), eq(3), eq(100));
+    verify(scheduledExecutor, never()).schedule(any(Runnable.class), anyLong(), any());
   }
 
   @Test
