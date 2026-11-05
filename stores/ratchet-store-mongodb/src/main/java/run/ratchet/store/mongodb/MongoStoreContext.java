@@ -15,14 +15,30 @@
  */
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Updates.combine;
+import static com.mongodb.client.model.Updates.inc;
+import static com.mongodb.client.model.Updates.set;
+import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
+import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
+import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
+
 import com.mongodb.MongoException;
 import com.mongodb.WriteConcern;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import java.time.Instant;
+import java.util.Date;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Supplier;
 import org.bson.Document;
 import run.ratchet.spi.MetricsCollector;
@@ -125,6 +141,24 @@ final class MongoStoreContext extends AbstractStoreContext {
 
   WriteConcern claimWriteConcern() {
     return jobs().getWriteConcern().withW("majority");
+  }
+
+  void releaseUnacknowledgedClaim(List<UUID> ids, String nodeId, Date pickedAt) {
+    jobs()
+        .withWriteConcern(claimWriteConcern())
+        .updateMany(
+            and(
+                new Document(ID, new Document("$in", ids)),
+                eq(PICKED_BY, nodeId),
+                eq(PICKED_AT, pickedAt),
+                eq(STATUS, "RUNNING")),
+            combine(
+                set(STATUS, "PENDING"),
+                set(PICKED_BY, null),
+                set(PICKED_AT, null),
+                set(EXECUTION_START_TIME, null),
+                set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                inc(VERSION, 1)));
   }
 
   MongoCollection<Document> jobs() {

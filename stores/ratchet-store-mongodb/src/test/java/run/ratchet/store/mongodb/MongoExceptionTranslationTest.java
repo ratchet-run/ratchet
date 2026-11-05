@@ -34,11 +34,13 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
+import com.mongodb.MongoWriteConcernException;
 import com.mongodb.MongoWriteException;
 import com.mongodb.ReadConcern;
 import com.mongodb.ReadPreference;
 import com.mongodb.ServerAddress;
 import com.mongodb.WriteConcern;
+import com.mongodb.WriteConcernResult;
 import com.mongodb.WriteError;
 import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
@@ -216,11 +218,7 @@ class MongoExceptionTranslationTest {
   @Test
   void tryPickUpJobPreservesConfiguredTimeoutAndJournal() {
     ClaimWriteFixture fixture = new ClaimWriteFixture();
-    MongoStoreContext ctx = contextWithJobs(fixture.jobs);
-    MongoJobLifecycleOperations lifecycle =
-        new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx));
-
-    assertTrue(lifecycle.tryPickUpJob(fixture.id, "node-1"));
+    assertTrue(fixture.pickUp());
 
     assertEquals(List.of(fixture.configured.withW("majority")), fixture.writeConcerns);
     assertEquals(fixture.configured.withW("majority"), fixture.pickupConcern);
@@ -278,6 +276,58 @@ class MongoExceptionTranslationTest {
   }
 
   @Test
+  void tryPickUpJobWriteConcernErrorReleasesOnlyThisClaimAndPropagates() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+    fixture.pickupFailure = pickupFailure();
+
+    IllegalStateException thrown = assertThrows(IllegalStateException.class, fixture::pickUp);
+
+    assertSame(fixture.pickupFailure, thrown.getCause());
+    assertEquals(0, fixture.readBacks);
+    assertEquals(1, fixture.releases);
+    assertEquals(
+        List.of(fixture.configured.withW("majority"), fixture.configured.withW("majority")),
+        fixture.writeConcerns);
+    assertEquals(fixture.configured.withW("majority"), fixture.pickupConcern);
+    assertEquals(fixture.configured.withW("majority"), fixture.releaseConcern);
+    BsonDocument claimUpdate = fixture.pickupUpdate;
+    BsonDocument expectedFilter =
+        bson(
+            new Document(
+                "$and",
+                List.of(
+                    new Document("_id", new Document("$in", List.of(fixture.id))),
+                    new Document("picked_by", "node-1"),
+                    new Document(
+                        "picked_at", claimUpdate.getDocument("$set").getDateTime("picked_at")),
+                    new Document("status", "RUNNING"))));
+    assertEquals(expectedFilter, fixture.releaseFilter);
+    BsonDocument releasedFields = fixture.releaseUpdate.getDocument("$set");
+    assertEquals(new BsonString("PENDING"), releasedFields.get("status"));
+    for (String field : List.of("picked_by", "picked_at", "execution_start_time")) {
+      assertTrue(releasedFields.get(field).isNull());
+    }
+    assertTrue(releasedFields.get("updated_at").isDateTime());
+    assertEquals(
+        new BsonDocument("version", new BsonInt32(1)), fixture.releaseUpdate.getDocument("$inc"));
+    assertFalse(fixture.releaseUpdate.toJson().contains("claim_seq"));
+  }
+
+  @Test
+  void tryPickUpJobReleaseFailureIsSuppressedOnOriginalWriteConcernError() {
+    ClaimWriteFixture fixture = new ClaimWriteFixture();
+    fixture.pickupFailure = pickupFailure();
+    fixture.releaseFailure = new MongoException("release failed");
+
+    IllegalStateException thrown = assertThrows(IllegalStateException.class, fixture::pickUp);
+
+    assertSame(fixture.pickupFailure, thrown.getCause());
+    assertEquals(List.of(fixture.releaseFailure), List.of(fixture.pickupFailure.getSuppressed()));
+    assertEquals(1, fixture.releases);
+    assertEquals(0, fixture.readBacks);
+  }
+
+  @Test
   void batchPerOperationWriteErrorStillReadsBack() {
     ClaimWriteFixture fixture = new ClaimWriteFixture();
     fixture.bulkFailure = bulkClaimFailure(false);
@@ -286,6 +336,14 @@ class MongoExceptionTranslationTest {
 
     assertEquals(1, fixture.readBacks);
     assertEquals(0, fixture.releases);
+  }
+
+  private static MongoWriteConcernException pickupFailure() {
+    return new MongoWriteConcernException(
+        new WriteConcernError(64, "WriteConcernFailed", "majority timeout", new BsonDocument()),
+        WriteConcernResult.acknowledged(1, false, null),
+        new ServerAddress(),
+        new HashSet<>());
   }
 
   private static MongoBulkWriteException bulkClaimFailure(boolean writeConcernError) {
@@ -319,8 +377,10 @@ class MongoExceptionTranslationTest {
     WriteConcern pickupConcern;
     WriteConcern releaseConcern;
     MongoBulkWriteException bulkFailure;
+    MongoWriteConcernException pickupFailure;
     RuntimeException releaseFailure;
     UpdateOneModel<?> claimOp;
+    BsonDocument pickupUpdate;
     BsonDocument releaseFilter;
     BsonDocument releaseUpdate;
     int readBacks;
@@ -347,6 +407,10 @@ class MongoExceptionTranslationTest {
                 }
                 case "updateOne" -> {
                   pickupConcern = activeConcern;
+                  pickupUpdate = bson((Bson) args[1]);
+                  if (pickupFailure != null) {
+                    throw pickupFailure;
+                  }
                   yield UpdateResult.acknowledged(1, 1L, null);
                 }
                 case "updateMany" -> {
@@ -366,6 +430,12 @@ class MongoExceptionTranslationTest {
                 default -> defaultValue(method);
               };
             });
+
+    boolean pickUp() {
+      MongoStoreContext ctx = contextWithJobs(jobs);
+      return new MongoJobLifecycleOperations(ctx, new MongoBatchOperations(ctx))
+          .tryPickUpJob(id, "node-1");
+    }
 
     List<JobEntity> claim() {
       return new MongoJobClaimOperations(contextWithJobs(jobs))

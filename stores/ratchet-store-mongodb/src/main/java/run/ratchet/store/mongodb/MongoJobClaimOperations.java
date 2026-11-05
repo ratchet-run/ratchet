@@ -304,7 +304,7 @@ final class MongoJobClaimOperations {
           } catch (MongoBulkWriteException e) {
             if (e.getWriteConcernError() != null) {
               try {
-                releaseUnacknowledgedClaim(ids, nodeId, nowDate);
+                ctx.releaseUnacknowledgedClaim(ids, nodeId, nowDate);
               } catch (RuntimeException releaseFailure) {
                 log.warnf(
                     releaseFailure,
@@ -352,23 +352,5 @@ final class MongoJobClaimOperations {
           return ordered;
         },
         claims -> claims.isEmpty() ? "miss" : "updated");
-  }
-
-  private void releaseUnacknowledgedClaim(List<UUID> ids, String nodeId, Date pickedAt) {
-    ctx.jobs()
-        .withWriteConcern(ctx.claimWriteConcern())
-        .updateMany(
-            and(
-                new Document(ID, new Document("$in", ids)),
-                eq(PICKED_BY, nodeId),
-                eq(PICKED_AT, pickedAt),
-                eq(STATUS, "RUNNING")),
-            combine(
-                set(STATUS, "PENDING"),
-                set(PICKED_BY, null),
-                set(PICKED_AT, null),
-                set(EXECUTION_START_TIME, null),
-                set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                inc(VERSION, 1)));
   }
 }
