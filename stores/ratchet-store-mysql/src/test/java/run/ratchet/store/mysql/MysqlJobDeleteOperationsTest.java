@@ -16,15 +16,20 @@
 package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 import static run.ratchet.store.entity.JobExecutionEntity.ORPHAN_RECOVERY_ERROR_MESSAGE;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
@@ -34,14 +39,23 @@ class MysqlJobDeleteOperationsTest {
   private final EntityManager em = mock(EntityManager.class);
   private final List<Statement> statements = new ArrayList<>();
   private final List<Object[]> rows = new ArrayList<>();
+  private final Set<UUID> rejectedIds = new HashSet<>();
+  private final List<String> liveOwners = new ArrayList<>();
 
   private record Statement(String sql, Query query) {}
 
   private MysqlJobDeleteOperations operations(int count) {
     for (int i = 0; i < count; i++) {
-      rows.add(
-          new Object[] {UuidByteArrayConverter.toBytes(new UUID(0, i + 1)), 7L, i % 2, "dead"});
+      seed(i + 1, i % 2, "dead");
     }
+    return operations();
+  }
+
+  private void seed(int id, int crashCount, String owner) {
+    rows.add(new Object[] {UuidByteArrayConverter.toBytes(new UUID(0, id)), 7L, crashCount, owner});
+  }
+
+  private MysqlJobDeleteOperations operations() {
     when(em.createNativeQuery(anyString()))
         .thenAnswer(
             invocation -> {
@@ -50,6 +64,8 @@ class MysqlJobDeleteOperationsTest {
               statements.add(new Statement(sql, query));
               if (sql.startsWith("SELECT job_id FROM")) {
                 when(query.getResultList()).thenReturn(rows.stream().map(row -> row[0]).toList());
+              } else if (sql.startsWith("SELECT node_id FROM scheduler_node")) {
+                when(query.getResultList()).thenReturn(liveOwners);
               } else if (sql.startsWith("SELECT")) {
                 int chunk =
                     (int) statements.stream().filter(s -> s.sql().contains("FOR UPDATE")).count()
@@ -58,7 +74,12 @@ class MysqlJobDeleteOperationsTest {
                 int end =
                     Math.min(
                         start + MysqlJobDeleteOperations.ORPHAN_RECOVERY_CHUNK_SIZE, rows.size());
-                when(query.getResultList()).thenReturn(rows.subList(start, end));
+                when(query.getResultList())
+                    .thenReturn(
+                        rows.subList(start, end).stream()
+                            .filter(
+                                row -> !rejectedIds.contains(MysqlJobRowMapper.uuidOrNull(row[0])))
+                            .toList());
               } else {
                 int ids = (int) sql.chars().filter(c -> c == '?').count();
                 when(query.executeUpdate())
@@ -78,6 +99,7 @@ class MysqlJobDeleteOperationsTest {
     assertEquals(1, statements.size());
     assertTrue(statements.get(0).sql().startsWith("SELECT job_id FROM"));
     assertFalse(statements.get(0).sql().contains("FOR UPDATE"));
+    assertFalse(statements.get(0).sql().contains("FOR SHARE"));
     assertTrue(statements.get(0).sql().endsWith("ORDER BY job_id"));
     verify(em, never()).clear();
   }
@@ -96,11 +118,11 @@ class MysqlJobDeleteOperationsTest {
     assertTrue(lock.contains("FORCE INDEX (PRIMARY) WHERE job_id IN"));
     assertTrue(lock.contains("picked_by IS NULL OR picked_by NOT IN"));
     assertTrue(lock.endsWith("ORDER BY job_id FOR UPDATE"));
-    assertEquals(4, statements.size());
-    verify(statements.get(2).query()).setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
-    verify(statements.get(3).query())
+    assertEquals(5, statements.size());
+    verify(statements.get(3).query()).setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
+    verify(statements.get(4).query())
         .setParameter(1, UuidByteArrayConverter.toBytes(new UUID(0, 1)));
-    verify(statements.get(3).query())
+    verify(statements.get(4).query())
         .setParameter(2, UuidByteArrayConverter.toBytes(new UUID(0, 3)));
     assertUpdatesUseIds();
     verify(em).clear();
@@ -130,6 +152,7 @@ class MysqlJobDeleteOperationsTest {
     }
     assertEquals(3, release.sql().chars().filter(c -> c == '?').count());
     assertUpdatesUseIds();
+    assertNoNodeRead();
   }
 
   @Test
@@ -137,6 +160,94 @@ class MysqlJobDeleteOperationsTest {
     var result = operations(2).resetOrphanJobsForNode("dead", 1, 0);
     assertTrue(result.exhausted().isEmpty());
     assertTrue(statements.stream().anyMatch(s -> isRelease(s.sql())));
+    assertNoNodeRead();
+  }
+
+  @Test
+  void lockReadRejectionsNeverReachUpdates() {
+    rejectedIds.addAll(List.of(new UUID(0, 1), new UUID(0, 2)));
+    var result = operations(4).resetOrphanJobsForNode("dead", 1, 100);
+    assertEquals(1, result.reset());
+    assertEquals(List.of(new UUID(0, 4)), result.exhausted().stream().map(r -> r.jobId()).toList());
+    assertUpdateIds(List.of(3, 4), List.of(3), List.of(4));
+    assertNoNodeRead();
+  }
+
+  @Test
+  void emptyLockReadIssuesNoUpdatesOrNodeRead() {
+    rejectedIds.addAll(List.of(new UUID(0, 1), new UUID(0, 2)));
+    var result = operations(2).resetOrphanJobsBefore(Instant.now(), 1, 100);
+    assertEquals(0, result.reset());
+    assertTrue(result.exhausted().isEmpty());
+    assertEquals(2, statements.size());
+    assertTrue(statements.stream().noneMatch(s -> s.sql().startsWith("UPDATE")));
+    assertNoNodeRead();
+  }
+
+  @Test
+  void periodicScanSkipsRowsWhoseOwnerIsLiveUnderLock() {
+    seed(1, 0, "dead");
+    seed(2, 0, "back");
+    seed(3, 1, "back");
+    seed(4, 1, null);
+    seed(5, 0, null);
+    seed(6, 1, "dead");
+    liveOwners.add("back");
+    Instant cutoff = Instant.now();
+    var result = operations().resetOrphanJobsBefore(cutoff, 1, 100);
+    assertEquals(2, result.reset());
+    assertEquals(
+        List.of(new UUID(0, 4), new UUID(0, 6)),
+        result.exhausted().stream().map(r -> r.jobId()).toList());
+    Statement nodes = statements.get(2);
+    assertTrue(
+        nodes
+            .sql()
+            .startsWith(
+                "SELECT node_id FROM scheduler_node FORCE INDEX (PRIMARY) WHERE node_id IN"));
+    assertTrue(nodes.sql().endsWith("FOR SHARE"));
+    assertEquals(3, nodes.sql().chars().filter(c -> c == '?').count());
+    verify(nodes.query()).setParameter(1, "back");
+    verify(nodes.query()).setParameter(2, "dead");
+    verify(nodes.query()).setParameter(3, Timestamp.from(cutoff));
+    verify(nodes.query(), times(3)).setParameter(anyInt(), any());
+    assertUpdateIds(List.of(1, 4, 5, 6), List.of(1, 5), List.of());
+  }
+
+  @Test
+  void periodicScanSkipsNodeReadWhenAllOwnersAreNull() {
+    seed(1, 0, null);
+    seed(2, 1, null);
+    var result = operations().resetOrphanJobsBefore(Instant.now(), 1, 100);
+    assertEquals(1, result.reset());
+    assertEquals(new UUID(0, 2), result.exhausted().get(0).jobId());
+    assertNoNodeRead();
+    assertUpdateIds(List.of(1, 2), List.of(1), List.of());
+  }
+
+  private void assertNoNodeRead() {
+    assertTrue(
+        statements.stream()
+            .noneMatch(s -> s.sql().startsWith("SELECT node_id FROM scheduler_node")));
+  }
+
+  private void assertUpdateIds(List<Integer> closed, List<Integer> reset, List<Integer> released) {
+    int expectedUpdates =
+        (closed.isEmpty() ? 0 : 1) + (reset.isEmpty() ? 0 : 1) + (released.isEmpty() ? 0 : 1);
+    assertEquals(
+        expectedUpdates, statements.stream().filter(s -> s.sql().startsWith("UPDATE")).count());
+    for (Statement statement : statements) {
+      if (!statement.sql().startsWith("UPDATE")) continue;
+      boolean close = statement.sql().contains("scheduler_job_execution");
+      List<Integer> ids = close ? closed : isRelease(statement.sql()) ? released : reset;
+      int first = close ? 2 : 1;
+      assertEquals(ids.size() + first - 1, statement.sql().chars().filter(c -> c == '?').count());
+      for (int i = 0; i < ids.size(); i++) {
+        verify(statement.query())
+            .setParameter(first + i, UuidByteArrayConverter.toBytes(new UUID(0, ids.get(i))));
+      }
+      verify(statement.query(), times(ids.size() + first - 1)).setParameter(anyInt(), any());
+    }
   }
 
   private static boolean isRelease(String sql) {

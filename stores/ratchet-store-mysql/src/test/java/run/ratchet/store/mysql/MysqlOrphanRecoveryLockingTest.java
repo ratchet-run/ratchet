@@ -17,6 +17,7 @@ package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import jakarta.persistence.EntityManager;
@@ -71,6 +72,69 @@ class MysqlOrphanRecoveryLockingTest {
   @ValueSource(ints = {4, 2})
   void startupScanDoesNotBlockOnOtherNodesRunningRows(int isolation) {
     scanWithOtherOwnersRowLocked(isolation, true);
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {4, 2})
+  void periodicScanSeesHeartbeatCommittedAfterItsSnapshot(int isolation) {
+    fixture.cleanupStore();
+    emf = newFactory(isolation);
+    Instant now = Instant.now();
+    Instant cutoff = now.minusSeconds(60);
+    var seed = emf.createEntityManager();
+    var heartbeat = emf.createEntityManager();
+    var scan = emf.createEntityManager();
+    try {
+      var seedStore = store(seed);
+      seed.getTransaction().begin();
+      seedStore.upsertHeartbeat("live", now);
+      seedStore.upsertHeartbeat("late", now.minusSeconds(3600));
+      UUID jobId = runningJob(seedStore, "late", cutoff.minusSeconds(60));
+      seed.getTransaction().commit();
+
+      var scanStore = store(scan);
+      scan.getTransaction().begin();
+      scan.createNativeQuery("SET SESSION innodb_lock_wait_timeout = 1").executeUpdate();
+      // Under REPEATABLE READ this fixes the snapshot, as the candidate read does in production.
+      scan.createNativeQuery("SELECT COUNT(*) FROM scheduler_node").getSingleResult();
+
+      var heartbeatStore = store(heartbeat);
+      heartbeat.getTransaction().begin();
+      heartbeatStore.upsertHeartbeat("late", now);
+      heartbeat.getTransaction().commit();
+
+      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+      // Before this fix isolation 4 reset the job because the heartbeat check read the old
+      // snapshot.
+      assertEquals(0, recovery.reset());
+      assertTrue(recovery.exhausted().isEmpty());
+
+      // The scan locks only candidate owners' node rows, so other nodes' heartbeats do not wait.
+      heartbeat.getTransaction().begin();
+      heartbeat.createNativeQuery("SET SESSION innodb_lock_wait_timeout = 1").executeUpdate();
+      heartbeatStore.upsertHeartbeat("live", now.plusSeconds(1));
+      heartbeat.getTransaction().commit();
+      scan.getTransaction().commit();
+
+      scan.getTransaction().begin();
+      var job = scanStore.findById(jobId).orElseThrow();
+      assertEquals(JobStatus.RUNNING, job.getStatus());
+      assertEquals("late", job.getPickedBy());
+      assertEquals(
+          0,
+          ((Number)
+                  scan.createNativeQuery(
+                          "SELECT crash_count FROM scheduler_job_queue WHERE job_id = ?")
+                      .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+                      .getSingleResult())
+              .intValue());
+      scan.getTransaction().commit();
+    } finally {
+      for (var em : List.of(scan, heartbeat, seed)) {
+        if (em.getTransaction().isActive()) em.getTransaction().rollback();
+        em.close();
+      }
+    }
   }
 
   private void scanWithOtherOwnersRowLocked(int isolation, boolean startup) {

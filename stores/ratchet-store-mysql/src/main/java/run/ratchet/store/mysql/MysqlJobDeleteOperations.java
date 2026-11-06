@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.TreeSet;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
@@ -229,7 +230,8 @@ final class MysqlJobDeleteOperations {
         List.of(cutoffTimestamp, cutoffTimestamp),
         maxCrashRedeliveries,
         exhaustedLimit,
-        false);
+        false,
+        cutoffTimestamp);
   }
 
   OrphanRecovery resetOrphanJobsForNode(
@@ -239,7 +241,8 @@ final class MysqlJobDeleteOperations {
         List.of(nodeId),
         maxCrashRedeliveries,
         exhaustedLimit,
-        true);
+        true,
+        null);
   }
 
   private OrphanRecovery recoverOrphans(
@@ -247,12 +250,17 @@ final class MysqlJobDeleteOperations {
       List<?> parameters,
       int maxCrashRedeliveries,
       int exhaustedLimit,
-      boolean releaseOwner) {
+      boolean releaseOwner,
+      Timestamp liveSince) {
     try {
       // The candidate read takes no locks, so a scan without orphans locks nothing. The re-check
       // locks only candidates through PRIMARY in key order, matching the terminal DELETE; later
       // statements address those locked rows by id. All chunks share one transaction and hold
       // locks until commit: chunking only bounds statement size.
+      // Under REPEATABLE READ the lock statement's node subquery reads the candidate snapshot,
+      // so periodic scans re-read owner heartbeats with a locking read keyed by primary key.
+      // This sees heartbeats committed since and locks only owners' node rows, so other nodes'
+      // heartbeats do not wait for the scan.
       Query candidates =
           ctx.em()
               .createNativeQuery(
@@ -286,11 +294,42 @@ final class MysqlJobDeleteOperations {
                         + " ORDER BY job_id FOR UPDATE");
         bindUuidList(lock, chunk, 1);
         bindPredicate(lock, parameters, chunk.size() + 1);
+        List<?> lockedRows = lock.getResultList();
+        List<?> liveOwners = List.of();
+        if (liveSince != null) {
+          TreeSet<String> owners = new TreeSet<>();
+          for (Object result : lockedRows) {
+            Object[] row = (Object[]) result;
+            if (row[3] != null) {
+              owners.add(row[3].toString());
+            }
+          }
+          if (!owners.isEmpty()) {
+            Query nodes =
+                ctx.em()
+                    .createNativeQuery(
+                        """
+                        SELECT node_id FROM scheduler_node FORCE INDEX (PRIMARY)
+                        WHERE node_id IN (
+                        """
+                            + String.join(",", Collections.nCopies(owners.size(), "?"))
+                            + ") AND heartbeat_ts >= ? ORDER BY node_id FOR SHARE");
+            int index = 1;
+            for (String owner : owners) {
+              nodes.setParameter(index++, owner);
+            }
+            nodes.setParameter(index, liveSince);
+            liveOwners = nodes.getResultList();
+          }
+        }
         List<UUID> confirmed = new ArrayList<>();
         List<UUID> resettable = new ArrayList<>();
         List<UUID> exhaustedIds = new ArrayList<>();
-        for (Object result : lock.getResultList()) {
+        for (Object result : lockedRows) {
           Object[] row = (Object[]) result;
+          if (row[3] != null && liveOwners.contains(row[3].toString())) {
+            continue;
+          }
           UUID id = MysqlJobRowMapper.uuidOrNull(row[0]);
           int crashCount = ((Number) row[2]).intValue();
           confirmed.add(id);
