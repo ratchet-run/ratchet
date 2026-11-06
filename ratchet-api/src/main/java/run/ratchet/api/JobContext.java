@@ -372,6 +372,10 @@ public final class JobContext {
    * normally. Attempts and the circuit breaker are untouched. The return value is ignored and
    * onSuccess callbacks are not called for a continued run.
    *
+   * <p>Ratchet clears the request before each call it makes, including resilience-strategy re-runs.
+   * An interceptor that re-calls the method inside one call does not clear the request, so call
+   * {@code requestContinuation()} only right before returning.
+   *
    * <p>Return only after the work's transaction commits. Rollback, including rollback-only, drops
    * its checkpoint and the next execution repeats that work. Eligible jobs are picked up at the
    * next poll. If the returning run lands its transition before the watchdog, it counts as a
@@ -380,8 +384,9 @@ public final class JobContext {
    * <p>The global {@code ratchet.execution.max-continuations} budget counts the life of the job
    * across retries. The count is an upper bound: a crash, lost race or failed transition can spend
    * a continuation that never runs. A counter or transition store failure uses normal failure
-   * handling and spends a retry attempt. Continued execution-history rows are SUCCEEDED and may
-   * share an attempt number. The transition is timed as {@code schedule_retry} in store metrics.
+   * handling and spends a retry attempt. Execution-history rows are marked SUCCEEDED only after the
+   * continuation transition succeeds and may share an attempt number. The transition is timed as
+   * {@code schedule_retry} in store metrics.
    *
    * @throws NullPointerException if delay is null
    * @throws IllegalArgumentException if delay is negative

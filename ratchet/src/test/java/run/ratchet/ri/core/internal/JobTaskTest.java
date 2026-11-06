@@ -59,6 +59,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
@@ -224,8 +226,8 @@ class JobTaskTest {
     InOrder order = inOrder(scenario.store(), observabilityFacade, jobStore);
     order.verify(scenario.store()).getState(JOB_UUID, CONTINUATION_NS);
     order.verify(scenario.store()).initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L);
-    order.verify(observabilityFacade).saveExecution(scenario.execution());
     order.verify(jobStore).scheduleJobRetry(JOB_UUID, null, FIXED_NOW.plusSeconds(2), 0, 7L);
+    order.verify(observabilityFacade).saveExecution(scenario.execution());
     Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
     Assertions.assertNull(scenario.job().getLastError());
     Assertions.assertEquals(0, scenario.job().getAttempts());
@@ -345,6 +347,9 @@ class JobTaskTest {
             1000);
     attempt.set(scenario.attempt());
     jobTask.call();
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(
+        JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, scenario.execution().getErrorMessage());
     verify(scenario.store(), never()).getState(JOB_UUID, CONTINUATION_NS);
     verify(jobStore, never()).scheduleJobRetry(any(), any(), any(), anyInt(), any());
   }
@@ -381,12 +386,60 @@ class JobTaskTest {
               scenario.job().setStatus(JobStatus.PAUSED);
               return false;
             });
+    doAnswer(
+            invocation -> {
+              JobExecutionEntity execution = invocation.getArgument(0);
+              Assertions.assertEquals(ExecutionStatus.FAILED, execution.getStatus());
+              return null;
+            })
+        .when(observabilityFacade)
+        .saveExecution(scenario.execution());
     Assertions.assertDoesNotThrow(() -> jobTask.call());
     verify(scenario.store()).initState(JOB_UUID, CONTINUATION_NS, "{\"count\":1}", 7L);
-    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    Assertions.assertEquals(ExecutionStatus.FAILED, scenario.execution().getStatus());
+    Assertions.assertEquals(
+        JobExecutionEntity.RESULT_DISCARDED_ERROR_MESSAGE, scenario.execution().getErrorMessage());
+    verify(observabilityFacade, never())
+        .saveExecution(argThat(execution -> execution.getStatus() == ExecutionStatus.SUCCEEDED));
     Assertions.assertEquals(JobStatus.PAUSED, scenario.job().getStatus());
     Assertions.assertTrue(scenario.attempt().isSuperseded());
     verify(jobStore, never()).incrementRetryAttempt(any(), any());
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{\"count\":-0.5}",
+        "{\"count\":2.7}",
+        "{\"count\":\"x\"}",
+        "{}",
+        "not json",
+        "{\"count\":9223372036854775808}"
+      })
+  void malformedContinuationCounterIsRepaired(String json) throws Exception {
+    assertStoredContinuationCounter(json, 1);
+  }
+
+  @Test
+  void integralDecimalContinuationCounterIsAccepted() throws Exception {
+    assertStoredContinuationCounter("{\"count\":3.0}", 4);
+  }
+
+  private void assertStoredContinuationCounter(String json, long nextCount) throws Exception {
+    var scenario = continuationScenario(() -> JobContext.current().requestContinuation(), 1000);
+    String repaired = "{\"count\":" + nextCount + "}";
+    when(scenario.store().getState(JOB_UUID, CONTINUATION_NS))
+        .thenReturn(Optional.of(new JobStateStore.VersionedState(json, 9)));
+    when(scenario.store().updateState(JOB_UUID, CONTINUATION_NS, repaired, 9, 7L))
+        .thenReturn(StateWriteResult.UPDATED);
+    when(jobStore.scheduleJobRetry(JOB_UUID, null, FIXED_NOW, 0, 7L)).thenReturn(true);
+    Assertions.assertDoesNotThrow(() -> jobTask.call());
+    verify(scenario.store()).updateState(JOB_UUID, CONTINUATION_NS, repaired, 9, 7L);
+    Assertions.assertEquals(JobStatus.PENDING, scenario.job().getStatus());
+    Assertions.assertEquals(ExecutionStatus.SUCCEEDED, scenario.execution().getStatus());
+    verify(jobStore, never()).incrementRetryAttempt(any(), any());
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
+    verify(lifecycleFacade, never()).completeFailure(any(), any(), anyBoolean());
   }
 
   @Test

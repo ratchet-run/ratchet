@@ -564,6 +564,9 @@ void testJobUsesParameters() {
 Use `requestContinuation()` to split checkpointed work into executions without spending
 retry attempts. Pass a non-negative `Duration` to delay the next execution; the last call
 wins. The request stays in memory and only takes effect if the method returns normally.
+Ratchet clears the request before each call it makes, including resilience-strategy re-runs.
+An interceptor that re-calls the method inside one call does not clear the request, so call
+`requestContinuation()` only right before returning.
 For example, a cursor-based job can yield at a safe point:
 
 ```java
@@ -583,8 +586,8 @@ if the watchdog wins, normal timeout handling uses a retry attempt.
 
 Continued runs ignore return values and skip `onSuccess`, result persistence and success
 finalization. Attempts and the circuit breaker are untouched. Execution history records
-`SUCCEEDED` runs sharing the same attempt number. The store transition uses the
-`schedule_retry` metric. Previous progress remains visible until the next report.
+`SUCCEEDED` only after the continuation transition succeeds; runs may share an attempt number.
+The store transition uses the `schedule_retry` metric. Previous progress remains visible until the next report.
 
 Continuation requires `JobStateStore`, like checkpoints. Outside a persisted attempt it
 throws `IllegalStateException`; without job state it throws `UnsupportedOperationException`.
