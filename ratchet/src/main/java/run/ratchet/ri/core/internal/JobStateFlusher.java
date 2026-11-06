@@ -42,6 +42,9 @@ public class JobStateFlusher {
   private long scheduledDue;
   private long generation;
   private boolean draining;
+  // Set when the executor rejected a schedule, so the next markDirty retries even for a queued
+  // writer.
+  private volatile boolean scheduleFailed;
 
   protected JobStateFlusher() {
     this(RatchetOptions.builder().build(), System::nanoTime);
@@ -68,7 +71,7 @@ public class JobStateFlusher {
 
   public void markDirty(FlushableState writer) {
     long due = nanoTime.getAsLong() + TimeUnit.MILLISECONDS.toNanos(writer.flushIntervalMs());
-    if (dirty.putIfAbsent(writer, due) == null) scheduleIfNeeded();
+    if (dirty.putIfAbsent(writer, due) == null || scheduleFailed) scheduleIfNeeded();
   }
 
   public void remove(FlushableState writer) {
@@ -110,8 +113,10 @@ public class JobStateFlusher {
       handle =
           executor.schedule(
               () -> runScheduled(ticket), Math.max(0, due - now), TimeUnit.NANOSECONDS);
+      scheduleFailed = false;
     } catch (RuntimeException failure) {
       handle = null;
+      scheduleFailed = true;
       log.warn("Could not schedule job state flush", failure);
     }
   }
