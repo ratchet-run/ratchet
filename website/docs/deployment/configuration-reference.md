@@ -9,7 +9,7 @@ This page lists every fixed key read by `RatchetOptionsFactory.fromEnvironment()
 
 The table is checked against `RatchetConfigKeys` during the website build. Adding, removing, or renaming a fixed key fails the documentation check until this reference is regenerated with `npm run docs:sync-config-reference`.
 
-This build exposes **65 fixed keys**.
+This build exposes **66 fixed keys**.
 
 <!-- CONFIG_REFERENCE_START -->
 
@@ -29,6 +29,7 @@ This build exposes **65 fixed keys**.
 | `ratchet.coordinator.thread-factory-jndi` | `RATCHET_COORDINATOR_THREAD_FACTORY_JNDI` | `java:comp/DefaultManagedThreadFactory` | `COORDINATOR_THREAD_FACTORY_JNDI` |
 | `ratchet.worker.virtual-executor-jndi` | `RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI` | `(empty string)` | `WORKER_VIRTUAL_EXECUTOR_JNDI` |
 | `ratchet.worker.virtual-counter-accounting` | `RATCHET_WORKER_VIRTUAL_COUNTER_ACCOUNTING` | `false` | `WORKER_VIRTUAL_COUNTER_ACCOUNTING` |
+| `ratchet.execution.progress-flush-interval-ms` | `RATCHET_EXECUTION_PROGRESS_FLUSH_INTERVAL_MS` | `10000` | `PROGRESS_FLUSH_INTERVAL_MS` |
 | `ratchet.execution.checkpoint-flush-interval-ms` | `RATCHET_EXECUTION_CHECKPOINT_FLUSH_INTERVAL_MS` | `1000` | `CHECKPOINT_FLUSH_INTERVAL_MS` |
 | `ratchet.thread-pool.queue-size` | `RATCHET_THREAD_POOL_QUEUE_SIZE` | `100` | `THREAD_POOL_QUEUE_SIZE` |
 | `ratchet.thread-pool.size.single` | `RATCHET_THREAD_POOL_SIZE_SINGLE` | `20` | `THREAD_POOL_SIZE_SINGLE` |
@@ -110,3 +111,10 @@ Circuit-breaker settings are `failure-rate`, `window-size`, `wait-ms`, `half-ope
 ## Invalid values
 
 Values are trimmed and parsed through the typed catalog. An invalid value emits one warning and falls back to the default instead of being silently accepted. The [configuration guide](/getting-started/configuration) describes the corresponding builder options and CDI setup.
+
+`ratchet.execution.progress-flush-interval-ms` sets the delay before Ratchet saves
+reported progress. Its environment variable is `RATCHET_EXECUTION_PROGRESS_FLUSH_INTERVAL_MS`.
+The default is `10000` ms and the minimum is `1`. Invalid configured values use the
+default. Ratchet coalesces reports and saves the latest value once per interval,
+plus once before completion or retry. An idle node or a job that never reports makes
+no progress writes. Shutdown skips pending progress because running jobs will restart.

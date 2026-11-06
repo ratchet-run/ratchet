@@ -17,6 +17,7 @@ package run.ratchet.testsuite.capability;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,6 +28,7 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobQueryService;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.BatchStore;
@@ -41,6 +43,7 @@ import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import run.ratchet.testsuite.app.ProgressJob;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
@@ -61,6 +64,7 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
+  @Inject private JobQueryService queries;
   @Inject private JobCrudStore jobCrudStore;
   @Inject private JobSchedulerService scheduler;
 
@@ -84,7 +88,8 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(SimpleJob.class, TestJobService.class, CoreOnlyStoreExtension.class)
+        .addClasses(
+            SimpleJob.class, ProgressJob.class, TestJobService.class, CoreOnlyStoreExtension.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build()
@@ -110,6 +115,13 @@ class CoreOnlyStoreDeploymentIT extends BaseRatchetIT {
     assertTrue(auditStore.isUnsatisfied(), "JobAuditStore must be unsatisfied");
     assertTrue(jobPropertyStore.isUnsatisfied(), "JobPropertyStore must be unsatisfied");
     assertTrue(jobStateStore.isUnsatisfied(), "JobStateStore must be unsatisfied");
+  }
+
+  @Test
+  void progressWithoutCapabilityIsANoOp() {
+    JobHandle handle = jobService.enqueueNow(ProgressJob::immediate);
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
+    assertNull(queries.getJobDetail(handle.id()).orElseThrow().progress());
   }
 
   @Test

@@ -100,7 +100,7 @@ class JobExecutorServiceTest {
             null,
             null,
             mock(AfterCommitRegistrar.class),
-            mock(CheckpointFlusher.class),
+            mock(JobStateFlusher.class),
             FIXED_CLOCK,
             null);
   }

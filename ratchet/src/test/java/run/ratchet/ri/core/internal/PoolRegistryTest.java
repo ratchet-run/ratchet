@@ -123,8 +123,11 @@ class PoolRegistryTest {
                 Map.of(),
                 "platform",
                 "scheduled",
+                "factory",
                 "virtual",
-                counterAccounting));
+                counterAccounting,
+                1000L,
+                10000L));
     return options;
   }
 

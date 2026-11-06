@@ -59,7 +59,6 @@ import run.ratchet.ri.core.SubmissionFailureHandler;
 import run.ratchet.ri.core.SubmissionGateChecker;
 import run.ratchet.ri.core.WorkflowConditionEvaluator;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
-import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.DoNotRetryPolicy;
 import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
@@ -68,6 +67,7 @@ import run.ratchet.ri.core.internal.ExecutionTargetRouter;
 import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
 import run.ratchet.ri.core.internal.JobPayloadInvoker;
+import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.JobSuccessFinalizer;
 import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
@@ -120,6 +120,16 @@ class RatchetEngineWiringTest {
       context.start();
       assertEquals(
           250L, context.getBean(RatchetOptions.class).execution().checkpointFlushIntervalMs());
+    }
+  }
+
+  @Test
+  void progressIntervalBindsThroughEngineOptions() {
+    try (ApplicationContext context =
+        TestContexts.engine(Map.of("ratchet.execution.progress-flush-interval-ms", 250))) {
+      context.start();
+      assertEquals(
+          250L, context.getBean(RatchetOptions.class).execution().progressFlushIntervalMs());
     }
   }
 
@@ -337,7 +347,7 @@ class RatchetEngineWiringTest {
           Map.entry("singletonLeaseService", SingletonLeaseService.class),
           Map.entry("defaultDrainController", DrainController.class),
           Map.entry("batchRecoveryTimer", BatchRecoveryTimer.class),
-          Map.entry("checkpointFlusher", CheckpointFlusher.class),
+          Map.entry("jobStateFlusher", JobStateFlusher.class),
           Map.entry("ratchetExecutorProvider", ExecutorProvider.class),
           Map.entry("internalEventPublisher", InternalEventPublisher.class),
           Map.entry("poolRegistry", PoolRegistry.class),

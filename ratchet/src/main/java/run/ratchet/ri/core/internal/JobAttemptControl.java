@@ -36,19 +36,19 @@ import run.ratchet.store.spi.JobClaimStore;
  */
 public final class JobAttemptControl {
   private static final Logger log = Logger.getLogger(JobAttemptControl.class);
-  private volatile @Nullable Runnable checkpointFlush;
+  private volatile @Nullable Runnable stateFlush;
 
-  public void attachCheckpointFlush(Runnable hook) {
-    checkpointFlush = hook;
+  public void attachStateFlush(Runnable hook) {
+    stateFlush = hook;
   }
 
-  public void flushCheckpointsQuietly() {
-    Runnable hook = checkpointFlush;
+  public void flushStateQuietly() {
+    Runnable hook = stateFlush;
     if (hook == null) return;
     try {
       hook.run();
     } catch (Throwable failure) {
-      log.warnf(failure, "Checkpoint flush failed for job %s", jobId);
+      log.warnf(failure, "State flush failed for job %s", jobId);
     }
   }
 

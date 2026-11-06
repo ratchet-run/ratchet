@@ -33,9 +33,9 @@ import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.RatchetRuntime;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.core.internal.BatchRecoveryTimer;
-import run.ratchet.ri.core.internal.CheckpointFlusher;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.ri.core.internal.JobExecutionCoordinator;
+import run.ratchet.ri.core.internal.JobStateFlusher;
 import run.ratchet.ri.core.internal.LogPurgeTimer;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
@@ -62,7 +62,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       RecurringScheduler recurringScheduler,
       OrphanRecoveryTimer orphanRecoveryTimer,
       BatchRecoveryTimer batchRecoveryTimer,
-      CheckpointFlusher checkpointFlusher,
+      JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetterService,
       JobArchivingService jobArchivingService,
       LogPurgeTimer logPurgeTimer,
@@ -78,7 +78,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
         recurringScheduler,
         orphanRecoveryTimer,
         batchRecoveryTimer,
-        checkpointFlusher,
+        jobStateFlusher,
         deadLetterService,
         jobArchivingService,
         logPurgeTimer,
@@ -98,7 +98,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
       RecurringScheduler recurringScheduler,
       OrphanRecoveryTimer orphanRecoveryTimer,
       BatchRecoveryTimer batchRecoveryTimer,
-      CheckpointFlusher checkpointFlusher,
+      JobStateFlusher jobStateFlusher,
       DeadLetterService deadLetterService,
       JobArchivingService jobArchivingService,
       LogPurgeTimer logPurgeTimer,
@@ -116,7 +116,7 @@ public class DefaultRatchetLifecycle implements RatchetLifecycle {
             recurringScheduler,
             orphanRecoveryTimer,
             batchRecoveryTimer,
-            checkpointFlusher,
+            jobStateFlusher,
             deadLetterService,
             jobArchivingService,
             logPurgeTimer,

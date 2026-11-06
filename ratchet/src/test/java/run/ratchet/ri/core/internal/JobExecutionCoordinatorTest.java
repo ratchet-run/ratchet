@@ -34,7 +34,7 @@ class JobExecutionCoordinatorTest {
     JobExecutorService executor = mock(JobExecutorService.class);
     JobStateManager state = mock(JobStateManager.class);
     RetryBufferDrainer drainer = mock(RetryBufferDrainer.class);
-    CheckpointFlusher flusher = mock(CheckpointFlusher.class);
+    JobStateFlusher flusher = mock(JobStateFlusher.class);
     JobExecutionCoordinator coordinator =
         new JobExecutionCoordinator(
             mock(JobSubmissionService.class), state, drainer, executor, flusher);
@@ -52,7 +52,7 @@ class JobExecutionCoordinatorTest {
 
   @Test
   void flushFailureDoesNotStopResetEvenWithZeroDrainTimeout() {
-    CheckpointFlusher flusher = mock(CheckpointFlusher.class);
+    JobStateFlusher flusher = mock(JobStateFlusher.class);
     JobStateManager state = mock(JobStateManager.class);
     JobExecutorService executor = mock(JobExecutorService.class);
     doThrow(new IllegalStateException("store failed")).when(flusher).flushAll();

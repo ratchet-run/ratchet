@@ -64,7 +64,7 @@ class JobCheckpointWriterTest {
   private final JobStateStore store = mock(JobStateStore.class);
   private final AfterCommitRegistrar registrar = mock(AfterCommitRegistrar.class);
   private final PayloadSerializer serializer = mock(PayloadSerializer.class);
-  private final CheckpointFlusher flusher = mock(CheckpointFlusher.class);
+  private final JobStateFlusher flusher = mock(JobStateFlusher.class);
   private final JobAttemptControl attempt =
       new JobAttemptControl(id, Instant.EPOCH.plusSeconds(30), 30, Instant.EPOCH, 0, 7, "node");
   private final List<Runnable> commits = new ArrayList<>();

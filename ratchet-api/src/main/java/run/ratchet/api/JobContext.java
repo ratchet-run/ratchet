@@ -28,6 +28,8 @@ import run.ratchet.api.exception.CancellationRequestedException;
 import run.ratchet.api.internal.CancellationIdentities;
 import run.ratchet.api.internal.CheckpointBindings;
 import run.ratchet.api.internal.JobCheckpoints;
+import run.ratchet.api.internal.JobProgressSink;
+import run.ratchet.api.internal.ProgressBindings;
 import run.ratchet.spi.JobLogger;
 
 /**
@@ -60,12 +62,14 @@ public final class JobContext {
   static {
     CancellationIdentities.installContextReader(context -> context.cancellationIdentity);
     CheckpointBindings.installContextReader(context -> context.checkpoints);
+    ProgressBindings.installContextReader(context -> context.progress);
   }
 
   private final @Nullable Object cancellationIdentity;
   private final @Nullable AttemptToken attemptToken;
   private final BooleanSupplier currentAttempt;
   private final @Nullable JobCheckpoints checkpoints;
+  private final @Nullable JobProgressSink progress;
   private final @Nullable Instant deadline;
   private final BooleanSupplier cancellationRequested;
   private final UUID jobId;
@@ -104,6 +108,7 @@ public final class JobContext {
         null,
         null,
         NEVER,
+        null,
         null);
   }
 
@@ -118,11 +123,13 @@ public final class JobContext {
       @Nullable Object cancellationIdentity,
       @Nullable AttemptToken attemptToken,
       BooleanSupplier currentAttempt,
-      @Nullable JobCheckpoints checkpoints) {
+      @Nullable JobCheckpoints checkpoints,
+      @Nullable JobProgressSink progress) {
     if (attemptToken != null && !attemptToken.jobId().equals(jobId)) {
       throw new IllegalArgumentException("Attempt token belongs to another job");
     }
     this.checkpoints = checkpoints;
+    this.progress = attemptToken == null ? null : progress;
     this.attemptToken = attemptToken;
     Objects.requireNonNull(currentAttempt);
     this.currentAttempt = attemptToken == null ? NEVER : currentAttempt;
@@ -213,6 +220,7 @@ public final class JobContext {
         cancellationIdentity,
         null,
         NEVER,
+        null,
         null);
   }
 
@@ -232,7 +240,8 @@ public final class JobContext {
       @Nullable Object cancellationIdentity,
       @Nullable AttemptToken attemptToken,
       BooleanSupplier currentAttempt,
-      @Nullable JobCheckpoints checkpoints) {
+      @Nullable JobCheckpoints checkpoints,
+      @Nullable JobProgressSink progress) {
     JobContext ctx =
         new JobContext(
             jobId,
@@ -245,7 +254,8 @@ public final class JobContext {
             cancellationIdentity,
             attemptToken,
             currentAttempt,
-            checkpoints);
+            checkpoints,
+            progress);
     TL.set(ctx);
     return ctx;
   }
@@ -287,7 +297,8 @@ public final class JobContext {
         null,
         attemptToken,
         currentAttempt,
-        new InMemoryCheckpoints(initialCheckpoint));
+        new InMemoryCheckpoints(initialCheckpoint),
+        null);
   }
 
   /**
@@ -327,6 +338,20 @@ public final class JobContext {
    */
   public Optional<String> lastCheckpoint() {
     return requireCheckpoints().read();
+  }
+
+  /**
+   * Records the latest progress in memory. This call is cheap and does no store I/O. Progress is
+   * observational, not transactional, and rollback does not undo it. Persistence is best effort, at
+   * most once per interval plus once before completion. A superseded attempt, a context without a
+   * runtime sink, or a store without job state silently ignores valid reports.
+   *
+   * @throws IllegalArgumentException if either value is negative; done may exceed total
+   */
+  public void progress(long done, long total) {
+    if (done < 0 || total < 0)
+      throw new IllegalArgumentException("Progress values must be non-negative");
+    if (progress != null) progress.report(done, total);
   }
 
   private JobCheckpoints requireCheckpoints() {

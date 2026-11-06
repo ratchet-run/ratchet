@@ -37,6 +37,40 @@ import run.ratchet.api.internal.CancellationIdentities;
 class JobContextTest {
 
   @Test
+  void progressValidatesEvenWithoutSinkAndAcceptsEstimates() {
+    UUID id = UUID.randomUUID();
+    JobContext plain = JobContext.bind(id, null);
+    assertThrows(IllegalArgumentException.class, () -> plain.progress(-1, 0));
+    assertThrows(IllegalArgumentException.class, () -> plain.progress(0, -1));
+    plain.progress(12, 10);
+    JobContext test =
+        JobContext.bindAttempt(id, null, Map.of(), new AttemptToken(id, 1), () -> false);
+    test.progress(12, 10);
+    assertThrows(IllegalArgumentException.class, () -> test.progress(-1, 10));
+    long[] observed = new long[2];
+    JobContext runtime =
+        JobContext.bind(
+            id,
+            null,
+            Map.of(),
+            null,
+            null,
+            null,
+            () -> false,
+            null,
+            new AttemptToken(id, 1),
+            () -> true,
+            null,
+            (done, total) -> {
+              observed[0] = done;
+              observed[1] = total;
+            });
+    runtime.progress(12, 10);
+    assertEquals(12L, observed[0]);
+    assertEquals(10L, observed[1]);
+  }
+
+  @Test
   void plainContextsRejectCheckpointAccess() {
     JobContext context = JobContext.bind(UUID.randomUUID(), null);
     assertThrows(IllegalStateException.class, () -> context.checkpoint("position"));
@@ -86,6 +120,7 @@ class JobContextTest {
             () -> {
               throw new AssertionError("No attempt must not call supplier");
             },
+            null,
             null);
     assertFalse(ctx.isCurrentAttempt());
   }
@@ -117,6 +152,7 @@ class JobContextTest {
                 null,
                 token,
                 current::get,
+                null,
                 null));
     assertThrows(
         NullPointerException.class, () -> JobContext.bindAttempt(id, null, Map.of(), token, null));
@@ -132,6 +168,7 @@ class JobContextTest {
             new Object(),
             token,
             current::get,
+            null,
             null);
     assertEquals(Optional.of(token), ctx.attemptToken());
   }

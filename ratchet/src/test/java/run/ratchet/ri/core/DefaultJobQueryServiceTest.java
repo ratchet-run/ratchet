@@ -64,6 +64,7 @@ import run.ratchet.api.RecurringMisfirePolicy;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.testsupport.EncryptionTestKit;
+import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MaskingContext;
 import run.ratchet.spi.PayloadMaskingPolicy;
@@ -80,6 +81,8 @@ import run.ratchet.store.spi.JobAuditStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPropertyStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.JobStateStore;
+import run.ratchet.store.spi.JobStateStore.VersionedState;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.util.EncryptionTarget;
@@ -101,6 +104,88 @@ class DefaultJobQueryServiceTest {
   @Mock private CallerPrincipalProvider principalProvider;
 
   private DefaultJobQueryService service;
+
+  private DefaultJobQueryService progressService(JobStateStore state) {
+    return new DefaultJobQueryService(
+        queryStore,
+        crudStore,
+        analyticsStore,
+        executionStore,
+        recurringJobStore,
+        authPolicy,
+        principalProvider,
+        FIXED_CLOCK,
+        null,
+        null,
+        state,
+        new JsonbTestPayloadSerializer());
+  }
+
+  @Test
+  void progressPresentAbsentAndCapabilityAbsent() {
+    UUID id = UUID.randomUUID();
+    when(crudStore.findById(id)).thenReturn(Optional.of(minimalJobWithId(id)));
+    JobStateStore state = Mockito.mock(JobStateStore.class);
+    String json =
+        """
+        {"done":12,"total":10,"reportedAt":"2026-05-12T12:00:00Z"}
+        """;
+    when(state.getState(id, "ratchet.progress"))
+        .thenReturn(Optional.of(new VersionedState(json, 0)));
+    var detail = progressService(state).getJobDetail(id).orElseThrow();
+    assertEquals(12L, detail.progress().done());
+    assertEquals(10L, detail.progress().total());
+    assertEquals(FIXED_NOW, detail.progress().reportedAt());
+    Mockito.doReturn(Optional.empty()).when(state).getState(id, "ratchet.progress");
+    assertNull(progressService(state).getJobDetail(id).orElseThrow().progress());
+    Mockito.clearInvocations(state);
+    assertNull(progressService(null).getJobDetail(id).orElseThrow().progress());
+    Mockito.verifyNoInteractions(state);
+  }
+
+  @Test
+  void progressStoreErrorsAndHostileJsonDoNotBreakDetail() {
+    UUID id = UUID.randomUUID();
+    when(crudStore.findById(id)).thenReturn(Optional.of(minimalJobWithId(id)));
+    JobStateStore state = Mockito.mock(JobStateStore.class);
+    when(state.getState(id, "ratchet.progress"))
+        .thenThrow(new IllegalStateException("decrypt failed"));
+    assertNull(progressService(state).getJobDetail(id).orElseThrow().progress());
+    for (String json :
+        List.of(
+            "broken",
+            "{}",
+            "null",
+            """
+            {"done":-1,"total":0,"reportedAt":"2026-05-12T12:00:00Z"}
+            """,
+            """
+            {"done":1.5,"total":0,"reportedAt":"2026-05-12T12:00:00Z"}
+            """,
+            """
+            {"done":9223372036854775808,"total":0,"reportedAt":"2026-05-12T12:00:00Z"}
+            """,
+            """
+            {"done":1,"total":0,"reportedAt":"bad"}
+            """)) {
+      Mockito.doReturn(Optional.of(new VersionedState(json, 0)))
+          .when(state)
+          .getState(id, "ratchet.progress");
+      assertNull(progressService(state).getJobDetail(id).orElseThrow().progress());
+    }
+  }
+
+  @Test
+  void deniedReadDoesNotReadProgress() {
+    UUID id = UUID.randomUUID();
+    when(crudStore.findById(id)).thenReturn(Optional.of(minimalJobWithId(id)));
+    JobStateStore state = Mockito.mock(JobStateStore.class);
+    Mockito.doThrow(new JobAuthorizationException(id, "read", null, "denied"))
+        .when(authPolicy)
+        .checkRead(eq(id), any());
+    assertTrue(progressService(state).getJobDetail(id).isEmpty());
+    Mockito.verifyNoInteractions(state);
+  }
 
   @Test
   void propertyFiltersRequirePropertyCapability() {
@@ -270,7 +355,9 @@ class DefaultJobQueryServiceTest {
             principalProvider,
             FIXED_CLOCK,
             null,
-            Mockito.mock(JobPropertyStore.class));
+            Mockito.mock(JobPropertyStore.class),
+            null,
+            null);
     lenient().when(principalProvider.currentPrincipal()).thenReturn(Optional.empty());
     lenient()
         .when(authPolicy.filterForPrincipal(any(), any()))
@@ -696,7 +783,9 @@ class DefaultJobQueryServiceTest {
               principalProvider,
               FIXED_CLOCK,
               RatchetOptions.builder().security(s -> s.maskPayloads(true)).build(),
-              propertyStore);
+              propertyStore,
+              null,
+              null);
 
       Map<String, String> params = masking.getJobDetail(jobId).orElseThrow().params();
 
