@@ -77,6 +77,17 @@ class MysqlOrphanRecoveryLockingTest {
   @ParameterizedTest
   @ValueSource(ints = {4, 2})
   void periodicScanSeesHeartbeatCommittedAfterItsSnapshot(int isolation) {
+    scanAfterOwnerHeartbeat(isolation, "late", "late");
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {4, 2})
+  void periodicScanMatchesOwnersWithTheColumnCollation(int isolation) {
+    // The tables use utf8mb4_unicode_ci, so MySQL treats these as the same node.
+    scanAfterOwnerHeartbeat(isolation, "Late-Node", "late-node");
+  }
+
+  private void scanAfterOwnerHeartbeat(int isolation, String storedNodeId, String jobOwner) {
     fixture.cleanupStore();
     emf = newFactory(isolation);
     Instant now = Instant.now();
@@ -88,8 +99,8 @@ class MysqlOrphanRecoveryLockingTest {
       var seedStore = store(seed);
       seed.getTransaction().begin();
       seedStore.upsertHeartbeat("live", now);
-      seedStore.upsertHeartbeat("late", now.minusSeconds(3600));
-      UUID jobId = runningJob(seedStore, "late", cutoff.minusSeconds(60));
+      seedStore.upsertHeartbeat(storedNodeId, now.minusSeconds(3600));
+      UUID jobId = runningJob(seedStore, jobOwner, cutoff.minusSeconds(60));
       seed.getTransaction().commit();
 
       var scanStore = store(scan);
@@ -100,7 +111,7 @@ class MysqlOrphanRecoveryLockingTest {
 
       var heartbeatStore = store(heartbeat);
       heartbeat.getTransaction().begin();
-      heartbeatStore.upsertHeartbeat("late", now);
+      heartbeatStore.upsertHeartbeat(storedNodeId, now);
       heartbeat.getTransaction().commit();
 
       var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
@@ -119,7 +130,7 @@ class MysqlOrphanRecoveryLockingTest {
       scan.getTransaction().begin();
       var job = scanStore.findById(jobId).orElseThrow();
       assertEquals(JobStatus.RUNNING, job.getStatus());
-      assertEquals("late", job.getPickedBy());
+      assertEquals(jobOwner, job.getPickedBy());
       assertEquals(
           0,
           ((Number)

@@ -26,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.TreeSet;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
@@ -257,10 +256,9 @@ final class MysqlJobDeleteOperations {
       // locks only candidates through PRIMARY in key order, matching the terminal DELETE; later
       // statements address those locked rows by id. All chunks share one transaction and hold
       // locks until commit: chunking only bounds statement size.
-      // Under REPEATABLE READ the lock statement's node subquery reads the candidate snapshot,
-      // so periodic scans re-read owner heartbeats with a locking read keyed by primary key.
-      // This sees heartbeats committed since and locks only owners' node rows, so other nodes'
-      // heartbeats do not wait for the scan.
+      // On periodic scans the lock statement also returns each owner's heartbeat status through a
+      // locking subquery keyed by primary key. It sees heartbeats committed since the snapshot,
+      // compares ids with the column collation, and locks only the owners' node rows.
       Query candidates =
           ctx.em()
               .createNativeQuery(
@@ -276,58 +274,43 @@ final class MysqlJobDeleteOperations {
       }
       int count = 0;
       List<ExhaustedOrphan> exhausted = new ArrayList<>();
-      for (int offset = 0; offset < ids.size(); offset += ORPHAN_RECOVERY_CHUNK_SIZE) {
+      for (int start = 0; start < ids.size(); start += ORPHAN_RECOVERY_CHUNK_SIZE) {
         List<UUID> chunk =
-            ids.subList(offset, Math.min(offset + ORPHAN_RECOVERY_CHUNK_SIZE, ids.size()));
+            ids.subList(start, Math.min(start + ORPHAN_RECOVERY_CHUNK_SIZE, ids.size()));
         String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+        String ownerLive =
+            liveSince != null
+                ? """
+                  EXISTS (
+                    SELECT 1 FROM scheduler_node n FORCE INDEX (PRIMARY)
+                    WHERE n.node_id = scheduler_job_queue.picked_by AND n.heartbeat_ts >= ?
+                    FOR SHARE
+                  ) AS owner_live
+                  """
+                : "0 AS owner_live";
         Query lock =
             ctx.em()
                 .createNativeQuery(
-                    """
-                    SELECT job_id, claim_seq, crash_count, picked_by
-                    FROM scheduler_job_queue FORCE INDEX (PRIMARY)
-                    WHERE job_id IN (
-                    """
+                    "SELECT job_id, claim_seq, crash_count, picked_by, "
+                        + ownerLive
+                        + " FROM scheduler_job_queue FORCE INDEX (PRIMARY) WHERE job_id IN ("
                         + placeholders
                         + ") AND "
                         + predicate
                         + " ORDER BY job_id FOR UPDATE");
-        bindUuidList(lock, chunk, 1);
-        bindPredicate(lock, parameters, chunk.size() + 1);
-        List<?> lockedRows = lock.getResultList();
-        List<?> liveOwners = List.of();
+        int offset = liveSince != null ? 2 : 1;
         if (liveSince != null) {
-          TreeSet<String> owners = new TreeSet<>();
-          for (Object result : lockedRows) {
-            Object[] row = (Object[]) result;
-            if (row[3] != null) {
-              owners.add(row[3].toString());
-            }
-          }
-          if (!owners.isEmpty()) {
-            Query nodes =
-                ctx.em()
-                    .createNativeQuery(
-                        """
-                        SELECT node_id FROM scheduler_node FORCE INDEX (PRIMARY)
-                        WHERE node_id IN (
-                        """
-                            + String.join(",", Collections.nCopies(owners.size(), "?"))
-                            + ") AND heartbeat_ts >= ? ORDER BY node_id FOR SHARE");
-            int index = 1;
-            for (String owner : owners) {
-              nodes.setParameter(index++, owner);
-            }
-            nodes.setParameter(index, liveSince);
-            liveOwners = nodes.getResultList();
-          }
+          lock.setParameter(1, liveSince);
         }
+        bindUuidList(lock, chunk, offset);
+        bindPredicate(lock, parameters, chunk.size() + offset);
+        List<?> lockedRows = lock.getResultList();
         List<UUID> confirmed = new ArrayList<>();
         List<UUID> resettable = new ArrayList<>();
         List<UUID> exhaustedIds = new ArrayList<>();
         for (Object result : lockedRows) {
           Object[] row = (Object[]) result;
-          if (row[3] != null && liveOwners.contains(row[3].toString())) {
+          if (((Number) row[4]).intValue() != 0) {
             continue;
           }
           UUID id = MysqlJobRowMapper.uuidOrNull(row[0]);
