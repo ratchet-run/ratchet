@@ -333,7 +333,11 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> knownBusinessKeys, Instant nodeStartTime) {
-    Bson base = and(ne(BUSINESS_KEY, null), lt(CREATED_AT, Date.from(nodeStartTime)));
+    Bson base =
+        and(
+            ne(BUSINESS_KEY, null),
+            lt(CREATED_AT, Date.from(nodeStartTime)),
+            eq(TAGS, RecurringJobStore.ANNOTATION_TAG));
     Bson filter =
         knownBusinessKeys.isEmpty() ? base : and(base, nin(BUSINESS_KEY, knownBusinessKeys));
     return cancelMatching(filter);

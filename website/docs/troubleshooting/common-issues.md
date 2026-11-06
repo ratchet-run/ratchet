@@ -242,7 +242,7 @@ GROUP BY business_key
 HAVING COUNT(*) > 1;
 ```
 
-**Solution:** Ratchet handles this automatically during startup via `RecurringAnnotationMaintenanceService`, which cancels orphaned recurring jobs whose `@Recurring` annotations no longer exist. If you are scheduling recurring jobs programmatically, always set a business key:
+**Solution:** Ratchet handles this automatically during startup via `RecurringAnnotationMaintenanceService`, which cancels orphaned recurring jobs whose `@Recurring` annotations no longer exist. Startup cleanup only cancels masters Ratchet registered from `@Recurring` annotations, so programmatic masters with a business key keep running until you cancel them. If you are scheduling recurring jobs programmatically, always set a business key:
 
 ```java
 scheduler.scheduleRecurring("0 */5 * * * ?", ZoneId.of("UTC"), myService::cleanup)

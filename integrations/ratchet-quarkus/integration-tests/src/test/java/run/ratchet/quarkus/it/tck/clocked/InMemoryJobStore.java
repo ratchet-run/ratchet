@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -30,6 +31,7 @@ import java.util.Set;
 import java.util.UUID;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
 
 /** Quarkus clocked TCK store with the recurring-store support needed during Quarkus boot. */
 @ApplicationScoped
@@ -38,6 +40,7 @@ public class InMemoryJobStore extends run.ratchet.tck.store.clocked.InMemoryJobS
 
   private final Map<UUID, RecurringJobDefinition> recurringJobs = new HashMap<>();
   private final Map<String, UUID> recurringBusinessKeys = new HashMap<>();
+  private final Map<UUID, Set<String>> recurringTags = new HashMap<>();
 
   protected InMemoryJobStore() {
     super();
@@ -52,7 +55,16 @@ public class InMemoryJobStore extends run.ratchet.tck.store.clocked.InMemoryJobS
   public synchronized void reset() {
     super.reset();
     recurringJobs.clear();
+    recurringTags.clear();
     recurringBusinessKeys.clear();
+  }
+
+  @Override
+  public synchronized void insertTags(UUID jobId, List<String> tags) {
+    super.insertTags(jobId, tags);
+    if (recurringJobs.containsKey(jobId)) {
+      recurringTags.computeIfAbsent(jobId, id -> new HashSet<>()).addAll(tags);
+    }
   }
 
   @Override
@@ -81,7 +93,10 @@ public class InMemoryJobStore extends run.ratchet.tck.store.clocked.InMemoryJobS
     List<UUID> orphanIds = new ArrayList<>();
     for (RecurringJobDefinition definition : recurringJobs.values()) {
       String businessKey = definition.businessKey();
-      if (businessKey != null
+      if (recurringTags
+              .getOrDefault(definition.id(), Set.of())
+              .contains(RecurringJobStore.ANNOTATION_TAG)
+          && businessKey != null
           && !knownBusinessKeys.contains(businessKey)
           && definition.createdAt().isBefore(nodeStartTime)) {
         orphanIds.add(definition.id());
@@ -136,6 +151,7 @@ public class InMemoryJobStore extends run.ratchet.tck.store.clocked.InMemoryJobS
 
   private void removeRecurring(UUID id) {
     RecurringJobDefinition removed = recurringJobs.remove(id);
+    recurringTags.remove(id);
     if (removed != null && removed.businessKey() != null) {
       recurringBusinessKeys.remove(removed.businessKey());
     }

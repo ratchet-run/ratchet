@@ -730,21 +730,16 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   /**
-   * Annotation-orphan cleanup must honor BOTH predicates: a master is canceled only when its
-   * business key is absent from the known set AND it was created strictly before the node-start
-   * cutoff. Masters registered after node start are exempt even when unknown; an empty known set
-   * cancels every business-keyed master created before the cutoff. The only prior coverage mocked
-   * the store, so a sign-flip on either predicate (the created_at comparison or the NOT-IN
-   * membership) would silently cancel live recurring masters or strand orphans firing forever. This
-   * drives the real SQL/Mongo filter on every store.
+   * Annotation-orphan cleanup only cancels masters carrying the annotation tag whose business key
+   * is absent from the known set and whose creation time is strictly before the node-start cutoff.
+   * An empty known set still preserves programmatic masters and masters created after the cutoff.
+   * Multiple tags on a master must not increase the cancellation count.
    *
-   * <p>created_at is settable on the definition (all three stores honor {@code createdAt()}), so
-   * before/after-cutoff is expressed directly on each master rather than relying on persist order:
-   * keyA/keyB are stamped 60s before a fixed cutoff, keyC 60s after it. The cutoff is truncated to
-   * milliseconds because MongoDB persists Dates at millisecond precision.
+   * <p>Creation times are set directly on each definition. The cutoff is truncated to milliseconds
+   * because MongoDB persists Dates at millisecond precision.
    */
   @Test
-  void cancelOrphanedRecurringAnnotationJobs_honorsKnownSetAndCreatedAtCutoff() {
+  void cancelOrphanedRecurringAnnotationJobs_honorsKnownSetCutoffAndAnnotationTag() {
     Instant cutoff = Instant.now().truncatedTo(ChronoUnit.MILLIS);
     Instant beforeCutoff = cutoff.minusSeconds(60);
     Instant afterCutoff = cutoff.plusSeconds(60);
@@ -752,13 +747,24 @@ public abstract class AbstractRecurringJobStoreContract {
     String keyA = "tck-orphan-a-" + UUID.randomUUID();
     String keyB = "tck-orphan-b-" + UUID.randomUUID();
     String keyC = "tck-orphan-c-" + UUID.randomUUID();
+    String keyD = "tck-orphan-d-" + UUID.randomUUID();
+    String keyE = "tck-orphan-e-" + UUID.randomUUID();
     UUID idA = UuidV7Factory.create();
     UUID idB = UuidV7Factory.create();
     UUID idC = UuidV7Factory.create();
+    UUID idD = UuidV7Factory.create();
+    UUID idE = UuidV7Factory.create();
     Instant fire = Instant.now().plusSeconds(60);
     recurringStore().createRecurring(orphanCandidate(idA, keyA, fire, beforeCutoff));
+    tagStore().insertTags(idA, List.of(RecurringJobStore.ANNOTATION_TAG));
     recurringStore().createRecurring(orphanCandidate(idB, keyB, fire, beforeCutoff));
+    tagStore().insertTags(idB, List.of(RecurringJobStore.ANNOTATION_TAG, "billing"));
     recurringStore().createRecurring(orphanCandidate(idC, keyC, fire, afterCutoff));
+    tagStore().insertTags(idC, List.of(RecurringJobStore.ANNOTATION_TAG));
+
+    recurringStore().createRecurring(orphanCandidate(idD, keyD, fire, beforeCutoff));
+    tagStore().insertTags(idD, List.of("billing"));
+    recurringStore().createRecurring(orphanCandidate(idE, keyE, fire, beforeCutoff));
 
     // keyA is known (survives), keyB is unknown + before cutoff (canceled), keyC is unknown but
     // after cutoff (exempt — registered after this node started).
@@ -770,14 +776,27 @@ public abstract class AbstractRecurringJobStoreContract {
         recurringStore().getRecurring(idC).isPresent(),
         "after-cutoff master is exempt even when unknown");
 
-    // Empty known set: every business-keyed master before the cutoff is now an orphan, so keyA is
-    // canceled too — but keyC stays spared because the created_at cutoff still protects it.
+    assertTrue(
+        recurringStore().getRecurring(idD).isPresent(),
+        "programmatic masters (no annotation tag) are never canceled by the annotation clean-up");
+    assertTrue(
+        recurringStore().getRecurring(idE).isPresent(),
+        "programmatic masters (no annotation tag) are never canceled by the annotation clean-up");
+
+    // Empty known set: keyA is canceled too, while keyC remains protected by the cutoff.
+    // Programmatic masters D and E remain protected by the annotation-tag requirement.
     int secondPass = recurringStore().cancelOrphanedRecurringAnnotationJobs(Set.of(), cutoff);
     assertEquals(
         1, secondPass, "empty known set cancels the remaining before-cutoff master (keyA)");
     assertTrue(recurringStore().getRecurring(idA).isEmpty(), "empty known set cancels keyA");
     assertTrue(
         recurringStore().getRecurring(idC).isPresent(), "created_at cutoff still spares keyC");
+    assertTrue(
+        recurringStore().getRecurring(idD).isPresent(),
+        "programmatic masters (no annotation tag) are never canceled by the annotation clean-up");
+    assertTrue(
+        recurringStore().getRecurring(idE).isPresent(),
+        "programmatic masters (no annotation tag) are never canceled by the annotation clean-up");
   }
 
   /**

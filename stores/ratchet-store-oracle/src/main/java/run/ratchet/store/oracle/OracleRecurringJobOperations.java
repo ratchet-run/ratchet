@@ -261,18 +261,21 @@ final class OracleRecurringJobOperations implements RecurringJobStore {
       Set<String> knownBusinessKeys, Instant nodeStartTime) {
     // language=Oracle
     String baseSql =
-        "SELECT id FROM scheduler_recurring_job"
-            + " WHERE business_key IS NOT NULL"
-            + " AND created_at < ?";
+        """
+        SELECT r.id FROM scheduler_recurring_job r
+        WHERE r.business_key IS NOT NULL AND r.created_at < ?
+          AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = r.id AND t.tag = ?)
+        """;
     String suffix =
         knownBusinessKeys.isEmpty()
             ? ""
-            : " AND business_key NOT IN ("
+            : " AND r.business_key NOT IN ("
                 + String.join(",", Collections.nCopies(knownBusinessKeys.size(), "?"))
                 + ")";
     Query q = ctx.em().createNativeQuery(baseSql + suffix);
     int p = 1;
     q.setParameter(p++, OracleTimestamps.microTimestamp(nodeStartTime));
+    q.setParameter(p++, RecurringJobStore.ANNOTATION_TAG);
     for (String key : knownBusinessKeys) {
       q.setParameter(p++, key);
     }

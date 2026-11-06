@@ -39,6 +39,12 @@ import run.ratchet.api.NodeTagFilter;
 public interface RecurringJobStore {
 
   /**
+   * Tag the RI puts on recurring masters registered from {@code @Recurring} annotations. Orphan
+   * annotation cleanup only considers masters carrying this tag.
+   */
+  String ANNOTATION_TAG = "recurring-annotation";
+
+  /**
    * Reason a recurring definition was moved to the archive.
    *
    * <ul>
@@ -176,10 +182,14 @@ public interface RecurringJobStore {
 
   /**
    * Node-startup cleanup. Cancels (with reason {@link ArchiveReason#CANCELED}) every recurring
-   * master whose {@code business_key} no longer appears in the supplied {@code knownBusinessKeys}
-   * set AND was created before {@code nodeStartTime}. Used to retire {@code @Recurring} annotation
-   * jobs whose backing method has been removed or renamed. Returns the number of masters canceled.
-   * Transaction attribute: {@code REQUIRED}.
+   * master tagged with {@link #ANNOTATION_TAG} whose {@code business_key} no longer appears in the
+   * supplied {@code knownBusinessKeys} set AND was created before {@code nodeStartTime}. Used to
+   * retire {@code @Recurring} annotation jobs whose backing method has been removed or renamed.
+   * Returns the number of masters canceled. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>Programmatically created masters without this tag are never touched, even when they have a
+   * business key. A master keeps the tags of the submission that created it because business-key
+   * reconciliation does not change tags.
    *
    * @param knownBusinessKeys business keys of currently-registered {@code @Recurring} methods;
    *     masters whose business key is NOT in this set are candidates. Never {@code null}.
