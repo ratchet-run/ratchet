@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.SingletonLease;
 import run.ratchet.spi.ErrorSanitizer;
@@ -173,6 +174,8 @@ public class OrphanRecoveryTimer {
       }
 
       recoverOrphansWithLease();
+    } catch (RatchetTransientStoreException e) {
+      log.warn("Orphan recovery scan hit a transient store failure; the next scan will retry", e);
     } catch (Exception e) {
       log.error("Orphan recovery scan failed", e);
     }

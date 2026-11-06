@@ -37,6 +37,8 @@ import run.ratchet.store.util.RowValues;
 
 final class MysqlJobDeleteOperations {
 
+  static final int ORPHAN_RECOVERY_CHUNK_SIZE = 500;
+
   private final MysqlStoreContext ctx;
   private final MysqlBusinessKeyReservations reservations;
 
@@ -212,7 +214,7 @@ final class MysqlJobDeleteOperations {
       Instant cutoff, int maxCrashRedeliveries, int exhaustedLimit) {
     String predicate =
         """
-        WHERE status = 'RUNNING'
+        status = 'RUNNING'
             AND (
               picked_by IS NULL OR picked_by NOT IN (
                 SELECT node_id FROM scheduler_node
@@ -227,17 +229,19 @@ final class MysqlJobDeleteOperations {
         List.of(cutoffTimestamp, cutoffTimestamp),
         maxCrashRedeliveries,
         exhaustedLimit,
-        false);
+        false,
+        cutoffTimestamp);
   }
 
   OrphanRecovery resetOrphanJobsForNode(
       String nodeId, int maxCrashRedeliveries, int exhaustedLimit) {
     return recoverOrphans(
-        "WHERE status = 'RUNNING' AND picked_by = ?",
+        "status = 'RUNNING' AND picked_by = ?",
         List.of(nodeId),
         maxCrashRedeliveries,
         exhaustedLimit,
-        true);
+        true,
+        null);
   }
 
   private OrphanRecovery recoverOrphans(
@@ -245,75 +249,141 @@ final class MysqlJobDeleteOperations {
       List<?> parameters,
       int maxCrashRedeliveries,
       int exhaustedLimit,
-      boolean releaseOwner) {
+      boolean releaseOwner,
+      Timestamp liveSince) {
     try {
-      // Close first: after the reset the predicate no longer matches. Each statement checks the
-      // heartbeat again, so a node that heartbeats in between keeps its job, and this attempt reads
-      // FAILED until that node's own saveExecution writes the real outcome.
-      Query close =
+      // The candidate read takes no locks, so a scan without orphans locks nothing. The re-check
+      // locks only candidates through PRIMARY in key order, matching the terminal DELETE; later
+      // statements address those locked rows by id. All chunks share one transaction and hold
+      // locks until commit: chunking only bounds statement size.
+      // On periodic scans the lock statement also returns each owner's heartbeat status through a
+      // locking subquery keyed by primary key. It sees heartbeats committed since the snapshot,
+      // compares ids with the column collation, and locks only the owners' node rows. It matches
+      // the owner's row by key alone and tests the heartbeat in its select list, so the lock is
+      // kept until commit even when the heartbeat is stale, without relying on how READ COMMITTED
+      // treats rows a WHERE clause rejects. It uses LOCK IN SHARE MODE because MariaDB rejects
+      // FOR SHARE.
+      Query candidates =
           ctx.em()
               .createNativeQuery(
-                  "UPDATE scheduler_job_execution SET status = 'FAILED', ended_at = "
-                      + "NOW(3), error_message = ? "
-                      + "WHERE status = 'RUNNING' AND job_id IN "
-                      + "(SELECT job_id FROM scheduler_job_queue "
-                      + predicate
-                      + ")");
-      close.setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
-      bindPredicate(close, parameters, 2);
-      close.executeUpdate();
-      String resetSql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
-              crash_count = crash_count + 1, updated_at = NOW(3)
-          """
-              + predicate
-              + " AND crash_count < ?";
-      Query reset = ctx.em().createNativeQuery(resetSql);
-      bindRecovery(reset, parameters, maxCrashRedeliveries);
-      int count = reset.executeUpdate();
-      List<ExhaustedOrphan> exhausted = new ArrayList<>();
-      if (exhaustedLimit > 0) {
-        String selectSql =
-            """
-            SELECT job_id, claim_seq, crash_count, picked_by FROM scheduler_job_queue
-            """
-                + predicate
-                + " AND crash_count >= ? ORDER BY job_id";
-        Query select = ctx.em().createNativeQuery(selectSql);
-        bindRecovery(select, parameters, maxCrashRedeliveries);
-        select.setMaxResults(exhaustedLimit);
-        for (Object result : select.getResultList()) {
-          Object[] row = (Object[]) result;
-          exhausted.add(
-              new ExhaustedOrphan(
-                  MysqlJobRowMapper.uuidOrNull(row[0]),
-                  ((Number) row[1]).longValue(),
-                  ((Number) row[2]).intValue(),
-                  row[3] == null ? null : row[3].toString()));
-        }
+                  "SELECT job_id FROM scheduler_job_queue WHERE " + predicate + " ORDER BY job_id");
+      bindPredicate(candidates, parameters, 1);
+      List<?> candidateRows = candidates.getResultList();
+      if (candidateRows.isEmpty()) {
+        return new OrphanRecovery(0, List.of());
       }
-      if (releaseOwner) {
-        Query release =
+      List<UUID> ids = new ArrayList<>(candidateRows.size());
+      for (Object row : candidateRows) {
+        ids.add(MysqlJobRowMapper.uuidOrNull(row));
+      }
+      int count = 0;
+      List<ExhaustedOrphan> exhausted = new ArrayList<>();
+      for (int start = 0; start < ids.size(); start += ORPHAN_RECOVERY_CHUNK_SIZE) {
+        List<UUID> chunk =
+            ids.subList(start, Math.min(start + ORPHAN_RECOVERY_CHUNK_SIZE, ids.size()));
+        String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+        String ownerLive =
+            liveSince != null
+                ? """
+                  COALESCE((
+                    SELECT n.heartbeat_ts >= ? FROM scheduler_node n FORCE INDEX (PRIMARY)
+                    WHERE n.node_id = scheduler_job_queue.picked_by
+                    LOCK IN SHARE MODE
+                  ), 0) AS owner_live
+                  """
+                : "0 AS owner_live";
+        Query lock =
             ctx.em()
                 .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET picked_by = NULL "
+                    "SELECT job_id, claim_seq, crash_count, picked_by, "
+                        + ownerLive
+                        + " FROM scheduler_job_queue FORCE INDEX (PRIMARY) WHERE job_id IN ("
+                        + placeholders
+                        + ") AND "
                         + predicate
-                        + " AND crash_count >= ?");
-        bindRecovery(release, parameters, maxCrashRedeliveries);
-        release.executeUpdate();
+                        + " ORDER BY job_id FOR UPDATE");
+        int offset = liveSince != null ? 2 : 1;
+        if (liveSince != null) {
+          lock.setParameter(1, liveSince);
+        }
+        bindUuidList(lock, chunk, offset);
+        bindPredicate(lock, parameters, chunk.size() + offset);
+        List<?> lockedRows = lock.getResultList();
+        List<UUID> confirmed = new ArrayList<>();
+        List<UUID> resettable = new ArrayList<>();
+        List<UUID> exhaustedIds = new ArrayList<>();
+        for (Object result : lockedRows) {
+          Object[] row = (Object[]) result;
+          if (((Number) row[4]).intValue() != 0) {
+            continue;
+          }
+          UUID id = MysqlJobRowMapper.uuidOrNull(row[0]);
+          int crashCount = ((Number) row[2]).intValue();
+          confirmed.add(id);
+          if (crashCount < maxCrashRedeliveries) {
+            resettable.add(id);
+          } else {
+            exhaustedIds.add(id);
+            if (exhausted.size() < exhaustedLimit) {
+              exhausted.add(
+                  new ExhaustedOrphan(
+                      id,
+                      ((Number) row[1]).longValue(),
+                      crashCount,
+                      row[3] == null ? null : row[3].toString()));
+            }
+          }
+        }
+        if (confirmed.isEmpty()) {
+          continue;
+        }
+        Query close =
+            ctx.em()
+                .createNativeQuery(
+                    """
+                    UPDATE scheduler_job_execution
+                    SET status = 'FAILED', ended_at = NOW(3), error_message = ?
+                    WHERE status = 'RUNNING' AND job_id IN (
+                    """
+                        + String.join(",", Collections.nCopies(confirmed.size(), "?"))
+                        + ")");
+        close.setParameter(1, ORPHAN_RECOVERY_ERROR_MESSAGE);
+        bindUuidList(close, confirmed, 2);
+        close.executeUpdate();
+        if (!resettable.isEmpty()) {
+          Query reset =
+              ctx.em()
+                  .createNativeQuery(
+                      """
+                      UPDATE scheduler_job_queue FORCE INDEX (PRIMARY)
+                      SET status = 'PENDING', picked_by = NULL, picked_at = NULL,
+                          crash_count = crash_count + 1, updated_at = NOW(3)
+                      WHERE job_id IN (
+                      """
+                          + String.join(",", Collections.nCopies(resettable.size(), "?"))
+                          + ") AND status = 'RUNNING' ORDER BY job_id");
+          bindUuidList(reset, resettable, 1);
+          count += reset.executeUpdate();
+        }
+        if (releaseOwner && !exhaustedIds.isEmpty()) {
+          Query release =
+              ctx.em()
+                  .createNativeQuery(
+                      """
+                      UPDATE scheduler_job_queue FORCE INDEX (PRIMARY) SET picked_by = NULL
+                      WHERE job_id IN (
+                      """
+                          + String.join(",", Collections.nCopies(exhaustedIds.size(), "?"))
+                          + ") ORDER BY job_id");
+          bindUuidList(release, exhaustedIds, 1);
+          release.executeUpdate();
+        }
       }
       ctx.em().clear();
       return new OrphanRecovery(count, List.copyOf(exhausted));
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("recover orphan jobs", e);
     }
-  }
-
-  private static void bindRecovery(Query query, List<?> parameters, int maxCrashRedeliveries) {
-    bindPredicate(query, parameters, 1);
-    query.setParameter(parameters.size() + 1, maxCrashRedeliveries);
   }
 
   private static void bindPredicate(Query query, List<?> parameters, int index) {
