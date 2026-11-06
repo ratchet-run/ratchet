@@ -17,6 +17,7 @@ package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -32,6 +33,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
@@ -85,6 +87,58 @@ class MysqlOrphanRecoveryLockingTest {
   void periodicScanMatchesOwnersWithTheColumnCollation(int isolation) {
     // The tables use utf8mb4_unicode_ci, so MySQL treats these as the same node.
     scanAfterOwnerHeartbeat(isolation, "Late-Node", "late-node");
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {4, 2})
+  void staleOwnerHeartbeatWaitsForTheScanToCommit(int isolation) {
+    fixture.cleanupStore();
+    emf = newFactory(isolation);
+    Instant now = Instant.now();
+    Instant cutoff = now.minusSeconds(60);
+    var seed = emf.createEntityManager();
+    var heartbeat = emf.createEntityManager();
+    var scan = emf.createEntityManager();
+    try {
+      var seedStore = store(seed);
+      seed.getTransaction().begin();
+      seedStore.upsertHeartbeat("live", now);
+      seedStore.upsertHeartbeat("late", now.minusSeconds(3600));
+      UUID jobId = runningJob(seedStore, "late", cutoff.minusSeconds(60));
+      seed.getTransaction().commit();
+
+      var scanStore = store(scan);
+      scan.getTransaction().begin();
+      scan.createNativeQuery("SET SESSION innodb_lock_wait_timeout = 1").executeUpdate();
+      var recovery = scanStore.resetOrphanJobsBefore(cutoff, 3, 100);
+      assertEquals(1, recovery.reset());
+
+      var heartbeatStore = store(heartbeat);
+      heartbeat.getTransaction().begin();
+      heartbeat.createNativeQuery("SET SESSION innodb_lock_wait_timeout = 1").executeUpdate();
+      // The scan keeps a shared lock on the stale owner's node row until it commits, so the owner
+      // cannot record a heartbeat between the scan's check and its reset.
+      assertThrows(
+          RatchetTransientStoreException.class, () -> heartbeatStore.upsertHeartbeat("late", now));
+      if (heartbeat.getTransaction().isActive()) heartbeat.getTransaction().rollback();
+
+      scan.getTransaction().commit();
+
+      heartbeat.getTransaction().begin();
+      heartbeatStore.upsertHeartbeat("late", now);
+      heartbeat.getTransaction().commit();
+
+      scan.getTransaction().begin();
+      var job = scanStore.findById(jobId).orElseThrow();
+      assertEquals(JobStatus.PENDING, job.getStatus());
+      assertNull(job.getPickedBy());
+      scan.getTransaction().commit();
+    } finally {
+      for (var em : List.of(scan, heartbeat, seed)) {
+        if (em.getTransaction().isActive()) em.getTransaction().rollback();
+        em.close();
+      }
+    }
   }
 
   private void scanAfterOwnerHeartbeat(int isolation, String storedNodeId, String jobOwner) {
